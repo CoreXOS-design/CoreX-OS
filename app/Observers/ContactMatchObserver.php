@@ -2,6 +2,7 @@
 
 namespace App\Observers;
 
+use App\Events\Contact\ContactMatchCreated;
 use App\Jobs\RegenerateBuyerMatchesJob;
 use App\Models\Contact;
 use App\Models\ContactMatch;
@@ -9,6 +10,7 @@ use App\Models\Scopes\AgencyScope;
 use App\Models\Scopes\BranchScope;
 use App\Models\User;
 use App\Services\BuyerStateService;
+use App\Support\Events\SafeRaise;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -77,6 +79,8 @@ class ContactMatchObserver
             return;
         }
 
+        $this->raiseContactMatchCreated($m);
+
         try {
             if (!$m->isCountable()) {
                 return; // Empty/uncountable wishlist: no auto-land.
@@ -104,6 +108,40 @@ class ContactMatchObserver
                 'contact_id' => $m->contact_id,
                 'match_id'   => $m->id,
                 'error'      => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Road to Sold step 9: a buyer's Core Match now exists with something to match on. Same countable test as the auto-land above
+     * (an empty wishlist is not a captured buyer), once, at creation. Only for a contact of the match's own agency. Never breaks
+     * the wishlist save.
+     */
+    private function raiseContactMatchCreated(ContactMatch $m): void
+    {
+        try {
+            if (!$m->isCountable()) {
+                return;
+            }
+            $contact = Contact::withoutGlobalScopes([AgencyScope::class, BranchScope::class])->find((int) $m->contact_id);
+            if (!$contact || (int) $contact->agency_id !== (int) $m->agency_id) {
+                return;
+            }
+            $agentId = $m->agent_id ?: ($contact->agent_id ?: $m->created_by_user_id);
+            $staffId = Auth::user() instanceof User ? (int) Auth::id() : null;
+
+            SafeRaise::dispatch('ContactMatchCreated', fn () => new ContactMatchCreated(
+                matchId: (int) $m->id,
+                contactId: (int) $contact->id,
+                agencyId: (int) $m->agency_id,
+                branchId: $m->branch_id !== null ? (int) $m->branch_id : ($contact->branch_id !== null ? (int) $contact->branch_id : null),
+                userId: $agentId !== null ? (int) $agentId : null,
+                actorUserId: $staffId,
+            ));
+        } catch (\Throwable $e) {
+            Log::warning('ContactMatchCreated hook caught exception, wishlist save proceeds', [
+                'match_id' => $m->id ?? null,
+                'message'  => $e->getMessage(),
             ]);
         }
     }

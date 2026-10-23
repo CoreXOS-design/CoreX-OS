@@ -95,6 +95,11 @@
         </div>
     </div>
 
+    {{-- .ai/specs/real-estate-menu-tabs.md - Core Matches is a tab of Real Estate > Buyers (the Rentals Core Matches routes show no bar) --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\BuyersTabs::class])
+    {{-- .ai/specs/rentals-menu-tabs.md - opened from Rentals (its own route) this is a tab of Rentals > Letting --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\LettingTabs::class])
+
     {{-- Filter / sort bar. The scope switch (Mine / Branch / Agency) sits at the left
          of the bar, only rendered when the viewer actually holds more than one option
          (core_matches.all_view). The name/phone/email search box lives above the

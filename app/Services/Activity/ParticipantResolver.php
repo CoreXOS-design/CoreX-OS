@@ -91,6 +91,24 @@ final class ParticipantResolver
     }
 
     /**
+     * Resolve participants for DealCommissionFinalised (commission marked paid): the agents ON the deal, on either side, once
+     * each, under the single seeded slug `deal.commission_finalised`. The person who pressed "mark paid" is usually the office,
+     * not the agent who earned the commission, so the actor is deliberately NOT credited here (unlike capture / registration).
+     * A deal with no agents yields nothing.
+     *
+     * @return list<array{user_id:int,slug:string}>
+     */
+    public function resolveForDealCommissionFinalised(Model $deal): array
+    {
+        [$listingIds, $sellingIds] = $this->dealSideUserIds($deal);
+
+        return array_map(
+            fn (int $uid) => ['user_id' => $uid, 'slug' => 'deal.commission_finalised'],
+            array_values(array_unique(array_merge($listingIds, $sellingIds))),
+        );
+    }
+
+    /**
      * Internal worker — shared by capture + registration. Reads pivot
      * agents off whichever Deal flavour was passed and emits one pair
      * per role.

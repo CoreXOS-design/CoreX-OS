@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\Marketing\SellerLinkCreated;
+use App\Events\Marketing\SellerLinkOpened;
 use App\Models\Agency;
 use App\Models\Property;
 use App\Models\PropertySellerLink;
 use App\Services\PropertyIntelligenceService;
 use App\Services\PublicLinks\PublicLinkUnavailableResponder;
+use App\Support\Events\SafeRaise;
 use App\Support\HumanDiff;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -94,6 +97,11 @@ class SellerLinkController extends Controller
         } catch (\Throwable $e) {
             report($e);
         }
+
+        // Road to Sold step 8b: the seller really opened it - once per link. A link-preview robot (it fetches the page the moment the
+        // agent pastes the link into WhatsApp / Facebook) is not the seller, and access_count cannot tell the first real open from
+        // the robot's, so "already raised for this link" is read from the event log.
+        $this->raiseSellerLinkOpened($link, $property);
 
         $contact = $link->contact;
         $agency = Agency::withoutGlobalScopes()->find($property->agency_id);
@@ -366,6 +374,52 @@ class SellerLinkController extends Controller
         return $slug ? route('public.agency.properties.index', ['agencySlug' => $slug]) : null;
     }
 
+    /** Never breaks the seller's page: any failure is logged and swallowed (SafeRaise, and the try below for the lookups). */
+    private function raiseSellerLinkOpened(PropertySellerLink $link, Property $property): void
+    {
+        try {
+            if ((int) $property->agency_id !== (int) $link->agency_id || self::looksLikeLinkPreviewRobot(request()->userAgent())) {
+                return;
+            }
+            $alreadyRaised = DB::table('domain_event_log')
+                ->where('event_name', SellerLinkOpened::class)
+                ->where('subject_type', PropertySellerLink::class)
+                ->where('subject_id', $link->id)
+                ->exists();
+            if ($alreadyRaised) {
+                return;
+            }
+            $agentId = $link->generated_by_user_id ?: $property->agent_id;
+
+            SafeRaise::dispatch('SellerLinkOpened', fn () => new SellerLinkOpened(
+                linkId: (int) $link->id,
+                propertyId: (int) $property->id,
+                contactId: $link->contact_id !== null ? (int) $link->contact_id : null,
+                agencyId: (int) $link->agency_id,
+                branchId: $property->branch_id !== null ? (int) $property->branch_id : null,
+                userId: $agentId !== null ? (int) $agentId : null,
+            ));
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
+    /** Robots that fetch a link when it is pasted into a chat or social post - and a request that says nothing about itself. */
+    private static function looksLikeLinkPreviewRobot(?string $userAgent): bool
+    {
+        $ua = strtolower(trim((string) $userAgent));
+        if ($ua === '') {
+            return true;
+        }
+        foreach (['whatsapp', 'facebookexternalhit', 'facebot', 'twitterbot', 'slackbot', 'telegrambot', 'linkedinbot', 'skypeuripreview', 'bot', 'crawler', 'spider', 'preview', 'curl/', 'wget/'] as $needle) {
+            if (str_contains($ua, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /**
      * Agent: generate a new seller link for a property + contact.
      */
@@ -389,6 +443,21 @@ class SellerLinkController extends Controller
             'generated_by_user_id' => auth()->id(),
             'generated_at' => now(),
         ]);
+
+        // Road to Sold step 8b: the agent made a seller link. Only for a property of the link's own agency - the `exists` rule
+        // above does not respect the agency scope, and a link must never be credited against another agency's property.
+        $linkedProperty = Property::withoutGlobalScopes()->find($link->property_id);
+        if ($linkedProperty && (int) $linkedProperty->agency_id === (int) $link->agency_id) {
+            SafeRaise::dispatch('SellerLinkCreated', fn () => new SellerLinkCreated(
+                linkId: (int) $link->id,
+                propertyId: (int) $link->property_id,
+                contactId: $link->contact_id !== null ? (int) $link->contact_id : null,
+                agencyId: (int) $link->agency_id,
+                branchId: $linkedProperty->branch_id !== null ? (int) $linkedProperty->branch_id : null,
+                userId: auth()->id() !== null ? (int) auth()->id() : null,
+                actorUserId: auth()->id() !== null ? (int) auth()->id() : null,
+            ));
+        }
 
         $url = url('/property/live/' . $link->token);
 

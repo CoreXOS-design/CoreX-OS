@@ -21,10 +21,11 @@ use Illuminate\Support\Facades\Log;
 final class DocumentPropertyObserver
 {
     /**
-     * document_types.slug values that count. Mandate only for now; the OTP type is added by the Sell Stock
-     * phase (step 11), and an agency-editable list comes with the task engine (road-to-sold.md 13.1).
+     * document_types.slug values that count: the mandate (step 6) and, since the phase 0 remainder (build log P8), the offer to
+     * purchase (step 11, Johan's answer 2: a paper OTP uploaded onto the property counts the same way). An agency-editable list
+     * comes with the task engine (road-to-sold.md 13.1).
      */
-    public const COUNTED_TYPE_SLUGS = ['mandate'];
+    public const COUNTED_TYPE_SLUGS = ['mandate', 'otp'];
 
     public function created(DocumentProperty $link): void
     {
@@ -37,8 +38,11 @@ final class DocumentPropertyObserver
             if (! in_array($slug, self::COUNTED_TYPE_SLUGS, true)) {
                 return;
             }
-            $agencyId = $document->agency_id
-                ?? Property::withoutGlobalScopes()->whereKey($link->property_id)->value('agency_id');
+            $propertyAgencyId = Property::withoutGlobalScopes()->whereKey($link->property_id)->value('agency_id');
+            if ($document->agency_id && $propertyAgencyId && (int) $document->agency_id !== (int) $propertyAgencyId) {
+                return; // a document and a property of two different agencies: never one agency's step ticked by another's file
+            }
+            $agencyId = $document->agency_id ?? $propertyAgencyId;
 
             SafeRaise::dispatch('DocumentFiledToProperty', fn () => new DocumentFiledToProperty(
                 documentId: (int) $document->id,
@@ -47,6 +51,8 @@ final class DocumentPropertyObserver
                 agencyId: $agencyId !== null ? (int) $agencyId : null,
                 actorUserId: $document->uploaded_by ? (int) $document->uploaded_by : (auth()->id() ? (int) auth()->id() : null),
                 sourceType: $document->source_type ? (string) $document->source_type : null,
+                branchId: $document->branch_id ? (int) $document->branch_id : null,
+                dealId: $document->deal_id ? (int) $document->deal_id : null,
             ));
         } catch (\Throwable $e) {
             Log::warning('DocumentFiledToProperty hook caught exception, filing proceeds', [

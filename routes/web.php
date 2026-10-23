@@ -6417,6 +6417,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware(['permission:access_contacts', 'agency.required'])
         ->name('corex.rentals.contacts.index');
 
+    // .ai/specs/real-estate-menu-tabs.md + dashboard-menu-tabs.md - the tabbed menu items: each lands on the first tab the user may open (?tab=<key>).
+    // The tabs are existing screens with their own routes and access checks (App\Support\Navigation\TabHubs); no tab open = 403.
+    foreach (array_keys(\App\Support\Navigation\TabHubs::HUBS) as $tabHub) {
+        Route::get('hub/' . $tabHub, [\App\Http\Controllers\CoreX\TabHubController::class, 'show'])
+            ->defaults('hub', $tabHub)->middleware('agency.required')->name('corex.hubs.' . $tabHub);
+    }
+
     // Portal Leads (P24 + PP unified). Spec: .ai/specs/portal-leads.md
     // The toast poll sits OUTSIDE the agency.required/feature group: with no agency context (an owner who has not picked an
     // agency) it answers an empty 200, not a 422 — the controller then applies the same feature gate itself.
@@ -7074,6 +7081,14 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
         ->group(function () {
             Route::get('/', [\App\Http\Controllers\Docuperfect\EsignFinalizationSettingsController::class, 'edit'])->name('docuperfect.esign.settings.finalization');
             Route::post('/', [\App\Http\Controllers\Docuperfect\EsignFinalizationSettingsController::class, 'update'])->name('docuperfect.esign.settings.finalization.update');
+        });
+
+    // How my signers sign (esign-signing-modes.md) — agency-scoped signing mode, same gate as the screens above.
+    Route::middleware(['permission:esign.settings', 'agency.required'])
+        ->prefix('esign/settings/signing-mode')
+        ->group(function () {
+            Route::get('/', [\App\Http\Controllers\Docuperfect\EsignSigningModeSettingsController::class, 'edit'])->name('docuperfect.esign.settings.signing-mode');
+            Route::post('/', [\App\Http\Controllers\Docuperfect\EsignSigningModeSettingsController::class, 'update'])->name('docuperfect.esign.settings.signing-mode.update');
         });
 
     // Page images (authenticated)

@@ -26,6 +26,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/dashboard-menu-tabs.md - Branch Report is a tab of Dashboard > Performance --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\PerformanceTabs::class])
+
     {{-- Branch At a Glance --}}
     <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
         <div class="rounded-md p-3 text-center" style="background: var(--surface); border: 1px solid var(--border);">

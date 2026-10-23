@@ -49,6 +49,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/rentals-menu-tabs.md - Inspections is a tab of Rentals > Leases --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\LeasesTabs::class])
+
     {{-- AT-439 Part 3 — shared rental list standard (status tiles + toolbar):
          .ai/specs/rentals-rebuild.md §1.1. First tile = Total. Each tile's own
          href sets the query param(s) that already drive this page's existing

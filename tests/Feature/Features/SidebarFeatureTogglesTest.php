@@ -85,6 +85,27 @@ class SidebarFeatureTogglesTest extends TestCase
         return $this->actingAs($user)->get(route('agent.portal'))->assertOk()->getContent();
     }
 
+    /**
+     * Is the page in the menu? Either a link of its own in the sidebar, or a tab of one of the tabbed menu hubs
+     * (.ai/specs/*-menu-tabs.md - Rentals, Real Estate, ... fold their old items into tabs; a tab a switch turns off is not listed).
+     */
+    private function inMenu(string $html, string $routeName): bool
+    {
+        $url = route($routeName);
+        if (str_contains($html, 'href="' . $url . '"')) {
+            return true;
+        }
+        foreach (\App\Support\Navigation\TabHubs::HUBS as $hub) {
+            foreach ($hub::forUser(auth()->user()) as $tab) {
+                if (strtok($tab['url'], '?#') === $url) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     // ── Defaults: nothing disappears ─────────────────────────────────────────
 
     public function test_every_new_toggle_is_on_for_an_agency_that_never_touched_features(): void
@@ -215,15 +236,15 @@ class SidebarFeatureTogglesTest extends TestCase
 
         $html = $this->sidebarHtml($admin);
         foreach (['corex.rental-job-cards.index', 'corex.leases.index', 'corex.deeds-capture.index', 'buyers-report.index', 'performance.agency-report'] as $r) {
-            $this->assertStringContainsString('href="' . route($r) . '"', $html, "{$r} should be in the sidebar by default");
+            $this->assertTrue($this->inMenu($html, $r), "{$r} should be in the menu by default");
         }
 
         $this->off($agency, 'rental-job-cards', 'deeds-capture');
         $html = $this->sidebarHtml($admin);
 
-        $this->assertStringNotContainsString('href="' . route('corex.rental-job-cards.index') . '"', $html);
-        $this->assertStringNotContainsString('href="' . route('corex.deeds-capture.index') . '"', $html);
-        $this->assertStringContainsString('href="' . route('corex.leases.index') . '"', $html, 'a sibling item must stay');
+        $this->assertFalse($this->inMenu($html, 'corex.rental-job-cards.index'));
+        $this->assertFalse($this->inMenu($html, 'corex.deeds-capture.index'));
+        $this->assertTrue($this->inMenu($html, 'corex.leases.index'), 'a sibling item must stay');
     }
 
     public function test_switching_rentals_off_removes_the_whole_rentals_group(): void

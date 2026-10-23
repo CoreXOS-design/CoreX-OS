@@ -19,6 +19,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/real-estate-menu-tabs.md - Portal leads is a tab of Real Estate > Buyers --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\BuyersTabs::class])
+
     {{-- Filters — directly under the header (AT-393). Header + filters are frozen: the
          page wrapper is a full-height flex column and ONLY the scroll region below
          (leads table + pagination) scrolls. --}}

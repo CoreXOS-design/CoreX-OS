@@ -120,6 +120,29 @@ class DealRegisterController extends Controller
             $query->where('branch_id', $branchFilter);
         }
 
+        // The Branch / Agency Performance tiles link here with ?branch_id= (the branch the tile counted). Honoured WITHIN the
+        // viewer's breadth, never beyond it: a whole-agency viewer gets that branch's deals (a real branch of their agency);
+        // a branch-scope viewer is always their own branch, whatever id was typed; an own-scope viewer keeps their own deals.
+        // The branch a deal rolls up to is the tiles' own rule (Deal::branchAttributionSql), so the list holds what the tile counted.
+        $branchIdContext = 0;
+        if ($scope === 'all') {
+            $asked = (int) $request->input('branch_id');
+            if ($asked > 0 && Branch::listForReports()->contains('id', $asked)) {
+                $branchIdContext = $asked;
+                $query->whereIn('id', function ($sub) use ($asked) {
+                    $sub->select('deal_user.deal_id')
+                        ->from('deal_user')
+                        ->join('users', 'users.id', '=', 'deal_user.user_id')
+                        ->join('deals', 'deals.id', '=', 'deal_user.deal_id')
+                        ->whereRaw(Deal::branchAttributionSql() . ' = ?', [$asked])
+                        ->distinct();
+                });
+            }
+        } elseif ($scope === 'branch') {
+            // visibleTo() already limits the list to this branch; the id shown beside each row must be the same branch.
+            $branchIdContext = (int) ($user->effectiveBranchId() ?? ($user->branch_id ?? 0));
+        }
+
         if ($agentFilter = $request->input('agent')) {
             $query->whereHas('agents', fn ($q) => $q->where('users.id', $agentFilter));
         }
@@ -161,11 +184,6 @@ class DealRegisterController extends Controller
         // ones, so a deal loaded under a since-archived branch still shows its
         // branch and can still be filtered on (AT-420).
         $branches = Branch::listForReports();
-
-        $branchIdContext = (int) $request->input('branch_id');
-        if ($branchIdContext <= 0 && $scope === 'branch') {
-            $branchIdContext = (int) ($user->effectiveBranchId() ?? ($user->branch_id ?? 0));
-        }
 
         return view('dr2.index', compact('deals', 'agents', 'branches', 'paidNotSettledDeals', 'branchIdContext'));
     }

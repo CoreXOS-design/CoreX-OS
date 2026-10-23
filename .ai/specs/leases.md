@@ -2179,3 +2179,27 @@ The "earliest notice date worked out live from the start date + the agency's mon
 On the screens (this file's section 18): the Notice terms block (new lease, renewal, and the lease screen's card) no longer has a typed "earliest date notice may be given"; it shows **"Expiry notice due between <end - 80 business days> and <end - 40 business days>"** and **"CoreX sends it on <end - the agency's send day>"**, read-only, computed from the end date (live on the capture screen). "Earliest date the lease may end" is still typed (checked against the start date on the screen). The agency's `default_earliest_notice_months` is retired (converted to business days by migration, audit-logged). The derived "Earliest notice may be given" line is removed from the lease card too; only the lease's own captured clause can show, labelled "Lease clause: notice may be given from" (see `lease-notices.md` section 11).
 
 What the testers hit on QA1 on 21 Oct (for the record): nine "create lease" posts from approved applications came straight back to the form (nginx: POST `/corex/leases` 302 of 654 bytes then GET `/corex/leases/create?...`; successes are 454 bytes). Replaying the request read-only against QA1 data shows the refusals were the earliest-notice rules and, for the property's default rent above the approved amount, *"This tenant was approved for R13,000.00 a month; the lease rent is R15,610.00. Give a reason to confirm it."* (a separate rule).
+
+## CDS builder - Document Signing Roles must round-trip (23 Oct 2026)
+
+Template Settings > DOCUMENT SIGNING ROLES (`templates.signing_parties`) saved correctly but the builder came back showing its default (Lessor + Agent) on reload, so a ticked Lessee / Tenant looked lost (QA1 template 82 "Mega Lease Agreement 2026"). Cause: reopening the builder builds a fresh draft from the template (`TemplateController::resolveCdsEditingDraft`), and that seed did not carry `signing_parties`. Rule: **the seed carries every setting the builder saves** (is_esign, party_mode, allowed_delivery_modes, security_tier, signing_parties, category, document_type_id); a reused draft that predates the key is backfilled from the template. Pinned by `tests/Feature/Docuperfect/SigningView/CdsBuilderSigningRolesRoundTripTest.php` (owner/agent, lease set, acquiring alone, every role incl. witness).
+
+## Lease agreement seeds are dressed by type, in one place (23 Oct 2026, QA1 - Mega lease, e-sign doc 51 / template 82)
+
+"Create lease & prepare for signing" filled the agreement with raw values: "2026-11-01" / "2027-10-31", "5500.00", "10". **Rule: `LeaseAgreementDocumentValues::forLease()` works every key out RAW and dresses it once, at the end, by its registry type (`present()`); the stored lease and its terms stay raw.** Formats are the ones CoreX documents already use:
+
+| Registry type | Printed as | Same as |
+|---|---|---|
+| `money` (rent, deposit, other deduction, service fee, net to owner) | `R 8,500.00` | `App\Support\Money\Zar::format` (AT-177, also `DataType::ZarMoney`) |
+| `date` (start, end, earliest termination, earliest notice) | `1 November 2026` | the `j F Y` of `WebTemplateDataService` (lease and mandate dates); there is no per-agency date-format setting |
+| `percent` (escalation) | `10%` / `7.5%` | - |
+| `month` | `March` | unchanged |
+| `integer`, `text`, `longtext` | as typed | unchanged |
+
+Calculations (escalation in words, the service fee, net to owner) read the RAW numbers, never a dressed string.
+
+**An agreement that already prints the unit must not get it twice.** `LeaseSeedPresentation` reads the agreement's own compiled template and tells the formatter per key: `bare` - the template draws the "R" (a `field-currency` box, or a literal "R" before the box) or writes the "%" after the box (HFC's lease: "an escalation of [box]% per annum"), so only the number is seeded (`5,500.00`, `10`); `iso` - the target field is a native date box (field type `date`), which shows nothing for any value but `Y-m-d`. Anything it cannot read (a PDF-overlay agreement) is dressed in full. No new setting: it follows the template, so a new agency's lease needs a map, not code.
+
+What is printed still reads back to the lease value: `LeaseAgreementValuesReader` parses `R 8,500.00`, `1 November 2026` and `10%` (pinned in the tests), so the change check and the renewal reader are unaffected.
+
+Tests: `LeaseSeedDisplayFormatsTest` (new - every type, raw stored record, bare/iso, round trip, raw deduction in the schedule, words kept as typed, the template detector incl. the stray-"R" cases); `LeaseSigningLauncherTest` (seeded values now the dressed ones; plain text-box agreement and an own-"R"/"%" agreement end to end). Not changed: `WebTemplateDataService` still hands a raw rental/date to templates that resolve from document details (a different path - the lease launcher does not use it for these fields).

@@ -46,7 +46,7 @@ use Throwable;
  */
 final class CompanyAdBuilderService
 {
-    public const OPTIONS     = 3;
+    public const OPTIONS     = 1;   // one design per click (Johan, 2026-10-23 - three per click cost too much)
     public const CAPTION_MAX = 300;
 
     public const MODE_NONE    = 'none';
@@ -384,6 +384,10 @@ final class CompanyAdBuilderService
             }
             $item['elements'] = $kept;
         }
+        $size = AdLayoutValidator::SIZES[(string) $generation->ad_size] ?? null;
+        if ($size !== null) {
+            $item = AdPpraFooter::apply($item, $size['w'], $size['h']);   // the compulsory PPRA line, put in by the server
+        }
 
         $noIcons = AdIdeaWishes::forbidsIcons($generation->idea);
         if ($noIcons) {
@@ -578,6 +582,7 @@ final class CompanyAdBuilderService
         $style    = $auto ? AdTemplateStyles::catalogueBlock((string) $generation->ad_size, $forbidden) : AdTemplateStyles::chosenBlock((string) $generation->style, (string) $generation->ad_size, $forbidden);
         $styleOut = $auto ? ',"style":"<style key>"' : '';
         $brand    = $this->templates->brandBlock($agencyId);
+        $ppra     = AdPpraFooter::promptBlock($w, $h);
         $max      = self::CAPTION_MAX;
         $picture  = $hasPicture
             ? '- custom_image: photoMask gives the picture a shape; photoEffect recolours it (duotone uses duoColor1 = shadows and duoColor2 = highlights); frameBorderWidth follows the mask; objectFit cover (fills the box) or contain.'
@@ -611,13 +616,14 @@ DESIGN RULES
 3. Put a gradient or colour block under any text that sits on the picture, or give the text a pill - text straight on a picture is rejected unless shadowOn is true. Contrast rules are in HARD LIMITS.
 4. Stacking: the picture at the bottom, scrims above it, text and badges on top, using zIndex.
 5. Do not invent facts: no phone numbers, dates, times, prices, addresses, names or awards the user did not give. Dates and times written in the idea may be used exactly as written.
-6. Give each option a clearly DIFFERENT layout and mood so the user has a real choice. Aim for 6 to 12 elements per option.
+6. Make the design strong and distinctive. Aim for 6 to 12 elements.
 7. Never reproduce another company's name, logo, slogan or words.
 8. Where a STYLE below talks about the property photo, apply it to the picture (or, with no picture, to the colour blocks); where it talks about the price or listing facts, apply it to the main message.
 
 CAPTION: each option carries "caption" - the words the agency would post with this ad on Facebook or Instagram. At most {$max} characters, plain words (no markup), warm and in the agency's own voice ("we", "our team"), at most three hashtags. Do not name the agency and do not invent facts (same as rule 5).
 
 {$limits}
+{$ppra}
 {$brand}- Every design MUST show the agency: its logo when it has one (above), otherwise agency_name.
 
 {$style}

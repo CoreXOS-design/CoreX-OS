@@ -1514,3 +1514,46 @@ Built section 14 phase 2 on the existing `/road-to-sold` page (same route `road-
 **Tests:** `tests/Feature/RoadToSold/AgentViewAndCaptureTest.php` (31). Also green after the change: RecipeEngine 13, RecipeSettings 12, RoadToSoldPage 14, SummaryBar 10, Settings 38, WizardStep 14, ListBuilder 33, AgentWeekScenario 12, OutcomeService 28. **Not run:** `scripts/dev-check.ps1` (no PowerShell on this box). The schema snapshot (`database/schema/mysql-schema.sql`) was not re-dumped for the one migration (`2026_11_29_200000`, two `rts_settings` columns); the migration runs on top.
 
 **Found, not fixed:** nothing new outside phase 2. Still open from section 6: `MandateSigned` / `DocumentSigned` never raised; `deal.commission_finalised` wiring; `presentation.lost`; the wizard-draft `property.captured` placement; the `VisibleAgents` / `Scope::level` null-scope disagreement. An assistant opening the page over HTTP needs the road-to-sold grants their agent gives them (`AssistantPermissionResolver`); the assistant path is proven at service level, not by an HTTP test.
+
+### P8 - phase 0 remainder: the Sell Stock events and the defect fixes (AT-454, QA1, 23 Oct 2026)
+
+Finishes phase 0 (section 14). Every event is raised through `SafeRaise` (a failing listener or event log never breaks the user's save), carries agency, branch and the agent the work counts for (`userId`), and is in `corex-domain-events-spec.md` section 5 in the same change. No page, view, sidebar or `app/Services/RoadToSold/TaskCompletionService.php` / `CompleteTasksFromDomainEvent` / `RecipeCatalogue` was touched (cc4's): what each event needs in the catalogue is listed at the end of this entry.
+
+| Moment (step) | Event | Raised by | Fires |
+|---|---|---|---|
+| seller link made (8b) | `Marketing\SellerLinkCreated` | `SellerLinkController::generate()` | once per press of "generate"; CoreX's own links (`PropertySellerLink::ensureExists`, called by some pages just by opening them) raise nothing; never for another agency's property |
+| seller link opened (8b) | `Marketing\SellerLinkOpened` | `SellerLinkController::show()` | the first real open of a link; link-preview robots (WhatsApp / Facebook fetch the page when the agent pastes it), empty user agents, revoked / sold links, repeats raise nothing |
+| viewing pack made (8c) | `Marketing\ViewingPackCreated` | new `ViewingPackObserver::created()` | once per pack, whichever of the three create paths made it; edit / archive / restore raise nothing |
+| Core Match made (9) | `Contact\ContactMatchCreated` | `ContactMatchObserver::created()` | once, when a wishlist is created with something to match on (same countable test as the pipeline landing); includes the wishlist seeded from a portal lead (no actor) |
+| viewing held (10) | `Viewing\ViewingHeld` | `CalendarEventFeedbackObserver::created()` + `updated()` | on the save that first makes a feedback row count (status "viewed", captured, not blank, not archived, viewing-category appointment); one per buyer and property |
+| OTP e-signed (11) | `Docuperfect\OtpSigned` | new listener `RaiseOtpSignedFromEnvelope` on `SignatureEnvelopeFinalized` | once per OTP envelope (a retried finalise job does not repeat it) |
+| OTP on paper (11) | `Document\DocumentFiledToProperty`, type `otp` | `DocumentPropertyObserver::created()` | `otp` added to the counted types; the event now also carries `branchId` and `dealId` |
+| mandate e-signed (6) | `Mandate\MandateSigned` (was dead) | `SignatureService::completeDocument()` after commit | once per signing; a repeat call for an already-completed envelope raises nothing; the log row holds ids only |
+
+**Defects:**
+- `deal.commission_finalised` is wired: `DealCommissionFinalised` (raised once by `DealObserver` when commission first moves to paid) now credits each agent on the deal once under that slug - the office user who pressed "mark paid" is NOT credited. It is credited at the seeded default (1 point x weight 1) until an agency tunes it; an archived deal revokes it with the other deal slugs.
+- `presentation.lost` is wired the way the seeder says Johan's V1 rule reads ("the agent did the work either way"): a `lost_to_*` outcome credits it; `still_pending` / `other` credit nothing.
+- `VisibleAgents` and `Scope::level` now agree: a role with the Road to Sold access key but no stored breadth is "own" in both (the Role Manager already shows "own" for this module). Before, the page showed such a user their own list while Areas / Targets / Budgets showed an empty cohort.
+- Wizard-draft `property.captured` credit: DOCUMENTED, not moved (comment in `PropertyObserver::created()`). Road to Sold does not use `PropertyCaptured` (step 7 is `PropertyWentLiveOnPortal`) and the points engine it feeds is replaced at the cut-over.
+- `MandateSigned` is wired (not deleted); `DocumentSigned` stays defined and unraised (nothing needs it; its only listener just logs).
+
+**Not built (and why):** `AreaDriveCompleted` is raised by the phase 2 capture form (cc4's). `DealPayslipGenerated` is blocked until the payslip clean-up day (Johan, answer 3); until then `DealCommissionFinalised` is the signal. The step 13 aftercare events are phase 9.
+
+**Decisions made in the build (the spec left them open):**
+- "Seller link made" is the agent pressing generate, not the model: some pages create the link as a side effect of being opened, which is not marketing work. The seller opening it (`SellerLinkOpened`) is the proof the link was used, so an agent who copies the auto-made link still earns the step when the seller opens it.
+- "Viewing pack made" is creation: a pack has no sent state.
+- "Already raised for this link / envelope" for `SellerLinkOpened` and `OtpSigned` is read from `domain_event_log` (durable, no new column). Two simultaneous first opens could both raise; the task engine's idempotency key (user, task, period, subject) absorbs that.
+- `ViewingHeld` follows the spec's step 10 rule (viewed + captured + not blank), so a viewing marked complete with no feedback does not tick it, although `PropertyViewings` counts that viewing as held for the property's own count.
+- A document and a property of two different agencies never raise `DocumentFiledToProperty` (guard added to P2's observer while adding `otp`).
+
+**For cc4 (RecipeCatalogue::EVENTS - not edited here).** Add, with `credit` = the agent the work counts for:
+- `Marketing\SellerLinkCreated` (credit `[]` = who pressed, assistants map to their agent), `Marketing\SellerLinkOpened` (credit `['userId']`), `Marketing\ViewingPackCreated` (credit `[]`) -> step `marketing`.
+- `Contact\ContactMatchCreated` (credit `['userId']`) -> step `buyers`.
+- `Viewing\ViewingHeld` (credit `['userId']`) -> step `viewings`.
+- `Docuperfect\OtpSigned` (credit `['userId']`) and the existing `DocumentFiledToProperty` with filter `documentTypeSlug = otp` -> step `otp`. They overlap for an e-signed OTP (both fire); bind a task to ONE of them. The default `otp-filed` task already binds `DocumentFiledToProperty`, which now covers paper and e-signed.
+- `Mandate\MandateSigned` (credit `['userId']`) -> step `mandate`; it fires at signing, `DocumentFiledToProperty` (mandate) fires later at filing - again bind ONE.
+- `Deal\DealCommissionFinalised` -> step `deal` (the "payslip" exit for now). Note for the engine: its actor is whoever presses "mark paid" (usually the office), and so is `DealClosed`'s and `DealCreated`'s - the agents of the deal are on the deal (`deal_user`), reachable through `ParticipantResolver::resolveForDealCommissionFinalised($deal)`.
+
+**Tests:** `tests/Feature/RoadToSold/RoadToSoldPhase0RemainderEventsTest.php` (42 tests, 119 assertions). Per event: fires with the facts and writes one `domain_event_log` row; the lookalikes that must not fire it (CoreX's own seller links, link-preview robots, revoked links, empty wishlist, blank / "did not happen" / archived / evaluation feedback, a mandate or lease for the OTP event, a repeat call, an edit); another agency's record raises nothing; a listener that throws never loses the save. The points defects run the REAL points engine (environment flipped from "testing", standard catalogue seeded). `VisibleAgents` was checked to fail against the old file. **Not run:** `scripts/dev-check.ps1` (no PowerShell on this box).
+
+**Deploy note:** new classes and a new explicit listener registration - the QA1 deploy needs `composer dump-autoload` and `php artisan event:clear` (discovery is off, `AppServiceProvider`). No migration, no schema change, nothing seeded.

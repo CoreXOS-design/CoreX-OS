@@ -43,7 +43,7 @@
                 <div class="aitp-head" data-aitp="header">
                     <div style="min-width:0;">
                         <h2 id="cadai-title" class="text-lg font-bold" style="margin:0;">Create a company ad with AI</h2>
-                        <p class="text-sm" style="color:var(--text-muted); margin:2px 0 0;">Say what the ad is for. You get up to three designs in your agency's colours, each with a suggested post text — keep the ones you like.</p>
+                        <p class="text-sm" style="color:var(--text-muted); margin:2px 0 0;">Say what the ad is for. Each click designs one ad in your agency's colours, with a suggested post text — keep it if you like it.</p>
                     </div>
                     <button type="button" class="aitp-x" :disabled="loading" @click="closePanel()" aria-label="Close" title="Close">&times;</button>
                 </div>
@@ -157,7 +157,7 @@
                     {{-- Results. Their space is reserved while designing (skeleton cards) so nothing jumps. --}}
                     <div class="aitp-results" data-aitp="results" x-ref="results" aria-live="polite">
                         <div x-show="loading" class="aitp-note" style="margin-bottom:14px;">
-                            <span x-text="uploading ? 'Uploading your picture…' : 'Designing your ads — this usually takes about a minute. Please keep this window open.'"></span>
+                            <span x-text="uploading ? 'Uploading your picture…' : 'Designing your ad — this usually takes under a minute. Please keep this window open.'"></span>
                         </div>
 
                         <div x-show="error" class="aitp-alert" role="alert" style="margin-bottom:14px;" x-text="error"></div>
@@ -227,7 +227,7 @@
                     <div class="aitp-foot-actions">
                         <button type="button" class="corex-btn-outline text-sm px-4 py-2" :disabled="loading" @click="closePanel()">Close</button>
                         <button type="submit" form="cadai-form" class="corex-btn-primary text-sm px-4 py-2" :disabled="loading || usage.remaining <= 0 || idea.trim() === ''">
-                            <span x-show="!loading">Design 3 options</span>
+                            <span x-show="!loading">Design it</span>
                             <span x-show="loading">Designing…</span>
                         </button>
                     </div>

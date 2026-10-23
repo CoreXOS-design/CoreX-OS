@@ -129,6 +129,9 @@
     {{-- ══════ HEADER STRIP (fixed, compact — cockpit density) ══════ --}}
     <div class="flex-shrink-0 px-4 lg:px-6 pb-1.5 space-y-1.5 pt-2" style="background: var(--bg);">
 
+    {{-- .ai/specs/dashboard-menu-tabs.md - Calendar is a tab of Dashboard > Calendar (Calendar | Invitations); flush to keep the strip compact --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\CalendarTabs::class, 'hubFlush' => true])
+
 
     {{-- ══════ TOOLBAR (nav + view switcher) ══════ --}}
     @php
