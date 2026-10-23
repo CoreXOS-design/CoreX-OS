@@ -127,15 +127,7 @@ class PerformanceController extends Controller
         ];
 
 
-        // Active TV code for this branch (for the TV Code component)
-        $tvCode = \App\Models\TvAccessCode::where('branch_id', $branchId)
-            ->where('is_active', true)
-            ->where(function ($q) {
-                $q->whereNull('expires_at')
-                  ->orWhere('expires_at', '>', now());
-            })
-            ->with('creator:id,name')
-            ->first();
+        // (The TV code moved to Settings > TV Display - agency-tracker-rehome.md step 8.)
 
         return view('bm.performance', [
             'branchName' => $branchName,
@@ -146,7 +138,6 @@ class PerformanceController extends Controller
             'marketAverages' => $marketAverages,
 
             'listingStats' => $listingStats,
-            'tvCode' => $tvCode,
             'statusSummary' => $statusSummary,
             'rollup' => $rollup,
             'branchGoal' => $branchGoal,
