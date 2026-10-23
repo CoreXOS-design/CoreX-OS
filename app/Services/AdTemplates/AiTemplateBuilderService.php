@@ -30,7 +30,7 @@ use Throwable;
 
 /**
  * AI Template Builder (AT-456 Part B, spec §B). A user describes an ad look in a sentence
- * (optionally with a reference image); the model proposes THREE reusable layouts; every one
+ * (optionally with a reference image); the model proposes ONE reusable layout per click; every one
  * is validated by AdLayoutValidator before anyone sees it; the user saves the ones they like
  * as ordinary PropertyAdTemplate rows.
  *
@@ -53,7 +53,7 @@ use Throwable;
  */
 final class AiTemplateBuilderService
 {
-    public const OPTIONS            = 3;
+    public const OPTIONS            = 1;   // one design per click (Johan, 2026-10-23 - three per click cost too much)
     public const DEFAULT_LIMIT      = 20;
     public const IDEA_MAX_CHARS     = 1000;
     public const REFERENCE_DAYS     = 7;
@@ -582,6 +582,10 @@ final class AiTemplateBuilderService
     private function validateWithoutUntickedExtras(array $item, string $sizeKey, array $keys, bool $noIcons = false): array
     {
         [$item, $notes] = AdTemplateMustIncludes::stripUnticked($item, $keys);
+        $size           = AdLayoutValidator::SIZES[$sizeKey] ?? null;
+        if ($size !== null) {
+            $item = AdPpraFooter::apply($item, $size['w'], $size['h']);   // the compulsory PPRA line, put in by the server
+        }
         if ($noIcons) {
             // The idea asked for no icons: binding, whatever the model answered (AdIdeaWishes).
             [$item, $more] = AdIdeaWishes::stripIcons($item);
@@ -899,7 +903,7 @@ final class AiTemplateBuilderService
         $photoWords = $on('collage') ? 'image_1 to image_5, or a collage' : 'image_1 to image_5';
         $rule7    = $variantMode
             ? '7. You are ADAPTING approved designs, not inventing new ones: keep each design\'s look and structure; change only what the property type needs. Aim for roughly the same number of elements as the approved design. Use the new building blocks (' . $blockWords . ') only where the approved design already has them or the property type needs them.'
-            : '7. Give each option a clearly DIFFERENT layout and mood so the user has a real choice. Aim for 8 to 14 elements per option. Use the new building blocks (' . $blockWords . ') where they genuinely help the idea - not all of them, and not for decoration\'s sake.';
+            : '7. Make the design strong and distinctive. Aim for 8 to 14 elements per option. Use the new building blocks (' . $blockWords . ') where they genuinely help the idea - not all of them, and not for decoration\'s sake.';
 
         return <<<PROMPT
 You are a senior graphic designer who makes reusable social-media ad TEMPLATES for South African real estate agencies. A template is a layout: the property's real photo, price, address and agent details are poured into it later, for many different listings. You are not designing one ad for one house.
@@ -935,9 +939,15 @@ DESIGN RULES
 8. Do not invent facts (no prices, addresses, phone numbers or awards in custom_text). Short generic labels like "JUST LISTED" or "OPEN HOUSE" are fine.
 
 {$limits}
+{$this->ppraBlock($w, $h)}
 {$this->brandBlock($agencyId, $logoRequired)}
 {$style}{$examples}
 PROMPT;
+    }
+
+    private function ppraBlock(int $w, int $h): string
+    {
+        return AdPpraFooter::promptBlock($w, $h);
     }
 
     /** The facts, as one readable list for the prompt (generated, so it can never drift from the validator). */

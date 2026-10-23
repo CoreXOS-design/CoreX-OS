@@ -443,3 +443,9 @@ screen and a new company ad is called "My company ad"; the builder's save moved 
 ## 17. Open items for Johan
 
 None blocking. Approve the spec (or say what to change) and E-1 starts.
+
+
+## One design per click + compulsory PPRA line (Johan, 2026-10-23 — do not re-ask)
+
+- **One design per click.** Each "Design it" makes ONE design (`OPTIONS = 1`), not three — three per click cost too much (4 generations ≈ R30 on 2026-10-23). With property types ticked, that one design still gets its per-type versions. The monthly allowance is unchanged (one unit per successful click).
+- **Every AI-designed ad ends with "Registered with the PPRA".** `App\Services\AdTemplates\AdPpraFooter` puts it in on the server (never the model): a full-width 40px strip at the bottom, white 16px text on 85% black, zIndex 100. Any model element mentioning the PPRA is removed first (no duplicates, no misspellings). The prompt reserves the strip; it is added before `AdLayoutValidator`, so a design that puts words or pictures in the strip is rejected by the overlap rule and retried with that reason. Wording is neutral — true for every South African agency. Ads saved before this date and hand-built templates are not changed.

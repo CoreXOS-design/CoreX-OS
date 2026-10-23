@@ -36,7 +36,7 @@
                 <div class="aitp-head" data-aitp="header">
                     <div style="min-width:0;">
                         <h2 id="aitp-title" class="text-lg font-bold" style="margin:0;">Create a template with AI</h2>
-                        <p class="text-sm" style="color:var(--text-muted); margin:2px 0 0;">Describe the look you want. You get three different designs to choose from — keep the ones you like, then fine-tune them in the Ad Builder.</p>
+                        <p class="text-sm" style="color:var(--text-muted); margin:2px 0 0;">Describe the look you want. Each click designs one template — keep it if you like it, then fine-tune it in the Ad Builder.</p>
                     </div>
                     <button type="button" class="aitp-x" :disabled="loading" @click="closePanel()" aria-label="Close" title="Close">&times;</button>
                 </div>
@@ -150,7 +150,7 @@
                     {{-- Result area. Its space is reserved while generating (skeleton cards) so nothing jumps when the designs arrive. --}}
                     <div class="aitp-results" data-aitp="results" x-ref="results" aria-live="polite">
                         <div x-show="loading" class="aitp-note" style="margin-bottom:14px;">
-                            <span x-text="types.length ? 'Designing your three templates and their versions for ' + types.length + ' property type' + (types.length === 1 ? '' : 's') + ' — this usually takes about two minutes. Please keep this window open.' : 'Designing your three templates — this usually takes about a minute. Please keep this window open.'"></span>
+                            <span x-text="types.length ? 'Designing your template and its versions for ' + types.length + ' property type' + (types.length === 1 ? '' : 's') + ' — this usually takes about two minutes. Please keep this window open.' : 'Designing your template — this usually takes under a minute. Please keep this window open.'"></span>
                         </div>
 
                         <div x-show="error" class="aitp-alert" role="alert" style="margin-bottom:14px;" x-text="error"></div>
@@ -219,7 +219,7 @@
                     <div class="aitp-foot-actions">
                         <button type="button" class="corex-btn-outline text-sm px-4 py-2" :disabled="loading" @click="closePanel()">Close</button>
                         <button type="submit" form="aitp-form" class="corex-btn-primary text-sm px-4 py-2" :disabled="loading || usage.remaining <= 0 || idea.trim() === ''">
-                            <span x-show="!loading">Design 3 options</span>
+                            <span x-show="!loading">Design it</span>
                             <span x-show="loading">Designing…</span>
                         </button>
                     </div>
