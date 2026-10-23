@@ -162,31 +162,11 @@ class PerformanceController extends Controller
         ];
 
 
-        // Active TV codes for all branches (admin visibility)
-        $tvCodes = \App\Models\TvAccessCode::where('is_active', true)
-            ->where(function ($q) {
-                $q->whereNull('expires_at')
-                  ->orWhere('expires_at', '>', now());
-            })
-            ->whereNotNull('branch_id')
-            ->with(['branch:id,name', 'creator:id,name'])
-            ->orderBy('branch_id')
-            ->get();
-
-        // Active company TV code (branch_id IS NULL)
-        $companyTvCode = \App\Models\TvAccessCode::forCompany()
-            ->active()
-            ->with(['creator:id,name'])
-            ->first();
-
-        $branches = \App\Models\Branch::orderBy('name')->get(['id', 'name']);
+        // (The TV access codes moved to Settings > TV Display - agency-tracker-rehome.md step 8 - so this report no longer reads them.)
 
         return view('admin.performance', [
             'rollup' => $rollup,
             'listingStats' => $listingStats,
-            'tvCodes' => $tvCodes,
-            'companyTvCode' => $companyTvCode,
-            'branches' => $branches,
 'statusSummary' => $statusSummary,
         ]);
     }

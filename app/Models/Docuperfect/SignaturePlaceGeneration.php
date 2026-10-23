@@ -22,12 +22,17 @@ class SignaturePlaceGeneration extends Model
     /** The original recovered from the JSON map when a pre-existing document is re-signed (its time/IP were never kept). */
     public const SOURCE_LEGACY_JSON = 'legacy_json';
 
+    // How the mark got onto the place (esign-signing-modes.md §5). A null method (rows from before this existed) reads as drawn.
+    public const METHOD_DRAWN = 'drawn';
+    public const METHOD_STAMPED_CLICK = 'stamped_click';
+    public const METHOD_STAMPED_AUTO = 'stamped_auto';
+
     protected $table = 'signature_place_generations';
 
     protected $fillable = [
         'document_id', 'signature_template_id', 'signature_request_id', 'place_key', 'kind', 'generation',
         'image', 'image_hash', 'signer_name', 'signer_email', 'ip_address', 'user_agent', 'signed_at', 'source',
-        'superseded_at', 'superseded_by_id',
+        'method', 'adoption_id', 'fill_all_event_id', 'superseded_at', 'superseded_by_id',
     ];
 
     protected $casts = [

@@ -22,6 +22,9 @@ use Tests\TestCase;
  * branch, or revoke another agency's active codes. Fixed by routing branch_id
  * through Branch::findOrFail (Branch uses BelongsToAgency) and adding
  * BelongsToAgency to TvAccessCode itself.
+ *
+ * AT-454 step 8: the code buttons moved from the Performance pages to Settings > TV Display (TvDisplaySettingsController); the same
+ * isolation is asserted against the new routes. The old admin.tv-code.* names answer a 308 to them (TvDisplaySettingsTest).
  */
 final class TvCodeIsolationTest extends TestCase
 {
@@ -34,6 +37,11 @@ final class TvCodeIsolationTest extends TestCase
         Role::create(['name' => 'admin', 'label' => 'Administrator', 'agency_id' => $agency->id]);
         RolePermission::updateOrCreate(
             ['role' => 'admin', 'permission_key' => 'manage_tv_messages', 'agency_id' => $agency->id],
+            []
+        );
+        // The whole-agency viewer (who may pick any branch) - a branch manager's posted branch is ignored instead (AT-454, step 8).
+        RolePermission::updateOrCreate(
+            ['role' => 'admin', 'permission_key' => 'view_company_stats', 'agency_id' => $agency->id],
             []
         );
         PermissionService::clearCache();
@@ -55,7 +63,7 @@ final class TvCodeIsolationTest extends TestCase
         $own = $this->makeAgencyAdmin('Own');
         $foreign = $this->makeAgencyAdmin('Foreign');
 
-        $response = $this->actingAs($own['admin'])->postJson(route('admin.tv-code.generate'), [
+        $response = $this->actingAs($own['admin'])->postJson(route('corex.settings.tv-display.codes.generate'), [
             'branch_id' => $foreign['branch']->id,
         ]);
 
@@ -81,7 +89,7 @@ final class TvCodeIsolationTest extends TestCase
             'is_active' => true,
         ]);
 
-        $response = $this->actingAs($own['admin'])->postJson(route('admin.tv-code.revoke'), [
+        $response = $this->actingAs($own['admin'])->postJson(route('corex.settings.tv-display.codes.revoke'), [
             'code_id' => $foreignCode->id,
         ]);
 
@@ -99,7 +107,7 @@ final class TvCodeIsolationTest extends TestCase
 
         $own = $this->makeAgencyAdmin('Own');
 
-        $generate = $this->actingAs($own['admin'])->postJson(route('admin.tv-code.generate'), [
+        $generate = $this->actingAs($own['admin'])->postJson(route('corex.settings.tv-display.codes.generate'), [
             'branch_id' => $own['branch']->id,
         ]);
         $generate->assertStatus(302);
@@ -107,7 +115,7 @@ final class TvCodeIsolationTest extends TestCase
         $code = TvAccessCode::where('branch_id', $own['branch']->id)->where('is_active', true)->firstOrFail();
         $this->assertSame($own['agency']->id, $code->agency_id);
 
-        $revoke = $this->actingAs($own['admin'])->postJson(route('admin.tv-code.revoke'), [
+        $revoke = $this->actingAs($own['admin'])->postJson(route('corex.settings.tv-display.codes.revoke'), [
             'code_id' => $code->id,
         ]);
         $revoke->assertStatus(302);

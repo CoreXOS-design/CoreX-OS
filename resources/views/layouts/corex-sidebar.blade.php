@@ -115,13 +115,11 @@
         // 'agent.daily' + 'agent.daily.print' (the capture form) live under My Portal now; the summary stays here
         // until Road to Sold phase 3 replaces it (agency-tracker-rehome.md §14 step 3).
         'agent.dashboard', 'agent.daily.summary*',
-        'bm.performance*', 'bm.daily*', 'bm.listings*',
-        'bm.worksheet.market*', 'bm.tv-messages*', 'bm.agent.performance*',
-        'admin.performance', 'admin.agent.performance*', 'admin.branch.performance*',
+        'bm.daily*', 'bm.listings*',
+        // (Branch / Agency Performance, their agent drill-downs and both Worksheet Market pages moved to the Reports group - step 7.)
         'admin.listings.*',
-        'admin.daily*', 'admin.targets*', 'admin.worksheet-market*',
-        'admin.tv-messages*', 'admin.activity-mappings.*', 'admin.daily-activities.setup*',
-        'admin.minion.*',
+        'admin.daily*', 'admin.targets*',
+        'admin.activity-mappings.*', 'admin.daily-activities.setup*',
         // The RCR link lives in the Agency Tracker panel, so its routes must open it.
         // 'corex.compliance.rcr.*' does NOT match the 'compliance.*' matcher below —
         // routeIs() globs the whole name, and this one is prefixed 'corex.'.
@@ -129,16 +127,16 @@
         // Deals group; agency-tracker-rehome.md §14 step 6.)
         'corex.compliance.rcr.*',
         'admin.expenses*',
-        // 'tools.cma*' (not the exact 'tools.cma') so the Evaluation
-        // Certificate sub-pages under it — tools.cma.evaluation.mine,
-        // .authorisations, etc. — also open this panel. Their own sidebar
-        // links (Pending Authorisations / My Evaluations) already live here;
-        // before this fix landing on either page directly opened no panel
-        // at all (found by scripts/sidebar-nav-audit.php, GROUP_NEVER_OPENS).
-        'tools.commission', 'tools.cma*', 'tools.history.*',
+        // (tools.commission, tools.cma*, tools.history.* moved to the Calculators group - step 10.)
         'commission.index', 'commission.principal', 'commission.confirm', 'commission.pay'
     )) {
         $activeGroup = 'agency-tracker';
+    } elseif (request()->routeIs(
+        // Calculators main menu (agency-tracker-rehome.md §11, step 10). 'tools.cma*' (not the exact 'tools.cma') so the Evaluation Certificate
+        // sub-pages - tools.cma.evaluation.mine, .authorisations, etc. - open this panel too (scripts/sidebar-nav-audit.php, GROUP_NEVER_OPENS).
+        'tools.commission', 'tools.cma*', 'tools.history.*', 'calculators.*'
+    )) {
+        $activeGroup = 'calculators';
     } elseif (request()->routeIs('evaluation.*')) {
         $activeGroup = 'evaluation';
     } elseif (request()->routeIs(
@@ -326,6 +324,8 @@
         $activeGroup = 'importer';
     } elseif (request()->routeIs(
         'corex.settings*',
+        // P24 Auto-Import is a Settings > Operations page now (step 8); its sub-routes open the Settings panel.
+        'admin.minion.*',
         'corex.features.*',
         'admin.users*',
         // AT-451 - the agency's "alerts switched off" list is opened from the Users page (spec notification-system-overview.md section 14B2).
@@ -374,8 +374,7 @@
         $activeGroup = 'company';
     } elseif (request()->routeIs(
         'admin.deposit-trust-interest.*',
-        'deposit-interest-calculator.*',
-        'calculators.*'
+        'deposit-interest-calculator.*'
     )) {
         $activeGroup = 'trust-interest';
     } elseif (request()->routeIs(
@@ -396,9 +395,12 @@
         'buyers-report.*',
         'lead-response-report.*',
         'performance.agency-report*',
-        'market-intelligence.suburb-report*'
+        'market-intelligence.suburb-report*',
+        // Moved here from the Agency Tracker panel (agency-tracker-rehome.md step 7).
+        'bm.performance*', 'bm.agent.performance*', 'admin.performance', 'admin.agent.performance*', 'admin.branch.performance*',
+        'bm.worksheet.market*', 'admin.worksheet-market*'
     )) {
-        // All four links live in the Reports panel, so their routes must open it.
+        // Every link in the Reports panel, so their routes must open it.
         $activeGroup = 'reports';
     }
 
@@ -1007,10 +1009,20 @@
                 @feature('road-to-sold')
                 @permission('access_road_to_sold')
                 @if(\Illuminate\Support\Facades\Route::has('road-to-sold.index'))
-                <a href="{{ route('road-to-sold.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.index', 'road-to-sold.drilldown', 'road-to-sold.report', 'road-to-sold.report.*', 'road-to-sold.add-to-day', 'road-to-sold.outcomes.*', 'road-to-sold.settings.*') ? 'active' : '' }}">Road to Sold</a>
+                <a href="{{ route('road-to-sold.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.index', 'road-to-sold.drilldown', 'road-to-sold.report', 'road-to-sold.report.*', 'road-to-sold.add-to-day', 'road-to-sold.outcomes.*', 'road-to-sold.settings.index', 'road-to-sold.settings.general.*', 'road-to-sold.settings.areas.*', 'road-to-sold.settings.outcomes.*', 'road-to-sold.settings.recipe.*') ? 'active' : '' }}">Road to Sold</a>
                 @endif
                 @endpermission
                 @endfeature
+
+                {{-- AT-454 - Budgets & Targets: the agency's planning numbers (monthly budgets, requirements and targets), NOT part of the Road to Sold
+                     call list, so they are reachable with the Road to Sold switch OFF (Johan, 23 Oct 2026; the routes and the permission are already
+                     ungated). Permission-gated only - no @feature wrap - and exempted by route in SidebarFeatureCoverage::CORE_ROUTES. Same keys as the
+                     screens. The Road to Sold item above lights for its own settings tabs only, so each page lights exactly one item. --}}
+                @if(auth()->user()?->hasPermission('road_to_sold.manage_targets') || auth()->user()?->hasPermission('road_to_sold.manage_settings'))
+                @if(\Illuminate\Support\Facades\Route::has('road-to-sold.settings.budgets.index'))
+                <a href="{{ route('road-to-sold.settings.budgets.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.settings.budgets.*', 'road-to-sold.settings.targets.*') ? 'active' : '' }}">Budgets &amp; Targets</a>
+                @endif
+                @endif
 
                 {{-- Presentations: Presentations | Analytics | Outcomes | Refresh requests | Commercial evaluations. The open refresh-request
                      count (Phase 7) is on its tab and totalled here. Outcomes carries no count (CX, Johan 2026-08-20: a menu count must count
@@ -1418,9 +1430,7 @@
                 {{-- Branch Manager section (view branch stats) --}}
                 @permission('view_branch_stats')
                 <div class="corex-nav-sublabel">Branch</div>
-                @permission('view_performance')
-                <a href="{{ route('bm.performance') }}" class="corex-nav-subitem {{ request()->routeIs('bm.performance*') ? 'active' : '' }}">Branch Performance</a>
-                @endpermission
+                {{-- Branch Performance moved to Reports (agency-tracker-rehome.md step 7). --}}
                 @permission('access_listing_stock')
                 <a href="{{ route('bm.listings') }}" class="corex-nav-subitem {{ request()->routeIs('bm.listings*') ? 'active' : '' }}">Branch Listing Stock</a>
                 @endpermission
@@ -1523,15 +1533,8 @@
                 @endif
                 @endunless
 
-                <div class="corex-nav-sublabel">Setup</div>
-                @permission('access_worksheet_market')
-                <a href="{{ route('bm.worksheet.market') }}" class="corex-nav-subitem {{ request()->routeIs('bm.worksheet.market*') ? 'active' : '' }}">Worksheet Market</a>
-                @endpermission
-                @feature('tv-display')
-                @permission('manage_tv_messages')
-                <a href="{{ route('bm.tv-messages') }}" class="corex-nav-subitem {{ request()->routeIs('bm.tv-messages*') ? 'active' : '' }}">TV Messages</a>
-                @endpermission
-                @endfeature
+                {{-- Worksheet Market (branch) moved to Reports (agency-tracker-rehome.md step 7); the "Setup" label went with it. --}}
+                {{-- TV Messages (branch) moved to Settings > TV Display (agency-tracker-rehome.md step 8). --}}
                 {{-- The @endpermission that used to sit here closed view_branch_stats
                      (which now closes right after the Deal Register/DR2 block above,
                      2026-08-22) — removed, not moved, since view_daily_activity already
@@ -1543,12 +1546,7 @@
                 {{-- Admin section (view company stats) --}}
                 @permission('view_company_stats')
                 <div class="corex-nav-sublabel">Admin</div>
-                @permission('view_performance')
-                <a href="{{ route('admin.performance') }}" class="corex-nav-subitem {{ request()->routeIs('admin.performance') ? 'active' : '' }}">Performance</a>
-                {{-- Performance & ROI Report moved to Tools → Reports (2026-08-20, Johan)
-                     — see the Reports group under the TOOLS SECTION below. Same route,
-                     same permission, one nav location instead of two. --}}
-                @endpermission
+                {{-- Agency Performance moved to Reports (agency-tracker-rehome.md step 7), beside the Performance & ROI Report. --}}
                 @permission('view_listings')
                 {{-- HIDDEN 2026-08-24 (Johan, quick wins) — menu-only hide, legacy/pre-CoreX
                      screen; route + permission gate left fully live. Reversible: delete the
@@ -1578,9 +1576,7 @@
                 @if(false)
                 <a href="{{ route('admin.listings.import') }}" class="corex-nav-subitem {{ request()->routeIs('admin.listings.import*') ? 'active' : '' }}">Import Listings</a>
                 @endif
-                @permission('access_settings')
-                <a href="{{ route('admin.minion.setup') }}" class="corex-nav-subitem {{ request()->routeIs('admin.minion.*') ? 'active' : '' }}">P24 Auto-Import</a>
-                @endpermission
+                {{-- P24 Auto-Import moved to Settings > Operations (agency-tracker-rehome.md step 8); it was hidden behind two unrelated permissions here. --}}
                 @endpermission
                 {{-- Daily Activities group — summary + merged Setup. De-dupe: the Branch
                      "Setup" section above already renders the Setup link for users with
@@ -1597,14 +1593,8 @@
                     @endif
                 @endunless
                 @endunless
-                @permission('edit_worksheet')
-                <a href="{{ route('admin.worksheet-market') }}" class="corex-nav-subitem {{ request()->routeIs('admin.worksheet-market*') ? 'active' : '' }}">Worksheet Market</a>
-                @endpermission
-                @feature('tv-display')
-                @permission('manage_tv_messages')
-                <a href="{{ route('admin.tv-messages') }}" class="corex-nav-subitem {{ request()->routeIs('admin.tv-messages*') ? 'active' : '' }}">TV Messages</a>
-                @endpermission
-                @endfeature
+                {{-- Worksheet Market (agency) moved to Reports (agency-tracker-rehome.md step 7). --}}
+                {{-- TV Messages (admin) moved to Settings > TV Display (agency-tracker-rehome.md step 8). --}}
                 @endpermission
 
                 {{-- Commission Management (admin/owner only) --}}
@@ -1616,24 +1606,8 @@
                 @endif
                 @endfeature
 
-                {{-- Tools (all roles within AT) --}}
-                @permission('access_calculators')
-                <div class="corex-nav-sublabel">Tools</div>
-                <a href="{{ route('tools.commission') }}" class="corex-nav-subitem {{ request()->routeIs('tools.commission') && !request()->query('section') ? 'active' : '' }}">Commission Calculator</a>
-                <a href="{{ route('tools.cma') }}" class="corex-nav-subitem {{ request()->routeIs('tools.cma') ? 'active' : '' }}">Evaluation Certificate</a>
-                @php $evalIsCandidate = auth()->check() ? app(\App\Services\CandidatePractitionerService::class)->isCandidate(auth()->user()) : false; @endphp
-                @if($evalIsCandidate)
-                <a href="{{ route('tools.cma.evaluation.mine') }}" class="corex-nav-subitem {{ request()->routeIs('tools.cma.evaluation.mine') ? 'active' : '' }}">My Evaluations</a>
-                @endif
-                @php $evalPendingAuth = auth()->check() ? app(\App\Services\EvaluationAuthorisationService::class)->pendingCountFor(auth()->user()) : 0; @endphp
-                @if($evalPendingAuth > 0)
-                <a href="{{ route('tools.cma.evaluation.authorisations') }}" class="corex-nav-subitem {{ request()->routeIs('tools.cma.evaluation.authorisations') ? 'active' : '' }}" style="display:flex; align-items:center;">
-                    <span>Pending Authorisations</span>
-                    <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold" style="background:#ef444420; color:#ef4444;">{{ $evalPendingAuth }}</span>
-                </a>
-                @endif
-                <a href="{{ route('tools.commission') }}?section=history" class="corex-nav-subitem {{ request()->routeIs('tools.commission') && request()->query('section') === 'history' ? 'active' : '' }}">History & Logs</a>
-                @endpermission
+                {{-- The Tools block (Commission Calculator, Evaluation Certificate, My Evaluations, Pending Authorisations, History & Logs) moved to
+                     the Calculators main menu below (agency-tracker-rehome.md step 10). --}}
             </div>
         </div>
         @endpermission
@@ -1739,6 +1713,54 @@
             </div>
         </div>
         @endif
+
+        {{-- ═══════════════════════════════════════════
+             CALCULATORS (expandable group) — agency-tracker-rehome.md §11, step 10 (Johan, 20 Oct 2026).
+             For everyone who holds access_calculators: Commission Calculator, Evaluation Certificate, My Evaluations (candidate practitioners only),
+             Pending Authorisations (only when something waits for you), History & Logs, and the calculators hub. These sat in Agency Tracker > Tools;
+             the hub sat inside Trust Interest, which is admin-only. Trust Interest keeps only the trust-account tools. Switchable under
+             Settings > Features > Calculators. Same section (Agents) as before, so nobody loses the door they had.
+             ═══════════════════════════════════════════ --}}
+        @feature('calculators')
+        @permission('access_calculators')
+        <div>
+            <button type="button" @click="push('calculators')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'calculators' ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 15.75V18m-7.5-6.75h.008v.008H8.25v-.008Zm0 2.25h.008v.008H8.25V13.5Zm0 2.25h.008v.008H8.25v-.008Zm0 2.25h.008v.008H8.25V18Zm2.498-6.75h.007v.008h-.007v-.008Zm0 2.25h.007v.008h-.007V13.5Zm0 2.25h.007v.008h-.007v-.008Zm0 2.25h.007v.008h-.007V18Zm2.504-6.75h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V13.5Zm0 2.25h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V18Zm2.498-6.75h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V13.5ZM8.25 6h7.5v2.25h-7.5V6ZM12 2.25c-1.892 0-3.758.11-5.593.322C5.307 2.7 4.5 3.65 4.5 4.757V19.5a2.25 2.25 0 0 0 2.25 2.25h10.5a2.25 2.25 0 0 0 2.25-2.25V4.757c0-1.108-.806-2.057-1.907-2.185A48.507 48.507 0 0 0 12 2.25Z" />
+                </svg>
+                <span>Calculators</span>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div class="corex-nav-panel {{ $activeGroup === 'calculators' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('calculators') }" data-manual-order>
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Calculators</div>
+
+                <a href="{{ route('tools.commission') }}" class="corex-nav-subitem {{ request()->routeIs('tools.commission') && !request()->query('section') ? 'active' : '' }}">Commission Calculator</a>
+                <a href="{{ route('tools.cma') }}" class="corex-nav-subitem {{ request()->routeIs('tools.cma') ? 'active' : '' }}">Evaluation Certificate</a>
+                @php $evalIsCandidate = auth()->check() ? app(\App\Services\CandidatePractitionerService::class)->isCandidate(auth()->user()) : false; @endphp
+                @if($evalIsCandidate)
+                <a href="{{ route('tools.cma.evaluation.mine') }}" class="corex-nav-subitem {{ request()->routeIs('tools.cma.evaluation.mine') ? 'active' : '' }}">My Evaluations</a>
+                @endif
+                @php $evalPendingAuth = auth()->check() ? app(\App\Services\EvaluationAuthorisationService::class)->pendingCountFor(auth()->user()) : 0; @endphp
+                @if($evalPendingAuth > 0)
+                <a href="{{ route('tools.cma.evaluation.authorisations') }}" class="corex-nav-subitem {{ request()->routeIs('tools.cma.evaluation.authorisations') ? 'active' : '' }}" style="display:flex; align-items:center;">
+                    <span>Pending Authorisations</span>
+                    <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold" style="background:#ef444420; color:#ef4444;">{{ $evalPendingAuth }}</span>
+                </a>
+                @endif
+                <a href="{{ route('tools.commission') }}?section=history" class="corex-nav-subitem {{ request()->routeIs('tools.commission') && request()->query('section') === 'history' ? 'active' : '' }}">History & Logs</a>
+                @if(\Illuminate\Support\Facades\Route::has('calculators.index'))
+                <a href="{{ route('calculators.index') }}" class="corex-nav-subitem {{ request()->routeIs('calculators.*') ? 'active' : '' }}">More Calculators</a>
+                @endif
+            </div>
+        </div>
+        @endpermission
+        @endfeature
 
         {{-- ═══════════════════════════════════════════
              DOCUMENTS (DocuPerfect — expandable group)
@@ -2146,7 +2168,7 @@
              link off Market Intelligence). Gated by its own existing permission
              (access_prospecting + prospecting feature — same as the route
              itself), not a new key. --}}
-        @if($user && (($user->hasPermission('view_performance') && feature('performance-roi-report')) || ($user->hasPermission('view_buyers_report') && (feature('buyers-report') || feature('lead-response-report'))) || ($user->hasPermission('access_prospecting') && feature('prospecting'))))
+        @if($user && (($user->hasPermission('view_performance') && feature('performance-roi-report')) || ($user->hasPermission('view_buyers_report') && (feature('buyers-report') || feature('lead-response-report'))) || ($user->hasPermission('access_prospecting') && feature('prospecting')) || (feature('agency-tracker') && ($user->hasPermission('view_performance') || $user->hasPermission('access_worksheet_market') || $user->hasPermission('edit_worksheet')))))
         <div>
             <button type="button" @click="push('reports')"
                     class="corex-nav-item corex-nav-group-toggle {{ $groupOpen('reports') ? 'active' : '' }}">
@@ -2168,6 +2190,25 @@
                 @permission('view_performance')
                 <a href="{{ route('performance.agency-report') }}" class="corex-nav-subitem {{ request()->routeIs('performance.agency-report*') ? 'active' : '' }}">Performance &amp; ROI Report</a>
                 @endpermission
+                @endfeature
+
+                {{-- Moved here from the Agency Tracker panel (agency-tracker-rehome.md step 7, Johan 20 Oct 2026). Same permissions as before the
+                     move, and the same Agency Tracker switch they always sat behind (no new feature row): Branch Performance (a branch manager's),
+                     Agency Performance (the whole agency; was just "Performance"), and the two Worksheet Market pages - kept for agencies that set
+                     budgets. Opening any of them, or an agent's drill-down from them, lights its link here. --}}
+                @feature('agency-tracker')
+                @if($user->hasPermission('view_branch_stats') && $user->hasPermission('view_performance'))
+                <a href="{{ route('bm.performance') }}" class="corex-nav-subitem {{ request()->routeIs('bm.performance*', 'bm.agent.performance*', 'admin.branch.performance*') ? 'active' : '' }}">Branch Performance</a>
+                @endif
+                @if($user->hasPermission('view_company_stats') && $user->hasPermission('view_performance'))
+                <a href="{{ route('admin.performance') }}" class="corex-nav-subitem {{ request()->routeIs('admin.performance', 'admin.agent.performance*') ? 'active' : '' }}">Agency Performance</a>
+                @endif
+                @permission('access_worksheet_market')
+                <a href="{{ route('bm.worksheet.market') }}" class="corex-nav-subitem {{ request()->routeIs('bm.worksheet.market*') ? 'active' : '' }}">Branch Worksheet Market</a>
+                @endpermission
+                @if($user->hasPermission('view_company_stats') && $user->hasPermission('edit_worksheet'))
+                <a href="{{ route('admin.worksheet-market') }}" class="corex-nav-subitem {{ request()->routeIs('admin.worksheet-market*') ? 'active' : '' }}">Agency Worksheet Market</a>
+                @endif
                 @endfeature
 
                 @feature('buyers-report')
@@ -2208,7 +2249,7 @@
         @endif
 
         {{-- Trust Interest (slide-panel group) --}}
-        @if($user && $user->hasAnyPermission(['access_trust_interest', 'access_deposit_calculator', 'access_deposit_calc_history', 'access_calculators']))
+        @if($user && $user->hasAnyPermission(['access_trust_interest', 'access_deposit_calculator', 'access_deposit_calc_history']))
         @feature('trust-interest')
         <div>
             <button type="button" @click="push('trust-interest')"
@@ -2250,13 +2291,7 @@
                 @endif
                 @endpermission
 
-                @feature('calculators')
-                @permission('access_calculators')
-                @if(\Illuminate\Support\Facades\Route::has('calculators.index'))
-                <a href="{{ route('calculators.index') }}" class="corex-nav-subitem {{ request()->routeIs('calculators.*') ? 'active' : '' }}">Calculators</a>
-                @endif
-                @endpermission
-                @endfeature
+                {{-- The calculators hub moved to the Calculators main menu (agency-tracker-rehome.md step 10): Trust Interest is admin-only, calculators are for everyone. --}}
             </div>
         </div>
         @endfeature
@@ -2679,7 +2714,7 @@
                 <div class="corex-nav-panel-title">Settings</div>
 
                 @permission('access_settings')
-                <a href="{{ route('corex.settings') }}" class="corex-nav-subitem {{ (request()->routeIs('corex.settings*', 'payroll.leave.types.*') || request()->routeIs('admin.settings.document-types.*') || request()->routeIs('admin.p24-suburbs.*') || request()->routeIs('deals-v2.settings.service-types.*')) ? 'active' : '' }}">Settings</a>
+                <a href="{{ route('corex.settings') }}" class="corex-nav-subitem {{ (request()->routeIs('corex.settings*', 'admin.minion.*', 'payroll.leave.types.*') || request()->routeIs('admin.settings.document-types.*') || request()->routeIs('admin.p24-suburbs.*') || request()->routeIs('deals-v2.settings.service-types.*')) ? 'active' : '' }}">Settings</a>
                 @endpermission
 
                 @permission('agency_features.manage')

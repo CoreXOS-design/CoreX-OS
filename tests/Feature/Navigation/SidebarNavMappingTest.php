@@ -147,8 +147,8 @@ final class SidebarNavMappingTest extends TestCase
         $rules = $result['rules'];
 
         $expectations = [
-            'tools.cma.evaluation.mine' => 'agency-tracker',
-            'tools.cma.evaluation.authorisations' => 'agency-tracker',
+            'tools.cma.evaluation.mine' => 'calculators',
+            'tools.cma.evaluation.authorisations' => 'calculators',
             'admin.media-encryption.status' => 'api-server',
             'corex.rental-notices.index' => 'rental-applications',
             'corex.rental-notices.show' => 'rental-applications',
