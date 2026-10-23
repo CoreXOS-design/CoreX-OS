@@ -144,7 +144,7 @@ final class RecipeCatalogue
 
     public static function eventLabel(?string $class): string
     {
-        return $class && isset(self::EVENTS[$class]) ? self::EVENTS[$class]['label'] : 'Not linked to an event';
+        return $class && isset(self::EVENTS[$class]) ? self::EVENTS[$class]['label'] : 'Credited by CoreX (not tied to one event)';
     }
 
     /** @return array<string,string> class => label, for a picker */

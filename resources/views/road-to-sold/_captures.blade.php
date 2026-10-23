@@ -7,11 +7,37 @@
     $filtered = collect(['q', 'task', 'step', 'state', 'source', 'from', 'to'])->contains(fn ($k) => ($captureFilters[$k] ?? '') !== '' && ($captureFilters[$k] ?? null) !== null)
         || ($captureFilters['status'] ?? 'active') !== 'active';
 @endphp
+@if($isTeam)
+    {{-- Points per agent over the range (default: this month so far), split manual / automatic through the one shared rule. --}}
+    <div class="rounded-md overflow-x-auto mb-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <table class="w-full text-xs ds-table">
+            <thead>
+                <tr style="color: var(--text-muted);">
+                    <th class="px-3 py-2 text-left">Agent</th>
+                    <th class="px-3 py-2 text-right">Done</th>
+                    <th class="px-3 py-2 text-right">Points</th>
+                </tr>
+            </thead>
+            <tbody>
+            @forelse($teamTotals as $t)
+                <tr style="border-top: 1px solid var(--border);">
+                    <td class="px-3 py-2" style="color: var(--text-primary);"><a href="{{ route('road-to-sold.index', ['agent' => $t['user_id']] + \App\Services\RoadToSold\Track::params($track)) }}" class="font-semibold underline">{{ $t['name'] }}</a></td>
+                    <td class="px-3 py-2 text-right" style="color: var(--text-primary);">{{ $t['done'] }}</td>
+                    <td class="px-3 py-2 text-right"><x-points-split-total :split="['manual' => $t['manual'], 'automatic' => $t['automatic'], 'total' => $t['total']]" size="sm" /></td>
+                </tr>
+            @empty
+                <tr><td colspan="3" class="px-6 py-8 text-center" style="color: var(--text-muted);">No points in this period.</td></tr>
+            @endforelse
+            </tbody>
+        </table>
+    </div>
+@endif
 <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ editing: null }">
     <table class="w-full text-xs ds-table">
         <thead>
             <tr style="color: var(--text-muted);">
                 <th class="px-3 py-2 text-left">When</th>
+                @if($isTeam)<th class="px-3 py-2 text-left">Agent</th>@endif
                 <th class="px-3 py-2 text-left">Task</th>
                 <th class="px-3 py-2 text-right">Done</th>
                 <th class="px-3 py-2 text-right">Points</th>
@@ -26,6 +52,7 @@
             @php $archived = $c->trashed(); $mine = $c->source === 'captured'; @endphp
             <tr style="border-top: 1px solid var(--border);{{ $archived ? ' opacity: .65;' : '' }}">
                 <td class="px-3 py-2 whitespace-nowrap" style="color: var(--text-primary);">{{ \App\Support\AppDate::dateTime($c->occurred_at) }}</td>
+                @if($isTeam)<td class="px-3 py-2" style="color: var(--text-primary);">{{ $c->agent?->name }}</td>@endif
                 <td class="px-3 py-2" style="color: var(--text-primary);">
                     <div class="font-semibold">{{ $c->task?->label ?? '-' }}</div>
                     <div style="color: var(--text-muted);">{{ $c->step?->label }}</div>
@@ -75,7 +102,7 @@
             </tr>
         @empty
             <tr>
-                <td colspan="8" class="px-6 py-12 text-center">
+                <td colspan="{{ $isTeam ? 9 : 8 }}" class="px-6 py-12 text-center">
                     <div class="text-base font-semibold" style="color: var(--text-primary);">
                         {{ $filtered ? 'Nothing matches this search.' : 'Nothing has been recorded yet.' }}
                     </div>

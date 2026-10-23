@@ -1965,24 +1965,24 @@ Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::cla
 
     // Agent Daily Activity (agent menu link)
       // Agent Daily Activity (locked to agents only)
-      Route::get('/agent/daily', [\App\Http\Controllers\Agent\DailyActivityController::class, 'index'])->middleware('permission:access_daily_activity')->name('agent.daily');
-Route::get('/agent/daily/summary', [\App\Http\Controllers\Agent\DailyActivitySummaryController::class, 'index'])->middleware('permission:view_daily_activity')->name('agent.daily.summary');
-Route::get('/agent/daily/summary/activity/{definition}', [\App\Http\Controllers\Agent\DailyActivitySummaryController::class, 'activity'])->middleware('permission:view_daily_activity')->name('agent.daily.summary.activity');
+      Route::get('/agent/daily', [\App\Http\Controllers\Agent\DailyActivityController::class, 'index'])->middleware(['permission:access_daily_activity', 'daily.moved:capture'])->name('agent.daily');
+Route::get('/agent/daily/summary', [\App\Http\Controllers\Agent\DailyActivitySummaryController::class, 'index'])->middleware(['permission:view_daily_activity', 'daily.moved:summary'])->name('agent.daily.summary');
+Route::get('/agent/daily/summary/activity/{definition}', [\App\Http\Controllers\Agent\DailyActivitySummaryController::class, 'activity'])->middleware(['permission:view_daily_activity', 'daily.moved:summary'])->name('agent.daily.summary.activity');
 
 
-Route::get('/bm/daily/summary', [\App\Http\Controllers\BM\DailyActivitySummaryController::class, 'index'])->middleware('permission:view_daily_activity')->name('bm.daily.summary');
-Route::get('/bm/daily/summary/activity/{definition}', [\App\Http\Controllers\BM\DailyActivitySummaryController::class, 'activity'])->middleware('permission:view_daily_activity')->name('bm.daily.summary.activity');
-Route::get('/bm/daily/summary/activity/{definition}/agent/{user}', [\App\Http\Controllers\BM\DailyActivitySummaryController::class, 'agent'])->middleware('permission:view_daily_activity')->name('bm.daily.summary.activity.agent');
+Route::get('/bm/daily/summary', [\App\Http\Controllers\BM\DailyActivitySummaryController::class, 'index'])->middleware(['permission:view_daily_activity', 'daily.moved:team'])->name('bm.daily.summary');
+Route::get('/bm/daily/summary/activity/{definition}', [\App\Http\Controllers\BM\DailyActivitySummaryController::class, 'activity'])->middleware(['permission:view_daily_activity', 'daily.moved:team'])->name('bm.daily.summary.activity');
+Route::get('/bm/daily/summary/activity/{definition}/agent/{user}', [\App\Http\Controllers\BM\DailyActivitySummaryController::class, 'agent'])->middleware(['permission:view_daily_activity', 'daily.moved:team'])->name('bm.daily.summary.activity.agent');
 
-Route::get('/admin/daily/summary', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'index'])->middleware('permission:view_daily_activity')->name('admin.daily.summary');
-Route::get('/admin/daily/summary/activity/{definition}', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'activity'])->middleware('permission:view_daily_activity')->name('admin.daily.summary.activity');
-Route::get('/admin/daily/summary/activity/{definition}/branch/{branch}', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'branch'])->middleware('permission:view_daily_activity')->name('admin.daily.summary.activity.branch');
-Route::get('/admin/daily/summary/activity/{definition}/branch/{branch}/agent/{user}', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'agent'])->middleware('permission:view_daily_activity')->name('admin.daily.summary.activity.branch.agent');
+Route::get('/admin/daily/summary', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'index'])->middleware(['permission:view_daily_activity', 'daily.moved:team'])->name('admin.daily.summary');
+Route::get('/admin/daily/summary/activity/{definition}', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'activity'])->middleware(['permission:view_daily_activity', 'daily.moved:team'])->name('admin.daily.summary.activity');
+Route::get('/admin/daily/summary/activity/{definition}/branch/{branch}', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'branch'])->middleware(['permission:view_daily_activity', 'daily.moved:team'])->name('admin.daily.summary.activity.branch');
+Route::get('/admin/daily/summary/activity/{definition}/branch/{branch}/agent/{user}', [\App\Http\Controllers\Admin\DailyActivitySummaryController::class, 'agent'])->middleware(['permission:view_daily_activity', 'daily.moved:team'])->name('admin.daily.summary.activity.branch.agent');
 
 
 Route::get('/agent/daily/print', [\App\Http\Controllers\Agent\DailyActivityController::class, 'printSheet'])
-    ->middleware('permission:access_daily_activity')->name('agent.daily.print');
-        Route::post('/agent/daily', [\App\Http\Controllers\Agent\DailyActivityController::class, 'store'])->middleware('permission:access_daily_activity');
+    ->middleware(['permission:access_daily_activity', 'daily.moved:capture'])->name('agent.daily.print');
+        Route::post('/agent/daily', [\App\Http\Controllers\Agent\DailyActivityController::class, 'store'])->middleware(['permission:access_daily_activity', 'daily.moved:capture']);
 // admin.targets.activity.setup was a dead stub that only ever redirected to
 // admin.targets.activity.definitions. Both names now point at the merged
 // Daily Activities Setup screen (2026-08 consolidation) so any stale link
@@ -2012,9 +2012,9 @@ Route::get('/admin/targets/activity-definitions', function () {
     Route::prefix('admin/daily-activities/setup')
         ->middleware(['permission:manage_targets,manage_activity_mappings'])
         ->group(function () {
-            Route::get('/', [\App\Http\Controllers\Admin\DailyActivitySetupController::class, 'index'])->name('admin.daily-activities.setup');
-            Route::post('/definition', [\App\Http\Controllers\Admin\DailyActivitySetupController::class, 'storeDefinition'])->name('admin.daily-activities.setup.store-definition');
-            Route::put('/definition/{id}', [\App\Http\Controllers\Admin\DailyActivitySetupController::class, 'updateDefinition'])->whereNumber('id')->name('admin.daily-activities.setup.update-definition');
+            Route::get('/', [\App\Http\Controllers\Admin\DailyActivitySetupController::class, 'index'])->middleware('daily.moved:setup')->name('admin.daily-activities.setup');
+            Route::post('/definition', [\App\Http\Controllers\Admin\DailyActivitySetupController::class, 'storeDefinition'])->middleware('daily.moved:setup')->name('admin.daily-activities.setup.store-definition');
+            Route::put('/definition/{id}', [\App\Http\Controllers\Admin\DailyActivitySetupController::class, 'updateDefinition'])->whereNumber('id')->middleware('daily.moved:setup')->name('admin.daily-activities.setup.update-definition');
             Route::put('/mapping/{id}', [\App\Http\Controllers\Admin\DailyActivitySetupController::class, 'updateMapping'])->whereNumber('id')->name('admin.daily-activities.setup.update-mapping');
             Route::post('/mapping/{id}/toggle-active', [\App\Http\Controllers\Admin\DailyActivitySetupController::class, 'toggleMapping'])->whereNumber('id')->name('admin.daily-activities.setup.toggle-mapping');
         });

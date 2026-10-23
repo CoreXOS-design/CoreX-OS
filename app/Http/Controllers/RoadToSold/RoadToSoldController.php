@@ -61,7 +61,9 @@ class RoadToSoldController extends Controller
         $date = $this->list->resolveDate($request->query('date'));
         $this->buildIfMissing($viewer, $agentId, $date, $viewingOwn, $track);
 
-        $isCaptures = $request->query('view') === 'captures';
+        // 'team' is the captures list for every agent the viewer may see (managers and admins); with one agent it is just the captures.
+        $isTeam = $request->query('view') === 'team' && $agents->count() > 1;
+        $isCaptures = $isTeam || in_array($request->query('view'), ['captures', 'team'], true);
         $listFilters = [
             'view'      => $request->query('view'),
             'status'    => $request->query('status'),
@@ -103,6 +105,7 @@ class RoadToSoldController extends Controller
         $nextAction = $this->nextAction->resolve($progress, $feeds, $this->todaysOpen($viewer, $agentId, $date, $track, $isCaptures, $listFilters, $data), $viewingOwn);
         $captureTasks = $viewingOwn && $agentUser ? $this->capture->capturableTasks($agentUser, $track) : collect();
         $captures = null;
+        $teamTotals = [];
         $captureFilters = [];
         $captureChoices = ['tasks' => [], 'steps' => []];
         if ($isCaptures) {
@@ -110,9 +113,14 @@ class RoadToSoldController extends Controller
                 'q' => (string) $request->query('q', ''), 'sort' => $request->query('sort'), 'dir' => $request->query('dir'),
                 'task' => $request->query('task'), 'step' => $request->query('step'), 'state' => $request->query('state'),
                 'source' => $request->query('source'), 'status' => $request->query('status'), 'from' => $request->query('from'),
-                'to' => $request->query('to'), 'page' => $request->query('page'),
+                'to' => $request->query('to'), 'page' => $request->query('page'), 'agent' => $request->query('agent_filter'),
             ];
-            $captures = $this->completionList->page($viewer, $agentId, $captureFilters, $track);
+            $captures = $this->completionList->page($viewer, $isTeam ? null : $agentId, $captureFilters, $track);
+            if ($isTeam) {
+                $from = $this->dayOr($request->query('from'), $date->copy()->startOfMonth()->toDateString());
+                $to = $this->dayOr($request->query('to'), $date->toDateString());
+                $teamTotals = $this->completionList->teamTotals($viewer, $agents->pluck('id')->all(), $from, $to);
+            }
             $captureChoices = $this->completionList->filterChoices($agencyId, $track);
         }
 
@@ -122,6 +130,8 @@ class RoadToSoldController extends Controller
             'nextAction'     => $nextAction,
             'captureTasks'   => $captureTasks,
             'isCaptures'     => $isCaptures,
+            'isTeam'         => $isTeam,
+            'teamTotals'     => $teamTotals,
             'captures'       => $captures,
             'captureFilters' => $captureFilters,
             'captureChoices' => $captureChoices,
@@ -139,7 +149,7 @@ class RoadToSoldController extends Controller
             'viewingOwn'     => $viewingOwn,
             'date'           => $date,
             'filters'        => [
-                'view'      => $isCaptures ? 'captures' : (in_array($request->query('view'), CallListService::VIEWS, true) ? $request->query('view') : 'today'),
+                'view'      => $isTeam ? 'team' : ($isCaptures ? 'captures' : (in_array($request->query('view'), CallListService::VIEWS, true) ? $request->query('view') : 'today')),
                 'status'    => in_array($request->query('status'), CallListService::STATUSES, true) ? $request->query('status') : 'open',
                 'selection' => (string) $request->query('selection', ''),
                 'q'         => (string) $request->query('q', ''),
@@ -152,6 +162,16 @@ class RoadToSoldController extends Controller
             'addChoices'        => collect(\App\Services\RoadToSold\SettingsService::forUser($viewer, $track)->selections())
                 ->where('enabled', true)->pluck('label', 'key')->all(),
         ]);
+    }
+
+    /** A date the agent typed, or the default when it is empty or not a date. */
+    private function dayOr(mixed $value, string $default): string
+    {
+        try {
+            return $value ? \Carbon\Carbon::parse((string) $value)->toDateString() : $default;
+        } catch (\Throwable) {
+            return $default;
+        }
     }
 
     /**

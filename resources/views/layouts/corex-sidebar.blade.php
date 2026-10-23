@@ -1408,9 +1408,14 @@
                 <a href="{{ route('worksheet.index') }}" class="corex-nav-subitem {{ request()->routeIs('worksheet.*') ? 'active' : '' }}">Worksheet</a>
                 @endpermission
 
+                {{-- AT-454 v2 phase 3: an agency whose daily activity has moved into Road to Sold (road-to-sold.md section 7) no longer shows the old
+                     Daily Activities groups below - the summaries are Road to Sold's Captures / Team views, the setup is its Recipe tab. The routes still
+                     resolve (they redirect), so nothing breaks; an agency not moved keeps its menu exactly as it was. --}}
+                @php $dailyMoved = \App\Services\Activity\ActivityPointsService::usesCompletions((int) (auth()->user()?->effectiveAgencyId() ?: 0)); @endphp
                 {{-- Agent section (view own stats) --}}
                 @permission('view_own_stats')
                 <div class="corex-nav-sublabel">My Performance</div>
+                @unless($dailyMoved)
                 @permission('view_daily_activity')
                 <div class="corex-nav-sublabel">Daily Activities</div>
                 <a href="{{ route('agent.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('agent.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
@@ -1418,6 +1423,7 @@
                 @if(auth()->user()?->hasPermission('manage_targets') || auth()->user()?->hasPermission('manage_activity_mappings'))
                 <a href="{{ route('admin.daily-activities.setup') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily-activities.setup*') ? 'active' : '' }}">Setup</a>
                 @endif
+                @endunless
                 {{-- My Deals moved to the Deals main menu (agency-tracker-rehome.md §8.2, step 6). --}}
                 @endpermission
 
@@ -1517,6 +1523,7 @@
                 @endif
 
                 {{-- Daily Activities group — summary + merged Setup. The capture form is reached from My Portal > My Activity. --}}
+                @unless($dailyMoved)
                 @permission('view_daily_activity')
                 <div class="corex-nav-sublabel">Daily Activities</div>
                 <a href="{{ route('bm.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('bm.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
@@ -1524,6 +1531,7 @@
                 @if(auth()->user()?->hasPermission('manage_targets') || auth()->user()?->hasPermission('manage_activity_mappings'))
                 <a href="{{ route('admin.daily-activities.setup') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily-activities.setup*') ? 'active' : '' }}">Setup</a>
                 @endif
+                @endunless
 
                 {{-- Worksheet Market (branch) moved to Reports (agency-tracker-rehome.md step 7); the "Setup" label went with it. --}}
                 {{-- TV Messages (branch) moved to Settings > TV Display (agency-tracker-rehome.md step 8). --}}
@@ -1574,6 +1582,7 @@
                      "Setup" section above already renders the Setup link for users with
                      view_branch_stats — only render it here for company-admins who don't
                      see that section, so it appears exactly once. --}}
+                @unless($dailyMoved)
                 @permission('view_daily_activity')
                 <div class="corex-nav-sublabel">Daily Activities</div>
                 <a href="{{ route('admin.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
@@ -1582,6 +1591,7 @@
                     @if(auth()->user()?->hasPermission('manage_targets') || auth()->user()?->hasPermission('manage_activity_mappings'))
                     <a href="{{ route('admin.daily-activities.setup') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily-activities.setup*') ? 'active' : '' }}">Setup</a>
                     @endif
+                @endunless
                 @endunless
                 {{-- Worksheet Market (agency) moved to Reports (agency-tracker-rehome.md step 7). --}}
                 {{-- TV Messages (admin) moved to Settings > TV Display (agency-tracker-rehome.md step 8). --}}

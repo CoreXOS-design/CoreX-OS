@@ -1463,5 +1463,11 @@
       "NO_ITEM"
     ],
     "reason": "Redirect-only address (agency-tracker-rehome.md step 8): the TV Messages screens moved to Settings > TV Display (corex.settings.tv-display.index), and this old name answers a 301 to it. It has no menu item of its own any more - by design - and never renders a page, so there is nothing to light."
+  },
+  "road-to-sold.captures.photo": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "A photo attached to a captured task (Road to Sold v2 phase 2) - a file stream opened from the Photo link in the Captures list on the Road to Sold page, no sidebar link by design. Same family as the other evidence-file routes."
   }
 }

@@ -39,11 +39,11 @@ class RecipeService
      *
      * @return array{steps:int,tasks:int,levels:int}  how many rows were created
      */
-    public function start(int $agencyId, string $track = 'sales'): array
+    public function start(int $agencyId, string $track = 'sales', bool $withDefaultTasks = true): array
     {
         $made = ['steps' => 0, 'tasks' => 0, 'levels' => 0];
 
-        DB::transaction(function () use ($agencyId, $track, &$made) {
+        DB::transaction(function () use ($agencyId, $track, $withDefaultTasks, &$made) {
             $position = 0;
             $stepIds  = [];
             foreach (RecipeCatalogue::STEPS as $key => [$group, $label]) {
@@ -71,7 +71,7 @@ class RecipeService
             }
 
             $sort = 0;
-            foreach (RecipeCatalogue::defaultTasks() as $def) {
+            foreach ($withDefaultTasks ? RecipeCatalogue::defaultTasks() : [] as $def) {
                 $sort++;
                 $task = RtsTask::query()->withoutGlobalScope(AgencyScope::class)->withTrashed()
                     ->where('agency_id', $agencyId)->where('track', $track)->where('key', $def['key'])->first();
@@ -176,10 +176,12 @@ class RecipeService
         $filter   = null;
         if ($type === RtsTask::TYPE_CORE) {
             // An automatic task can only be bound to an event that really fires (spec 10.5).
-            if (! RecipeCatalogue::isSelectable($data['event_key'] ?? null)) {
+            // A task moved over from the old daily activities is credited by CoreX's own detectors, not by a bound event: it may stay so.
+            $creditedByCoreX = $task && $task->legacy_activity_definition_id && trim((string) ($data['event_key'] ?? '')) === '';
+            if (! $creditedByCoreX && ! RecipeCatalogue::isSelectable($data['event_key'] ?? null)) {
                 throw ValidationException::withMessages(['event_key' => 'Pick what completes this task from the list of things CoreX records.']);
             }
-            $eventKey = $data['event_key'];
+            $eventKey = $creditedByCoreX ? null : $data['event_key'];
             $fact     = trim((string) ($data['filter_fact'] ?? ''));
             $value    = trim((string) ($data['filter_value'] ?? ''));
             if ($fact !== '' || $value !== '') {

@@ -83,13 +83,14 @@ class CompanyPerformanceService
               ->get()
               ->keyBy('user_id');
         // The one shared points rule (ActivityPointsService): count x weight over every counted entry.
-        $daily = ActivityPointsService::counted($agencyId, 'dae', 'ad')
+        $dailyQuery = ActivityPointsService::counted($agencyId, 'dae', 'ad');
+        $daily = $dailyQuery
             ->whereIn('dae.user_id', $agentIds)
             ->where('dae.period', $period)
             ->groupBy('dae.user_id')
-            ->selectRaw('dae.user_id as user_id, COUNT(*) as rows_count, COALESCE(SUM(' . ActivityPointsService::sqlPoints('dae', 'ad') . '),0) as points_sum'
-                . ', COALESCE(SUM(' . ActivityPointsService::splitExpressions('dae', 'ad')[0] . '),0) as points_manual'
-                . ', COALESCE(SUM(' . ActivityPointsService::splitExpressions('dae', 'ad')[1] . '),0) as points_auto')
+            ->selectRaw('dae.user_id as user_id, COUNT(*) as rows_count, COALESCE(SUM(' . ActivityPointsService::pointsExpr($dailyQuery, 'dae', 'ad') . '),0) as points_sum'
+                . ', COALESCE(SUM(' . ActivityPointsService::splitExprs($dailyQuery, 'dae', 'ad')[0] . '),0) as points_manual'
+                . ', COALESCE(SUM(' . ActivityPointsService::splitExprs($dailyQuery, 'dae', 'ad')[1] . '),0) as points_auto')
             ->get()
             ->keyBy('user_id');
 $branches = DB::table('branches')

@@ -26,6 +26,7 @@
     ];
     $money = fn ($v) => $v ? 'R ' . number_format((int) $v, 0, '.', ',') : '';
     $viewLabels = ['today' => 'Today\'s list', 'no_answer' => 'No answer', 'wrong_number' => 'Wrong number', 'no_owner' => 'No owner', 'captures' => 'Captures'];
+    if ($agents->count() > 1) { $viewLabels['team'] = 'Team'; }
     $statusLabels = ['open' => 'Open', 'worked' => 'Worked', 'missed' => 'Missed', 'all' => 'All'];
     $sortLabels = $isCaptures
         ? \App\Services\RoadToSold\CompletionListService::SORTS
@@ -47,7 +48,7 @@
                     <span class="text-xs" style="color: var(--text-primary);"><strong>{{ $counts['worked'] }} of {{ $counts['target_items'] }}</strong> worked {{ $date->isToday() ? 'today' : 'on ' . $date->format('j M') }}@if($counts['added'] > 0)<span style="color: var(--text-muted);"> · {{ $counts['added_worked'] }} of {{ $counts['added'] }} added on top</span>@endif</span>
                 @endif
                 @if($progress['counted'] > 0)<span class="text-xs" style="color: var(--text-primary);"><strong>{{ $progress['met'] }} of {{ $progress['counted'] }}</strong> targets met</span>@endif
-                @if($progress['level'])<span class="text-xs" style="color: var(--text-primary);"><strong>{{ rtrim(rtrim(number_format($progress['points'], 2), '0'), '.') }}</strong> points in {{ $progress['points_label'] }}</span>@endif
+                @if($progress['level'])<span class="text-xs inline-flex items-center gap-2" style="color: var(--text-primary);"><span><strong>{{ number_format($progress['points'], 0) }}</strong> points in {{ $progress['points_label'] }}</span><x-points-split-total :split="$progress['points_split']" split-only /></span>@endif
             </div>
             <div class="flex items-center gap-2 flex-wrap">
                 @if($agents->count() > 1)
@@ -126,6 +127,15 @@
             <input id="rts-q" type="text" name="q" value="{{ $isCaptures ? ($cf['q'] ?? '') : $filters['q'] }}" placeholder="{{ $isCaptures ? 'Task or note' : 'Address, suburb, owner or phone' }}" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }} min-width: 14rem;">
         </div>
         @if($isCaptures)
+            @if($isTeam)
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-agentf">Agent</label>
+                    <select id="rts-agentf" name="agent_filter" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
+                        <option value="">All agents</option>
+                        @foreach($agents as $a)<option value="{{ $a->id }}" @selected((string) ($cf['agent'] ?? '') === (string) $a->id)>{{ $a->name }}</option>@endforeach
+                    </select>
+                </div>
+            @endif
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-task">Task</label>
                 <select id="rts-task" name="task" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
