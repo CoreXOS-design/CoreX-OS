@@ -194,7 +194,7 @@ final class BudgetService
         }
 
         return RtsBudget::query()->where('agency_id', $agencyId)->where('track', $track)->where('level', RtsBudget::LEVEL_BRANCH)
-            ->where('period', $period)->whereNotNull('branch_id')->pluck('requirement', 'branch_id')
+            ->where('period', $period)->where('branch_id', '>', 0)->pluck('requirement', 'branch_id')
             ->map(fn ($v) => (float) $v)->all();
     }
 
