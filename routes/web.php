@@ -7678,6 +7678,7 @@ Route::prefix('sign')->group(function () {
     // AT-373 reject flow (Johan 2026-08-12) — the recipient removes a change the agent REJECTED and sent
     // back (authorised by the reject-return marker, not the pre-sign "no other party signed" rule).
     Route::post('/{token}/remove-rejected', [\App\Http\Controllers\Docuperfect\SigningController::class, 'removeRejectedItem'])->name('signatures.external.removeRejected');
+    Route::post('/{token}/adopt', [\App\Http\Controllers\Docuperfect\SigningController::class, 'adopt'])->name('signatures.external.adopt');
     Route::post('/{token}/complete-web', [\App\Http\Controllers\Docuperfect\SigningController::class, 'completeWeb'])->name('signatures.external.completeWeb');
     Route::post('/{token}/complete', [\App\Http\Controllers\Docuperfect\SigningController::class, 'complete'])->name('signatures.external.complete');
     Route::get('/{token}/completed', [\App\Http\Controllers\Docuperfect\SigningController::class, 'completed'])->name('signatures.external.completed');

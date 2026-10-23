@@ -728,6 +728,7 @@ class SigningController extends Controller
             'wetInkRejected' => $wetInkRejected,
             'hasFlattened' => $hasFlattened,
             'isWebTemplate' => $isWebTemplate,
+            'adoption' => $this->adoptionStateFor($signingRequest, $isWebTemplate),
             'webTemplateHtml' => $webTemplateHtml,
             'editableFields' => $editableFields,
             'signerRole' => $signingRequest->party_role,
@@ -1798,6 +1799,77 @@ class SigningController extends Controller
     }
 
     /**
+     * esign-signing-modes.md (Modes 2/3, Build step 3) — the signer adopts their signature and initial ONCE and agrees
+     * to the stored wording. Recorded as an append-only adoption (re-adopting is a new generation). Same guards as
+     * completeWeb: a blocked / identity-gated / not-yet-their-turn link cannot adopt.
+     */
+    public function adopt(Request $request, $token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)->with('template.document')->firstOrFail();
+
+        if ($signingRequest->isSigningBlocked()) {
+            return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
+        }
+        if ($gate = $this->identityGateResponse($signingRequest, $token)) {
+            return $gate;
+        }
+        if ($signingRequest->status === SignatureRequest::STATUS_WAITING) {
+            return response()->json(['ok' => false, 'error' => 'It is not your turn to sign yet. Please wait for notification.'], 403);
+        }
+
+        $data = $request->validate([
+            'signature_image' => 'required|string',
+            'initial_image' => 'required|string',
+            'agreed' => 'accepted',
+        ]);
+
+        $service = app(\App\Services\Docuperfect\SignatureAdoptionService::class);
+        if (! $service->required($signingRequest)) {
+            return response()->json(['ok' => false, 'error' => 'This document does not use an adopted signature.'], 409);
+        }
+
+        try {
+            $adoption = $service->adopt($signingRequest, $data['signature_image'], $data['initial_image'], $request);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['ok' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'adoption' => ['id' => $adoption->id, 'generation' => $adoption->generation, 'disclaimer_version' => $adoption->disclaimer_version],
+        ]);
+    }
+
+    /**
+     * What the signing page needs to run the adoption step: whether it is required for this signer on this document,
+     * the exact wording to show, and — if they have already adopted (a reload) — their adopted marks.
+     * Only web/CDS documents have a place-by-place ceremony to adopt for; a PDF-marker document always signs every place.
+     *
+     * @return array<string,mixed>
+     */
+    private function adoptionStateFor(SignatureRequest $signingRequest, bool $isWebTemplate): array
+    {
+        $service = app(\App\Services\Docuperfect\SignatureAdoptionService::class);
+        if (! $isWebTemplate || ! $service->required($signingRequest)) {
+            return ['required' => false];
+        }
+
+        $mode = $service->modeOf($signingRequest);
+        $wording = $service->wordingFor($mode);
+        $current = $service->current($signingRequest);
+
+        return [
+            'required' => true,
+            'mode' => $mode,
+            'wording' => $wording['text'],
+            'version' => $wording['version'],
+            'adopted' => $current !== null,
+            'signatureImage' => $current?->signature_image,
+            'initialImage' => $current?->initial_image,
+        ];
+    }
+
+    /**
      * Complete web template signing (CDS/web documents with live HTML).
      * Handles field values, signatures, disclosure answers, and consent logging.
      */
@@ -1818,6 +1890,13 @@ class SigningController extends Controller
         // Sequential signing gate — reject if not this signer's turn
         if ($signingRequest->status === SignatureRequest::STATUS_WAITING) {
             return response()->json(['ok' => false, 'error' => 'It is not your turn to sign yet. Please wait for notification.'], 403);
+        }
+
+        // esign-signing-modes.md (Modes 2/3): a signer whose envelope is in an adoption mode must have adopted their
+        // signature + initial (and agreed to the stored wording) before anything they place counts.
+        $adoptionService = app(\App\Services\Docuperfect\SignatureAdoptionService::class);
+        if ($adoptionService->required($signingRequest) && ! $adoptionService->current($signingRequest)) {
+            return response()->json(['ok' => false, 'error' => 'Please adopt your signature and initial before signing.'], 422);
         }
 
         // WET-INK HARD GATE — a party cannot complete their signing turn while any required party still owes
