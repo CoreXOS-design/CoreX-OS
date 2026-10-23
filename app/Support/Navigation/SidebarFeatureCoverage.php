@@ -51,6 +51,9 @@ final class SidebarFeatureCoverage
         'admin.settings.deal-*'             => 'deals',
         'admin.settings.document-distribution*' => 'deals',
         'corex.settings'                    => 'settings',
+        // Budgets and monthly Targets (AT-454, Johan 23 Oct 2026): agency planning settings, reachable with Road to Sold switched off
+        // (they are outside that feature's `route_names_except`), so their menu door (one "Budgets & Targets" link to the Budgets screen, which carries both tabs) is settings, not a feature to switch.
+        'road-to-sold.settings.budgets.index' => 'settings',
         // The Settings sub menu (Staging, 12 Oct): the Features page is the on/off switch itself and Users is core people
         // management — neither can be switched off from the page that does the switching.
         'corex.features.*'                  => 'settings',
