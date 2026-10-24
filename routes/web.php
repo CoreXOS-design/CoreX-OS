@@ -2288,6 +2288,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // ── Overdue & Unresolved (Today card drill-down) ──
     Route::get('/overdue', [CommandCenterDashboardController::class, 'overdue'])->name('command-center.overdue');
 
+    // ── Document files — the ONE authenticated, scope-checked way to open a stored document ──
+    // (.ai/specs/private-document-storage.md). Nothing links to /storage for a document.
+    Route::get('/documents/{document}/file', [\App\Http\Controllers\CoreX\DocumentFileController::class, 'show'])
+        ->whereNumber('document')->name('corex.documents.file');
+
     // ── Notifications ──
     Route::get('/notifications', function () {
         $notifications = \Illuminate\Support\Facades\DB::table('notifications')

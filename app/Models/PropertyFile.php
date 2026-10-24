@@ -5,7 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Support\Facades\Storage;
 
 use App\Models\Concerns\BelongsToAgency;
 class PropertyFile extends Model
@@ -36,11 +35,6 @@ class PropertyFile extends Model
     public function contact(): BelongsTo
     {
         return $this->belongsTo(Contact::class);
-    }
-
-    public function url(): string
-    {
-        return Storage::url($this->path);
     }
 
     public function formattedSize(): string

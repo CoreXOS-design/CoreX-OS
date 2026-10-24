@@ -130,10 +130,18 @@ class RentalInventoryBuyerAcceptance extends Model
     {
         $binary = \App\Support\PrivateScanFile::validatedPng($base64);
 
-        $path = "properties/{$propertyId}/rental-inventory-buyer-acceptances/" . bin2hex(random_bytes(16)) . '.png';
-        \Illuminate\Support\Facades\Storage::disk('public')->put($path, $binary);
+        // Private disk, referenced as "private:<disk path>" (never a web-readable /storage URL) — see
+        // .ai/specs/private-document-storage.md. Read back through signature_image_src.
+        $path = "rental-inventory-buyer-acceptances/{$propertyId}/sig_" . bin2hex(random_bytes(16)) . '.png';
+        \Illuminate\Support\Facades\Storage::disk('local')->put($path, $binary);
 
-        return \Illuminate\Support\Facades\Storage::url($path);
+        return \App\Support\PrivateScanFile::PRIVATE_PREFIX . $path;
+    }
+
+    /** A self-contained data: URI for the stored signature (private or legacy public reference); null when the file is missing. */
+    public function getSignatureImageSrcAttribute(): ?string
+    {
+        return \App\Support\StorageDataUri::fromPublicStoragePath($this->party_signature_path);
     }
 
     /** Audit A-H1 — wet-ink scans are stored on the PRIVATE disk and referenced as "private:<disk path>"; legacy rows hold a public "/storage/..." URL. */

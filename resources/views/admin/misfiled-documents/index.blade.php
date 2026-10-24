@@ -63,7 +63,7 @@
                         @php($linked = $doc->properties)
                         <tr style="border-top: 1px solid var(--border); vertical-align: top;">
                             <td class="px-4 py-3" style="color: var(--text-primary);">
-                                <a href="{{ \Illuminate\Support\Facades\Storage::disk($doc->disk ?? 'public')->url($doc->storage_path) }}"
+                                <a href="{{ route('corex.documents.file', $doc) }}"
                                    target="_blank" rel="noopener" class="font-medium underline"
                                    style="color: var(--brand-icon, #0ea5e9);">{{ $doc->original_name }}</a>
                                 <div class="text-xs" style="color: var(--text-secondary);">#{{ $doc->id }}</div>

@@ -1593,15 +1593,21 @@ class PropertyController extends Controller
 
         // Drive files uploaded during create
         if ($request->hasFile('drive_files')) {
+            // Same shape as PropertyFileController::store(): private disk + a Document row attached to
+            // the property, so the file shows in the Drive tab and is only served through the gated
+            // route. (It used to land on the PUBLIC disk in the unread legacy property_files table.)
             foreach ($request->file('drive_files') as $file) {
-                $path = $file->store("properties/{$property->id}/files", 'public');
-                $property->files()->create([
-                    'user_id'   => auth()->id(),
-                    'name'      => $file->getClientOriginalName(),
-                    'path'      => $path,
-                    'size'      => $file->getSize(),
-                    'mime_type' => $file->getMimeType(),
+                $path = $file->store("properties/{$property->id}/files", 'local');
+                $doc = \App\Models\Document::create([
+                    'original_name' => $file->getClientOriginalName(),
+                    'storage_path'  => $path,
+                    'disk'          => 'local',
+                    'mime_type'     => $file->getMimeType(),
+                    'size'          => $file->getSize(),
+                    'source_type'   => 'upload',
+                    'uploaded_by'   => auth()->id(),
                 ]);
+                $doc->properties()->attach($property->id);
             }
         }
 
