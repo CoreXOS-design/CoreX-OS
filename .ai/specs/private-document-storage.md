@@ -133,3 +133,14 @@ Created: `app/Services/Documents/DocumentAccessService.php`, `app/Http/Controlle
 Modified: `PdfSplitterController`, `PropertyController`, `StaffTakeOnController`, `RentalInventoryBuyerAcceptance`,
 `Document`, `PropertyFile`, `routes/web.php`, `misfiled-documents/index.blade.php`, `deals-v2/show.blade.php`,
 `rental-inventories/show.blade.php`.
+
+## 8. QA1 result (24 Oct 2026, deployed at 51406e494)
+
+- `documents:privatise --dry-run` then for real: **1,658 files moved**, 0 failed, 0 conflicts; a second run moved 0.
+  931 `documents` rows still say `public` because their files are not on this partial QA1 copy (nothing to move);
+  on live those files exist and are moved by the same command. Log: `storage/logs/privatise-documents.log`.
+- Real nginx: the old public document URL is refused (this host answers 403 for any missing `/storage/…` path);
+  photos under `/storage/properties/<id>/` still return 200. New route: no login → redirect to login;
+  authorised admin (agency 1) → 200 with the PDF; user from another agency → 404.
+- Live/staging TODO for Andre: apply `.ai/deploy/nginx-deny-public-document-folders.conf`, then run
+  `php artisan documents:privatise --dry-run` followed by `php artisan documents:privatise` (as the web user).
