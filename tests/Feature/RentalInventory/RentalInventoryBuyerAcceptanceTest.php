@@ -550,9 +550,11 @@ final class RentalInventoryBuyerAcceptanceTest extends TestCase
             'signature_image' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
         ])->assertStatus(201);
 
-        $files = Storage::disk('public')->allFiles();
+        // Private disk only — never web-readable (.ai/specs/private-document-storage.md).
+        self::assertSame([], Storage::disk('public')->allFiles());
+        $files = Storage::disk('local')->allFiles();
         self::assertCount(1, $files);
         self::assertStringEndsWith('.png', $files[0]);
-        self::assertStringStartsWith("\x89PNG", Storage::disk('public')->get($files[0]));
+        self::assertStringStartsWith("\x89PNG", Storage::disk('local')->get($files[0]));
     }
 }

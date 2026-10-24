@@ -401,7 +401,8 @@ class StaffTakeOnController extends Controller
         ]);
 
         $file = $request->file('file');
-        $path = $file->store('take-on-docs/' . $takeOn->user_id, 'public');
+        // Private disk: ID copies / contracts. Served by UserDocumentDownloadController (local first).
+        $path = $file->store('take-on-docs/' . $takeOn->user_id, 'local');
 
         \App\Models\UserDocument::create([
             'user_id'            => $takeOn->user_id,

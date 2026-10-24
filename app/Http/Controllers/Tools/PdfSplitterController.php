@@ -790,9 +790,11 @@ class PdfSplitterController extends Controller
     private function fileGroupsToContact(Contact $contact, array $groups, int $agencyId): array
     {
         $dir = "contacts/{$contact->id}/files";
-        $publicDisk = Storage::disk('public');
-        if (! $publicDisk->exists($dir)) {
-            $publicDisk->makeDirectory($dir);
+        // Private disk only — a filed mandate / ID / FICA copy must never be web-addressable
+        // (.ai/specs/private-document-storage.md). Served via corex.documents.file.
+        $privateDisk = Storage::disk('local');
+        if (! $privateDisk->exists($dir)) {
+            $privateDisk->makeDirectory($dir);
         }
 
         $slugs        = collect($groups)->pluck('label')->filter()->unique()->values();
@@ -824,13 +826,13 @@ class PdfSplitterController extends Controller
 
             $stream = @fopen($abs, 'rb');
             if (! $stream) continue;
-            $publicDisk->put($relPath, $stream);
+            $privateDisk->put($relPath, $stream);
             if (is_resource($stream)) { @fclose($stream); }
 
             $document = Document::create([
                 'original_name'    => $filename,
                 'storage_path'     => $relPath,
-                'disk'             => 'public',
+                'disk'             => 'local',
                 'mime_type'        => 'application/pdf',
                 'size'             => (($__sz = @filesize($abs)) !== false ? $__sz : null),
                 'document_type_id' => $typeMap[$labelSlug] ?? null,
@@ -1744,10 +1746,12 @@ class PdfSplitterController extends Controller
      */
     private function fileGroupsToDestinations(Property $property, array $groups, int $agencyId, \Illuminate\Support\Collection $attached, ?DealV2 $deal = null): array
     {
-        $publicDisk = Storage::disk('public');
+        // Private disk only — a filed mandate / disclosure must never be web-addressable
+        // (.ai/specs/private-document-storage.md). Served via corex.documents.file.
+        $privateDisk = Storage::disk('local');
         $dir = "properties/{$property->id}/files";
-        if (! $publicDisk->exists($dir)) {
-            $publicDisk->makeDirectory($dir);
+        if (! $privateDisk->exists($dir)) {
+            $privateDisk->makeDirectory($dir);
         }
 
         $destinations = app(AgencyComplianceDocTypeService::class);
@@ -1845,7 +1849,7 @@ class PdfSplitterController extends Controller
 
             $stream = @fopen($abs, 'rb');
             if (! $stream) continue;
-            $publicDisk->put($relPath, $stream);
+            $privateDisk->put($relPath, $stream);
             if (is_resource($stream)) { @fclose($stream); }
 
             // ONE canonical create + attach + deal-step auto-complete.
@@ -1854,7 +1858,7 @@ class PdfSplitterController extends Controller
                 [
                     'original_name'    => $filename,
                     'storage_path'     => $relPath,
-                    'disk'             => 'public',
+                    'disk'             => 'local',
                     'mime_type'        => 'application/pdf',
                     // ?: would collapse a genuinely truncated/empty (0-byte)
                     // extracted PDF to null ("size unknown") instead of 0

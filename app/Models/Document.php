@@ -122,9 +122,13 @@ class Document extends Model
         $this->attributes['original_name'] = static::sanitizeOriginalName($value);
     }
 
+    /**
+     * The ONLY URL a document is ever linked by: the authenticated, scope-checked file route.
+     * Never a /storage/… URL — nginx serves that with no login (.ai/specs/private-document-storage.md).
+     */
     public function url(): string
     {
-        return Storage::disk($this->disk)->url($this->storage_path);
+        return route('corex.documents.file', $this);
     }
 
     /**
