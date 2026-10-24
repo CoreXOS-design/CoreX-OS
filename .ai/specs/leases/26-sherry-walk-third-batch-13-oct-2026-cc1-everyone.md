@@ -1,0 +1,5 @@
+## Sherry walk, third batch, 13 Oct 2026 (cc1) - everyone has signed (tests `LeaseSigningReconcileTest`, `RentalInspectionSigningLinkTest`)
+
+- **The agent is told.** When the last signature lands and the agreement waits for the agent's approval (`LeaseSigningStateService::follow()` into `awaiting_agent_review`), the agent who sent it gets the in-app alert the other signing outcomes already use (event `lease.agreement_signing_outcome`, type `lease_agreement_awaiting_approval`: "Everyone has signed the lease agreement for <address> - it is waiting for your approval before the signed copy goes out", linking to the lease). Once per change of state; no email (the lease screen they land on says what to do).
+- **The next-step card no longer sounds like an alarm.** "Agreement changed - review before approving" is now "Everyone has signed - check the details filled in, then approve" (the same card, same link). The parties had only filled blank fields.
+- **Documents (n)** on the lease page's context bar now counts the property's Drive-tab documents, so the signed lease is counted (it counted the old attachment files, so read 0).

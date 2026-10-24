@@ -1,0 +1,7 @@
+## Audit fix 2026-10-18 (outbound batch)
+
+- **Feature switch.** `leases:auto-month-to-month`, `leases:reconcile-signing`, `leases:advance-terms` (LeaseTermAdvanceService batch methods) and `signatures:check-lease-expiry` skip every agency whose `rental-leases` feature is off (`AgencyFeatureService::enabled('rental-leases', $agency)`); their leases are left exactly as they are.
+- **Overdue alert once per episode.** `leases.overdue_alerted_at` (new, nullable) is set when the "overdue" alert is sent; the alert is not sent again while it is set. The same command clears it when the lease is no longer overdue (renewed, new end date, ended, cancelled), so a later overdue episode alerts again. Replaces the 7-day cache key for the overdue tier only.
+- **Tenancy ended by itself does not re-advertise (Johan).** `LeaseTermAdvanceService::endIfVacated()` -> `PropertyStatusFollowsLeaseService::restorePreLetStatus(..., withoutPortalPush: true)` restores the pre-let status with `skipSyndicationAutomation` set (nothing goes to Property24 or Private Property) and the agent who owns the listing gets the in-app gateway event `property.ready_to_relist` ("<address> is free again and ready to re-list on the portals - check the rent and re-list it from the listing"). Cancel/archive paths and an agent changing the status by hand are unchanged. `auto_restore_status_on_lease_ended` wording (settings page + Setup Wizard) now says it restores the status and alerts the agent.
+
+---

@@ -1,0 +1,12 @@
+---
+name: blade-ui-rules
+description: Rules for any new or changed Blade/Alpine UI - design-system tokens, plain-English labels, the @json() inline-array trap, no silent locks or invisible edits. Use when writing or editing a Blade view, component, chip/badge/button label or Alpine markup.
+---
+# Blade UI rules
+
+- **Design system is binding.** Start every new-UI view by reading `.ai/specs/UI_DESIGN_SYSTEM.md` (and Andre's design spec once linked in STANDARDS section 1). The view's header comment declares `DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v <date>`. FORBIDDEN: hardcoded colours/fonts (Figtree via the cascade)/radii/shadows/sizes where a token exists. Colours via `var(--token-name, #fallback-hex)` with the documented fallback. A needed new token is defined in UI_DESIGN_SYSTEM.md FIRST (Johan's approval, on `main`), never invented in a view. Regression guard `scripts/check-design-tokens.ps1` (PowerShell - not runnable on this box; grep `resources/views/corex/` for naked hex yourself).
+- **Plain-English labels (F.8).** Every visible chip/badge/button label is plain English a first-day agent understands, OR has a `title=` tooltip saying what it means and does. Forbidden: dev jargon/abbreviations (`TP` -> "Property intel", `KPI`, `R1/R2` rule names), acronyms uncommon to SA estate agents, raw enum values (humanise `pitched_recently`), cryptic icons without a tooltip.
+- **No silent locks:** a read-only/locked/disabled state says why and offers the unlock action; blocked actions are hidden (no dead buttons). **No invisible edits:** editable values are real form controls (bordered input, pencil icon). Loading state on every async operation. Mobile-usable. Confirm before destructive actions.
+- **`@json()` trap:** Laravel's `@json` compiler splits its argument on every comma with no bracket awareness. Never pass an inline multi-key array literal or a `->map(fn($x)=>[...])` into `@json()` (it swallows commas into `$options`/`$depth`, dropping the safe `JSON_HEX_*` escaping, and with 3+ commas emits invalid PHP). Build it in `@php $thing = …; @endphp`, then `@json($thing)`.
+- **Alpine:** Alpine not jQuery; Tailwind not inline styles; corex layout files `corex-app.blade.php` + `corex-sidebar.blade.php`; no multi-statement bodies in attributes, no `"` in comments inside attributes (details and the verification gate: skill `render-gate`).
+- Hard-deleted-looking UI is wrong: show "Delete", archive underneath. Money `R 1,250,000`; South African date format.

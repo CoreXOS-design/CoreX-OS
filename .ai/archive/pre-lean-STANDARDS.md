@@ -1,0 +1,1622 @@
+# CoreX OS — Prime Directive
+
+# ⛔ NON-NEGOTIABLE OPERATING RULES — READ FIRST, EVERY COMMAND, NO EXCEPTIONS
+
+These override everything else. Violating scope is worse than doing nothing. When in doubt: STOP and report.
+
+1. SCOPE LOCK. Work ONLY on the exact task in the current instruction. Do not touch, edit, refactor, rename, reformat, "improve," clean up, or fix ANY file, feature, module, or behaviour outside that exact task — not even if it looks broken, related, or trivial, and not even if you are "already in the file."
+
+2. NO AUTO-FIX / REPORT-ONLY OUTSIDE SCOPE. If you find a bug, regression, or issue anywhere outside your exact task, STOP and REPORT it to the conductor with exact file:line + root cause. Do NOT change it. Nothing outside the assigned task is changed without Johan's strict, specific, explicit instruction.
+
+3. SPEC-EXACT, NO IMPROVISING. Build strictly to the instruction and the named .ai/specs/ spec. Add NOTHING that was not explicitly asked for — no extra features, fields, pages, UI, or behaviour. If the instruction and the spec conflict, or anything is ambiguous, STOP and ask the conductor. Never guess. Never interpret. Never assume.
+
+4. STAY IN YOUR LANE. Work only in your assigned module. Never wander into another part of CoreX for any reason.
+
+5. QA1 ONLY — JOHAN GATES EVERYTHING. All work lands on QA1 and STAYS there. NEVER promote to Staging or live. Flow: QA1 -> Johan tests on QA1 -> Johan's explicit go -> Staging -> live. No live work of any kind (code OR data) without Johan's specific explicit order for that exact action.
+
+6. NO SILENT EXTRAS. No speculative changes, no "while I was here," no drive-by refactors, no dependency bumps, no formatting sweeps, no touching unrelated files.
+
+7. REPORT EXACTLY. When done, report exactly what changed (files + why) and how you proved it, and confirm nothing outside the task was touched.
+
+8. FULL CRUD, LIST-SCREEN COMPLETENESS, AND OWN/BRANCH/AGENCY SCOPING ARE THE FLOOR — DESIGNED IN, NOT REQUESTED. Johan's words: "we always need proper crud? search / sort / own / branch / agency levels. that should be the design standard. not me asking for it once we get to that stage." Every entity ships with Create, Read, Update, Archive (soft delete only — never hard delete) and Restore from the first build, not as a later ask. Every list screen ships with search (named fields), sort (every sensible column + a stated default), filter (status + date range minimum), pagination, and a real empty state. Every list, detail view, export, download, and API endpoint enforces OWN / BRANCH / AGENCY visibility scoping at the query layer (BelongsToAgency / AgencyScope, never a hidden UI link) — direct-URL access by ID is blocked, not just unlinked. The spec for any new feature states search fields, sort/default, filters, and per-screen scoping BEFORE code is written; a spec missing these is not ready to build. Full detail: BUILD_STANDARD.md §1a, and Rule 13 below.
+
+9. MULTI-AGENCY ALWAYS, NEVER SINGLE. Johan, 2026-09-19, verbatim: "the important part is that whatever we do is multi agency. not single. never." A second real agency — Cape Town, mainly rentals, signed to start October 2026 — is about to run on the same rentals code that has so far only ever been built and tested against agency 1 (HFC). Every place something is HFC's by assumption instead of genuinely per-agency is a place that new agency will find, in front of a paying customer.
+   • No feature, screen, template, document, email, default, or setting may assume one agency.
+   • No hardcoded agency IDs, no agency-1 defaults, no HFC-specific wording, branding, addresses, or signatures anywhere in shipped code.
+   • Every default must be neutral and sensible for an agency that is not HFC.
+   • Anything an agency would reasonably want different about its own operation is a configurable setting, not a code constant — this extends the existing no-hardcoding rule beyond thresholds and time windows to cover wording, documents, and branding too.
+   • The test, every time you build or review anything: what does this look like for the SECOND agency? If the answer is "wrong" or "HFC's," it is not done.
+
+This applies to the conductor too.
+
+# ⛔ USAGE AND SESSION DISCIPLINE — READ FIRST, EVERY SESSION
+
+1. MODEL. Build lanes run Sonnet. Do not switch a lane to Opus. Architecture decisions are made in the conductor chat, not in a lane.
+
+2. DAILY RESET. Run /clear at the start of each day, and again after each completed task before the next one starts. Never carry one task's history into the next. A lane carrying several hundred thousand tokens of history costs roughly ten times a cleared lane to do identical work, because every message re-bills the whole history.
+
+3. CONTINUITY LIVES IN WRITING. Continuity lives in these standing docs and in .ai/specs/, not in a lane's memory. That is why every fix must update its spec in the same commit — a cleared lane is only as good as what is written down.
+
+4. LANE COUNT. Two working lanes at a time, plus one kept clear for emergencies. Not six.
+
+5. NO EXPLORING. Work the exact files and scope given. A lane left to go hunting reads half the codebase into context and the account pays for all of it. Anti-drift is a cost control as well as a quality rule.
+
+6. NO POLLING. Do not run automated check-in loops.
+
+7. STOP LINE. Development stops at 90% of the weekly cap and resumes when the cycle rolls on Saturday. Hold roughly 20% in reserve so a critical production fault can always be fixed. Running out mid-week costs days of development.
+
+## Standard −1 — The render gate (REQUIRED, before any push touching a Blade file)
+
+**Amended 2026-09-22 — see Standard −1s below.** The gate this section describes is still real and still
+required, but Johan's 2026-09-22 ruling moves WHO runs it: a lane no longer stands up its own
+`fetch-authenticated-page.php`/`verify-alpine-render.mjs`/`rental-click-through.mjs` chain against a
+minted session and an isolated worktree/database before pushing — that is exactly the "verification
+scaffolding" his ruling stops. A lane's own pre-push verification is now the three-step check in
+Standard −1s (`php -l`, `view:clear`, the relevant existing test). The render gate described below still
+runs, but against the actually-deployed site, after landing — cc1's or the conductor's job, not a lane's.
+Read this section for what the gate checks and why each check exists (that reasoning is unchanged); read
+Standard −1s for who runs it and when.
+
+Three times in one week a rental-applications screen reached QA1 completely
+non-functional — `initialResult`, then `sidebarOpen`/`markupModeActive`/
+`markupSidebarPinned` — and every time `php -l` passed, PHPUnit passed, and
+the HTTP status was 200. None of those three checks test what the user
+actually gets: the server rendered fine: the JavaScript threw on
+construction and nothing on the screen worked. A green build and a dead
+screen are not mutually exclusive — that is the entire reason this exists.
+
+**Before pushing any change that touches a Blade file with Alpine in it**
+(not just rental-applications — anywhere the same class of bug is a risk),
+run both of these, in order:
+
+```bash
+php8.2 scripts/fetch-authenticated-page.php \
+    --app-root=/corex-qa1 --user-id=<a real test fixture id> \
+    --url=https://qatesting1.corexos.co.za/<the changed route> \
+    --out=/tmp/rendered.html
+node scripts/verify-alpine-render.mjs /tmp/rendered.html
+```
+
+`fetch-authenticated-page.php` fetches the page as a REAL authenticated
+user through the REAL nginx + PHP-FPM path (never an in-process
+`Kernel::handle()` call — that runs under a different PHP process than what
+actually serves the page, which is exactly the gap that let a "verified
+fixed" report stand while the live page was still broken). `--php-bin`
+matters: it must match the PHP version of the pool that actually serves the
+URL (`php8.2` for qatesting1.corexos.co.za — check
+`/etc/nginx/sites-enabled/` if unsure, never assume the box's default
+`php` CLI matches).
+
+`verify-alpine-render.mjs` then asserts, on the REAL rendered HTML:
+
+1. **No leaked attribute/script text in the rendered body** — a quote-aware
+   tokenizer catches an Alpine attribute's quote closing early (incident
+   #2's exact shape: a JS comment inside `x-data="{...}"` contained a
+   literal `"`, and everything after it — the rest of x-data, x-init, the
+   event handler — escaped the tag and rendered as literal visible text
+   above the header). **Part of the pass/fail signal.**
+2. **Inline `x-data="{ ... }"` scope check** — declared keys vs. identifiers
+   referenced in that element's own subtree. **Warning only** — Alpine's
+   real scope resolution walks the full ancestor chain, which this
+   heuristic cannot always trace through nested components; read the
+   warnings and verify by hand.
+3. **Real execution** — every named factory function AND every inline
+   object, constructed with its REAL call-site arguments parsed straight
+   out of the fetched page (never guessed), every zero-argument method
+   called the way Alpine calls them on load. Proven to catch incident #1
+   (a `ReferenceError` thrown during construction, which silently kills
+   the WHOLE component — every binding on the page reads as undefined, not
+   just the one bad reference). **Part of the pass/fail signal.**
+4. **Alpine expression compile** — every Alpine attribute value run
+   through the EXACT wrap Alpine's own `generateFunctionFromString()`
+   applies (read straight out of `node_modules/alpinejs/dist/module.cjs.js`,
+   not assumed), then compiled with `new Function`. Added 2026-09-12 after
+   incident #3: a bare `try { ... } catch (_) {}` written directly as an
+   `x-init` value threw `Unexpected token 'try'` in a real browser — this
+   gate passed it clean beforehand. Alpine only auto-wraps a leading
+   `if (...)` or a leading `let`/`const`; nothing else (not `try`, `for`,
+   `switch`, `function`, `class`) ever gets statement treatment, so any
+   other multi-statement attribute body is a guaranteed `SyntaxError`. If
+   you need more than one statement in an x-init/x-effect/event-handler
+   attribute, put it in a method on the component and call that method —
+   `x-init="doTheThing()"` — rather than writing the statement body inline.
+   **Part of the pass/fail signal.**
+
+For the fuller browser-level check across an entire user journey (console
+error counts, not just one page, plus a real-data assertion — a total with
+a figure beside it, a list with rows in it, never just "the labels
+rendered"), run `node scripts/rental-smoke.mjs` — see BUILD_STANDARD.md for
+the full contract. **A 200 HTTP status is not a pass signal in either
+script and must never be treated as one.**
+
+Neither of these two scripts drives an interaction — a page loading is not
+the same claim as a control on that page actually working. For any push
+touching a rental review-screen control (strike/restore, add-line, submit,
+approve, decline, send-back, etc.), `node scripts/rental-click-through.mjs`
+is a third REQUIRED gate — see Standard −1f, below, for the full contract
+and why a PHPUnit test proving a controller endpoint works is not proof a
+human can actually reach it.
+
+**`scripts/dev-check.ps1` is PowerShell. There is no `pwsh` on this box. It
+has never run here, for any build, ever.** Stop citing it as a verification
+gate for any change made in this environment — the two scripts above are
+its replacement here.
+
+---
+
+## Standard −1a — Your lane's own `TEST_DB_DATABASE`, always set, never shared
+
+Six lanes running `php artisan test` (RefreshDatabase) against the SAME MySQL
+schema at once — the default when nothing is configured — corrupts results
+under concurrent access and blocks every lane behind whichever one is
+running the slowest suite. This happened for real on 2026-09-12: cc6
+corrupted its own results running two suites concurrently, cc2 re-ran tests
+it had already passed, cc3 and cc4 both sat idle behind slow runs, cc4 was
+reduced to polling `SHOW PROCESSLIST`.
+
+The isolation mechanism already exists — `tests/bootstrap.php` resolves the
+test schema from a dedicated `TEST_DB_DATABASE` key (shell env, then the
+worktree's own gitignored `.env`), whitelisted to `hfc_dash_test` or
+`hfc_dash_test_<N>`, and hard-refuses anything else before a single query
+runs. The 2026-09-12 incident wasn't a tooling gap — it was assignment: half
+the active worktrees had nothing set (silently sharing the default
+`hfc_dash_test`), and several DIFFERENT worktrees had independently picked
+the SAME suffix, colliding with each other anyway.
+
+**The convention going forward: `TEST_DB_DATABASE` suffix matches your lane
+number, permanently, for the life of your worktree.**
+
+| Lane | `TEST_DB_DATABASE` |
+|------|---------------------|
+| cc1  | `hfc_dash_test_1`   |
+| cc2  | `hfc_dash_test_2`   |
+| cc3  | `hfc_dash_test_3`   |
+| cc4  | `hfc_dash_test_4`   |
+| cc5  | `hfc_dash_test_5`   |
+| cc6  | `hfc_dash_test_6`   |
+
+Set it once in your worktree's own `.env` (`TEST_DB_DATABASE=hfc_dash_test_N`)
+and never touch another lane's value. If you spin up a SECOND worktree
+alongside your main one, give it a suffix nobody else is using — check
+`SHOW DATABASES LIKE 'hfc_dash_test_%'` first, since ad-hoc one-off suffixes
+from past sessions already litter that namespace.
+
+This is orthogonal to the schema-snapshot bootstrap (non-negotiable #12a) —
+that makes ONE lane's bootstrap fast; this stops lanes from corrupting or
+blocking EACH OTHER. Both matter; neither substitutes for the other.
+
+**Correction, 2026-09-13 — this standard covers TEST RUNS ONLY, never
+migrations.** `TEST_DB_DATABASE` is read exclusively by `tests/bootstrap.php`,
+which is wired in solely via `phpunit.xml`'s own `bootstrap=` attribute — a
+bare `php artisan migrate` never loads that file and is completely
+unaffected by anything on this page. Every worktree's real `DB_DATABASE`
+(the one `migrate` actually uses) has always been `corex_qa1` — the live,
+shared, Johan-tests-in-it database — regardless of what `TEST_DB_DATABASE`
+is set to. If you read this standard and concluded per-lane isolation
+covers migrations too, that was a reasonable read of an incomplete
+document, not an error on your part — see Standard −1g for what actually
+guards `migrate` now, and why this needed its own separate answer.
+
+---
+
+## Standard −1b — Refresh `database/schema/mysql-schema.sql` when you add a migration
+
+Real incident, 2026-09-12: `mysql-schema.sql` was dated 2026-09-10 while three
+schema-changing migrations had already landed (`draft_saved_at` on
+`rental_applications`, `agency_id` on `rental_application_signatures`,
+`autosave_debounce` on `rental_application_qualifying_settings`). Every
+lane's `RefreshDatabase` test run was silently building on a schema that
+didn't match the code — test evidence from all six lanes was suspect until
+this was caught.
+
+**When:** the moment `database/migrations/` gains a file, per non-negotiable
+#12a — not at the end of the day, not "next time someone notices tests are
+slow." A stale snapshot doesn't fail loudly; it just means a table/column a
+new migration added silently doesn't exist yet in every OTHER lane's test
+runs, which reads as an unrelated, confusing test failure somewhere else
+entirely.
+
+**How, exactly (rewritten 2026-10-06 — the old recipe below this heading is gone):** run the one
+script, from your worktree root, with no arguments:
+
+```bash
+scripts/schema-dump.sh
+```
+
+That is the ONLY sanctioned way to produce `database/schema/mysql-schema.sql`. **Never hand-edit the
+snapshot, and never run a bare `artisan schema:dump` (or `migrate:fresh` + `schema:dump`) against your own lane's
+test schema.** Both were the source of the 2026-10-06 breakage: hand edits left charset noise and a
+missing migration's tables; dumps of a lane schema picked up the lane-test bookkeeping table
+(`_corex_lane_test_fingerprint`). If a merge conflicts on the snapshot, do not merge it by hand — take
+either side, then regenerate with the script.
+
+What the script does that the old recipe did not (details in its own header comment):
+- Builds its OWN scratch schema on the tests-only MySQL instance (never QA1's, Staging's or any real
+  database; it refuses to run without `/root/.lanetest-mysql-credentials`) and drops it afterwards.
+- Migrates it **from scratch** (`--schema-path` points at nothing, so the old snapshot is not loaded first).
+- **Carries the reference rows the migrations insert.** `artisan schema:dump` writes structure plus the
+  `migrations` rows and NO table data, so a data-seeding migration was recorded as "already run" while
+  the rows it inserted were absent — the three 2026-10-06 failures (`AgencyTimelineTest` "defaults are
+  seeded by the migration", `AgreementFlowTest` "full flow", `PlatformEsignTest` "auto links and ticks
+  the timeline step") were exactly that. Only GLOBAL rows are carried (tables with no `agency_id`, or
+  rows where `agency_id IS NULL`); agency 1's (HFC's) backfilled rows and the `agencies` row are
+  deliberately left out, because a test creating its own agency must start from an empty tenant space.
+  `roles` and `role_permissions` are left out too: test fixtures make a user with a role NAME and no role
+  row, and populated system roles 403 them (proved: 70 `RentalCrewLinks` failures, gone when cleared).
+  The script prints the tables it carried; its `SKIP_DATA_TABLES_RE` comment lists every exclusion and why.
+  When a test fails only because a starting-data table is empty (or only because it is not), fix that
+  in the script's lists — never by editing the snapshot.
+- Strips `DEFINER` clauses (#12a) and the redundant column `CHARACTER SET` a `->change()`d enum dumps
+  with; refuses a dump containing the bookkeeping table; runs `check-schema-snapshot.sh`; writes a temp
+  file and moves it into place only on success (a failure leaves the existing snapshot untouched).
+- Takes ~20 minutes (every migration runs, one by one) and holds the tests-instance setup lock the whole
+  time, so other lanes' cold bootstraps wait for it (warm test runs do not). Needs your worktree's OWN
+  `vendor/` (`composer install` inside it — never a symlink). So run it **once per batch of merged
+  migrations, not once per migration**: migrations newer than the snapshot are applied on top by
+  `lane-test.sh` anyway, data-seeding ones included, so a snapshot a few migrations behind costs seconds,
+  not correctness.
+
+After regenerating, verify what you added actually landed — `grep` for a table/column only your migration
+introduces — and commit the snapshot (alone, or with the migration). **A lane test schema built from an
+OLDER snapshot does not get the new reference rows:** after merging a regenerated snapshot, run
+`scripts/lane-test.sh --fresh <your test file>` once to rebuild your schema from it.
+
+**A slow load is not the same problem as a stale snapshot — don't confuse
+them.** Loading the snapshot via `mysql-schema.sql .......... DONE` can
+legitimately take minutes (observed 2m27s–3m44s on 2026-09-12, and climbing
+with more lanes concurrently hammering the same MySQL instance) — that is
+real cost from six lanes sharing one box, not a bug. If a test run produces
+genuinely ZERO output for a long time, first check with `stdbuf -oL -eL`
+(output-buffering can hide the PHPUnit banner itself) and `SHOW FULL
+PROCESSLIST` (to see if it's actively loading/migrating vs. actually stuck)
+before assuming it's hung. Only treat it as STALE — meaning: fix the
+snapshot — if `database/schema/mysql-schema.sql`'s own git history predates
+a migration that's already merged.
+
+---
+
+## Standard −1c — Never run `npm run build` to make a feature test pass
+
+`Tests\TestCase::setUp()` calls `$this->withoutVite()` for every feature
+test, unconditionally. **A feature test never needs compiled frontend
+assets to run** — if a test renders a Blade view containing `@vite(...)`
+and you see `ViteManifestNotFoundException`, that is a real bug in that
+test's own setup (extending the wrong base class, or something bypassing
+`Tests\TestCase`), not a missing build. Do NOT "fix" it by running
+`npm install && npm run build` in your worktree — that treats the symptom,
+costs real time on every fresh worktree, and masks the actual gap if one
+exists.
+
+This used to be ~90 individual test files each calling `withoutVite()`
+themselves — real, but scattered, evidence that this is exactly the kind
+of thing every new feature test needs and nobody should have to remember.
+Fixed at the class (2026-09-12) instead of the instance: it is on by
+default now, for every test that extends `Tests\TestCase`, whether or not
+that test's author knew it would ever render a view.
+
+---
+
+## Standard −1d — Why "PHPUnit is broken" and "PHPUnit just worked for me" can both be true
+
+Real incident, 2026-09-12: cc5 reported the whole suite fatally blocked;
+in the same round cc2, cc3 and cc6 all ran tests successfully. Both were
+telling the truth. **The suite has exactly two invocation shapes, and they
+do not fail the same way:**
+
+1. **Targeting one specific file** — `php artisan test tests/Feature/X.php`
+   or `vendor/bin/phpunit tests/Feature/X.php` (the default per Rule 13 —
+   this is what you should almost always be running). PHP/PHPUnit only
+   `require`s the classes that ONE file needs. A broken declaration in some
+   UNRELATED test file is never loaded, so it can't fatal your run.
+2. **Whole-suite discovery** — a bare `php artisan test` / `vendor/bin/
+   phpunit` with no path, `--list-tests`, `--testdox`, coverage generation,
+   or anything else that has to enumerate the full `tests/` tree. This
+   `require`s and reflects on EVERY test class up front, before running
+   anything — so ONE test file with an invalid method declaration (a
+   private method overriding an inherited public one, or a method
+   overriding a `final` PHPUnit method — both are plain fatal PHP errors,
+   not warnings) blocks discovery for the ENTIRE suite, for every lane, no
+   matter which file they actually wanted to run.
+
+Confirmed by directly requiring the broken class outside PHPUnit and by
+running `vendor/bin/phpunit --list-tests` (enumerates without executing —
+the fastest way to prove/disprove a discovery-level fatal without paying
+for a full run): found and fixed two independent instances this round —
+`MobilePhotoEventTest::post()` (private, shadowing the inherited public
+`MakesHttpRequests::post()`) and `QueueHealthcheckLaneAwarenessTest::run()`
+(overriding PHPUnit's own `final` `TestCase::run()`). Both are the exact
+same disease: a test's own private helper method happened to collide with
+a name the base test class already owns. **Before naming a private test
+helper `post`, `get`, `put`, `delete`, `run`, `assert*`, or anything else
+that sounds generic, check it isn't already inherited** —
+`php -r "require 'vendor/autoload.php'; print_r(get_class_methods(Tests\TestCase::class));"`
+lists everything already spoken for.
+
+**What this means for reading a result on this box:** a RED single-file
+result means something in your code (or that file) is genuinely wrong. A
+FATAL from a bare/discovery invocation means some OTHER, unrelated test
+file has a declaration error — it means nothing about your own change,
+but it DOES need fixing (report it, or fix it directly if it's this class
+of plain PHP error) before anyone can trust a whole-suite run again. Never
+conclude "PHPUnit is broken" from a discovery fatal without first checking
+which of the two shapes above produced it.
+
+---
+
+## Standard −1e — A render-gate mock gap is fixed permissively, not by hand-enumerating one method
+
+`verify-alpine-render.mjs`'s check 3 runs real page JS in a Node `vm`
+sandbox against fake `window`/`document`/element objects — real incident,
+2026-09-12 (cc6): a fake element had no `dataset`, so a pre-existing,
+correct `canvas.dataset.someFlag` read threw and failed a file cc6 never
+touched. Fixing that one property exposed three more gaps in the exact
+same code path in sequence — `getContext('2d')` returning `null` (a real
+browser never does, for a supported context type), the fake element
+having no `addEventListener`, and a bare `FormData` global missing
+entirely.
+
+**The fix for `getContext()` is the pattern to repeat, not the property
+list.** Canvas contexts (and anything else with a large, open-ended real
+API) get `fakePermissiveObject()` — a Proxy where every property read
+returns a no-op function and every write is silently accepted — instead of
+hand-listing the handful of methods the ONE component you're looking at
+happens to call. Enumerating exactly what today's file needs just moves
+the next false failure to the next component that calls a method you
+didn't list. `dataset`, `addEventListener`, `dispatchEvent`, `FormData`
+stay as concrete stand-ins because their real shape is small, well-known,
+and worth being explicit about — permissive stubs are for anything whose
+real surface is too large to enumerate honestly.
+
+**If you hit a `[SCRIPT EVAL ERROR]` or a `.method() ERROR` on a file you
+didn't touch:** that is very likely this same class of gap, not a real
+regression — confirm by checking whether the failing call is a standard,
+universally-present browser API (any DOM element method, any Web API
+constructor) the sandbox simply never modeled, and if so, fix the sandbox
+(this file), never the Blade/JS you didn't touch. Verify a sandbox fix
+against several DIFFERENT previously-passing pages afterward, not just the
+one that surfaced it — a shared sandbox change can affect every page this
+gate has ever checked.
+
+---
+
+## Standard −1f — Proving an endpoint is not proving a feature (REQUIRED, before any push touching a rental review-screen control)
+
+Johan, 2026-09-15, after the strike/restore button shipped completely dead
+to everyone on QA1: the build behind it had 6 PHPUnit tests and 35
+assertions — the server contract proved to the cent in both directions,
+cross-agency 404s and wrong-author 403s all verified — and the button a
+human actually clicks never fired, because `:disabled="row.strikingBusy"`
+bound `undefined` rather than `false`, and a boolean-attribute binding
+backed by `undefined` resolves through `Element.toggleAttribute(name,
+force)`, where `force === undefined` is spec'd as the argument being
+OMITTED — toggleAttribute just flips whatever the attribute's current
+state already is, instead of forcing it false.
+
+**Every PHPUnit test in this module POSTs straight to a controller
+action. None of them loads the page and clicks the thing a human clicks.
+A PHPUnit test cannot see a disabled button — it does not run a browser.**
+That is not a gap in one test file; it is the shape of every test this
+module had. Six tests and 35 assertions proved the server was right and
+said nothing at all about whether the control that calls it worked,
+because nothing in the suite was capable of saying so.
+
+**A test that POSTs to an endpoint proves the server contract. It proves
+nothing about whether a human can reach that endpoint at all — not
+whether the control is disabled, not whether the click fires, not whether
+the request that leaves the browser is the one the server was tested
+against.** Endpoint coverage and control coverage are two different
+claims; treating the first as proof of the second is exactly how this
+shipped dead.
+
+**Before pushing any change that adds or touches an interactive control
+on the rental review/authorisation screens** (a button, a form, anything
+an agent or authoriser clicks to make something happen), run:
+
+```bash
+php8.2 scripts/rental-click-through.mjs \
+    [--app-root=/corex-qa1] [--base-url=https://qatesting1.corexos.co.za] [--php-bin=php8.2]
+```
+
+This is a SIBLING to `rental-smoke.mjs`, not an edit to it — deliberately.
+`rental-smoke.mjs` is read-only and page-load-focused, several of its own
+checks assert against known-stable persistent fixture state (exact mark
+counts on app 22, app 4); a click-through check MUTATES state (strikes a
+line, submits, approves, declines — one-way transitions), so it creates
+and soft-deletes its own throwaway agency/applications/document on every
+run (`rental-click-through-fixture.php`) rather than touching any
+persistent fixture, Johan's own real applications included.
+
+The pattern every check in that script runs, the same one that would have
+caught the dead strike button: **find a real control by selector, assert
+it is not wrongly disabled, click it for real, assert a real network
+request (or, for a control with no server round-trip, a real observable
+state change) actually happened.** A control legitimately disabled
+because its precondition isn't met yet (manual-entry Save with no type
+chosen, Approve with no amount typed, the review screen locked while with
+the authoriser) is asserted as correctly disabled — that is a pass, not a
+skip. A control disabled with no legitimate reason is exactly the bug
+class this gate hunts, and fails loudly, the same way a `[SCRIPT EVAL
+ERROR]` in the render gate does.
+
+**The script's own file header names every control it covers, and every
+control it deliberately doesn't, so this stays an honest, readable list
+rather than a silent gap** — read it before assuming a control is
+checked. If you add a new interactive control to these screens, add its
+own named check to that list in the same push; a control invisible to
+this gate is a control nobody but a live human will ever prove works.
+
+**A currently-failing control found this way is reported as a `KNOWN
+ISSUE`, not silently marked passing and not left to fail the gate
+forever on every future push.** The gate itself found a second one this
+way, the same day it was built: the capture chip's EDIT path (click an
+existing capture-ledger mark on the document to reopen it) has never
+worked, for anyone, since `entry_type` was added to marks — the code that
+loads marks into the per-document viewer never copied that field across,
+so the click-to-edit guard always sees it as unset and refuses. That is
+tracked as a named, dated, explained exception in the script itself, not
+fixed by this standard (it touches a file mid-rework by another lane) —
+the same discipline BUILD_STANDARD already applies to the pre-existing
+Round10/Round11 test debt: one tracked, explained exception that prints
+loudly on every run, never a silent, growing pile of them.
+
+---
+
+## Standard −1g — No worktree migrates the shared QA1 database directly (ENFORCED, not a paragraph)
+
+Real incident, 2026-09-13: two lanes (independently) ran `php artisan
+migrate` directly in their own worktrees, against `corex_qa1` — the exact
+live database `/corex-qa1` serves to `qatesting1.corexos.co.za`, that
+Johan was testing in at the time. One created a genuine table collision
+(a provisional stand-in table for code the other lane hadn't pushed yet)
+and caught it live, by luck, because the two lanes happened to be talking
+to each other. It could just as easily have landed silently, or mid-test.
+
+**Root cause: every worktree's `DB_DATABASE` has always been `corex_qa1`.**
+Standard −1a's per-lane `TEST_DB_DATABASE` isolation was never the
+protection anyone assumed it was here — see the correction added to that
+standard. Nothing before this stopped a bare `migrate` from hitting the
+shared schema from any worktree, at any time. This has been true since
+the first worktree on this box was created, not something new — the only
+reason it hadn't caused visible damage before is that most migrations
+run this way were ALSO ones that were going to be pulled and applied
+through `/corex-qa1` anyway, so the redundant early application just
+showed up later as an unremarkable "Nothing to migrate."
+
+**Fix — enforced in code, not documented as a rule to remember.** The
+`artisan` entrypoint itself now refuses `migrate`, `migrate:fresh`,
+`migrate:refresh`, `migrate:reset`, `migrate:rollback`, and `db:wipe`
+outright — before Laravel's own container boots, before a single query
+runs — whenever `DB_DATABASE` resolves to `corex_qa1` (or any future name
+added to that same blocklist) UNLESS `QA1_DEPLOY_CHECKOUT=true` is set in
+that checkout's own `.env`. That flag is set in exactly one place:
+`/corex-qa1`'s own `.env` (gitignored, not committed) — the one
+checkout that is actually the sanctioned deploy target. A brand-new
+worktree that has never heard of this rule is safe by default: the
+blocklist is deny-by-default, not an opt-out a new worktree could
+accidentally miss.
+
+**What to do instead, in any other worktree:** write and commit your
+migration as normal, push it, and it gets pulled + applied through
+`/corex-qa1` the same way every other change on this box already lands —
+nothing about your own workflow changes except that `migrate` itself now
+refuses locally with a clear message telling you exactly that, instead of
+silently succeeding against the shared schema.
+
+**Known limits, stated plainly rather than left implicit:** this guard
+reads `DB_DATABASE` from the environment/`.env` the same way
+`tests/bootstrap.php` reads `TEST_DB_DATABASE` — a command-line
+`--database=` override pointing at a *different* connection name that
+still happens to resolve to the same physical `corex_qa1` schema in
+`config/database.php` would not be caught by this check. Same category of
+limitation the existing test-DB guard already has; noted here rather than
+pretending the guard is airtight against deliberate circumvention. It
+stops the accidental case — which is the one that actually happened,
+twice, in one afternoon — not a determined bypass.
+
+---
+
+## Standard −1h — Six-lane MySQL contention is a known, accepted cost (RULED, 2026-09-13 — do not build a fix without Johan's go-ahead)
+
+Real evidence, 2026-09-13: a single, unrelated `information_schema` query
+sat blocked for **125+ seconds**, caught live via `SHOW FULL PROCESSLIST`
+at the exact moment — the blocker was a concurrent `migrate:fresh`
+actively mid-`CREATE TABLE` on a DIFFERENT lane's `hfc_dash_test_N`
+schema. This is genuine, not anecdotal.
+
+**Why schema isolation (Standard −1a) doesn't prevent this**: it fixes
+*correctness* (no cross-lane data collisions) but not *contention* — DDL
+locks and MySQL's shared redo log aren't scoped per-schema. Every fresh
+PHPUnit process re-runs a full snapshot-restore-then-replay on its first
+test (the schema-snapshot mechanism, non-negotiable #12a, working exactly
+as designed); six lanes each doing that periodically compounds on one
+shared `mysqld` regardless of how separate the schemas are. The snapshot
+load itself was measured taking 2.5–4 minutes this session, against a
+documented ~25s target (see Standard −1b) — that gap is the concrete
+sign something is worse than baseline, not just "six lanes exist."
+
+**Ruling (Johan, via the conductor): do not build a fix today.**
+Re-architecting how six lanes' tests get their databases while all six
+are mid-build on work he needs tonight is how the evening gets lost. This
+is recorded as a known, accepted cost for now, not a solved or ignored
+problem. When the board is quieter, the real choice — serializing heavy
+suites vs. a MySQL instance per lane — is Johan's to make, with these
+numbers in hand.
+
+**Two cheap mitigations every lane can follow meanwhile, no rebuild
+required:**
+- **Prefer a plain `php artisan migrate` over `migrate:fresh` wherever
+  it will do.** `migrate:fresh` always drops and fully replays; a plain
+  `migrate` only applies what's actually new, far less DDL load on a
+  schema that's already current.
+- **Never kill a test run mid-DDL.** This is exactly what corrupted
+  cc2's isolated test database this session — a `migrate:fresh` running
+  minutes instead of seconds under load is far more likely to get killed
+  by an impatient timeout while genuinely mid-drop, leaving the schema
+  half-migrated. If a run is taking a long time, wait it out or let it
+  fail on its own; don't Ctrl-C a schema operation in flight.
+
+**The migration guard (Standard −1g) has no bearing on this** — it only
+ever touches `migrate*` against `corex_qa1` specifically, never
+`hfc_dash_test_N`, which is what PHPUnit actually uses. Stated here
+plainly so the two aren't conflated later.
+
+**See also −1k**: a lane colliding with itself (two test processes
+against its own worktree database at once) produces the same symptoms —
+`ERROR 1213` deadlocks, long DDL waits — and was initially misdiagnosed
+as this. Two different mechanisms, both real; this entry's own evidence
+(a different lane's schema, directly observed via `SHOW FULL
+PROCESSLIST`) stands unchanged. Don't conclude cross-lane contention
+from an `ERROR 1213` alone — check which schema was actually involved.
+
+**Independently reconfirmed the same night** (cc4, own isolated
+`hfc_dash_test_4`): 183–247s per test on schema bootstrap under
+tonight's multi-lane load, checked live via `PROCESSLIST` — state
+`Query`, mid `CREATE TABLE`, not `Waiting for table lock`, i.e. genuine
+contention slowing bootstrap, not a hang. This is the "slow" claim this
+standard makes; −1k's retraction was about "stuck" (deadlock), a
+different claim entirely — see −1k for why the two must not be conflated.
+
+## Standard −1i — Disk headroom, tracked as a data point (not yet a decision)
+
+Measured 2026-09-13: `/mnt/HC_Volume_103099143` at **86% full — 161G of
+197G used, 27G free** — of which MySQL's own datadir accounts for **38G**.
+Not today's problem. Six lanes continuously creating and dropping test
+databases (Standard −1h) is not a shrinking workload, so this is worth
+watching rather than filing away.
+
+This is a tracked data point, not a call to act — re-measure
+(`df -h /mnt/HC_Volume_103099143`, `du -sh
+/mnt/HC_Volume_103099143/mysql-data/`) whenever touching this area of the
+box, and update the numbers here. Report to the conductor if the free
+space drops materially from 27G — that's the trigger for it becoming a
+decision for Johan, not before.
+
+---
+
+## Standard −1j — When a control appears dead, prove the input arrived before blaming the code (2026-09-13, corrected same day)
+
+The rental Decline confirm button was reported completely inert to a real
+physical mouse click — no request, no JS error, no dialog — while a
+programmatic click on the identical element worked immediately. It read
+as a live defect and was escalated as the most dangerous thing on the
+board. It wasn't one. The browser tab doing the "real click" testing
+was not the focused tab (Johan was working in his own tabs in the same
+browser), and Chrome does not deliver synthetic input to a background
+tab at all. Confirmed directly, in-tab: `document.visibilityState` read
+`"hidden"`, `document.hasFocus()` read `false`, `document.hidden` read
+`true`. And confirmed behaviourally too: a capture-phase `mousedown`
+listener on `document` itself, click at the centre of the page, zero
+events received — the page was never touched.
+
+Every piece of "evidence" collected for the false diagnosis was equally
+consistent with a background tab, which is exactly why it wasn't caught
+sooner:
+
+- No network request, no error, no dialog — because no click arrived at
+  the page at all.
+- `elementFromPoint` returning the right button, `.disabled` reading
+  `false` — both are DOM queries, unaffected by tab focus, and prove
+  nothing about whether input was delivered.
+- "Programmatic click works, real click doesn't" — this is precisely
+  what a background tab looks like, since JS execution doesn't care
+  which tab is focused, only the browser's real input delivery does.
+
+**The rule this earns: when a control appears dead to a real click,
+prove the click arrived at the page before concluding anything about the
+code.** Two one-line checks, run in that order, separate the three
+failure modes that got confused today — input never delivered, input
+delivered but mis-aimed, and a genuine dead control:
+
+1. **PRE-FLIGHT — before clicking anything.** Confirm the tab can
+   actually receive input:
+   ```js
+   document.hasFocus() /* must be true */
+   document.visibilityState /* must be "visible" */
+   ```
+   If either fails, stop — get a foreground tab. Any "nothing happened"
+   result from a background/unfocused tab is meaningless, not evidence.
+2. **PROOF — the moment a control appears dead.** Attach a capture-phase
+   listener before clicking again, and read what actually arrived:
+   ```js
+   document.addEventListener('mousedown', e => console.log(e.clientX, e.clientY, e.target), true)
+   ```
+   - Nothing logged → the input never reached the page. The code is not
+     the suspect; go back to check 1.
+   - Logged, but `e.target` isn't the intended control → an aiming
+     problem (wrong coordinates, wrong element, something covering it).
+   - Logged, lands on the intended control, and still nothing happens →
+     only now is it a genuine code defect.
+
+Skipping these is how a tab-focus accident got escalated as a
+production-threatening defect and cost an afternoon chasing a control
+that was never broken.
+
+**Practical consequence for this project, not a bug in anything**: the
+browser used for real-click verification is shared with Johan. When he
+works in his own tabs, the verification tab goes to the background and
+silently stops accepting clicks — that is the normal, expected behaviour
+of a browser with an unfocused tab, not a fault to chase. Run check 1
+before trusting any "the button did nothing" result, every time this
+browser is shared.
+
+This stands alongside the two other things this week that our
+verification must not assume:
+
+1. PHPUnit cannot see a disabled button — it never opens a browser.
+2. Headless Chrome draws overlay scrollbars at zero width — it cannot see
+   an element clipped by a real 15px scrollbar.
+3. A real-browser test cannot see anything at all if its input never
+   reached the page — an unfocused/background tab receives no synthetic
+   input, so confirm focus before clicking and confirm arrival before
+   concluding the control is dead.
+
+**On the earlier, now-retracted version of this standard**: it had
+claimed programmatic clicks (including Puppeteer's own `elementHandle.click()`,
+which genuinely dispatches mousedown → mouseup → click via CDP
+`Input.dispatchMouseEvent`, not a raw synthetic `el.click()`) could pass a
+control a real hand could not operate, and it named several other rental
+controls as unverified against that risk. There is no evidence any
+control anywhere swallows a real click, and that blast-radius claim is
+withdrawn along with it. The one part of that investigation that still
+stands, asked out of genuine curiosity rather than urgency: can our
+click-through gate dispatch a real mousedown/mouseup/click sequence, or
+only the fully synthetic kind? Checked against `scripts/rental-click-through.mjs`
+directly — `checkControl()` already calls Puppeteer's `elementHandle.click()`
+(CDP `Input.dispatchMouseEvent`, real coordinates, real hit-testing, not
+`page.evaluate(el => el.click())`) for every check except #6 (the
+capture-chip mark overlay, already flagged `[KNOWN ISSUE, not gating]`),
+which does use the fully synthetic `dispatchEvent` form. Answered for the
+record — not a gap that needs closing on the strength of anything found
+today.
+
+---
+
+## Standard −1k — A lane must never run two test processes against its own worktree database concurrently (2026-09-16)
+
+cc6 re-checked two deadlock incident logs and found both name
+`hfc_dash_test_6` — cc6's OWN worktree database, not another lane's. The
+conductor's earlier diagnosis of these two incidents as cross-lane
+contention was wrong, and has been retracted directly to cc2, cc3, and
+cc4. The real cause is self-collision: a foreground `php artisan test`
+running while a fork or background agent the SAME lane dispatched is
+also testing against the same database. Symptoms seen: two `ERROR 1213`
+deadlocks, and one unbounded metadata-lock wait on schema-load DDL (the
+schema load is itself DDL, so it waits forever behind the other
+process's own open transaction rather than timing out promptly).
+
+**The rule: one test process per worktree database at a time.** If a
+lane dispatches a subagent or fork to run tests, that lane does not ALSO
+run tests in the foreground until the dispatched one finishes, and vice
+versa. Per-lane test databases (`hfc_dash_test_1`..`hfc_dash_test_6`,
+Standard −1a) already isolate lanes from EACH OTHER — they do nothing to
+isolate a lane from ITSELF running two things at once against the one
+database it owns.
+
+This is a distinct mechanism from Standard −1h (shared-`mysqld`-resource
+contention ACROSS different lanes' schemas, directly observed via a
+different lane's `migrate:fresh` blocking an unrelated query) — that
+finding stands on its own evidence and is not what this retraction
+concerns. This standard is about a single lane colliding with itself.
+
+**Scope of the retraction, stated precisely so this isn't misread in
+either direction**: what got retracted was specifically the DEADLOCK
+diagnosis for these two incidents — cross-lane contention was not, in
+fact, what caused those two `ERROR 1213`s. It is NOT a finding that
+cross-lane contention doesn't exist. The same night, independently, cc4
+ran a real test against its own isolated `hfc_dash_test_4` and observed
+183–247s per test on schema bootstrap, checked live via MySQL's
+`PROCESSLIST` — state was `Query`, mid `CREATE TABLE`, not `Waiting for
+table lock` — confirming genuine shared-host contention slowing schema
+bootstrap under tonight's multi-lane load, not a hang and not a
+deadlock. Six lanes sharing one MySQL host measurably slows schema
+bootstrap (Standard −1h) — that is real and still true. Six lanes
+sharing one MySQL host do NOT deadlock each other by simply coexisting
+(what this standard retracts) — a deadlock traced back to one lane's
+own concurrent test processes, every time it's been checked tonight.
+Slow is not the same claim as stuck; don't let evidence for one stand
+in for the other.
+
+---
+
+## Standard −1l — Only cc1 writes to origin/QA1 (2026-09-16)
+
+The conductor's own correction, recorded here so it isn't re-litigated:
+"only cc1 performs git operations that move HEAD on /corex-qa1" left a
+gap — a lane could read that as "the deploy CHECKOUT is cc1's, the
+origin/QA1 BRANCH is fair game." It is not what was meant, and the gap
+was real: cc1 asked cc2 to push two migration FILES to `origin/QA1` so
+cc1 could pull and run the guarded migrate; cc2 widened that on its own
+inference and attempted to push its whole feature branch straight to
+`origin/QA1`. Git rejected it non-fast-forward and the conductor caught
+it before anything landed — confirmed clean, read-only, the same night
+(see the QA1-tip verification this standard sits next to in history).
+No harm done, but the near-miss is the reason this rule exists in
+writing now rather than staying an assumption.
+
+**The rule, stated without the gap this time: only cc1 writes to
+`origin/QA1`. No other lane pushes to `origin/QA1`, ever, for any
+reason, however small the change** — not a migration file, not a
+one-line doc fix, nothing. Lanes push to their OWN branch only. cc1 is
+the single hand that moves anything onto `origin/QA1` and onto
+`/corex-qa1`. If cc1 needs something from a lane, the lane pushes it to
+its own branch and tells cc1 the branch name and SHA; cc1 fetches and
+lands it through the usual worktree → commit → push → fast-forward-pull
+cycle.
+
+**Why this is worth being strict about, not just tidy**: it means there
+is exactly one place a bad landing on QA1 can ever come from, and
+exactly one person who can answer "what's on that branch and why" from
+their own records without having to reconstruct it. That answer took
+under a minute the night this rule was written, precisely because it
+was already true in practice — this standard just closes the wording
+gap that let it almost stop being true.
+
+## Standard −1m — A lane's branch name must begin with the lane that owns it (2026-09-16)
+
+The conductor read a branch named `cc4-rentals-contacts-2026-09-13`,
+inside a worktree named `rentals-contacts-cc4-2026-09-13`, concluded
+cc2 (who was actually pushing it) must be pushing another lane's
+branch, and said so directly to cc2 — wrongly. The branch was cc2's own
+work; the name just didn't say so. Retracted directly to cc2 by the
+conductor. A branch name that doesn't match its owning lane is a trap —
+it fooled a careful, fast read in under ten seconds, and the same
+mismatch could just as easily cause a lane to git-operate on the wrong
+branch, not just cause a wrong accusation.
+
+**The rule: a lane's branch name must begin with the lane that owns
+it** (e.g. `cc2-rentals-contacts-2026-09-13`, not
+`cc4-rentals-contacts-2026-09-13` for cc2's own work) — the worktree
+directory name is free to describe the FEATURE, but the branch name
+itself must identify the LANE first.
+
+**Applies to new branches from today (2026-09-16) onward. Do NOT rename
+any existing branch mid-build** — renaming a branch a lane is actively
+committing to is how work gets lost or orphaned, a far worse outcome
+than a misleading name. The known existing mismatch, noted here so
+nobody else makes the conductor's mistake this week: cc2's worktree
+`rentals-contacts-cc4-2026-09-13` (branch `cc4-rentals-contacts-2026-09-13`)
+is cc2's own work, not cc4's, despite the name.
+
+---
+
+## Standard −1n — Check the raw HTML, not the rendered text, when verifying removed data is gone (2026-09-16)
+
+The conductor's own walk of tonight's contact_property no-delete fix, five real-mouse screens deep: three of the five only became conclusive by reading the actual HTML response, not what the page visually showed. The live-links finding came directly out of doing this — a removed seller's live property link page still returned a real `HTTP 200` with a full render, unauthenticated, even though the seller's name was gone from every visible screen.
+
+**The rule: when verifying that removed data is gone, check the raw HTML
+(or the raw API response), not the rendered page as a human sees it.** A name absent from what's visually on screen is not proof of anything — it can still be sitting in a hidden field, an unauthenticated side-channel route, a data attribute never displayed, or a page nobody thought to look at that renders it in full. "I don't see it on the page" and "it's gone" are different claims; only checking the actual payload proves the second one.
+
+This is the same family as Standard −1f ("proving an endpoint is not proving a feature") and Standard −1j (prove the input arrived before blaming the code) — a different instrument, the same principle: know what your verification method can and cannot see, and don't let "looks right on screen" stand in for "the underlying data is actually gone."
+
+## Standard −1o — Capture the BEFORE before you change anything (2026-09-16)
+
+Two outcomes from the same night, side by side: cc5 captured a real before-picture on the DR2 refusal-wording finding before touching anything, unprompted — the after became verifiable proof (the owner's name genuinely replaced by "one of the sellers on this deal", not just plausible-looking new copy). The conductor did not capture a before-picture on the tenant-unlink walk, and said so plainly rather than claim a baseline she didn't have — a `Schema::hasColumn()` check stood in as indirect evidence instead (no `deleted_at` column existed on the old schema, so a hard delete was the only possible prior outcome), which was sufficient evidence to proceed but is a strictly weaker form of proof than an actual before-screenshot or before-response would have been.
+
+**The rule: capture the actual before-state — a screenshot, a saved response body, a raw query result — before making the change you're about to verify, whenever that capture is possible.** An after-only comparison against memory or assumption is an argument, not proof; a real before-and-after pair is proof. This costs almost nothing when the target is still reachable, and the cost of skipping it is exactly what happened tonight: an honest gap in the record, disclosed rather than papered over, but a gap all the same. If the before is genuinely unreachable (the case that forced the tenant-unlink workaround: the very confirm() being fixed was itself blocking the capture), say so explicitly and name the indirect evidence used instead — do not claim a baseline that wasn't actually taken.
+
+---
+
+## Standard −1p — A QA1 freeze holds behaviour, not documentation (2026-09-16)
+
+The conductor froze QA1 at `13251f7cb` after walking it, to keep her verification attached to the exact behaviour she'd checked. cc1 then landed a docs-only Standards addition (`8fca05d5b`) on top, told her immediately, and she confirmed this was correct rather than a violation — but wanted the principle stated exactly rather than left to be guessed at next time.
+
+**The rule, in the conductor's own words: "the freeze is on anything that can change what a user sees or what the system does. Documentation, standards, audit write-ups and spec notes are not that, and you may land them. Code, views, migrations, config and anything that alters behaviour may not — those park on their own branches until I lift the freeze."**
+
+Why the line sits exactly there: a walk verifies specific behaviour at a specific SHA, and that verification has to stay attached to that behaviour for as long as the freeze holds. A docs commit changes nothing a user can see or the system can do, so it cannot detach the verification from what was walked. A one-line Blade change would — even a trivial-looking one — because "it was only a small change" is exactly how a walked state quietly stops being the walked state. When in doubt whether something crosses the line, it doesn't matter how small the change looks — if it touches code, a view, a migration, config, or anything else that can alter behaviour, it parks on its own branch and waits, same as everything else does during a freeze.
+
+---
+
+## Standard −1q — Ask whether the data is real before designing a backfill (2026-09-16, relayed via cc6)
+
+The conductor's own words, relayed through cc6 while landing the statement-period elapsed-months fix: **"TEST DATA NEVER NEEDS TO BE REWORKED. When a calculation changes, the question 'what about the existing records' only deserves engineering effort if those records are real. On QA they are not. Ask whether the data is real BEFORE designing a backfill."** Relayed in spirit, not claimed as a literal transcript — flagged here plainly per how this project handles attribution, and recorded because it names a real, twice-repeated mistake rather than a hypothetical one: the conductor says she walked into this exact trap twice in two days before it was ever written down.
+
+Same shape as Johan's standing rule against inventing problems from demo/import stock (P24 property-health numbers, the contacts-importer's FICA auto-approve) — a number or a record that only exists because a seeder, an import, or a throwaway QA fixture put it there does not deserve the same engineering care as a number a real agency is depending on. A recalculation bug fix on QA1 does not need a backfill migration for QA1's own existing rows just because "what about the old data" is a reflex question — if those old rows are QA fixtures and throwaway test records, not live agency data, the honest answer is that there is no real data to migrate, and designing a backfill for rows nobody depends on is effort spent solving a problem that was never actually there.
+
+**The rule: before designing a backfill, recalculation script, or "existing records" migration for any bug fix, ask first whether the affected records are real.** On a QA/dev database, default to assuming they are not, and confirm rather than assume before building anything to fix them retroactively. This is not a license to skip backfills on live/production data — Johan's own "no shortcuts" principle and the no-hard-delete rule still apply in full wherever real agency data is at stake. It is a license to stop treating QA1's own fixture rows as if they carried the same weight as a real agency's records, which they don't.
+
+---
+
+## Standard −1r — The walk gate belongs at Staging, not at QA1 (2026-09-16, corrected by Johan)
+
+The conductor had been holding finished, tested work off QA1 until she had personally walked it in a browser first. Johan corrected her directly: **"why is saved parked. no one is using it. so get the work built."** He was right, and she said so herself: QA1 has one user, he isn't sitting on it, and nothing there is precious. A rule that belongs at Staging — nothing goes up without being verified first — had been applied one environment too early, and the result was finished work sitting motionless, including a fix that stops an agent losing typed work, waiting on a browser window nobody had free.
+
+**The rule, corrected: finished, tested work lands on QA1 as soon as it's ready — no one waits for a browser walk to land it there.** The walk happens AFTER it's live, on QA1 itself; if something's wrong, it gets fixed there, which is exactly what a dev environment is for. The walk gate moves to Staging, where it has always belonged — nothing goes to Staging without Johan's approval and without a real verification first, unchanged, not loosened at all. What still legitimately stops a landing on QA1, unchanged: a migration nobody has read, a real conflict between two lanes' work, tests that aren't green, or anything that touches a live/shared system. Those are correctness gates. A pre-landing browser walk on QA1 was ceremony wearing correctness's clothes.
+
+**The principle behind the correction, in the conductor's own words, worth carrying to the next gate someone proposes**: *"A verification gate in the wrong place is not caution, it is a bottleneck. The question to ask of any gate is what it protects."* Her gate was protecting a dev environment from a bug — which is the one thing a dev environment exists to absorb. Before adding or keeping any gate anywhere in this pipeline, name specifically what it protects and whether the environment it sits in front of is the environment that actually needs that protection. If the answer is "this environment is disposable/single-user/exists to catch exactly this," the gate belongs one step further down, not here.
+
+---
+
+## Standard −1s — Lanes do not build browser verification harnesses (2026-09-22, Johan, standing policy)
+
+**Narrowed 2026-09-26 — see Standard −1u below.** The "What this does NOT change" paragraph below still
+means what it says for `scripts/rental-smoke.mjs` and `scripts/rental-click-through.mjs`, and for
+`verify-alpine-render.mjs` on any change that does NOT touch an Alpine attribute. For a change that DOES
+touch an Alpine attribute, Standard −1u now requires the lane itself to run `verify-alpine-render.mjs`
+against a real fetched page before pushing — a narrow, named carve-out from "a lane does not stand these
+up pre-push under any circumstance" below, not a repeal of it. Read this section for the general policy
+and why it exists; read Standard −1u for the one class of change it no longer covers, and why.
+
+Three lanes each burned over an hour the same day on mint-session-cookie scripts, dev servers bound to isolated databases, and ad hoc Puppeteer/headless-Chromium scripts written to prove a change worked before pushing it. Johan's ruling, verbatim in substance: **"Lanes do not build browser harnesses. My own rule is that a lane's test results are never proof anyway — I verify every change myself in a real browser on the deployed site. Your local render proves nothing to him and costs him time and usage."**
+
+**The rule: a lane's own verification, before push, is exactly three things — `php -l` on every changed PHP file, `php artisan view:clear`, and the relevant EXISTING test file if one already exists. That is all.** If a change has no existing test covering it, a lane does not write a Puppeteer script, a minted-cookie curl harness, or any other browser-verification scaffolding to compensate — it pushes on the three-step verification above and lets the deployed-site check catch what the existing tests don't. Writing a NEW test (a real PHPUnit feature test, not a browser harness) is still the normal, encouraged way to prove new behaviour — this rule is about NOT standing up throwaway dev-server/browser tooling as a substitute for either an existing test or a real one, not about avoiding tests altogether.
+
+**Why this is the right line, not just a faster one**: Johan verifies every visible change himself, in a real browser, against the actually-deployed site, after cc1 lands it — that is the one verification that counts, because it is the one that matches what a real agent will actually see. A lane's own local render, however elaborate (isolated MySQL schema, minted session cookie, headless Chromium screenshot), is a DIFFERENT environment from the one being shipped to, proves nothing about the deployed asset build (`rental-inventory.md` §0c — a stale `public/build` bundle made a correct local render look nothing like the deployed page), and costs real time and token/compute usage that produces a report Johan does not trust anyway, by his own stated rule. The fast path and the trustworthy path are the same path: three cheap local checks, then push, then Johan's own eyes on the real thing.
+
+**What this replaces, concretely**: no `php artisan serve` bound to a throwaway database for manual click-through. No `scripts/fetch-authenticated-page.php` / `mint-session-cookie.php` chains run from a lane to pre-verify a Blade change. No Puppeteer/Chromium screenshot scripts written ad hoc to prove a CSS fix. No `corex:sync-permissions --seed-defaults` runs against a scratch database just to get a local login working for a verification pass. If a lane finds itself doing any of this, stop — the three-step check above is the whole job.
+
+**What this does NOT change**: `scripts/rental-smoke.mjs`, `scripts/verify-alpine-render.mjs`, and `scripts/rental-click-through.mjs` (Standard −1/−1f) remain real, correct gates — they still run, checking exactly what they've always checked. What changes is WHO runs them and WHEN: against the actually-deployed site, after cc1 lands the change, not by the lane itself against a local render before pushing. A lane does not stand these up pre-push under any circumstance, "explicitly requested" or not — if a prompt asks for a browser-verified change, the lane still stops at the three-step check and says so plainly in its report; the browser proof is the deployed-site pass that happens after landing.
+
+---
+
+## Standard −1t — Verification artefacts never go on a demo record (2026-09-22, Johan, standing policy)
+
+Property 5792 (1 Kenmuir Road, Uvongo, Margate) is the demo property. It accumulated four junk rooms —
+"Kitchen CC1 Verify", "Bedroom CC1 Verify", "ZZ Conductor Verify", "ZZ Conductor Verify Parking" — left
+behind by lanes, and by the conductor, using it to verify that a feature worked. Half the demo property
+became test litter, visible on the inspections tab, the inventory screen, and the compare view, and had
+to be cleaned up by hand before an agency saw the screen. Johan's ruling, verbatim in substance: **"I
+broke this rule too, so it is not aimed at anyone."**
+
+**The rule: verification artefacts must never be created on demo property 5792, or on any record a
+lane or the conductor demos from.** If a lane needs to create a room, a space, a property, or any other
+record to verify something works, it creates that record on a throwaway record of its own — never on a
+record used for demos — and removes it afterwards once the verification is done. "Removes it" means
+archived / soft-deleted / `is_retired`, per every non-negotiable and standing rule on hard deletes in
+this codebase — never a hard delete, and never left in place.
+
+A distinctive name is not a substitute for cleanup. "CC1 Verify" or "ZZ Conductor Verify" makes a junk
+record easy to *identify* later, which is better than an unnamed one, but it is not the same as removing
+it — the four rooms above were all clearly named and still sat there for days. Naming a throwaway record
+clearly is good practice; it does not discharge the obligation to clean it up.
+
+---
+
+## Standard −1u — The four Blade sweeps are attribute-scoped, not line-scoped; a lane running `verify-alpine-render.mjs` itself is now REQUIRED before pushing any Alpine-attribute change (2026-09-26, Johan, standing policy)
+
+This is the SECOND time incident #2's exact shape — a `//` comment inside a quoted Alpine attribute
+containing a literal `"`, closing the attribute early — has taken a whole page down on QA1. The first
+time (rental-applications review screen, the incident `verify-alpine-render.mjs` was originally built to
+catch) cost three separate rental-applications screens. This time it was
+`resources/views/corex/properties/show.blade.php`'s `x-data="rentalImages({...})"` — a ~420-line
+multi-line attribute — where a newly-added comment read `// the explicit "Auto-pair" button.` The literal
+`"` around `Auto-pair` closed the HTML attribute right there; everything after it, including the rest of
+the config object and the closing `})`, spilled out as literal page text, and the truncated expression
+Alpine actually received threw `SyntaxError: Unexpected token ')'` on construction. Because `rentalImages()`
+backs the entire Inspections tab, not just the feature being added, the WHOLE tab — every room panel, the
+Next-inspection control, everything — went dead, not only the new pairing UI. `php -l` and
+`php artisan view:cache` both passed clean, exactly as Standard −1's own opening incidents already prove
+they always will for this class of bug — neither one executes a single line of the JS a Blade file emits.
+
+**What let it through a second time:** the "four sweeps" convention several lanes have been running by
+hand before merging Blade changes (`:style` clobber, a JS comment inside a quoted Alpine attribute, a
+literal `"` inside `x-data="..."`, a multi-root `<template x-if>`/`x-for>`) was never written down as a
+standard — it existed only as instruction repeated at the top of each merge/verify task. Worse, every
+actual run of it was LINE-SCOPED: a grep for `//` on the same diff line as an `x-data="` opening. This
+comment sat six lines into a multi-line attribute, on its own line, nowhere near the `x-data="` token —
+a line-scoped grep structurally cannot see it, no matter how carefully it's run.
+
+**Rule 1 — the four sweeps are attribute-scoped, not line-scoped.** For any Blade change touching an
+Alpine attribute (`x-data`, `x-init`, `x-show`, `x-if`, `x-for`, `x-bind`/`:*`, `@*`/`x-on:*`, or any other
+`x-*` directive), the sweep is run against the FULL attribute value — from its opening quote to its
+matching closing quote, however many lines that spans — never against only the lines the diff touched.
+A single-line `grep` on the diff hunk is not this check; it is the exact gap that let this incident
+through. If tooling is needed to do this properly (extracting a full multi-line attribute value out of a
+diff, or out of the compiled file, to scan it as one string), write it — a five-minute script here is
+cheaper than a second dead page.
+
+**Rule 2 — a lane pushing any Alpine-attribute change runs `verify-alpine-render.mjs` itself, before
+pushing.** This is a narrow, named exception to Standard −1s (see the amendment note at its top) — it
+does not reopen ad hoc Puppeteer harnesses, minted-session dev servers, or any of the scaffolding −1s
+correctly stops. It requires exactly the two commands Standard −1 already documents, run by the lane that
+wrote the change, not deferred to whoever verifies afterward:
+
+```bash
+php8.2 scripts/fetch-authenticated-page.php \
+    --app-root=/corex-qa1 --user-id=<a real test fixture id> \
+    --url=https://qatesting1.corexos.co.za/<the changed route> \
+    --out=/tmp/rendered.html
+node scripts/verify-alpine-render.mjs /tmp/rendered.html
+```
+
+`php -l` and `view:cache` cannot see this class of defect — they check PHP syntax and Blade-directive
+pairing, never the JavaScript a Blade file emits into the page. `verify-alpine-render.mjs` is the only
+gate in this repo that actually parses and executes that JavaScript the way a real browser does. A change
+that touches an Alpine attribute and skips this check is not verified, regardless of how many other tests
+pass — this incident shipped with `php -l` clean, `view:cache` clean, and the branch's own commit message
+stating plainly that no live-browser verification had been performed.
+
+This was found and root-caused, after the fact, by fetching the real deployed page and running these
+exact two commands — proof the gate works when it runs. The fix here is making that the lane's own
+pre-push step for this one class of change, not something only discovered once Johan opens the page.
+
+---
+
+## Standard −1v — `/corex-qa1` is the live QA1 deploy target, not scratch space; all lane work happens in a worktree (2026-09-27, Johan, standing policy — see CLAUDE.md non-negotiable #8b for the full rule)
+
+A reflog trace on 2026-09-27 found the same pattern repeated at least four times over 26-27 Sep:
+a lane `git checkout`s its own feature/investigation branch directly inside `/corex-qa1` — the exact
+directory `scripts/qa-deploy.sh` builds and serves to live QA1 traffic — works there, and usually (not
+always) checks back out to `QA1` when done. The one cycle that didn't self-correct left QA1 silently
+stranded on `inventory-investigation-2026-09-27`, and the deploy before that had already built and served
+cc4's unreviewed `fix-inspection-photo-upload-immediate-2026-09-26` branch — neither visible to
+`origin/QA1`, neither caught by the deploy script itself. Only found because a diagnosis compared
+deployed `HEAD` against `origin/QA1`'s real tip by hand.
+
+**The full rule is CLAUDE.md non-negotiable #8b — read it there.** In one line: `/corex-qa1` stays on
+branch `QA1`, permanently, and the only git operation ever run inside it is the fast-forward pull
+`qa-deploy.sh` itself performs. Every lane's actual work — features, fixes, investigations, spec-only
+commits — happens in a worktree under `/mnt/HC_Volume_103099143/corex-worktrees/<branch-name>`, never
+by switching what's checked out in the deploy directory itself.
+
+**Why this is a Standard entry too, not just a CLAUDE.md line:** a rule six lanes have to remember by
+reading it once will be broken again by Wednesday — see Standard −1u immediately above for the same
+lesson learned the same way, twice in one week. Before this rule is trusted to hold on memory alone,
+see whether it can be enforced structurally instead (a pre-checkout hook, or `qa-deploy.sh` asserting
+`git rev-parse --abbrev-ref HEAD` is exactly `QA1` and aborting loudly otherwise) — documentation is the
+floor here, not the ceiling.
+
+---
+
+## Standard −1w — Deploy pre-flight must never stash or remove `cds/template-*.blade.php` (2026-09-28)
+
+`scripts/deploy.sh`'s STEP 1 pre-flight refuses to run against a dirty working tree (`git status --porcelain` non-empty). On 2026-09-28, `/corex-staging` had several pre-existing untracked files at deploy time, including `resources/views/docuperfect/web-templates/cds/template-74/76/78.blade.php`. These are **not editor debris** — they are runtime-generated e-sign web templates that DocuPerfect writes to disk when an agent builds/uses a CDS template; e-sign documents built from those templates can break while the files are missing. They were stashed (`git stash --include-untracked`) purely to satisfy the pre-flight dirty-tree check and unblock a deploy, then restored (`git stash pop`) immediately after — but for the window in between, any e-sign flow touching those specific templates would have failed.
+
+**The rule:** before a deploy's pre-flight cleans, stashes, or otherwise moves aside untracked files to satisfy the dirty-tree check, `resources/views/docuperfect/web-templates/cds/template-*.blade.php` (and any other runtime-generated, server-only artifact in that same category — check with whoever owns DocuPerfect if unsure) must be **left in place**, not staged into the stash. Rotated log files (`storage/logs/*.log.N`, `*.log.N.gz`) are safe to stash/move — they are pure history with no live read path. Generated web templates are not logs; they are live, load-bearing output. If the pre-flight dirty-tree check needs to pass, exclude this glob from whatever stash/move is used, or `.gitignore` it properly (untracked-but-protected) rather than treating it as disposable.
+
+---
+
+## Standard −1x — `scripts/lane-test.sh` is the ONE sanctioned way to run tests (2026-10-05, Johan, standing policy)
+
+Standard −1h recorded six-lane MySQL contention as "a known, accepted cost, do not build a fix without
+Johan's go-ahead" on 2026-09-13. This is that go-ahead. Every lane had already converged on wrapping test
+runs in `flock /tmp/corex-lane-test.lock php8.2 artisan test <files>` by hand — correct instinct, ad-hoc
+execution: no visibility into who's holding the lock or for how long, no self-healing when a lane's
+`hfc_dash_test_N` schema has been dropped (a sibling disk clean-up removed several idle ones on
+2026-10-05), and a live incident the same day showed a single stuck test (0.1% CPU, genuinely hung, not
+slow) blocking three other lanes behind the lock for 20+ minutes with zero visibility into why.
+
+**`scripts/lane-test.sh` replaces every hand-typed `flock ... artisan test ...` invocation.** It:
+
+1. Takes the same `/tmp/corex-lane-test.lock` every lane's manual invocations already used (interoperates
+   with runs already in flight — no migration needed).
+2. While waiting, prints the current holder's worktree, pid, and elapsed hold time every 5s (reads a
+   sidecar `/tmp/corex-lane-test.lock.info` the current holder writes on acquire) — so a lane stuck in the
+   queue can tell *who* is holding it and *for how long*, instead of staring at silence.
+3. Resolves this worktree's `TEST_DB_DATABASE` with the exact same precedence `tests/bootstrap.php`
+   already uses, and — new as of this standard — if that schema doesn't exist in MySQL, (re)creates it
+   and bootstraps it from `database/schema/mysql-schema.sql` before handing off to `artisan test`. A lane
+   whose schema was dropped out from under it (disk clean-up, a fresh worktree, anything) self-heals
+   instead of hard-failing with `SQLSTATE[HY000] [1049] Unknown database`.
+4. Holds the lock via an open file descriptor (fd 200), not a PID file or a manual stale-check — so a
+   `kill -9` of the wrapper, a timeout, or the test process itself hanging forever all resolve the same
+   way the kernel already guarantees: the lock is held for exactly as long as something is still actually
+   using it, and releases itself the instant nothing is. No stale-lock bookkeeping to get wrong.
+5. `scripts/lane-test.sh --status` shows the current holder (worktree, pid, elapsed) without joining the
+   queue, for exactly the "is it safe to start a run" check a lane wants before committing to wait.
+6. **Never kills, signals, or touches a process belonging to another lane/worktree.** A stuck holder
+   (verified via `--status` showing an implausible elapsed time, e.g. the 2026-10-05 `PpraEmploymentLetterTest`
+   hang) is that lane's own problem to report and resolve — this script's cleanup only ever reaches its
+   own child.
+
+**Root cause note, so staleness isn't re-investigated from scratch next time it's suspected:**
+`database/schema/mysql-schema.sql` was found current on `origin/QA1` HEAD when this was written (last
+regenerated minutes earlier, per Standard −1b's own discipline working as intended that day) — the
+mechanism in `tests/bootstrap.php` + Laravel's `MigrateCommand::loadSchemaState()` is not broken. What IS
+missing, permanently, is automation: nothing (no git hook, no CI step, no composer script) enforces
+Standard −1b's "re-dump the moment a migration lands" — it is a purely manual habit six concurrent lanes
+routinely skip, and the only thing that currently catches a stale dump is someone noticing tests got slow.
+**Measured 2026-10-05, against a fresh schema with the snapshot already current**: bootstrapping
+`hfc_dash_test_9001` from the (current, committed) dump and running
+`tests/Feature/Admin/RentalCatalogueUnitTest.php` took **276.81s** for the first test (schema bootstrap)
+and **279.76s** total for all 7 — far above the ~25s target non-negotiable #12a documents, even with a
+correct, current dump. This points at MySQL durability settings under multi-lane load (see the
+recommendations list below) as today's dominant cost, not dump staleness — the two are separate problems
+and this standard's fix only addresses the lock-visibility and schema-self-heal half of "no test
+bottlenecks," not DDL/fsync latency, which is Johan's call per the settings recommendations.
+
+---
+
+## Standard −1y — Tests run on a dedicated, tests-only MySQL instance; schemas are persistent (2026-10-05, Johan-approved, standing policy)
+
+Standard −1x fixed lock visibility and self-healing but left the real cost (MySQL durability
+settings under multi-lane load on the ONE shared instance that also serves live/Staging/QA1/QA2/
+demo) untouched — measured there at 276.81s to bootstrap a fresh schema even with a current dump.
+Johan approved a second, completely separate MySQL instance dedicated to tests, so lane tests never
+compete with live for that instance's resources and can run with durability settings that would be
+unsafe on real data. Full detail, settings, access control, and how to operate it:
+**`/root/LANETEST-MYSQL.md`**.
+
+**What changed:**
+- A Docker container, `corex-lanetest-mysql` (same `mysql:8.0.46` version as the main instance),
+  listening on `127.0.0.1:3317` only, with its own datadir
+  (`/mnt/HC_Volume_103099143/lanetest-mysql-data`) — shares nothing with the main instance's files.
+  Hard-capped at 1.5GB memory (this box runs with very little free RAM) so it can never starve the
+  host or the main instance.
+- Durability relaxed because every schema here is `hfc_dash_test_*` and always rebuildable:
+  `skip-log-bin`, `innodb_flush_log_at_trx_commit=0`, `sync_binlog=0`, `innodb_doublewrite=OFF`,
+  `performance_schema=OFF`, `innodb_buffer_pool_size=1G`. **These settings must never be applied to
+  the main instance** — it serves live.
+- A dedicated `lanetest` MySQL user, grantable ONLY on `` `hfc_dash_test_%`.* `` — verified it cannot
+  create or touch a schema outside that pattern.
+- `scripts/lane-test.sh` and `tests/bootstrap.php` both now route every test connection to this
+  instance by reading `/root/.lanetest-mysql-credentials` (root-only, never committed, never
+  echoed) — overriding DB_HOST/DB_PORT/DB_USERNAME/DB_PASSWORD regardless of what a worktree's own
+  `.env` says, so a test run on this box cannot reach the main instance even by accident. **On any
+  machine without that credentials file (any developer's own local MySQL, Windows/Laragon
+  included), both fall through to the previous behaviour unchanged** — this is additive, not a
+  universal requirement.
+- **Schemas are now PERSISTENT, never dropped at the end of a run.** `scripts/lane-test.sh` stores a
+  fingerprint (hash of `database/schema/mysql-schema.sql` + every migration file's own content) in
+  a marker row inside each lane's schema. Unchanged fingerprint → nothing rebuilt, and
+  `LANE_TEST_SCHEMA_READY=1` tells `tests/bootstrap.php` to pre-set
+  `RefreshDatabaseState::$migrated = true` so RefreshDatabase (used individually by every `*Test.php`
+  file — 978 of them, none touched) skips its own `migrate:fresh` and goes straight to wrapping each
+  test in a transaction against the already-correct schema. Changed fingerprint → a plain `artisan
+  migrate --force` for the delta, never a full rebuild. `scripts/lane-test.sh --fresh <files>` forces
+  a full rebuild — the recovery valve for a test that escapes its own wrapping transaction (raw DDL,
+  an explicit commit) and leaves residue migrate:fresh previously wiped away unconditionally. That
+  trade-off is real and stated plainly in both the script's own header comment and
+  `tests/bootstrap.php`'s.
+
+**Measured** (this instance, persistent schema): a **cold** run (schema didn't exist, full
+snapshot import) took ~197s — inflated by concurrent disk contention from other lanes still on the
+OLD instance at measurement time (host disk was at 100% util, swap fully exhausted — a real,
+diagnosed condition, not this instance's own cost). A **warm** run of the same file (fingerprint
+already matched) took **4.25s–5.48s total**, with the single test that previously cost 213–277s now
+running in under a second. That is the number that matters day to day: every run after the first on
+a given lane is this fast, not just the one measured.
+
+**Concurrency**: still behind the single shared `/tmp/corex-lane-test.lock` for now (Standard −1x) —
+not changed in this pass. With durability relaxed and each lane isolated to its own
+`hfc_dash_test_N` schema (enforced by the `lanetest` user's grant, not just convention), 2–3 lanes
+testing concurrently against this instance should no longer reproduce Standard −1h's contention (that
+was fsync/redo-log pressure from conservative durability settings, now removed on this instance) —
+recommended as a safe next step (a semaphore of ~3 instead of an exclusive lock), not yet built; this
+pass intentionally stopped at "wire the dedicated instance in and prove it's fast," per the explicit
+instruction to keep the lock as-is for this round.
+
+**MySQL-settings correction, so the wrong claim in Standard −1x's own recommendations list is not
+repeated:** `sync_binlog`, `innodb_flush_log_at_trx_commit`, and `log_bin` are GLOBAL-only on the main
+instance — there is no way to relax them "for test connections only" there, and they must never be
+changed on an instance that also serves live. The one genuinely session-scoped, safe lever
+(`SET SESSION sql_log_bin=0`) was checked directly against the main instance's test DB user
+(`corexqa1`) and confirmed NOT currently grantable without an explicit `SESSION_VARIABLES_ADMIN` (or
+legacy `SUPER`) grant — a narrow, live-safe privilege that only lets that one user skip binlogging
+its own session, never a server-wide change, but still a grant Johan would need to approve
+separately if ever wanted on the main instance. This dedicated instance makes that question moot for
+tests.
+
+---
+
+## Standard −1z — `scripts/lane-test.sh` runs up to 2 test runs at once; schema names are unique per worktree (2026-10-06, conductor's go)
+
+Standard −1y left the single exclusive lock in place and recommended "a semaphore of ~3". The lock was
+held for the WHOLE run, so one 200s+ cold schema bootstrap queued every lane even though warm runs
+take ~5s. It also protected nothing the tests still share (cache/session=array, queue=sync, no fixed
+ports, temp files are random-named, `storage/` is per-worktree) — except that **schema names were not
+unique**: 4 worktrees used `hfc_dash_test_1`, 9 used `_6`, 2 each `_9` and `_270927`, and every
+worktree with no `TEST_DB_DATABASE` silently fell back to the bare shared `hfc_dash_test`.
+
+**What a lane needs to know (nothing to do — it is automatic):**
+- **No `TEST_DB_DATABASE`? You now get your own schema.** `lane-test.sh` derives
+  `hfc_dash_test_<cksum of the worktree path>`, prints it, and exports it to PHPUnit. Setting
+  `TEST_DB_DATABASE` in your worktree `.env` still wins. The first run on a new name is a cold bootstrap (~200s, once).
+- **Per-schema lock (whole run):** two worktrees that resolve to the SAME name wait for each other
+  instead of corrupting each other's data. (Existing duplicates were deliberately NOT renamed — give
+  your worktree a unique `TEST_DB_DATABASE` to stop waiting on a namesake.)
+- **Run slots (whole run):** at most `MAX_SLOTS` (top of the script, default **2**; `LANE_TEST_MAX_SLOTS=3`
+  overrides for one run) test runs execute at once. A further run waits and prints which slots are held,
+  by which worktree, for how long.
+- **Setup lock (`/tmp/corex-lane-test.lock`) is now held ONLY while a schema is created/migrated**, then
+  released before PHPUnit starts. Bootstraps stay serial on purpose (several concurrent snapshot loads
+  thrash the tests instance's 100 MB redo log); test runs no longer queue behind them.
+- `scripts/lane-test.sh --status` lists the setup lock, every slot and every busy schema with holder info.
+- Killing a run (Ctrl-C / `kill <wrapper pid>`) takes its whole test process group down, so its slot and schema
+  free within seconds. A `kill -9` of the wrapper alone leaves phpunit running — and correctly still holding the locks.
+  Locks are `flock`s on open fds, released by the kernel; the `.info` label
+  files are cosmetic, so a stale label can never block anyone. A lane still on an OLDER copy of the script
+  holds the setup lock for its whole run — merge `origin/QA1` to get the new behaviour.
+- The truncated-snapshot guard (Standard −1x/ `check-schema-snapshot.sh`) is unchanged and runs first.
+- **Missing `node_modules` fails fast (2026-10-06).** A fresh worktree has no `node_modules`; the Word-import tests
+  shell out to mammoth and otherwise die with an opaque HTTP 500 after the whole queue + schema wait. Before any
+  lock, `lane-test.sh` now checks: if `node_modules/mammoth` is absent AND a selected test file references the
+  Word-import code (`mammoth` / `DocxParser` / `DocumentImporter` / `ImporterAi` / `CorexDocumentRenderer`), it stops with one line
+  naming the test and the fix — `ln -s /corex-qa1/node_modules node_modules` (read-only use; never `npm install` through
+  it). Runs that don't touch Word import (e.g. `tests/Feature/Platform`) are unaffected; `LANE_TEST_SKIP_NODE_CHECK=1` bypasses.
+
+Raising `MAX_SLOTS` is a one-line change; do it only while `free -g` shows real headroom (the box runs with swap full).
+
+---
+
+## Standard 0 — Operating Principle
+
+Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.
+
+The principle: CoreX is the best real estate OS that will ever exist. Every prompt, every commit, every deferral decision is measured against this. "Good enough for now" never ships.
+
+---
+
+CoreX OS will become the best and biggest real estate operating system in South Africa.
+
+**Technology Choices:** When multiple options exist, always choose the best one. If there is a superior library, API, approach or architecture — use it. Never choose mediocre when world class is available. Cost is a consideration but never a reason to choose inferior technology when better options exist at the same or similar cost.
+
+**Quality Standard:** Every feature built must work seamlessly. A feature that half-works is not acceptable. Debug it until it works properly or do not ship it.
+
+**Vision:** Johan Reichel brings deep real estate industry knowledge spanning operations, compliance, accounting, and agency management. Claude's role is to convert that knowledge into a flawless operating system — one that sets the industry standard.
+
+---
+
+# CoreX OS — Standards
+
+These are the non-negotiable rules for building CoreX. Every developer, every prompt, every feature must comply.
+
+---
+
+## UX Rules
+
+### Navigation — No Orphaned Pages
+Every new page or feature must include a navigation path to reach it. A sidebar link, a button, a contextual action — something. If a user cannot navigate to a page without knowing the URL, the feature is incomplete.
+
+### Navigation — Every Sidebar Item Ships With A Features On/Off Toggle (Andre + Johan, 2026-10-07, standing rule)
+Anything added to the sidebar must be switchable on and off under **Settings → Features on/off**. A navigation entry with no switch is incomplete, exactly like a page with no navigation entry.
+
+A new sidebar item is not done until, in the SAME commit:
+1. **It has a row in `config/corex-features.php`** — label, plain-English `explain` and a concrete `affects`, `default => true` (nothing may disappear for an agency that already uses it), `depends_on` its parent module where it genuinely cannot work without it, a `category` that matches the sidebar group, and `route_names` (globs of the signed-in web routes it owns) plus `view_dirs` (its own screens). One row feeds the Settings screen AND the Setup Wizard — no second place to remember (this is also rule #10a).
+2. **The sidebar link is wrapped in `@feature('<key>')`.** A group whose children are all switched off hides itself — compute the group's visibility from the children's features, as the HR, Reports and Rentals groups do.
+3. **Its routes are refused when it is off.** `route_names` is enforced by `App\Http\Middleware\EnforceFeatureRoutes` (404, same as `feature:` middleware), so a hand-typed URL does not open it. A route matching several features' globs needs all of them on. The toggle beats the Role Manager permission.
+4. **Every other screen that links to it hides the link.** Wrap the link/button in `@feature('<key>')`; where the link sits inside a sentence, keep the text and drop the link (`@feature('k')<a …>text</a>@else text @endfeature`). Never leave a dead button on another page.
+5. **Not a duplicate switch.** If the feature already has a switch (e.g. Assistants → `agencies.assistants_enabled`), register it as a switchboard-origin key reading that store (`AgencyFeatureService::SWITCHBOARD_STORES`) — one switch, one home.
+
+Only two kinds of link may have no toggle, and both are listed explicitly in `App\Support\Navigation\SidebarFeatureCoverage`: a **core pillar page** (justified by a `'core' => true` registry key) and a **System-Owner-only** link (inside an `@if($isOwner)` block or an owner-only group). Do not add anything else there to make a test pass — add the toggle.
+
+**Enforced, not a paragraph:** `FeatureNavGuardCoverageTest` (extends the existing sidebar audit, `SidebarNavAuditor`) fails when a sidebar link sits outside every `@feature` wrap and is not exempt, when a view uses an unknown feature key (an unknown key silently resolves to OFF), when a `route_names` glob matches no route, and when a screen outside a feature's own views links to it without `@feature`. `php scripts/sidebar-nav-audit.php` lists the offenders. Spec: `.ai/specs/corex-feature-registry.md` §8.2.
+
+### Soft Deletes — No Hard Deletes
+CoreX has a no-hard-deletes policy across the entire platform.
+- Show a "Delete" button to users
+- The underlying action is always archive/soft-delete (`deleted_at` timestamp)
+- Admin can recover any archived record
+- Andre is implementing `SoftDeletes` across all models — check before adding new ones
+
+### Confirmations Before Destructive Actions
+Any action that archives, removes, or irreversibly changes data must show a confirmation dialog. No silent destructive actions.
+
+### Status Always Visible
+Every record that has a status (listing, deal, document, compliance item) must display that status clearly on its card/row. Users should never have to open a record to find out where it stands.
+
+### No Silent Locks — Read-Only States Must Explain & Offer A Way Forward
+Any read-only / locked / disabled state anywhere in CoreX must (1) SAY why it is locked, and (2) offer the action that unlocks it. Never render a surface silently uneditable — and never link to a screen promising an edit that the destination then refuses. Example: a confirmed (frozen) presentation locks editing; the Analysis screen shows a "Locked — confirmed snapshot. Re-open to edit, then Confirm & Generate" banner with a Re-open button, both page-level and on each locked section. A blocked/hidden action is hidden (no dead buttons); a locked-but-recoverable state is shown WITH its unlock path.
+
+### No Invisible Edits — Editable State Must Be Visually Self-Evident
+The sibling of No Silent Locks. When a value IS editable, it must look editable at a glance — without the user reading any hint text. Plain text + an italic "tap to edit" line is NOT an affordance. Render editable values as real form controls: a bordered input box, right-aligned value, a pencil (or equivalent) icon. A user must recognise instantly that these are fields they can change. This is the standard for every edit-in-place section (e.g. the holding-cost components on Analysis, and all Phase C edit-in-place sections). Keep the save/recompute behaviour whatever it is; only the affordance must be self-evident.
+
+### Loading States
+Every async operation must show a loading indicator. No blank screens, no silent waits.
+
+### Mobile Awareness
+CoreX is used in the field. Agents use phones. Every new page must be usable on a mobile screen — not necessarily pixel-perfect, but functional.
+
+---
+
+## Execution Rules
+
+### Listen To The User — Non-Negotiable
+- When the user describes a specific behaviour they want, build exactly that. Do not build an approximation or a "better" alternative.
+- When the user says something is not working, believe them. Do not suggest it might be a different problem.
+- When the user asks for shift-all-down, build shift-all-down. Not insert. Not swap. Not popover.
+- Read the user's request twice before writing any code. If unclear, ask ONE question. Then build.
+- Do not tell the user to test something that has not been verified to address their exact request.
+
+### Document Importer — Lessons Learned
+- Blank positions in the HTML are FIXED. They cannot be inserted or removed. Only assignments shift.
+- When AI misses one blank, all subsequent fields shift wrong. The fix is shift-assignments, not insert-blank.
+- Always send BOTH context_before AND context_after to AI — SA lease documents have blanks BEFORE their labels.
+- Claude API errors: always run php artisan config:clear before assuming the key is wrong.
+- Right tool for right job: Mammoth for HTML, Claude/OpenAI for field detection only.
+
+### Investigation Before Prompt
+Before writing any implementation prompt for Andre, always investigate:
+- Exact file paths involved
+- Exact method names and line numbers
+- Exact model relationships
+- Exact migration state
+
+Never guess at structure. Check first.
+
+### Fix Root Causes, Not Symptoms
+If something is broken, find why it's broken — not the shortest path to making the error disappear. A symptom fix today becomes a compound rebuild in three months.
+
+### No Quick Patches
+Over-engineer for correctness. A solution that solves the problem cleanly once is always better than a workaround that needs revisiting.
+
+### Every Spec Approved Before Build Begins
+No module gets built without an approved spec in `/.ai/specs/`. Both Johan and Andre must be aligned on the spec before any code is written. The spec is the contract.
+
+### Settings First
+Before building any new module, identify every dropdown, status, type, or category it will use. Ensure those values live in settings tables before the feature is built. Never retrofit settings later.
+
+---
+
+## Architectural Laws
+
+### One Source of Truth Per Data Point
+If a piece of data exists in the system, it exists in one place. It is never duplicated across tables unless explicitly denormalized for performance with a documented sync strategy.
+
+### Pillar Linkage is Mandatory
+Every record created in any module must link to at least one pillar (Property, Contact, Deal, Agent). A document with no linked property and no linked contact is an orphan. Orphans are forbidden.
+
+### Deal Branch Attribution — the selling side owns the deal (AT-192, Johan doctrine)
+**A deal belongs to the SELLING agent's acting office.** The selling agent's branch (the office they are acting as when they capture) is the deal's branch. Listing-side agents from a *different* branch are entirely normal (a Shelly Beach listing sold by a Southbroom agent is a **Southbroom** deal) and are **never** a mis-stamp signal. Any future auto-derivation of a deal's branch MUST derive from the **selling side**, never from "any agent whose home branch matches the deal branch" (that heuristic is wrong and is banned from audits). The DR1 capture gate (AT-192 b) takes the branch by **explicit selection** with **no auto-derivation**, so it is already compatible with this doctrine; if derivation is ever added, it derives from the selling agent's acting office.
+
+### Document Fidelity is Non-Negotiable
+A web document rendered to PDF must be character-for-character identical to the intended legal document. No autocorrection. No smart quotes. No rewording. No reformatting. If a word changes, the document is legally compromised.
+
+### E-Sign — Signing-view state preservation
+
+During an active signing session, the recipient's signing-view state (captured signatures, captured initials, filled fields, party signing status) is the authoritative record. This state lives in two layers:
+
+1. Persisted server-side: `party.signed_at`, `party.signature_locked_at`, captured signature data, field values stored on the document model
+2. Hydrated client-side from #1 on page load via server-rendered Blade
+
+**Forbidden operations during signing:**
+
+- `location.reload()` after any AJAX action — wipes Alpine state including any captured-but-not-yet-submitted signatures
+- Full re-fetch of the signing view from JS after an inline action
+- Re-rendering signature widgets, initial widgets, or field widgets from JS based on document HTML metadata
+- Resetting Alpine `x-data` on partial updates
+
+**Required pattern for inline mutations** (e.g. add condition, flag clause, capture initial):
+
+1. Client POSTs to endpoint
+2. Controller returns JSON containing a `rendered_row` (or `rendered_html`) field — server-rendered HTML for ONLY the new/changed element
+3. Client appends/replaces ONLY the affected node in the DOM
+4. No other widgets touched. No re-render of anything else.
+
+**Canonical implementation:** Phase 1B.9 commit `bb6cc9f` — `SigningController::addCondition()` + `InsertableBlockRenderer::renderConditionRowPublic()` + `add-condition-modal.blade.php` `_appendConditionRow()` handler.
+
+**Why this matters:** Recipients spend 5–15 minutes signing a document. A single inadvertent re-render wipes all that work and destroys trust in the system. This is a P0 invariant.
+
+### Flows Carry Data Forward
+When a flow moves from one stage to the next, all relevant data from previous stages is carried forward and pre-filled. Agents never re-enter data the system already knows.
+
+### API Keys and Credentials Live in .env Only
+Never in code. Never in the database unless encrypted. Never in comments. `.env` only.
+
+### Database — No SQLite in Repo
+`database.sqlite` must be in `.gitignore`. It causes constant merge conflicts and has no place in a MySQL-driven production system.
+
+### Design System Compliance (UI_DESIGN_SYSTEM.md is binding)
+
+Every Blade view rendering new UI MUST start by reading `.ai/specs/UI_DESIGN_SYSTEM.md`. The view's header comment MUST declare the design system version it complies with (e.g. `DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20`).
+
+**FORBIDDEN in any Blade view:**
+- Hardcoded colours (`color: #0b2a4a`, `background: white`, `border-color: red`, etc.) for anything a design token covers.
+- Hardcoded font families inline (`font-family: 'Plus Jakarta Sans'`) — use Figtree via the cascade.
+- Hardcoded radii, shadows, or sizes that diverge from the token scale.
+
+**Required pattern when referencing colours:**
+- `var(--token-name, #fallback-hex)` — the var() pattern with the documented token value as a fallback per UI_DESIGN_SYSTEM.md §5.10. This makes views robust if a token fails to resolve at runtime AND auto-upgrades if the token is later refined.
+
+**If a new token is needed:** define it in UI_DESIGN_SYSTEM.md FIRST (with Johan's approval, committed to `main`) BEFORE any view uses it. Do not silently invent tokens.
+
+**Regression guard:** `scripts/check-design-tokens.ps1` greps the `resources/views/corex/` tree for naked hardcoded colours and fails the build if any are found. New CoreX views MUST pass this check.
+
+When in doubt: tokens over hex, components over duplication, patterns over creativity.
+
+### Plain-English Visible Labels (F.8 binding rule)
+
+Every chip, badge, button, or short-form label visible to users MUST be either:
+
+(a) **Plain English** a first-day agent would understand without training — full words preferred over abbreviations, common estate-agent vocabulary, no codenames; OR
+(b) **Accompanied by a `title=` tooltip** (or the equivalent CoreX tooltip pattern from UI_DESIGN_SYSTEM.md) explaining what the label means and what clicking it does.
+
+**FORBIDDEN as visible labels:**
+- Developer jargon and internal abbreviations: `TP` (use "Property intel"), `KPI`, `R1`/`R2`/`R3` rule names, status enum values (`pitched_recently`, `meeting_set` shown raw — humanise with `str_replace('_', ' ', …)`).
+- Acronyms not common to South African estate agents.
+- Cryptic icons without a tooltip explaining the action.
+
+**Rationale:** new agents joining HFC should be able to use Market Intelligence on their first morning without a Loom video. Every visible label is a UX commitment that costs nothing to write clearly.
+
+### Universal Match-or-Create for Property Data
+Every ingestion path produces or enriches a `tracked_properties` record via `App\Services\Prospecting\TrackedPropertyMatchOrCreateService::matchOrCreate()`. The service uses a 5-strategy match in priority order:
+
+1. **Source-ref exact** — `tracked_property_external_refs(agency_id, source_type, source_ref)`
+2. **GPS proximity** — `~5m tolerance` on `cma_gps_lat/lng`, fallback to `lat/lng`
+3. **Erf number + suburb** — exact match on both
+4. **Normalised address** — street_number + normalised street_name + normalised suburb
+5. **Token overlap** — same suburb + ≥2 significant tokens in the street (last resort)
+
+Source attribution is permanent. Every contribution appends a `source_chain` entry (type, ref, date, fields_contributed) AND creates/updates a `tracked_property_external_refs` row. The append-only chain is the audit record of every external system that has said "I think this is the same property".
+
+Two property tiers, clearly separated:
+
+| Tier | Table | Purpose |
+|------|-------|---------|
+| Agency Stock | `properties` | Formal mandates HFC works |
+| Tracked Properties | `tracked_properties` | Every property CoreX has intelligence on |
+
+Promotion to `properties` (Agency Stock) happens when a mandate is signed via `TrackedPropertyMatchOrCreateService::promoteToStock()`. The TrackedProperty record persists post-promotion as the audit trail; its `promoted_to_property_id` points at the operational Property.
+
+This is the architectural mechanism by which CoreX builds a comprehensive property intelligence dataset organically through normal agent work — no manual data entry; no orphaned CMA fields; no duplicate records across portal sources.
+
+---
+
+## Code Style Expectations
+
+### Laravel Conventions
+- Models in `app/Models/`
+- Services in `app/Services/`
+- Controllers thin — business logic in services
+- Use Eloquent relationships — never raw joins in controllers
+- Migrations for every schema change — no manual DB edits on server
+
+### Blade + Alpine.js
+- Use Alpine.js for interactivity — no jQuery
+- Use corex layout files: `corex-app.blade.php` + `corex-sidebar.blade.php`
+- No inline styles — use Tailwind classes
+- Component-level CSS in the component, not in global stylesheets unless truly global
+- **Never pass an inline multi-key array literal (or a `->map(fn($x) => [...])`
+  callback returning one) directly into `@json()`.** Laravel's `@json()` compiler
+  (`Illuminate\View\Compilers\Concerns\CompilesJson::compileJson()`) does a naive
+  `explode(',', $expression)` on the raw argument text with NO awareness of
+  brackets/parens — it assumes the call is always `@json($value, $options, $depth)`.
+  Any inline `[...]` with 2+ keys puts extra top-level commas into that same
+  string, which get silently swallowed into `$options`/`$depth` (dropping the
+  safe default `JSON_HEX_*` escaping flags — a real HTML/script-breakout risk
+  when the JSON lands inside an attribute or `<script>` block) or, once there
+  are 3+ total commas, truncate the compiled statement outright into invalid
+  PHP. Whether a given call site breaks visibly depends on the exact comma
+  count that day — it can sit "working" for months and then 500 the moment
+  someone adds one more key. **The correct pattern:** build the value as its
+  own PHP variable in a `@php ... @endphp` block first, then call
+  `@json($theVariable)` — a bare variable reference has zero top-level commas
+  in the `@json()` call, so this is always safe regardless of how many keys
+  the array has. Found and fixed 2026-09-22 in
+  `corex/rental-inventories/show.blade.php` and 7 other call sites
+  codebase-wide (`docuperfect/esign/wizard.blade.php`,
+  `onboarding/portal/review.blade.php`, `dr2/create.blade.php`,
+  `presentations/review.blade.php` ×2, `deals-v2/create-form.blade.php`,
+  `commercial-evaluations/edit.blade.php`) — none had yet crossed into the
+  3-comma truncation case, but all were relying on the same coincidence.
+
+### Naming
+- Models: PascalCase singular (`Property`, `Contact`, `Deal`)
+- Tables: snake_case plural (`properties`, `contacts`, `deals`)
+- Routes: kebab-case (`/deals/create`, `/listings/edit`)
+- Blade files: kebab-case (`listing-card.blade.php`)
+
+---
+
+## Prompt Execution Rules
+
+### Rule 13: Full CRUD, list-screen completeness, and own/branch/agency scoping are non-negotiable
+
+Johan, verbatim: *"we always need proper crud? search / sort / own /
+branch / agency levels. that should be the design standard. not me
+asking for it once we get to that stage."* This is the design standard
+from the first line of the spec, not a follow-up ask. Full detail and
+rationale: `BUILD_STANDARD.md` §1.
+
+- Every created entity has create, read, update, archive (soft-delete
+  only — never hard delete), and restore. No orphan records.
+- Every list screen ships with named-field search, sort with a stated
+  default, filter (status + date range minimum), pagination, and a real
+  empty state.
+- Every list, detail view, export, download, and API endpoint enforces
+  OWN / BRANCH / AGENCY visibility scoping at the query layer
+  (`BelongsToAgency` / `AgencyScope`), never by hiding a UI link.
+  Direct-URL access by ID is blocked, not just unlinked.
+- The spec states search fields, sort/default, filters, and per-screen
+  scoping before code is written. A spec missing these is not ready to
+  build.
+
+### Rule 14: Every Action Must Be Reversible
+Undo, soft-delete, or archive. Never hard delete.
+
+### Rule 15: Read Specs Before Coding
+Before any code changes, read CLAUDE.md, STANDARDS.md, and the relevant spec from .ai/specs/. Design decisions in the spec override assumptions.
+
+### Rule 16: Functional Verification Required
+php -l and dev-check are necessary but not sufficient. Every feature must be verified via Tinker or equivalent to confirm it actually works end-to-end, not just compiles.
+
+Verification has two independent axes — transport (real HTTP vs. in-process dispatch) and data state (clean fixture vs. already-touched record) — and varying one proves nothing about the other. See BUILD_STANDARD.md §5a for the full rule and why a real-HTTP re-verification against a fresh fixture still missed a soft-delete/unique-index collision (AT-392 RA-06, 2026-09-08).
+
+---
+
+## Known Limitations
+
+### View-As vs Switch User (Impersonation)
+
+CoreX has TWO user-perspective features. They are NOT the same:
+
+| Feature | Trigger | What it does | Visibility scopes work? |
+|---------|---------|--------------|------------------------|
+| **View As** (role dropdown) | Owner header dropdown → "View As [role]" | Swaps `role` + `branch_id` in session ONLY. Auth::user() unchanged. | **NO** — scopes still see original user |
+| **Switch User** (impersonation) | Sidebar user menu → "Switch User" → pick user | Full `Auth::login($target)`. Auth::user() fully swapped. | **YES** — all scopes behave correctly |
+
+**Rule: To test visibility-scoped features (ContactScope, CalendarVisibilityResolver, future scopes), use "Switch User" — NOT "View As".**
+
+The "View As" role dropdown is useful ONLY for testing permission/UI gating (what menu items appear, what buttons show). It does NOT affect data visibility scopes because `Auth::user()` remains the original super_admin.
+
+**Impersonation system details:**
+- Controller: `App\Http\Controllers\Admin\ImpersonateController`
+- Routes: `POST /admin/impersonate/{user}` (start), `POST /admin/impersonate/stop` (exit)
+- Permission required: `impersonate_users` or owner role
+- Audit log: `impersonation_logs` table (admin_user_id, target_user_id, action, ip, user_agent)
+- Banner shown during impersonation (amber "Viewing as [name]" with exit button)
+- Session marker: `impersonator_id` stores original admin's id for restoration
+
+**Diagnostic pattern:** If a visibility-scoped feature shows wrong results, check which feature was used. If "View As" → switch to "Switch User" instead. If "Switch User" → the scope has a genuine bug.
+
+---
+
+## Rule 17: Never Assume an Agency/Branch Context Exists
+
+The headline defect class of 2026-07-13 (AT-241 super-user calendar 500; MIC
+`Call to effectiveAgencyId() on null` 500). Owner/super-admin users, console
+commands, queued jobs, webhooks and public endpoints run with **no agency
+context** — the acting user's `agency_id` is NULL and `effectiveAgencyId()`
+returns NULL. Code that assumes a tenant exists either 500s (FK 1452, or "Call
+to a member function on null") or silently writes to the WRONG tenant.
+
+### The two failure shapes
+1. **Accessor on a possibly-null receiver** → `Call to a member function
+   effectiveAgencyId() on null`. E.g. `$deal->agent->effectiveAgencyId()` when
+   `agent` is null; `Auth::user()->effectiveAgencyId()` in an unauthenticated
+   (console/webhook/job) path where `user()` is null.
+2. **Hardcoded-agency fallback** → `effectiveAgencyId() ?? 1`. `??` only catches
+   null and falls back to a HARDCODED agency id that (a) may not exist (FK 1452
+   on a firstOrCreate, or on any install where the one agency isn't id 1) and
+   (b) is the WRONG tenant for a null-agency user.
+
+### The canonical safe pattern
+
+**Reading agency-scoped settings/config for the acting user** — resolve to the
+sentinel `0` with `?:` (NOT `?? 1`), and route through a consumer that GUARDS
+`<= 0`, returning unsaved in-memory defaults (never persisting):
+
+```php
+// GOOD — AgencyContactSettings::forAgency() has the <=0 guard (returns defaults, no write):
+AgencyContactSettings::forAgency((int) ($user->effectiveAgencyId() ?: 0))->calendarPollSeconds();
+//   public static function forAgency(int $agencyId): self {
+//       if ($agencyId <= 0) { return (new self())->forceFill([...defaults]); } // no FK, no 500
+//       return self::firstOrCreate(['agency_id' => $agencyId], $defaults);
+//   }
+
+// BAD — assumes agency 1 exists, mis-tenants a null-agency user, FK-1452s where agency 1 is absent:
+AgencyContactSettings::forAgency($user->effectiveAgencyId() ?? 1)->calendarPollSeconds();
+```
+
+**Calling an accessor on a relation that can be null** — use `?->` and handle null:
+
+```php
+$agencyId = $deal->agent?->effectiveAgencyId();   // GOOD
+$agencyId = Auth::user()?->effectiveAgencyId();   // GOOD (unauth/console-safe)
+$agencyId = $deal->agent->effectiveAgencyId();    // BAD — 500 when agent is null
+```
+
+**Writing (stamping agency_id on a new row)** — never invent an agency. Derive
+it from the domain object being acted on (the deal's / property's / branch's
+agency), OR persist NULL for a legitimately global row (only if the column is
+nullable), OR reject with a clear message ("no agency selected — switch into an
+agency first"). NEVER stamp a hardcoded `1` or a sentinel `0` into a NOT-NULL /
+FK agency column (that is the FK-1452 on write).
+
+### The rule
+- No `effectiveAgencyId()` / `effectiveBranchId()` / `->agency_id` on a receiver
+  that can be null without `?->` or a prior guard.
+- No `?? <hardcoded agency id>`. Reads use `?: 0` + a `<= 0` guard.
+- A resolved-null agency on a WRITE is derive-from-context or reject — never a
+  hardcoded or sentinel stamp into a NOT-NULL column.
+- Sentinel `0` is safe ONLY if the consumer guards `<= 0`. A `?: 0` that flows
+  unguarded into a NOT-NULL / FK insert is a latent 1452 — treat it as a bug.
+
+---
+
+## Rule 18: A Local Worktree Server Never Points at a Shared Database
+
+2026-09-27, property 5792 — a `php artisan serve` process run from an isolated worktree, with its `.env`
+pointed at the real `corex_qa1` database (to exercise a genuine upload against real data during
+verification), created a real `rental_inspection_photos` row in the shared database while writing the actual
+file to that worktree's own, separate `storage/app/public/` — a filesystem that no longer existed once the
+worktree was later removed. The row survived; the file never did anywhere durable. Found live by cc5 as a
+broken thumbnail on Johan's own screen, traced to this exact cause, not assumed (`.ai/specs/rental-
+inspections.md`'s AT-436 photo-storage investigation).
+
+**This is the same root shape as the `/corex-qa1`-checkout incident this file's Conductor & Lane Intake
+Protocol section already exists to prevent** — a write from a place that is NOT the shared, served
+environment, landing in state that IS shared. There, it was a git branch. Here, it is a database row.
+Neither incident required malice or even a mistake in the application code being tested — both came from a
+verification setup that mixed an isolated resource (a worktree's filesystem, a worktree's checked-out branch)
+with a shared one (the QA1 database, the QA1 deploy target) and trusted the mix to behave like a single
+coherent environment. It doesn't: a database row and the file it points at are two halves of one fact, and
+splitting which one lives in shared state from which one lives in local state is enough to produce a ghost
+record with nothing behind it — the exact "row committed, file not there" failure class `PropertyImageStorer`
+now guards against at the write layer, but the verification practice that produces it is the thing to stop
+doing, not just the thing to catch after the fact.
+
+**The rule:** a local worktree's own dev server (`php artisan serve`, or any other locally-run instance) must
+**never** have its `.env` pointed at a shared database — not `corex_qa1`, not `corex_qa2`, not the Staging or
+live databases, not any other lane's. If a change genuinely needs to be exercised with a real upload/write
+against real data, there are exactly two sound ways to do it, and no third:
+
+1. **Test it against the shared environment itself, in place** — QA1's own served checkout
+   (`/corex-qa1`, never checked out to a feature branch — see the Conductor & Lane Intake Protocol above),
+   hit over its real URL, so the database write and the file write land on the SAME filesystem the site
+   actually reads from.
+2. **Test it against a fully isolated throwaway schema** — the same `hfc_dash_test_*` / per-worktree pattern
+   this repo's own `phpunit.xml` already uses for the automated suite, with the worktree's own `.env` pointed
+   at that dedicated schema, never the shared one — exactly the same vendor-isolation principle CLAUDE.md
+   already states for `vendor/`, applied to the database instead: every checkout that writes real rows during
+   verification gets its own, not a shared one.
+
+Never a mix of the two — a local filesystem paired with a shared database is precisely the split that let this
+happen, regardless of which side the next version of this mistake puts the mismatch on.
+
+---
+
+## Conductor & Lane Intake Protocol
+
+**This applies to the CONDUCTOR FIRST.** The conductor is the most common source of unchained build orders — an aside in conversation becomes a lane spending hours on code nobody specced. The protocol binds the conductor before it binds any lane.
+
+### 1. Classify before any code moves
+
+Every incoming instruction is classified BEFORE a lane touches code:
+
+- **BUG** → **INVESTIGATE first.** Report the truth with `file:line` references. Get the diagnosis **confirmed**. *Then* fix. Never fix on a guess; never fix before the reporter agrees the diagnosis is right.
+- **IDEA / DESIGN** → **DISCUSS to settled** → **written spec** → **Johan's explicit sign-off** → **ticket** → **queue**. No code before that chain is complete.
+
+### 2. MODE:BUILD is only legal with the chain in the prompt
+
+`MODE:BUILD` requires **BOTH**:
+
+1. a **ticket reference**, AND
+2. **either** Johan's **quoted word** **or** a **signed spec**, present in the prompt.
+
+**`MODE:INVESTIGATION` is the default for everything else.** Absence of the chain does not mean "use judgement" — it means investigate and report.
+
+### 3. No lane accepts an unchained build order
+
+A lane receiving a build order without that chain **pushes back to the conductor**. "The conductor told me to" is **not** authorization. Relayed authority is not authority.
+
+### 4. QA refuses certification of work built outside the chain
+
+**No chain, no certification.** QA does not certify code that skipped classification, spec, or sign-off — regardless of whether it happens to work.
+
+### 5. Spec-conformance line (mandatory)
+
+Every **READY-TO-LAND** report must carry a **spec-conformance line**:
+
+- which spec **§§** the landing implements, **and**
+- any **deviation DECLARED** explicitly,
+- **or** the words **"no governing spec"** stated outright.
+
+QA enforces this at certification: **no conformance line, no certification.**
+
+### Why this rule exists — today's cost cases
+
+- **Region seed / town remodel** — built from a conversational aside. No ticket, no spec, no sign-off. It consumed a lane and landed on qa1 before anyone asked whether it was wanted.
+- **AT-220 connection light** — the spec said a **persistent header indicator on every long-lived screen**. What shipped was an indicator at the **bottom of two DocuPerfect pages**. Nobody compared the artifact to the spec. Conformance is now **audited, not assumed**.
+- **Green-for-mechanics vs proven-in-data** — a gate passed on *import mechanics* (a marked document parses to 29 fields) was read as proof the *contract existed in data*. It did not: no template row was ever saved. A check that measures whether a pipeline **can** work is not evidence that it **has** worked on real data. State which noun you measured.
+
+The common failure in all three: **the check measured the wrong noun, and drift survived because nobody compared the artifact to the spec.**

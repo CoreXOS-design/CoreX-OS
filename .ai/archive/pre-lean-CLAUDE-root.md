@@ -1,0 +1,579 @@
+# ⛔ NON-NEGOTIABLE OPERATING RULES — READ FIRST, EVERY COMMAND, NO EXCEPTIONS
+
+These override everything else. Violating scope is worse than doing nothing. When in doubt: STOP and report.
+
+1. SCOPE LOCK. Work ONLY on the exact task in the current instruction. Do not touch, edit, refactor, rename, reformat, "improve," clean up, or fix ANY file, feature, module, or behaviour outside that exact task — not even if it looks broken, related, or trivial, and not even if you are "already in the file."
+
+2. NO AUTO-FIX / REPORT-ONLY OUTSIDE SCOPE. If you find a bug, regression, or issue anywhere outside your exact task, STOP and REPORT it to the conductor with exact file:line + root cause. Do NOT change it. Nothing outside the assigned task is changed without Johan's strict, specific, explicit instruction.
+
+3. SPEC-EXACT, NO IMPROVISING. Build strictly to the instruction and the named .ai/specs/ spec. Add NOTHING that was not explicitly asked for — no extra features, fields, pages, UI, or behaviour. If the instruction and the spec conflict, or anything is ambiguous, STOP and ask the conductor. Never guess. Never interpret. Never assume.
+
+4. STAY IN YOUR LANE. Work only in your assigned module. Never wander into another part of CoreX for any reason.
+
+5. TWO QA LANES — THE LANE OWNER GATES STAGING, JOHAN GATES LIVE. Johan's work lands on QA1 (branch `QA1`); Andre's work lands on QA2 (branch `QA2`). Work STAYS on its lane until the lane owner has tested it there and given an explicit go. Flow: QA1 -> Johan tests -> Johan's go -> Staging; QA2 -> Andre tests -> Andre's go -> Staging. A lane never promotes the other lane's work. Nothing goes from Staging to live, and no live work of any kind (code OR data) happens, without Johan's specific explicit order for that exact action. (Amended 2026-09-16 on Andre's instruction — QA2 is a real lane, not a sandbox.)
+
+6. NO SILENT EXTRAS. No speculative changes, no "while I was here," no drive-by refactors, no dependency bumps, no formatting sweeps, no touching unrelated files.
+
+7. REPORT EXACTLY. When done, report exactly what changed (files + why) and how you proved it, and confirm nothing outside the task was touched.
+
+8. JOHAN IS NOT A PROGRAMMER — WRITE FOR THE BUSINESS OWNER. Never hand Johan a technical decision. He decides WHAT the product does; YOU decide HOW it is built. Handing him an engineering choice dressed up as a question is a failure of the role, not diligence.
+   • Ask him BUSINESS questions only: what should the user see, what should happen next, which outcome is right for the agency, does this match how an agent actually works.
+   • Never ask him to choose between implementations, data models, column values, storage shapes, or architectures. Make the call, then state the business consequence in one plain sentence.
+   • Report in plain language: what was broken, what it looked like on screen, what it looks like now, what he should click to check it. No file paths, line numbers, commit hashes, column names, function names or code unless he asks for them.
+   • He can look at a screen and say "I don't like that" — that is his job and it is enough. Translating that into code is yours.
+
+8. FULL CRUD, LIST-SCREEN COMPLETENESS, AND OWN/BRANCH/AGENCY SCOPING ARE THE FLOOR — DESIGNED IN, NOT REQUESTED. Johan's words: "we always need proper crud? search / sort / own / branch / agency levels. that should be the design standard. not me asking for it once we get to that stage." Every entity ships with Create, Read, Update, Archive (soft delete only — never hard delete) and Restore from the first build, not as a later ask. Every list screen ships with search (named fields), sort (every sensible column + a stated default), filter (status + date range minimum), pagination, and a real empty state. Every list, detail view, export, download, and API endpoint enforces OWN / BRANCH / AGENCY visibility scoping at the query layer (BelongsToAgency / AgencyScope, never a hidden UI link) — direct-URL access by ID is blocked, not just unlinked. The spec for any new feature states search fields, sort/default, filters, and per-screen scoping BEFORE code is written; a spec missing these is not ready to build. Full detail: BUILD_STANDARD.md §1a.
+
+9. MULTI-AGENCY ALWAYS, NEVER SINGLE. Johan, 2026-09-19, verbatim: "the important part is that whatever we do is multi agency. not single. never." A second real agency — Cape Town, mainly rentals, signed to start October 2026 — is about to run on the same rentals code that has so far only ever been built and tested against agency 1 (HFC). Every place something is HFC's by assumption instead of genuinely per-agency is a place that new agency will find, in front of a paying customer.
+   • No feature, screen, template, document, email, default, or setting may assume one agency.
+   • No hardcoded agency IDs, no agency-1 defaults, no HFC-specific wording, branding, addresses, or signatures anywhere in shipped code.
+   • Every default must be neutral and sensible for an agency that is not HFC.
+   • Anything an agency would reasonably want different about its own operation is a configurable setting, not a code constant — this extends the existing no-hardcoding rule beyond thresholds and time windows to cover wording, documents, and branding too.
+   • The test, every time you build or review anything: what does this look like for the SECOND agency? If the answer is "wrong" or "HFC's," it is not done.
+
+This applies to the conductor too.
+
+# ⛔ USAGE AND SESSION DISCIPLINE — READ FIRST, EVERY SESSION
+
+1. MODEL. Build lanes run Sonnet. Do not switch a lane to Opus. Architecture decisions are made in the conductor chat, not in a lane.
+
+2. DAILY RESET. Run /clear at the start of each day, and again after each completed task before the next one starts. Never carry one task's history into the next. A lane carrying several hundred thousand tokens of history costs roughly ten times a cleared lane to do identical work, because every message re-bills the whole history.
+
+3. CONTINUITY LIVES IN WRITING. Continuity lives in these standing docs and in .ai/specs/, not in a lane's memory. That is why every fix must update its spec in the same commit — a cleared lane is only as good as what is written down.
+
+4. LANE COUNT. Two working lanes at a time, plus one kept clear for emergencies. Not six.
+
+5. NO EXPLORING. Work the exact files and scope given. A lane left to go hunting reads half the codebase into context and the account pays for all of it. Anti-drift is a cost control as well as a quality rule.
+
+6. NO POLLING. Do not run automated check-in loops.
+
+7. STOP LINE. Development stops at 90% of the weekly cap and resumes when the cycle rolls on Saturday. Hold roughly 20% in reserve so a critical production fault can always be fixed. Running out mid-week costs days of development.
+
+# CoreX OS — Claude Instructions
+> **Root entry point. Read this first. Every session. No exceptions.**
+> Last updated: 2026-05-28
+
+---
+
+## What is CoreX OS
+
+CoreX OS is the all-in-one operating system for Home Finders Coastal — a real estate agency on the KZN South Coast, South Africa. It is not a feature-rich website. It is a **real estate operating system** built on four core pillars that every module connects to.
+
+This is a production system used by real agents, managing real deals, real money, and real compliance obligations. There is no "good enough for now." Everything ships production-ready.
+
+---
+
+## CoreX Operating Principle
+
+CoreX is the best real estate operating system that will ever exist. This is the standard. Not a marketing line — the decision filter.
+
+### What this means in practice
+
+**1. Best-in-class or rebuild.** If DocuSign, Property24, Lightstone, Monday.com, or any other product offers a feature better than what we have — we investigate it, learn from it, and build ours better. "Better" means: more functional, more integrated, more aligned to the actual estate-agent workflow, or all three. Not "matches them" — exceeds them. Done is when ours is the better product.
+
+**2. No shortcuts. Ever.** Quick fixes that work today but require rebuilding later are forbidden. Later does not exist. Now is the only time that exists. If a fix is the wrong shape architecturally, we do it right the first time, even if it costs another hour or another prompt. Half-built features are technical debt that compounds; the only way to ship correctly is to ship correctly.
+
+**3. Integration is the moat.** Every feature in CoreX must integrate seamlessly with every other feature. An e-signed document doesn't just collect signatures — it auto-files, triggers FICA verification, updates the deal pipeline, posts to the calendar, notifies the right parties. A contact is not a record — it's a node in a graph linking properties, deals, calendars, documents, and communications. Integration is not optional; it's the difference between CoreX and a feature list.
+
+**4. Built for agents, not for screens.** Every flow is judged by one question: does this let an agent be an agent, or does it trap them behind a screen? CoreX automates the computer work so agents can do the property work. We simplify by absorbing complexity. Hours of admin become a single button press. The dream is the red button: agent clicks, makes coffee, and the system has done the work.
+
+**5. AI enhances, never replaces.** AI in CoreX accelerates human work — it does not replace the human. Agents stay agents. Compliance officers stay compliance officers. AI handles the tedious parsing, drafting, suggesting, and cross-referencing so humans handle the judgement, the relationships, and the deals.
+
+**6. Constraint is fuel, not excuse.** Where we lack live data feeds (Lightstone, CMA, etc.) we build smarter workflows around the data we have. Where we lack budget for premium APIs, we ship the best version possible with what we have today — and architect the upgrade path for when the budget is there. The constraint is never an excuse for a worse product.
+
+### How this changes every prompt and every commit
+
+Before any decision (architectural, scope, deferral, simplification), ask: **does this make CoreX the best real estate OS that will ever exist, or does it make CoreX merely working?**
+
+- If the answer is "best", proceed.
+- If the answer is "working", redesign until it's "best".
+- "We'll fix it later" is never an acceptable answer.
+- "Good enough for now" is never an acceptable answer.
+- "It's how other software does it" is not a reason — we ask whether other software does it correctly, then build ours correctly.
+
+Every line of code, every prompt, every commit message answers to this standard. This is the only standard.
+
+---
+
+## MANDATORY: Session Start Protocol
+
+Before touching a single line of code, every session — Johan's or Andre's — must follow this sequence:
+
+```
+1. Read /.ai/SYSTEM.md          — pillars, architecture, data model, non-negotiables
+2. Read /.ai/STANDARDS.md       — UX rules, execution rules, done criteria
+3. Read /.ai/BUILD_STANDARD.md  — Robustness Charter — what "done" means; input-space rule; prevent-or-absorb; test reality. MANDATORY pre-read.
+4. Read /.ai/CODEBASE_MAP.md    — file paths, patterns, common gotchas
+5. Git sync (non-negotiable #11) — fetch + pull origin/<current branch> AND origin/Staging into the working branch. Resolve conflicts BEFORE touching any other file.
+6. Find the relevant spec in /.ai/specs/[module].md
+7. If no spec exists → STOP. Create the spec first. Get approval. Then build.
+8. If the feature touches multiple modules → confirm pillar connections before starting.
+```
+
+**There is no step 0 that skips this.**
+
+---
+
+## The Four Pillars
+
+Every module in CoreX OS reads from and writes back to at least one of these:
+
+| Pillar | Model | What it represents |
+|--------|-------|-------------------|
+| **Property** | `Property` | The physical asset — address, type, valuation, history |
+| **Contact** | `Contact` | Any person — owner, buyer, tenant, landlord, seller |
+| **Deal** | `Deal` | Any transaction — sale, rental, mandate, offer |
+| **Agent** | `User` (agent role) | The practitioner — FFC, commission, performance |
+
+**If a module cannot read from its relevant pillars and write enriched data back — it is not done.**
+
+---
+
+## Spec-First Rule
+
+**No spec = no code. This is non-negotiable.**
+
+A spec must exist in `/.ai/specs/[module].md` before any development begins on that module or feature.
+
+### Who writes specs
+Either Johan or Andre can draft a spec. The other party reviews it. Both must be aligned before dev starts. Johan commits approved specs to `main`.
+
+### What a spec must contain
+- What this feature does and why (business requirement)
+- Which pillars it connects to, reads from, writes back to
+- Data model / migrations needed
+- UI placement and navigation entry
+- User flow (step by step)
+- Permissions required
+- Acceptance criteria — how we know it's done and working
+- Files to create or modify
+
+### Spec sync rule
+The `/.ai/` folder is the single source of truth. Spec changes are committed to `main` only. Before starting any dev session, pull the latest specs:
+```bash
+git pull origin main -- .ai/
+```
+Both Johan (HFC2402) and Andre (andre) always develop against the same approved specs.
+
+---
+
+## Non-Negotiables
+
+These rules are not open for discussion. They apply to every line of code written on this project:
+
+### 1. No hard deletes. Ever.
+All "delete" actions are soft deletes (`deleted_at` via Laravel SoftDeletes). The user sees a Delete button. The system archives. Admin can recover. No exceptions — not for documents, deals, contacts, templates, users, or any other model.
+
+### 2. Every new page gets a navigation entry on the same day.
+A page without a navigation link does not exist to the user. Sidebar, menu, or button — it must exist. This is built as part of the feature, not added later.
+
+### 3. Spec before code.
+Described above. No exceptions.
+
+### 4. Pillars are the spine.
+New features connect to the pillars. They do not become new islands. If a feature doesn't connect to at least one pillar, the spec is incomplete.
+
+### 5. Permissions are mandatory.
+Every new feature includes permission keys in `config/corex-permissions.php`, sidebar gating, route middleware, and controller checks. If permissions aren't in, the feature isn't done.
+
+### 6. Production quality only.
+No demo modes. No "we'll fix it later." No patches over root causes. If it works, it works correctly. If it doesn't, fix the root cause.
+
+### 7. Every API endpoint is registered and discoverable.
+All new HTTP API endpoints MUST live under `/api/v1/*` (or another versioned `/api/vN/*` namespace), MUST have a `->name()` on the route, and MUST be reachable from the **Admin → API** catalog page at `/admin/api`. The catalog is auto-generated from Laravel's route table — if the route is registered correctly with the `api/` URI prefix, it appears automatically. Do NOT build hidden JSON endpoints under arbitrary URIs (e.g. `/some-page/data`). One global frontend client (`window.CoreX.api`) consumes them; one catalog lists them. The session-authenticated "who am I" endpoint is `GET /api/v1/logged-user` — fired automatically on every authenticated page via `resources/js/corex-api.js`.
+
+### 8. Branch rules.
+- Production server = **62.238.31.82**. This is the ONE AND ONLY live/prod host: `corexos.co.za` / `www.corexos.co.za`, `APP_ENV=production`, codebase `/corex`, DB `corexos`. The live checkout tracks **`origin/Prod`** (verified 2026-09-04), not `main`. `91.99.130.85` is **NOT** live — it is the demo/staging box (`demo1.corexos.co.za`).
+- `HFC2402` = Johan's dev branch
+- `andre` = Andre's dev branch
+- Hotfixes only go directly to main. Everything else: dev branch → reviewed → merged to main.
+- Always check for the other person's commits before merging to main.
+- Never push `database.sqlite` — this file must be in `.gitignore`.
+
+#### 8a. Exactly ONE `main`, exactly ONE `Staging`. Never create a second local branch with either name.
+
+_Added 2026-08-19 after an incident: a lane created a local branch literally named
+`staging` (lowercase) to merge same-day calendar/MIC/deeds-capture work into, believing
+it was working against the real Staging environment. That local branch was never pushed
+anywhere and turned out to be byte-identical to `origin/main` — so every commit merged
+into it went straight to **live production**, bypassing Staging (and Johan's QA1 →
+Staging → live gate) entirely. Meanwhile `origin/Staging` — the actual deployable branch
+`scripts/deploy.sh staging` pulls from — never received that work, and had separately
+accumulated 4,243 commits of its own unrelated to `main`'s. Reconciling the two required
+a manual, file-by-file conflict resolution across 810 changed files (33 real conflicts,
+including a genuine fatal error — `disclaimer()` declared twice with incompatible
+signatures — that git's own merge produced silently, without ever flagging it as a
+conflict). That is not a repeatable process; it is a one-time cleanup for a mistake this
+rule exists to prevent from recurring.
+
+**The rule:** the only branches named `main` or `Staging` that may ever exist are
+`origin/main` and `origin/Staging` on GitHub. No local branch — anywhere, in any
+worktree, on any lane — may be named `main`, `Staging`, `staging`, or any case variant
+of either. If you need to work against Staging, check out `origin/Staging` and stay on
+a branch that tracks it (or work on a feature branch and merge into `Staging` when
+ready) — never rename, clone, or re-create it under a different local name. Before
+merging anything into `Staging` or `main`, confirm with `git rev-parse --abbrev-ref
+HEAD` that you are actually on that branch, not a lookalike. If you are ever unsure
+whether a checkout is really tracking `origin/Staging`, run `git rev-parse HEAD` and
+compare it to `git rev-parse origin/Staging` before touching anything — a match means
+you are current; a mismatch means STOP and reconcile before merging, exactly as this
+incident required.
+
+#### 8b. `/corex-qa1` is the live QA1 deploy target, not scratch space. No lane ever checks out a branch in it.
+
+_Added 2026-09-27 after a reflog trace found the SAME pattern repeated at least four times on
+26-27 Sep: a lane would `git checkout` its own feature/investigation branch directly inside
+`/corex-qa1` — the exact directory `scripts/qa-deploy.sh` builds and serves to live QA1
+traffic — do its work, and (usually, not always) check back out to `QA1` when done. Most
+cycles self-corrected. One did not: a lane finished a backend-only commit on
+`fix-inspection-photo-upload-immediate-2026-09-26`, correctly checked back out to `QA1` — and
+then a second, unrelated investigation lane immediately checked `QA1` back OUT to its own
+branch (`inventory-investigation-2026-09-27`), committed a spec file, and never returned. QA1
+was left silently stranded on that branch. The very next `scripts/qa-deploy.sh` run built and
+served whatever was checked out — first cc4's unreviewed backend commit, then, after that
+window closed, a spec-only commit that happened to be harmless by luck, not by design. Caught
+only because a conductor-directed diagnosis compared deployed `HEAD` against `origin/QA1`'s
+real tip by hand and found them different — nothing in the deploy path itself would ever have
+caught this on its own.
+
+**Why, so nobody rediscovers this the hard way:** checking a branch out in the deploy
+directory serves that branch to live QA1 traffic immediately — `opcache.validate_timestamps`
+and Blade's own view-cache both re-read whatever is on disk within seconds, deploy script or
+not. And once that's happened, nobody can trust what they tested: a passing verification
+against `/corex-qa1` proves nothing about `origin/QA1` if the two have quietly diverged.
+
+**The rule:**
+- `/corex-qa1` is the **live QA1 deploy target**. It is not scratch space, not an
+  investigation directory, not a place to check out a branch "just to look." Ever.
+- All lane work — features, fixes, investigations, spec-only commits, everything — happens in
+  a worktree under `/mnt/HC_Volume_103099143/corex-worktrees/<branch-name>`. Create one, work
+  there, push from there. Never `git checkout`/`git switch` inside `/corex-qa1` to get there.
+- `/corex-qa1` stays on branch `QA1`, permanently, checked out, never anything else. The
+  **only** git operation ever permitted to run inside it is the fast-forward pull
+  `scripts/qa-deploy.sh` itself performs (`git pull --ff-only origin QA1`) — nothing manual,
+  nothing "just this once."
+- Before trusting anything about what QA1 is serving, confirm `git rev-parse --abbrev-ref
+  HEAD` inside `/corex-qa1` really is `QA1`, and `git rev-parse HEAD` really matches
+  `git rev-parse origin/QA1` — the same discipline non-negotiable #8a already requires for
+  `Staging`/`main`, extended here to the one directory that actually serves live QA1 traffic.
+
+### 9. Cross-pillar reactivity uses domain events.
+For any feature that involves cross-pillar reactivity — where a state change in one part of CoreX should trigger updates, notifications, recomputations, or side effects in another part — the relevant build prompt MUST read `.ai/specs/corex-domain-events-spec.md` and use the event/listener pattern from the catalogue. Do NOT invent ad-hoc observer hooks, ad-hoc service calls, or ad-hoc query paths between pillars. Emit a named event when state changes; subscribe to existing events when reacting to state changes. The events catalogue is the API contract between pillars.
+
+CoreX is built on the principle that every important domain action sends signals across an interconnected system. The events catalogue is the connective tissue between Property, Contact, Agent, Mandate, Deal, FICA, and Documents. Without this pattern, every feature invents its own reactivity — leading to inconsistent behaviour, hard-to-debug cascades, and architectural debt at branch-merge time. Both Johan's and Andre's branches build to the same catalogue so that features either of them ship plug seamlessly into the work the other is doing.
+
+### 10. Universal Match-or-Create Rule.
+Every data ingress into CoreX — CMA presentations, P24 alerts, PP feed events, Chrome capture imports, manual entries, mandate signings, scraping outputs, deeds-office lookups, any future source — MUST call `App\Services\Prospecting\TrackedPropertyMatchOrCreateService::matchOrCreate()` before storing property data. Match first, create only if no match. Every contribution appends to `source_chain` for audit. No property data ever sits orphaned.
+
+There are two property tiers, clearly separated:
+
+| Tier | Table | Purpose |
+|------|-------|---------|
+| Agency Stock | `properties` | Formal mandates HFC works (My Listings) |
+| Tracked Properties | `tracked_properties` | Every property CoreX has intelligence on (Prospecting → Tracked Properties) |
+
+Promotion from Tracked → Stock happens when a mandate is signed, via `promoteToStock()`. Promotion preserves the audit chain — the Tracked Property record stays as the long-lived audit trail, and its `promoted_to_property_id` points at the operational Property. Resolution uses a 5-strategy match: source-ref exact → GPS proximity (~5m) → erf+suburb → normalised address → token overlap. This is the architectural mechanism by which CoreX builds a comprehensive property intelligence dataset organically through normal agent work.
+
+### 10a. Every new setting reaches the Setup Wizard. Same prompt, no exceptions.
+
+If a prompt adds a **setting** — anything an agency configures about how CoreX behaves for
+them (a new column on `agencies`, a new `PerformanceSetting` key, a `commission_settings`
+field, a new toggle/threshold/template/list on `/corex/settings` or Company Settings) — then
+that same prompt ALSO surfaces it in the **Agency Onboarding Setup Wizard**
+(`config/agency-onboarding-copy.php`). A setting that exists only on the settings page is
+**not done**.
+
+This is Non-negotiable #2 (nav entry same day) applied to configuration: a setting nobody is
+told about is a setting nobody uses. The wizard is the only place an agency is ever walked
+through what CoreX can do — if a feature's switch never appears there, that feature ships
+inert and stays inert, and we find out months later that no customer ever turned it on.
+
+**What "surfaced in the wizard" means:**
+
+1. Add the control to the relevant step in `config/agency-onboarding-copy.php` — with its
+   `explain` (what the setting is, in a full sentence) and `affects` ("What this changes:" —
+   a concrete, observable consequence, never a tautology).
+2. Wire its canonical saver into that step's `savers`. **Read `.ai/specs/agency-onboarding-setup.md` §6.1
+   before you do** — the wizard step posts a SUBSET of the saver's fields, and a saver that
+   coerces an absent checkbox to `false` will silently wipe settings the step never rendered.
+   Guard every boolean write with `$request->has()`.
+3. If the setting genuinely does not belong in onboarding (an expert/rarely-touched knob, or
+   something an agency configures once it is already running), that is a legitimate call —
+   but it is **Johan's call, not the lane's**. Ask. If it stays out, say so explicitly in the
+   commit message and record it in the spec's "Deliberately NOT in the wizard" list (§5.1),
+   so the omission is a decision on the record rather than an oversight nobody noticed.
+
+The reverse also holds: a control removed from the settings page is removed from the wizard
+in the same prompt. The two must never drift.
+
+### 11. Git sync at session boundaries.
+Every VS Code session begins with the mandatory pre-reads (CLAUDE.md, STANDARDS.md, CODEBASE_MAP.md, the relevant spec) and THEN — before any other work — runs `git fetch --all --prune`, `git pull --rebase origin <current branch>`, and merges/rebases `origin/Staging` into the working branch. Conflicts are resolved on the spot, before any other file is touched. Every session ends with `git add` of the changed files, a focused commit message, and `git push origin <current branch>`.
+
+This replaces all separate "sync prompts" — there is no scenario where work begins without a pull or ends without a push. The reason: HFC2402 and andre branches diverge daily; without forced sync at session boundaries, the two developers' commits race each other into Staging with predictable merge pain. Pulling Staging at session start surfaces conflicts on the developer's local clock — not at merge time, not at deploy time. Pushing at session end keeps the remote branch the source of truth for the next session.
+
+### 12a. Test bootstrap uses the schema snapshot.
+`database/schema/mysql-schema.sql` is the committed schema snapshot loaded by `RefreshDatabase` instead of replaying all ~190 migrations per test invocation. The snapshot drops test-run bootstrap from ~190s to ~25s (~83% reduction).
+
+**Prerequisite (one-time, per developer machine):** `mysqldump` and `mysql` must be on the system `PATH` so Laravel's `MySqlSchemaState` can dump/load. On laragon installs the binaries live at `C:\laragon\bin\mysql\mysql-<version>\bin`. Add that folder to the user `PATH` via System Properties → Environment Variables (or `setx PATH "%PATH%;C:\laragon\bin\mysql\mysql-8.4.3-winx64\bin"`). If `mysql` isn't on PATH, `php artisan test` will fail with `'mysql' is not recognized as an internal or external command` — fix PATH; do not delete the snapshot.
+
+**When to re-run `schema:dump`:** every time you add a new migration. New migrations DO run on top of the snapshot, so tests stay correct, but every replay costs seconds; keeping the snapshot current keeps the bootstrap fast. Run `php artisan schema:dump` whenever the `database/migrations/` folder gains a file, then `git add database/schema/mysql-schema.sql` and include in the same commit as the migration.
+
+**After EVERY `schema:dump`: strip the `DEFINER` clauses.** `schema:dump` bakes an explicit
+``DEFINER=`user`@`host` `` into each dumped `CREATE TRIGGER`, naming whichever concrete user
+dumped it — even though the migrations never specify one. The snapshot then loads only for
+that exact DB user and fails for everyone else with `ERROR 1227 ... SUPER or SET_ANY_DEFINER`,
+because the schema-load path pipes the literal SQL through a plain `mysql` client. Dumped as
+root it looks fine on the machine that made it and breaks every restricted app DB user and
+every other developer's test bootstrap. This is not hypothetical: it shipped to `main` in
+`52d921862` and only surfaced when the demo host first bootstrapped its DB from it.
+
+```powershell
+(Get-Content database/schema/mysql-schema.sql) `
+  -replace '/\*!50017 DEFINER=`[^`]+`@`[^`]+`\*/ ', '' `
+  | Set-Content database/schema/mysql-schema.sql -Encoding utf8
+```
+
+Stripped, the trigger adopts `CURRENT_USER` — exactly what a normal `migrate` run produces, so
+both bootstrap paths converge. `scripts/dev-check.ps1` §10 fails the build if any clause
+returns, so this cannot silently regress again.
+
+The snapshot is committed to the repo — it travels with the migrations it represents. Production migrations are unaffected: Laravel only uses the snapshot when no migrations have run yet (i.e. fresh test DB / `migrate:fresh`).
+
+### 12. Demo is always a working copy.
+The demo environment (`demo1.corexos.co.za`, `/mnt/HC_Volume_103099143/corex-demo` on the production host, tracking `HFC2402`) is not a snapshot — it is a living working copy. Every dev cycle that touches the database, schema, or any seeder MUST end with the demo migrated, seeded, and verified to match local. The demo's `nexus_os_demo` database is the proving ground: if it can be regenerated end-to-end from `php artisan migrate:fresh --database=demo --force && php artisan demo:seed`, the work is complete; if not, it isn't.
+
+The reason: a stale demo is a dead demo. Walkthroughs that hit empty tables, missing columns, or pre-fix bugs cost trust with every customer interaction. The demo must always be exactly one fetch+migrate behind local — never more.
+
+### 13. NEVER run the full test suite (or any broad suite) without Johan's explicit go-ahead.
+**This is absolute.** The repo carries a large KNOWN-FAILING infra baseline (hundreds of `QueryException` failures from the test-DB schema gotcha) — running broad suites tells you nothing new and burns 20+ minutes you do not have.
+
+- **Default during active work = the SINGLE most relevant test file only** (the one whose assertions cover the change). If that file passes, the change is clean — proceed.
+- **A test command that takes >60s during active work is a rule violation. Kill it and target one file.** Do NOT run `tests/Feature/<Module>` directories, `php artisan test` with no path, or `scripts/dev-check.ps1` mid-task.
+- **The full sweep runs ONLY when Johan explicitly says so, or at final merge.** Never infer permission from "I want to be thorough" — thoroughness here means the right single file, not the whole tree.
+- When you need to know whether a failure is yours vs baseline: reason about it from the diff (does my change touch the asserted value?), do NOT run the suite to find out.
+- **ALL test runs go through `scripts/lane-test.sh <files>` — never call `php8.2 artisan test` or `vendor/bin/phpunit` directly.** `lane-test.sh` takes the shared `/tmp/corex-lane-test.lock`, prints who's holding it and for how long while you wait, keeps a PERSISTENT per-lane schema (never dropped), and self-heals/updates it via a fingerprint check against `database/schema/mysql-schema.sql` + migrations — a cold run (schema missing) pays the real bootstrap cost once; every run after that on the same lane is a few seconds, not minutes. `scripts/lane-test.sh --fresh <files>` forces a full rebuild if a run ever looks like it left bad state behind. `scripts/lane-test.sh --status` checks the queue without joining it. **Tests run on a dedicated tests-only MySQL instance (127.0.0.1:3317, Docker container `corex-lanetest-mysql`) — never the shared instance that also serves live/Staging/QA1/QA2/demo** (see `/root/LANETEST-MYSQL.md`). Never run two test processes against your own worktree database at once (Standard −1k), and never kill another lane's run through this lock — see `.ai/STANDARDS.md` Standard −1x and −1y for the full contract.
+
+---
+
+## How to Build Something New
+
+```
+1. Is there a spec?
+   YES → read it, confirm pillars, build
+   NO  → write the spec, get approval, commit to main, then build
+
+2. Before writing any code:
+   - Find existing code that does something similar
+   - Read CODEBASE_MAP.md for exact file paths
+   - Use the INVESTIGATE → COPY → ADAPT pattern
+   - Never build from scratch when a working pattern exists
+
+3. One concern per prompt.
+   Tightly related changes in the same file = together.
+   Everything else = separate prompts, tested one at a time.
+
+4. Read the relevant spec from .ai/specs/ for whatever module you're
+   working on. If working on documents/e-sign, read .ai/specs/docuperfect.md
+   AND .ai/specs/esignature.md. If no spec exists for the feature, STOP
+   and create one before writing any code.
+
+5. Before declaring done — run ALL of these in order:
+   a. php -l on every changed PHP file
+   b. php artisan view:clear
+   c. php artisan route:clear
+   d. php artisan cache:clear
+   e. scripts/dev-check.ps1 — must pass with 0 new failures
+   f. Functional verification via Tinker:
+      - If you created a route: verify it resolves
+      - If you created a view: verify it renders without error
+      - If you created a model: verify it instantiates
+      - If you saved data: verify it persists and loads
+      - If you built a form: verify the POST endpoint accepts data
+      Do NOT mark done until all verification passes.
+   g. git add + commit + push to origin/<current branch> (non-negotiable #11).
+      No work is "done" until it is on the remote.
+   h. Demo/live deployment (non-negotiable #12) — if the change touches DB, schema,
+      seeder, or anything the persona will see: deploy to the target host in this
+      order — git pull → `php artisan migrate --force` →
+      **`php artisan deploy:sync-reference-data`** (idempotent, global-scope —
+      carries seeder-owned GLOBAL reference rows that `migrate` does NOT; seeders
+      never run on a `git pull` deploy — AT-162) → view:clear + route:clear +
+      config:clear → reload php-fpm → restart the worker. Verify parity against
+      local and report the verification result. If the feature added a
+      must-travel GLOBAL reference row, either backfill it IN the migration or
+      register its seeder in `deploy:sync-reference-data`.
+      **Env-parity (AT-169):** also diff the live FPM pool's `php -m` (and PHP
+      VERSION) against staging's — CoreX deploys are code-only `git pull`, so a
+      PHP extension or version the promoted code needs but live lacks will 500 a
+      code path (e.g. live php8.3 lacked `imagick` → Redact broke). Install the
+      matching `phpX.Y-<ext>` for the live pool's version and reload ONLY that
+      pool; never install unused extensions. Full rule in BUILD_STANDARD.md §8.
+   i. Update `.ai/CHAT_STARTER.md` — move items between sections
+      (LIVE / IN FLIGHT / SPECCED / PARKED) to reflect what landed, prepend a
+      dated entry to the Recent decisions log if a decision was made, remove
+      completed items from Outstanding small fixes, refresh the "Last updated
+      by" header. Keep total length under 350 lines.
+   j. Confirm the work shipped meets the CoreX Operating Principle. If the
+      close requires noting a deferred limitation, a quick fix, or a "good
+      enough for now" compromise — STOP. Either complete the work properly in
+      this prompt, or escalate to Johan with a specific proposal for the
+      proper fix. Do not ship compromised work and document the compromise as
+      if it's acceptable.
+```
+
+### E-sign integration moat — pipeline gate
+
+`scripts/dev-check.ps1` enforces a hard rule for changes to the recipient
+signing pipeline:
+
+  Pipeline files (any change here MUST be accompanied by a test diff in
+  `tests/Feature/Docuperfect/SigningView/` or its supporting fixtures /
+  trait):
+
+  - `app/Models/Docuperfect/Template.php`
+  - `app/Models/Docuperfect/CdsDraft.php`
+  - `app/Services/Docuperfect/SignatureSurfaceNormalizer.php`
+  - `app/Services/Docuperfect/LetterheadRefresher.php`
+  - `app/Services/Docuperfect/InsertableBlockRenderer.php`
+  - `app/Services/Docuperfect/RoleBlockDetectionService.php`
+  - `app/Services/Docuperfect/RoleBlockExpansionService.php`
+  - `app/Services/Docuperfect/RoleBlockNormalizer.php`
+  - `app/Services/Docuperfect/MergedHtmlFreshnessGuard.php`
+  - `app/Http/Controllers/Docuperfect/SigningController.php`
+
+The gate exists because the audit at
+`.ai/audits/esign-reset-investigation-2026-05-27.md` found that these
+files had zero integration tests before the reset — 49 RecipientLoop
+unit tests were green while five live bugs shipped to the browser.
+Locking the discipline structurally is the answer.
+
+Bypass: `scripts/dev-check.ps1 -SkipPipelineGate` — use ONLY when the
+test diff landed in a previous commit and the current commit is a
+follow-up cleanup (e.g. a CHAT_STARTER doc update). Never use this
+flag to skirt writing a test when you're touching the runtime.
+
+### Portal sync — the refresh cost contract
+
+**A Refresh of a listing where nothing changed must cost exactly ONE portal
+call: the listing POST.** Never a photo re-upload, an agent profile push, an
+agent photo upload, or a portal-side agent-list scan.
+
+This is a hard contract, not an aspiration, because breaking it is invisible: a
+slow refresh fails no assertion and turns no pipeline red. It has already been
+broken twice in production, and both times the only alarm was an agent saying
+"Refresh feels slow" —
+
+1. Every refresh re-uploaded the entire photo gallery (60s+ per refresh). Fixed
+   by `properties.p24_image_signature` — an unchanged gallery sends `photos: null`.
+2. Months later an unconditional agent profile push + agent photo upload was added
+   to the submit path — per agent, on every refresh — quietly undoing most of that
+   win and putting P24's 15–120s `GET /agencies/{id}/agents` back on the critical
+   path. Fixed by `users.p24_profile_signature` / `users.p24_photo_signature`, and
+   by resolving the agent id from `users.p24_agent_id` instead of scanning the list.
+
+The rule that prevents a third time: **never send a portal bytes it already holds.**
+Anything a refresh pushes is gated on a signature of what the portal currently has.
+If you add a call to the submit path, fingerprint what it sends and skip it when
+unchanged.
+
+Three things enforce it — none optional:
+
+- **Runtime** — `Property24SyndicationService::auditRefreshCost()` counts the P24
+  calls of every submit. An unchanged refresh that exceeds its budget logs
+  `P24 REFRESH COST REGRESSION` (WARNING, `property24` channel) naming the
+  offending calls. When you see it: fix the caller, do NOT raise the budget.
+- **Build** — `tests/Feature/Syndication/Property24RefreshCostTest.php` asserts the
+  one-call budget outright.
+- **Gate** — `dev-check.ps1` §7 fails any change to the portal sync files that lands
+  without a test diff in `tests/Feature/Syndication/`.
+
+## Subagent file-write rule
+
+When a prompt requires the agent to produce a report file (audit, investigation,
+spec, design document, anything where the prompt names a target path), the agent
+MUST use file-write tools to create the file at the requested path and verify
+the file exists on disk before declaring done. Returning report content only in
+the chat reply is not acceptable — the file must persist beyond the chat
+session so future prompts, other agents, and humans can read it. This applies
+to both the main agent and any spawned subagents.
+
+When delegating an audit task to a subagent, the parent prompt must include:
+"Write the report to `<path>` using file-write tools and verify the file exists
+before returning. Returning content only in the reply is not sufficient."
+
+---
+
+## How to Fix a Bug
+
+```
+1. Get the exact error message and the URL it happens on
+2. Read the stack trace — find the actual file and line number
+3. Read DIAG_CHECKLIST_UI.md if it's a page showing 0 or blank
+4. Fix the root cause, not the symptom
+5. php -l on changed files
+6. Test the fix
+7. Run dev-check.ps1
+```
+
+---
+
+## .ai Folder Reference
+
+| File | Purpose | Read when |
+|------|---------|-----------|
+| `CLAUDE.md` | This file — session entry point | Every session |
+| `SYSTEM.md` | Pillars, architecture, data model, tech stack | Every session |
+| `STANDARDS.md` | UX rules, execution rules, done criteria | Every session |
+| `BUILD_STANDARD.md` | **Robustness Charter** — what "done" means; input-space rule; prevent-or-absorb; "fix the class, not the instance"; the test-reality matrix | **Every session — mandatory pre-read** |
+| `CODEBASE_MAP.md` | File paths, patterns, component reference, gotchas | Before touching any file |
+| `ROADMAP.md` | What's built, in progress, specced, blocked | When planning or starting a new feature |
+| `specs/listings.md` | Listings module spec | When working on listings |
+| `specs/contacts.md` | Contacts module spec | When working on contacts |
+| `specs/deals.md` | Deals module spec | When working on deals |
+| `specs/docuperfect.md` | DocuPerfect module spec | When working on documents |
+| `specs/esignature.md` | E-Signature wizard spec | When working on signing |
+| `specs/agency-tracker.md` | Agency Tracker spec | When working on deals/commissions |
+| `specs/presentations.md` | Presentation system spec | When working on presentations |
+| `specs/compliance.md` | Compliance module spec | When working on FICA/POPIA/PPRA |
+| `specs/ellie.md` | Ellie AI assistant spec | When working on Ellie |
+| `specs/tvadisplay.md` | TV display spec | When working on TV |
+| `specs/multi-tenancy.md` | Agency isolation — global scope, switcher rules | Any feature touching the DB |
+| `specs/corex-domain-events-spec.md` | Domain events catalogue — system-wide event/listener pattern (architectural foundation) | Whenever a feature involves cross-pillar reactivity |
+
+---
+
+## Tech Stack Quick Reference
+
+| Item | Value |
+|------|-------|
+| Framework | Laravel (PHP 8.x) + Blade + Alpine.js |
+| Build | Vite — `npm run dev` (local), `npm run build` (production) |
+| Database | MySQL via Laragon (local), MySQL on server (production) |
+| Server — LIVE/PROD | Ubuntu at **62.238.31.82**, codebase at `/corex`, DB `corexos`, branch `Prod`. The **one and only** live/prod host — serves `corexos.co.za` and `www.corexos.co.za`. |
+| Server — demo/staging | Ubuntu at 91.99.130.85 — serves `demo1.corexos.co.za`. **NOT live.** Never treat it as production. |
+| Domain | **corexos.co.za** (canonical; `www.` also served). `corex.hfcoastal.co.za` is RETIRED — 308-redirects here, serves no app (2026-07-17). Its DNS + TLS cert must STAY: the cert lineage is named for it but its SANs cover corexos.co.za, so dropping it breaks the main site. |
+| Repo | johan7610/hfc-dash |
+| Python AI | /opt/hf-ai/app.py on port 3100 (hf-ai.service) |
+| Tests | scripts/dev-check.ps1 — 894 tests, 2236 assertions |
+| Layout | corex-app.blade.php + corex-sidebar.blade.php |
+
+---
+
+## South African Context
+
+- Regulatory authority: **PPRA** (Property Practitioners Regulatory Authority) — never EAAB
+- Legislation: Property Practitioners Act 22 of 2019, FICA, POPIA, CPA
+- Currency: ZAR — format as `R 1,250,000`
+- VAT: 15%
+- Commission: typically 5–7.5% + VAT
+- Mandate types: Sole, Open, Dual
+- FFC: Fidelity Fund Certificate — required per agent, tracked in system
+
+---
+
+## Golden Rule
+
+> We do complicated so the user can do simple.
+> Over-engineer for correctness. Fix root causes, not symptoms.
+> No patches. No quick fixes. No "later."
+> **Later doesn't exist.**
