@@ -27,7 +27,6 @@ _As relayed to the conductor on 24 Oct in the conductor's own words, not a verba
    - Photos are reduced in size (quality kept) in the app on the device or at upload. One stored copy is reused by CoreX, the websites and the portals.
    - Scans and documents are optimised on arrival, signed scans included, as long as they stay clearly legible. Legal view: a legible copy with unchanged content is still the signed document, like a reprint or rescan. Record a fingerprint and an upload record on arrival.
    - CoreX e-sign: optimise templates and attachments before signing; never alter a signed PDF (it would break the seal).
-   - _Note, not a change:_ the file-storage audit (section 6) and decision 22 in the proposal asked for an attorney to confirm retention and the "true copy" question; that item is not marked settled by this ruling.
    - _Note:_ the portals need the photo as a JPEG at a public address (Property24 takes the bytes, Private Property fetches the URL), so "one stored copy" has to stay a JPEG the portals accept (audit section 3).
 4. **Way of working.**
    - A server conductor resets a lane before EVERY task.
@@ -37,4 +36,4 @@ _As relayed to the conductor on 24 Oct in the conductor's own words, not a verba
    - The PM (Claude) reports to Johan only "done and ready to test" plus spec questions.
 5. **Page standard.** The left menu and the top header are fixed; features design only in the content area. The Properties search screen and the property page are the reference pages. Andre is writing the layout design spec this weekend.
 6. **Every spec must cover:** settings (plus the Setup Wizard), a Role Manager permission, own/branch/agency scoping, full CRUD with search, sort, filter and paging, and a menu link.
-7. **Open for Andre and Johan:** the decisions list in `workflow-and-server-proposal-2026-10-24.md` (section 7, questions 1–30). Question 19 (move the public sites) is answered by ruling 1, and question 20 (never recompress signed or ID files) is changed by ruling 3; the proposal text still shows the old version of 20. Everything else remains open, including the urgent flags (the live-testing copy, firewall, updates and restart, documents served without login, key backup).
+7. **Open for Andre and Johan:** the decisions list in `workflow-and-server-proposal-2026-10-24.md` (section 7, questions 1–30). Questions 19, 20 and 22 are settled (rulings 1 and 3). Everything else remains open, including the urgent flags (the live-testing copy, firewall, updates and restart, documents served without login, key backup).

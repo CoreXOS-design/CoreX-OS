@@ -53,9 +53,9 @@ If steps are all approved: memory use drops from 23.5 GB to 8–10 GB, the data 
 | Rentals add-on, per 300 properties (assumption) | about 21 GB | about 10 GB |
 | 5 / 20 / 100 agencies | 225 GB / 900 GB / 4.5 TB | 80 GB / 320 GB / 1.6 TB |
 
-The biggest line (the PDF splitter keeps about 2.7 GB a month of page images nobody reads) is also the least certain. Optimised means: delete splitter page images after 14 days, remove exact duplicates and orphans, shrink oversized photos, shrink unsigned working scans; **signed documents, FICA, IDs and mandates are never touched**. Money is small (about €200 a month falling to about €70 for 100 agencies, from remembered Hetzner prices that need checking); the real limits are 29 GB of room now and a 10 TB cap per volume. The test copies hold 77 GB of live-like files, and hfcoastal.co.za keeps its own 6.35 GB copy of listing photos.
+The biggest line (the PDF splitter keeps about 2.7 GB a month of page images nobody reads) is also the least certain. Optimised means: delete splitter page images after 14 days, remove exact duplicates and orphans, shrink oversized photos, shrink scans and documents (signed scans included) on arrival, as long as they stay clearly legible; **only CoreX e-signed PDFs are never altered after signing**. Money is small (about €200 a month falling to about €70 for 100 agencies, from remembered Hetzner prices that need checking); the real limits are 29 GB of room now and a 10 TB cap per volume. The test copies hold 77 GB of live-like files, and hfcoastal.co.za keeps its own 6.35 GB copy of listing photos.
 
-**Rulings needed:** (a) never recompress IDs, FICA documents, mandates or anything signed, only photos and working scans; (b) signed PDFs are write-once, with a fingerprint stored when made; (c) retention period for each document class, what happens at the end, and an agreed exception to "no hard deletes" for end-of-retention purges, checked by an attorney; (d) whether old closed files may move to cheaper, slower storage, and where it is hosted; (e) move web-visible documents behind login (flag 4).
+**Rulings needed:** (a) **settled by Johan:** scanned signed documents are optimised on arrival if they stay legible, because a legible copy with unchanged content is still the signed document; (b) **settled:** CoreX e-signed PDFs are never altered after signing, and a fingerprint is stored when they are made; (c) retention period for each document class, what happens at the end, and an agreed exception to "no hard deletes" for end-of-retention purges; (d) whether old closed files may move to cheaper, slower storage, and where it is hosted; (e) move web-visible documents behind login (flag 4).
 
 ## 6. Code and speed
 Counts below are from QA1, a test copy, not live. Nothing was timed.
@@ -90,9 +90,9 @@ Counts below are from QA1, a test copy, not live. Nothing was timed.
 17. Stop 3 of the 6 lanes?
 18. Turn Staging's scheduled tasks back on?
 19. Plan the move of the public websites to the live server, hfcoastal.co.za first?
-20. Rule that signed, FICA, ID and mandate files are never recompressed, and signed PDFs are write-once?
+20. SETTLED by Johan: scanned signed documents ARE optimised on arrival if they stay legible. Only CoreX e-signed PDFs are never altered after signing.
 21. Delete splitter page images after 14 days?
-22. Ask an attorney to confirm retention periods and the purge exception?
+22. SETTLED by Johan: a legible copy with unchanged content is still the signed document, so no attorney question is needed.
 23. Approve the four safe speed fixes, on QA1 first?
 24. Is a menu badge up to a minute old acceptable?
 25. Start the walk-through with the five priority sections?
