@@ -35,7 +35,7 @@ final class FeatureRolloutAccessSettingsTest extends TestCase
     {
         parent::setUp();
         config(['feature-rollout.readiness' => []]);
-        Carbon::setTestNow(Carbon::parse('2026-11-05 09:00')); // Thursday: Documents lands Mon 9 Nov, so its review is due
+        Carbon::setTestNow(Carbon::parse('2026-11-04 09:00')); // Wednesday: the plan starts, Documents lands Fri 6 Nov
         DevSetting::set('feature_rollout.interval_days', '2');
         DevSetting::set('feature_rollout.weekdays_only', '1');
         DevSetting::set('feature_rollout.skip_holidays', '0');
@@ -59,6 +59,7 @@ final class FeatureRolloutAccessSettingsTest extends TestCase
 
         $this->plan = app(FeatureRolloutService::class)->start($this->agency);
         app(AgencyFeatureService::class)->forget($this->agency->id);
+        Carbon::setTestNow(Carbon::parse('2026-11-05 09:00')); // Thursday: the day before, so the admin's review is due
     }
 
     private AgencyFeatureRollout $plan;
@@ -120,7 +121,7 @@ final class FeatureRolloutAccessSettingsTest extends TestCase
             $this->assertSame(['admin', 'agent', 'viewer'], array_keys($settings['granted'][$key]), $key);
         }
         $this->assertArrayHasKey('core_matches.view', $settings['scope']);
-        $this->assertStringContainsString('the system applies', $settings['defaults']['core_matches.view']);
+        $this->assertStringStartsWith('Default', $settings['defaults']['core_matches.view']);
 
         $html = $this->actingAs($this->admin)->get(route('agent.portal'))->assertOk()->getContent();
         $this->assertStringContainsString('Editing permissions for', $html);
@@ -181,6 +182,8 @@ final class FeatureRolloutAccessSettingsTest extends TestCase
 
     public function test_ticking_an_action_on_a_role_with_no_view_gives_it_a_view_at_own(): void
     {
+        RolePermission::where('agency_id', $this->agency->id)->where('role', 'viewer')->whereIn('permission_key', $this->access()->ownedKeys('core-matches'))->delete();
+        PermissionService::clearCache();
         $this->assertArrayNotHasKey('core_matches.view', $this->grants('viewer'));
 
         $this->review(['action' => 'save', 'settings' => ['viewer' => ['core_matches.create' => true]]])->assertOk();
@@ -192,18 +195,23 @@ final class FeatureRolloutAccessSettingsTest extends TestCase
 
     public function test_nothing_outside_the_reviewed_features_and_roles_is_ever_written(): void
     {
-        $before = $this->grants('agent');
+        $this->giveAgentCoreMatches();
+        $owned = $this->access()->ownedKeys('core-matches');
+        $agentBefore = $this->grants('agent');
+        $viewerBefore = $this->grants('viewer');
+        $outsideKey = 'billing.view'; // a permission of a feature that is not in this review
+        $this->assertNotContains($outsideKey, $owned);
+        RolePermission::where('agency_id', $this->agency->id)->where('role', 'agent')->where('permission_key', $outsideKey)->delete();
+        $agentBefore = $this->grants('agent');
 
         $this->review(['action' => 'save', 'settings' => [
-            'agent'     => ['billing.view' => true, 'deals.view' => true, 'core_matches.create' => true],  // billing/deals are not in this review
-            'super_admin' => ['core_matches.create' => true],                                             // not an editable role
-            'nobody'    => ['core_matches.create' => true],                                               // not a role at all
+            'agent'       => [$outsideKey => true, 'core_matches.create' => false],
+            'super_admin' => ['core_matches.create' => true],   // not an editable role
+            'nobody'      => ['core_matches.create' => true],   // not a role at all
         ]])->assertOk();
 
-        $after = $this->grants('agent');
-        $this->assertArrayNotHasKey('billing.view', $after);
-        $this->assertArrayNotHasKey('deals.view', $after);
-        $this->assertSame([], array_diff_key($after, $before + ['core_matches.create' => 1, 'core_matches.view' => 1]));
+        $this->assertSame(array_diff_key($agentBefore, ['core_matches.create' => 1]), $this->grants('agent'), 'only the owned key changed; the outside key was ignored');
+        $this->assertSame($viewerBefore, $this->grants('viewer'));
         $this->assertSame(0, RolePermission::where('agency_id', $this->agency->id)->whereIn('role', ['super_admin', 'nobody'])->where('permission_key', 'core_matches.create')->count());
     }
 
