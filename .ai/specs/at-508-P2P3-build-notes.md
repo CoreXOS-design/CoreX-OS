@@ -260,3 +260,111 @@ Close the work order. Calls `RentalWorkOrderService::completeByStaff()` (extract
 8. **Web code touched (shared methods extracted, behaviour unchanged):** `RentalFaultReportService::storePhoto`, `RentalWorkOrderService::assignSupplierAndDispatch / completionRules / completeByStaff`, and an optional `$capturedAt` argument on `RentalWorkOrderService::storePhoto`. The web controllers (`RentalFaultReportController::storePhoto`, `RentalWorkOrderController::assignSupplier / complete`) now call them. Regression files run green: `WorkOrderCompletionAndDateTimeTest`, `ContractorJobDispatchTest`, `RentalFaultReportControllerTest`.
 9. **Schema snapshot:** the new column (`rental_fault_reports.client_idempotency_key`, unique with `agency_id`; migration `2026_12_03_100000_add_client_idempotency_key_to_rental_fault_reports_at508.php`) is NOT yet in `database/schema/mysql-schema.sql` - same as P1, `php artisan schema:dump` + the DEFINER strip must be run at merge (NN 12a). Migrations apply on top of the snapshot, so tests are correct meanwhile.
 10. **Not built (not in the 11 routes):** notes on a fault / work order (spec section 5 lists "notes" as queue-safe, but no notes route exists in section 7.1), start-progress, appointment, raise-work-order-from-fault, send-to-owner, cancel, archive / restore. Say which you want next.
+
+---
+
+# P3 - leases and notices to review (read-only)
+
+The lease actions are NOT rebuilt: the app keeps using the existing `POST /api/v1/leases/{lease}/renewal/*` routes (draft, upload, month-to-month, tenant-notice, landlord-notice, notice/reverse, notice/change-outcome; permission `leases.renew`, notice ones also `rental_notices.review`), `GET /api/v1/leases/{lease}/signing` (signers, differences, confirm) and `GET /api/v1/leases/{lease}/tenancy-log`. The `can` block on the lease file says which of them the signed-in person may offer.
+
+## 16. GET `/mobile/leases`  (`v1.mobile.leases.index`)
+
+- Permission: `leases.view`. Scope: `Lease::scopeVisibleTo` (own = created it, or the lease's owner-side / tenant-side agent; branch; agency). Archived leases are not listed.
+- Query:
+  | param | meaning |
+  |---|---|
+  | `q` | search: property address, tenant name, owner (landlord) name, lease reference (`L-12` or `12`), the external id |
+  | `sort` | `end_date` (default) \| `start_date` \| `property` \| `status` |
+  | `direction` | `asc` (default, so the soonest-to-expire lease is first) \| `desc` |
+  | `status` | `draft \| signed_awaiting_start \| active \| expired \| cancelled` (the web list's split of "draft") |
+  | `expiring_within_days` | 1..3650: an ACTIVE lease whose end date falls between today and today + N |
+  | `date_from`, `date_to` | on the END date (as the web list) |
+  | `page` | 1-based |
+- Response 200:
+```json
+{
+  "data": [
+    {
+      "id": 5, "reference": "L-5", "status": "active", "status_label": "Active", "agreement_label": "Signed",
+      "property": {"id": 9, "address": "12 Sea Road, Margate"},
+      "start_date": "2026-04-25", "end_date": "2027-08-25", "is_month_to_month": false, "days_left": 304,
+      "tenants": [{"contact_id": 31, "name": "Tina Test", "phone": "0821112222", "email": "tina@example.com", "is_primary": true}],
+      "owners": [{"contact_id": 32, "name": "Lenny Test", "phone": null, "email": "lenny@example.com"}],
+      "has_notice": false, "move_out_date": null
+    }
+  ],
+  "meta": {"page": 1, "per_page": 25, "total": 1, "last_page": 1, "empty_reason": null}
+}
+```
+  `days_left` is negative once the end date has passed and null for a month-to-month lease or one with no end date. `status_label` is the web's wording ("Signed - starts 1 Dec 2026", "Renewed", ...); `agreement_label` is null when no agreement was requested. **Rent and deposit are deliberately not in the payload.**
+- Errors: 403 (no permission), 422 (unknown sort / status, `expiring_within_days` out of range, bad date).
+- Empty reason: "No leases match. Clear the search or filters to see more."
+
+## 17. GET `/mobile/leases/{lease}`  (`v1.mobile.leases.show`)
+
+The lease file, built from the same `LeaseHubService` the web Lease Hub uses.
+
+- Permission: `leases.view`. 404 other agency / unknown / archived; 403 same agency outside scope. Like the web screen it first reconciles an in-flight agreement with its e-sign envelope (a no-op for every other lease).
+- Response 200 = the list item above PLUS:
+```json
+{
+  "lease_type": "residential", "rollover": false,
+  "owner_agent": {"id": 4, "name": "Agnes Agent"}, "tenant_agent": null,
+  "signing": {"status": "signed", "label": "Signed", "signed_at": "2026-04-20T11:00:00+02:00", "locked": false,
+              "signers": [{"role": "tenant", "name": "Tina Test", "status": "Signed", "email": "tina@example.com", "last_reminder": null}]},
+  "documents": [{"id": 77, "name": "signed-lease.pdf", "mime": "application/pdf", "size": 1234, "kind": "signed_agreement", "added_at": "2026-04-20T11:05:00+02:00"}],
+  "renewal": {"previous_lease_id": null, "renewed_lease_id": null, "has_renewal_in_progress": false, "renewal_signed_awaiting_start": false, "expiry_notice_sent_at": null},
+  "notice": {"active": true, "given_by": "tenant", "notice_date": "2026-10-23", "move_out_date": "2026-11-30", "outcome": "readvertise", "note": null, "notices_to_review": 1},
+  "lifecycle": [{"key": "application", "label": "Application", "state": "done"}],
+  "next_step": {"label": "Review renewal"},
+  "open_items": {"faults": 1, "work_orders": 0, "inspections": 0},
+  "can": {"renew": true, "review_notices": true}
+}
+```
+  - `signing.signers` is empty when no agreement was requested. `lifecycle[].state` is `done | current | pending` (keys: application, approved, lease_signed, in_inspection, tenancy, renewal_notice, out_inspection).
+  - `documents` are metadata only (the signed agreement from e-sign and any signed paper copy; `kind` is `signed_agreement` for the one the lease points at). **There is no file URL** - see open issues.
+  - `next_step` is the single next action the web hub offers, as a sentence (null when there is none). Web route names are not returned.
+  - `notice` is the notice recorded ON the lease (set when a notice is accepted); `notices_to_review` counts notices still waiting for review on it (see section 18).
+
+## 18. GET `/mobile/rental-notices`  (`v1.mobile.rental-notices.index`)
+
+The notices a tenant or landlord has given (portal or recorded by an agent) that wait for the agent's review - the web "Notices > Received" list (`LeaseNotice`, `.ai/specs/lease-notices.md`). Read-only here: accepting / rejecting / correcting a notice is on the web (and the notice actions on the existing renewal routes).
+
+- Permission: `rental_notices.review`. Scope: a notice is exactly as visible as its lease (`Lease::scopeVisibleTo`), applied in the query. Archived notices are not listed.
+- Query: `q` (property address, tenant name, the name of whoever gave the notice, the reason), `sort` = `date` (default; the notice date, `direction` asc = **oldest unreviewed first**) \| `status`, `direction` = `asc` (default) \| `desc`, `status` = `received` (**default = still to review**) \| `accepted \| rejected \| withdrawn \| all`, `date_from`, `date_to` (on the notice date), `page`.
+- Response 200:
+```json
+{
+  "data": [
+    {
+      "id": 14, "status": "received", "status_label": "Needs review", "given_by": "tenant", "given_by_label": "The tenant", "given_by_name": "Tina Test", "via": "portal",
+      "notice_date": "2026-10-22", "intended_end_date": "2026-12-05", "accepted_end_date": null, "reason": "Moving to Durban", "has_attachment": false,
+      "decided_at": null, "age_days": 3, "lease_id": 5, "property": {"id": 9, "address": "12 Sea Road, Margate"}, "tenant_names": "Tina Test"
+    }
+  ],
+  "meta": {"page": 1, "per_page": 25, "total": 1, "last_page": 1, "empty_reason": null}
+}
+```
+  `age_days` = days since the notice date, only while it is still `received` (null otherwise). `given_by` is `tenant | landlord`. Open the matching lease with `lease_id`.
+- Empty reason: default view "No notices are waiting for your review."; with a search / date range / other status "No notices match. Clear the search or filters to see more."
+- Errors: 403 (no permission), 422 (unknown status / sort, bad date).
+
+---
+
+# Decisions made without asking (P3)
+
+1. **"Notices to review" = `LeaseNotice`** (given by tenant / landlord, `rental_notices.review`), not `RentalNotice` (notices the AGENCY sends, permission `rental_notices.view`). The spec's wording ("notices waiting review", `rental_notices.review`, `LeaseNoticeService`) points to the first.
+2. **Lease reference** (`L-<id>`) is derived from the id; the system stores no lease number.
+3. **No rent, deposit or arrears** in the lease payload (spec section 3: rent/payments are out; section 4 P3 lists no money).
+4. **Lease `direction` / notices `direction` parameter** added to the spec's sort options (asc/desc), because the defaults are opposite-looking (leases: soonest end first; notices: oldest first) and the app will want a toggle. Defaults are exactly the spec's.
+5. **No `archived` parameter** on the three P3 lists (the spec's filter list for them has none; archived leases / notices are a web job).
+6. **The lease file's GET reconciles an in-flight agreement** with its e-sign envelope exactly as the web `show()` does (a write on a read, by design, for in-flight agreements only).
+
+# Open issues / for the conductor
+
+1. **Documents have no download URL** (lease file) and invoices have none either (work order). The web serves them from session routes. If the app must open them, a separate, scoped download route is needed - not specced, not built.
+2. **Notes** (spec section 5 lists them as queue-safe) have no route in the 11-route table, so none was built. Work-order create has no idempotency key (online-only).
+3. **Contractor-response route** is new behaviour (agent answers for the contractor) - Johan to confirm (see P2 decision 4).
+4. **`database/schema/mysql-schema.sql`** does not yet contain `rental_fault_reports.client_idempotency_key` (additive migration `2026_12_03_100000_*`); run `schema:dump` + the DEFINER strip at merge.
+5. **`config/agency-onboarding-copy.php` / `MobileVisibilityController` / `MOBILE_APP.md`** were not touched (instructed). `MobileVisibilityController` should be taught the new screens (faults, work orders, leases, notices) before the app ships them.
+6. **Seen, not fixed (outside scope):** `routes/api.php` has a stale comment above the P1 `mobile/rentals/waiting` route ("internal job-card mirror for Andre's app...") that actually describes the job-card group below it.

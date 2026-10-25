@@ -728,6 +728,11 @@ Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(f
         Route::post('/mobile/work-orders/{workOrder}/contractor-response', [$workOrders, 'contractorResponse'])->withTrashed()->middleware('permission:rental_work_orders.create')->name('v1.mobile.work-orders.contractor-response');
         Route::post('/mobile/work-orders/{workOrder}/invoices', [$workOrders, 'storeInvoice'])->withTrashed()->middleware('permission:rental_work_orders.manage_invoices')->name('v1.mobile.work-orders.invoices.store');
         Route::post('/mobile/work-orders/{workOrder}/complete', [$workOrders, 'complete'])->withTrashed()->middleware('permission:rental_work_orders.complete')->name('v1.mobile.work-orders.complete');
+
+        // AT-508 P3: the staff lease list / lease file (read-only; the actions are the existing /leases/{lease}/renewal/* routes) and the notices waiting for review.
+        Route::get('/mobile/leases', [\App\Http\Controllers\Api\MobileRentalLeaseController::class, 'index'])->middleware('permission:leases.view')->name('v1.mobile.leases.index');
+        Route::get('/mobile/leases/{lease}', [\App\Http\Controllers\Api\MobileRentalLeaseController::class, 'show'])->middleware('permission:leases.view')->name('v1.mobile.leases.show');
+        Route::get('/mobile/rental-notices', [\App\Http\Controllers\Api\MobileRentalNoticeController::class, 'index'])->middleware('permission:rental_notices.review')->name('v1.mobile.rental-notices.index');
         // AT-508 P2/P3 END
 
         // ── Mobile P24 location tree (token-authed) ──────────────────
