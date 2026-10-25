@@ -3,7 +3,6 @@
 namespace App\Services\FeatureRollout;
 
 use App\Events\FeatureRollout\FeatureRolloutChanged;
-use App\Http\Controllers\CoreX\RoleManagerController;
 use App\Models\Agency;
 use App\Models\CoreXPermission;
 use App\Models\FeatureRollout\AgencyFeatureRollout;
@@ -17,6 +16,7 @@ use App\Models\User;
 use App\Services\Features\AgencyFeatureService;
 use App\Services\PermissionService;
 use App\Services\Permissions\RoleDefaultsResolver;
+use App\Support\Permissions\RoleManagerLabels;
 use App\Support\Tours\TourRegistry;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
@@ -273,7 +273,9 @@ class FeatureRolloutAccess
                 $module = $perm->module ?? $perm->section;
                 $modules[$module] ??= ['key' => $module, 'access' => [], 'actions' => []];
                 if ($perm->type === 'action') {
-                    $modules[$module]['actions'][Str::afterLast($key, '.')] = ['key' => $key, 'label' => (string) $perm->label];
+                    // Keyed by the whole permission key: two keys in one module can end in the same word
+                    // (auctions.view and auctions.reserve.view), and none may be lost.
+                    $modules[$module]['actions'][$key] = ['key' => $key, 'label' => (string) $perm->label];
                 } else {
                     $modules[$module]['access'][] = ['key' => $key, 'label' => (string) $perm->label, 'default' => $this->accessDefaultLine($key)];
                 }
@@ -285,29 +287,41 @@ class FeatureRolloutAccess
 
             $out = [];
             foreach ($modules as $module => $m) {
-                $view = $m['actions']['view']['key'] ?? null;
+                // The module's own view key is the one with the fewest dots (auctions.view, not auctions.reserve.view).
+                $viewKeys = array_values(array_filter(array_keys($m['actions']), fn ($k) => str_ends_with($k, '.view')));
+                usort($viewKeys, fn ($x, $y) => substr_count($x, '.') <=> substr_count($y, '.'));
+                $view = $viewKeys[0] ?? null;
+                $prefix = $view !== null ? Str::beforeLast($view, '.view') : null;
+
                 $standard = [];
+                $used = $view !== null ? [$view => true] : [];
                 foreach (self::STANDARD_ACTIONS as $action) {
-                    if (isset($m['actions'][$action])) {
-                        $standard[] = ['action' => $action] + $m['actions'][$action];
+                    $candidates = array_values(array_filter(array_keys($m['actions']), fn ($k) => Str::afterLast($k, '.') === $action));
+                    // With a view key, the standard actions are the ones beside it; without one, the first of each kind.
+                    $key = $prefix !== null ? ($prefix . '.' . $action) : ($candidates[0] ?? null);
+                    if ($key !== null && isset($m['actions'][$key])) {
+                        $standard[] = ['action' => $action] + $m['actions'][$key];
+                        $used[$key] = true;
                     }
                 }
                 $other = [];
-                foreach (array_diff(array_keys($m['actions']), array_merge(['view'], self::STANDARD_ACTIONS)) as $action) {
-                    $other[] = ['action' => $action] + $m['actions'][$action];
+                foreach ($m['actions'] as $key => $a) {
+                    if (! isset($used[$key])) {
+                        $other[] = ['action' => Str::afterLast($key, '.')] + $a;
+                    }
                 }
                 $out[] = [
                     'key'      => $module,
-                    'label'    => RoleManagerController::MODULE_LABELS[$module] ?? Str::title(str_replace('_', ' ', $module)),
+                    'label'    => RoleManagerLabels::MODULE_LABELS[$module] ?? Str::title(str_replace('_', ' ', $module)),
                     'view'     => $view,
-                    'mode'     => $view === null ? 'none' : (in_array($module, RoleManagerController::SHARED_MODULES, true) ? 'shared'
+                    'mode'     => $view === null ? 'none' : (in_array($module, RoleManagerLabels::SHARED_MODULES, true) ? 'shared'
                         : (in_array($module, self::TOGGLE_SCOPE_MODULES, true) ? 'toggle' : 'scope')),
                     'access'   => $m['access'],
                     'standard' => $standard,
                     'other'    => $other,
                 ];
 
-                foreach (array_merge(array_column($m['access'], 'key'), array_column($m['actions'], 'key')) as $key) {
+                foreach (array_merge(array_column($m['access'], 'key'), array_keys($m['actions'])) as $key) {
                     foreach ($names as $role) {
                         $granted[$key][$role] = isset($held[$key][$role]);
                     }
@@ -736,7 +750,7 @@ class FeatureRolloutAccess
      * session are skipped until their next sign-in.
      *
      * @param  list<int> $later
-     * @return array{kind:string, plan:AgencyFeatureRollout, waves:Collection, grid?:array, roles?:Collection, announcements?:array}|null
+     * @return array{kind:string, plan:AgencyFeatureRollout, waves:Collection, settings?:array, roles?:Collection, announcements?:array}|null
      */
     public function popupFor(User $user, array $later = []): ?array
     {
@@ -763,7 +777,6 @@ class FeatureRolloutAccess
                         'kind'  => 'review_' . $kind,
                         'plan'  => $plan,
                         'waves' => $waves,
-                        'grid'  => $this->grid((int) $plan->agency_id, $features),
                         'settings' => $this->settingsFor((int) $plan->agency_id, $features),
                         'roles' => $this->editableRoles((int) $plan->agency_id),
                     ];

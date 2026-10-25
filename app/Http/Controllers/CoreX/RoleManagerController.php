@@ -11,6 +11,7 @@ use App\Models\RolePermission;
 use App\Models\User;
 use App\Services\Features\AgencyFeatureService;
 use App\Services\PermissionService;
+use App\Support\Permissions\RoleManagerLabels;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -18,81 +19,6 @@ use Illuminate\Validation\Rule;
 
 class RoleManagerController extends Controller
 {
-    /** Module headings shown in the matrix; shared with the gradual-rollout access review (spec §21). */
-    public const MODULE_LABELS = [
-        'dashboard'        => 'Dashboard',
-        'command_center'          => 'Command Center',
-        'command_center_calendar' => 'Calendar',
-        'command_center_tasks'    => 'Tasks',
-        'agency_tracker'   => 'Agency Tracker',
-        'deals'            => 'Deals',
-        'deals_v2'         => 'Deal Register V2',
-        'listings'         => 'Listings',
-        'rentals'          => 'Rentals',
-        'leases'                  => 'Leases',
-        'rental_command_centre'   => 'Rentals Command Centre',
-        'rental_applications'     => 'Rental Applications',
-        'rental_details'          => 'Rental Details',
-        'rental_inspections'      => 'Rental Inspections',
-        'rental_inventories'      => 'Rental Inventories',
-        'rental_fault_reports'    => 'Rental Fault Reports',
-        'rental_fault_types'      => 'Rental Fault Types',
-        'rental_work_orders'      => 'Rental Work Orders',
-        'rental_job_cards'        => 'Rental Job Cards',
-        'rental_catalogue'        => 'Rental Catalogue & Crews',
-        'rental_notices'          => 'Rental Notices',
-        'rental_portal'           => 'Rental Portal Access',
-        'rental_reports'          => 'Rental Reports',
-        'rentals_take_on_import'  => 'Rental Take-On Import',
-        'ppra_employment_letters' => 'PPRA Employment Letters',
-        'ppra_inspection_pack'    => 'PPRA Inspection Pack',
-        'daily_activity'   => 'Daily Activity',
-        'tv_messages'      => 'TV Messages',
-        'compliance'       => 'Compliance',
-        'supervision'      => 'Supervision',
-        'training'         => 'Training',
-        'communication'    => 'Communication',
-        'client_portal'    => 'Client Portal',
-        'franchise_admin'  => 'Franchise Admin',
-        'users'            => 'Users',
-        'docuperfect'      => 'DocuPerfect',
-        'documents'        => 'Documents',
-        'templates'        => 'Templates',
-        'clauses'          => 'Clauses',
-        'packs'            => 'Document Packs',
-        'document_library' => 'Document Library',
-        'presentations'    => 'Presentations',
-        'filing'           => 'Filing Register',
-        'title_deeds'      => 'Title Deeds',
-        'commercial_evals' => 'Commercial Evaluations',
-        'sales_docs'       => 'Sales Documents',
-        'properties'       => 'Properties',
-        'contacts'         => 'Contacts',
-        'contact_rental_history' => 'Contact Rental History',
-        'buyer_pipeline'   => 'Buyer Pipeline',
-        'core_matches'     => 'Core Matches',
-        'calculators'      => 'Calculators & Tools',
-        'ad_manager'       => 'Ad Manager',
-        'ellie'            => 'Ellie AI',
-        'p24'              => 'P24 Market Intel',
-        'prospecting'      => 'Prospecting',
-        'deeds_capture'    => 'Deeds Capture',
-        'evaluation'       => 'Evaluation',
-        'pdf_splitter'     => 'PDF Splitter',
-        'knowledge'        => 'Knowledge Base',
-        'finance'          => 'Finance Engine',
-        'agencies'         => 'Agencies',
-        'settings'         => 'Settings',
-        'billing'          => 'Billing',
-        'roles'            => 'Role Manager',
-        'data_scope'       => 'Data Scope',
-        'sidebar'          => 'Sidebar',
-        'assistants'       => 'Assistants',
-    ];
-
-    /** Modules every user can see — no scope picker (shared with the rollout access review). */
-    public const SHARED_MODULES = ['p24', 'knowledge', 'calculators', 'ellie', 'pdf_splitter', 'prospecting', 'evaluation'];
-
     public function index()
     {
         $features = app(AgencyFeatureService::class);
@@ -168,7 +94,7 @@ class RoleManagerController extends Controller
         $agencies = Agency::orderBy('name')->get(['id', 'name']);
 
         // ── Build grouped matrix for action-level UI ──
-        $moduleLabels = self::MODULE_LABELS;
+        $moduleLabels = RoleManagerLabels::MODULE_LABELS;
 
         $sectionLabels = [
             'dashboard'              => 'Dashboard',
@@ -232,7 +158,7 @@ class RoleManagerController extends Controller
         }
 
         // Shared modules — scope radios not shown, always visible to all
-        $sharedModules = self::SHARED_MODULES;
+        $sharedModules = RoleManagerLabels::SHARED_MODULES;
 
         // Pre-compute JSON-safe values (no closures in Blade @json)
         $rolesJson = $roles->map(fn($r) => [

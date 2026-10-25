@@ -131,6 +131,23 @@ final class FeatureRolloutAccessSettingsTest extends TestCase
         $this->assertStringContainsString('data-rollout-access="core-matches|agent"', $html);
     }
 
+    public function test_keys_that_end_in_the_same_word_are_all_listed(): void
+    {
+        // auctions.view / auctions.reserve.view and shared_drive.folders.create / shared_drive.drives.create used to
+        // overwrite each other, so one of each pair never reached the pop-up.
+        $settings = $this->access()->settingsFor((int) $this->agency->id, ['auctions', 'shared-drive']);
+
+        foreach (['auctions', 'shared-drive'] as $feature) {
+            $shown = [];
+            foreach ($settings['features'][$feature]['modules'] as $m) {
+                $shown = array_merge($shown, array_column($m['access'], 'key'), array_column($m['standard'], 'key'), array_column($m['other'], 'key'), $m['view'] ? [$m['view']] : []);
+            }
+            $owned = array_values(array_intersect($this->access()->ownedKeys($feature), \App\Models\CoreXPermission::pluck('key')->all()));
+            $this->assertSame([], array_values(array_diff($owned, $shown)), "{$feature}: every owned permission is shown");
+            $this->assertSame(count($shown), count(array_unique($shown)), "{$feature}: none is shown twice");
+        }
+    }
+
     public function test_changing_one_action_changes_exactly_that_and_nothing_else(): void
     {
         $this->giveAgentCoreMatches();

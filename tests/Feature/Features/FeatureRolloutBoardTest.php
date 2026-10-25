@@ -144,6 +144,40 @@ final class FeatureRolloutBoardTest extends TestCase
         $this->assertNull(FeatureRolloutWave::onlyTrashed()->first());
     }
 
+    public function test_an_empty_plan_is_refused_unless_confirmed(): void
+    {
+        $owner = $this->owner();
+        $a = $this->wave('Keep me', ['docuperfect']);
+
+        $this->save($owner, [])->assertSessionHasErrors('layout');
+        $this->assertNotSoftDeleted('feature_rollout_waves', ['id' => $a->id]);
+
+        $this->actingAs($owner)->put(route('admin.feature-rollout-defaults.layout'), ['layout' => '[]', 'confirm_empty' => '1'])->assertSessionHasNoErrors();
+        $this->assertSoftDeleted('feature_rollout_waves', ['id' => $a->id]);
+    }
+
+    public function test_a_page_that_never_saw_a_wave_cannot_archive_it(): void
+    {
+        $owner = $this->owner();
+        $seen = $this->wave('Seen', ['docuperfect'], 'general', 10);
+        $added = $this->wave('Added by someone else', ['presentations'], 'general', 20); // created after this page loaded
+
+        $this->actingAs($owner)->put(route('admin.feature-rollout-defaults.layout'), [
+            'layout' => json_encode([$this->row($seen->id, 'Seen renamed', ['docuperfect'])]),
+            'known'  => json_encode([$seen->id]),
+        ])->assertSessionHasNoErrors();
+
+        $this->assertNotSoftDeleted('feature_rollout_waves', ['id' => $added->id]);
+        $this->assertSame('Seen renamed', $seen->fresh()->title);
+
+        // A wave the page did show and the owner left out is archived.
+        $this->actingAs($owner)->put(route('admin.feature-rollout-defaults.layout'), [
+            'layout' => json_encode([$this->row($seen->id, 'Seen renamed', ['docuperfect'])]),
+            'known'  => json_encode([$seen->id, $added->id]),
+        ])->assertSessionHasNoErrors();
+        $this->assertSoftDeleted('feature_rollout_waves', ['id' => $added->id]);
+    }
+
     public function test_a_refused_save_brings_the_browsers_edits_back_to_the_board(): void
     {
         $owner = $this->owner();

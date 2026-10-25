@@ -201,6 +201,15 @@ class FeatureRolloutDefaultsController extends Controller
         $existing = FeatureRolloutWave::pluck('id')->map(fn ($id) => (int) $id)->all();
         $fail = fn (string $message) => throw ValidationException::withMessages(['layout' => $message]);
 
+        // An empty plan archives every wave (a new agency would then get every feature at once): only on purpose.
+        if ($payload === [] && $existing !== [] && ! $request->boolean('confirm_empty')) {
+            $fail('This would archive every wave, so a new agency would get every feature at once. Reload the page; if you do mean to archive them all, confirm it when you press Save plan.');
+        }
+        // Only waves the page actually showed can be archived by leaving them out: a wave someone else added
+        // after this page was loaded is kept, never silently archived.
+        $known = json_decode((string) $request->input('known'), true);
+        $known = is_array($known) ? array_map('intval', $known) : null;
+
         $rows = [];
         $seen = [];
         $usedIds = [];
@@ -254,7 +263,8 @@ class FeatureRolloutDefaultsController extends Controller
         // "Admin decides" waves always come last, whatever order they arrived in.
         usort($rows, fn ($a, $b) => (int) $a['admin'] <=> (int) $b['admin']);
 
-        $archived = DB::transaction(function () use ($rows, $existing) {
+        $archived = DB::transaction(function () use ($rows, $known) {
+            $existing = FeatureRolloutWave::lockForUpdate()->pluck('id')->map(fn ($id) => (int) $id)->all();
             $keep = [];
             foreach ($rows as $n => $r) {
                 $data = $r['data'] + ['position' => ($n + 1) * 10];
@@ -265,7 +275,7 @@ class FeatureRolloutDefaultsController extends Controller
                     $keep[] = FeatureRolloutWave::create($data)->id;
                 }
             }
-            $gone = array_values(array_diff($existing, $keep));
+            $gone = array_values(array_diff($known === null ? $existing : array_intersect($existing, $known), $keep));
             FeatureRolloutWave::whereIn('id', $gone)->get()->each->delete();
 
             return count($gone);

@@ -147,7 +147,7 @@
                 <div class="px-5 py-4 flex flex-wrap items-center justify-between gap-3" style="border-bottom: 1px solid var(--border);">
                     <div>
                         <div class="ds-section-header">Waves, in order</div>
-                        <div class="ds-section-sub">Drag a feature into a wave, or drag a wave up or down. Each wave's date is when a new agency that starts on the date below would get it, using the pace above. It shows one list in order (sales and rentals together).</div>
+                        <div class="ds-section-sub">Drag a feature into a wave, or drag a wave up or down. Each wave's date is when a new agency that starts on the date below would get it, using the pace above (public holidays follow the saved country, {{ $defaults['holiday_country'] }}). It shows one list in order (sales and rentals together). Nothing here is saved until you press Save plan; the pace has its own Save pace.</div>
                     </div>
                     <div class="flex flex-wrap items-end gap-3">
                         <label class="block">
@@ -188,6 +188,8 @@
             <form method="POST" action="{{ route('admin.feature-rollout-defaults.layout') }}" id="wp-form">
                 @csrf @method('PUT')
                 <input type="hidden" name="layout" id="wp-layout">
+                <input type="hidden" name="known" id="wp-known" value="{{ json_encode(array_column($board['waves'], 'id')) }}">
+                <input type="hidden" name="confirm_empty" id="wp-confirm-empty" value="0">
             </form>
         </div>
     @else
@@ -372,14 +374,20 @@
     /* ---------- state ---------- */
     var uid = 0;
     function norm(w) { return { cid: ++uid, id: w.id, title: w.title, track: w.track, intro: w.intro || '', keys: (w.keys || []).slice(), open: false }; }
+    var dropped = [];
     function dedupe(list) {
         var seen = {};
-        list.forEach(function (w) { w.keys = w.keys.filter(function (k) { if (!BY[k] || seen[k]) return false; seen[k] = 1; return true; }); });
+        dropped = [];
+        list.forEach(function (w) { w.keys = w.keys.filter(function (k) {
+            if (!BY[k]) return false;
+            if (seen[k]) { dropped.push(BY[k].l + ' (kept in \u201C' + seen[k] + '\u201D)'); return false; }
+            seen[k] = w.title; return true;
+        }); });
         return list;
     }
-    function load(src) {
-        var all = dedupe(src.map(norm));
-        var s = { waves: all.filter(function (w) { return w.track !== 'admin'; }), admin: all.filter(function (w) { return w.track === 'admin'; }), sel: null, undo: null, q: '' };
+    function load(src, raw) {
+        var all = raw ? src.map(norm) : dedupe(src.map(norm));
+        var s = { waves: all.filter(function (w) { return w.track !== 'admin'; }), admin: all.filter(function (w) { return w.track === 'admin'; }), sel: null, undo: null, q: '', notice: raw ? '' : (dropped.length ? 'These were in more than one wave, so each now stays in the earliest one: ' + dropped.join(', ') + '. Save plan to keep this.' : '') };
         if (!s.admin.length) s.admin.push(norm({ id: null, title: 'Admin decides', track: 'admin', keys: [] }));
         return s;
     }
@@ -395,9 +403,9 @@
     function all() { return state.waves.concat(state.admin); }
     function dirty() { return snapshot() !== baseline; }
 
-    state = load(B.waves);
+    state = load(B.waves, true);          // the plan exactly as saved: what "unsaved" is measured against
     baseline = snapshot();
-    if (B.draft) state = load(B.draft);   // a refused save brings the browser's own edits back
+    state = load(B.draft || B.waves);     // a refused save brings the browser's own edits back; repeats are dropped
 
     /* ---------- dates: same rule as RolloutCalendar ---------- */
     function pad(n) { return String(n).padStart(2, '0'); }
@@ -564,6 +572,7 @@
             h('span', { class: 'flex gap-2' },
                 h('button', { type: 'button', class: 'corex-btn-outline corex-btn-xs', style: 'background:transparent;color:#fff;border-color:#fff;', onclick: function () { moveKey(state.sel, 'tray'); } }, 'Send to tray'),
                 h('button', { type: 'button', class: 'corex-btn-outline corex-btn-xs', style: 'background:transparent;color:#fff;border-color:#fff;', onclick: function () { state.sel = null; render(); } }, 'Cancel'))));
+        if (state.notice) bits.push(h('div', { class: 'wp-bar', style: 'background:color-mix(in srgb, var(--ds-amber) 14%, transparent); border:1px solid var(--ds-amber); color:var(--text-primary);' }, h('span', {}, state.notice)));
         if (state.undo) bits.push(h('div', { class: 'wp-bar', style: 'background:var(--surface-2); border:1px solid var(--border);' },
             h('span', {}, 'Archived “' + state.undo.w.title + '”. Its ' + state.undo.w.keys.length + ' features are back in the tray.'),
             h('button', { type: 'button', class: 'corex-btn-outline corex-btn-xs', onclick: restore }, 'Undo')));
@@ -616,11 +625,16 @@
             if (!w.keys.length) return showError('“' + w.title + '” has no features. Drag at least one in, or archive the wave.');
         }
         for (var j = 0; j < state.admin.length; j++) if (state.admin[j].keys.length && !state.admin[j].title.trim()) return showError('Every wave needs a name.');
-        $('wp-layout').value = JSON.stringify(payload(true));
+        var out = payload(true);
+        if (!out.length) {
+            if (!window.confirm('This archives every wave, so a new agency would get every feature at once. Save anyway?')) return;
+            $('wp-confirm-empty').value = '1';
+        }
+        $('wp-layout').value = JSON.stringify(out);
         window.__wpSaving = true;
         $('wp-form').submit();
     });
-    $('wp-discard').addEventListener('click', function () { state = load(B.waves); baseline = snapshot(); showError(''); render(); });
+    $('wp-discard').addEventListener('click', function () { state = load(B.waves); showError(''); render(); });
     $('wp-q').addEventListener('input', function (e) { state.q = e.target.value; renderTray(); });
     $('wp-start').addEventListener('input', render);
     pace.addEventListener('input', render);

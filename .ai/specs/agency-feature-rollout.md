@@ -625,7 +625,12 @@ and never seeing when a wave actually reaches a new agency. The board shows the 
   archived (soft delete). Same rules as a single wave: ≥ 1 feature, only waveable features, "Admin decides" only holds
   features that can be kept to some roles. A feature repeated across waves keeps its earliest place. Running plans are never
   changed (they hold their own copy).
+- **Safety (audit 2026-10-25):** an empty plan is refused unless the owner confirms it ("this archives every wave"); the page also
+  posts the ids of the waves it showed (`known`), and only those can be archived by leaving them out, so a wave another owner added
+  after the page loaded is never archived by a stale page; the existing wave ids are read under a lock inside the transaction.
+  A feature found in two saved waves (e.g. after a Restore) is kept in the earliest on the board, with a notice saying so.
 - The older per-wave endpoints (`store`, `update`, `move`, `destroy`, `restore`) stay; `restore` serves the archived list.
+  `store`, `update`, `move` and `destroy` no longer have any screen using them (candidates for removal).
 - No new setting is added, so nothing is added to the setup wizard (NN #10a not triggered). No new API endpoint (NN #7 not
   triggered): this is a web form post on an existing owner-only admin page. Multi-agency (NN #9): the page is platform-wide
   Dev Settings, no agency names; the holiday calendar is the saved country code.
@@ -670,7 +675,7 @@ For the selected feature, under "Who gets it":
 - The same ticking rules as the Role Manager: Data Scope **None** unticks create / edit / archive; ticking create / edit / archive
   on a role whose scope is None sets Own; ticking one on a role that only has the default view makes that view grant real.
 - A feature that owns no permission at all keeps "Everyone who can open this part of CoreX gets it — there is no separate access to set."
-- Wording and look are the Role Manager's (module labels come from one shared list, `RoleManagerController::MODULE_LABELS`).
+- Wording and look are the Role Manager's (module labels come from one shared list, `App\Support\Permissions\RoleManagerLabels`).
 
 ### 21.2 What Save access writes
 - `POST /api/v1/feature-rollout/access-review` accepts `settings` = `{role: {permission_key: true|false}}` and
@@ -680,11 +685,13 @@ For the selected feature, under "Who gets it":
 - A revoke is a soft delete (the tombstone the permission sync respects); a grant restores the tombstoned row and keeps its old
   scope unless a new one was chosen. Scope is stored on `.view` keys only. Server-side rules mirror the interlocks above, plus
   `branches.edit_all` implies `branches.view_all`.
+- A module can own keys that end in the same word (`auctions.view` and `auctions.reserve.view`): every key is listed. The module's own
+  view key is the one with the fewest dots; create / edit / archive are the ones beside it; any other key appears as an extra action.
 - History records, per feature and role, "gave", "took away" (the feature's way in) or "changed the settings of".
 
 ### 21.3 Out of scope
 Settings → Feature rollout (the "who else sees these" panel) is not changed. The Role Manager's behaviour is unchanged (its module
-labels moved to a shared constant).
+labels moved to the shared `RoleManagerLabels` class).
 
 ### 21.4 Acceptance
 1. The review pop-up shows, for a feature with several settings, the same rows as the Role Manager for the chosen role.
@@ -694,4 +701,4 @@ labels moved to a shared constant).
 5. Keep as is / Hold / Ask me next time still write nothing.
 
 **Files:** `FeatureRolloutAccess` (`settingsFor`, `applySettings`), `FeatureRolloutPopupController::review`, `feature-rollout-popups.blade.php`,
-`FeatureRolloutHistory`, `RoleManagerController` (constants only). **Tests:** `tests/Feature/Features/FeatureRolloutAccessSettingsTest.php`.
+`FeatureRolloutHistory`, `RoleManagerController` and new `RoleManagerLabels` (labels only). **Tests:** `tests/Feature/Features/FeatureRolloutAccessSettingsTest.php`.
