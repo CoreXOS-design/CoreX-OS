@@ -71,6 +71,27 @@ class PushNotificationService
     }
 
     /**
+     * Push to every active device of every given CLIENT user (tenant / owner). Same
+     * dispatch, idempotency, rate cap and pruning as staff — AT-508.
+     *
+     * @param  array<int|string>  $clientUserIds
+     */
+    public function sendToClientUserIds(array $clientUserIds, string $idempotencyKey, array $payload): PushDispatchSummary
+    {
+        $clientUserIds = array_values(array_unique(array_filter($clientUserIds)));
+        if (empty($clientUserIds)) {
+            return PushDispatchSummary::empty();
+        }
+
+        $devices = DeviceToken::query()
+            ->whereIn('client_user_id', $clientUserIds)
+            ->whereNotNull('token')
+            ->get(['id', 'user_id', 'client_user_id', 'token']);
+
+        return $this->dispatch($devices, $idempotencyKey, $payload);
+    }
+
+    /**
      * Core dispatch. Operates on resolved DeviceToken rows so it can de-dupe by
      * token string, attribute metrics per user, and prune dead rows.
      *

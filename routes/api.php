@@ -184,6 +184,9 @@ Route::prefix('v1/client-auth')->middleware([\Laravel\Sanctum\Http\Middleware\En
 
 Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class, 'client.auth', 'client.ability', 'throttle:client-portal'])->group(function () {
     Route::get('/me',                 [ClientPortalController::class, 'me'])->name('client.me');
+    // AT-508 (P1) — tenant / owner phone registers for push. Spec: .ai/specs/at-508-mobile-rentals.md
+    Route::post('/device-tokens',           [\App\Http\Controllers\Api\V1\ClientDeviceTokenController::class, 'store'])->name('client.device-tokens.store');
+    Route::delete('/device-tokens/{token}', [\App\Http\Controllers\Api\V1\ClientDeviceTokenController::class, 'destroy'])->name('client.device-tokens.destroy');
     Route::get('/match-options',      [ClientPortalController::class, 'matchOptions'])->name('client.match-options');
 
     Route::get('/matches',                                  [ClientPortalController::class, 'matches'])->name('client.matches');
