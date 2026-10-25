@@ -704,6 +704,32 @@ Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(f
             Route::post('/{rentalJobCard}/photos', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'storePhoto'])->middleware('permission:rental_job_cards.create')->name('v1.mobile.rental-job-cards.photos.store');
         });
 
+        // AT-508 P5/P6 BEGIN
+        // Staff inspections + inventories for the app. Spec: .ai/specs/rental-inspections.md §14.2, .ai/specs/at-508-mobile-rentals.md §4-§7,
+        // handoff contract .ai/specs/at-508-P5P6-build-notes.md. Every write is a thin call into the SAME action the web recording screen uses;
+        // queueable writes carry client_idempotency_key (replay = 200 + duplicate:true) and captured_at.
+        Route::get('/mobile/properties/{property}/rental-inspection-items', [\App\Http\Controllers\Api\V1\MobileRentalInspectionController::class, 'checklist'])
+            ->whereNumber('property')->middleware('permission:rental_inspections.view')->name('v1.mobile.rental-inspections.checklist');
+        Route::prefix('mobile/rental-inspections')->group(function () {
+            $c = \App\Http\Controllers\Api\V1\MobileRentalInspectionController::class;
+            Route::get('/', [$c, 'index'])->middleware('permission:rental_inspections.view')->name('v1.mobile.rental-inspections.index');
+            Route::post('/', [$c, 'store'])->middleware('permission:rental_inspections.create')->name('v1.mobile.rental-inspections.store');
+            Route::get('/{inspection}', [$c, 'show'])->whereNumber('inspection')->middleware('permission:rental_inspections.view')->name('v1.mobile.rental-inspections.show');
+            Route::post('/{inspection}/observations', [$c, 'storeObservation'])->whereNumber('inspection')
+                ->middleware('permission:rental_inspections.create')->name('v1.mobile.rental-inspections.observations.store');
+            Route::post('/{inspection}/observations/{observation}/photos', [$c, 'storePhoto'])->whereNumber(['inspection', 'observation'])
+                ->middleware('permission:rental_inspections.create')->name('v1.mobile.rental-inspections.observations.photos.store');
+            Route::post('/{inspection}/rooms/{room}/notes', [$c, 'storeRoomNote'])->whereNumber(['inspection', 'room'])
+                ->middleware('permission:rental_inspections.create')->name('v1.mobile.rental-inspections.rooms.notes.store');
+            Route::post('/{inspection}/overall-notes', [$c, 'updateOverallNotes'])->whereNumber('inspection')
+                ->middleware('permission:rental_inspections.create')->name('v1.mobile.rental-inspections.overall-notes');
+            Route::post('/{inspection}/attendance', [$c, 'storeAttendance'])->whereNumber('inspection')
+                ->middleware('permission:rental_inspections.record_attendance')->name('v1.mobile.rental-inspections.attendance.store');
+            Route::post('/{inspection}/discrepancies/{discrepancy}/resolve', [$c, 'resolveDiscrepancy'])->whereNumber(['inspection', 'discrepancy'])
+                ->middleware('permission:rental_inspections.resolve_discrepancy')->name('v1.mobile.rental-inspections.discrepancies.resolve');
+        });
+        // AT-508 P5/P6 END
+
         // ── Mobile P24 location tree (token-authed) ──────────────────
         Route::prefix('mobile/p24')->group(function () {
             Route::get('/provinces', [\App\Http\Controllers\Api\V1\P24LocationController::class, 'provinces'])->name('v1.mobile.p24.provinces');

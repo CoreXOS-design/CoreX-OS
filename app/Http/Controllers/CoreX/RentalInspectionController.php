@@ -209,12 +209,14 @@ class RentalInspectionController extends Controller
     }
 
     /**
+     * (public since AT-508 P5: the mobile start-inspection endpoint calls it too — one rule for linking a loaded date.)
+     *
      * §45.7 (Build I-5) — "Book from this date": when the form was opened from a loaded interim date, attach the new
      * inspection to it (planned -> booked). Re-checked here, never trusted as posted: the date must be one this user can see,
      * still be a plain 'planned' date, and match the inspection's lease and type — anything else is ignored, the inspection
      * is created exactly as it would have been without it.
      */
-    private function linkPlannedDate(Request $request, RentalInspection $inspection): void
+    public function linkPlannedDate(Request $request, RentalInspection $inspection): void
     {
         $id = $request->input('planned_date_id');
         if (! $id) {
