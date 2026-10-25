@@ -61,7 +61,7 @@ Add list/detail: `GET /mobile/fault-reports`, `GET /mobile/fault-reports/{f}`, `
 ### P4
 `GET /client/rentals/my-lease` (tenant) and `GET /client/rentals/landlord/my-lease` (owner, one block per property):
 start, end, time left, renewal/notice status, notice period (nullable — not captured on every lease),
-agent contact, next inspection date. Rent amount only if already returned by the existing overview; no payment status.
+agent phone + email only (tenant side shows nothing about the lessor), next inspection date. Rent amount only if already returned by the existing overview; no payment status.
 Tenant fault create accepts `urgent: bool` (emergency) which triggers the existing emergency handling (spec §6.5) and an immediate agent alert.
 
 ### P5 — per `rental-inspections.md` §14.2 table (checklist, start, list, detail, observations, observation photos, discrepancy resolve, signatures, complete). Shapes mirror model fillables; errors are `{"message"}` with 409/422/403 as §14.2.
@@ -123,10 +123,10 @@ Use existing fault/work-order/lease-notice events from `corex-domain-events-spec
 New: `app/Http/Controllers/Api/Mobile/Rental*Controller.php` (faults, work orders, leases, notices, inspections, inventories, devices, waiting), `app/Listeners/Rentals/*Push*.php`, migration for `device_tokens` (agency_id, BelongsToAgency, soft-delete) and idempotency-key columns where missing, `tests/Feature/Api/MobileRentals*Test.php`.
 Modify: `routes/api.php`, `MobileVisibilityController`, `config/corex-permissions.php` (only if a key is missing), `ClientTenantRentalsController` / `ClientLandlordRentalsController` (timeline, my-lease, urgent flag).
 
-## 13. Open items needing a decision (business wording, not technical)
+## 13. Johan's rulings (25 Oct 2026)
 
-1. Push categories: should an owner be able to switch off any push type, or is every push mandatory?
-2. Should a tenant see the managing agent's WhatsApp number on My Lease, or only phone and email?
+1. Push notifications: MOST ARE MANDATORY. Mandatory (cannot be switched off): anything needing the person's decision, anything urgent/emergency, appointments and work-finished confirmations, notice outcomes. Switchable per person: purely informational updates only (e.g. general status changes, reminders). Which exact types fall in each group is fixed in the P1 build and listed in the API so the app can show only the switchable ones. The switchable list is an agency-wide default plus a per-person override; the default reaches the Setup Wizard (NN #10a).
+2. My Lease card, tenant side: the tenant sees the managing agent's PHONE and EMAIL only (no WhatsApp number) and NOTHING about the lessor: no name, contact, or details. The tenant payload must not carry any owner field. Owner side keeps seeing the tenant's name (existing behaviour).
 
 ## 14. Verified at build start (2026-10-25)
 
