@@ -708,6 +708,37 @@ Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(f
             Route::post('/{rentalJobCard}/photos', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'storePhoto'])->middleware('permission:rental_job_cards.create')->name('v1.mobile.rental-job-cards.photos.store');
         });
 
+        // AT-508 P2/P3 BEGIN - staff rentals on the phone: faults and work orders (P2), leases and notices to review (P3).
+        // Spec: .ai/specs/at-508-mobile-rentals.md section 4; routes of P2 are the table in .ai/specs/rentals-faults-work-orders.md section 7.1.
+        // Every route calls the same model / service the web screen calls (no second implementation). Scoping: global AgencyScope (404 other agency)
+        // + guardRentalRecordScope / scopeVisibleTo (403 / filtered out for same-agency records outside the user's own / branch ceiling).
+        // Write routes bind with withTrashed() so a queued write for a record archived meanwhile answers 410 `archived` instead of a 404 (spec section 5.5).
+        $faults = \App\Http\Controllers\Api\MobileRentalFaultController::class;
+        $workOrders = \App\Http\Controllers\Api\MobileRentalWorkOrderController::class;
+
+        Route::get('/mobile/rental-fault-types', [$faults, 'types'])->middleware('permission:rental_fault_reports.create')->name('v1.mobile.rental-fault-types');
+        Route::get('/mobile/fault-reports', [$faults, 'index'])->middleware('permission:rental_fault_reports.view')->name('v1.mobile.fault-reports.index');
+        Route::get('/mobile/fault-reports/{faultReport}', [$faults, 'show'])->withTrashed()->middleware('permission:rental_fault_reports.view')->name('v1.mobile.fault-reports.show');
+        Route::post('/mobile/properties/{property}/fault-reports', [$faults, 'store'])->withTrashed()->middleware('permission:rental_fault_reports.create')->name('v1.mobile.properties.fault-reports.store');
+        Route::post('/mobile/fault-reports/{faultReport}/photos', [$faults, 'storePhoto'])->withTrashed()->middleware('permission:rental_fault_reports.create')->name('v1.mobile.fault-reports.photos.store');
+        Route::post('/mobile/fault-reports/{faultReport}/approval', [$faults, 'recordApproval'])->withTrashed()->middleware('permission:rental_fault_reports.record_approval')->name('v1.mobile.fault-reports.approval.store');
+        Route::post('/mobile/fault-reports/{faultReport}/outcome', [$faults, 'setOutcome'])->withTrashed()->middleware('permission:rental_fault_reports.resolve')->name('v1.mobile.fault-reports.outcome.store');
+
+        Route::get('/mobile/work-orders', [$workOrders, 'index'])->middleware('permission:rental_work_orders.view')->name('v1.mobile.work-orders.index');
+        Route::get('/mobile/work-orders/{workOrder}', [$workOrders, 'show'])->withTrashed()->middleware('permission:rental_work_orders.view')->name('v1.mobile.work-orders.show');
+        Route::post('/mobile/properties/{property}/work-orders', [$workOrders, 'store'])->withTrashed()->middleware('permission:rental_work_orders.create')->name('v1.mobile.properties.work-orders.store');
+        Route::post('/mobile/work-orders/{workOrder}/photos', [$workOrders, 'storePhoto'])->withTrashed()->middleware('permission:rental_work_orders.create')->name('v1.mobile.work-orders.photos.store');
+        Route::post('/mobile/work-orders/{workOrder}/assign-supplier', [$workOrders, 'assignSupplier'])->withTrashed()->middleware('permission:rental_work_orders.create')->name('v1.mobile.work-orders.assign-supplier');
+        Route::post('/mobile/work-orders/{workOrder}/contractor-response', [$workOrders, 'contractorResponse'])->withTrashed()->middleware('permission:rental_work_orders.create')->name('v1.mobile.work-orders.contractor-response');
+        Route::post('/mobile/work-orders/{workOrder}/invoices', [$workOrders, 'storeInvoice'])->withTrashed()->middleware('permission:rental_work_orders.manage_invoices')->name('v1.mobile.work-orders.invoices.store');
+        Route::post('/mobile/work-orders/{workOrder}/complete', [$workOrders, 'complete'])->withTrashed()->middleware('permission:rental_work_orders.complete')->name('v1.mobile.work-orders.complete');
+
+        // AT-508 P3: the staff lease list / lease file (read-only; the actions are the existing /leases/{lease}/renewal/* routes) and the notices waiting for review.
+        Route::get('/mobile/leases', [\App\Http\Controllers\Api\MobileRentalLeaseController::class, 'index'])->middleware('permission:leases.view')->name('v1.mobile.leases.index');
+        Route::get('/mobile/leases/{lease}', [\App\Http\Controllers\Api\MobileRentalLeaseController::class, 'show'])->middleware('permission:leases.view')->name('v1.mobile.leases.show');
+        Route::get('/mobile/rental-notices', [\App\Http\Controllers\Api\MobileRentalNoticeController::class, 'index'])->middleware('permission:rental_notices.review')->name('v1.mobile.rental-notices.index');
+        // AT-508 P2/P3 END
+
         // ── Mobile P24 location tree (token-authed) ──────────────────
         Route::prefix('mobile/p24')->group(function () {
             Route::get('/provinces', [\App\Http\Controllers\Api\V1\P24LocationController::class, 'provinces'])->name('v1.mobile.p24.provinces');

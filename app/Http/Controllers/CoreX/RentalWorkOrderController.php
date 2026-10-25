@@ -794,25 +794,11 @@ class RentalWorkOrderController extends Controller
             'trade_type' => ['nullable', 'string', 'max:60'],
         ]);
 
-        $previousSupplier = $rentalWorkOrder->agency_service_provider_id;
         try {
-            $rentalWorkOrder->assignSupplier((int) $validated['agency_service_provider_id'], $validated['trade_type'] ?? null, $request->user());
+            $mailed = $service->assignSupplierAndDispatch($rentalWorkOrder, (int) $validated['agency_service_provider_id'], $validated['trade_type'] ?? null, $request->user());
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_work_order' => $e->getMessage()]);
         }
-
-        // AT-452 round 2 - a NEW contractor (first time, or a change after a declined quote) is told the moment they are appointed: the job
-        // link goes to them as well as the work order PDF below. The same contractor again is just the PDF resend, as before.
-        if ((int) $previousSupplier !== (int) $validated['agency_service_provider_id']) {
-            $rentalWorkOrder->forceFill(['contractor_response' => null, 'contractor_responded_at' => null, 'contractor_decline_reason' => null])->save();
-            app(\App\Services\Rentals\RentalSecureAccessTokenService::class)->revokeAllFor($rentalWorkOrder);
-            app(\App\Services\Rentals\RentalContractorJobService::class)->dispatchOnAppointment(
-                $rentalWorkOrder->fresh(), $request->user(),
-                $previousSupplier === null ? \App\Models\RentalJobDispatch::REASON_APPOINTED : \App\Models\RentalJobDispatch::REASON_REASSIGNED,
-            );
-        }
-
-        $mailed = $service->sendContractorWorkOrder($rentalWorkOrder->fresh(), $request->user());
 
         return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with(
             $mailed ? 'success' : 'warning',
@@ -926,58 +912,14 @@ class RentalWorkOrderController extends Controller
     {
         $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
 
-        // section 28.7: a job from a fault has ONE place for who pays - the "Who pays" panel - so the Complete form no longer posts paid_by for it; it follows the
-        // ruling (owner / tenant) when there is one, else stays "not yet paid". Any other job still asks.
-        $fromFault = $rentalWorkOrder->reported_fault_report_id !== null;
-        $validated = $request->validate([
-            'paid_by' => [$fromFault ? 'nullable' : 'required', 'in:' . implode(',', [
-                RentalWorkOrder::PAID_BY_OWNER,
-                RentalWorkOrder::PAID_BY_TENANT,
-                RentalWorkOrder::PAID_BY_DEPOSIT_DEDUCTION,
-                RentalWorkOrder::PAID_BY_NOT_YET_PAID,
-            ])],
-            // section 28.2: a blank final cost sent the owner a final statement with no amount - an outside contractor's job cannot be completed without one
-            'cost_amount' => [$rentalWorkOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER && ! $rentalWorkOrder->hasOpenDispute() ? 'required' : 'nullable', 'numeric', 'min:0'],
-            'completion_notes' => ['nullable', 'string'],
-            // section 24.5: for a job that came from a fault, "what was found" + the cause are entered in this SAME form (one step, not three)
-            'found_text' => ['nullable', 'string', 'max:2000'],
-            'cause_id' => ['nullable', 'integer'],
-            'cause_note' => ['nullable', 'string', 'max:500'],
-        ], [
-            'cost_amount.required' => 'Say the final cost - the owner is sent a statement with it. It starts with the invoices, the authorised amount or the quote; change it if the final cost is different.',
-        ]);
-        if ($fromFault && empty($validated['paid_by'])) {
-            $validated['paid_by'] = in_array($rentalWorkOrder->who_pays, ['owner', 'tenant'], true) ? $rentalWorkOrder->who_pays : RentalWorkOrder::PAID_BY_NOT_YET_PAID;
-        }
+        [$rules, $messages] = $service->completionRules($rentalWorkOrder);
+        $validated = $request->validate($rules, $messages);
 
-        // §17.12 — an internal job is closed from its JOB CARD, which closes the card and this work order together (or neither).
-        // This Complete form is the outside contractor's close; posting it for an internal job would close the work order and
-        // leave its job card open — the half-closed pair §17.10.9 / §17.23 defect #1 forbids.
-        // (An open tenant dispute is refused by the model with its own, more specific words — let that message win.)
-        $openCard = $rentalWorkOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL && ! $rentalWorkOrder->hasOpenDispute() ? $rentalWorkOrder->jobCard : null;
-        if ($openCard && ! $openCard->isClosed()) {
-            return back()->withErrors(['rental_work_order' => 'Our own team\'s job is closed from its job card — use "Complete job card" there, which closes this work order with it.']);
-        }
-
-        // section 24.5: what was found + the cause, saved first (a bad cause stops here with nothing completed); completing is then refused or allowed by the gates exactly as before
-        $whoPays = app(\App\Services\Rentals\RentalWhoPaysService::class);
-        if (trim((string) ($validated['found_text'] ?? '')) !== '' && $whoPays->isFaultJob($rentalWorkOrder)) {
-            try {
-                $whoPays->recordFindings($rentalWorkOrder, $validated['found_text'], ($validated['cause_id'] ?? null) ? (int) $validated['cause_id'] : null, $validated['cause_note'] ?? null, $request->user()->name . ' (agent)', $request->user());
-            } catch (\InvalidArgumentException $e) {
-                return back()->withErrors(['rental_work_order' => $e->getMessage()])->withInput();
-            }
-        }
-
-        // section 24.5: the agent is not on site and the contractor never presses "in progress" - completing straight from "go-ahead sent" is allowed, and history says so
-        $viaNote = $rentalWorkOrder->status === RentalWorkOrder::STATUS_ORDERED ? 'Completed (was: go-ahead sent)' : null;
         try {
-            $rentalWorkOrder->complete($request->user(), $validated, $viaNote);
+            $service->completeByStaff($rentalWorkOrder, $request->user(), $validated);
         } catch (\LogicException|\InvalidArgumentException $e) {
             return back()->withErrors(['rental_work_order' => $e->getMessage()])->withInput();
         }
-
-        $service->notifyCompleted($rentalWorkOrder->fresh(), $request->user());
 
         return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', 'Work order completed.');
     }

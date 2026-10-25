@@ -246,7 +246,7 @@ class RentalWorkOrderService
      * contractor uploading "after" photos through their no-login secure
      * link has no User actor at all.
      */
-    public function storePhoto(RentalWorkOrder $workOrder, UploadedFile $file, string $photoType, ?User $uploadedBy = null, ?string $clientKey = null, bool $private = false, ?string $uploadedVia = null): \App\Models\RentalWorkOrderPhoto
+    public function storePhoto(RentalWorkOrder $workOrder, UploadedFile $file, string $photoType, ?User $uploadedBy = null, ?string $clientKey = null, bool $private = false, ?string $uploadedVia = null, ?\DateTimeInterface $capturedAt = null): \App\Models\RentalWorkOrderPhoto
     {
         // D14 (audit 2026-10-20): a picture a TENANT sent is stored on the private disk (a `private:` reference, read through a signed expiring URL),
         // never at a permanent /storage address. Contractor / office uploads keep the public pipeline.
@@ -262,7 +262,99 @@ class RentalWorkOrderService
             'uploaded_by_user_id' => $uploadedBy?->id,
             'client_idempotency_key' => $clientKey,
             'file_size_bytes' => $file->getSize(),
-        ]);
+        ] + ($capturedAt ? ['created_at' => $capturedAt] : []));   // AT-508: a queued mobile upload keeps the time the phone took it
+    }
+
+    /**
+     * AT-508 — "appoint a contractor", ONE implementation for the office screen and the mobile app (it used to live in the controller).
+     * The model does the gated assignment; a NEW contractor (first time, or a change) is told the moment they are appointed (their job link),
+     * and the contractor then gets the work order PDF by email. Throws \LogicException for the model's own refusals.
+     *
+     * @return bool true when the work order PDF was emailed; false when the contractor has no email address on file
+     */
+    public function assignSupplierAndDispatch(RentalWorkOrder $workOrder, int $agencyServiceProviderId, ?string $tradeType, User $by): bool
+    {
+        $previousSupplier = $workOrder->agency_service_provider_id;
+        $workOrder->assignSupplier($agencyServiceProviderId, $tradeType, $by);
+
+        // AT-452 round 2 - a NEW contractor (first time, or a change after a declined quote) is told the moment they are appointed: the job
+        // link goes to them as well as the work order PDF below. The same contractor again is just the PDF resend, as before.
+        if ((int) $previousSupplier !== $agencyServiceProviderId) {
+            $workOrder->forceFill(['contractor_response' => null, 'contractor_responded_at' => null, 'contractor_decline_reason' => null])->save();
+            app(RentalSecureAccessTokenService::class)->revokeAllFor($workOrder);
+            app(RentalContractorJobService::class)->dispatchOnAppointment(
+                $workOrder->fresh(), $by,
+                $previousSupplier === null ? \App\Models\RentalJobDispatch::REASON_APPOINTED : \App\Models\RentalJobDispatch::REASON_REASSIGNED,
+            );
+        }
+
+        return $this->sendContractorWorkOrder($workOrder->fresh(), $by);
+    }
+
+    /**
+     * AT-508 — the validation rules of "complete a work order", ONE place for the office form and the mobile app (they depend on the work order).
+     *
+     * @return array{0: array<string, mixed>, 1: array<string, string>} [rules, messages]
+     */
+    public function completionRules(RentalWorkOrder $workOrder): array
+    {
+        // section 28.7: a job from a fault has ONE place for who pays - the "Who pays" panel - so the Complete form no longer posts paid_by for it; it follows the
+        // ruling (owner / tenant) when there is one, else stays "not yet paid". Any other job still asks.
+        $fromFault = $workOrder->reported_fault_report_id !== null;
+
+        return [[
+            'paid_by' => [$fromFault ? 'nullable' : 'required', 'in:' . implode(',', [
+                RentalWorkOrder::PAID_BY_OWNER,
+                RentalWorkOrder::PAID_BY_TENANT,
+                RentalWorkOrder::PAID_BY_DEPOSIT_DEDUCTION,
+                RentalWorkOrder::PAID_BY_NOT_YET_PAID,
+            ])],
+            // section 28.2: a blank final cost sent the owner a final statement with no amount - an outside contractor's job cannot be completed without one
+            'cost_amount' => [$workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER && ! $workOrder->hasOpenDispute() ? 'required' : 'nullable', 'numeric', 'min:0'],
+            'completion_notes' => ['nullable', 'string'],
+            // section 24.5: for a job that came from a fault, "what was found" + the cause are entered in this SAME form (one step, not three)
+            'found_text' => ['nullable', 'string', 'max:2000'],
+            'cause_id' => ['nullable', 'integer'],
+            'cause_note' => ['nullable', 'string', 'max:500'],
+        ], [
+            'cost_amount.required' => 'Say the final cost - the owner is sent a statement with it. It starts with the invoices, the authorised amount or the quote; change it if the final cost is different.',
+        ]];
+    }
+
+    /**
+     * AT-508 — "complete a work order", ONE implementation for the office form and the mobile app (it used to live in the controller).
+     * `$validated` is the input validated by {@see completionRules()}. Throws \LogicException / \InvalidArgumentException with a plain sentence
+     * when the work order cannot be closed (a gate, an open dispute, a bad cause, an internal job that must be closed from its job card).
+     *
+     * @param array<string, mixed> $validated
+     */
+    public function completeByStaff(RentalWorkOrder $workOrder, User $user, array $validated): void
+    {
+        $fromFault = $workOrder->reported_fault_report_id !== null;
+        if ($fromFault && empty($validated['paid_by'])) {
+            $validated['paid_by'] = in_array($workOrder->who_pays, ['owner', 'tenant'], true) ? $workOrder->who_pays : RentalWorkOrder::PAID_BY_NOT_YET_PAID;
+        }
+
+        // §17.12 — an internal job is closed from its JOB CARD, which closes the card and this work order together (or neither).
+        // This Complete form is the outside contractor's close; posting it for an internal job would close the work order and
+        // leave its job card open — the half-closed pair §17.10.9 / §17.23 defect #1 forbids.
+        // (An open tenant dispute is refused by the model with its own, more specific words — let that message win.)
+        $openCard = $workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL && ! $workOrder->hasOpenDispute() ? $workOrder->jobCard : null;
+        if ($openCard && ! $openCard->isClosed()) {
+            throw new \LogicException('Our own team\'s job is closed from its job card — use "Complete job card" there, which closes this work order with it.');
+        }
+
+        // section 24.5: what was found + the cause, saved first (a bad cause stops here with nothing completed); completing is then refused or allowed by the gates exactly as before
+        $whoPays = app(RentalWhoPaysService::class);
+        if (trim((string) ($validated['found_text'] ?? '')) !== '' && $whoPays->isFaultJob($workOrder)) {
+            $whoPays->recordFindings($workOrder, $validated['found_text'], ($validated['cause_id'] ?? null) ? (int) $validated['cause_id'] : null, $validated['cause_note'] ?? null, $user->name . ' (agent)', $user);
+        }
+
+        // section 24.5: the agent is not on site and the contractor never presses "in progress" - completing straight from "go-ahead sent" is allowed, and history says so
+        $viaNote = $workOrder->status === RentalWorkOrder::STATUS_ORDERED ? 'Completed (was: go-ahead sent)' : null;
+        $workOrder->complete($user, $validated, $viaNote);
+
+        $this->notifyCompleted($workOrder->fresh(), $user);
     }
 
     /**
