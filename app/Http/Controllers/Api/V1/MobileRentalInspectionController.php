@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\CoreX\RentalInspectionAttendanceController;
 use App\Http\Controllers\CoreX\RentalInspectionController;
+use App\Http\Controllers\CoreX\RentalInspectionDueController;
 use App\Http\Controllers\CoreX\RentalInspectionRecordingController;
 use App\Models\Lease;
 use App\Models\Property;
@@ -156,6 +157,49 @@ class MobileRentalInspectionController extends Controller
         return response()->json([
             'data' => $page->getCollection()->map(fn (RentalInspection $i) => $this->listRow($i))->values(),
             'meta' => ['page' => $page->currentPage(), 'per_page' => self::PER_PAGE, 'total' => $page->total(), 'last_page' => $page->lastPage(), 'empty_reason' => $emptyReason],
+        ]);
+    }
+
+    /**
+     * GET /mobile/rental-inspections/due — In/Out inspections that are due and the interim dates the agency loaded. The SAME rows, scope, filters
+     * and sorts as the web "Due" tab (RentalInspectionDueController::baseRows / applyFilters / sorted).
+     */
+    public function due(Request $request, RentalInspectionDueController $web): JsonResponse
+    {
+        $user = $request->user();
+        $v = $request->validate([
+            'q' => ['nullable', 'string', 'max:100'],
+            'search' => ['nullable', 'string', 'max:100'],
+            'type' => ['nullable', Rule::in([RentalInspection::TYPE_IN, RentalInspection::TYPE_OUT, RentalInspection::TYPE_INTERIM])],
+            'status' => ['nullable', Rule::in(['open', 'all', 'overdue', 'due', 'upcoming', 'booked', 'done', 'skipped', 'lease_ended'])],
+            'date_from' => ['nullable', 'date'],
+            'date_to' => ['nullable', 'date'],
+            'agent_id' => ['nullable', 'integer'],
+            'sort' => ['nullable', Rule::in(['due', 'property', 'type', 'status', 'overdue'])],
+            'direction' => ['nullable', Rule::in(['asc', 'desc'])],
+            'scope' => ['nullable', Rule::in(['own', 'branch', 'all'])],
+            'page' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        // the web list's own parameter names; archived loaded dates are not offered on the phone
+        $request->query->remove('archived');
+        $request->merge(['q' => $v['q'] ?? $v['search'] ?? null, 'archived' => false]);
+
+        $base = $web->baseRows($request, $user);
+        $rows = $web->sorted($request, $web->applyFilters($request, $base));
+
+        $page = max(1, (int) ($v['page'] ?? 1));
+        $total = $rows->count();
+        $last = max(1, (int) ceil($total / self::PER_PAGE));
+
+        $emptyReason = null;
+        if ($total === 0) {
+            $emptyReason = $base->isEmpty() ? 'No inspections are due right now.' : 'No due inspections match your search or filters.';
+        }
+
+        return response()->json([
+            'data' => $rows->forPage($page, self::PER_PAGE)->values()->map(fn (array $r) => $this->dueRow($r)),
+            'meta' => ['page' => $page, 'per_page' => self::PER_PAGE, 'total' => $total, 'last_page' => $last, 'empty_reason' => $emptyReason],
         ]);
     }
 
@@ -644,6 +688,32 @@ class MobileRentalInspectionController extends Controller
             'has_unresolved_discrepancy' => (bool) ($i->has_unresolved_discrepancy ?? false),
             'started_at' => $this->iso($i->created_at),
             'completed_at' => $this->iso($i->completed_at),
+        ];
+    }
+
+    /** @param array<string, mixed> $r a row of the web Due list */
+    private function dueRow(array $r): array
+    {
+        $planned = $r['planned'] ?? null;
+
+        return [
+            'key' => $r['key'],
+            'source' => $r['source'],
+            'type' => $r['type'],
+            'type_label' => RentalInspectionDueController::TYPE_LABELS[$r['type']] ?? $r['type'],
+            'due_on' => $r['due_on']?->toDateString(),
+            'state' => $r['state'],
+            'state_label' => RentalInspectionDueController::STATE_LABELS[$r['state']] ?? $r['state'],
+            'days_overdue' => $r['days_overdue'],
+            'reason' => $r['reason'] ?? null,
+            'note' => $r['note'] ?? null,
+            'property' => ['id' => $r['property_id'], 'address' => $r['property_address']],
+            'lease_id' => $r['lease_id'],
+            'tenant_names' => $r['tenants'] !== '' ? $r['tenants'] : null,
+            'agent' => $r['agent_id'] ? ['id' => $r['agent_id'], 'name' => $r['agent_name']] : null,
+            // to start it from the phone: POST /mobile/rental-inspections {lease_id, type[, planned_date_id]}
+            'planned_date_id' => $planned?->id,
+            'inspection_id' => $planned?->rental_inspection_id,
         ];
     }
 

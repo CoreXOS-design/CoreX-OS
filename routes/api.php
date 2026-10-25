@@ -713,6 +713,7 @@ Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(f
         Route::prefix('mobile/rental-inspections')->group(function () {
             $c = \App\Http\Controllers\Api\V1\MobileRentalInspectionController::class;
             Route::get('/', [$c, 'index'])->middleware('permission:rental_inspections.view')->name('v1.mobile.rental-inspections.index');
+            Route::get('/due', [$c, 'due'])->middleware('permission:rental_inspections.view')->name('v1.mobile.rental-inspections.due');
             Route::post('/', [$c, 'store'])->middleware('permission:rental_inspections.create')->name('v1.mobile.rental-inspections.store');
             Route::get('/{inspection}', [$c, 'show'])->whereNumber('inspection')->middleware('permission:rental_inspections.view')->name('v1.mobile.rental-inspections.show');
             Route::post('/{inspection}/observations', [$c, 'storeObservation'])->whereNumber('inspection')
@@ -731,6 +732,14 @@ Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(f
                 ->middleware('permission:rental_inspections.create')->name('v1.mobile.rental-inspections.signatures.store');
             Route::post('/{inspection}/complete', [$c, 'complete'])->whereNumber('inspection')
                 ->middleware('permission:rental_inspections.create')->name('v1.mobile.rental-inspections.complete');
+        });
+        // inventories (P6): list, record, add a photo
+        Route::prefix('mobile/rental-inventories')->group(function () {
+            $c = \App\Http\Controllers\Api\V1\MobileRentalInventoryController::class;
+            Route::get('/', [$c, 'index'])->middleware('permission:rental_inventories.view')->name('v1.mobile.rental-inventories.index');
+            Route::get('/{inventory}', [$c, 'show'])->whereNumber('inventory')->middleware('permission:rental_inventories.view')->name('v1.mobile.rental-inventories.show');
+            Route::post('/{inventory}/photos', [$c, 'storePhoto'])->whereNumber('inventory')
+                ->middleware('permission:rental_inventories.create')->name('v1.mobile.rental-inventories.photos.store');
         });
         // AT-508 P5/P6 END
 
