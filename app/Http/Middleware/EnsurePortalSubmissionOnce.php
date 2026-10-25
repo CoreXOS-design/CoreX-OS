@@ -50,7 +50,9 @@ class EnsurePortalSubmissionOnce
 
         $claim = $this->claim($client, $hash, $key, $auto);
         if ($claim instanceof Response) {
-            return $claim;
+            return $request->attributes->get('portal_client_idempotency') && $claim->headers->get('X-Portal-Replay') === '1'
+                ? $this->asDuplicate($claim)
+                : $claim;
         }
 
         try {
@@ -71,6 +73,15 @@ class EnsurePortalSubmissionOnce
         $given = $request->header('X-Submission-Key') ?? $request->input('submission_key');
         if (is_string($given) && preg_match('/^[A-Za-z0-9._:-]{8,80}$/', $given)) {
             return [$given, false];
+        }
+
+        // AT-508: the mobile app names a queued write with `client_idempotency_key` (header `X-Client-Idempotency-Key` or field). Same mechanism, and a
+        // replay is answered 200 with `duplicate: true` so the app can drop the item from its queue (at-508-mobile-rentals.md section 5).
+        $clientKey = $request->header('X-Client-Idempotency-Key') ?? $request->input('client_idempotency_key');
+        if (is_string($clientKey) && preg_match('/^[A-Za-z0-9._:-]{8,80}$/', $clientKey)) {
+            $request->attributes->set('portal_client_idempotency', true);
+
+            return ['client:' . $clientKey, false];
         }
 
         $files = [];
@@ -142,6 +153,16 @@ class EnsurePortalSubmissionOnce
             ->where('status', $row->status)
             ->where('updated_at', $row->updated_at)
             ->update(['status' => 'processing', 'response_status' => null, 'response_body' => null, 'response_type' => null, 'updated_at' => now()]) === 1;
+    }
+
+    /** A stored answer replayed to a queued mobile write: HTTP 200, the original body plus `duplicate: true`. */
+    private function asDuplicate(Response $replay): Response
+    {
+        $body = json_decode((string) $replay->getContent(), true);
+        $body = is_array($body) ? $body : [];
+        $body['duplicate'] = true;
+
+        return response()->json($body, 200, ['X-Portal-Replay' => '1']);
     }
 
     private function replay(object $row): Response

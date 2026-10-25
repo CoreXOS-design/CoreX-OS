@@ -244,6 +244,10 @@ class ClientTenantRentalsController extends Controller
             'photos.*' => 'file|mimes:' . \App\Services\Images\HeicConverter::UPLOAD_MIMES . '|max:15360',   // section 29 (C-I1): an iPhone HEIC is accepted and converted
             // section 22.3 - what the tenant ticked: JSON [{text, ticked}] (a snapshot of the steps they were shown)
             'self_checks' => 'nullable|string|max:20000',
+            // AT-508 P4 - "this is urgent" (treated like an emergency-type fault: flagged and alerted at the elevated severity), and when the
+            // phone actually took the report (a report queued offline arrives later; it keeps its own time, never a future one).
+            'urgent' => 'nullable|boolean',
+            'captured_at' => 'nullable|date',
         ]);
 
         $isOther = $request->boolean('other_type');
@@ -278,7 +282,11 @@ class ClientTenantRentalsController extends Controller
             'title' => $isOther ? 'Other: ' . \Illuminate\Support\Str::limit(trim(preg_replace('/\s+/', ' ', strip_tags((string) $data['description']))), 90, '...') : $data['title'],
             'description' => $data['description'] ?? '',
             'tenant_self_checks' => $isOther ? null : $this->selfChecksFrom($data['self_checks'] ?? null),
+            'reported_urgent' => $request->boolean('urgent') && ($data['resolution'] ?? null) === 'still_a_problem',
         ];
+        if (! empty($data['captured_at'])) {
+            $attributes['reported_at'] = min(\Illuminate\Support\Carbon::parse($data['captured_at']), now());
+        }
         // "Still a problem? Report it again" on a fault the tenant fixed themselves: the new report is linked back to it (their own, on this property).
         if (! empty($data['follows_fault_report_id'])) {
             $follows = $this->scope->tenantFaultReport($contact, (int) $data['follows_fault_report_id']);
@@ -328,7 +336,10 @@ class ClientTenantRentalsController extends Controller
         }
         $fault = $this->scope->tenantActionableFaultReport($contact, $faultReport);
         if (! $fault) {
-            return response()->json(['message' => 'Fault report not found.'], 404);
+            return $this->goneOrNotFound($contact, $faultReport);
+        }
+        if ($fault->status === RentalFaultReport::STATUS_CANCELLED) {
+            return $this->goneOrNotFound($contact, $faultReport);   // already withdrawn: a queued write for it is dropped, not retried
         }
         $data = $request->validate([
             'note' => 'nullable|string|max:2000',
@@ -356,7 +367,10 @@ class ClientTenantRentalsController extends Controller
         }
         $fault = $this->scope->tenantActionableFaultReport($contact, $faultReport);
         if (! $fault) {
-            return response()->json(['message' => 'Fault report not found.'], 404);
+            return $this->goneOrNotFound($contact, $faultReport);
+        }
+        if ($fault->status === RentalFaultReport::STATUS_CANCELLED) {
+            return $this->goneOrNotFound($contact, $faultReport);
         }
         $data = $request->validate(['reason' => 'required|string|min:3|max:500']);
 
@@ -489,6 +503,21 @@ class ClientTenantRentalsController extends Controller
             ->summary($order, \App\Services\Rentals\RentalWorkOrderClientViewService::AUDIENCE_TENANT);
     }
 
+    /**
+     * AT-508 offline rule 5: a queued write that arrives after the fault was archived or withdrawn is answered 410 `archived` so the app drops it from its
+     * queue instead of retrying forever. A fault that was never this person's (or does not exist) stays a plain 404.
+     */
+    private function goneOrNotFound(\App\Models\Contact $contact, int $faultReportId): JsonResponse
+    {
+        $row = RentalFaultReport::withoutGlobalScopes()->withTrashed()->where('agency_id', $contact->agency_id)->find($faultReportId);
+        $mine = $row && in_array((int) $row->lease_id, $this->scope->tenantLeaseIds($contact), true);
+        if ($mine && ($row->trashed() || $row->status === RentalFaultReport::STATUS_CANCELLED)) {
+            return response()->json(['message' => 'This fault report was withdrawn or archived.', 'code' => 'archived'], 410);
+        }
+
+        return response()->json(['message' => 'Fault report not found.'], 404);
+    }
+
     private function leaseSummary($lease): array
     {
         return [
@@ -518,6 +547,7 @@ class ClientTenantRentalsController extends Controller
             // who handles the repair themselves as plain 'approved'. The reason and the word 'declined' stay with the owner and the office.
             'status' => $this->tenantFaultStatus($fault),
             'reported_at' => $fault->reported_at?->toIso8601String(),
+            'urgent' => (bool) $fault->reported_urgent,
             'rental_work_order_id' => $fault->rental_work_order_id,
             // AT-452 round 2 (F) - the tenant closed it themselves: the page shows ONE quiet line under "Resolved", never the fault's timeline.
             'self_resolved' => $fault->isTenantSelfResolved(),

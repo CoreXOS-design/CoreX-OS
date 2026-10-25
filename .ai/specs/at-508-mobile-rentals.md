@@ -159,3 +159,20 @@ Push categories (`config/rental-push.php`; `RentalClientPushService`):
 Timeline: tenant `GET /client/rentals/fault-reports/{id}` and owner `GET /client/rentals/landlord/fault-reports/{id}` carry `timeline[{key,label,state,current,at}]` (flat copy of the existing `progress.steps`, no new state). Staff gets the same in P2.
 
 Tests: `tests/Feature/Api/MobileRentalsP1Test.php` (9), `ClientDeviceTokenTest` (4).
+
+### P4 — My Lease, urgent flag, queued-write rules for tenants/owners (built 25 Oct 2026)
+
+| Method + path | Auth | Purpose |
+|---|---|---|
+| `GET /api/v1/client/rentals/my-lease` | tenant | `leases[]`, one card per property the tenant rents |
+| `GET /api/v1/client/rentals/landlord/my-lease` | owner | `properties[]`, one card per property the owner has (`lease` / `status` are `null` while it has no lease); also carries `tenant_names` |
+
+Card fields: `property{id,address}`, `lease{id,start_date,end_date,is_month_to_month,days_left,time_left{days,text}}`, `status{state,headline,detail,in_renewal_window}`, `notice_period{value,unit}|null` (the lease's OWN confirmed term — null when none, never a guess), `notice{date,move_out_date,given_by}|null`, `renewal|null`, `agent{name,phone,email}|null` (+ `office{phone,email}` only when no agent qualifies), `next_inspection{id,type,type_label,date,time}|null`.
+- **Tenant privacy (Johan's ruling):** the tenant card has no owner/landlord/lessor key or value, no WhatsApp number, no rent/deposit/payment fields; a notice given by the owner reads "Notice has been given" and `given_by: "other_party"`.
+- **Rent amount:** NOT returned. The portal overview does not carry it (verified); the older `GET /client/rentals/leases/{id}` does (see "found outside scope" in the hand-off).
+- `X-Portal-Role: owner|tenant` (optional) makes a call for the other side a 403 `role_mismatch`; the app sends no header — a login with no tenancy simply gets empty lists.
+- **Urgent:** `POST /client/rentals/properties/{p}/fault-reports` accepts `urgent: bool` (only with `resolution: still_a_problem`). Stored on `rental_fault_reports.reported_urgent` (new column); the fault is then an emergency for the list badge and the agent alert ("EMERGENCY fault reported", elevated severity) — fault type, approval route and spend rules are untouched. The fault summary returns `urgent`.
+- **Offline:** the same call (and every tenant/owner write) accepts `client_idempotency_key` as a field or `X-Client-Idempotency-Key` header (also the older `X-Submission-Key`); a replay answers HTTP 200 with the original body plus `duplicate: true`, never a second record. `captured_at` (ISO8601, never in the future) is stored as the fault's `reported_at`. A queued note / withdraw for a fault that was withdrawn or archived answers 410 `{"code":"archived"}`.
+- **Camera / HEIC:** fault photos accept jpg, png, webp and HEIC/HEIF (converted to JPEG by `HeicConverter`); covered by `AuditP3PortalTest`.
+
+Tests: `tests/Feature/Api/MobileRentalsP4Test.php` (8).

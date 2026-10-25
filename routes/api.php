@@ -227,6 +227,8 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::get('/overview', [ClientTenantRentalsController::class, 'overview'])->name('overview');
             // AT-508 P1 — finished work waiting for the tenant's check (badge + list) and the tenant's own phone-notification choices.
             Route::get('/waiting', [\App\Http\Controllers\Api\V1\ClientRentalWaitingController::class, 'tenant'])->name('waiting');
+            // AT-508 P4 - the tenant's My Lease card (lease facts only; nothing about the lessor).
+            Route::get('/my-lease', [\App\Http\Controllers\Api\V1\ClientRentalMyLeaseController::class, 'tenant'])->name('my-lease');
             Route::get('/push-preferences', [\App\Http\Controllers\Api\V1\ClientRentalPushController::class, 'tenantShow'])->name('push-preferences.show');
             Route::put('/push-preferences', [\App\Http\Controllers\Api\V1\ClientRentalPushController::class, 'tenantUpdate'])->name('push-preferences.update');
             // lease-notices.md - the tenant gives notice (it goes to the agent for review; nothing goes to the landlord)
@@ -265,6 +267,8 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::get('/overview', [ClientLandlordRentalsController::class, 'overview'])->name('overview');
             // AT-508 P1 — decisions waiting for the owner (badge + list) and the owner's own phone-notification choices.
             Route::get('/waiting', [\App\Http\Controllers\Api\V1\ClientRentalWaitingController::class, 'landlord'])->name('waiting');
+            // AT-508 P4 - the owner's My Lease card, one block per property.
+            Route::get('/my-lease', [\App\Http\Controllers\Api\V1\ClientRentalMyLeaseController::class, 'landlord'])->name('my-lease');
             Route::get('/push-preferences', [\App\Http\Controllers\Api\V1\ClientRentalPushController::class, 'landlordShow'])->name('push-preferences.show');
             Route::put('/push-preferences', [\App\Http\Controllers\Api\V1\ClientRentalPushController::class, 'landlordUpdate'])->name('push-preferences.update');
             // lease-notices.md - the owner gives notice (it goes to the agent for review; nothing goes to the tenant)
