@@ -128,8 +128,9 @@ Modify: `routes/api.php`, `MobileVisibilityController`, `config/corex-permission
 1. Push categories: should an owner be able to switch off any push type, or is every push mandatory?
 2. Should a tenant see the managing agent's WhatsApp number on My Lease, or only phone and email?
 
-## 14. To verify during build (stated plainly, not assumed)
+## 14. Verified at build start (2026-10-25)
 
-- Whether the portal sign-in already works as a bearer for the app on both sides.
-- Whether rent amount is already in the portal overview payload.
-- Whether any push infrastructure exists today (otherwise P1 adds the FCM/APNs sender).
+- Push infrastructure EXISTS for staff: `DeviceToken` model, `POST/DELETE /api/v1/device-tokens`, `PushNotificationService` (idempotency, rate cap, retry, dead-token pruning), `FcmService` transport. Tokens are keyed to `user_id` only.
+- GAP: tenants and owners are `ClientUser`s, not `User`s, so they have no device-token path. P1 must add one for `ClientUser` (same service, same rules) rather than a second push system. P1 therefore does NOT build a sender; it extends the existing one and adds rental listeners.
+- Portal sign-in issues a bearer token via `ClientAuthService` (createToken), so the app can use it as-is.
+- Still to verify: whether rent amount is in the portal overview payload.
