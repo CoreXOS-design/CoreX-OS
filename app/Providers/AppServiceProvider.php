@@ -335,6 +335,12 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(\App\Events\Rentals\RentalJobCardCrewCompleted::class, \App\Listeners\Rentals\OpenCompletionRound::class);
         // Audit C-A3 - the agent who has to check and sign it off is told in-app when the crew marks a job complete.
         Event::listen(\App\Events\Rentals\RentalJobCardCrewCompleted::class, \App\Listeners\Rentals\NotifyAgentOfCrewCompleted::class);
+        // AT-508 P1 — tenants' and owners' phones, through the rental domain events (config/rental-push.php: mandatory vs switchable).
+        Event::listen(\App\Events\Rentals\RentalOwnerDecisionNeeded::class, [\App\Listeners\Rentals\SendRentalClientPush::class, 'decisionNeeded']);
+        Event::listen(\App\Events\Rentals\RentalTenantFaultStatusChanged::class, [\App\Listeners\Rentals\SendRentalClientPush::class, 'faultStatusChanged']);
+        Event::listen(\App\Events\Rentals\RentalAppointmentSet::class, [\App\Listeners\Rentals\SendRentalClientPush::class, 'appointmentSet']);
+        Event::listen(\App\Events\Rentals\RentalWorkReportedDone::class, [\App\Listeners\Rentals\SendRentalClientPush::class, 'workReportedDone']);
+        Event::listen(\App\Events\Rentals\LeaseNoticeReviewed::class, [\App\Listeners\Rentals\SendRentalClientPush::class, 'noticeReviewed']);
         // §17.16 (Build 2) — the owner's final statement when a work order closes, whichever route closed it.
         Event::listen(\App\Events\Rentals\RentalWorkOrderClosed::class, \App\Listeners\Rentals\SendOwnerFinalStatement::class);
         // LEASE-AGREEMENT BEGIN (leases.md §15.15 — Build L1, live from Build L3b): SignatureService announces these five

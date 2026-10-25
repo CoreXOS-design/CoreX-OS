@@ -225,6 +225,10 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
         Route::middleware('rental-portal.enabled:tenant')->group(function () {
             // §20 — the portal home: agent contact, inspection dates, lease end / renewal status.
             Route::get('/overview', [ClientTenantRentalsController::class, 'overview'])->name('overview');
+            // AT-508 P1 — finished work waiting for the tenant's check (badge + list) and the tenant's own phone-notification choices.
+            Route::get('/waiting', [\App\Http\Controllers\Api\V1\ClientRentalWaitingController::class, 'tenant'])->name('waiting');
+            Route::get('/push-preferences', [\App\Http\Controllers\Api\V1\ClientRentalPushController::class, 'tenantShow'])->name('push-preferences.show');
+            Route::put('/push-preferences', [\App\Http\Controllers\Api\V1\ClientRentalPushController::class, 'tenantUpdate'])->name('push-preferences.update');
             // lease-notices.md - the tenant gives notice (it goes to the agent for review; nothing goes to the landlord)
             Route::get('/notices', [\App\Http\Controllers\Api\V1\ClientRentalNoticesController::class, 'tenantIndex'])->name('notices.index');
             Route::post('/notices', [\App\Http\Controllers\Api\V1\ClientRentalNoticesController::class, 'tenantStore'])->name('notices.store');
@@ -259,6 +263,10 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
         // Landlord rentals.
         Route::prefix('landlord')->name('landlord.')->middleware('rental-portal.enabled:landlord')->group(function () {
             Route::get('/overview', [ClientLandlordRentalsController::class, 'overview'])->name('overview');
+            // AT-508 P1 — decisions waiting for the owner (badge + list) and the owner's own phone-notification choices.
+            Route::get('/waiting', [\App\Http\Controllers\Api\V1\ClientRentalWaitingController::class, 'landlord'])->name('waiting');
+            Route::get('/push-preferences', [\App\Http\Controllers\Api\V1\ClientRentalPushController::class, 'landlordShow'])->name('push-preferences.show');
+            Route::put('/push-preferences', [\App\Http\Controllers\Api\V1\ClientRentalPushController::class, 'landlordUpdate'])->name('push-preferences.update');
             // lease-notices.md - the owner gives notice (it goes to the agent for review; nothing goes to the tenant)
             Route::get('/notices', [\App\Http\Controllers\Api\V1\ClientRentalNoticesController::class, 'landlordIndex'])->name('notices.index');
             Route::post('/notices', [\App\Http\Controllers\Api\V1\ClientRentalNoticesController::class, 'landlordStore'])->name('notices.store');
@@ -685,6 +693,10 @@ Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(f
         // internal job-card mirror for Andre's app: read, tick a task,
         // upload a photo. Same scoping as the web screen
         // (RentalJobCard::scopeVisibleTo()), enforced in the controller.
+        // AT-508 P1 — what is waiting for ME (the command centre's own action queue, flattened for the app badge/list).
+        Route::get('/mobile/rentals/waiting', [\App\Http\Controllers\Api\V1\MobileRentalWaitingController::class, 'index'])
+            ->middleware('permission:rental_command_centre.view')->name('v1.mobile.rentals.waiting');
+
         Route::prefix('mobile/rental-job-cards')->group(function () {
             Route::get('/{rentalJobCard}', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'show'])->name('v1.mobile.rental-job-cards.show');
             Route::put('/{rentalJobCard}', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'update'])->middleware('permission:rental_job_cards.create')->name('v1.mobile.rental-job-cards.update');

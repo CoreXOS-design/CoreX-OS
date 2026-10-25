@@ -539,6 +539,8 @@ class ClientTenantRentalsController extends Controller
             // Johan, 8 Oct 2026: where this fault is, step by step, fault AND work order in one line (derived from the real records;
             // the words are data: config/rental-fault-progress.php). Never the owner's reason or the agent's notes.
             'progress' => $fault->isTenantSelfResolved() ? null : app(\App\Services\Rentals\RentalFaultProgressService::class)->forFault($fault, \App\Services\Rentals\RentalFaultProgressService::AUDIENCE_TENANT),
+            // AT-508 P1 — the same line as a flat list for the app's timeline.
+            'timeline' => $fault->isTenantSelfResolved() ? [] : app(\App\Services\Rentals\RentalFaultProgressService::class)->timeline($fault, \App\Services\Rentals\RentalFaultProgressService::AUDIENCE_TENANT),
         ];
     }
 }

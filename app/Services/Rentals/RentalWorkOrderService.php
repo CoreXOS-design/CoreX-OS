@@ -441,6 +441,7 @@ class RentalWorkOrderService
 
         $fresh = $workOrder->fresh();
         $this->notifyTenantAppointment($fresh, (bool) $previous);
+        \App\Events\Rentals\RentalAppointmentSet::dispatch($fresh, (bool) $previous, $byContact ? 'owner' : 'staff', $byUser?->id);
         // 13 Oct 2026 (Sherry walk): the contractor is told too - they used to find out only by opening their page
         $this->emailContractorUpdate(
             $fresh,

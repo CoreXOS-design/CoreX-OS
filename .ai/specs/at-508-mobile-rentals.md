@@ -1,7 +1,7 @@
 # Spec — AT-508: Rentals in the mobile app (staff, owner, tenant)
 
-> Status: DRAFT — awaiting Johan's approval before any code (CLAUDE.md spec-first rule).
-> Lane: QA1 (Johan). Branch: `AT-508-mobile-rentals`. Nothing goes past QA1 without Johan's explicit go.
+> Status: APPROVED by Johan (25 Oct 2026) — built directly on Staging by his order. P1 built (see §15 build log).
+> Branch: built on `Staging`. Nothing goes to live without Johan's explicit order for that exact action.
 > Pillars: Property, Contact (lessor/lessee), Deal-adjacent (Lease), Agent.
 > Consumer: Andre's mobile app. This spec defines the API the app calls; the app itself is not built here.
 
@@ -134,3 +134,28 @@ Modify: `routes/api.php`, `MobileVisibilityController`, `config/corex-permission
 - GAP: tenants and owners are `ClientUser`s, not `User`s, so they have no device-token path. P1 must add one for `ClientUser` (same service, same rules) rather than a second push system. P1 therefore does NOT build a sender; it extends the existing one and adds rental listeners.
 - Portal sign-in issues a bearer token via `ClientAuthService` (createToken), so the app can use it as-is.
 - Still to verify: whether rent amount is in the portal overview payload.
+
+## 15. Build log — the contract as actually built
+
+### P1 — push, "waiting for you", timeline (built 25 Oct 2026)
+
+**Correction to §4 P1:** the device-token routes are `POST /api/v1/client/device-tokens` and `DELETE /api/v1/client/device-tokens/{token}` (tenant / owner, client token) next to the existing staff `POST/DELETE /api/v1/device-tokens`. There is no `/mobile/devices`.
+
+| Method + path | Auth | Purpose |
+|---|---|---|
+| `GET /api/v1/mobile/rentals/waiting` | staff, `rental_command_centre.view` | the command centre's action queue flattened: `waiting_count`, `by_type`, `data[]` (`type,label,detail,age_days,property{id,address},lease_id,subject_type,subject_id`), `meta{page,per_page,total,empty_reason}`; 25/page via `?page=` |
+| `GET /api/v1/client/rentals/waiting` | tenant | finished work awaiting their check: `waiting_count`, `items[]` |
+| `GET /api/v1/client/rentals/landlord/waiting` | owner | decisions waiting (faults, work orders, variations) — same lists as `landlord/decisions` |
+| `GET/PUT /api/v1/client/rentals/push-preferences` | tenant | the SWITCHABLE notifications only: `switchable[{key,label,description,enabled,default}]`; PUT `{preferences:{key:bool}}` |
+| `GET/PUT /api/v1/client/rentals/landlord/push-preferences` | owner | same, owner list |
+
+Push categories (`config/rental-push.php`; `RentalClientPushService`):
+- **Mandatory (never listed, never switchable; PUT → 422 `not_switchable`):** `decision_needed` (owner), `work_check_requested` (tenant), `work_finished` (owner), `appointment` (tenant+owner), `notice_outcome` (tenant+owner). Emergency/urgent fault alert is added in P4.
+- **Switchable:** `fault_status` (tenant), `work_order_update` (owner). Resolution: the person's own choice, else the agency default `rental_portal_settings.push_informational_default` (on if never set; Rental portal settings page + Setup Wizard step, NN #10a).
+- Each fact is pushed once per phone (cache claim 30 days, plus the PushNotificationService idempotency/rate cap). Tenants' payloads never name or describe the lessor.
+- Staff phones are NOT changed: they are already served by `NotificationDispatcher` through each person's own alert settings (`rental_fault_report.*`, `rental_work_order.*`, `lease_notice.received`).
+- New domain events (catalogue updated): `RentalOwnerDecisionNeeded`, `RentalTenantFaultStatusChanged`, `RentalAppointmentSet`, `LeaseNoticeReviewed`; existing `RentalWorkReportedDone` also feeds push. Listener: `SendRentalClientPush`.
+
+Timeline: tenant `GET /client/rentals/fault-reports/{id}` and owner `GET /client/rentals/landlord/fault-reports/{id}` carry `timeline[{key,label,state,current,at}]` (flat copy of the existing `progress.steps`, no new state). Staff gets the same in P2.
+
+Tests: `tests/Feature/Api/MobileRentalsP1Test.php` (9), `ClientDeviceTokenTest` (4).
