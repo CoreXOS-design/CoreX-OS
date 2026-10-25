@@ -175,6 +175,38 @@ class RentalFaultReportService
     }
 
     /**
+     * §3a.3 — a fault report's photo, ONE implementation for the office screen and the mobile app: same image pipeline as everywhere else in this
+     * feature family (PropertyImageStorer), de-duplicated on `client_idempotency_key` so a retried upload returns the row already stored.
+     * AT-508: `$capturedAt` is when the phone took the picture (a queued upload arrives late); it becomes the photo's created_at.
+     *
+     * @return array{0: \App\Models\RentalFaultReportPhoto, 1: bool} [photo, true when it was already stored]
+     */
+    public function storePhoto(RentalFaultReport $fault, UploadedFile $file, \App\Models\User $by, ?string $clientKey = null, ?\DateTimeInterface $capturedAt = null): array
+    {
+        if ($clientKey) {
+            $existing = \App\Models\RentalFaultReportPhoto::where('client_idempotency_key', $clientKey)
+                ->where('rental_fault_report_id', $fault->id)->first();
+            if ($existing) {
+                return [$existing, true];
+            }
+        }
+
+        $url = app(PropertyImageStorer::class)->store($file, $fault->property_id);
+
+        $photo = \App\Models\RentalFaultReportPhoto::create(array_filter([
+            'agency_id' => $fault->agency_id,
+            'rental_fault_report_id' => $fault->id,
+            'storage_path' => $url,
+            'uploaded_by_user_id' => $by->id,
+            'client_idempotency_key' => $clientKey,
+            'file_size_bytes' => $file->getSize(),
+            'created_at' => $capturedAt,
+        ], fn ($v) => $v !== null));
+
+        return [$photo, false];
+    }
+
+    /**
      * §3.4a — an approval's evidence screenshot, reusing PropertyImageStorer
      * exactly like every other image in this feature family. No second
      * pipeline for evidence specifically.

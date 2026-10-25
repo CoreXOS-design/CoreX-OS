@@ -146,6 +146,8 @@ class RentalFaultReport extends Model
         'cancelled_by_user_id',
         'cancel_reason',
         'created_by_user_id',
+        // AT-508 - the mobile app's own uuid for a report it queued offline; a repeat send returns the stored report (never a second row).
+        'client_idempotency_key',
     ];
 
     protected $casts = [
