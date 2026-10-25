@@ -3,7 +3,9 @@
 namespace App\Services\FeatureRollout;
 
 use App\Events\FeatureRollout\FeatureRolloutChanged;
+use App\Http\Controllers\CoreX\RoleManagerController;
 use App\Models\Agency;
+use App\Models\CoreXPermission;
 use App\Models\FeatureRollout\AgencyFeatureRollout;
 use App\Models\FeatureRollout\AgencyRolloutItem;
 use App\Models\FeatureRollout\AgencyRolloutWave;
@@ -19,6 +21,7 @@ use App\Support\Tours\TourRegistry;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * AT-478 Part 3 — the two gradual-rollout pop-ups (spec agency-feature-rollout.md §2.5–2.6, §3.5a, §5.3–5.4).
@@ -212,6 +215,278 @@ class FeatureRolloutAccess
         return $defaults !== [] ? array_values(array_unique(array_merge($defaults, $this->entryKeys($feature)))) : $this->entryKeys($feature);
     }
 
+    // ── The Role Manager's settings, for the review pop-up (spec §21) ─────────────
+
+    /** The three actions the Role Manager lists first, in its order; every other action follows. */
+    private const STANDARD_ACTIONS = ['create', 'edit', 'archive'];
+
+    /** Modules whose Data Scope the Role Manager shows as one On / Off toggle (role-manager.blade.php). */
+    private const TOGGLE_SCOPE_MODULES = ['properties', 'contacts'];
+
+    /**
+     * Everything the review pop-up needs to show a feature the way the Role Manager does: for each feature the
+     * modules it owns with their access permissions, Data Scope and actions, plus what every editable role has now.
+     *
+     * @param  list<string> $featureKeys
+     * @return array{
+     *   roles: list<array{name:string,label:string}>,
+     *   features: array<string, null|array{entry:list<string>, modules:list<array<string,mixed>>}>,
+     *   granted: array<string, array<string,bool>>,
+     *   scope: array<string, array<string,string>>,
+     *   isDefault: array<string, array<string,bool>>,
+     *   defaults: array<string,string>
+     * }
+     */
+    public function settingsFor(int $agencyId, array $featureKeys): array
+    {
+        $roles = $this->editableRoles($agencyId);
+        $names = $roles->pluck('name')->all();
+
+        $owned = [];
+        foreach ($featureKeys as $feature) {
+            $owned[$feature] = $this->ownedKeys($feature);
+        }
+        $allKeys = array_values(array_unique(array_merge([], ...array_values($owned))));
+
+        $perms = CoreXPermission::whereIn('key', $allKeys)->orderBy('section')->orderBy('sort_order')->orderBy('label')->get()->keyBy('key');
+
+        $held = [];
+        $stored = [];
+        foreach (RolePermission::where('agency_id', $agencyId)->whereIn('role', $names)->whereIn('permission_key', $allKeys)->get(['role', 'permission_key', 'scope']) as $row) {
+            $held[$row->permission_key][$row->role] = true;
+            if ($row->scope) {
+                $stored[$row->permission_key][$row->role] = $row->scope;
+            }
+        }
+
+        $features = [];
+        $granted = [];
+        $scope = [];
+        $isDefault = [];
+        $defaults = [];
+        foreach ($owned as $feature => $keys) {
+            $modules = [];
+            foreach ($perms as $key => $perm) {
+                if (! in_array($key, $keys, true)) {
+                    continue;
+                }
+                $module = $perm->module ?? $perm->section;
+                $modules[$module] ??= ['key' => $module, 'access' => [], 'actions' => []];
+                if ($perm->type === 'action') {
+                    $modules[$module]['actions'][Str::afterLast($key, '.')] = ['key' => $key, 'label' => (string) $perm->label];
+                } else {
+                    $modules[$module]['access'][] = ['key' => $key, 'label' => (string) $perm->label, 'default' => $this->accessDefaultLine($key)];
+                }
+            }
+            if ($modules === []) {
+                $features[$feature] = null;
+                continue;
+            }
+
+            $out = [];
+            foreach ($modules as $module => $m) {
+                $view = $m['actions']['view']['key'] ?? null;
+                $standard = [];
+                foreach (self::STANDARD_ACTIONS as $action) {
+                    if (isset($m['actions'][$action])) {
+                        $standard[] = ['action' => $action] + $m['actions'][$action];
+                    }
+                }
+                $other = [];
+                foreach (array_diff(array_keys($m['actions']), array_merge(['view'], self::STANDARD_ACTIONS)) as $action) {
+                    $other[] = ['action' => $action] + $m['actions'][$action];
+                }
+                $out[] = [
+                    'key'      => $module,
+                    'label'    => RoleManagerController::MODULE_LABELS[$module] ?? Str::title(str_replace('_', ' ', $module)),
+                    'view'     => $view,
+                    'mode'     => $view === null ? 'none' : (in_array($module, RoleManagerController::SHARED_MODULES, true) ? 'shared'
+                        : (in_array($module, self::TOGGLE_SCOPE_MODULES, true) ? 'toggle' : 'scope')),
+                    'access'   => $m['access'],
+                    'standard' => $standard,
+                    'other'    => $other,
+                ];
+
+                foreach (array_merge(array_column($m['access'], 'key'), array_column($m['actions'], 'key')) as $key) {
+                    foreach ($names as $role) {
+                        $granted[$key][$role] = isset($held[$key][$role]);
+                    }
+                }
+                if ($view !== null) {
+                    $d = PermissionService::ungrantedScopeDefault(Str::beforeLast($view, '.view'));
+                    $defaults[$view] = $this->defaultLine($d);
+                    foreach ($names as $role) {
+                        $scope[$view][$role] = $stored[$view][$role] ?? ($d['scope'] ?? 'none');
+                        $isDefault[$view][$role] = ! isset($stored[$view][$role]);
+                    }
+                }
+            }
+            $features[$feature] = ['entry' => $this->entryKeys($feature), 'modules' => $out];
+        }
+
+        return [
+            'roles'     => $roles->map(fn ($r) => ['name' => $r->name, 'label' => $r->label ?: $r->name])->values()->all(),
+            'features'  => $features,
+            'granted'   => $granted,
+            'scope'     => $scope,
+            'isDefault' => $isDefault,
+            'defaults'  => $defaults,
+        ];
+    }
+
+    /** The Role Manager's amber line for a .view key with no scope picker (AT-401). */
+    private function accessDefaultLine(string $key): ?string
+    {
+        if (! str_ends_with($key, '.view')) {
+            return null;
+        }
+        $d = PermissionService::ungrantedScopeDefault(Str::beforeLast($key, '.view'));
+
+        return $d['read'] ? 'Default breadth when no scope is stored: ' . $this->scopeWord($d['scope']) . ' — ' . $d['note'] . ($d['varies'] ? '. Varies by screen.' : '.') : null;
+    }
+
+    /** What the system applies while nothing is stored for a role (the Role Manager's "Default" line). */
+    private function defaultLine(array $d): string
+    {
+        if (! $d['read']) {
+            return 'Default — ' . $d['note'] . '.';
+        }
+
+        return 'Default (nothing stored for this role) — the system applies ' . $this->scopeWord($d['scope']) . ': ' . $d['note'] . ($d['varies'] ? '. Varies by screen.' : '.');
+    }
+
+    private function scopeWord(?string $scope): string
+    {
+        return ['own' => 'Own', 'branch' => 'Branch', 'all' => 'All'][$scope ?? ''] ?? 'None';
+    }
+
+    /**
+     * Write what the admin changed in the review: single permissions (`$settings`: role => key => on) and Data Scope
+     * (`$scopes`: role => view key => none|own|branch|all). Only permission keys the reviewed features own and only
+     * the agency's editable roles are honoured. Rules are the Role Manager's: Data Scope None removes view, create, edit
+     * and archive; ticking create / edit / archive needs a view row (Own when none); a revoke is a soft delete and a grant
+     * restores the tombstoned row, keeping its old scope unless one was chosen.
+     *
+     * @param  list<string> $featureKeys
+     * @return list<array{feature:string,role:string,state:string}> state = on | off | changed (per feature and role)
+     */
+    public function applySettings(int $agencyId, array $featureKeys, array $settings, array $scopes): array
+    {
+        $roles = $this->editableRoles($agencyId)->pluck('name')->all();
+        $allowed = array_flip(array_values(array_unique(array_merge([], ...array_map(fn ($f) => $this->ownedKeys($f), $featureKeys)))));
+        $changes = [];
+
+        foreach (array_unique(array_merge(array_keys($settings), array_keys($scopes))) as $role) {
+            if (! in_array($role, $roles, true)) {
+                continue;
+            }
+            $changes = array_merge($changes, $this->applyForRole(
+                $agencyId, (string) $role, $featureKeys, $allowed,
+                array_intersect_key((array) ($settings[$role] ?? []), $allowed),
+                array_intersect_key((array) ($scopes[$role] ?? []), $allowed),
+            ));
+        }
+        if ($changes !== []) {
+            PermissionService::clearCache();
+        }
+
+        return $changes;
+    }
+
+    /**
+     * @param  list<string>          $featureKeys
+     * @param  array<string,int>     $allowed key => index
+     * @param  array<string,mixed>   $wantKeys  key => on
+     * @param  array<string,mixed>   $wantScopes view key => scope
+     * @return list<array{feature:string,role:string,state:string}>
+     */
+    private function applyForRole(int $agencyId, string $role, array $featureKeys, array $allowed, array $wantKeys, array $wantScopes): array
+    {
+        $held = RolePermission::where('agency_id', $agencyId)->where('role', $role)->pluck('scope', 'permission_key')->all();
+        $desired = $held;
+        $setScope = [];
+
+        foreach ($wantScopes as $view => $value) {
+            if (! str_ends_with((string) $view, '.view') || ! in_array($value, ['none', 'own', 'branch', 'all'], true)) {
+                continue;
+            }
+            if ($value === 'none') {
+                $prefix = Str::beforeLast((string) $view, '.view');
+                foreach (array_merge(['view'], self::STANDARD_ACTIONS) as $action) {
+                    if (isset($allowed[$prefix . '.' . $action])) {
+                        unset($desired[$prefix . '.' . $action]);
+                    }
+                }
+            } else {
+                $desired[$view] = $value;
+                $setScope[$view] = $value;
+            }
+        }
+
+        foreach ($wantKeys as $key => $on) {
+            if (! filter_var($on, FILTER_VALIDATE_BOOLEAN)) {
+                unset($desired[$key]);
+                continue;
+            }
+            if (! array_key_exists($key, $desired)) {
+                $desired[$key] = null;
+            }
+            $action = Str::afterLast((string) $key, '.');
+            $view = Str::beforeLast((string) $key, '.') . '.view';
+            if (in_array($action, self::STANDARD_ACTIONS, true) && isset($allowed[$view]) && ! array_key_exists($view, $desired)) {
+                $desired[$view] = 'own';
+                $setScope[$view] = 'own';
+            }
+        }
+
+        // Branch isolation (Role Manager): editing across branches implies viewing across branches.
+        if (array_key_exists('branches.edit_all', $desired) && isset($allowed['branches.view_all']) && ! array_key_exists('branches.view_all', $desired)) {
+            $desired['branches.view_all'] = null;
+        }
+
+        $revoke = array_values(array_filter(array_keys(array_diff_key($held, $desired)), fn ($k) => isset($allowed[$k])));
+        $grant = array_values(array_filter(array_keys(array_diff_key($desired, $held)), fn ($k) => isset($allowed[$k])));
+        $rescope = array_values(array_filter(array_keys($setScope), fn ($k) => array_key_exists($k, $held) && $held[$k] !== $setScope[$k]));
+        if ($revoke === [] && $grant === [] && $rescope === []) {
+            return [];
+        }
+
+        DB::transaction(function () use ($agencyId, $role, $revoke, $grant, $rescope, $setScope) {
+            if ($revoke !== []) {
+                RolePermission::where('agency_id', $agencyId)->where('role', $role)->whereIn('permission_key', $revoke)->delete(); // soft
+            }
+            $now = now();
+            $row = fn (string $key, ?string $scope) => [
+                'role' => $role, 'permission_key' => $key, 'scope' => $scope, 'agency_id' => $agencyId,
+                'created_at' => $now, 'updated_at' => $now, 'deleted_at' => null,
+            ];
+            $withScope = array_map(fn ($k) => $row($k, $setScope[$k]), array_values(array_unique(array_merge(array_intersect($grant, array_keys($setScope)), $rescope))));
+            $plain = array_map(fn ($k) => $row($k, null), array_values(array_diff($grant, array_keys($setScope))));
+            // Same upserts as the Role Manager: a tombstoned row is restored, never duplicated against the unique index.
+            if ($withScope !== []) {
+                RolePermission::upsert($withScope, ['role', 'permission_key', 'agency_id'], ['scope', 'updated_at', 'deleted_at']);
+            }
+            if ($plain !== []) {
+                RolePermission::upsert($plain, ['role', 'permission_key', 'agency_id'], ['updated_at', 'deleted_at']);
+            }
+        });
+
+        $touched = array_flip(array_merge($revoke, $grant, $rescope));
+        $out = [];
+        foreach ($featureKeys as $feature) {
+            $owned = $this->ownedKeys($feature);
+            if (array_intersect_key($touched, array_flip($owned)) === []) {
+                continue;
+            }
+            $entry = array_flip($this->entryKeys($feature));
+            $before = array_intersect_key($held, $entry) !== [];
+            $after = array_intersect_key($desired, $entry) !== [];
+            $out[] = ['feature' => $feature, 'role' => $role, 'state' => $before === $after ? 'changed' : ($after ? 'on' : 'off')];
+        }
+
+        return $out;
+    }
+
     // ── "Admin decides" (§18) ───────────────────────────────────────────────────
 
     /**
@@ -343,7 +618,7 @@ class FeatureRolloutAccess
             ->update(['access_reviewed_at' => now(), 'access_reviewed_by' => $userId]);
         event(new FeatureRolloutChanged((int) $plan->agency_id, 'access_reviewed', [
             'groups' => $titles, 'decision' => $decision,
-            'changes' => array_map(fn ($c) => $c['feature'] . '|' . $c['role'] . '|' . ($c['on'] ? 'on' : 'off'), $changes),
+            'changes' => array_map(fn ($c) => $c['feature'] . '|' . $c['role'] . '|' . ($c['state'] ?? ($c['on'] ? 'on' : 'off')), $changes),
         ], $userId));
     }
 
@@ -489,6 +764,7 @@ class FeatureRolloutAccess
                         'plan'  => $plan,
                         'waves' => $waves,
                         'grid'  => $this->grid((int) $plan->agency_id, $features),
+                        'settings' => $this->settingsFor((int) $plan->agency_id, $features),
                         'roles' => $this->editableRoles((int) $plan->agency_id),
                     ];
                 }

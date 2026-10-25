@@ -41,6 +41,13 @@
     .cx-rollout-item { width: 100%; text-align: left; border-radius: 6px; padding: .55rem .75rem; border: 1px solid transparent; color: var(--text-primary); transition: background-color 150ms, border-color 150ms; }
     .cx-rollout-item:hover { background: var(--surface); }
     .cx-rollout-item[aria-current="true"] { background: var(--surface); border-color: var(--brand-icon, var(--border)); }
+    /* §21 — the Role Manager's Data Scope control (same colours as #rm-root .rm-scope-btn) */
+    .cx-rs-btn { transition: all 300ms; }
+    .cx-rs-btn[data-active="true"] { color: #fff; font-weight: 600; }
+    .cx-rs-btn[data-scope="none"][data-active="true"] { background: var(--border-hover); color: var(--text-primary); }
+    .cx-rs-btn[data-scope="own"][data-active="true"] { background: var(--brand-icon, #0ea5e9); }
+    .cx-rs-btn[data-scope="branch"][data-active="true"] { background: var(--ds-amber, #f59e0b); }
+    .cx-rs-btn[data-scope="all"][data-active="true"] { background: var(--ds-green, #059669); }
 </style>
 @endonce
 
@@ -85,7 +92,7 @@
     $__frGroups   = $__fr['waves']->map(fn ($w) => ['wave' => $w, 'keys' => $__frAccess->liveFeatures($w)])->filter(fn ($g) => $g['keys'] !== [])->values();
     $__frFirst    = $__frGroups->first()['keys'][0] ?? null;
 @endphp
-<div x-data="coreXRolloutReview({{ \Illuminate\Support\Js::from($__frWaveIds) }}, {{ \Illuminate\Support\Js::from($__fr['grid']) }}, '{{ route('api.v1.feature-rollout.access-review', [], false) }}', {{ \Illuminate\Support\Js::from($__frFirst) }})"
+<div x-data="coreXRolloutReview({{ \Illuminate\Support\Js::from($__frWaveIds) }}, {{ \Illuminate\Support\Js::from($__fr['settings']) }}, '{{ route('api.v1.feature-rollout.access-review', [], false) }}', {{ \Illuminate\Support\Js::from($__frFirst) }})"
      x-show="open" x-cloak
      class="fixed inset-0 z-[75] flex items-center justify-center p-2 md:p-6"
      role="dialog" aria-modal="true" aria-labelledby="rollout-review-heading">
@@ -104,11 +111,11 @@
             </div>
             <div class="text-sm mt-1" style="color:var(--text-secondary);">
                 @if($__frAdmin)
-                    These features are switched on for you and your fellow admins only. Tick the roles that should also see them — nobody else gets them until you do. You can change this any time in Settings → Feature rollout.
+                    These features are switched on for you and your fellow admins only. Pick a role and choose what it can do with each one — nobody else gets them until you do. You can change this any time in Settings → Feature rollout.
                 @elseif($__frReleased)
-                    These features switched on while you were away, with your roles' existing access. Untick a role to take it away, or tick one to give it.
+                    These features switched on while you were away, with your roles' existing access. Pick a role to see and change what it can do with each one.
                 @else
-                    Tick the roles that should see each feature when it switches on. Untick every role and nobody sees it until you change it in the Role Manager.
+                    Pick a role and choose what it can do with each feature when it switches on, exactly as in the Role Manager. Change nothing and every role keeps what it has.
                 @endif
             </div>
             @php $__frLow = $__frReleased ? null : app(\App\Services\FeatureRollout\FeatureRolloutUsage::class)->lowUse($__fr['plan']); @endphp
@@ -130,7 +137,7 @@
                                 <button type="button" class="cx-rollout-item" @click="sel = '{{ $__frKey }}'" :aria-current="sel === '{{ $__frKey }}'" data-rollout-pick="{{ $__frKey }}">
                                     <div class="text-sm font-semibold">{{ $__frCopy->for($__frKey)['label'] }}</div>
                                     <div class="text-[11px] mt-0.5" style="color:var(--text-muted);">
-                                        @if(($__fr['grid'][$__frKey] ?? null) === null)
+                                        @if(($__fr['settings']['features'][$__frKey] ?? null) === null)
                                             No separate access to set
                                         @else
                                             <span x-text="summary('{{ $__frKey }}')"></span>
@@ -164,22 +171,129 @@
                                 <div class="text-sm mt-4 rounded-md px-4 py-3" style="color:var(--text-primary); background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);">This one reaches people outside your agency, so it waits for you to switch it on in Settings → Feature rollout.</div>
                             @endif
 
-                            <div class="mt-5 rounded-md px-4 py-4" style="border:1px solid var(--border); background:var(--surface-2);">
-                                <div class="text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Who gets it</div>
-                                @if(($__fr['grid'][$__frKey] ?? null) === null)
-                                    <div class="text-sm mt-2" style="color:var(--text-secondary);">Everyone who can open this part of CoreX gets it — there is no separate access to set.</div>
-                                @elseif($__frRoles->isEmpty())
-                                    <div class="text-sm mt-2" style="color:var(--text-secondary);">Your agency has no roles of its own to set yet.</div>
-                                @else
-                                    <div class="mt-2 flex flex-wrap gap-x-5 gap-y-2">
-                                        @foreach($__frRoles as $__frRole)
-                                            <label class="inline-flex items-center gap-2 text-sm" style="color:var(--text-primary);">
-                                                <input type="checkbox" x-model="grid['{{ $__frKey }}']['{{ $__frRole->name }}']"
-                                                       data-rollout-access="{{ $__frKey }}|{{ $__frRole->name }}">
-                                                {{ $__frRole->label ?: $__frRole->name }}
-                                            </label>
+                            @php $__frF = $__fr['settings']['features'][$__frKey] ?? null; @endphp
+                            <div class="mt-5 rounded-md overflow-hidden" style="border:1px solid var(--border);" data-rollout-who="{{ $__frKey }}">
+                                <div class="px-5 py-3" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
+                                    <div class="text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Who gets it</div>
+                                    @if($__frF === null)
+                                        <div class="text-sm mt-2" style="color:var(--text-secondary);">Everyone who can open this part of CoreX gets it — there is no separate access to set.</div>
+                                    @elseif($__frRoles->isEmpty())
+                                        <div class="text-sm mt-2" style="color:var(--text-secondary);">Your agency has no roles of its own to set yet.</div>
+                                    @else
+                                        <div class="mt-2 flex flex-wrap gap-2">
+                                            @foreach($__frRoles as $__frRole)
+                                                <button type="button" data-rollout-access="{{ $__frKey }}|{{ $__frRole->name }}" @click="role = '{{ $__frRole->name }}'"
+                                                        class="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium"
+                                                        :style="role === '{{ $__frRole->name }}' ? 'background:var(--brand-icon,#0ea5e9); color:#fff; border:1px solid transparent;' : 'background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);'">
+                                                    <span x-text="entryOn('{{ $__frKey }}', '{{ $__frRole->name }}') ? '✓' : '—'" aria-hidden="true"></span>
+                                                    {{ $__frRole->label ?: $__frRole->name }}
+                                                </button>
+                                            @endforeach
+                                        </div>
+                                        <p class="text-xs mt-2" style="color:var(--text-muted);">Editing permissions for: <span x-text="roleLabel()" style="color:var(--brand-icon,#0ea5e9);" class="font-medium"></span></p>
+                                    @endif
+                                </div>
+
+                                @if($__frF !== null && $__frRoles->isNotEmpty())
+                                    @foreach($__frF['modules'] as $__frM)
+                                        @php $__frV = $__frM['view']; @endphp
+                                        @if(count($__frF['modules']) > 1)
+                                            <div class="px-5 pt-3 pb-1 text-sm font-semibold" style="color:var(--text-primary); border-bottom:1px solid var(--border);">{{ $__frM['label'] }}</div>
+                                        @endif
+
+                                        {{-- Access permissions (menu / section visibility) --}}
+                                        @foreach($__frM['access'] as $__frP)
+                                            <div class="px-5 py-4 flex items-center justify-between gap-4" style="border-bottom:1px solid var(--border);">
+                                                <div>
+                                                    <p class="text-sm font-medium" style="color:var(--text-primary);">{{ $__frP['label'] }}</p>
+                                                    <p class="text-xs mt-0.5" style="color:var(--text-muted);">Menu / section visibility</p>
+                                                    @if($__frP['default'])<p class="text-xs mt-0.5" style="color:var(--ds-amber,#f59e0b);">{{ $__frP['default'] }}</p>@endif
+                                                </div>
+                                                <label class="inline-flex items-center gap-2 cursor-pointer flex-shrink-0">
+                                                    <input type="checkbox" x-model="perm['{{ $__frP['key'] }}'][role]" data-rollout-perm="{{ $__frP['key'] }}"
+                                                           class="w-5 h-5 rounded-md cursor-pointer" style="accent-color:var(--brand-icon,#0ea5e9); border-color:var(--border);">
+                                                    <span class="text-xs" style="color:var(--text-muted);" x-text="perm['{{ $__frP['key'] }}'][role] ? 'Enabled' : 'Disabled'"></span>
+                                                </label>
+                                            </div>
                                         @endforeach
-                                    </div>
+
+                                        {{-- Data Scope --}}
+                                        @if($__frV && $__frM['mode'] === 'toggle')
+                                            <div class="px-5 py-4 flex items-center justify-between gap-4" style="border-bottom:1px solid var(--border);">
+                                                <div>
+                                                    <p class="text-sm font-medium" style="color:var(--text-primary);">Data Scope</p>
+                                                    <p class="text-xs mt-0.5" style="color:var(--text-muted);">Off: user sees only their own records — no agent picker, no My/All toggle. On: user can see other agents' records (limited to their branch when Data Isolation is enabled in Company Settings, otherwise agency-wide).</p>
+                                                </div>
+                                                <div class="flex-shrink-0 text-right">
+                                                    <label class="inline-flex items-center gap-2 cursor-pointer">
+                                                        <input type="checkbox" data-rollout-scope="{{ $__frV }}" :checked="['branch','all'].includes(scope['{{ $__frV }}'][role])"
+                                                               @change="setScope('{{ $__frV }}', $event.target.checked ? 'all' : 'own')"
+                                                               class="w-5 h-5 rounded-md cursor-pointer" style="accent-color:var(--brand-icon,#0ea5e9); border-color:var(--border);">
+                                                        <span class="text-xs" style="color:var(--text-muted);" x-text="['branch','all'].includes(scope['{{ $__frV }}'][role]) ? 'On' : 'Off'"></span>
+                                                    </label>
+                                                    <p x-show="isDef['{{ $__frV }}'][role]" x-cloak class="text-xs mt-1 max-w-md" style="color:var(--ds-amber,#f59e0b);" x-text="defs['{{ $__frV }}']"></p>
+                                                </div>
+                                            </div>
+                                        @elseif($__frV)
+                                            <div class="px-5 py-4 flex items-center justify-between gap-4" style="border-bottom:1px solid var(--border);">
+                                                <div>
+                                                    <p class="text-sm font-medium" style="color:var(--text-primary);">Data Scope</p>
+                                                    <p class="text-xs mt-0.5" style="color:var(--text-muted);">None = no access. Own = locked to own records. Branch / All = user can toggle between their own records and other users' records on the list page.</p>
+                                                </div>
+                                                <div class="flex-shrink-0 text-right">
+                                                    @if($__frM['mode'] === 'shared')
+                                                        <span class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-semibold" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">Shared — all users</span>
+                                                    @else
+                                                        <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);" data-rollout-scope="{{ $__frV }}">
+                                                            @foreach(['none' => 'None', 'own' => 'Own', 'branch' => 'Branch', 'all' => 'All'] as $__frSv => $__frSl)
+                                                                <label class="cx-rs-btn inline-flex items-center cursor-pointer px-3 py-1.5 text-xs whitespace-nowrap" style="border-right:1px solid var(--border);"
+                                                                       data-scope="{{ $__frSv }}"
+                                                                       :data-active="scope['{{ $__frV }}'][role] === '{{ $__frSv }}' ? 'true' : 'false'"
+                                                                       :style="scope['{{ $__frV }}'][role] === '{{ $__frSv }}' ? '' : 'background:var(--surface);color:var(--text-muted);'">
+                                                                    <input type="radio" class="sr-only" name="cx_scope_{{ $__frV }}" value="{{ $__frSv }}"
+                                                                           :checked="scope['{{ $__frV }}'][role] === '{{ $__frSv }}'" @change="setScope('{{ $__frV }}', '{{ $__frSv }}')">
+                                                                    {{ $__frSl }}
+                                                                </label>
+                                                            @endforeach
+                                                        </div>
+                                                    @endif
+                                                    <p x-show="isDef['{{ $__frV }}'][role]" x-cloak class="text-xs mt-1 max-w-md" style="color:var(--ds-amber,#f59e0b);" x-text="defs['{{ $__frV }}']"></p>
+                                                </div>
+                                            </div>
+                                        @endif
+
+                                        {{-- Create / Edit / Archive: the configured label is the title, the plain word only a fallback --}}
+                                        @foreach($__frM['standard'] as $__frA)
+                                            <div class="px-5 py-4 flex items-center justify-between gap-4" style="border-bottom:1px solid var(--border);">
+                                                <div>
+                                                    <p class="text-sm font-medium" style="color:var(--text-primary);">{{ $__frA['label'] ?: ucfirst($__frA['action']) }}</p>
+                                                    <p class="text-xs mt-0.5" style="color:var(--text-muted);">Can {{ strtolower($__frA['action']) }} records in this module</p>
+                                                </div>
+                                                <label class="inline-flex items-center gap-2 cursor-pointer flex-shrink-0">
+                                                    <input type="checkbox" x-model="perm['{{ $__frA['key'] }}'][role]" data-rollout-perm="{{ $__frA['key'] }}"
+                                                           @change="tickAction('{{ $__frV ?? '' }}', '{{ $__frA['key'] }}')"
+                                                           @if($__frV) :disabled="scope['{{ $__frV }}'][role] === 'none'" @endif
+                                                           class="w-5 h-5 rounded-md cursor-pointer" style="accent-color:var(--brand-icon,#0ea5e9); border-color:var(--border);">
+                                                    <span class="text-xs" style="color:var(--text-muted);" x-text="perm['{{ $__frA['key'] }}'][role] ? 'Enabled' : 'Disabled'"></span>
+                                                </label>
+                                            </div>
+                                        @endforeach
+
+                                        {{-- Other actions (manage, send, …) --}}
+                                        @foreach($__frM['other'] as $__frA)
+                                            <div class="px-5 py-4 flex items-center justify-between gap-4" style="border-bottom:1px solid var(--border);">
+                                                <div>
+                                                    <p class="text-sm font-medium" style="color:var(--text-primary);">{{ $__frA['label'] ?: \Illuminate\Support\Str::headline($__frA['action']) }}</p>
+                                                    <p class="text-xs mt-0.5" style="color:var(--text-muted);">Additional action for this module</p>
+                                                </div>
+                                                <label class="inline-flex items-center gap-2 cursor-pointer flex-shrink-0">
+                                                    <input type="checkbox" x-model="perm['{{ $__frA['key'] }}'][role]" data-rollout-perm="{{ $__frA['key'] }}"
+                                                           class="w-5 h-5 rounded-md cursor-pointer" style="accent-color:var(--brand-icon,#0ea5e9); border-color:var(--border);">
+                                                    <span class="text-xs" style="color:var(--text-muted);" x-text="perm['{{ $__frA['key'] }}'][role] ? 'Enabled' : 'Disabled'"></span>
+                                                </label>
+                                            </div>
+                                        @endforeach
+                                    @endforeach
                                 @endif
                             </div>
                         </section>
@@ -304,20 +418,66 @@ function coreXRolloutShade(on) { document.documentElement.classList.toggle('cx-r
 
 /* The admin access review: the decision must be recorded, so unlike the release pop-up it stays
    open and says so when a save fails. "Ask me next time" is the way out without deciding. */
-function coreXRolloutReview(waveIds, grid, url, first) {
-    const g = {};
-    Object.keys(grid || {}).forEach((f) => { if (grid[f]) { g[f] = { ...grid[f] }; } });
+function coreXRolloutReview(waveIds, cfg, url, first) {
+    const copy = (o) => JSON.parse(JSON.stringify(o || {}));
+    // view key => { create, edit, archive } permission keys, for the Role Manager's tick rules
+    const actions = {};
+    Object.values(cfg.features || {}).forEach((f) => (f ? f.modules : []).forEach((m) => {
+        if (m.view) { actions[m.view] = {}; (m.standard || []).forEach((a) => { actions[m.view][a.action] = a.key; }); }
+    }));
+    const start = { perm: copy(cfg.granted) };
     return {
-        open: true, busy: false, error: '', grid: g, sel: first,
+        open: true, busy: false, error: '', sel: first, role: (cfg.roles[0] || {}).name || null,
+        perm: copy(cfg.granted), scope: copy(cfg.scope), isDef: copy(cfg.isDefault), defs: cfg.defaults || {}, touched: {},
         init() { coreXRolloutShade(true); },
+        roleLabel() { const r = cfg.roles.find((x) => x.name === this.role); return r ? r.label : this.role; },
+        entryOn(feature, role) {
+            const f = cfg.features[feature];
+            return !!f && f.entry.some((k) => this.perm[k] && this.perm[k][role]);
+        },
         summary(key) {
-            const roles = Object.values(this.grid[key] || {});
-            const on = roles.filter(Boolean).length;
-            return on === 0 ? 'Nobody yet' : `${on} of ${roles.length} roles`;
+            const on = cfg.roles.filter((r) => this.entryOn(key, r.name)).length;
+            return on === 0 ? 'Nobody yet' : `${on} of ${cfg.roles.length} roles`;
+        },
+        // Data Scope: the Role Manager's rules. None removes view/create/edit/archive; anything else is a real view grant.
+        setScope(view, value) {
+            const role = this.role;
+            this.scope[view][role] = value;
+            this.isDef[view][role] = false;
+            this.touched[view + '|' + role] = true;
+            if (this.perm[view]) { this.perm[view][role] = value !== 'none'; }
+            if (value === 'none') {
+                Object.values(actions[view] || {}).forEach((k) => { if (this.perm[k]) { this.perm[k][role] = false; } });
+            }
+        },
+        // Ticking create / edit / archive needs a view row to sit on.
+        tickAction(view, key) {
+            const role = this.role;
+            if (!view || !this.perm[key][role]) { return; }
+            if (this.scope[view][role] === 'none') {
+                this.setScope(view, 'own');
+            } else if (this.isDef[view][role] && !this.perm[view][role]) {
+                this.isDef[view][role] = false;
+                this.touched[view + '|' + role] = true;
+                this.perm[view][role] = true;
+            }
+        },
+        changes() {
+            const settings = {}, scopes = {};
+            Object.keys(this.perm).forEach((key) => Object.keys(this.perm[key]).forEach((role) => {
+                if (this.perm[key][role] !== start.perm[key][role]) { (settings[role] = settings[role] || {})[key] = this.perm[key][role]; }
+            }));
+            Object.keys(this.touched).forEach((id) => {
+                const [view, role] = id.split('|');
+                (scopes[role] = scopes[role] || {})[view] = this.scope[view][role];
+            });
+            return { settings, scopes };
         },
         send(action) {
             this.busy = true; this.error = '';
-            Promise.resolve(coreXRolloutPost(url, { action, wave_ids: waveIds, access: action === 'save' ? this.grid : {} }))
+            const body = { action, wave_ids: waveIds };
+            if (action === 'save') { Object.assign(body, this.changes()); }
+            Promise.resolve(coreXRolloutPost(url, body))
                 .then(() => {
                     this.open = false;
                     coreXRolloutShade(false);

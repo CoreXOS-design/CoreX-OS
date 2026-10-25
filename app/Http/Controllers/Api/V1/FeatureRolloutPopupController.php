@@ -66,6 +66,11 @@ class FeatureRolloutPopupController extends Controller
             'wave_ids.*' => 'integer',
             'access'     => 'nullable|array',
             'access.*'   => 'array',
+            // §21 — the Role Manager's own settings: role => permission key => on, and role => view key => scope.
+            'settings'   => 'nullable|array',
+            'settings.*' => 'array',
+            'scopes'     => 'nullable|array',
+            'scopes.*'   => 'array',
         ]);
 
         // Only waves that are genuinely waiting for a review in THIS agency's plan.
@@ -110,6 +115,12 @@ class FeatureRolloutPopupController extends Controller
                         $changes[] = ['feature' => (string) $feature, 'role' => (string) $role, 'on' => $want];
                     }
                 }
+            }
+
+            // §21 — single permissions and Data Scope, exactly the ones the admin changed, for these waves' features only.
+            foreach ($this->access->applySettings((int) $plan->agency_id, $features, (array) ($data['settings'] ?? []), (array) ($data['scopes'] ?? [])) as $c) {
+                $changed++;
+                $changes[] = $c;
             }
         }
 

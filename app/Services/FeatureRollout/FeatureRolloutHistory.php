@@ -202,7 +202,12 @@ class FeatureRolloutHistory
         }
         $lines = array_map(function ($c) {
             [$feature, $role, $on] = array_pad(explode('|', (string) $c), 3, '');
-            return ($on === 'on' ? 'gave ' : 'took away ') . $this->label($feature) . ($on === 'on' ? ' to ' : ' from ') . ($this->roleLabels[$role] ?? str_replace('_', ' ', $role));
+            $who = $this->roleLabels[$role] ?? str_replace('_', ' ', $role);
+            if ($on === 'changed') {
+                return 'changed what ' . $who . ' can do in ' . $this->label($feature);
+            }
+
+            return ($on === 'on' ? 'gave ' : 'took away ') . $this->label($feature) . ($on === 'on' ? ' to ' : ' from ') . $who;
         }, $changes);
 
         return "Checked who gets {$groups}: " . implode('; ', $lines) . '.';

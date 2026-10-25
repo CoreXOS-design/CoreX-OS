@@ -646,3 +646,52 @@ Owner-only (route group + `isOwnerRole()` in every action), unchanged. No agency
 **Files:** `FeatureRolloutDefaultsController` (index, `saveLayout`), `RolloutCalendar` (`holidayMap`), `routes/web.php`,
 `resources/views/admin/dev-settings/feature-rollout.blade.php`, removed `_feature-rollout-wave-form.blade.php`.
 **Tests:** `tests/Feature/Features/FeatureRolloutDefaultsPageTest.php`, `tests/Feature/Features/FeatureRolloutBoardTest.php`.
+
+## 21. The access review looks and works like the Role Manager
+
+Johan, 2026-10-25, verbatim: "it needs to look like the role manager with all settings related to the feature just like in role manager".
+
+**Why:** the review pop-up (the day-before pop-up, the "went live without a review" pop-up and the "Admin decides" pop-up) gave
+one tick per role per feature. A feature owns many settings in the Role Manager (menu access, how much data a role sees,
+create / edit / archive, extra actions). The admin must be able to decide all of them at the moment a feature is about to
+switch on, exactly as in the Role Manager.
+
+### 21.1 What the admin sees (review pop-ups only; the "New in CoreX" release pop-up is unchanged)
+For the selected feature, under "Who gets it":
+- **Role pills** (the agency's own roles, as in the Role Manager): each shows ✓ when that role has the feature's way in. Clicking
+  one chooses the role being edited. The feature list on the left still says "n of m roles".
+- A panel headed "Editing permissions for: <role>", then, for every permission module the feature owns (a module heading only when
+  there is more than one), the Role Manager's own rows:
+  - **Access permissions**: Enabled / Disabled, "Menu / section visibility", and the amber "Default breadth…" line where the Role
+    Manager shows it (AT-401).
+  - **Data Scope**: None / Own / Branch / All; for Properties and Contacts the single On / Off toggle; "Shared — all users" for the
+    shared modules; the amber "Default (nothing stored for this role)…" line while nothing is stored.
+  - **Create / Edit / Archive** (the configured label is the title), then **other actions**; Enabled / Disabled.
+- The same ticking rules as the Role Manager: Data Scope **None** unticks create / edit / archive; ticking create / edit / archive
+  on a role whose scope is None sets Own; ticking one on a role that only has the default view makes that view grant real.
+- A feature that owns no permission at all keeps "Everyone who can open this part of CoreX gets it — there is no separate access to set."
+- Wording and look are the Role Manager's (module labels come from one shared list, `RoleManagerController::MODULE_LABELS`).
+
+### 21.2 What Save access writes
+- `POST /api/v1/feature-rollout/access-review` accepts `settings` = `{role: {permission_key: true|false}}` and
+  `scopes` = `{role: {view_key: none|own|branch|all}}`, only for what the admin changed. The older `access` (feature × role tick) still works.
+- Only permission keys the reviewed groups' features own, and only the agency's own editable roles, are honoured; everything
+  else is ignored (§3.1 / §6.1). Nothing is rebuilt: the Role Manager's whole-role saver is not used.
+- A revoke is a soft delete (the tombstone the permission sync respects); a grant restores the tombstoned row and keeps its old
+  scope unless a new one was chosen. Scope is stored on `.view` keys only. Server-side rules mirror the interlocks above, plus
+  `branches.edit_all` implies `branches.view_all`.
+- History records, per feature and role, "gave", "took away" (the feature's way in) or "changed the settings of".
+
+### 21.3 Out of scope
+Settings → Feature rollout (the "who else sees these" panel) is not changed. The Role Manager's behaviour is unchanged (its module
+labels moved to a shared constant).
+
+### 21.4 Acceptance
+1. The review pop-up shows, for a feature with several settings, the same rows as the Role Manager for the chosen role.
+2. Changing one create/edit/archive or extra action, or a Data Scope, then Save access, changes exactly that and nothing else.
+3. Data Scope None removes view/create/edit/archive for that role and module; ticking an action when scope is None grants view as Own.
+4. Other roles, other features' permissions, and permissions the feature does not own are never touched.
+5. Keep as is / Hold / Ask me next time still write nothing.
+
+**Files:** `FeatureRolloutAccess` (`settingsFor`, `applySettings`), `FeatureRolloutPopupController::review`, `feature-rollout-popups.blade.php`,
+`FeatureRolloutHistory`, `RoleManagerController` (constants only). **Tests:** `tests/Feature/Features/FeatureRolloutAccessSettingsTest.php`.
