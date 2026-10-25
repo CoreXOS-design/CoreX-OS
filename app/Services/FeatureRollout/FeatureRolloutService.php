@@ -260,6 +260,11 @@ class FeatureRolloutService
             foreach ($defaults as $default) {
                 $keys = [];
                 foreach ((array) $default->feature_keys as $key) {
+                    // §19.1.2 — a feature that cannot be kept to some roles is never held in "Admin decides"
+                    // (Dev Settings flags it); it is left on, like a feature in no wave.
+                    if ($lane === AgencyRolloutWave::LANE_ADMIN && ! app(FeatureRolloutAccess::class)->canBeLimited($key)) {
+                        continue;
+                    }
                     if (isset($waveable[$key]) && ! isset($taken[$key]) && ($current[$key] ?? false)) {
                         $keys[] = $key;
                         $taken[$key] = true;
@@ -854,6 +859,7 @@ class FeatureRolloutService
         if (! $this->features->enabled($key, $agency)) {
             throw new \DomainException("{$label} is switched off for this agency, so there is nothing to hold back.");
         }
+        $this->assertAdminDecidesFits($wave, $key);
 
         DB::transaction(function () use ($wave, $plan, $agency, $key, $userId) {
             AgencyRolloutItem::withoutAgencyStamping(fn () => AgencyRolloutItem::create([
@@ -864,6 +870,19 @@ class FeatureRolloutService
             $this->customised($wave);
         });
         $this->record((int) $plan->agency_id, 'feature_added', ['feature' => $key, 'group' => $wave->title]);
+    }
+
+    /**
+     * An "Admin decides" group can only hold features that can be kept to some roles (spec §19.1.2): a feature
+     * with no access control reaches everyone who can open its area the moment it switches on.
+     */
+    private function assertAdminDecidesFits(AgencyRolloutWave $wave, string $key): void
+    {
+        // Resolved here, not injected: FeatureRolloutAccess itself depends on this service.
+        if ($wave->isAdminDecides() && ! app(FeatureRolloutAccess::class)->canBeLimited($key)) {
+            $label = $this->features->catalogue()[$key]['label'] ?? $key;
+            throw new \DomainException("{$label} has no access setting of its own — everyone who can open its area has it — so it cannot be kept for the admins. Put it in another group.");
+        }
     }
 
     /** Move a held feature to another group still to come in the same plan. */
@@ -878,6 +897,7 @@ class FeatureRolloutService
         if ($item->state !== AgencyRolloutItem::STATE_HELD || $from->id === $to->id) {
             return;
         }
+        $this->assertAdminDecidesFits($to, $item->feature_key);
         DB::transaction(function () use ($item, $from, $to) {
             $item->forceFill(['wave_id' => $to->id])->save();
             $this->customised($from, $to);
@@ -922,7 +942,9 @@ class FeatureRolloutService
         $type = AgencyTypeFeatureSeeder::normalise($agency->agency_type);
         foreach ($this->lanesFor($type, (bool) $plan->side_by_side) as $lane => $defaults) {
             foreach ($defaults as $default) {
-                $keys = array_values(array_filter((array) $default->feature_keys, fn ($k) => $items->has($k) && ! isset($taken[$k])));
+                // §19.1.2 — never into "Admin decides" when it cannot be kept to some roles (it lands in "Other features").
+                $keys = array_values(array_filter((array) $default->feature_keys, fn ($k) => $items->has($k) && ! isset($taken[$k])
+                    && ($lane !== AgencyRolloutWave::LANE_ADMIN || app(FeatureRolloutAccess::class)->canBeLimited($k))));
                 foreach ($keys as $k) {
                     $taken[$k] = true;
                 }

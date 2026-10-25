@@ -57,10 +57,43 @@ class FeatureRolloutAccess
 
     // ── What a feature's access is made of ─────────────────────────────────────
 
-    /** @return list<string> the permissions a feature owns (what the review grants / revokes) */
+    /**
+     * The permissions a feature owns for the rollout (what the review grants / revokes): its registry
+     * permissions plus its own way in (`nav_permission`). Many features own no permission module but do
+     * have a way-in permission (Billing, Finance Engine, Leases …) — without it they could not be given or
+     * taken per role, and "Admin decides" let them through to everyone (spec §19.1).
+     *
+     * @return list<string>
+     */
     public function ownedKeys(string $feature): array
     {
-        return $this->features->permissionKeysFor($feature);
+        static $catalogued = null;
+        $catalogued ??= array_flip(array_column((array) config('corex-permissions.permissions', []), 'key'));
+        $nav = array_filter((array) ($this->features->catalogue()[$feature]['nav_permission'] ?? []), fn ($k) => isset($catalogued[$k]));
+
+        return array_values(array_unique(array_merge($this->features->permissionKeysFor($feature), $nav)));
+    }
+
+    /** False for a feature with no access control at all — it cannot be kept to some roles (spec §19.1). */
+    public function canBeLimited(string $feature): bool
+    {
+        return $this->ownedKeys($feature) !== [];
+    }
+
+    /**
+     * Other features that share this feature's way in: giving or taking one changes the other (spec §19.1.3).
+     *
+     * @param  list<string> $among only these features are compared
+     * @return list<string>
+     */
+    public function sharesWayInWith(string $feature, array $among): array
+    {
+        $mine = $this->entryKeys($feature);
+        if ($mine === []) {
+            return [];
+        }
+
+        return array_values(array_filter($among, fn ($other) => $other !== $feature && array_intersect($mine, $this->entryKeys($other)) !== []));
     }
 
     /**
@@ -225,6 +258,25 @@ class FeatureRolloutAccess
                 ->whereIn('state', [AgencyRolloutItem::STATE_RELEASED, AgencyRolloutItem::STATE_RELEASED_EARLY])
                 ->pluck('feature_key'))
             ->unique()->values()->all();
+    }
+
+    /**
+     * Will this person get a feature that is still held back (spec §19.2.3)? Their role holds its way in
+     * now — a held feature is switched off, so the usual permission check (which hides an OFF feature's
+     * permissions) cannot answer this. A feature with no access control reaches everyone.
+     */
+    public function roleWillGet(User $user, string $feature): bool
+    {
+        if ($user->isOwnerRole()) {
+            return true;
+        }
+        $entry = $this->entryKeys($feature);
+        if ($entry === []) {
+            return true;
+        }
+
+        return RolePermission::where('agency_id', (int) $user->effectiveAgencyId())
+            ->where('role', (string) $user->role)->whereIn('permission_key', $entry)->exists();
     }
 
     /** Can this user open this feature (it must also be switched on for their agency)? */

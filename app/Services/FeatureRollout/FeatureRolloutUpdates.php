@@ -77,6 +77,10 @@ class FeatureRolloutUpdates
                 }
                 $f = [];
                 foreach ($items->where('state', AgencyRolloutItem::STATE_HELD) as $item) {
+                    // §19.2.3 — only promise what this person will get (their role has its way in).
+                    if (! $managesRollout && ! $this->access->roleWillGet($user, $item->feature_key)) {
+                        continue;
+                    }
                     $f[] = [
                         'item_id' => (int) $item->id, 'key' => $item->feature_key,
                         'label' => (string) ($catalogue[$item->feature_key]['label'] ?? $item->feature_key),

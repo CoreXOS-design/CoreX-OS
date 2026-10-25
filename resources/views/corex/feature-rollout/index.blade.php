@@ -195,7 +195,7 @@
                                     @foreach ($adminRoles as $role)
                                         <td class="text-center px-3 py-2.5">
                                             @if (($adminGrid[$key] ?? null) === null)
-                                                <span class="text-xs" style="color: var(--text-muted);">Everyone</span>
+                                                <span class="text-xs" style="color: var(--text-muted);" title="This feature has no access setting of its own">Can't be limited — everyone who can open this area has it</span>
                                             @elseif (in_array($role->name, $adminRoleNames, true))
                                                 <input type="checkbox" checked disabled title="Admins always have it">
                                             @else

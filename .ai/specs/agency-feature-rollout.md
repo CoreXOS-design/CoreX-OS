@@ -514,3 +514,70 @@ later gives a role access, those people get the **"New in CoreX" pop-up with the
 new agency setting (Dev Settings default only — not a wizard setting, #10a not triggered).
 
 **Test.** `tests/Feature/Features/FeatureRolloutAdminDecidesTest.php` (6).
+
+## 19. Walkthrough fixes, bigger pop-ups, feature wording & videos — 2026-10-25 (Andre)
+
+**Ask (verbatim):** "make the fixes, also with the pop ups use more of the screen and each fetuare should have a full
+explination on what the feature does, in the settings side for each feature there should be a section where a dev can
+edit the wording and also add link etc for when we do vidoes for the features one day, do this and run it again".
+"The fixes" = the findings of the 2026-10-25 Chrome walkthrough (local, agency "Isolation Test Realty").
+
+### 19.1 "Admin decides" leaked features to everyone (bug)
+Found: an agent got "New in CoreX → For the office → Commission Management" with its tour and could open it; the admin
+was never asked "who else should see these?"; the agency panel said "on for the admins only" over a table reading
+"Everyone". Root cause: limiting to admins works through the feature's OWN permissions, and many features own none in
+the registry, so there was nothing to take away.
+1. **A feature's access now includes its own way in.** For the rollout's access work (`FeatureRolloutAccess::ownedKeys`)
+   a feature owns its registry permissions PLUS its `nav_permission` keys. Billing (`billing.view`), Finance Engine
+   (`access_finance_engine`), Leases (`leases.view`), Rental Applications and the other features that have a way-in
+   permission but no `permission_modules` can now be given / taken per role — in the day-before review, the
+   "released while away" review, "Admin decides", and the panel grid. Only the rollout's view changes; the Features
+   page's "off really means off" ownership (`AgencyFeatureService::permissionKeysFor`) is untouched.
+2. **A feature with NO access control cannot be "Admin decides".** Features with no permission at all (today:
+   Agent Onboarding, Buyer Pipeline, Commission Management (= My Earnings, every agent's own page), Contact Governance,
+   Guided Tours, Marketing, Multi-branch, Public website) reach everyone who can open their area, so they cannot be
+   kept to admins. Refused with a plain message: Dev Settings save of an "Admin decides" wave; the owner page adding or
+   moving one into an "Admin decides" group. Dev Settings "Things to check" lists any already there. If an existing
+   default still has one there, a NEW plan does not hold it in that group (it is left on from day one, like a feature
+   in no wave) — the check names it so the CoreX team moves it.
+3. **Shared way in** — a feature whose way-in permission is also another waved feature's (e.g. Rental Crews and the
+   Parts & Labour Catalogue share `rental_catalogue.view`): Dev Settings "Things to check" warns when they sit in
+   different groups and one of them is "Admin decides" (giving or taking one changes the other).
+4. Panel / owner page wording: a row that genuinely cannot be limited reads "Can't be limited — everyone who can open
+   this area has it", never a bare "Everyone" under "admins only".
+
+### 19.2 Smaller fixes
+1. **Notification toasts behind the pop-up:** while a rollout pop-up is open the alert toast stack is hidden (the bell
+   keeps its count); it comes back when the pop-up closes.
+2. **"Finished" wording:** when the plan is completed but features still wait (ready when you are / set up first),
+   the panel says how many are still waiting for the admin instead of "everything it was holding back is switched on".
+3. **"New and coming" only promises what the person will get:** a held feature is listed under "Coming next" only if
+   the person's role currently has its way in (or it has no access control). Rollout admins still see everything.
+   Same source for Ellie's `whats_new_for_me`.
+
+### 19.3 Bigger pop-ups with the full explanation
+Both pop-ups (admin access review and "New in CoreX") use most of the screen: up to 1200px wide and 88% of the height,
+two panes on a laptop/desktop — the features on the left (grouped by group; in the review each shows "n of m roles"),
+the selected feature's full page on the right: name, one-line summary, the full explanation, **Watch the video** (when
+a video link is set), extra links, Take the tour, and (review only) the role ticks. Stacked on a phone. Every
+feature's role ticks stay in the posted grid whichever feature is on screen (nothing is lost by switching).
+
+### 19.4 Feature wording & videos (Dev Settings, owner-only)
+- **Where:** Dev Settings → Feature rollout → **Feature wording & videos** (button on the Feature rollout page; route
+  `admin.feature-rollout-defaults.copy.index`, `/corex/admin/dev-settings/feature-rollout/wording`).
+- **What a dev edits per feature:** the one-line summary (default: the registry `explain`), the full explanation
+  (default: `config/feature-rollout-copy.php`; blank lines = paragraphs), a video link (https), and up to 6 extra links
+  (label + https URL, or a CoreX page path starting with `/`). Shown in both pop-ups. The feature NAME is not editable
+  here (it is the registry label used everywhere).
+- **Platform-wide, the same for every agency** — product copy, neutral wording, no agency names (NN #9). Not an agency
+  setting, so not a wizard setting (#10a not triggered).
+- **Data:** `feature_rollout_feature_copy` (`feature_key` unique, `summary`, `description`, `video_url`, `links` json,
+  `updated_by`, timestamps, `deleted_at`). A row exists only for an edited feature; no row = the defaults.
+- **List:** every feature a group can hold. Search (name, key, wording), filter (all / edited / default wording / has a
+  video / no video / reverted edits), updated date range, sort (name — default — category, last updated), 25 a page,
+  empty state.
+- **Edit page** (`admin.feature-rollout-defaults.copy.edit`): the fields above with the default shown beside each; Save;
+  **Go back to the default wording** (archives the edit — soft delete); a reverted edit can be **Restored** from the
+  "Reverted edits" filter. Never hard-deleted. owner_only route group + `isOwnerRole()` in every action.
+
+**Tests:** `tests/Feature/Features/FeatureRolloutWalkthroughFixesTest.php`, `tests/Feature/Features/FeatureRolloutCopyTest.php`.

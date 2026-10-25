@@ -35,7 +35,16 @@
     </div>
 
     @if ($plan && ! $running)
-        <p class="text-sm" style="color:var(--text-primary,#0f172a);">Your gradual introduction is finished: everything it was holding back is switched on.</p>
+        @php
+            // §19.2.2 — features still waiting for the admin (ready when you are / set up first) are not "switched on".
+            $stillWaiting = \App\Models\FeatureRollout\AgencyRolloutItem::queryWithoutAgencyScope()->where('rollout_id', $plan->id)
+                ->whereIn('state', [\App\Models\FeatureRollout\AgencyRolloutItem::STATE_AWAITING_ADMIN, \App\Models\FeatureRollout\AgencyRolloutItem::STATE_AWAITING_SETUP])->count();
+        @endphp
+        @if ($stillWaiting > 0)
+            <p class="text-sm" style="color:var(--text-primary,#0f172a);" data-rollout-waiting="{{ $stillWaiting }}">Every group has arrived. {{ $stillWaiting === 1 ? '1 feature is' : $stillWaiting . ' features are' }} still waiting for you ("Ready when you are" or "Set up first" in Settings → Feature rollout).</p>
+        @else
+            <p class="text-sm" style="color:var(--text-primary,#0f172a);">Your gradual introduction is finished: everything it was holding back is switched on.</p>
+        @endif
     @elseif (! $plan && ! $canStart)
         <p class="text-sm" style="color:var(--text-secondary,#475569);">Gradual introduction is offered while an agency is first setting up CoreX. Your setup is already complete, so every feature you switch on is available straight away.</p>
     @else

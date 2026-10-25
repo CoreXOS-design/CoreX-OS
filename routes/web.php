@@ -5556,6 +5556,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             $c = \App\Http\Controllers\Admin\FeatureRolloutDefaultsController::class;
             Route::get('/',                 [$c, 'index'])->name('index');
             Route::put('/pace',             [$c, 'savePacing'])->name('pace');
+            // §19.4 — Feature wording & videos (what the rollout pop-ups say about each feature).
+            $w = \App\Http\Controllers\Admin\FeatureRolloutCopyController::class;
+            Route::get('/wording',                     [$w, 'index'])->name('copy.index');
+            Route::get('/wording/{feature}',           [$w, 'edit'])->where('feature', '[a-z0-9-]+')->name('copy.edit');
+            Route::put('/wording/{feature}',           [$w, 'update'])->where('feature', '[a-z0-9-]+')->name('copy.update');
+            Route::delete('/wording/{feature}',        [$w, 'destroy'])->where('feature', '[a-z0-9-]+')->name('copy.destroy');
+            Route::post('/wording/{feature}/restore',  [$w, 'restore'])->where('feature', '[a-z0-9-]+')->name('copy.restore');
             Route::post('/',                [$c, 'store'])->name('store');
             Route::put('/{wave}',           [$c, 'update'])->whereNumber('wave')->name('update');
             Route::post('/{wave}/move',     [$c, 'move'])->whereNumber('wave')->name('move');

@@ -4,11 +4,13 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\FeatureRollout\FeatureRolloutWave;
+use App\Services\FeatureRollout\FeatureRolloutAccess;
 use App\Services\FeatureRollout\FeatureRolloutService;
 use App\Services\FeatureRollout\FeatureTourCoverage;
 use App\Services\Features\AgencyFeatureService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Dev Settings → Feature rollout (AT-478, spec agency-feature-rollout.md §5.1). The default order and
@@ -191,6 +193,16 @@ class FeatureRolloutDefaultsController extends Controller
         ]);
         $data['feature_keys'] = array_values(array_unique($data['feature_keys']));
 
+        // §19.1.2 — "Admin decides" can only hold features that can be kept to some roles.
+        if ($data['track'] === 'admin') {
+            $access = app(FeatureRolloutAccess::class);
+            $open = array_values(array_filter($data['feature_keys'], fn ($k) => ! $access->canBeLimited($k)));
+            if ($open !== []) {
+                $names = implode(', ', array_map(fn ($k) => $this->rollout->waveableFeatures()[$k] ?? $k, $open));
+                throw ValidationException::withMessages(['feature_keys' => "These have no access setting of their own — everyone who can open their area has them — so they cannot be kept for the admins: {$names}. Put them in another wave."]);
+            }
+        }
+
         return $data;
     }
 
@@ -240,10 +252,37 @@ class FeatureRolloutDefaultsController extends Controller
             }
         }
 
+        // §19.1 — "Admin decides" problems: a feature that cannot be kept to some roles (left on from day one
+        // for new agencies), and a feature whose way in is shared with a feature in another group.
+        $access = app(FeatureRolloutAccess::class);
+        $notLimitable = [];
+        $shared = [];
+        $waveOf = [];   // key => [wave id, is admin]
+        foreach (FeatureRolloutWave::orderBy('position')->orderBy('id')->get() as $w) {
+            foreach ((array) $w->feature_keys as $key) {
+                $waveOf[$key] ??= [$w->id, $w->track === 'admin', $w->title];
+                if ($w->track === 'admin' && ! $access->canBeLimited($key)) {
+                    $notLimitable[$key] = ['feature' => $waveable[$key] ?? $key, 'wave' => $w->title];
+                }
+            }
+        }
+        foreach ($waveOf as $key => [$waveId, $isAdmin, $title]) {
+            if (! $isAdmin) {
+                continue;
+            }
+            foreach ($access->sharesWayInWith($key, array_keys($waveOf)) as $other) {
+                if ($waveOf[$other][0] !== $waveId) {
+                    $shared[] = ['feature' => $waveable[$key] ?? $key, 'other' => $waveable[$other] ?? $other, 'otherWave' => $waveOf[$other][2]];
+                }
+            }
+        }
+
         return [
-            'unassigned' => $unassigned,
-            'duplicates' => $duplicates,
-            'early'      => $early,
+            'unassigned'   => $unassigned,
+            'duplicates'   => $duplicates,
+            'early'        => $early,
+            'notLimitable' => array_values($notLimitable),
+            'shared'       => $shared,
         ];
     }
 

@@ -23,6 +23,7 @@
                 <p class="text-sm text-white/60">How CoreX introduces itself to a <strong>new</strong> agency that chooses to start gradually: it begins with Properties and Contacts, then switches on one wave of features at a time. Changing this never changes an agency that has already started — each keeps its own copy.</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('admin.feature-rollout-defaults.copy.index') }}" class="corex-btn-outline" data-nav="feature-wording">Feature wording &amp; videos</a>
                 <a href="{{ route('admin.dev-settings.index') }}" class="corex-btn-outline">← Dev Settings</a>
             </div>
         </div>
@@ -82,7 +83,7 @@
     </div>
 
     {{-- Checks --}}
-    @if($checks['unassigned'] || $checks['duplicates'] || $checks['early'])
+    @if($checks['unassigned'] || $checks['duplicates'] || $checks['early'] || $checks['notLimitable'] || $checks['shared'])
         <div class="rounded-md px-5 py-4 space-y-2 text-sm"
              style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); color: var(--text-primary);">
             <div class="font-semibold">Things to check in this order of waves</div>
@@ -94,6 +95,12 @@
             @endforeach
             @foreach($checks['early'] as $e)
                 <div><strong>{{ $e['feature'] }}</strong> comes before <strong>{{ $e['parent'] }}</strong>, which it needs. Nobody can use it until {{ $e['parent'] }} arrives.</div>
+            @endforeach
+            @foreach($checks['notLimitable'] as $n)
+                <div data-check-not-limitable><strong>{{ $n['feature'] }}</strong> is in "{{ $n['wave'] }}" (Admin decides) but has no access setting of its own, so it cannot be kept for the admins. New agencies get it from day one. Move it to another wave.</div>
+            @endforeach
+            @foreach($checks['shared'] as $s)
+                <div data-check-shared><strong>{{ $s['feature'] }}</strong> (Admin decides) uses the same access as <strong>{{ $s['other'] }}</strong> in "{{ $s['otherWave'] }}". Giving or taking one changes the other — keep them in the same wave.</div>
             @endforeach
         </div>
     @endif
