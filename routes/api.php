@@ -240,6 +240,8 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             // §19 — the one authorised way to open a document: only if it is in the tenant's OWN list.
             Route::get('/documents/{document}/file', [ClientTenantRentalsController::class, 'documentFile'])->whereNumber('document')->name('documents.file');
             Route::get('/inspections', [ClientTenantRentalsController::class, 'inspections'])->name('inspections.index');
+            // AT-508 - open a SENT move-in / move-out inspection (rooms, conditions, notes, photos, who signed). Read-only.
+            Route::get('/inspections/{inspection}', [\App\Http\Controllers\Api\V1\ClientRentalInspectionController::class, 'tenantShow'])->whereNumber('inspection')->name('inspections.show');
             Route::get('/inventories', [ClientTenantRentalsController::class, 'inventories'])->name('inventories.index');
             Route::get('/properties/{property}/fault-types', [ClientTenantRentalsController::class, 'faultTypes'])->name('fault-types.index');
             Route::post('/properties/{property}/fault-reports', [ClientTenantRentalsController::class, 'faultReportStore'])->middleware('portal.photos')->name('fault-reports.store');
@@ -296,6 +298,8 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::post('/work-orders/{workOrder}/appointment', [ClientLandlordRentalsController::class, 'workOrderAppointment'])->whereNumber('workOrder')->name('work-orders.appointment');
             Route::post('/work-orders/{workOrder}/progress', [ClientLandlordRentalsController::class, 'workOrderProgress'])->whereNumber('workOrder')->name('work-orders.progress');
             Route::get('/inspections', [ClientLandlordRentalsController::class, 'inspections'])->name('inspections.index');
+            // AT-508 - open a SENT move-in / move-out inspection of the owner's property. Read-only.
+            Route::get('/inspections/{inspection}', [\App\Http\Controllers\Api\V1\ClientRentalInspectionController::class, 'landlordShow'])->whereNumber('inspection')->name('inspections.show');
             Route::get('/documents', [ClientLandlordRentalsController::class, 'documents'])->name('documents.index');
             Route::get('/documents/{document}/file', [ClientLandlordRentalsController::class, 'documentFile'])->whereNumber('document')->name('documents.file');
             Route::get('/decisions', [ClientLandlordRentalsController::class, 'decisions'])->name('decisions.index');
