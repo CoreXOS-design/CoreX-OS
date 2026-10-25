@@ -131,6 +131,20 @@ final class FeatureRolloutAccessSettingsTest extends TestCase
         $this->assertStringContainsString('data-rollout-access="core-matches|agent"', $html);
     }
 
+    public function test_the_pop_up_only_closes_after_every_feature_has_its_own_done(): void
+    {
+        $html = $this->actingAs($this->admin)->get(route('agent.portal'))->assertOk()->getContent();
+
+        // One Done per feature, with a count of how many are finished; no button that decides for the whole group.
+        $this->assertStringContainsString('data-rollout-done-btn', $html);
+        $this->assertStringContainsString('data-rollout-progress', $html);
+        $this->assertStringContainsString('coreXRolloutReview(', $html);
+        $this->assertStringNotContainsString('Save access', $html);
+        $this->assertStringNotContainsString('Keep as is', $html);
+        $this->assertStringNotContainsString("send('save')", $html);
+        $this->assertStringNotContainsString("send('keep')", $html);
+    }
+
     public function test_keys_that_end_in_the_same_word_are_all_listed(): void
     {
         // auctions.view / auctions.reserve.view and shared_drive.folders.create / shared_drive.drives.create used to

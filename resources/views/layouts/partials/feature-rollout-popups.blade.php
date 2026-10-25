@@ -90,9 +90,11 @@
     $__frAccess   = app(\App\Services\FeatureRollout\FeatureRolloutAccess::class);
     $__frAgency   = \App\Models\Agency::withoutGlobalScopes()->find($__fr['plan']->agency_id);
     $__frGroups   = $__fr['waves']->map(fn ($w) => ['wave' => $w, 'keys' => $__frAccess->liveFeatures($w)])->filter(fn ($g) => $g['keys'] !== [])->values();
-    $__frFirst    = $__frGroups->first()['keys'][0] ?? null;
+    $__frKeys     = $__frGroups->flatMap(fn ($g) => $g['keys'])->values()->all();
+    $__frFirst    = $__frKeys[0] ?? null;
+    $__frNames    = collect($__frKeys)->mapWithKeys(fn ($k) => [$k => $__frCopy->for($k)['label']])->all();
 @endphp
-<div x-data="coreXRolloutReview({{ \Illuminate\Support\Js::from($__frWaveIds) }}, {{ \Illuminate\Support\Js::from($__fr['settings']) }}, '{{ route('api.v1.feature-rollout.access-review', [], false) }}', {{ \Illuminate\Support\Js::from($__frFirst) }})"
+<div x-data="coreXRolloutReview({{ \Illuminate\Support\Js::from($__frWaveIds) }}, {{ \Illuminate\Support\Js::from($__fr['settings']) }}, '{{ route('api.v1.feature-rollout.access-review', [], false) }}', {{ \Illuminate\Support\Js::from($__frKeys) }}, {{ \Illuminate\Support\Js::from((object) $__frNames) }})"
      x-show="open" x-cloak
      class="fixed inset-0 z-[75] flex items-center justify-center p-2 md:p-6"
      role="dialog" aria-modal="true" aria-labelledby="rollout-review-heading">
@@ -137,11 +139,14 @@
                                 <button type="button" class="cx-rollout-item" @click="sel = '{{ $__frKey }}'" :aria-current="sel === '{{ $__frKey }}'" data-rollout-pick="{{ $__frKey }}">
                                     <div class="text-sm font-semibold">{{ $__frCopy->for($__frKey)['label'] }}</div>
                                     <div class="text-[11px] mt-0.5" style="color:var(--text-muted);">
+                                        <template x-if="done['{{ $__frKey }}']"><span data-rollout-done="{{ $__frKey }}" class="font-semibold" style="color:var(--ds-green, #15803d);">✓ Done</span></template>
+                                        <template x-if="!done['{{ $__frKey }}']"><span>
                                         @if(($__fr['settings']['features'][$__frKey] ?? null) === null)
                                             No separate access to set
                                         @else
                                             <span x-text="summary('{{ $__frKey }}')"></span>
                                         @endif
+                                        · not done yet</span></template>
                                     </div>
                                 </button>
                             @endforeach
@@ -304,16 +309,19 @@
 
         <div class="shrink-0 flex flex-wrap items-center justify-between gap-2 px-6 py-3"
              style="border-top:1px solid var(--border); background:var(--surface-2);">
-            <div class="flex items-center gap-3">
+            <div class="flex flex-wrap items-center gap-3">
                 <button type="button" @click="send('later')" :disabled="busy" class="text-sm" style="color:var(--text-secondary);">Ask me next time</button>
+                <span class="text-xs" style="color:var(--text-muted);" data-rollout-progress x-text="progress()"></span>
                 <span x-show="error" x-text="error" class="text-xs" style="color:var(--ds-crimson, #c41e3a);"></span>
             </div>
             <div class="flex flex-wrap items-center gap-2">
                 @unless($__frReleased)
                     <button type="button" @click="send('hold')" :disabled="busy" class="corex-btn-outline text-sm">Hold this group</button>
                 @endunless
-                <button type="button" @click="send('keep')" :disabled="busy" class="corex-btn-outline text-sm">{{ $__frAdmin ? 'Keep for admins only' : 'Keep as is' }}</button>
-                <button type="button" @click="send('save')" :disabled="busy" class="corex-btn-primary text-sm">Save access</button>
+                {{-- One feature at a time: the pop-up only closes once EVERY feature has had its own Done. --}}
+                <button type="button" @click="finish(sel)" :disabled="busy" class="corex-btn-primary text-sm" data-rollout-done-btn>
+                    <span x-text="doneLabel()"></span>
+                </button>
             </div>
         </div>
     </div>
@@ -418,7 +426,7 @@ function coreXRolloutShade(on) { document.documentElement.classList.toggle('cx-r
 
 /* The admin access review: the decision must be recorded, so unlike the release pop-up it stays
    open and says so when a save fails. "Ask me next time" is the way out without deciding. */
-function coreXRolloutReview(waveIds, cfg, url, first) {
+function coreXRolloutReview(waveIds, cfg, url, order, names) {
     const copy = (o) => JSON.parse(JSON.stringify(o || {}));
     // view key => { create, edit, archive } permission keys, for the Role Manager's tick rules
     const actions = {};
@@ -427,9 +435,28 @@ function coreXRolloutReview(waveIds, cfg, url, first) {
     }));
     const start = { perm: copy(cfg.granted) };
     return {
-        open: true, busy: false, error: '', sel: first, role: (cfg.roles[0] || {}).name || null,
+        open: true, busy: false, error: '', sel: order[0] || null, done: {}, role: (cfg.roles[0] || {}).name || null,
         perm: copy(cfg.granted), scope: copy(cfg.scope), isDef: copy(cfg.isDefault), defs: cfg.defaults || {}, touched: {},
         init() { coreXRolloutShade(true); },
+        // The pop-up closes only when every feature has had its own Done, so nobody finishes one feature by mistake.
+        nextUndone(from) {
+            const after = order.slice(order.indexOf(from) + 1).concat(order.slice(0, order.indexOf(from)));
+            return after.find((k) => !this.done[k]) || null;
+        },
+        left() { return order.filter((k) => !this.done[k]).length; },
+        progress() { return `${order.length - this.left()} of ${order.length} features done`; },
+        doneLabel() {
+            const name = names[this.sel] || 'this feature';
+            const next = this.nextUndone(this.sel);
+            if (this.done[this.sel]) { return next ? `Next: ${names[next]} →` : 'Finish'; }
+            return next ? `Done with ${name} — next: ${names[next]} →` : `Done with ${name} — finish`;
+        },
+        finish(key) {
+            this.done[key] = true;
+            const next = this.nextUndone(key);
+            if (next) { this.sel = next; return; }
+            this.send(Object.keys(this.changes().settings).length || Object.keys(this.changes().scopes).length ? 'save' : 'keep');
+        },
         roleLabel() { const r = cfg.roles.find((x) => x.name === this.role); return r ? r.label : this.role; },
         entryOn(feature, role) {
             const f = cfg.features[feature];

@@ -171,14 +171,14 @@ final class FeatureRolloutAdminDecidesTest extends TestCase
         $html = $this->page($this->admin);
         $this->assertStringContainsString('Ready for you — who else should see these?', $html);
         $this->assertStringContainsString('data-rollout-access="presentations|agent"', $html);
-        $this->assertStringContainsString('Keep for admins only', $html);
+        $this->assertStringContainsString('data-rollout-done-btn', $html);
         $this->assertStringNotContainsString('Hold this group', $html);
 
         $wave = $this->wave($plan, 'Extras');
         $this->actingAs($this->admin)->postJson(route('api.v1.feature-rollout.access-review'), ['action' => 'keep', 'wave_ids' => [$wave->id]])->assertOk();
         $html = $this->page($this->admin);
         $this->assertStringContainsString('rollout-release-heading', $html, 'then the admin gets the New in CoreX pop-up for it');
-        $this->assertFalse($this->can($this->agent, 'presentations'), 'Keep for admins only gives nothing away');
+        $this->assertFalse($this->can($this->agent, 'presentations'), 'finishing the review without changes gives nothing away');
     }
 
     public function test_an_agent_given_it_later_gets_the_new_in_corex_popup_once_however_access_was_given(): void

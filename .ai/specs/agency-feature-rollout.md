@@ -689,6 +689,20 @@ For the selected feature, under "Who gets it":
   view key is the one with the fewest dots; create / edit / archive are the ones beside it; any other key appears as an extra action.
 - History records, per feature and role, "gave", "took away" (the feature's way in) or "changed the settings of".
 
+### 21.2a One Done per feature (AT-478, 2026-10-25)
+An ordinary admin reads "Done" as "I'm finished with this feature, show me the next one". So the pop-up never closes
+on one feature's say-so:
+1. The footer has one primary button, **"Done with <feature> — next: <feature> →"**. It marks that feature done and
+   opens the next one that is not done. The last one reads **"Done with <feature> — finish"**.
+2. The left list shows **✓ Done** under each finished feature and "… · not done yet" under the rest; the footer counts
+   "n of N features done". A feature with no separate access to set still needs its Done.
+3. Only when every feature has had its Done does the pop-up send **one** save: the ticks and Data Scopes changed
+   across all features (action `save`), or `keep` when nothing was changed. Then it closes and the page reloads.
+4. A feature can be reopened and changed after its Done; the final send carries everything. If the send fails the pop-up
+   stays open with the error and the same button sends again.
+5. The old whole-group buttons (**Keep as is**, **Keep for admins only**, **Save access**) are gone — Done with no
+   changes is "keep as is". **Hold this group** (upcoming only) and **Ask me next time** stay, and still write nothing.
+
 ### 21.3 Out of scope
 Settings → Feature rollout (the "who else sees these" panel) is not changed. The Role Manager's behaviour is unchanged (its module
 labels moved to the shared `RoleManagerLabels` class).
@@ -698,7 +712,8 @@ labels moved to the shared `RoleManagerLabels` class).
 2. Changing one create/edit/archive or extra action, or a Data Scope, then Save access, changes exactly that and nothing else.
 3. Data Scope None removes view/create/edit/archive for that role and module; ticking an action when scope is None grants view as Own.
 4. Other roles, other features' permissions, and permissions the feature does not own are never touched.
-5. Keep as is / Hold / Ask me next time still write nothing.
+5. Hold / Ask me next time write nothing; Done on every feature with no changes writes nothing (it just marks the review done).
+6. Finishing one feature never closes the pop-up while other features are not done (§21.2a).
 
 **Files:** `FeatureRolloutAccess` (`settingsFor`, `applySettings`), `FeatureRolloutPopupController::review`, `feature-rollout-popups.blade.php`,
 `FeatureRolloutHistory`, `RoleManagerController` and new `RoleManagerLabels` (labels only). **Tests:** `tests/Feature/Features/FeatureRolloutAccessSettingsTest.php`.
