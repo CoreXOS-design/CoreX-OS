@@ -176,3 +176,15 @@ Card fields: `property{id,address}`, `lease{id,start_date,end_date,is_month_to_m
 - **Camera / HEIC:** fault photos accept jpg, png, webp and HEIC/HEIF (converted to JPEG by `HeicConverter`); covered by `AuditP3PortalTest`.
 
 Tests: `tests/Feature/Api/MobileRentalsP4Test.php` (8).
+
+### P2 + P3 — staff faults, work orders, leases, notices (built 25 Oct 2026)
+Full contract: `.ai/specs/at-508-P2P3-build-notes.md` (also Appendix A of `at-508-mobile-rentals-MOBILE-PROMPT.md`). 15 routes `v1.mobile.*` (fault types, fault list/detail/create/photos/approval/outcome, work-order list/detail/create/photos/assign-supplier/contractor-response/invoices/complete) + `mobile/leases`, `mobile/leases/{l}`, `mobile/rental-notices`. Web logic shared, not copied: photo store, appoint-contractor and complete moved into `RentalFaultReportService::storePhoto`, `RentalWorkOrderService::assignSupplierAndDispatch / completionRules / completeByStaff`. New column `rental_fault_reports.client_idempotency_key`. Decisions: contractor-response is staff-recorded using the contractor link's own rules (Johan to confirm); no money on leases; refs FR-/WO-/L-<id>; WO "due" sort = appointment. Not built: staff fault notes, WO-create idempotency, document downloads. Tests: MobileRentalsP2Test (26), MobileRentalsP3Test (9).
+
+### P5 + P6 — staff inspections, due list, inventories (built 25 Oct 2026)
+Full contract: `.ai/specs/at-508-P5P6-build-notes.md` (Appendix B of the mobile prompt). 16 routes `v1.mobile.rental-inspections.*` / `rental-inventories.*`: checklist, list, due, start, detail (full resync), observations, observation photos, room notes, overall notes, attendance (added — the web refuses completion without it), discrepancy resolve, signatures, complete (`pending_client_items` → 409 `items_pending`; unknown ids → 422 `unknown_items`), inventories list/detail/photo. New column `rental_inspections.client_idempotency_key`. `client_idempotency_key` is REQUIRED on mobile queueable writes. Not built: add room/item to checklist, header details, unattached photos, lifecycle actions, inventory create/sign/complete. Tests: MobileRentalsP5Test (29), MobileRentalsP6Test (11).
+
+### Found outside scope (reported, not changed)
+- `GET /client/rentals/leases/{lease}` (ClientTenantRentalsController::leaseShow) returns `landlord_names`, `rent_amount`, `deposit_amount` to a tenant — conflicts with Johan's rulings; My Lease does not use it.
+- `RentalInventoryCaptureController.php:243`: web photo replay lookup is per inventory but the unique index is on the key alone — same key to another inventory = 500 on the web.
+- Web `markRoomNa`, `updateOverallNotes`, `resolveDiscrepancy` check "not recordable" before the scope guard (masked by route binding).
+- A stale comment above the P1 `mobile/rentals/waiting` route in routes/api.php.
