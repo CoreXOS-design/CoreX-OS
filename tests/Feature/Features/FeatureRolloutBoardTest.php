@@ -135,7 +135,8 @@ final class FeatureRolloutBoardTest extends TestCase
         ];
 
         foreach ($bad as $why => $layout) {
-            $this->save($owner, $layout)->assertSessionHasErrors('layout', null, $why);
+            $this->save($owner, $layout);
+            $this->assertTrue(session()->has('errors') && session('errors')->has('layout'), "Not refused: {$why}");
         }
 
         $this->assertSame(['Keep me'], FeatureRolloutWave::pluck('title')->all());
