@@ -152,6 +152,19 @@ final class MobileRentalsP1Test extends TestCase
         $this->assertCount(1, $this->pushedTo('tok-owner'), 'the owner who set it is not buzzed about their own action');
     }
 
+    public function test_the_visibility_descriptor_says_which_rental_screens_a_person_may_show(): void
+    {
+        $this->grantScope($this->agency, 'agent', 'own', ['rental_fault_reports.view', 'leases.view']);
+        $res = $this->asStaff($this->agent)->getJson('/api/v1/mobile/visibility')->assertOk();
+
+        $this->assertTrue($res->json('rentals.fault_reports.can_view'));
+        $this->assertFalse($res->json('rentals.fault_reports.can_act'), 'view only - no create right');
+        $this->assertSame('own', $res->json('rentals.fault_reports.scope'));
+        $this->assertTrue($res->json('rentals.leases.can_view'));
+        $this->assertFalse($res->json('rentals.work_orders.can_view'));
+        $this->assertNull($res->json('rentals.work_orders.scope'));
+    }
+
     // ── waiting for me ───────────────────────────────────────────────────────────────────────
 
     public function test_staff_waiting_lists_what_needs_them_inside_their_agency_only(): void
