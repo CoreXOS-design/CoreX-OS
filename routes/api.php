@@ -727,6 +727,10 @@ Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(f
                 ->middleware('permission:rental_inspections.record_attendance')->name('v1.mobile.rental-inspections.attendance.store');
             Route::post('/{inspection}/discrepancies/{discrepancy}/resolve', [$c, 'resolveDiscrepancy'])->whereNumber(['inspection', 'discrepancy'])
                 ->middleware('permission:rental_inspections.resolve_discrepancy')->name('v1.mobile.rental-inspections.discrepancies.resolve');
+            Route::post('/{inspection}/signatures', [$c, 'storeSignature'])->whereNumber('inspection')
+                ->middleware('permission:rental_inspections.create')->name('v1.mobile.rental-inspections.signatures.store');
+            Route::post('/{inspection}/complete', [$c, 'complete'])->whereNumber('inspection')
+                ->middleware('permission:rental_inspections.create')->name('v1.mobile.rental-inspections.complete');
         });
         // AT-508 P5/P6 END
 

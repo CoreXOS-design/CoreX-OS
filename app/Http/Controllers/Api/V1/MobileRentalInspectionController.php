@@ -394,6 +394,94 @@ class MobileRentalInspectionController extends Controller
         return response()->json(['duplicate' => false] + $this->discrepancyPayload($row->fresh()->load('observations')), 200);
     }
 
+    /** POST …/signatures — one party's signature / refusal / paper-signature marker, or the agent's own signature. */
+    public function storeSignature(Request $request, int $inspection): JsonResponse
+    {
+        $insp = $this->findInspection($inspection);
+        $v = $request->validate([
+            'party_role' => ['required', Rule::in([RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::PARTY_LANDLORD, RentalInspectionSignature::PARTY_AGENT])],
+            'disposition' => ['required', Rule::in([
+                RentalInspectionSignature::DISPOSITION_SIGNED, RentalInspectionSignature::DISPOSITION_REFUSED,
+                RentalInspectionSignature::DISPOSITION_WET_INK, RentalInspectionSignature::DISPOSITION_AWAITING_WET_INK,
+            ])],
+            'client_idempotency_key' => ['required', 'uuid'],
+            'captured_at' => ['nullable'],
+        ]);
+
+        if ($existing = RentalInspectionSignature::withoutGlobalScopes()->where('rental_inspection_id', $insp->id)->where('client_idempotency_key', $v['client_idempotency_key'])->first()) {
+            return response()->json(['duplicate' => true] + $this->signaturePayload($existing), 200);
+        }
+
+        // On the phone the agent always signs by drawing: the saved-signature PIN unlock is a web-session feature.
+        if ($v['party_role'] === RentalInspectionSignature::PARTY_AGENT && $v['disposition'] === RentalInspectionSignature::DISPOSITION_SIGNED && ! $request->filled('signing_method')) {
+            $request->merge(['signing_method' => 'drawn']);
+        }
+
+        $response = $this->recording()->storeSignature($request, $insp, app(\App\Services\Distribution\SignedDocumentDistributionService::class));
+        if ($response->getStatusCode() >= 300) {
+            return $this->failure($response);
+        }
+
+        $signature = RentalInspectionSignature::withoutGlobalScopes()->where('rental_inspection_id', $insp->id)->where('client_idempotency_key', $v['client_idempotency_key'])->firstOrFail();
+        if ($capturedAt = $this->capturedAt($request, ['rental_inspection_id' => $insp->id])) {
+            // the moment the signing really happened (not when the phone found signal) — the content lock reads this time
+            $signature->forceFill(['disposition_recorded_at' => $capturedAt])->saveQuietly();
+        }
+
+        return response()->json(['duplicate' => false] + $this->signaturePayload($signature->fresh()), 201);
+    }
+
+    /**
+     * POST …/complete — finish the inspection. `pending_client_items` is how many things the app still holds unsent: above zero, it is refused
+     * (409 items_pending) so a half-sent inspection is never signed off. Any observation / photo id (or retry key) the app says it sent must be
+     * on THIS inspection, else 422 unknown_items.
+     */
+    public function complete(Request $request, int $inspection): JsonResponse
+    {
+        $insp = $this->findInspection($inspection);
+        $v = $request->validate([
+            'pending_client_items' => ['required', 'integer', 'min:0'],
+            'acknowledge_warnings' => ['nullable', 'boolean'],
+            'observation_ids' => ['nullable', 'array', 'max:2000'],
+            'observation_ids.*' => ['integer'],
+            'photo_ids' => ['nullable', 'array', 'max:2000'],
+            'photo_ids.*' => ['integer'],
+            'observation_keys' => ['nullable', 'array', 'max:2000'],
+            'observation_keys.*' => ['uuid'],
+            'photo_keys' => ['nullable', 'array', 'max:2000'],
+            'photo_keys.*' => ['uuid'],
+        ]);
+
+        // a retry after the first attempt landed: it is done, say so
+        if ($insp->status === RentalInspection::STATUS_COMPLETED) {
+            return response()->json(['duplicate' => true] + $this->detailPayload($insp), 200);
+        }
+
+        if ((int) $v['pending_client_items'] > 0) {
+            return response()->json([
+                'message' => 'The app still has ' . (int) $v['pending_client_items'] . ' item(s) waiting to be sent for this inspection. Send them first, then complete.',
+                'code' => 'items_pending',
+                'pending_client_items' => (int) $v['pending_client_items'],
+            ], 409);
+        }
+
+        $unknown = $this->unknownReferences($insp, $v);
+        if ($unknown !== []) {
+            return response()->json([
+                'message' => 'Some of the items the app says it sent are not on this inspection, so it was not completed. Check the app is showing the right inspection and sync again.',
+                'code' => 'unknown_items',
+                'unknown' => $unknown,
+            ], 422);
+        }
+
+        $response = $this->recording()->complete($insp, app(\App\Services\Rentals\RentalInspectionReportPdfService::class), app(\App\Services\Distribution\SignedDocumentDistributionService::class));
+        if ($response->getStatusCode() >= 300) {
+            return $this->failure($response);
+        }
+
+        return response()->json(['duplicate' => false] + $this->detailPayload($insp->fresh()), 200);
+    }
+
     // ═══ resolution, scoping, replays ════════════════════════════════════════════════
 
     private function recording(): RentalInspectionRecordingController
@@ -484,6 +572,36 @@ class MobileRentalInspectionController extends Controller
         $raw = $request->input('captured_at');
 
         return app(RentalInspectionPhotoCaptureTime::class)->clientTime(is_string($raw) ? substr($raw, 0, 64) : null, $context);
+    }
+
+    /**
+     * @param  array<string, mixed>  $v
+     * @return array<string, list<int|string>>
+     */
+    private function unknownReferences(RentalInspection $insp, array $v): array
+    {
+        $unknown = [];
+        $check = function (string $field, array $wanted, string $column, $query) use (&$unknown) {
+            $wanted = array_values(array_unique($wanted));
+            if ($wanted === []) {
+                return;
+            }
+            $found = $query->whereIn($column, $wanted)->pluck($column)->map(fn ($x) => (string) $x)->all();
+            $missing = array_values(array_filter($wanted, fn ($x) => ! in_array((string) $x, $found, true)));
+            if ($missing !== []) {
+                $unknown[$field] = $missing;
+            }
+        };
+
+        $observations = fn () => RentalInspectionObservation::withoutGlobalScopes()->where('rental_inspection_id', $insp->id);
+        $photos = fn () => RentalInspectionPhoto::withoutGlobalScopes()->withTrashed()->where('rental_inspection_id', $insp->id);
+
+        $check('observation_ids', $v['observation_ids'] ?? [], 'id', $observations());
+        $check('observation_keys', $v['observation_keys'] ?? [], 'client_idempotency_key', $observations());
+        $check('photo_ids', $v['photo_ids'] ?? [], 'id', $photos());
+        $check('photo_keys', $v['photo_keys'] ?? [], 'client_idempotency_key', $photos());
+
+        return $unknown;
     }
 
     // ═══ payloads ════════════════════════════════════════════════════════════════════

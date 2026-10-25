@@ -428,4 +428,214 @@ final class MobileRentalsP5Test extends TestCase
         $this->assertCount(1, $d->json('photos'));
         $this->assertSame('Tina Test', $d->json('parties.tenants.0.name'));
     }
+
+    // ═══ stage (b): signatures + completion ═══════════════════════════════════════════════════
+
+    /** A move-in inspection started through the API with every item graded and every expected party's attendance recorded - only the signatures are left. */
+    private function readyIn($as = null): array
+    {
+        $as ??= $this->admin;
+        $id = $this->asStaff($as)->postJson($this->base(), ['lease_id' => $this->lease->id, 'type' => 'in', 'client_idempotency_key' => $this->uuid()])->assertCreated()->json('id');
+        $keys = [];
+        foreach ([$this->ceiling, $this->floor, $this->meter] as $item) {
+            $keys[] = $key = $this->uuid();
+            $this->asStaff($as)->postJson($this->base("/{$id}/observations"), ['item_id' => $item->id, 'condition' => 'good', 'client_idempotency_key' => $key])->assertCreated();
+        }
+        $board = $this->asStaff($as)->getJson($this->base("/{$id}"))->json('attendance.board.rows');
+        foreach ($board as $row) {
+            $this->asStaff($as)->postJson($this->base("/{$id}/attendance"), [
+                'party_role' => $row['party_role'], 'party_contact_id' => $row['contact_id'], 'party_user_id' => $row['user_id'],
+                'outcome' => 'attended', 'attended_as' => 'self', 'client_idempotency_key' => $this->uuid(),
+            ])->assertCreated();
+        }
+
+        return [RentalInspection::findOrFail($id), $keys];
+    }
+
+    private function sign(RentalInspection $i, string $role, array $over = [], $as = null): \Illuminate\Testing\TestResponse
+    {
+        $contact = match ($role) {
+            'tenant' => $this->tenant->id,
+            'landlord' => $this->owner->id,
+            default => null,
+        };
+
+        return $this->asStaff($as ?? $this->admin)->postJson($this->base("/{$i->id}/signatures"), $over + [
+            'party_role' => $role, 'party_contact_id' => $contact, 'disposition' => 'signed', 'signature_image' => self::PNG, 'client_idempotency_key' => $this->uuid(),
+        ]);
+    }
+
+    private function signEveryone(RentalInspection $i, $as = null): void
+    {
+        $this->sign($i, 'tenant', [], $as)->assertCreated();
+        $this->sign($i, 'landlord', [], $as)->assertCreated();
+        $this->sign($i, 'agent', [], $as)->assertCreated();
+    }
+
+    private function complete(RentalInspection $i, array $over = [], $as = null): \Illuminate\Testing\TestResponse
+    {
+        return $this->asStaff($as ?? $this->admin)->postJson($this->base("/{$i->id}/complete"), $over + ['pending_client_items' => 0]);
+    }
+
+    public function test_each_party_signs_once_the_agent_signs_last_and_a_replay_returns_the_same_signature(): void
+    {
+        [$i] = $this->readyIn();
+
+        // the agent attests to the whole record: refused until the tenant and the landlord have a disposition
+        $this->sign($i, 'agent')->assertStatus(422);
+
+        $key = $this->uuid();
+        $captured = now()->subMinutes(30)->startOfSecond();
+        $first = $this->sign($i, 'tenant', ['client_idempotency_key' => $key, 'captured_at' => $captured->toIso8601String()])->assertCreated();
+        $first->assertJsonPath('duplicate', false)->assertJsonPath('party_role', 'tenant')->assertJsonPath('disposition', 'signed')
+            ->assertJsonPath('party_contact_id', $this->tenant->id)->assertJsonPath('has_signature_image', true);
+        $this->assertSame($captured->toIso8601String(), \Carbon\Carbon::parse($first->json('captured_at'))->toIso8601String(), 'the moment it was signed, not the moment the phone found signal');
+        $this->assertArrayNotHasKey('party_signature_path', $first->json(), 'the stored path never leaves the server');
+
+        $again = $this->sign($i, 'tenant', ['client_idempotency_key' => $key])->assertOk();
+        $again->assertJsonPath('duplicate', true)->assertJsonPath('id', $first->json('id'));
+        $this->assertSame(1, \App\Models\RentalInspectionSignature::where('rental_inspection_id', $i->id)->where('party_role', 'tenant')->count());
+
+        $detail = $this->asStaff($this->admin)->getJson($this->base("/{$i->id}"))->json('signatures');
+        $this->assertSame(['landlord'], array_column($detail['outstanding'], 'party_role'));
+        $this->assertSame('Lenny Test', $detail['outstanding'][0]['name']);
+        $this->assertFalse($detail['agent_signed']);
+
+        $this->sign($i, 'landlord')->assertCreated();
+        $agent = $this->sign($i, 'agent')->assertCreated();
+        $agent->assertJsonPath('party_role', 'agent');
+        $final = $this->asStaff($this->admin)->getJson($this->base("/{$i->id}"))->json('signatures');
+        $this->assertSame([], $final['outstanding']);
+        $this->assertTrue($final['agent_signed']);
+        $this->assertTrue($this->asStaff($this->admin)->getJson($this->base("/{$i->id}"))->json('signed_locked'));
+    }
+
+    public function test_a_refusal_needs_its_reason_and_the_permission_and_a_signature_is_validated(): void
+    {
+        $this->grantEveryone();
+        $this->grantScope($this->agency, 'limited', 'all', ['rental_inspections.view', 'rental_inspections.create', 'properties.view', 'access_properties', 'leases.view']);
+        [$i] = $this->readyIn($this->agent);
+
+        $this->sign($i, 'tenant', ['client_idempotency_key' => 'nope'], $this->agent)->assertStatus(422)->assertJsonValidationErrors('client_idempotency_key');
+        $this->sign($i, 'tenant', ['disposition' => 'sideways'], $this->agent)->assertStatus(422)->assertJsonValidationErrors('disposition');
+        $this->sign($i, 'janitor', [], $this->agent)->assertStatus(422)->assertJsonValidationErrors('party_role');
+        $this->sign($i, 'tenant', ['signature_image' => 'data:image/png;base64,AAAA'], $this->agent)->assertStatus(422);   // not a real PNG
+        $this->sign($i, 'tenant', ['party_contact_id' => $this->owner->id], $this->agent)->assertStatus(422);                // not a tenant on this lease
+
+        $refusal = ['disposition' => 'refused', 'signature_image' => null];
+        $this->sign($i, 'tenant', $refusal, $this->agent)->assertStatus(422);                                                 // a refusal carries its reason
+        $limited = \App\Models\User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'limited', 'is_active' => true]);
+        $this->sign($i, 'tenant', $refusal + ['refusal_reason_preset' => 'other', 'refusal_reason_note' => 'Disputes the damp'], $limited)->assertForbidden();   // may record, may not sign for a refusing party
+        $ok = $this->sign($i, 'tenant', $refusal + ['refusal_reason_preset' => 'other', 'refusal_reason_note' => 'Disputes the damp'], $this->agent)->assertCreated();
+        $ok->assertJsonPath('disposition', 'refused')->assertJsonPath('has_signature_image', false)->assertJsonPath('refusal_reason_note', 'Disputes the damp');
+    }
+
+    public function test_signatures_are_scoped_permissioned_and_a_410_once_archived(): void
+    {
+        $this->grantEveryone();
+        [$i] = $this->readyIn($this->agent);
+
+        $this->sign($i, 'tenant', [], $this->outsider)->assertNotFound();
+        $this->sign($i, 'tenant', [], $this->colleague)->assertForbidden();
+        $viewer = \App\Models\User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'viewer', 'is_active' => true]);
+        $this->sign($i, 'tenant', [], $viewer)->assertForbidden();
+
+        $key = $this->uuid();
+        $this->sign($i, 'tenant', ['client_idempotency_key' => $key], $this->agent)->assertCreated();
+        $i->delete();
+        $this->sign($i, 'landlord', [], $this->agent)->assertStatus(410)->assertJsonPath('code', 'archived');
+        $this->sign($i, 'tenant', ['client_idempotency_key' => $key], $this->agent)->assertStatus(410)->assertJsonPath('code', 'archived');
+    }
+
+    public function test_completing_finishes_the_inspection_and_a_retry_is_answered_not_refused(): void
+    {
+        [$i, $obsKeys] = $this->readyIn();
+        $this->signEveryone($i);
+        $obsIds = $i->observations()->pluck('id')->all();
+
+        $done = $this->complete($i, ['observation_ids' => $obsIds, 'observation_keys' => $obsKeys])->assertOk();
+        $done->assertJsonPath('duplicate', false)->assertJsonPath('status', 'completed')->assertJsonPath('is_recordable', false);
+        $this->assertNotNull($done->json('completed_at'));
+        $this->assertSame('completed', $i->fresh()->status);
+
+        $stamp = $i->fresh()->completed_at;
+        $retry = $this->complete($i)->assertOk();
+        $retry->assertJsonPath('duplicate', true)->assertJsonPath('status', 'completed');
+        $this->assertTrue($stamp->equalTo($i->fresh()->completed_at), 'a retry never moves the completion time');
+    }
+
+    public function test_the_app_cannot_complete_while_it_still_holds_unsent_items(): void
+    {
+        [$i] = $this->readyIn();
+        $this->signEveryone($i);
+
+        $this->complete($i, ['pending_client_items' => 3])->assertStatus(409)
+            ->assertJsonPath('code', 'items_pending')->assertJsonPath('pending_client_items', 3);
+        $this->assertNotSame('completed', $i->fresh()->status);
+
+        $this->asStaff($this->admin)->postJson($this->base("/{$i->id}/complete"), [])->assertStatus(422)->assertJsonValidationErrors('pending_client_items');
+        $this->complete($i, ['pending_client_items' => -1])->assertStatus(422);
+
+        $this->complete($i, ['pending_client_items' => 0])->assertOk();
+    }
+
+    public function test_completion_is_refused_when_the_app_names_items_that_are_not_on_this_inspection(): void
+    {
+        [$i] = $this->readyIn();
+        $this->signEveryone($i);
+        $other = $this->open();
+        $foreignObs = $this->observe($other)->json('id');
+        $ghostKey = $this->uuid();
+
+        $res = $this->complete($i, ['observation_ids' => [$foreignObs, 999999], 'photo_keys' => [$ghostKey]])->assertStatus(422);
+        $res->assertJsonPath('code', 'unknown_items');
+        $this->assertEqualsCanonicalizing([$foreignObs, 999999], $res->json('unknown.observation_ids'));
+        $this->assertSame([$ghostKey], $res->json('unknown.photo_keys'));
+        $this->assertNotSame('completed', $i->fresh()->status);
+    }
+
+    public function test_the_shared_completion_rules_still_apply_and_come_back_with_a_code(): void
+    {
+        // started and never graded: the web's own "every item recorded" rule
+        $id = $this->asStaff($this->admin)->postJson($this->base(), ['lease_id' => $this->lease->id, 'type' => 'in', 'client_idempotency_key' => $this->uuid()])->json('id');
+        $this->asStaff($this->admin)->postJson($this->base("/{$id}/complete"), ['pending_client_items' => 0])->assertStatus(409)->assertJsonPath('code', 'items_ungraded');
+        RentalInspection::find($id)->delete();   // one move-in per tenancy: archive this one to start the next
+
+        // graded, attended, but nobody signed
+        [$i] = $this->readyIn();
+        $this->complete($i)->assertStatus(409)->assertJsonPath('code', 'conflict');
+        $this->assertNotSame('completed', $i->fresh()->status);
+    }
+
+    public function test_completion_is_scoped_permissioned_and_a_410_once_archived(): void
+    {
+        $this->grantEveryone();
+        [$i] = $this->readyIn($this->agent);
+        $this->signEveryone($i, $this->agent);
+        $viewer = \App\Models\User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'viewer', 'is_active' => true]);
+
+        $this->complete($i, [], $this->outsider)->assertNotFound();
+        $this->complete($i, [], $this->colleague)->assertForbidden();
+        $this->complete($i, [], $viewer)->assertForbidden();
+
+        $i->delete();
+        $this->complete($i, [], $this->agent)->assertStatus(410)->assertJsonPath('code', 'archived');
+    }
+
+    public function test_evidence_that_arrives_after_completion_is_stored_and_flagged_not_lost(): void
+    {
+        [$i] = $this->readyIn();
+        $this->signEveryone($i);
+        $this->complete($i)->assertOk();
+        $obs = $i->observations()->first()->id;
+
+        // captured BEFORE the report was locked, sent after: kept, flagged
+        $late = $this->observe($i, ['item_id' => $this->floor->id, 'condition' => 'good', 'captured_at' => now()->subHours(2)->toIso8601String()])->assertCreated();
+        $late->assertJsonPath('added_after_signing', true);
+        $photo = $this->asStaff($this->admin)->post($this->base("/{$i->id}/observations/{$obs}/photos"), ['photo' => $this->jpeg(), 'client_idempotency_key' => $this->uuid(), 'captured_at' => now()->subHours(2)->toIso8601String()], ['Accept' => 'application/json'])->assertCreated();
+        $photo->assertJsonPath('added_after_signing', true);
+
+        // a live change to a completed report (no capture time) stays refused
+        $this->observe($i)->assertStatus(409);
+    }
 }
