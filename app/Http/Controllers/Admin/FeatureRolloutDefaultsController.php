@@ -7,8 +7,10 @@ use App\Models\FeatureRollout\FeatureRolloutWave;
 use App\Services\FeatureRollout\FeatureRolloutAccess;
 use App\Services\FeatureRollout\FeatureRolloutService;
 use App\Services\FeatureRollout\FeatureTourCoverage;
+use App\Services\FeatureRollout\RolloutCalendar;
 use App\Services\Features\AgencyFeatureService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -47,36 +49,38 @@ class FeatureRolloutDefaultsController extends Controller
         ]);
 
         $waveable = $this->rollout->waveableFeatures();
+        $archivedView = ($filters['status'] ?? 'active') === 'archived';
         $sort = $filters['sort'] ?? 'position';
         $dir = $filters['dir'] ?? ($sort === 'updated_at' ? 'desc' : 'asc');
-
-        $query = ($filters['status'] ?? 'active') === 'archived'
-            ? FeatureRolloutWave::onlyTrashed()
-            : FeatureRolloutWave::query();
-
-        if (! empty($filters['q'])) {
-            $q = $filters['q'];
-            // A search matches the wave title or the NAME of any feature in it.
-            $matchingKeys = array_keys(array_filter($waveable, fn ($label, $key) => stripos($label, $q) !== false || stripos($key, $q) !== false, ARRAY_FILTER_USE_BOTH));
-            $query->where(function ($w) use ($q, $matchingKeys) {
-                $w->where('title', 'like', '%' . $q . '%');
-                foreach ($matchingKeys as $key) {
-                    $w->orWhereJsonContains('feature_keys', $key);
-                }
-            });
-        }
-        if (! empty($filters['track'])) {
-            $query->where('track', $filters['track']);
-        }
-        if (! empty($filters['from'])) {
-            $query->whereDate('updated_at', '>=', $filters['from']);
-        }
-        if (! empty($filters['to'])) {
-            $query->whereDate('updated_at', '<=', $filters['to']);
-        }
-
-        $waves = $query->orderBy($sort, $dir)->orderBy('id')->paginate(25)->withQueryString();
         $tourCoverage = $this->tours->toursByFeature();
+
+        // Archived waves keep the full list screen (search, filters, sort, pagination). Active waves are the
+        // ordered, dated board (spec §20): its order IS the sort, so it is never filtered or paginated.
+        $archived = null;
+        if ($archivedView) {
+            $query = FeatureRolloutWave::onlyTrashed();
+            if (! empty($filters['q'])) {
+                $q = $filters['q'];
+                // A search matches the wave title or the NAME of any feature in it.
+                $matchingKeys = array_keys(array_filter($waveable, fn ($label, $key) => stripos($label, $q) !== false || stripos($key, $q) !== false, ARRAY_FILTER_USE_BOTH));
+                $query->where(function ($w) use ($q, $matchingKeys) {
+                    $w->where('title', 'like', '%' . $q . '%');
+                    foreach ($matchingKeys as $key) {
+                        $w->orWhereJsonContains('feature_keys', $key);
+                    }
+                });
+            }
+            if (! empty($filters['track'])) {
+                $query->where('track', $filters['track']);
+            }
+            if (! empty($filters['from'])) {
+                $query->whereDate('updated_at', '>=', $filters['from']);
+            }
+            if (! empty($filters['to'])) {
+                $query->whereDate('updated_at', '<=', $filters['to']);
+            }
+            $archived = $query->orderBy($sort, $dir)->orderBy('id')->paginate(25)->withQueryString();
+        }
 
         // §12.7 — every agency on gradual rollout, needing-attention first. Own query names (o_*, opage).
         $o = $request->validate(['o_show' => 'nullable|in:attention,all', 'o_q' => 'nullable|string|max:100']);
@@ -90,14 +94,15 @@ class FeatureRolloutDefaultsController extends Controller
         $overviewPage = new \Illuminate\Pagination\LengthAwarePaginator($overview->forPage($opage, 25)->values(), $overview->count(), 25, $opage,
             ['path' => $request->url(), 'pageName' => 'opage', 'query' => $request->query()]);
 
+        $defaults = $this->rollout->defaults();
+
         return view('admin.dev-settings.feature-rollout', [
-            'waves'      => $waves,
+            'waves'      => $archived,
             'filters'    => $filters + ['sort' => $sort, 'dir' => $dir],
-            'defaults'   => $this->rollout->defaults(),
+            'defaults'   => $defaults,
             'intervals'  => (array) config('feature-rollout.interval_choices', []),
             'intervalMax'=> $this->rollout->intervalMax(),
             'tracks'     => FeatureRolloutWave::TRACKS,
-            'grouped'    => $this->groupedWaveable($waveable),
             'labels'     => $waveable,
             'checks'     => $this->checks($waveable),
             'tourGap'    => $this->tourGap($waveable, $tourCoverage),
@@ -105,6 +110,7 @@ class FeatureRolloutDefaultsController extends Controller
             'archivedCount' => FeatureRolloutWave::onlyTrashed()->count(),
             'overview'      => $overviewPage,
             'overviewFilters' => $o,
+            'board'         => $archivedView ? null : $this->board($waveable, $tourCoverage, $defaults, $request),
         ]);
     }
 
@@ -177,6 +183,98 @@ class FeatureRolloutDefaultsController extends Controller
         return back()->with('success', 'Wave restored.');
     }
 
+    /**
+     * Save the wave planner board in one go (spec §20.2): the whole ordered list of active waves. New waves are
+     * created, existing ones updated (position = order), active waves left out are archived. Running plans hold
+     * their own copy, so none of this touches them.
+     */
+    public function saveLayout(Request $request)
+    {
+        $this->owner($request);
+        $payload = json_decode((string) $request->input('layout'), true);
+        if (! is_array($payload)) {
+            throw ValidationException::withMessages(['layout' => 'The plan could not be read. Reload the page and try again.']);
+        }
+
+        $waveable = $this->rollout->waveableFeatures();
+        $access = app(FeatureRolloutAccess::class);
+        $existing = FeatureRolloutWave::pluck('id')->map(fn ($id) => (int) $id)->all();
+        $fail = fn (string $message) => throw ValidationException::withMessages(['layout' => $message]);
+
+        $rows = [];
+        $seen = [];
+        $usedIds = [];
+        foreach ($payload as $w) {
+            $w = is_array($w) ? $w : [];
+            $title = trim((string) ($w['title'] ?? ''));
+            if ($title === '' || mb_strlen($title) > 255) {
+                $fail('Every wave needs a name (up to 255 characters).');
+            }
+            $track = (string) ($w['track'] ?? '');
+            if (! array_key_exists($track, FeatureRolloutWave::TRACKS)) {
+                $fail("“{$title}” has a group that is not recognised.");
+            }
+            $intro = trim((string) ($w['intro_text'] ?? ''));
+            if (mb_strlen($intro) > 2000) {
+                $fail("The message for “{$title}” is too long (up to 2000 characters).");
+            }
+
+            $keys = array_values(array_unique(array_filter((array) ($w['feature_keys'] ?? []), 'is_string')));
+            $unknown = array_values(array_diff($keys, array_keys($waveable)));
+            if ($unknown !== []) {
+                $fail("“{$title}” has features that cannot be part of a wave: " . implode(', ', $unknown) . '.');
+            }
+            // A feature belongs to one wave only: a repeat keeps its earliest place.
+            $keys = array_values(array_diff($keys, $seen));
+            $seen = array_merge($seen, $keys);
+            if ($keys === []) {
+                $fail("“{$title}” has no features. Drag at least one in, or archive the wave.");
+            }
+            if ($track === 'admin') {
+                $open = array_values(array_filter($keys, fn ($k) => ! $access->canBeLimited($k)));
+                if ($open !== []) {
+                    $names = implode(', ', array_map(fn ($k) => $waveable[$k] ?? $k, $open));
+                    $fail("These have no access setting of their own — everyone who can open their area has them — so they cannot be kept for the admins: {$names}. Put them in another wave.");
+                }
+            }
+
+            $id = isset($w['id']) && $w['id'] !== null && $w['id'] !== '' ? (int) $w['id'] : null;
+            if ($id !== null && (! in_array($id, $existing, true) || in_array($id, $usedIds, true))) {
+                $fail('A wave on this page was changed or archived by someone else. Reload the page and try again.');
+            }
+            if ($id !== null) {
+                $usedIds[] = $id;
+            }
+
+            $rows[] = ['id' => $id, 'admin' => $track === 'admin', 'data' => [
+                'title' => $title, 'track' => $track, 'intro_text' => $intro === '' ? null : $intro, 'feature_keys' => $keys,
+            ]];
+        }
+
+        // "Admin decides" waves always come last, whatever order they arrived in.
+        usort($rows, fn ($a, $b) => (int) $a['admin'] <=> (int) $b['admin']);
+
+        $archived = DB::transaction(function () use ($rows, $existing) {
+            $keep = [];
+            foreach ($rows as $n => $r) {
+                $data = $r['data'] + ['position' => ($n + 1) * 10];
+                if ($r['id'] !== null) {
+                    FeatureRolloutWave::findOrFail($r['id'])->update($data);
+                    $keep[] = $r['id'];
+                } else {
+                    $keep[] = FeatureRolloutWave::create($data)->id;
+                }
+            }
+            $gone = array_values(array_diff($existing, $keep));
+            FeatureRolloutWave::whereIn('id', $gone)->get()->each->delete();
+
+            return count($gone);
+        });
+
+        return redirect()->route('admin.feature-rollout-defaults.index')
+            ->with('success', 'Plan saved. New plans use it; running plans are unchanged.' . ($archived ? " {$archived} " . ($archived === 1 ? 'wave was' : 'waves were') . ' archived.' : ''));
+    }
+
     // ── helpers ────────────────────────────────────────────────────────────────
 
     private function validated(Request $request): array
@@ -206,52 +304,55 @@ class FeatureRolloutDefaultsController extends Controller
         return $data;
     }
 
-    /** @return array<string, array<string,string>> category => [key => label] */
-    private function groupedWaveable(array $waveable): array
+    /**
+     * Everything the wave planner board needs, as one JSON-able array (spec §20). Dates are worked out in the
+     * browser with the same rule as RolloutCalendar, from this holiday list and the live pace fields.
+     */
+    private function board(array $waveable, array $tourCoverage, array $defaults, Request $request): array
     {
-        $out = [];
-        foreach ($this->features->catalogue() as $key => $def) {
-            if (isset($waveable[$key])) {
-                $out[$def['category'] ?? 'Other'][$key] = $waveable[$key];
-            }
+        $catalogue = $this->features->catalogue();
+        $access = app(FeatureRolloutAccess::class);
+        $features = [];
+        foreach ($waveable as $key => $label) {
+            $features[] = [
+                'k' => $key,
+                'l' => $label,
+                'c' => $catalogue[$key]['category'] ?? 'Other',
+                'd' => array_values(array_filter((array) ($catalogue[$key]['depends_on'] ?? []), fn ($p) => isset($waveable[$p]))),
+                't' => ! empty($tourCoverage[$key]),
+                'lim' => $access->canBeLimited($key),
+            ];
         }
-        ksort($out);
 
-        return $out;
+        $calendar = app(RolloutCalendar::class);
+        $saved = FeatureRolloutWave::orderBy('position')->orderBy('id')->get()
+            ->map(fn ($w) => ['id' => $w->id, 'title' => $w->title, 'track' => $w->track, 'intro' => (string) $w->intro_text, 'keys' => array_values((array) $w->feature_keys)])
+            ->all();
+
+        // After a refused save the browser's own edits come back (the form was flashed), so nothing typed is lost.
+        $draft = json_decode((string) $request->old('layout'), true);
+
+        return [
+            'features' => $features,
+            'waves'    => $saved,
+            'draft'    => is_array($draft) ? array_map(fn ($w) => [
+                'id' => $w['id'] ?? null, 'title' => (string) ($w['title'] ?? ''), 'track' => (string) ($w['track'] ?? 'general'),
+                'intro' => (string) ($w['intro_text'] ?? ''), 'keys' => array_values((array) ($w['feature_keys'] ?? [])),
+            ], $draft) : null,
+            'holidays' => $calendar->holidayMap($defaults['holiday_country']),
+            'today'    => $calendar->today()->toDateString(),
+            'tracks'   => array_diff_key(FeatureRolloutWave::TRACKS, ['admin' => 1]),
+        ];
     }
 
     /**
-     * Problems with the default order, in plain words (spec §5.1):
-     *  - features in no wave are switched on from day one for every new agency;
-     *  - a feature in two waves only ever arrives with the first;
-     *  - a feature placed before a feature it depends on cannot be used until that one arrives.
+     * Problems with the saved "Admin decides" waves that only the server can know (spec §19.1, §5.1). The other order
+     * problems (features in no wave, a feature placed before one it needs) are shown live on the board itself.
      *
-     * @return array{unassigned: array<string,string>, duplicates: array<string,list<string>>, early: list<array{feature:string,parent:string}>}
+     * @return array{notLimitable: list<array{feature:string,wave:string}>, shared: list<array{feature:string,other:string,otherWave:string}>}
      */
     private function checks(array $waveable): array
     {
-        $catalogue = $this->features->catalogue();
-        $firstWave = [];   // key => position of the first wave containing it
-        $inWaves = [];     // key => wave titles
-        foreach (FeatureRolloutWave::orderBy('position')->orderBy('id')->get() as $w) {
-            foreach ((array) $w->feature_keys as $key) {
-                $inWaves[$key][] = $w->title;
-                $firstWave[$key] ??= $w->position;
-            }
-        }
-
-        $unassigned = array_diff_key($waveable, $inWaves);
-        $duplicates = array_filter($inWaves, fn ($titles) => count($titles) > 1);
-
-        $early = [];
-        foreach ($firstWave as $key => $pos) {
-            foreach ((array) ($catalogue[$key]['depends_on'] ?? []) as $parent) {
-                if (isset($firstWave[$parent]) && $firstWave[$parent] > $pos) {
-                    $early[] = ['feature' => $waveable[$key] ?? $key, 'parent' => $waveable[$parent] ?? $parent];
-                }
-            }
-        }
-
         // §19.1 — "Admin decides" problems: a feature that cannot be kept to some roles (left on from day one
         // for new agencies), and a feature whose way in is shared with a feature in another group.
         $access = app(FeatureRolloutAccess::class);
@@ -278,9 +379,6 @@ class FeatureRolloutDefaultsController extends Controller
         }
 
         return [
-            'unassigned'   => $unassigned,
-            'duplicates'   => $duplicates,
-            'early'        => $early,
             'notLimitable' => array_values($notLimitable),
             'shared'       => $shared,
         ];

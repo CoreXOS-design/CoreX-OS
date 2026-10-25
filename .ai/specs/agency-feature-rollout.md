@@ -146,10 +146,15 @@ Rentals first. Side-by-side runs Sales + Rentals together).
 - **Tour gap report** (§12.11): every feature in a wave with no guided tour, ordered by how soon it is
   released across all agencies (earliest wave first = write that tour first), with counts.
 - **Owner overview** (§12.7): links to the per-agency page (§5.5).
-- Search: wave title, feature name. Sort: position (default), title, updated. Filter: track, status
-  (active/archived). Date range: last updated. Pagination: 25. Empty state: "No waves yet: every
-  feature switches on at once for agencies that choose gradual rollout."
-- A check flags features not in any wave ("these will never be released") and features in two waves.
+- **The wave planner board (§20) replaces the wave table and the per-wave tick-box form.** Active waves are shown as
+  one ordered, dated board; the list/search/sort/filter/pagination screen applies to **archived** waves
+  (`?status=archived`): search wave title or feature name, filter track, date range last updated, sort position / title /
+  updated, 25 a page, Restore. Empty state of the board: "No waves yet: every feature switches on at once for agencies
+  that choose gradual rollout."
+- Checks: the board flags, live and on the wave itself, features not in any wave ("not placed yet: on from day one") and
+  features placed before a feature they need. A feature can no longer be in two waves. The amber "Things to check" box
+  stays for the two checks that need server knowledge (a feature in "Admin decides" with no access setting of its own;
+  one that shares its way in with a feature in another group).
 
 ### 5.2 Agency setup wizard (NN #10a)
 - New choice on the first capability step: **Introduce gradually / Everything now**. If gradual:
@@ -581,3 +586,63 @@ feature's role ticks stay in the posted grid whichever feature is on screen (not
   "Reverted edits" filter. Never hard-deleted. owner_only route group + `isOwnerRole()` in every action.
 
 **Tests:** `tests/Feature/Features/FeatureRolloutWalkthroughFixesTest.php`, `tests/Feature/Features/FeatureRolloutCopyTest.php`.
+
+## 20. Wave planner board (Dev Settings → Feature rollout, owner-only)
+
+Johan, 2026-10-25: "yes I like that build it" (after reviewing the interactive mock-up of ideas 1 + 2: drag board + real dates).
+
+**Why:** setting up waves meant ticking features in a 66-item list per wave, moving waves with ▲▼ one reload at a time,
+and never seeing when a wave actually reaches a new agency. The board shows the whole plan, dated, on one screen.
+
+### 20.1 What the owner sees
+- **Pace bar** (unchanged form, same Save pace) plus a preview-only **"If an agency starts on"** date (defaults to today;
+  never saved). Changing pace, start date, release time, weekdays-only or skip-holidays re-dates every wave at once,
+  before saving.
+- **Summary strip:** waves with features, features in a wave, features on from day one, order problems, date of the last wave.
+- **Board:** a fixed "Day one" row (start date; Properties, Contacts and the always-on screens), then each active
+  wave as a card: date and release time on the left, name, track, the feature chips, and the wave message on the right.
+  "Admin decides" waves sit last. A wave whose date skipped a public holiday says which.
+- **Dates** use the same rule as a running plan (`FeatureRolloutService::schedule`, `RolloutCalendar`): wave *k* of the
+  main list is *k × interval* release days after the start; "Admin decides" waves follow *k × interval* after the last
+  main wave. The preview is for one list in order (an agency doing sales and rentals, not side by side); it does not
+  model the rentals-first or side-by-side orders.
+- **Not placed yet tray:** every feature in no wave, grouped by category, with a search box and a count. These switch on
+  from day one for a new agency. Dropping a chip on the tray takes it out of its wave.
+- **Moving:** drag a chip to a wave or the tray; drag a wave by its handle (or ▲ ▼ / arrow keys on the handle) to reorder;
+  on touch/keyboard pick a chip up (tap / Enter) and press "Move here". A feature can only be in one wave.
+- **Inline warnings:** a feature placed in a wave earlier than a feature it needs (or whose parent is in no wave) is marked
+  on its wave with a one-click "Bring <parent> into this wave".
+- **Archive** a wave: its features go back to the tray; Undo until the next change. Archived waves are restored from the
+  archived list. Nothing is hard-deleted (NN #1).
+- **Wave message** ("What to tell people when it switches on") is edited on the wave card, as before.
+- **Unsaved changes:** the board is edited in the browser and saved with one **Save plan** (Discard resets). Leaving with
+  unsaved changes asks first.
+
+### 20.2 Saving
+- One owner-only route, `PUT admin/dev-settings/feature-rollout/layout` (`admin.feature-rollout-defaults.layout`), receives
+  the whole ordered list `[{id|null, title, track, intro_text, feature_keys[]}]`. In one transaction: new waves are created,
+  existing ones updated (title, track, message, features, position = order × 10), active waves missing from the list are
+  archived (soft delete). Same rules as a single wave: ≥ 1 feature, only waveable features, "Admin decides" only holds
+  features that can be kept to some roles. A feature repeated across waves keeps its earliest place. Running plans are never
+  changed (they hold their own copy).
+- The older per-wave endpoints (`store`, `update`, `move`, `destroy`, `restore`) stay; `restore` serves the archived list.
+- No new setting is added, so nothing is added to the setup wizard (NN #10a not triggered). No new API endpoint (NN #7 not
+  triggered): this is a web form post on an existing owner-only admin page. Multi-agency (NN #9): the page is platform-wide
+  Dev Settings, no agency names; the holiday calendar is the saved country code.
+
+### 20.3 Scoping / permissions
+Owner-only (route group + `isOwnerRole()` in every action), unchanged. No agency-scoped data on this page.
+
+### 20.4 Acceptance
+1. Board shows every active wave in order with the date the wave reaches a new agency, matching `RolloutCalendar`.
+2. Changing pace/start date re-dates the board without a reload.
+3. Dragging/picking a feature between waves and the tray, and reordering waves, then **Save plan**, persists order, features,
+   titles, tracks and messages; unsaved changes are never written.
+4. Archiving a wave via Save puts it in the archived list; Restore brings it back.
+5. Invalid saves (empty wave, core/opt-in feature, non-limitable feature in "Admin decides", unknown wave) are refused with a
+   plain message and write nothing.
+6. Non-owners are refused.
+
+**Files:** `FeatureRolloutDefaultsController` (index, `saveLayout`), `RolloutCalendar` (`holidayMap`), `routes/web.php`,
+`resources/views/admin/dev-settings/feature-rollout.blade.php`, removed `_feature-rollout-wave-form.blade.php`.
+**Tests:** `tests/Feature/Features/FeatureRolloutDefaultsPageTest.php`, `tests/Feature/Features/FeatureRolloutBoardTest.php`.

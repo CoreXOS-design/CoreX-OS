@@ -5556,6 +5556,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             $c = \App\Http\Controllers\Admin\FeatureRolloutDefaultsController::class;
             Route::get('/',                 [$c, 'index'])->name('index');
             Route::put('/pace',             [$c, 'savePacing'])->name('pace');
+            // §20 — the wave planner board saves the whole ordered plan in one post.
+            Route::put('/layout',           [$c, 'saveLayout'])->name('layout');
             // §19.4 — Feature wording & videos (what the rollout pop-ups say about each feature).
             $w = \App\Http\Controllers\Admin\FeatureRolloutCopyController::class;
             Route::get('/wording',                     [$w, 'index'])->name('copy.index');

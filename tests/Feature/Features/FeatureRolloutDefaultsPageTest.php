@@ -123,22 +123,6 @@ final class FeatureRolloutDefaultsPageTest extends TestCase
         ])->assertSessionHasErrors('interval_days');
     }
 
-    public function test_search_and_track_filter(): void
-    {
-        $owner = $this->owner();
-        $paper = FeatureRolloutWave::create(['title' => 'Zebra Paperwork', 'track' => 'general', 'position' => 10, 'feature_keys' => ['docuperfect']]);
-        $letting = FeatureRolloutWave::create(['title' => 'Quokka Letting', 'track' => 'rentals', 'position' => 20, 'feature_keys' => ['rentals']]);
-        // Each listed wave renders its own edit form; the tour gap report (unfiltered) may still name a wave.
-        $row = fn (FeatureRolloutWave $w) => route('admin.feature-rollout-defaults.update', $w->id);
-
-        $this->actingAs($owner)->get(route('admin.feature-rollout-defaults.index', ['track' => 'rentals']))
-            ->assertSee($row($letting), false)->assertDontSee($row($paper), false);
-        // Search by a FEATURE's name finds the wave that contains it.
-        $label = config('corex-features.docuperfect.label');
-        $this->actingAs($owner)->get(route('admin.feature-rollout-defaults.index', ['q' => $label]))
-            ->assertSee($row($paper), false)->assertDontSee($row($letting), false);
-    }
-
     public function test_tour_gap_report_lists_exactly_the_waved_features_without_a_tour(): void
     {
         $owner = $this->owner();

@@ -101,6 +101,28 @@ class RolloutCalendar
         return Carbon::parse($date->toDateString(), $this->timezone())->setTime($h, $m);
     }
 
+    /**
+     * Public holidays of $country from this year for $years years, as date => name. Feeds the wave planner's
+     * date preview (spec §20), which must skip the same days a running plan does.
+     *
+     * @return array<string,string>
+     */
+    public function holidayMap(string $country, int $years = 3): array
+    {
+        $country = strtoupper($country);
+        $first = (int) $this->today()->year;
+        for ($y = $first; $y < $first + $years; $y++) {
+            $this->ensureYear($country, $y);
+        }
+
+        return PublicHoliday::where('country_code', $country)
+            ->whereBetween('holiday_date', [$first . '-01-01', ($first + $years - 1) . '-12-31'])
+            ->orderBy('holiday_date')
+            ->get()
+            ->mapWithKeys(fn ($h) => [Carbon::parse($h->holiday_date)->toDateString() => (string) $h->name])
+            ->all();
+    }
+
     private function ensureYear(string $country, int $year): void
     {
         $key = $country . '|' . $year;
