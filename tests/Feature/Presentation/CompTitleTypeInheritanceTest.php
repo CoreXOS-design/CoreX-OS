@@ -215,6 +215,29 @@ final class CompTitleTypeInheritanceTest extends TestCase
         $this->assertStringContainsString('0 comp rows were given', $again);
     }
 
+    public function test_backfill_clears_a_stray_pin_far_from_the_rest_of_its_report(): void
+    {
+        [$agencyId, $userId] = $this->seedAgencyAndUser();
+        $reportId = $this->seedReport($agencyId, $userId, '11 Manikie Street, Blue Valley Golf Estate');
+        for ($i = 1; $i <= 6; $i++) {
+            $this->seedCompRow($agencyId, $reportId, $i);
+        }
+        // "22 Edinburgh Street" resolved to the same-named street in KZN, about 540 km away.
+        $stray = $this->seedCompRow($agencyId, $reportId, 7, ['latitude' => -30.2048, 'longitude' => 30.7868]);
+
+        Artisan::call('market-reports:backfill-comp-title-types', ['--clear-stray-pins' => true, '--dry-run' => true]);
+        $this->assertStringContainsString('1 stray map pins would be cleared', Artisan::output());
+        $this->assertNotNull(DB::table('market_report_comp_rows')->where('id', $stray)->value('latitude'));
+
+        Artisan::call('market-reports:backfill-comp-title-types', ['--clear-stray-pins' => true]);
+        $this->assertStringContainsString('1 stray map pins were cleared', Artisan::output());
+        $this->assertNull(DB::table('market_report_comp_rows')->where('id', $stray)->value('latitude'));
+        $this->assertSame(6, DB::table('market_report_comp_rows')->where('market_report_id', $reportId)->whereNotNull('latitude')->count(), 'the neighbours keep their pins');
+
+        Artisan::call('market-reports:backfill-comp-title-types', ['--clear-stray-pins' => true]);
+        $this->assertStringContainsString('0 stray map pins were cleared', Artisan::output());
+    }
+
     // ── "0 of 0 mapped" says why ─────────────────────────────────────────
 
     public function test_empty_reason_names_the_title_type_cause_and_links_the_report(): void
