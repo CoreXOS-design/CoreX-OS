@@ -336,7 +336,7 @@ Drill links use hardcoded `/admin/deals/{id}` (`Performance/PerformanceDrilldown
 
 ## 8. Ruling E — Deals: new main menu, DR2 becomes "Deal Register", old register retired
 
-> **Status 23 Oct 2026: step 6 BUILT on QA1 except (a) the twin backfill `--apply` (Johan holds it) and (b) the `admin.deals.settle*` redirects (waiting for Johan to sign off the comparison). See section 17, P7.**
+> **Status 23 Oct 2026: step 6 BUILT on QA1 except (a) the twin backfill `--apply` and (b) the `admin.deals.settle*` redirects. **Both were done later the same day on QA1 (section 17, P8 items 3 and 4); the twin backfill ran 23 Oct 2026 13:45:54-55 SAST (63 twins, `deals_v2.backfilled_at`), commit `dd0047de7`.** See section 17, P7.**
 
 ### 8.1 What exists (verified)
 
@@ -688,9 +688,9 @@ Command `php artisan daily-points:correct-calendar-credits` (`--apply` to change
 
 **Proven on the deployed QA1 (41ad10d9b), through nginx / php-fpm as Johan's user:** Deal Register, My Deals, Unfiled deal emails, all four settings doors, a deal's edit page and the old settlement page all answer 200 with the Deals panel open and highlighted and Agency Tracker closed, with no deal link left in the Agency Tracker panel and no "DR2" on the page; `verify-alpine-render` passed on the register, My Deals, Unfiled deal emails and a deal edit page; `/admin/deals?status=Pending&period=2026-10`, `/admin/deals/create`, `/admin/deals/{id}/edit`, `/admin/deals/{id}/log` answer 301 to the Deal Register address with the query string kept.
 
-**Twin backfill — NOT applied (Johan: not until he says).** `deals:backfill-v2-twins` already exists with `--dry-run` (idempotent, writes only the `deals.deal_v2_id` pointer); nothing was built or changed there. QA1 read 23 Oct (read-only counts, then `--dry-run`):
+**Twin backfill — NOT applied at the time of this P7 entry (Johan: not until he says). SUPERSEDED: it was applied on QA1 later on 23 Oct 2026 — see P8 item 4. Confirmed 26 Oct 2026 from the QA1 database: 63 `deals_v2` rows carry `backfilled_at` 2026-10-23 13:45:54-55 SAST (26 s before commit `dd0047de7`, 13:46:20, which logs it); QA1 now has 177 live `deals`, 0 without a twin, `deals_v2` 178 rows.** `deals:backfill-v2-twins` already exists with `--dry-run` (idempotent, writes only the `deals.deal_v2_id` pointer); nothing was built or changed there. QA1 read 23 Oct (read-only counts, then `--dry-run`):
 
-| | Before (QA1, 23 Oct) | After a real run (to be filled when Johan says apply) |
+| | Before (QA1, 23 Oct) | After a real run (filled in: see P8 item 4 — 63 created, live deals with no live twin 63 -> 0) |
 |---|---|---|
 | deals total / live / trashed | 178 / 177 / 1 | live must stay 177, trashed 1 |
 | deals_v2 total / live | 115 / 114 | live 114 + 63 |
