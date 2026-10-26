@@ -13,44 +13,55 @@
      Comments footer posts through the step comment route. Real data (dr1_deal_id steps); QA1 only; a
      pure overlay — nothing here changes DR1 deal state. --}}
 
-@section('content')
+@section('corex-content')
 @include('dr2._pipeline-surface-styles')
 <style>
-  #dr2tl{display:flex;flex-direction:column;height:calc(100vh - 4.2rem);min-height:520px;color:#1e293b;font-size:14px}
-  #dr2tl .thead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px}
-  #dr2tl .h1{font-size:16px;font-weight:800;color:#0f172a;margin:0}
-  #dr2tl .hsub{color:#64748b;font-size:12.5px}
-  #dr2tl .toggle{display:inline-flex;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;font-size:13px}
-  #dr2tl .toggle a{padding:6px 14px;color:#374151;text-decoration:none}
-  #dr2tl .toggle .on{background:#0f172a;color:#fff;font-weight:700}
-  #dr2tl .toggle span.on{padding:6px 14px}
-  #dr2tl .back{color:#2563eb;font-size:12.5px;text-decoration:none;font-weight:600}
+  /* Theme tokens only (var(--surface) / --border / --text-* / --brand-button / --ds-*) so the page follows
+     the light/dark theme like every other CoreX page. Status colours: done = green, active = blue,
+     upcoming = muted, milestone = amber, today = red. */
+  #dr2tl{--tl-done:var(--ds-green,#059669);--tl-active:var(--ds-blue,#2563eb);--tl-up:var(--text-muted,#9ca3af);--tl-mile:var(--ds-amber,#f59e0b);--tl-today:var(--ds-red,#dc2626);--tl-brand:var(--brand-button,#0ea5e9);--tl-line:color-mix(in srgb,var(--text-primary) 7%,transparent);
+    display:flex;flex-direction:column;height:calc(100vh - 3rem);min-height:520px;color:var(--text-primary);font-size:14px}
+  #dr2tl .tl-banner{flex:0 0 auto;margin-bottom:12px}
+  #dr2tl .tl-ico{width:14px;height:14px;flex:0 0 auto;display:inline-block;vertical-align:-2px}
+  #dr2tl .toggle{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:12px;background:var(--surface)}
+  #dr2tl .toggle a,#dr2tl .toggle span{padding:6px 14px;color:var(--text-secondary);text-decoration:none;font-weight:600;transition:background 200ms,color 200ms}
+  #dr2tl .toggle a:hover{background:var(--surface-2);color:var(--text-primary)}
+  #dr2tl .toggle .on{background:var(--tl-brand);color:#fff}
+  #dr2tl .back{display:inline-flex;align-items:center;gap:5px;color:var(--text-secondary);font-size:12px;text-decoration:none;font-weight:600;transition:color 200ms}
+  #dr2tl .back:hover{color:var(--tl-brand)}
   /* collapsible deal-context tabs — bounded + internally scrollable (Johan D) */
-  #dr2tl .ctabs{border:1px solid #e2e8f0;border-radius:10px;background:#fff;margin-bottom:8px;overflow:hidden;flex:0 0 auto}
-  #dr2tl .ctabs-h{display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;user-select:none;font-size:12.5px;color:#64748b;font-weight:600}
-  #dr2tl .ctabs-h .chev{transition:transform .18s}
+  #dr2tl .ctabs{border:1px solid var(--border);border-radius:6px;background:var(--surface);margin-bottom:10px;overflow:hidden;flex:0 0 auto}
+  #dr2tl .ctabs-h{display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;user-select:none;font-size:12.5px;color:var(--text-secondary);font-weight:600;transition:background 200ms}
+  #dr2tl .ctabs-h:hover{background:var(--surface-2)}
+  #dr2tl .ctabs-h .chev{transition:transform .18s;color:var(--text-muted)}
   #dr2tl .ctabs-h.open .chev{transform:rotate(90deg)}
-  #dr2tl .ctabs-body{border-top:1px solid #e2e8f0;padding:10px 12px;max-height:min(48vh,460px);overflow-y:auto;overscroll-behavior:contain}
+  #dr2tl .ctabs-h .ctabs-state{margin-left:auto;font-weight:400;color:var(--text-muted)}
+  #dr2tl .ctabs-body{border-top:1px solid var(--border);padding:10px 12px;max-height:min(48vh,460px);overflow-y:auto;overscroll-behavior:contain}
+  #dr2tl .flash{border-radius:6px;padding:7px 12px;font-size:12.5px;margin-bottom:8px;flex:0 0 auto;color:var(--text-primary)}
+  #dr2tl .flash.ok{background:color-mix(in srgb,var(--tl-done) 10%,transparent);border:1px solid color-mix(in srgb,var(--tl-done) 30%,transparent)}
+  #dr2tl .flash.err{background:color-mix(in srgb,var(--tl-today) 10%,transparent);border:1px solid color-mix(in srgb,var(--tl-today) 30%,transparent)}
+  #dr2tl .empty{padding:2rem;text-align:center;color:var(--text-secondary);font-size:13px}
+  #dr2tl .empty a{color:var(--tl-brand);font-weight:600;text-decoration:none}
 
   /* ── the Gantt surface ── */
-  #dr2tl .mid{flex:1;min-height:0;display:flex;flex-direction:column;background:#fff;border:1px solid #e2e8f0;border-radius:14px 14px 0 0;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04)}
-  #dr2tl .midbar{display:flex;align-items:center;gap:14px;padding:10px 15px;border-bottom:1px solid #e2e8f0;flex-wrap:wrap}
-  #dr2tl .midbar .t{font-weight:800;color:#0f172a;font-size:13.5px}
+  #dr2tl .mid{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:6px 6px 0 0;overflow:hidden}
+  #dr2tl .midbar{display:flex;align-items:center;gap:14px;padding:10px 15px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  #dr2tl .midbar .t{font-weight:700;color:var(--text-primary);font-size:13.5px}
   /* the old .hint was a full-width caption row on its own — reclaimed as a "?" badge with a native
      title-attr tooltip instead, so the toolbar stays a single compact line */
-  #dr2tl .qhint{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:#e2e8f0;color:#64748b;font-size:10px;font-weight:700;cursor:help;margin-left:5px;vertical-align:middle}
-  #dr2tl .qhint:hover{background:#cbd5e1;color:#334155}
+  #dr2tl .qhint{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:var(--surface-2);border:1px solid var(--border);color:var(--text-muted);font-size:10px;font-weight:700;cursor:help;margin-left:5px;vertical-align:middle}
+  #dr2tl .qhint:hover{color:var(--text-primary);border-color:var(--border-hover)}
   /* zoom control — Month/Week/Day pixels-per-day levels, rescales the axis + every tile together */
-  #dr2tl .zoomctl{display:inline-flex;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;font-size:11.5px;margin-left:auto}
-  #dr2tl .zbtn{padding:5px 11px;border:0;border-left:1px solid #e2e8f0;background:#fff;color:#374151;cursor:pointer;font-family:inherit;font-weight:600}
+  #dr2tl .zoomctl{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:11.5px;margin-left:auto}
+  #dr2tl .zbtn{padding:5px 11px;border:0;border-left:1px solid var(--border);background:var(--surface);color:var(--text-secondary);cursor:pointer;font-family:inherit;font-weight:600;transition:background 200ms,color 200ms}
   #dr2tl .zbtn:first-child{border-left:0}
-  #dr2tl .zbtn:hover{background:#f1f5f9}
-  #dr2tl .zbtn.on{background:#0f172a;color:#fff}
-  #dr2tl .legend{display:flex;gap:13px;font-size:11px;color:#64748b;align-items:center;flex-wrap:wrap}
+  #dr2tl .zbtn:hover{background:var(--surface-2);color:var(--text-primary)}
+  #dr2tl .zbtn.on{background:var(--tl-brand);color:#fff}
+  #dr2tl .legend{display:flex;gap:13px;font-size:11px;color:var(--text-secondary);align-items:center;flex-wrap:wrap}
   #dr2tl .lg{display:flex;align-items:center;gap:5px}
   #dr2tl .sw{width:16px;height:9px;border-radius:3px;display:inline-block}
-  #dr2tl .sw.done{background:#16a34a}#dr2tl .sw.active{background:#2563eb}#dr2tl .sw.upcoming{background:#cbd5e1}
-  #dr2tl .dia{width:10px;height:10px;background:#eab308;transform:rotate(45deg);display:inline-block}
+  #dr2tl .sw.done{background:var(--tl-done)}#dr2tl .sw.active{background:var(--tl-active)}#dr2tl .sw.upcoming{background:var(--tl-up)}
+  #dr2tl .dia{width:10px;height:10px;background:var(--tl-mile);transform:rotate(45deg);display:inline-block}
 
   #dr2tl .scroll{flex:1;min-height:0;overflow:auto;position:relative}
   #dr2tl .canvas{position:relative}
@@ -59,52 +70,52 @@
      lands past Granted even though they're genuinely Stage 1 (e.g. "Guarantees Issued", "Bond Approved")
      — that was the whole bug. Membership is shown per-item instead, via .stagebadge on each tile and
      each non-anchor/non-gate milestone (below); this legend is just the key. */
-  #dr2tl .stagelegend{display:flex;align-items:center;gap:14px;padding:6px 15px;border-bottom:1px solid #e2e8f0;background:#f8fafc;font-size:11px;color:#475569;flex-wrap:wrap}
+  #dr2tl .stagelegend{display:flex;align-items:center;gap:14px;padding:6px 15px;border-bottom:1px solid var(--border);background:var(--surface-2);font-size:11px;color:var(--text-secondary);flex-wrap:wrap}
   #dr2tl .stagelegend .lgi{display:flex;align-items:center;gap:5px}
-  #dr2tl .stagebadge{width:14px;height:14px;flex:0 0 14px;border-radius:4px;background:#2563eb;color:#fff;font-weight:700;font-size:8.5px;display:inline-flex;align-items:center;justify-content:center;line-height:1}
+  #dr2tl .stagebadge{width:14px;height:14px;flex:0 0 14px;border-radius:4px;background:var(--tl-active);color:#fff;font-weight:700;font-size:8.5px;display:inline-flex;align-items:center;justify-content:center;line-height:1}
   #dr2tl .stagebadge.s2{background:#64748b}
 
   /* phase bands (behind) — alternating tint BETWEEN milestone dates (a calendar-phase visualisation,
      unrelated to Stage 1/2 membership) */
-  #dr2tl .band{position:absolute;top:34px;bottom:0;z-index:0;border-left:1px dashed #dbe4ff;background:rgba(99,102,241,.03)}
-  #dr2tl .band.alt{background:rgba(37,99,235,.045)}
-  #dr2tl .band .bname{position:absolute;left:10px;font-size:11px;font-weight:800;color:#4f46e5;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap;opacity:.85}
+  #dr2tl .band{position:absolute;top:34px;bottom:0;z-index:0;border-left:1px dashed color-mix(in srgb,var(--tl-brand) 25%,transparent);background:color-mix(in srgb,var(--tl-brand) 3%,transparent)}
+  #dr2tl .band.alt{background:color-mix(in srgb,var(--tl-brand) 6%,transparent)}
+  #dr2tl .band .bname{position:absolute;left:10px;font-size:11px;font-weight:700;color:var(--tl-brand);text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;opacity:.85}
 
   /* date axis */
-  #dr2tl .axis{position:sticky;top:0;height:34px;background:#fbfcfe;border-bottom:1px solid #e2e8f0;z-index:5}
-  #dr2tl .tick{position:absolute;top:0;height:34px;border-left:1px solid #eef2f7;font-size:10.5px;color:#64748b;font-weight:600;padding:9px 0 0 5px;white-space:nowrap}
+  #dr2tl .axis{position:sticky;top:0;height:34px;background:var(--surface-2);border-bottom:1px solid var(--border);z-index:5}
+  #dr2tl .tick{position:absolute;top:0;height:34px;border-left:1px solid var(--border);font-size:10.5px;color:var(--text-muted);font-weight:600;padding:9px 0 0 5px;white-space:nowrap}
 
   /* milestone vertical gate */
-  #dr2tl .mile{position:absolute;z-index:2;width:2px;background:#eab308;top:32px;bottom:0}
-  #dr2tl .mile .cap{position:absolute;top:2px;left:-8px;width:16px;height:16px;background:#eab308;transform:rotate(45deg);border:2px solid #fff;border-radius:3px;box-shadow:0 1px 3px rgba(0,0,0,.2)}
-  #dr2tl .mile .txt{position:absolute;left:12px;font-size:10px;font-weight:800;color:#a16207;white-space:nowrap;max-width:190px;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:4px}
-  #dr2tl .mile.done{background:#16a34a}#dr2tl .mile.done .cap{background:#16a34a}#dr2tl .mile.done .txt{color:#16a34a}
-  #dr2tl .mile.up{background:#cbd5e1}#dr2tl .mile.up .cap{background:#cbd5e1}#dr2tl .mile.up .txt{color:#64748b}
+  #dr2tl .mile{position:absolute;z-index:2;width:2px;background:var(--tl-mile);top:32px;bottom:0}
+  #dr2tl .mile .cap{position:absolute;top:2px;left:-8px;width:16px;height:16px;background:var(--tl-mile);transform:rotate(45deg);border:2px solid var(--surface);border-radius:3px;box-shadow:0 1px 3px var(--shadow)}
+  #dr2tl .mile .txt{position:absolute;left:12px;font-size:10px;font-weight:700;color:var(--tl-mile);white-space:nowrap;max-width:190px;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:4px}
+  #dr2tl .mile.done{background:var(--tl-done)}#dr2tl .mile.done .cap{background:var(--tl-done)}#dr2tl .mile.done .txt{color:var(--tl-done)}
+  #dr2tl .mile.up{background:var(--tl-up)}#dr2tl .mile.up .cap{background:var(--tl-up)}#dr2tl .mile.up .txt{color:var(--text-secondary)}
 
   /* today line */
-  #dr2tl .today{position:absolute;width:2px;background:#ef4444;z-index:4;top:34px;bottom:0}
-  #dr2tl .today .cap{position:absolute;top:-1px;left:4px;font-size:9px;font-weight:800;color:#ef4444;background:#fff;padding:0 3px;border-radius:3px}
+  #dr2tl .today{position:absolute;width:2px;background:var(--tl-today);z-index:4;top:34px;bottom:0}
+  #dr2tl .today .cap{position:absolute;top:-1px;left:4px;font-size:9px;font-weight:700;color:var(--tl-today);background:var(--surface);padding:0 3px;border-radius:3px;letter-spacing:.04em}
 
   /* the TILE = the duration bar. Compact at rest — name + dates only, hugging content (~60px, not the
      136px the readability pass over-corrected to). Actions reveal on hover/focus (below) rather than
      permanently reserving space for them. */
-  #dr2tl .ttile{position:absolute;z-index:3;background:#fff;border:1px solid #e2e8f0;border-radius:10px;height:60px;
-    padding:6px 9px;display:flex;flex-direction:column;box-shadow:0 1px 3px rgba(15,23,42,.10);overflow:hidden}
+  #dr2tl .ttile{position:absolute;z-index:3;background:var(--surface);border:1px solid var(--border);border-radius:6px;height:60px;
+    padding:6px 9px;display:flex;flex-direction:column;box-shadow:0 1px 3px var(--shadow);overflow:hidden;transition:box-shadow 200ms,border-color 200ms}
   /* on hover: grow to fit the revealed actions row, rise above neighbouring rows so it never gets
      clipped — a transient interaction state, not a layout change to the resting row-stack. */
-  #dr2tl .ttile:hover,#dr2tl .ttile:focus-within{height:auto;min-height:60px;overflow:visible;z-index:8;box-shadow:0 6px 16px rgba(37,99,235,.20)}
-  #dr2tl .ttile::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:10px 0 0 10px}
-  #dr2tl .ttile.active::before{background:#2563eb}#dr2tl .ttile.done::before{background:#16a34a}#dr2tl .ttile.upcoming::before{background:#cbd5e1}
+  #dr2tl .ttile:hover,#dr2tl .ttile:focus-within{height:auto;min-height:60px;overflow:visible;z-index:8;border-color:var(--border-hover);box-shadow:0 6px 16px var(--shadow)}
+  #dr2tl .ttile::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:6px 0 0 6px}
+  #dr2tl .ttile.active::before{background:var(--tl-active)}#dr2tl .ttile.done::before{background:var(--tl-done)}#dr2tl .ttile.upcoming::before{background:var(--tl-up)}
   #dr2tl .th{display:flex;align-items:center;gap:6px}
-  #dr2tl .th .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
-  #dr2tl .th .dot.active{background:#2563eb}#dr2tl .th .dot.done{background:#16a34a}#dr2tl .th .dot.upcoming{background:#cbd5e1}
+  #dr2tl .th .dot,#dr2tl .uh .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  #dr2tl .dot.active{background:var(--tl-active)}#dr2tl .dot.done{background:var(--tl-done)}#dr2tl .dot.upcoming{background:var(--tl-up)}
   /* name — single line, ellipsis if it overflows; full name is the title attr (tooltip on hover) */
-  #dr2tl .nm{font-weight:700;font-size:12px;line-height:1.25;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #dr2tl .ttile.done .nm{color:#8a97a8;text-decoration:line-through;text-decoration-color:#cbd5e1}
-  #dr2tl .star{color:#eab308;flex:0 0 auto;font-size:11px}
+  #dr2tl .nm{font-weight:600;font-size:12px;line-height:1.25;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #dr2tl .ttile.done .nm{color:var(--text-muted);text-decoration:line-through;text-decoration-color:var(--border-hover)}
+  #dr2tl .star{color:var(--tl-mile);flex:0 0 auto;width:11px;height:11px}
   /* dates line — single line, matches the compact rest height */
-  #dr2tl .sub{font-size:10.5px;color:#94a3b8;margin:2px 0 0 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #dr2tl .sub .d{color:#64748b;font-weight:700}
+  #dr2tl .sub{font-size:10.5px;color:var(--text-muted);margin:2px 0 0 14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #dr2tl .sub .d{color:var(--text-secondary);font-weight:700}
   /* base actions-row styling — shared by the on-axis tile AND the Unscheduled tray's .ucard (which is
      NOT height-constrained and keeps its actions always visible, unaffected by the rule below) */
   #dr2tl .tacts{display:flex;gap:4px;row-gap:3px;margin-top:6px;flex-wrap:wrap;overflow:visible}
@@ -114,103 +125,105 @@
   #dr2tl .ttile:hover .tacts,#dr2tl .ttile:focus-within .tacts{display:flex}
   /* !important beats the .hfc-card button[type=submit] global (which is also !important); our
      id-scoped selector is more specific, so submit buttons (Reopen/Remove) match type=button ones. */
-  #dr2tl .tacts .b{font-size:9.5px!important;line-height:1!important;padding:4px 6px!important;border:1px solid #e2e8f0!important;border-radius:5px!important;background:#fff!important;color:#64748b!important;cursor:pointer;font-family:inherit;font-weight:600!important;white-space:nowrap;flex:0 0 auto}
-  #dr2tl .tacts .b:hover{background:#f1f5f9!important}
-  #dr2tl .tacts .b.go{color:#065f46!important;border-color:#a7f3d0!important;background:#ecfdf5!important}
-  #dr2tl .tacts .b.seq{color:#2563eb!important;border-color:#bfdbfe!important}
-  #dr2tl .tacts .b.rm{color:#b91c1c!important;border-color:#fecaca!important;background:#fff!important}
+  #dr2tl .tacts .b{display:inline-flex!important;align-items:center;gap:3px;font-size:9.5px!important;line-height:1!important;padding:4px 6px!important;border:1px solid var(--border)!important;border-radius:5px!important;background:var(--surface)!important;color:var(--text-secondary)!important;cursor:pointer;font-family:inherit;font-weight:600!important;white-space:nowrap;flex:0 0 auto;box-shadow:none!important;transition:background 200ms,border-color 200ms,color 200ms}
+  #dr2tl .tacts .b:hover{background:var(--surface-2)!important;border-color:var(--border-hover)!important;color:var(--text-primary)!important}
+  #dr2tl .tacts .b svg{width:10px;height:10px;flex:0 0 auto}
+  #dr2tl .tacts .b.go{color:var(--tl-done)!important;border-color:color-mix(in srgb,var(--tl-done) 40%,transparent)!important;background:color-mix(in srgb,var(--tl-done) 8%,var(--surface))!important}
+  #dr2tl .tacts .b.seq{color:var(--tl-active)!important;border-color:color-mix(in srgb,var(--tl-active) 35%,transparent)!important}
+  #dr2tl .tacts .b.rm{color:var(--tl-today)!important;border-color:color-mix(in srgb,var(--tl-today) 35%,transparent)!important}
   #dr2tl .tacts form{display:inline}
-  #dr2tl .pin{position:absolute;top:-6px;right:-6px;width:16px;height:16px;border-radius:50%;background:#fff;border:1.5px solid #4f46e5;color:#4f46e5;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;z-index:4}
+  #dr2tl .pin{position:absolute;top:-6px;right:-6px;width:16px;height:16px;border-radius:50%;background:var(--surface);border:1.5px solid var(--tl-brand);color:var(--tl-brand);font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;z-index:4}
 
   /* comments-on-timeline track */
-  #dr2tl .ctrack-line{position:absolute;left:0;height:1px;background:#e2e8f0;z-index:1}
-  #dr2tl .ctrack-lbl{position:absolute;left:12px;font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:.03em;z-index:2}
-  #dr2tl .cpin{position:absolute;width:22px;height:22px;border-radius:50%;background:#fff;border:1.6px solid #4f46e5;color:#4f46e5;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;z-index:3;cursor:default;transform:translateX(-11px);box-shadow:0 1px 3px rgba(0,0,0,.14)}
-  #dr2tl .cpin.step{border-color:#2563eb;color:#2563eb}
+  #dr2tl .ctrack-line{position:absolute;left:0;height:1px;background:var(--border);z-index:1}
+  #dr2tl .ctrack-lbl{position:absolute;left:12px;font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;z-index:2;display:flex;align-items:center;gap:4px}
+  #dr2tl .ctrack-lbl svg{width:11px;height:11px}
+  #dr2tl .cpin{position:absolute;width:22px;height:22px;border-radius:50%;background:var(--surface);border:1.6px solid var(--tl-brand);color:var(--tl-brand);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;z-index:3;cursor:default;transform:translateX(-11px);box-shadow:0 1px 3px var(--shadow)}
+  #dr2tl .cpin.step{border-color:var(--tl-active);color:var(--tl-active)}
   #dr2tl .cpin .stem{position:absolute;bottom:100%;left:50%;width:1.5px;height:12px;background:currentColor;opacity:.35}
 
   /* persistent Unscheduled tray — bounded, scrolls internally (Johan's "set area, scrolls inside") */
-  #dr2tl .utray-wrap{flex:0 0 auto;margin:8px 15px 0;border:1px dashed #fcd34d;background:#fffbeb;border-radius:10px;overflow:hidden;display:flex;flex-direction:column;max-height:min(44vh,420px)}
-  #dr2tl .utray-h{padding:7px 12px;font-size:11.5px;color:#92400e;border-bottom:1px dashed #fde68a;flex:0 0 auto}
-  #dr2tl .utray-h b{color:#78350f}
+  #dr2tl .utray-wrap{flex:0 0 auto;margin:8px 15px 0;border:1px dashed color-mix(in srgb,var(--tl-mile) 45%,transparent);background:color-mix(in srgb,var(--tl-mile) 7%,transparent);border-radius:6px;overflow:hidden;display:flex;flex-direction:column;max-height:min(44vh,420px)}
+  #dr2tl .utray-h{display:flex;align-items:flex-start;gap:7px;padding:7px 12px;font-size:11.5px;color:var(--text-secondary);border-bottom:1px dashed color-mix(in srgb,var(--tl-mile) 35%,transparent);flex:0 0 auto}
+  #dr2tl .utray-h svg{width:14px;height:14px;flex:0 0 auto;color:var(--tl-mile);margin-top:1px}
+  #dr2tl .utray-h b{color:var(--text-primary)}
   #dr2tl .utray{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;align-content:flex-start}
-  #dr2tl .ucard{position:relative;flex:1 1 240px;max-width:340px;min-width:220px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px 8px 13px;box-shadow:0 1px 2px rgba(15,23,42,.05)}
-  #dr2tl .ucard::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:10px 0 0 10px}
-  #dr2tl .ucard.active::before{background:#2563eb}#dr2tl .ucard.done::before{background:#16a34a}#dr2tl .ucard.upcoming::before{background:#cbd5e1}
+  #dr2tl .ucard{position:relative;flex:1 1 240px;max-width:340px;min-width:220px;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px 10px 8px 13px;box-shadow:0 1px 2px var(--shadow);transition:border-color 200ms}
+  #dr2tl .ucard:hover{border-color:var(--border-hover)}
+  #dr2tl .ucard::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:6px 0 0 6px}
+  #dr2tl .ucard.active::before{background:var(--tl-active)}#dr2tl .ucard.done::before{background:var(--tl-done)}#dr2tl .ucard.upcoming::before{background:var(--tl-up)}
   #dr2tl .ucard .uh{display:flex;align-items:center;gap:6px}
-  #dr2tl .ucard .usub{font-size:10.5px;color:#94a3b8;margin:3px 0 5px 14px}
-  #dr2tl .ucard.done .nm{color:#8a97a8;text-decoration:line-through;text-decoration-color:#cbd5e1}
-  #dr2tl .ubadge{font-size:9.5px;font-weight:700;padding:1px 7px;border-radius:11px;background:#f1f5f9;color:#64748b}
-  #dr2tl .ubadge.active{background:#dbeafe;color:#1d4ed8}#dr2tl .ubadge.done{background:#d1fae5;color:#047857}
+  #dr2tl .ucard .usub{font-size:10.5px;color:var(--text-muted);margin:3px 0 5px 14px}
+  #dr2tl .ucard.done .nm{color:var(--text-muted);text-decoration:line-through;text-decoration-color:var(--border-hover)}
+  #dr2tl .ubadge{font-size:9.5px;font-weight:600;padding:1px 7px;border-radius:11px;background:var(--surface-2);color:var(--text-secondary)}
+  #dr2tl .ubadge.active{background:color-mix(in srgb,var(--tl-active) 14%,transparent);color:var(--tl-active)}#dr2tl .ubadge.done{background:color-mix(in srgb,var(--tl-done) 14%,transparent);color:var(--tl-done)}
   #dr2tl .ucard .tacts{margin-top:4px}
 
   /* Add custom step — same control/fields as the List (route deals-dr2.pipeline.step.add), surfaced here too */
   #dr2tl .addstep{flex:0 0 auto;margin:8px 15px 0;padding-top:2px}
-  #dr2tl .addstep__toggle{font-size:12px;font-weight:700;color:#2563eb;background:#fff;border:1px solid #cdd8e6;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit}
-  #dr2tl .addstep__toggle:hover{background:#f1f5f9}
-  #dr2tl .addstep__form{margin-top:8px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 13px}
+  #dr2tl .addstep__toggle{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--text-secondary);background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:6px 12px;cursor:pointer;font-family:inherit;transition:background 200ms,color 200ms,border-color 200ms}
+  #dr2tl .addstep__toggle:hover{background:var(--surface-2);color:var(--tl-brand);border-color:var(--border-hover)}
+  #dr2tl .addstep__form{margin-top:8px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:12px 13px}
   #dr2tl .addstep__row{display:flex;gap:10px;flex-wrap:wrap}
-  #dr2tl .addstep__f{flex:1 1 200px;display:flex;flex-direction:column;font-size:11.5px;font-weight:700;color:#475569;gap:3px}
-  #dr2tl .addstep__hintt{font-weight:500;color:#94a3b8}
-  #dr2tl .addstep__f input,#dr2tl .addstep__f select{font-family:inherit;font-size:13px;font-weight:400;color:#1e293b;border:1px solid #e2e8f0;border-radius:7px;padding:6px 8px}
-  #dr2tl .addstep__due{margin-top:11px;border-top:1px solid #eef2f7;padding-top:9px}
-  #dr2tl .addstep__duehdr{font-size:11.5px;font-weight:700;color:#475569;margin-bottom:5px}
-  #dr2tl .addstep__radio{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#1e293b;padding:3px 0}
-  #dr2tl .addstep__radio.is-dim{color:#94a3b8}
+  #dr2tl .addstep__f{flex:1 1 200px;display:flex;flex-direction:column;font-size:11.5px;font-weight:600;color:var(--text-secondary);gap:3px}
+  #dr2tl .addstep__hintt{font-weight:400;color:var(--text-muted)}
+  #dr2tl .addstep__f input,#dr2tl .addstep__f select,#dr2tl .addstep__radio input[type=date],#dr2tl .addstep__num{font-family:inherit;font-weight:400;color:var(--text-primary);background:var(--surface);border:1px solid var(--border);border-radius:6px;transition:border-color 200ms}
+  #dr2tl .addstep__f input,#dr2tl .addstep__f select{font-size:13px;padding:6px 8px}
+  #dr2tl .addstep__f input:focus,#dr2tl .addstep__f select:focus,#dr2tl .addstep__radio input[type=date]:focus,#dr2tl .addstep__num:focus{outline:none;border-color:var(--tl-brand)}
+  #dr2tl .addstep__due{margin-top:11px;border-top:1px solid var(--border);padding-top:9px}
+  #dr2tl .addstep__duehdr{font-size:11.5px;font-weight:600;color:var(--text-secondary);margin-bottom:5px}
+  #dr2tl .addstep__radio{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text-primary);padding:3px 0}
+  #dr2tl .addstep__radio.is-dim{color:var(--text-muted)}
   #dr2tl .addstep__radio span{display:inline-flex;align-items:center;gap:5px;flex-wrap:wrap}
-  #dr2tl .addstep__radio input[type=date]{font-family:inherit;font-size:12.5px;border:1px solid #e2e8f0;border-radius:6px;padding:3px 6px}
-  #dr2tl .addstep__num{font-family:inherit;font-size:12.5px;border:1px solid #e2e8f0;border-radius:6px;padding:3px 6px}
+  #dr2tl .addstep__radio input[type=date],#dr2tl .addstep__num{font-size:12.5px;padding:3px 6px}
   #dr2tl .addstep__num:disabled,#dr2tl .addstep__radio input:disabled{opacity:.45}
-  #dr2tl .addstep__note{font-size:11px;color:#94a3b8;margin-top:4px}
+  #dr2tl .addstep__note{font-size:11px;color:var(--text-muted);margin-top:4px}
   #dr2tl .addstep__actions{margin-top:11px}
-  #dr2tl .addstep__submit{font-size:12.5px;font-weight:700;padding:6px 16px;border:0;border-radius:7px;background:#2563eb;color:#fff;cursor:pointer;font-family:inherit}
-  #dr2tl .addstep__submit:hover{background:#1d4ed8}
 
   /* draggable dated tile affordance */
   #dr2tl .ttile.draggable{cursor:grab}
-  #dr2tl .ttile.dragging{cursor:grabbing;z-index:9;box-shadow:0 8px 20px rgba(37,99,235,.28);opacity:.95}
+  #dr2tl .ttile.dragging{cursor:grabbing;z-index:9;box-shadow:0 8px 20px var(--shadow);opacity:.95}
 
   /* projected tiles — start inferred (due − offset), not yet committed: dashed border + a small tag */
-  #dr2tl .ttile.projected{border-style:dashed;border-color:#c7d2fe;background:#fcfdff}
+  #dr2tl .ttile.projected{border-style:dashed;border-color:color-mix(in srgb,var(--tl-brand) 40%,transparent);background:color-mix(in srgb,var(--tl-brand) 3%,var(--surface))}
   #dr2tl .ttile.projected::before{opacity:.5}
-  #dr2tl .projtag{font-size:8px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#6366f1;background:#eef2ff;border:1px solid #e0e7ff;border-radius:5px;padding:1px 4px;flex:0 0 auto}
-  /* 📅 set-dates control (header, right-aligned) */
-  #dr2tl .th .setdates{margin-left:auto;flex:0 0 auto;border:1px solid #e2e8f0;background:#fff;border-radius:5px;font-size:10px;line-height:1;padding:2px 5px;cursor:pointer}
-  #dr2tl .th .setdates:hover{background:#eff6ff;border-color:#bfdbfe}
+  #dr2tl .projtag{font-size:8px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--tl-brand);background:color-mix(in srgb,var(--tl-brand) 10%,transparent);border:1px solid color-mix(in srgb,var(--tl-brand) 25%,transparent);border-radius:5px;padding:1px 4px;flex:0 0 auto}
   /* edge-drag resize handles (dated, non-terminal tiles only) */
   #dr2tl .rhandle{position:absolute;top:0;bottom:0;width:8px;z-index:6;cursor:ew-resize;touch-action:none;background:transparent;display:flex;align-items:center;justify-content:center}
-  #dr2tl .rhandle.rleft{left:0;border-radius:10px 0 0 10px}
+  #dr2tl .rhandle.rleft{left:0;border-radius:6px 0 0 6px}
   /* right handle: ALWAYS visible (not hover-only) — a fixed 8px grab zone with a grip mark, present on
      every resizable tile regardless of width, so it's consistently findable instead of an invisible
      hover-only strip a narrow tile could hide entirely */
-  #dr2tl .rhandle.rright{right:0;border-radius:0 10px 10px 0;background:rgba(37,99,235,.08);border-left:1px solid rgba(37,99,235,.16)}
-  #dr2tl .rhandle.rright::after{content:"";width:2px;height:20px;border-radius:1px;background:rgba(37,99,235,.5)}
-  #dr2tl .ttile:hover .rhandle{background:rgba(37,99,235,.14)}
-  #dr2tl .rhandle:hover{background:rgba(37,99,235,.32)!important}
-  #dr2tl .rhandle.rright:hover::after{background:#2563eb}
-  #dr2tl .ttile.resizing{z-index:9;box-shadow:0 8px 20px rgba(37,99,235,.28)}
-  #dr2tl .ed-note{font-size:11px;color:#4f46e5;background:#eef2ff;border-radius:7px;padding:6px 9px;margin-top:2px;line-height:1.35}
+  #dr2tl .rhandle.rright{right:0;border-radius:0 6px 6px 0;background:color-mix(in srgb,var(--tl-brand) 8%,transparent);border-left:1px solid color-mix(in srgb,var(--tl-brand) 16%,transparent)}
+  #dr2tl .rhandle.rright::after{content:"";width:2px;height:20px;border-radius:1px;background:color-mix(in srgb,var(--tl-brand) 50%,transparent)}
+  #dr2tl .ttile:hover .rhandle{background:color-mix(in srgb,var(--tl-brand) 14%,transparent)}
+  #dr2tl .rhandle:hover{background:color-mix(in srgb,var(--tl-brand) 32%,transparent)!important}
+  #dr2tl .rhandle.rright:hover::after{background:var(--tl-brand)}
+  #dr2tl .ttile.resizing{z-index:9;box-shadow:0 8px 20px var(--shadow)}
 
   /* footer comments */
-  #dr2tl .foot{flex:0 0 200px;background:#fff;border:1px solid #e2e8f0;border-top:0;border-radius:0 0 14px 14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04)}
-  #dr2tl .cbar{display:flex;align-items:center;gap:10px;padding:9px 15px;border-bottom:1px solid #e2e8f0;flex-wrap:wrap}
-  #dr2tl .cbar .t{font-weight:800;color:#0f172a;font-size:13px}
-  #dr2tl .cscope{font-size:11px;color:#64748b}#dr2tl .cscope b{color:#2563eb}
-  #dr2tl .chip{font-size:11px;padding:3px 10px;border-radius:20px;border:1px solid #e2e8f0;background:#fff;color:#64748b;cursor:pointer;font-family:inherit}
-  #dr2tl .chip.on{background:#2563eb;color:#fff;border-color:#2563eb;font-weight:600}
+  #dr2tl .foot{flex:0 0 200px;background:var(--surface);border:1px solid var(--border);border-top:0;border-radius:0 0 6px 6px;display:flex;flex-direction:column;overflow:hidden}
+  #dr2tl .cbar{display:flex;align-items:center;gap:10px;padding:9px 15px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  #dr2tl .cbar .t{font-weight:700;color:var(--text-primary);font-size:13px}
+  #dr2tl .cscope{font-size:11px;color:var(--text-muted)}#dr2tl .cscope b{color:var(--tl-brand)}
+  #dr2tl .chip{font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--text-secondary);cursor:pointer;font-family:inherit;transition:background 200ms,color 200ms,border-color 200ms}
+  #dr2tl .chip:hover{background:var(--surface-2);color:var(--text-primary)}
+  #dr2tl .chip.on{background:var(--tl-brand);color:#fff;border-color:var(--tl-brand)}
   #dr2tl .feed{flex:1;overflow-y:auto;padding:7px 15px}
-  #dr2tl .cm{display:flex;gap:9px;padding:6px 0;border-bottom:1px solid #f4f6fa}
-  #dr2tl .av{width:24px;height:24px;flex:0 0 24px;border-radius:50%;background:#dbe4ff;color:#4f46e5;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
-  #dr2tl .cmeta{font-size:11px;color:#64748b}#dr2tl .cmeta b{color:#1e293b}
-  #dr2tl .ctag{font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:5px;margin-left:5px;background:#eff6ff;color:#2563eb}
-  #dr2tl .ctag.deal{background:#eef2ff;color:#4f46e5}
-  #dr2tl .ctxt{font-size:12px;color:#1e293b;margin-top:1px;white-space:pre-wrap}
-  #dr2tl .cadd{display:flex;gap:8px;padding:8px 15px;border-top:1px solid #e2e8f0;align-items:center;flex-wrap:wrap}
-  #dr2tl .cadd select,#dr2tl .cadd input{font-family:inherit;font-size:12px;border:1px solid #e2e8f0;border-radius:7px;padding:6px 9px;color:#1e293b}
+  #dr2tl .feed .feed-empty{color:var(--text-muted);font-size:12px;padding:8px 0}
+  #dr2tl .cm{display:flex;gap:9px;padding:6px 0;border-bottom:1px solid var(--border)}
+  #dr2tl .av{width:24px;height:24px;flex:0 0 24px;border-radius:50%;background:color-mix(in srgb,var(--tl-brand) 15%,transparent);color:var(--tl-brand);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  #dr2tl .cmeta{font-size:11px;color:var(--text-muted)}#dr2tl .cmeta b{color:var(--text-primary)}
+  #dr2tl .ctag{font-size:9.5px;font-weight:600;padding:1px 6px;border-radius:5px;margin-left:5px;background:color-mix(in srgb,var(--tl-active) 12%,transparent);color:var(--tl-active)}
+  #dr2tl .ctag.deal{background:color-mix(in srgb,var(--tl-brand) 12%,transparent);color:var(--tl-brand)}
+  #dr2tl .ctxt{font-size:12px;color:var(--text-primary);margin-top:1px;white-space:pre-wrap}
+  #dr2tl .cadd{display:flex;gap:8px;padding:8px 15px;border-top:1px solid var(--border);align-items:center;flex-wrap:wrap}
+  #dr2tl .cadd select,#dr2tl .cadd input{font-family:inherit;font-size:12px;border:1px solid var(--border);border-radius:6px;padding:6px 9px;color:var(--text-primary);background:var(--surface);transition:border-color 200ms}
+  #dr2tl .cadd select:focus,#dr2tl .cadd input:focus{outline:none;border-color:var(--tl-brand)}
   #dr2tl .cadd input{flex:1;min-width:120px}
-  #dr2tl .cadd button{font-size:12px;font-weight:600;padding:6px 15px;border:0;border-radius:7px;background:#2563eb;color:#fff;cursor:pointer}
-  #dr2tl-toast{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);background:#0f172a;color:#fff;padding:9px 15px;border-radius:9px;font-size:12px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:160}
+  #dr2tl-toast{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);background:var(--text-primary);color:var(--surface);padding:9px 15px;border-radius:6px;font-size:12px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:160}
   #dr2tl-toast.on{opacity:1}
+  #dr2tl .ed-note{font-size:11px;color:var(--text-secondary);background:var(--surface-2);border-radius:6px;padding:6px 9px;margin-top:2px;line-height:1.35}
 </style>
 
 @php($from = 'timeline')
@@ -242,17 +255,23 @@
      data-base="{{ $board['base_date'] ?? '' }}" data-dayw="{{ $DAYW }}" data-padx="{{ $PADX }}"
      data-days="{{ (int) ($board['days'] ?? 0) }}" data-deal="{{ $deal->id }}">
 
-  <div class="thead">
-    <div>
-      <div class="h1">Deal Pipeline</div>
-      <div class="hsub">
-        {{ $deal->deal_no ? 'Deal ' . $deal->deal_no : ('Deal #' . $deal->id) }}
-        @if($deal->property) — {{ $deal->property->buildDisplayAddress() }} @endif
+  {{-- Page header --}}
+  <div class="rounded-md px-6 py-5 corex-page-banner tl-banner">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <div>
+        <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Deal Pipeline</h1>
+        <p class="text-xs" style="color: var(--text-muted);">
+          {{ $deal->deal_no ? 'Deal ' . $deal->deal_no : ('Deal #' . $deal->id) }}
+          @if($deal->property) — {{ $deal->property->buildDisplayAddress() }} @endif
+        </p>
       </div>
-    </div>
-    <div style="display:flex;align-items:center;gap:12px;">
-      <div class="toggle"><span class="on">Timeline</span><a href="{{ route('deals-dr2.pipeline.list', $deal) }}">List</a></div>
-      <a class="back" href="{{ route('deals-dr2.index') }}">← DR2 Register</a>
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="toggle"><span class="on">Timeline</span><a href="{{ route('deals-dr2.pipeline.list', $deal) }}">List</a></div>
+        <a class="back" href="{{ route('deals-dr2.index') }}">
+          <svg class="tl-ico" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+          DR2 Register
+        </a>
+      </div>
     </div>
   </div>
 
@@ -265,18 +284,18 @@
        x-data="{ open: (localStorage.getItem('dr2_panels_open_{{ $deal->id }}') || '{{ ($hasPipeline ?? false) ? '0' : '1' }}') === '1' }"
        x-init="$watch('open', v => localStorage.setItem('dr2_panels_open_{{ $deal->id }}', v ? '1' : '0'))">
     <div class="ctabs-h" :class="open?'open':''" @click="open=!open">
-      <span class="chev">▸</span> Deal panels — Structure · Work Orders · Documents · Parties · Proforma
-      <span style="margin-left:auto;font-weight:400;color:#94a3b8;" x-text="open?'hide':'show'"></span>
+      <svg class="chev tl-ico" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg> Deal panels — Structure · Work Orders · Documents · Parties · Proforma
+      <span class="ctabs-state" x-text="open?'hide':'show'"></span>
     </div>
     <div class="ctabs-body" x-show="open" x-cloak>@include('dr2._pipeline-context-tabs')</div>
   </div>
 
-  @if(session('info'))<div style="background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:8px;padding:6px 12px;font-size:12.5px;margin-bottom:6px;">{{ session('info') }}</div>@endif
-  @if(session('error'))<div style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:8px;padding:6px 12px;font-size:12.5px;margin-bottom:6px;">{{ session('error') }}</div>@endif
+  @if(session('info'))<div class="flash ok">{{ session('info') }}</div>@endif
+  @if(session('error'))<div class="flash err">{{ session('error') }}</div>@endif
 
   @if($board['empty'])
-    <div class="mid"><div style="padding:2rem;text-align:center;color:#64748b;font-size:13px;">
-      No dated pipeline steps yet — set start &amp; due dates from the <strong>Deal panels → Structure</strong> tab above, or open the <a href="{{ route('deals-dr2.pipeline.list', $deal) }}" style="color:#2563eb;font-weight:600;">List view</a>.
+    <div class="mid"><div class="empty">
+      No dated pipeline steps yet — set start &amp; due dates from the <strong>Deal panels → Structure</strong> tab above, or open the <a href="{{ route('deals-dr2.pipeline.list', $deal) }}">List view</a>.
     </div></div>
   @else
   @php($base = \Illuminate\Support\Carbon::parse($board['base_date']))
@@ -304,7 +323,7 @@
 
   <div class="mid">
     <div class="midbar">
-      <span class="t">Timeline<span class="qhint" title="Tiles stretch to their duration. Overlapping tiles stack underneath. Drag a tile to reschedule. Drag an edge to resize. 📅 sets exact dates. Dashed = projected. 💬 marks comments on the date made. Hover a tile to see its actions.">?</span></span>
+      <span class="t">Timeline<span class="qhint" title="Tiles stretch to their duration. Overlapping tiles stack underneath. Drag a tile to reschedule. Drag an edge to resize. Edit dates sets exact dates. Dashed = projected. Pins on the Comments line mark comments on the date made. Hover a tile to see its actions.">?</span></span>
       <div class="zoomctl" role="group" aria-label="Zoom">
         <button type="button" class="zbtn" data-zoom="month">Month</button>
         <button type="button" class="zbtn" data-zoom="week">Week</button>
@@ -335,8 +354,9 @@
     @if(!empty($board['unscheduled']))
       <div class="utray-wrap">
         <div class="utray-h">
-          <b>⚠ Unscheduled — {{ count($board['unscheduled']) }} step{{ count($board['unscheduled']) === 1 ? '' : 's' }} with no start date.</b>
-          They keep every action; set a start &amp; end (Deal Structure or the List view) to place them on the timeline above.
+          <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>
+          <span><b>Unscheduled — {{ count($board['unscheduled']) }} step{{ count($board['unscheduled']) === 1 ? '' : 's' }} with no start date.</b>
+          They keep every action; set a start &amp; end (Deal Structure or the List view) to place them on the timeline above.</span>
         </div>
         <div class="utray">
           @foreach($board['unscheduled'] as $u)
@@ -350,7 +370,7 @@
                 <div class="uh">
                   <span class="dot {{ $usc }}"></span>
                   <span class="nm" title="{{ $s->name }}">{{ $s->name }}</span>
-                  @if($s->is_milestone)<span class="star" title="Milestone">★</span>@endif
+                  @if($s->is_milestone)<span title="Milestone" style="display:inline-flex"><svg class="star" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg></span>@endif
                 </div>
                 <div class="usub"><span class="ubadge {{ $usc }}">{{ ucfirst(str_replace('_', ' ', $s->status)) }}</span> · no dates set</div>
                 @include('dr2._pipeline-timeline-actions', ['s' => $s, 'cc' => $cc])
@@ -370,7 +390,7 @@
     @unless($locked)
     @permission('view_deals')
     <div class="addstep" x-data="{ open:false, mode:'fixed', link:'' }">
-      <button type="button" class="addstep__toggle" @click="open=!open" x-text="open ? '× Cancel' : '+ Add custom step'"></button>
+      <button type="button" class="addstep__toggle" @click="open=!open" x-text="open ? 'Cancel' : '+ Add custom step'"></button>
       <form x-show="open" x-cloak method="POST" action="{{ route('deals-dr2.pipeline.step.add', $deal) }}" class="addstep__form">@csrf<input type="hidden" name="from" value="timeline">
         <div class="addstep__row">
           <label class="addstep__f">Step name
@@ -395,7 +415,7 @@
           </label>
           <div class="addstep__note" x-show="!link" x-cloak>Pick a linked step to enable “+N days after”. Standalone steps use a fixed date.</div>
         </div>
-        <div class="addstep__actions"><button type="submit" class="addstep__submit">Add step</button></div>
+        <div class="addstep__actions"><button type="submit" class="corex-btn-primary text-xs">Add step</button></div>
       </form>
     </div>
     @endpermission
@@ -427,7 +447,7 @@
         @foreach($board['miles'] as $m)
           <div class="mile {{ $m['state'] }}" data-day="{{ (int) $m['day'] }}" style="left:{{ $PADX + $m['day'] * $DAYW }}px;">
             <span class="cap"></span>
-            <span class="txt" style="top:{{ 2 + (int) ($m['lvl'] ?? 0) * 15 }}px;">★ {{ $m['name'] }} · {{ $dstr($m['day']) }}</span>
+            <span class="txt" style="top:{{ 2 + (int) ($m['lvl'] ?? 0) * 15 }}px;"><svg class="star" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg> {{ $m['name'] }} · {{ $dstr($m['day']) }}</span>
           </div>
         @endforeach
 
@@ -468,7 +488,7 @@
               @if(!empty($tile['stage']))<span class="stagebadge{{ $tile['stage'] == 2 ? ' s2' : '' }}" title="{{ $tile['stage'] == 1 ? 'Suspensive Conditions' : 'Transfer & Registration' }}">{{ $tile['stage'] }}</span>@endif
               <span class="dot {{ $tile['status'] }}"></span>
               <span class="nm" title="{{ $tile['name'] }}">{{ $tile['name'] }}</span>
-              @if(!empty($tile['star']))<span class="star" title="Suspensive condition">★</span>@endif
+              @if(!empty($tile['star']))<span title="Suspensive condition" style="display:inline-flex"><svg class="star" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg></span>@endif
               @if($projected)<span class="projtag" title="Projected start (due date − offset) — no start date is set. Use “Edit dates” to confirm the real dates.">proj</span>@endif
             </div>
             {{-- Completed: show BOTH the original due date and the actual completion date. done_str comes
@@ -498,7 +518,7 @@
 
         {{-- comments track — pins positioned by the date each note was made --}}
         <div class="ctrack-line" style="top:{{ $trackY }}px;width:{{ $W }}px;"></div>
-        <div class="ctrack-lbl" style="top:{{ $trackY + 4 }}px;">💬 Comments</div>
+        <div class="ctrack-lbl" style="top:{{ $trackY + 4 }}px;"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4-.84L3 20l1.4-3.72A7.6 7.6 0 013 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>Comments</div>
         @foreach($commentsResolved as $c)
           <div class="cpin {{ ($c['scope'] ?? '') === 'step' ? 'step' : 'deal' }}" data-day="{{ (int) ($c['day'] ?? 0) }}" style="left:{{ $PADX + (int) ($c['day'] ?? 0) * $DAYW }}px;top:{{ $trackY + 20 }}px;"
                title="{{ $c['step_name'] }} · {{ $c['who'] }} · {{ $c['when'] }} — {{ \Illuminate\Support\Str::limit($c['text'], 140) }}"><span class="stem"></span>{{ \Illuminate\Support\Str::substr($c['who'] ?? '?', 0, 1) }}</div>
@@ -525,7 +545,7 @@
         @foreach($steps as $r)<option value="{{ $r['model']->id }}">On: {{ $r['model']->name }}</option>@endforeach
       </select>
       <input id="dr2tl-text" placeholder="Add a comment…" @keydown.enter="dr2tlAddComment()">
-      <button onclick="dr2tlAddComment()">Add</button>
+      <button type="button" class="corex-btn-primary text-xs" onclick="dr2tlAddComment()">Add</button>
     </div>
     @endunless
   </div>
@@ -552,7 +572,7 @@
     if(filter==='deal') list=list.filter(c=>c.scope==='deal'||c.target===ANCHOR);
     else if(filter==='step'&&stepTarget) list=list.filter(c=>c.target===stepTarget);
     scope.innerHTML='Showing: <b>'+(filter==='step'?'this step':filter)+'</b>';
-    feed.innerHTML=list.length?'':'<div style="color:#94a3b8;font-size:12px;padding:8px 0">No comments yet.</div>';
+    feed.innerHTML=list.length?'':'<div class="feed-empty">No comments yet.</div>';
     list.slice().reverse().forEach(c=>{
       const deal=(c.scope==='deal'||c.target===ANCHOR);
       const cm=document.createElement('div');cm.className='cm';
@@ -637,7 +657,7 @@
     // ---- edge-drag RESIZE (dated, non-terminal tiles only): grab a tile's left/right edge to change its
     //      start / end. Persisted through the EXISTING editDates route (POST .../dates) then a reload — no
     //      new endpoint, no shared file touched. Projected/undated tiles are NOT edge-resizable; they use
-    //      the 📅 Set-dates modal to commit real dates. ----
+    //      the Edit dates modal to commit real dates. ----
     root.querySelectorAll('.ttile[data-resizable="1"]').forEach(el=>{
       const stepId=el.dataset.stepId;
       const origStart=parseInt(el.dataset.start)||0, origDur=parseInt(el.dataset.dur)||1;
@@ -737,7 +757,7 @@
     applyZoom(initialZoom);
   }
 
-  // Direct SET-DATES from the 📅 modal (dated OR projected tiles). Posts both dates to the existing
+  // Direct SET-DATES from the Edit dates modal (dated OR projected tiles). Posts both dates to the existing
   // editDates route, then reloads the timeline. The 302→list redirect is not followed (redirect:manual).
   window.dr2tlSaveDates=function(ev, stepId){
     ev.preventDefault();

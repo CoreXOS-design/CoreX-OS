@@ -115,11 +115,11 @@
                     <label style="flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:.45rem;font-size:.82rem;font-weight:600;cursor:pointer;" :style="it.status==='sent' ? 'color:#047857;' : (it.status==='failed' ? 'color:#b45309;' : (it.status==='awaiting_supplier' ? 'color:#b91c1c;' : ''))">
                         <input type="checkbox" x-model="it.applies" :disabled="it.status==='sent'">
                         <span x-text="it.label"></span>
-                        <span x-show="it.status==='sent'" x-cloak style="font-size:.66rem;font-weight:400;color:#047857;">✓ sent</span>
+                        <span x-show="it.status==='sent'" x-cloak style="font-size:.66rem;font-weight:400;color:#047857;">Sent</span>
                         {{-- AT-329 — a trigger-fired send that failed is shown, never silently dropped. --}}
-                        <span x-show="it.status==='failed'" x-cloak style="font-size:.66rem;font-weight:400;color:#b45309;">⚠ not sent</span>
+                        <span x-show="it.status==='failed'" x-cloak style="font-size:.66rem;font-weight:400;color:#b45309;">Not sent</span>
                         {{-- AT-334 P3 — held at the trigger for want of a supplier; sends automatically on assign+save. --}}
-                        <span x-show="it.status==='awaiting_supplier'" x-cloak style="font-size:.66rem;font-weight:400;color:#b91c1c;">⚠ awaiting supplier — set one &amp; save to send</span>
+                        <span x-show="it.status==='awaiting_supplier'" x-cloak style="font-size:.66rem;font-weight:400;color:#b91c1c;">Awaiting supplier — set one &amp; save to send</span>
                     </label>
                     {{-- + Add supplier — only when this COC is ticked and its recipient is a supplier/attorney. --}}
                     <button type="button" x-cloak @click="openAdd(it)"
@@ -209,7 +209,7 @@
                     <div x-show="it.applies && it.status!=='sent' && (it.responsible_party==='supplier' || it.responsible_party==='transfer_attorney')" x-cloak style="flex:1 1 100%;margin-top:.25rem;">
                         <template x-if="it.work_order_id">
                             <button type="button" @click="sendWorkOrder(it)" :disabled="it.sending" class="corex-btn-outline" style="font-size:.7rem;padding:.2rem .6rem;color:#0f766e;border-color:#5eead4;">
-                                <span x-text="it.sending ? 'Sending…' : '✉ Send work order to supplier'"></span>
+                                <span x-text="it.sending ? 'Sending…' : 'Send work order to supplier'"></span>
                             </button>
                         </template>
                         <span x-show="!it.work_order_id" x-cloak style="font-size:.66rem;color:#9ca3af;">Save to enable emailing the supplier.</span>
