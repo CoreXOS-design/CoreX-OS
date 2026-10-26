@@ -58,10 +58,10 @@
                 @foreach ($steps as $i => $step)
                     @php $n = $i + 1; @endphp
                     <li class="recipient-info-panel__step" data-step="{{ $n }}"
-                        :class="{ 'is-live': stepNo === {{ $n }}, 'is-done': stepNo > {{ $n }} }">
+                        :class="{ 'is-live': signingMethod === 'electronic' && stepNo === {{ $n }}, 'is-done': signingMethod === 'electronic' && stepNo > {{ $n }} }">
                         <span class="recipient-info-panel__step-number">
-                            <template x-if="stepNo > {{ $n }}"><span>&#10003;</span></template>
-                            <template x-if="stepNo <= {{ $n }}"><span>{{ $n }}</span></template>
+                            <template x-if="signingMethod === 'electronic' && stepNo > {{ $n }}"><span>&#10003;</span></template>
+                            <template x-if="!(signingMethod === 'electronic' && stepNo > {{ $n }})"><span>{{ $n }}</span></template>
                         </span>
                         <div class="recipient-info-panel__step-body">
                             @if (!empty($step['title_each']))

@@ -317,14 +317,14 @@
                     <span class="text-white/50"> · </span>
                     <span data-header-progress x-text="progressText"></span>
                 </div>
-                <div x-show="isWebTemplate && signingMethod === 'electronic' && headerBlocker" x-cloak data-header-blocker class="text-xs sm:text-sm" style="color:#fcd34d;">
+                <div x-show="isWebTemplate && signingMethod === 'electronic' && headerBlocker && !headerQuiet" x-cloak data-header-blocker class="text-xs sm:text-sm" style="color:#fcd34d;">
                     <span x-text="headerBlocker ? headerBlocker.text : ''"></span>
                     <button type="button" class="font-semibold underline" style="color:#fff;" x-show="headerBlocker && headerBlocker.kind !== 'consent'" @click="headerBlockerGo()">Go there</button>
                 </div>
                 @unless($reacceptanceMode ?? false)
                 {{-- The ECTA tick lives here, beside Finish: the ONE place the signer agrees and finishes. In a pack it only appears once the
                      last document has been reached (the signer is taken through every document first). --}}
-                <div x-show="isWebTemplate && signingMethod === 'electronic' && showFinish" x-cloak data-header-consent class="mt-1 text-white">
+                <div x-show="isWebTemplate && signingMethod === 'electronic' && showFinish && !headerQuiet" x-cloak data-header-consent class="mt-1 text-white">
                     <label id="consent-checkbox-label" class="flex items-start gap-2 cursor-pointer text-[11px] sm:text-xs leading-snug">
                         <input type="checkbox" x-model="webConsented" id="consent-checkbox" @change="updateIncompleteCount()"
                                class="mt-0.5 w-4 h-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500">
@@ -340,7 +340,7 @@
                 </div>
                 @endunless
             </div>
-            <div x-show="isWebTemplate && signingMethod === 'electronic'" x-cloak class="flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
+            <div x-show="isWebTemplate && signingMethod === 'electronic' && !headerQuiet" x-cloak data-header-actions class="flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
                 <button type="button" data-header-next x-show="primaryLabel" @click="nextAction()"
                         class="flex-1 sm:flex-none rounded-lg px-3 sm:px-5 text-xs sm:text-sm font-semibold" style="min-height:40px; min-width:6rem; background:#fff; color:#0b2a4a;"
                         x-text="primaryLabel"></button>
@@ -1496,7 +1496,7 @@
         // web-sig world: its own chooser + initial-detection from currentWebSigBlockId ('-init-').
         'savedSignatureSupport' => ($isAgent ?? false),
         'chooseSaved' => 'chooseSavedSignatureWeb',
-        'savedIsInitial' => "(currentWebSigBlockId || '').indexOf('-init-') !== -1",
+        'savedIsInitial' => "captureIsInitial()",
     ])
 
     {{-- Footer --}}
@@ -1645,7 +1645,7 @@ function externalSign() {
         viewedDocs: {},               // a pack: documents the signer has been taken to or touched (index -> true); document 1 counts from the start
         packFocusDoc: 0,              // a pack: the document the signer is on once nothing is left to sign in the ones already seen
         unviewedDoc: -1,              // a pack: index of the first document not yet seen; -1 when all are seen (or this is not a pack)
-        showFinish: true,             // the ECTA tick and Finish; in a pack only once the last document has been reached
+        showFinish: false,            // the ECTA tick and Finish: only once EVERY place on EVERY document is done (a pack: the last document reached too)
         showEctaText: false,
         _refreshing: false,
         dlg: { open: false, body: '', ok: 'OK', cancel: 'Cancel', resolve: null },   // the page's own confirm dialog (never a native pop-up)
@@ -2266,6 +2266,15 @@ function externalSign() {
             return items;
         },
 
+        // A detail counts toward "x of N done" only when the SIGNER has to act on it: it was empty when the page first saw it
+        // (or is empty now). Details CoreX already filled (phone, email, name) are not progress the signer made, so the
+        // counter starts at 0 and only moves when the signer does something. Decided once per field and remembered on it.
+        _detailNeedsSigner(inp) {
+            const filled = !!(inp.value && inp.value.trim());
+            if (inp.dataset.signerMustAct === undefined) inp.dataset.signerMustAct = filled ? '0' : '1';
+            return inp.dataset.signerMustAct === '1' || !filled;
+        },
+
         /**
          * Compute total and incomplete counts for all interactive items (web templates).
          * Single source of truth for both the top progress bar and bottom floating bar.
@@ -2302,6 +2311,7 @@ function externalSign() {
             // 3. Ceremony fields (mine — inputs with data-ceremony-field)
             if (container) {
                 container.querySelectorAll('input[data-ceremony-field="true"]').forEach(inp => {
+                    if (!this._detailNeedsSigner(inp)) return;
                     total++;
                     if (!inp.value || !inp.value.trim()) incomplete++;
                 });
@@ -2335,6 +2345,7 @@ function externalSign() {
             //    automatically per-recipient.
             if (container) {
                 container.querySelectorAll('input.field-editable[data-viewer-editable]').forEach(inp => {
+                    if (!this._detailNeedsSigner(inp)) return;
                     total++;
                     if (!inp.value || !inp.value.trim()) incomplete++;
                 });
@@ -2505,13 +2516,16 @@ function externalSign() {
             const info = this._packInfo();
             const unviewed = this._firstUnviewed(info);
             this._setIfChanged('unviewedDoc', unviewed);
-            this._setIfChanged('showFinish', unviewed === -1);
-            const here = this._stepThreeWork(items, info).here;
+            const work = this._stepThreeWork(items, info);
+            const here = work.here;
 
             const step1Done = saved ? this._marksAdopted() : (this.signStarted || this._signedSpotCount() > 0);
             const noDetails = this._totalDetails() === 0;
             const step2Done = fields.length === 0 && (this.detailsConfirmed || noDetails);
             this._setIfChanged('stepNo', !step1Done ? 1 : (!step2Done ? 2 : 3));
+            // The ECTA tick and Finish appear only when every place on every document is done: nothing left to sign, no document
+            // in a pack still unopened, no change waiting for initials. Until then Next is the one thing to press.
+            this._setIfChanged('showFinish', this.stepNo === 3 && unviewed === -1 && work.work.length === 0 && this.changeInitialsRemaining === 0);
 
             let status;
             if (this.stepNo === 1) {
@@ -2545,7 +2559,8 @@ function externalSign() {
                 }[first.kind];
                 blocker = { text: t, kind: first.kind };
             } else if (this.stepNo === 3 && unviewed !== -1) {
-                blocker = { text: 'Next: open ' + this._docTitle(unviewed, info), kind: 'view' };
+                // The status line already says "Press Next to open Document N of M": no second line saying the same thing.
+                blocker = null;
             } else if (this.stepNo === 3 && this.changeInitialsRemaining > 0) {
                 blocker = { text: 'A change to the wording needs your initials — click it.', kind: 'change' };
             } else if (this.stepNo === 3 && !this.webConsented) {
@@ -2554,7 +2569,7 @@ function externalSign() {
             this._setIfChanged('headerBlocker', blocker);
 
             this._setIfChanged('finishTitle', this.canSubmitWeb ? 'Finish and send your signed document'
-                : (blocker ? ('Not yet — ' + blocker.text.replace(/^Next: /, 'still to do: ').replace(/^Waiting on: /, 'still to fill in: ')) : 'Not yet — finish the steps first'));
+                : (this.stepNo === 3 && unviewed !== -1 ? ('Not yet — still to do: open ' + this._docTitle(unviewed, info)) : blocker ? ('Not yet — ' + blocker.text.replace(/^Next: /, 'still to do: ').replace(/^Waiting on: /, 'still to fill in: ')) : 'Not yet — finish the steps first'));
         },
 
         // Walk to an element: scroll it to the middle, pulse it, focus it if it is a field.
@@ -3745,6 +3760,11 @@ function externalSign() {
             return this.webTotalSigBlocksCount;
         },
 
+        // While any popup is open the header says nothing to do (no Start / Next / Finish / blocker): the popup is the one instruction.
+        get headerQuiet() {
+            return !!(this.showAdoption || this.showWebSigCapture || this.showSignModal || this.showFillAll || (this.dlg && this.dlg.open));
+        },
+
         get canSubmitWeb() {
             return this.webConsented && this.webIncompleteCount === 0 && this._adoptionSatisfied() && this.unviewedDoc === -1;
         },
@@ -4020,6 +4040,15 @@ function externalSign() {
             this.showAdoption = true;
             this.showNotification('Please add your signature and initials first.', 'info');
             return true;
+        },
+
+        // The ONE answer to "is the capture dialog collecting initials?" - every entry point that opens it
+        // (an initials place, the first popup's "Add initials", a proposed disclosure change) is counted here,
+        // so the dialog's words and the saved-initial choice can never disagree with what is being captured.
+        captureIsInitial() {
+            return this.adoptionStage === 'initial'
+                || !!this.pendingDisclosureAmend
+                || (this.currentWebSigBlockId || '').indexOf('-init-') !== -1;
         },
 
         // Collect one of the two marks through the ONE shared capture modal (same pattern as a proposed
@@ -4704,7 +4733,7 @@ function externalSign() {
             if (this.webSigMode === 'saved') {
                 // Place the agent's unlocked saved signature/initial (agent-only; PIN already entered).
                 // Which asset depends on whether the clicked marker is an initial block ('-init-').
-                const isInit = (this.currentWebSigBlockId || '').indexOf('-init-') !== -1;
+                const isInit = this.captureIsInitial();
                 sigData = isInit ? this.savedInitialImg : this.savedSignatureImg;
                 if (!sigData) { this.showNotification('Unlock your saved signature first.', 'warning'); return; }
             } else if (this.webSigMode === 'draw') {
@@ -4713,14 +4742,14 @@ function externalSign() {
                 const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                 const hasContent = imageData.data.some((val, idx) => idx % 4 === 3 && val > 0);
                 if (!hasContent) {
-                    this.showNotification('Please draw your signature first.', 'warning');
+                    this.showNotification(this.captureIsInitial() ? 'Please draw your initials first.' : 'Please draw your signature first.', 'warning');
                     return;
                 }
                 // Crop to the drawn strokes so a small scribble fills its block too.
                 sigData = this._cropCanvasToInk(canvas) || canvas.toDataURL('image/png');
             } else {
                 if (!this.webTypedSignature.trim()) {
-                    this.showNotification('Please type your name.', 'warning');
+                    this.showNotification(this.captureIsInitial() ? 'Please type your initials.' : 'Please type your name.', 'warning');
                     return;
                 }
                 // ESIGN-WETINK — render the typed glyphs at a FIXED font size onto a

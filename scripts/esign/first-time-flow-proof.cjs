@@ -69,6 +69,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     page.on('response', r => { if (/\/sign\/[^/]+\/(adopt|place|place-all|place\/remove)$/.test(r.url())) log.push('HTTP ' + r.url().split('/sign/')[1].replace(/^[^/]+/, '') + ' ' + r.status()); });
     await page.goto(base + '/sign/' + token, { waitUntil: 'networkidle2', timeout: 60000 });
     await sleep(1200);
+    // The "How would you like to sign?" screen is not a step: the left column must light none of them.
+    const litOnChoice = await page.evaluate(() => { const c = [...document.querySelectorAll('button')].find(x => /Sign Electronically/.test(x.textContent)); const vis = c && c.getBoundingClientRect().width > 0; return vis ? document.querySelectorAll('[data-steps-rail] .is-live').length : -1; });
+    if (litOnChoice > 0) failures.push('the step rail lights a step while the screen asks "How would you like to sign?"');
     const choose = await page.evaluate(() => { const b = [...document.querySelectorAll('button')].find(x => /Sign Electronically/.test(x.textContent)); if (b && b.getBoundingClientRect().width > 0) { b.click(); return true; } return false; });
     if (choose) await sleep(3500);
     // Idle check: after the page has settled the main thread must answer promptly and the DOM must stop changing.
@@ -98,16 +101,56 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
           confirmVisible: vis([...document.querySelectorAll('h2')].find(h => /^Sign everything$/.test(h.textContent.trim()))),
           railLive: (document.querySelector('[data-steps-rail] .is-live') || {}).innerText ? document.querySelector('[data-steps-rail] .is-live').innerText.split('\n')[1] : null,
           toFill: txt('[data-details-to-fill]'),
+          railStep: (document.querySelector('[data-steps-rail] .is-live') || { dataset: {} }).dataset.step || null,
+          railProgress: txt('[data-rail-progress]'),
+          consentVisible: vis(document.querySelector('[data-header-consent]')), finishVisible: vis(document.querySelector('[data-header-finish]')),
+          actionsVisible: vis(document.querySelector('[data-header-actions]')),
           amendPanelVisible: vis(document.querySelector('[data-amend-panel]')), amendLinkVisible: vis(document.querySelector('[data-amend-link]')),
           bannedWords: banned, overflowX: document.documentElement.scrollWidth > window.innerWidth,
         };
       });
       console.log(label, JSON.stringify(s));
+      const sn = (s.status || '').match(/^Step (\d) of 3/);
+      // one counter, one source: the header and the left column print the same figure
+      if (s.progress && s.railProgress && s.progress !== s.railProgress && !(width < 1100)) failures.push(label + ': header says "' + s.progress + '" but the left column says "' + s.railProgress + '"');
+      // the rail lights the step the screen is on
+      if (sn && s.railStep && !(width < 1100) && s.railStep !== sn[1]) failures.push(label + ': the status line is on step ' + sn[1] + ' but the rail lights step ' + s.railStep);
+      // a popup is the one instruction: the header offers no Start / Next / Finish / blocker / tick under it
+      if ((s.popupVisible || s.confirmVisible) && (s.actionsVisible || s.blocker || s.consentVisible)) failures.push(label + ': a popup is open over a header that still offers ' + JSON.stringify({ buttons: s.buttons, blocker: s.blocker }));
+      // "open Document N" is said once
+      if (/Press Next to open/.test(s.status || '') && /open Document/.test(s.blocker || '')) failures.push(label + ': the status line and the line under it both say to open the next document');
+      // the tick and Finish only when every place is done: nothing else is being asked at the same time
+      if ((s.finishVisible || s.consentVisible) && (/^Next:|Press Next|Waiting on|needs your initials|can't be filled/.test(s.blocker || '') || /Press Next to open|Step [12] of 3/.test(s.status || '')))
+        failures.push(label + ': the tick / Finish are shown beside another instruction: ' + JSON.stringify({ status: s.status, blocker: s.blocker }));
       if (shot) await page.screenshot({ path: out + '-' + shot + '.png' });
     };
     const click = async sel => page.evaluate(sel => { const b = document.querySelector(sel); if (b) b.click(); return !!b; }, sel);
     await assertIdle('after load');
     await snap('1 open', 'open');
+    // The counter counts only what the signer must do: details CoreX filled are not progress, so it starts at 0.
+    const startFigure = await page.evaluate(() => { const e = document.querySelector('[data-header-progress]'); return e ? e.innerText.trim() : null; });
+    if (!/^0 of \d+ done$/.test(startFigure || '')) failures.push('the counter does not start at 0: "' + startFigure + '"');
+    // Every initials entry point must open the INITIALS dialog (never "Sign Here / Apply Signature").
+    const dialogWords = () => page.evaluate(() => {
+      const vis = el => { if (!el) return false; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden'; };
+      const h = [...document.querySelectorAll('h3')].find(x => vis(x) && /Your initials|Sign Here/.test(x.textContent));
+      const b = [...document.querySelectorAll('button')].find(x => vis(x) && /Apply initials|Apply Signature/.test(x.textContent));
+      return { title: h ? h.textContent.trim() : null, apply: b ? b.textContent.trim() : null };
+    });
+    const closeCapture = () => page.evaluate(() => { const d = Alpine.$data(document.querySelector('[x-ref="webDocContent"]').closest('[x-data]')); d.showWebSigCapture = false; d.adoptionStage = null; d.currentWebSigBlockId = null; d.pendingDisclosureAmend = null; });
+    const expectInitialsDialog = async (what) => {
+      await sleep(900); const w = await dialogWords(); console.log('initials entry point', what, JSON.stringify(w));
+      if (w.title !== 'Your initials' || w.apply !== 'Apply initials') failures.push('"' + what + '" opened "' + w.title + '" / "' + w.apply + '" instead of the initials dialog');
+      await closeCapture(); await sleep(300);
+    };
+    if (mode === 'saved') {
+      // 1) the first popup's own "Add initials" button (a real click)
+      const clicked = await page.evaluate(() => { const b = [...document.querySelectorAll('button')].find(x => x.offsetParent !== null && /^(Add|Change) initials$/.test(x.textContent.trim())); if (b) b.click(); return !!b; });
+      if (!clicked) failures.push('the first popup has no "Add initials" button'); else await expectInitialsDialog('Add initials in the first popup');
+      // 2) a proposed disclosure change opens the same dialog for initials (set the way proposeDisclosureChange does)
+      const viaPropose = await page.evaluate(() => { const d = Alpine.$data(document.querySelector('[x-ref="webDocContent"]').closest('[x-data]')); d.pendingDisclosureAmend = { key: 'k', statement: 's', newValue: 'v' }; d.currentWebSigBlockId = null; d.webSigMode = 'draw'; d.showWebSigCapture = true; return true; });
+      if (viaPropose) await expectInitialsDialog('a proposed disclosure change');
+    }
     if (mode === 'saved') {
       await page.evaluate(PNG => { const d = Alpine.$data(document.querySelector('[x-ref="webDocContent"]').closest('[x-data]')); d.adoptionSig = PNG; d.adoptionInit = PNG; d.adoptionAgree = true; d.submitAdoption(); }, PNG);
       await sleep(1500);
@@ -123,6 +166,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       await page.keyboard.type('Test value ' + i); await sleep(250);
     }
     await snap('3 details typed', 'step2b');
+    if (mode !== 'saved') {
+      // 3) an initials place on the page (a real click on it)
+      const hasInit = await page.evaluate(() => { const d = Alpine.$data(document.querySelector('[x-ref="webDocContent"]').closest('[x-data]')); const e = (d.webInitialElements || []).find(x => x.isMine && !x.signed); if (!e) return false; e.el.scrollIntoView({ block: 'center' }); e.el.click(); return true; });
+      if (hasInit) await expectInitialsDialog('an initials place on the page'); else console.log('no initials place in this document to click');
+    }
     await click('[data-header-next]'); await sleep(900);
     await snap('4 step 3', 'step3');
     await click('[data-header-next]'); await sleep(900);

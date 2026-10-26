@@ -51,7 +51,7 @@ class AgreementTakeOnTest extends TestCase
         $d = AgreementTakeOn::derive($month);
         $this->assertSame($start, $d['start_date']);
         $this->assertSame($billing, $d['billing_start']);
-        $this->assertSame(['start_date' => $start, 'm_first_payment' => $billing], AgreementTakeOn::values($month));
+        $this->assertSame(['start_date' => $start, 'm_first_payment' => $billing, 'm_day' => '1'], AgreementTakeOn::values($month));
     }
 
     public function test_this_month_is_allowed_a_past_month_and_junk_are_not(): void
@@ -122,10 +122,10 @@ class AgreementTakeOnTest extends TestCase
         $owner = $this->owner();
         $html = $this->actingAs($owner)->get(route('platform-esign.agreements.create'))->assertOk()->getContent();
         $this->assertStringContainsString('name="take_on_month"', $html);
-        // no default: the picker starts blank with a placeholder, so the CoreX user must choose; the dates appear only after a choice
-        $this->assertMatchesRegularExpression('/<option value="" disabled hidden selected>Choose the take-on month…<\/option>/', $html);
-        $this->assertSame(1, substr_count($html, ' selected>'), 'only the placeholder is selected');
-        $this->assertMatchesRegularExpression('/<option value="2026-10" data-start="1 October 2026" data-billing="1 November 2026" >October 2026/', $html);
+        // Johan 2026-10-27 (reverses the blank picker of spec 11.22): the month of sending is pre-selected, still editable; the placeholder stays for a cleared form
+        $this->assertMatchesRegularExpression('/<option value="" disabled hidden >Choose the take-on month…<\/option>/', $html);
+        $this->assertSame(1, substr_count($html, ' selected>'), 'only the month of sending is selected');
+        $this->assertMatchesRegularExpression('/<option value="2026-10" data-start="1 October 2026" data-billing="1 November 2026" selected>October 2026/', $html);
         $this->assertStringContainsString('id="take-on-dates"', $html);
         $this->assertStringContainsString('<select id="take_on_month" name="take_on_month" required', $html);
         $this->assertStringNotContainsString('value="2026-09"', $html);

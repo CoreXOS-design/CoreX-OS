@@ -23,12 +23,14 @@
 
     @if($countersign)
         <div class="topbar" style="position:static;border-radius:6px;">
+            @if($takeOnSummary = \App\Services\PlatformEsign\Agreement\AgreementTakeOn::summary((array) $doc->rr_data))<div class="stat" id="take-on-summary">{{ $takeOnSummary }}</div>@endif
             <div class="stat">Review everything the agency entered (read-only), then complete {{ \App\Services\PlatformEsign\Agreement\AgreementCompany::for($doc)->legalName() }}’s details, initial every page and sign.</div>
             <div class="sp"><span class="stat" id="pages-stat"></span><span class="stat" id="savestate"></span>
                 <button type="button" id="todo-btn" class="btn ghost sm">Outstanding (<span id="todo-count">0</span>)</button></div>
         </div>
         <div id="todo" class="todo" hidden role="dialog" style="top:120px;"><div style="display:flex;justify-content:space-between;margin-bottom:.4rem;"><strong>What is still outstanding</strong><button type="button" id="todo-close" class="mini">×</button></div><div id="todo-list"></div></div>
     @else
+        @if($takeOnSummary = \App\Services\PlatformEsign\Agreement\AgreementTakeOn::summary((array) $doc->rr_data))<div class="rounded-md px-4 py-2 text-sm font-semibold" id="take-on-summary" style="position: sticky; top: 0; z-index: 20; background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">{{ $takeOnSummary }}</div>@endif
         <div class="rounded-md px-4 py-3 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);">Read-only view of what has been entered so far. Account numbers are masked — click one to reveal it (the reveal is recorded in the audit trail).</div>
     @endif
 

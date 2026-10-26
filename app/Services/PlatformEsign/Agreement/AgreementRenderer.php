@@ -205,6 +205,12 @@ class AgreementRenderer
                 return '<input type="text" class="fld' . ($key === 'm_amount' ? ' num' : '') . '" value="' . e($shown) . '" readonly tabindex="-1" data-derived="1"' . ($key === 'm_amount' ? ' data-mirror="total"' : '') . ' aria-label="' . e($f['label']) . '">'
                     . '<span class="auto-tip" data-screen-only="1">' . ($key === 'm_amount' ? self::AMOUNT_TIP : self::TAKE_ON_TIP) . '</span>';
             }
+            if ($key === 'sig_date' || ($key === 'm_date' && empty($this->ctx['rr']['single_entry']))) {
+                // The date the agency signs: stamped by the server when they sign — shown, never typed (Johan 2026-10-27). Until then it reads today.
+                $v = $this->value($key);
+
+                return '<input type="date" class="fld" name="' . e($key) . '" id="fld-' . e($key) . '" data-field="' . e($key) . '" value="' . e($v !== '' ? $v : now()->toDateString()) . '" readonly tabindex="-1" data-derived="1" aria-label="' . e($f['label']) . '" title="Filled in automatically with the date you sign.">'; // no on-page text: the word-for-word proof stays exact
+            }
             if (!empty($this->ctx['rr']['single_entry']) && isset(AgreementFields::FOLLOW[$key])) {
                 // Starts from (and follows) Part A until the recipient types their own value here; clearing the box makes it follow again.
                 $own = in_array($key, (array) ($this->ctx['follow_own'] ?? []), true);
@@ -280,7 +286,7 @@ class AgreementRenderer
         $locked = !empty($this->ctx['locked']) ? ' disabled' : '';
 
         return match ($f['type']) {
-            'textarea' => '<textarea class="' . $cls . '" rows="2" ' . $attr . $title . $locked . '>' . e($v) . '</textarea>',
+            'textarea' => '<textarea class="' . $cls . '" rows="1" data-autosize="1" ' . $attr . $title . $locked . '>' . e($v) . '</textarea>',
             'select' => '<select class="' . $cls . '" ' . $attr . $title . $locked . '><option value="">Choose…</option>' . implode('', array_map(fn ($k, $l) => '<option value="' . e($k) . '"' . ($v === $k ? ' selected' : '') . '>' . e($l) . '</option>', array_keys($f['options']), $f['options'])) . '</select>',
             'date' => '<input type="date" class="' . $cls . '" value="' . e($v) . '" ' . $attr . $title . $locked . '>',
             'email' => '<input type="email" class="' . $cls . '" value="' . e($v) . '" autocomplete="off" ' . $attr . $title . $locked . '>',
@@ -484,6 +490,10 @@ class AgreementRenderer
         $v = $this->value($key, 'rr');
         $err = $this->ctx['errors'][$key] ?? null;
         $type = $f['type'] === 'date' ? 'date' : 'text';
+        if ($key === 'rr_date') {
+            // The countersign date is stamped by the server when RR countersigns — shown, never typed (Johan 2026-10-27).
+            return '<input type="date" class="fld" name="rr_date" id="fld-rr_date" data-field="rr_date" data-required="1" value="' . e($v !== '' ? $v : now()->toDateString()) . '" readonly tabindex="-1" data-derived="1" aria-label="' . e($f['label']) . '">';
+        }
 
         return '<input type="' . $type . '" class="fld' . ($err ? ' err' : '') . '" name="' . e($key) . '" id="fld-' . e($key) . '" data-field="' . e($key) . '" data-required="1" maxlength="' . (int) $f['max'] . '" value="' . e($v) . '" aria-label="' . e($f['label']) . '"' . ($err ? ' title="' . e($err) . '"' : '') . '>';
     }
