@@ -1119,6 +1119,10 @@ The system values protect the platform's AI bill and the trustworthiness of dete
 
 **Tests.** `tests/Feature/MarketReports/ReportYearlyFiguresTest.php` (every producer writes the year — mapper for AI + learned layout, known-format parser; the audit is told the year; no-year and cannot-tell are never mismatches; a real same-year mismatch is still flagged; re-run replaces open findings only; the report and discrepancies screens show the year).
 
+#### 8.9.3 The subject's coordinates are a first-class canonical field (27 Oct 2026, QA1; spec geocoding-spec.md "Report coordinates")
+
+`subject.latitude` / `subject.longitude` belong to the canonical read next to `subject.address`: any producer (a dedicated parser, the AI read, a learned layout) fills them when the document prints them, `CanonicalReadMapper` keeps them (range-checked, unreadable values dropped) and they reach `market_reports.subject_latitude/longitude`. A property with no location of its own takes them from that column (same agency; street number + street + suburb must match) before any geocoder call — never from a parser-specific path, so a layout CoreX has never seen delivers them as soon as its read carries them. A learned layout learns a "Latitude:" / "Longitude:" label beside the printed number (checked against the AI read to ~2 m), and `LearnedLayoutReader` keeps the minus sign of a number glued to its label. Not covered: a single "GPS: -25.9, 28.1" line. Test `tests/Feature/Geo/ReportSubjectCoordinatesCanonicalTest.php`.
+
 ---
 
 ## 9. WhatsApp Action Flow
