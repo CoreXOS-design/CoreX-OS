@@ -35,6 +35,9 @@
     .mp-g4 { grid-template-columns:repeat(4, minmax(0, 1fr)); }
     .mp-g5 { grid-template-columns:repeat(5, minmax(0, 1fr)); }
     .mp-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:5px 10px; border:1px solid var(--border); border-radius:6px; min-width:0; }
+    .mp-chip { font-size:0.75rem; padding:3px 9px; border-radius:999px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-secondary); cursor:pointer; }
+    .mp-chip.is-on { background:color-mix(in srgb, var(--brand-button) 14%, transparent); color:var(--brand-button); border-color:color-mix(in srgb, var(--brand-button) 35%, transparent); }
+    .mp-card .ds-section-header { font-size:0.8125rem; }
     .mp-more { font-size:0.75rem; font-weight:600; color:var(--brand-icon); text-decoration:none; background:none; border:0; padding:0; cursor:pointer; }
     .mp-field label { display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.05em; }
     .mp-field input, .mp-field select, .mp-field textarea { width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:6px 10px; font-size:0.8125rem; box-sizing:border-box; }
@@ -889,11 +892,7 @@
                          forty pages are drawn at once - the search narrows the rest. --}}
                     <div x-show="ready && !failed && !searching()" class="flex flex-wrap gap-1" style="margin-bottom:8px;">
                         <template x-for="section in sections" :key="section.label">
-                            <button type="button" @click="activeSection = section.label"
-                                    :style="currentSection() === section.label
-                                        ? 'background:color-mix(in srgb, var(--brand-button) 14%, transparent); color:var(--brand-button); border-color:color-mix(in srgb, var(--brand-button) 35%, transparent);'
-                                        : 'background:var(--surface-2); color:var(--text-secondary); border-color:var(--border);'"
-                                    style="font-size:0.75rem; padding:3px 9px; border-radius:999px; border:1px solid; cursor:pointer;">
+                            <button type="button" class="mp-chip" @click="activeSection = section.label" :class="{ 'is-on': currentSection() === section.label }">
                                 <span x-text="section.label"></span><span x-show="chosenIn(section) > 0" style="opacity:.7;" x-text="' · ' + chosenIn(section)"></span>
                             </button>
                         </template>
