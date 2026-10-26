@@ -35,6 +35,7 @@ class RentalLeaseTemplateController extends Controller
         'start_date' => ['lease_start', 'commencement', 'start_date'],
         'end_date' => ['lease_end', 'expiry', 'end_date', 'termination_date'],
         'deposit' => ['deposit'],
+        'lease_fee' => ['lease_fee', 'letting_fee', 'placement_fee'],
         'tenant_name' => ['lessee_name', 'tenant_name', 'lessee'],
         'tenant_address' => ['lessee_address', 'tenant_address'],
         'tenant_id' => ['lessee_id', 'tenant_id'],

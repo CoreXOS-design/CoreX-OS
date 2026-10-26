@@ -64,6 +64,10 @@ class LeaseAgreementDocumentValues
         if (isset($map['deposit']) && $lease->deposit_amount !== null) {
             $raw['deposit'] = [$lease->deposit_amount, 'money'];
         }
+        // leases.md "Lease fee": null = not on record (the box stays empty), 0 = on record as not charged (prints R 0.00, like a zero deposit).
+        if (isset($map['lease_fee']) && $lease->lease_fee !== null) {
+            $raw['lease_fee'] = [$lease->lease_fee, 'money'];
+        }
 
         // ── Agreement terms and schedule (typed, stored on lease_agreement_terms) ────────────
         foreach ($registry as $key => $def) {

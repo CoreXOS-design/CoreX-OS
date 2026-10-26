@@ -113,6 +113,8 @@ trait HandlesLeaseCapture
             // .ai/specs/rental-property-tab.md §5, Part 4 — the agency-editable list.
             'leaseTypes' => PropertySettingItem::group('lease_type')->where('active', true)->get(),
             'depositMonths' => LeaseSetting::defaultDepositMonthsFor($agencyId),
+            // leases.md "Lease fee" - the agency's starting fee; a renewal starts from the term being renewed (renewalBase).
+            'leaseFeeDefault' => LeaseSetting::defaultLeaseFeeFor($agencyId),
             'renewalBase' => $base,
             'captureKey' => (string) old('capture_key', (string) Str::uuid()),
         ];
