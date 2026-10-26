@@ -40,7 +40,7 @@
             ->where('party_role', $partyRole)
             ->count();
     }
-    $signingAsLabel = \App\Models\Docuperfect\Template::roleDisplayLabel(
+    $signingAsLabel = $signingAsLabel ?? \App\Models\Docuperfect\Template::roleDisplayLabel(
         $partyRole !== '' ? $partyRole : 'recipient',
         $isSales,
         $roleIndex,
@@ -51,53 +51,52 @@
 <aside class="recipient-info-panel" data-recipient-info-panel>
     <div class="recipient-info-panel__inner">
 
-        {{-- How to sign --}}
+        {{-- The three steps (first-time signer flow, esign-signing-modes.md §13.5): one sentence each, the live one lit, finished ones ticked. --}}
         <section class="recipient-info-panel__section">
-            <h3 class="recipient-info-panel__heading">{{ $guidance['heading'] ?? 'How to sign' }}</h3>
-            <ol class="recipient-info-panel__steps">
+            <h3 class="recipient-info-panel__heading">{{ $guidance['heading'] ?? 'Your three steps' }}</h3>
+            <ol class="recipient-info-panel__steps" data-steps-rail>
                 @foreach ($steps as $i => $step)
-                    <li class="recipient-info-panel__step">
-                        <span class="recipient-info-panel__step-number">{{ $i + 1 }}</span>
+                    @php $n = $i + 1; @endphp
+                    <li class="recipient-info-panel__step" data-step="{{ $n }}"
+                        :class="{ 'is-live': stepNo === {{ $n }}, 'is-done': stepNo > {{ $n }} }">
+                        <span class="recipient-info-panel__step-number">
+                            <template x-if="stepNo > {{ $n }}"><span>&#10003;</span></template>
+                            <template x-if="stepNo <= {{ $n }}"><span>{{ $n }}</span></template>
+                        </span>
                         <div class="recipient-info-panel__step-body">
-                            <strong>{{ $step['title'] ?? '' }}</strong>
-                            <p>{{ $step['body'] ?? '' }}</p>
+                            @if (!empty($step['title_each']))
+                                <strong x-show="adoption && adoption.required">{{ $step['title'] ?? '' }}</strong>
+                                <strong x-show="!(adoption && adoption.required)">{{ $step['title_each'] }}</strong>
+                            @else
+                                <strong>{{ $step['title'] ?? '' }}</strong>
+                            @endif
+                            <p x-show="adoption && adoption.required">{{ $step['body'] ?? '' }}</p>
+                            <p x-show="!(adoption && adoption.required)">{{ $step['body_each'] ?? ($step['body'] ?? '') }}</p>
+                            @if ($n === 1)
+                                <button type="button" data-change-signature class="recipient-info-panel__link"
+                                        x-show="adoption && adoption.required && adoption.adopted" x-cloak @click="showAdoption = true">Change my signature</button>
+                            @endif
+                            @if ($n === 2)
+                                <ul class="recipient-info-panel__fields" x-show="detailsToFill.length > 0" x-cloak data-details-to-fill>
+                                    <li class="recipient-info-panel__fields-count" x-text="detailsToFill.length + (detailsToFill.length === 1 ? ' detail to fill' : ' details to fill')"></li>
+                                    <template x-for="(d, i) in detailsToFill" :key="'df' + i">
+                                        <li><button type="button" class="recipient-info-panel__link" @click="goToDetail(i)" x-text="d.label"></button></li>
+                                    </template>
+                                </ul>
+                            @endif
                         </div>
                     </li>
                 @endforeach
             </ol>
+            <p class="recipient-info-panel__progress" data-rail-progress x-show="isWebTemplate && signingMethod === 'electronic'" x-cloak x-text="progressText"></p>
         </section>
 
         <div class="recipient-info-panel__divider" aria-hidden="true"></div>
 
-        {{-- Agent contact --}}
-        <section class="recipient-info-panel__section recipient-info-panel__agent">
-            <h4 class="recipient-info-panel__subheading">{{ $guidance['help_heading'] ?? 'Need help?' }}</h4>
-            <p class="recipient-info-panel__help-intro">
-                {{ $guidance['help_intro'] ?? 'Call the agent who sent this document.' }}
-            </p>
-            <div class="recipient-info-panel__agent-name">{{ $agentName }}</div>
-            @if ($agentPhone)
-                <a href="tel:{{ preg_replace('/\s+/', '', $agentPhone) }}"
-                   class="recipient-info-panel__agent-link">
-                    {{ $agentPhone }}
-                </a>
-            @endif
-            @if ($agentEmail)
-                <a href="mailto:{{ $agentEmail }}"
-                   class="recipient-info-panel__agent-link recipient-info-panel__agent-link--soft">
-                    {{ $agentEmail }}
-                </a>
-            @endif
-        </section>
-
-        <div class="recipient-info-panel__divider" aria-hidden="true"></div>
-
-        {{-- Signing as --}}
-        <section class="recipient-info-panel__section recipient-info-panel__signing-as">
-            <h4 class="recipient-info-panel__subheading">Signing as</h4>
-            <div class="recipient-info-panel__signer-name">{{ $signingAsName }}</div>
-            <div class="recipient-info-panel__signer-role">{{ $signingAsLabel }}</div>
-        </section>
+        {{-- Help: one line --}}
+        <p class="recipient-info-panel__help" data-help-line>
+            Questions? Call <strong>{{ $agentName }}</strong>@if ($agentPhone) <a href="tel:{{ preg_replace('/\s+/', '', $agentPhone) }}" class="recipient-info-panel__agent-link" style="display:inline;">{{ $agentPhone }}</a>@endif
+        </p>
 
     </div>
 </aside>
@@ -212,6 +211,16 @@
         color: #64748b;
         font-size: 12px;
     }
+    .recipient-info-panel__step { opacity: .55; }
+    .recipient-info-panel__step.is-live, .recipient-info-panel__step.is-done { opacity: 1; }
+    .recipient-info-panel__step.is-live { background: #ecfdf5; border-radius: 8px; padding: 8px; margin: -8px; box-shadow: 0 0 0 1px #6ee7b7; }
+    .recipient-info-panel__step.is-done .recipient-info-panel__step-number { background: #059669; }
+    .recipient-info-panel__link { background: none; border: 0; padding: 2px 0; font-size: 12px; font-weight: 600; color: #0f766e; text-decoration: underline; cursor: pointer; text-align: left; }
+    .recipient-info-panel__fields { list-style: none; padding: 0; margin: 6px 0 0 0; }
+    .recipient-info-panel__fields li { font-size: 12px; color: #475569; }
+    .recipient-info-panel__fields-count { font-weight: 700; color: #92400e; margin-bottom: 2px; }
+    .recipient-info-panel__progress { font-size: 12px; font-weight: 600; color: #334155; margin: 14px 0 0 0; }
+    .recipient-info-panel__help { font-size: 12px; line-height: 1.5; color: #475569; margin: 0; }
     .recipient-info-panel__signer-name {
         font-size: 14px;
         font-weight: 600;

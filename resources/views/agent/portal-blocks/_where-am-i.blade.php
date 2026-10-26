@@ -1,5 +1,7 @@
 {{-- My Portal > Overview > Where am I vs where I should be. READ ONLY. Spec: agency-tracker-rehome.md section 6.
-     "Where I should be" is the agent's monthly targets (the same ones Targets & Budget works from). --}}
+     "Where I should be" is the agent's monthly targets (the same ones Targets & Budget works from).
+     Laid out to fit one laptop screen with no scrolling (my-portal-restyle.md section 9): four figures across the top,
+     then You / branch / company beside the 7-day momentum strip. --}}
 @php
     $p = $myPortal;
     $monthLabel = \Carbon\CarbonImmutable::createFromFormat('!Y-m', $p['period'])->format('F Y');
@@ -14,71 +16,73 @@
     ];
     $cmp = $p['comparison'];
     $valueBar = fn ($tot) => ['actual' => (float) data_get($tot, 'actuals.sales_value', 0), 'target' => (float) data_get($tot, 'targets.value', 0)];
+    $you = ['actual' => (float) $p['actuals']['salesValue'], 'target' => (float) $t['value']];
+    $cols = [['You', $you], ['Your branch', $cmp['branch'] ? $valueBar($cmp['branch']) : null], ['The company', $cmp['company'] ? $valueBar($cmp['company']) : null]];
+    $weekSplit = array_slice($p['points']['daysSplit'], -7, 7, true);
 @endphp
 <div x-show="sub.overview === 'whereami'" x-cloak class="pg-pane pg-wide" data-testid="portal-where-am-i">
-    <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
-        <h3 class="text-sm font-bold" style="color:var(--text-primary);">Where am I vs where I should be &mdash; {{ $monthLabel }}</h3>
+    <div class="mp-h">
+        <h3>Where am I vs where I should be &mdash; {{ $monthLabel }}</h3>
         <x-period-selector :months="$p['months']" :keep="['sub' => 'whereami']" />
     </div>
 
     @if(! $t['set'])
-        <p class="text-sm mb-3" style="color:var(--text-muted);" data-testid="no-targets">No targets are set for {{ $monthLabel }} yet, so there is nothing to measure against. What you have done so far is shown below.</p>
+        <p class="text-xs" style="color:var(--text-muted); margin:0 0 8px;" data-testid="no-targets">No targets are set for {{ $monthLabel }} yet, so there is nothing to measure against. What you have done so far is shown below.</p>
     @endif
 
-    <div class="ds-status-card mb-4" data-testid="targets-vs-actuals">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            @foreach($metrics as $m)
-                @php $bar = $pct($m['actual'], $m['target']); @endphp
-                <div class="p-3 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);" data-testid="metric-{{ $m['key'] }}">
-                    <div class="flex items-baseline justify-between">
-                        <div class="ds-label">{{ $m['label'] }}</div>
-                        <div class="text-xs" style="color:var(--text-muted);">{{ $m['target'] > 0 ? 'target ' . $m['fmt']($m['target']) : 'no target set' }}</div>
+    <div class="mp-grid mp-g4" style="margin-bottom:8px;" data-testid="targets-vs-actuals">
+        @foreach($metrics as $m)
+            @php $bar = $pct($m['actual'], $m['target']); @endphp
+            <div class="mp-card" data-testid="metric-{{ $m['key'] }}">
+                <div class="flex items-baseline justify-between gap-2">
+                    <div class="mp-lbl">{{ $m['label'] }}</div>
+                    <div class="mp-note">{{ $m['target'] > 0 ? 'target ' . $m['fmt']($m['target']) : 'no target set' }}</div>
+                </div>
+                <div class="mp-val" data-testid="actual-{{ $m['key'] }}">{{ $m['fmt']($m['actual']) }}</div>
+                @if($m['key'] === 'points')
+                    <div class="mp-note flex flex-wrap gap-x-3" data-testid="points-split">
+                        <span class="inline-flex items-center gap-1"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--brand-icon, #0ea5e9);"></span>Manual {{ number_format($p['points']['monthSplit']['manual'], 0) }}</span>
+                        <span class="inline-flex items-center gap-1"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--ds-amber, #f59e0b);"></span>Automatic {{ number_format($p['points']['monthSplit']['automatic'], 0) }}</span>
                     </div>
-                    <div class="ds-value-lg" data-testid="actual-{{ $m['key'] }}">{{ $m['fmt']($m['actual']) }}</div>
-                    @if($m['key'] === 'points')
-                        <div class="text-[11px] flex flex-wrap gap-x-3" style="color:var(--text-muted);" data-testid="points-split">
-                            <span class="inline-flex items-center gap-1"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--brand-icon, #0ea5e9);"></span>Manual {{ number_format($p['points']['monthSplit']['manual'], 0) }}</span>
-                            <span class="inline-flex items-center gap-1"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--ds-amber, #f59e0b);"></span>Automatic {{ number_format($p['points']['monthSplit']['automatic'], 0) }}</span>
-                        </div>
-                    @endif
-                    @if($bar !== null)
-                        <div class="mt-2 ds-progress-track"><div class="ds-progress-bar {{ $bar >= 80 ? 'ds-bar-navy' : 'ds-bar-amber' }}" style="width: {{ $bar }}%"></div></div>
-                        <div class="text-[11px] mt-1" style="color:var(--text-muted);">{{ $bar }}% of target</div>
-                    @endif
-                </div>
-            @endforeach
-        </div>
+                @endif
+                @if($bar !== null)
+                    <div class="ds-progress-track" style="margin-top:6px;"><div class="ds-progress-bar {{ $bar >= 80 ? 'ds-bar-navy' : 'ds-bar-amber' }}" style="width: {{ $bar }}%"></div></div>
+                    <div class="mp-note" style="margin-top:2px;">{{ $bar }}% of target</div>
+                @endif
+            </div>
+        @endforeach
     </div>
 
-    <div class="ds-status-card mb-4" data-testid="you-vs-branch-company">
-        <div class="flex items-center justify-between mb-3 gap-3 flex-wrap">
-            <h4 class="ds-section-header">You vs your branch vs the company</h4>
-            <div class="text-xs" style="color:var(--text-muted);">Sales value &middot; totals only, no individuals</div>
+    <div class="mp-grid mp-g2">
+        <div class="mp-card" data-testid="you-vs-branch-company">
+            <div class="flex items-baseline justify-between gap-2" style="margin-bottom:6px;">
+                <div class="ds-section-header" style="margin:0;">You vs your branch vs the company</div>
+                <div class="mp-note">Sales value &middot; totals only</div>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:8px;">
+                @foreach($cols as [$name, $v])
+                    <div>
+                        @if($v)
+                            @php $bar = $pct($v['actual'], $v['target']); @endphp
+                            <div class="flex items-baseline justify-between gap-2">
+                                <span class="mp-lbl">{{ $name }}</span>
+                                <span class="text-sm" style="color:var(--text-primary);"><strong>{{ $rand($v['actual']) }}</strong> <span class="mp-note">{{ $v['target'] > 0 ? 'of ' . $rand($v['target']) : 'no target set' }}</span></span>
+                            </div>
+                            @if($bar !== null)<div class="ds-progress-track" style="margin-top:3px;"><div class="ds-progress-bar {{ $bar >= 80 ? 'ds-bar-navy' : 'ds-bar-amber' }}" style="width: {{ $bar }}%"></div></div>@endif
+                        @else
+                            <div class="flex items-baseline justify-between gap-2">
+                                <span class="mp-lbl">{{ $name }}</span>
+                                <span class="mp-note">{{ $name === 'Your branch' ? 'No branch assigned.' : 'Not available.' }}</span>
+                            </div>
+                        @endif
+                    </div>
+                @endforeach
+            </div>
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            @php
-                $you = ['actual' => (float) $p['actuals']['salesValue'], 'target' => (float) $t['value']];
-                $cols = [['You', $you], ['Your branch', $cmp['branch'] ? $valueBar($cmp['branch']) : null], ['The company', $cmp['company'] ? $valueBar($cmp['company']) : null]];
-            @endphp
-            @foreach($cols as [$name, $v])
-                <div class="p-3 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
-                    <div class="ds-label">{{ $name }}</div>
-                    @if($v)
-                        @php $bar = $pct($v['actual'], $v['target']); @endphp
-                        <div class="ds-value-lg">{{ $rand($v['actual']) }}</div>
-                        <div class="text-xs" style="color:var(--text-muted);">{{ $v['target'] > 0 ? 'of ' . $rand($v['target']) : 'no target set' }}</div>
-                        @if($bar !== null)<div class="mt-2 ds-progress-track"><div class="ds-progress-bar {{ $bar >= 80 ? 'ds-bar-navy' : 'ds-bar-amber' }}" style="width: {{ $bar }}%"></div></div>@endif
-                    @else
-                        <div class="text-sm mt-1" style="color:var(--text-muted);">{{ $name === 'Your branch' ? 'No branch assigned.' : 'Not available.' }}</div>
-                    @endif
-                </div>
-            @endforeach
-        </div>
-    </div>
 
-    @php $weekSplit = array_slice($p['points']['daysSplit'], -7, 7, true); @endphp
-    <div class="ds-status-card" data-testid="momentum">
-        <h4 class="ds-section-header" style="margin-bottom:0.75rem;">Momentum &mdash; last 7 days (points)</h4>
-        <x-points-split-strip :days="$weekSplit" label="D" :height="60" testid="momentum-strip" />
+        <div class="mp-card" data-testid="momentum">
+            <div class="ds-section-header" style="margin:0 0 4px;">Momentum &mdash; last 7 days (points)</div>
+            <x-points-split-strip :days="$weekSplit" label="D" :height="44" testid="momentum-strip" />
+        </div>
     </div>
 </div>

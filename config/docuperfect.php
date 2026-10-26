@@ -21,32 +21,26 @@ return [
     | Future: per-agency override, per-locale variants.
     */
     'signing_guidance' => [
-        'heading' => 'How to sign',
+        // First-time signer flow (esign-signing-modes.md §13): three steps, one sentence each. `body` is the text for an
+        // agency whose signers save a signature and initials once; `body_each` for one whose signers sign each spot by hand.
+        'heading' => 'Your three steps',
         'steps' => [
             [
-                'title'   => 'Review the document',
-                'body'    => 'Read through the agreement on the right. Everything is laid out the way you would see it on paper.',
+                'title'     => 'Add your signature and initials',
+                'title_each' => "How you'll sign",
+                'body'      => 'Draw or type them once. CoreX puts them where you need to sign.',
+                'body_each' => "You'll sign each spot by hand as you go.",
             ],
             [
-                'title'   => 'Fill in your fields',
-                'body'    => 'Any field highlighted in your colour is yours to complete. Locked fields belong to other parties — you cannot edit those.',
+                'title'     => 'Check your details',
+                'body'      => 'Everything we know is filled in. Type in anything that is missing.',
             ],
             [
-                'title'   => 'Amend the wording',
-                'body'    => 'Not happy with something? Highlight any word, phrase or clause, then click "Amend highlighted text" to strike it out or reword it. Your change is marked on the document and every party initials it before final sign-off — nothing is final until everyone agrees.',
-            ],
-            [
-                'title'   => 'Initial each page',
-                'body'    => 'Tap the initial slot at the bottom-right of every page to confirm you have read it.',
-            ],
-            [
-                'title'   => 'Sign at the bottom',
-                'body'    => 'Once every field and initial is in place, hit the signature block to apply your signature electronically.',
+                'title'     => 'Sign',
+                'body'      => 'Press Next to go to each spot, or Sign everything to do them all at once.',
+                'body_each' => 'Press Next to go to each spot, then sign it.',
             ],
         ],
-
-        'help_heading' => 'Need help?',
-        'help_intro'   => 'Call the agent who sent this document. They can walk you through anything that is unclear.',
     ],
 
     /*

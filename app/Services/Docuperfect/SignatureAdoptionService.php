@@ -117,7 +117,7 @@ class SignatureAdoptionService
     {
         $mode = $this->modeOf($signingRequest);
         if (! in_array($mode, self::MODES, true)) {
-            throw new DomainException('This document is signed by signing every place; there is nothing to adopt.');
+            throw new DomainException('This document is signed by signing each spot yourself.');
         }
 
         $this->assertImage($signatureImage, 'signature');

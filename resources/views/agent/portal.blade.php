@@ -12,18 +12,36 @@
 
 @section('corex-content')
 <style>
-    /* My Portal — Sub-tabs restyle (spec .ai/specs/my-portal-restyle.md). Under each tab a second
-       row lists its sections; one section shows at a time at full width. CoreX tokens only. */
-    .pg-subs { display:flex; gap:28px; padding:6px 2px 0; overflow-x:auto; scrollbar-width:none; border-bottom:1px solid var(--border); margin-top:14px; }
-    .pg-sub { border:0; background:none; padding:8px 0; font-size:0.875rem; font-weight:600; color:var(--text-muted); cursor:pointer; white-space:nowrap; border-bottom:2px solid transparent; margin-bottom:-1px; display:inline-flex; align-items:center; gap:7px; }
+    /* My Portal (specs my-portal-restyle.md sections 2 and 9). Under each tab a second row lists its sections; one
+       section shows at a time. Ruling 26 Oct 2026: NO page scroll at 1366x768 / 1536x735 - header, tabs and the
+       open section all fit inside the one scroller, so every spacing here is deliberately tight. CoreX tokens only. */
+    .pg-subs { display:flex; gap:22px; padding:0 2px; overflow-x:auto; scrollbar-width:none; border-bottom:1px solid var(--border); margin-top:6px; }
+    .pg-sub { border:0; background:none; padding:6px 0; font-size:0.8125rem; font-weight:600; color:var(--text-muted); cursor:pointer; white-space:nowrap; border-bottom:2px solid transparent; margin-bottom:-1px; display:inline-flex; align-items:center; gap:7px; }
     .pg-sub:hover { color:var(--text-primary); }
     .pg-sub[aria-current="page"] { color:var(--text-primary); border-bottom-color:var(--text-primary); }
-    .pg-pane { padding:26px 2px 12px; max-width:980px; }
+    .pg-pane { padding:10px 2px 0; max-width:980px; }
     .pg-pane.pg-wide { max-width:none; }
-    .pg-pane-col { display:flex; flex-direction:column; gap:14px; }
+    .pg-pane-col { display:flex; flex-direction:column; gap:8px; }
     .pg-dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+    .mp-h { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px; }
+    .mp-h h3 { font-size:0.875rem; font-weight:700; color:var(--text-primary); margin:0; }
+    .mp-card { background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:8px 10px; min-width:0; }
+    .mp-lbl { font-size:0.6875rem; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-muted); line-height:1.25; }
+    .mp-val { font-size:1.125rem; font-weight:700; color:var(--text-primary); line-height:1.3; }
+    .mp-note { font-size:0.6875rem; color:var(--text-muted); line-height:1.3; }
+    .mp-grid { display:grid; gap:8px; }
+    .mp-g2 { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+    .mp-g3 { grid-template-columns:repeat(3, minmax(0, 1fr)); }
+    .mp-g4 { grid-template-columns:repeat(4, minmax(0, 1fr)); }
+    .mp-g5 { grid-template-columns:repeat(5, minmax(0, 1fr)); }
+    .mp-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:5px 10px; border:1px solid var(--border); border-radius:6px; min-width:0; }
+    .mp-more { font-size:0.75rem; font-weight:600; color:var(--brand-icon); text-decoration:none; background:none; border:0; padding:0; cursor:pointer; }
+    .mp-field label { display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.05em; }
+    .mp-field input, .mp-field select, .mp-field textarea { width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:6px 10px; font-size:0.8125rem; box-sizing:border-box; }
+    @media (max-width: 900px) { .mp-g3, .mp-g4, .mp-g5 { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 560px) { .mp-g2, .mp-g3, .mp-g4, .mp-g5 { grid-template-columns:minmax(0, 1fr); } }
 </style>
-<div class="w-full space-y-5"
+<div class="w-full"
      x-data="{
         tab: (window.location.hash || '#overview').replace('#', ''),
         sub: { overview: '{{ $overviewSub ?? (($isAssistant ?? false) ? 'compliance' : 'earnings') }}', profile: '{{ $portalProfileSub }}', favourites: 'intro', tools: '{{ request('pane') === 'social' ? 'social' : 'theme' }}', documents: '', training: 'rmcp', password: 'update' },
@@ -40,18 +58,36 @@
          • Sticky offset is NEGATIVE <main>'s padding: browsers measure a sticky box against the
            scroll container's content box (inside its padding), so top:0 would pin it 1.5rem
            down and leave a bare strip of background above the header. --}}
-    <div class="sticky -top-4 lg:-top-6 z-20 -mt-4 pt-4 lg:-mt-6 lg:pt-6 -mx-4 px-4 lg:-mx-6 lg:px-6 pb-3" style="background:var(--bg);">
+    <div class="sticky -top-4 lg:-top-6 z-20 -mt-4 pt-4 lg:-mt-6 lg:pt-6 -mx-4 px-4 lg:-mx-6 lg:px-6 pb-2" style="background:var(--bg);">
 
-    {{-- Page header (Pattern A — flat neutral bar, AT-336; matches /worksheet + Properties) --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div data-tour="portal-home-intro">
+    {{-- Page header (Pattern A, AT-336) - ONE row: title + who you are on the left, status + controls on the right --}}
+    <div class="rounded-md px-4 py-2 corex-page-banner">
+        <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+            <div class="flex items-center gap-3 text-sm min-w-0" style="color:var(--text-muted);" data-tour="portal-home-intro">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">My Portal</h1>
-                <p class="text-xs" style="color: var(--text-muted);">Your profile, documents, compliance, training and earnings in one place.</p>
+                <span style="width:1px; height:16px; background:var(--border); display:inline-block;"></span>
+                @if($photoUrl)
+                <img src="{{ $photoUrl }}" alt="" style="width:24px; height:24px; object-fit:cover; border-radius:50%; border:1px solid var(--border);">
+                @else
+                <div style="width:24px; height:24px; border-radius:50%; background:var(--surface-2); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:0.6875rem; font-weight:700; color:var(--text-muted);">{{ $user->initials() }}</div>
+                @endif
+                <span style="color:var(--text-primary); font-weight:600;">{{ $user->name }}</span>
+                <span style="width:3px; height:3px; border-radius:50%; background:var(--text-muted); display:inline-block;"></span>
+                <span>{{ $user->designation ?? 'No designation' }}</span>
+                <span style="width:3px; height:3px; border-radius:50%; background:var(--text-muted); display:inline-block;"></span>
+                <span>{{ $user->branch?->display_name ?? 'No branch' }}</span>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                @if($profilePercent < 100)
+                <button type="button" @click="setTab('compliance')" class="flex items-center gap-2" style="background:none; border:none; cursor:pointer; padding:0;">
+                    <div class="ds-progress-track" style="width:80px;">
+                        <div class="ds-progress-bar ds-bar-green" style="width:{{ $profilePercent }}%;"></div>
+                    </div>
+                    <span class="text-xs font-medium" style="color:var(--text-muted);">{{ $profilePercent }}% complete</span>
+                </button>
+                @endif
                 @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
-                <span class="inline-flex items-center gap-2 rounded-md px-3 py-1.5"
+                <span class="inline-flex items-center gap-2 rounded-md px-3 py-1"
                       style="background:var(--surface-2); border:1px solid var(--border);">
                     <span style="width:8px; height:8px; border-radius:50%; background:{{ $overallColor }}; display:inline-block;"></span>
                     <span class="text-xs font-semibold" style="color: var(--text-secondary);">
@@ -79,34 +115,10 @@
         </div>
     </div>
 
-    {{-- Agent identity strip — sits directly under the header, inside the frozen block --}}
-    <div class="flex items-center justify-between flex-wrap gap-2 mt-2 px-1">
-        <div class="flex items-center gap-3 text-sm" style="color:var(--text-muted);">
-            @if($photoUrl)
-            <img src="{{ $photoUrl }}" alt="" style="width:24px; height:24px; object-fit:cover; border-radius:50%; border:1px solid var(--border);">
-            @else
-            <div style="width:24px; height:24px; border-radius:50%; background:var(--surface-2); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:0.6875rem; font-weight:700; color:var(--text-muted);">{{ $user->initials() }}</div>
-            @endif
-            <span style="color:var(--text-primary); font-weight:600;">{{ $user->name }}</span>
-            <span style="width:3px; height:3px; border-radius:50%; background:var(--text-muted); display:inline-block;"></span>
-            <span>{{ $user->designation ?? 'No designation' }}</span>
-            <span style="width:3px; height:3px; border-radius:50%; background:var(--text-muted); display:inline-block;"></span>
-            <span>{{ $user->branch?->display_name ?? 'No branch' }}</span>
-        </div>
-        @if($profilePercent < 100)
-        <button type="button" @click="setTab('compliance')" class="flex items-center gap-2" style="background:none; border:none; cursor:pointer; padding:0;">
-            <div class="ds-progress-track" style="width:80px;">
-                <div class="ds-progress-bar ds-bar-green" style="width:{{ $profilePercent }}%;"></div>
-            </div>
-            <span class="text-xs font-medium" style="color:var(--text-muted);">{{ $profilePercent }}% complete</span>
-        </button>
-        @endif
-    </div>
-
     </div>{{-- /frozen top block --}}
 
     <div>
-        <div class="w-full space-y-4">
+        <div class="w-full">
 
     {{-- Flash messages (alert block §3.9) --}}
     @if(session('success'))
@@ -152,8 +164,8 @@
             @foreach($portalTabs as $key => $label)
             <button type="button"
                     @if($key === 'overview' || $key === 'compliance') data-tour="portal-home-tab-{{ $key }}" @endif
-                    @click="setTab('{{ $key }}')"
-                    class="whitespace-nowrap px-4 py-3 text-sm border-b-2 transition-colors"
+                    data-portal-tab="{{ $key }}" @click="setTab('{{ $key }}')"
+                    class="whitespace-nowrap px-4 py-2 text-sm border-b-2 transition-colors"
                     :style="tab === '{{ $key }}'
                         ? 'color:var(--brand-icon); font-weight:600; border-bottom-color:var(--brand-icon);'
                         : 'color:var(--text-muted); font-weight:500; border-bottom-color:transparent;'">
@@ -166,7 +178,7 @@
     {{-- ═══════════════════════════════════════════
          TAB: OVERVIEW
          ═══════════════════════════════════════════ --}}
-    <div x-show="tab === 'overview'" x-cloak>
+    <div x-show="tab === 'overview'" x-cloak data-portal-pane="overview">
             {{-- Training progress data (rendered as its own sub-tab below) --}}
             @php
                 $trainingRole = auth()->user()->effectiveRole();
@@ -182,21 +194,24 @@
         <nav class="pg-subs" aria-label="Sections">
             @unless($isAssistant ?? false)
             @if(! empty($myPortal))
-            <button type="button" class="pg-sub" @click="sub.overview = 'whereami'" :aria-current="sub.overview === 'whereami' ? 'page' : null">Where I Am</button>
-            <button type="button" class="pg-sub" @click="sub.overview = 'targets'" :aria-current="sub.overview === 'targets' ? 'page' : null">Targets &amp; Budget</button>
-            <button type="button" class="pg-sub" @click="sub.overview = 'myactivity'" :aria-current="sub.overview === 'myactivity' ? 'page' : null">My Activity</button>
+            <button type="button" class="pg-sub" data-portal-sub="whereami" @click="sub.overview = 'whereami'" :aria-current="sub.overview === 'whereami' ? 'page' : null">Where I Am</button>
+            <button type="button" class="pg-sub" data-portal-sub="targets" @click="sub.overview = 'targets'" :aria-current="sub.overview === 'targets' ? 'page' : null">Targets &amp; Budget</button>
+            <button type="button" class="pg-sub" data-portal-sub="myactivity" @click="sub.overview = 'myactivity'" :aria-current="sub.overview === 'myactivity' ? 'page' : null">My Activity</button>
             @endif
-            <button type="button" class="pg-sub" @click="sub.overview = 'earnings'" :aria-current="sub.overview === 'earnings' ? 'page' : null">My Earnings</button>
+            @if(! empty($myPerformance))
+            <button type="button" class="pg-sub" data-portal-sub="performance" @click="sub.overview = 'performance'" :aria-current="sub.overview === 'performance' ? 'page' : null">My Performance</button>
+            @endif
+            <button type="button" class="pg-sub" data-portal-sub="earnings" @click="sub.overview = 'earnings'" :aria-current="sub.overview === 'earnings' ? 'page' : null">My Earnings</button>
             @endunless
-            <button type="button" class="pg-sub" @click="sub.overview = 'compliance'" :aria-current="sub.overview === 'compliance' ? 'page' : null">Compliance Overview</button>
+            <button type="button" class="pg-sub" data-portal-sub="compliance" @click="sub.overview = 'compliance'" :aria-current="sub.overview === 'compliance' ? 'page' : null">Compliance Overview</button>
             @unless($isAssistant ?? false)
             @if(isset($presentationStats))
-            <button type="button" class="pg-sub" @click="sub.overview = 'presentations'" :aria-current="sub.overview === 'presentations' ? 'page' : null">My Presentations</button>
+            <button type="button" class="pg-sub" data-portal-sub="presentations" @click="sub.overview = 'presentations'" :aria-current="sub.overview === 'presentations' ? 'page' : null">My Presentations</button>
             @endif
             @endunless
-            <button type="button" class="pg-sub" @click="sub.overview = 'activity'" :aria-current="sub.overview === 'activity' ? 'page' : null">Recent Activity</button>
+            <button type="button" class="pg-sub" data-portal-sub="activity" @click="sub.overview = 'activity'" :aria-current="sub.overview === 'activity' ? 'page' : null">Recent Activity</button>
             @if($trainingTotal > 0)
-            <button type="button" class="pg-sub" @click="sub.overview = 'training'" :aria-current="sub.overview === 'training' ? 'page' : null">Training Progress</button>
+            <button type="button" class="pg-sub" data-portal-sub="training" @click="sub.overview = 'training'" :aria-current="sub.overview === 'training' ? 'page' : null">Training Progress</button>
             @endif
         </nav>
         <div>
@@ -206,22 +221,23 @@
                 @include('agent.portal-blocks._targets-budget')
                 @include('agent.portal-blocks._my-activity')
             @endif
+            @if(! empty($myPerformance))
+                @include('agent.portal-blocks._my-performance')
+            @endif
             @endunless
             {{-- Earnings snapshot — AT-267 §10: hidden for assistants (no commission of their own) --}}
             @unless($isAssistant ?? false)
             <div x-show="sub.overview === 'earnings'" x-cloak class="pg-pane " data-tour="portal-home-earnings">
-                <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary);">My Earnings</h3>
-                <div class="grid grid-cols-2 gap-3 mb-4">
-                    <div class="p-3 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
-                        <div class="text-[11px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">This Month</div>
-                        <div class="text-lg font-bold" style="color:var(--text-primary);">R {{ number_format($thisMonthEarnings, 0) }}</div>
-                    </div>
-                    <div class="p-3 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
-                        <div class="text-[11px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">This Year</div>
-                        <div class="text-lg font-bold" style="color:var(--text-primary);">R {{ number_format($thisYearEarnings, 0) }}</div>
-                    </div>
+                <div class="mp-h"><h3>My Earnings</h3>
+                @feature('commission-management')
+                <a href="{{ route('commission.dashboard') }}" class="mp-more">View Full Earnings &rarr;</a>
+                @endfeature
                 </div>
-                <div class="mb-3">
+                <div class="mp-grid mp-g2" style="margin-bottom:8px;">
+                    <div class="mp-card"><div class="mp-lbl">This Month</div><div class="mp-val">R {{ number_format($thisMonthEarnings, 0) }}</div></div>
+                    <div class="mp-card"><div class="mp-lbl">This Year</div><div class="mp-val">R {{ number_format($thisYearEarnings, 0) }}</div></div>
+                </div>
+                <div>
                     <div class="flex items-center justify-between mb-1">
                         <span class="text-xs" style="color:var(--text-muted);">Cap Progress</span>
                         <span class="text-xs font-bold" style="color:{{ $isCapped ? 'var(--ds-amber)' : 'var(--text-primary)' }};">{{ $isCapped ? 'CAPPED' : $capPercent . '%' }}</span>
@@ -230,15 +246,12 @@
                         <div class="ds-progress-bar {{ $isCapped ? 'ds-bar-amber' : 'ds-bar-green' }}" style="width:{{ $capPercent }}%;"></div>
                     </div>
                 </div>
-                @feature('commission-management')
-                <a href="{{ route('commission.dashboard') }}" class="text-xs font-medium no-underline" style="color:var(--brand-icon);">View Full Earnings &rarr;</a>
-                @endfeature
             </div>
             @endunless
 
             {{-- Quick compliance card --}}
             <div x-show="sub.overview === 'compliance'" x-cloak class="pg-pane " data-tour="portal-home-compliance">
-                <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary);">Compliance Overview</h3>
+                <div class="mp-h"><h3>Compliance Overview</h3><button @click="setTab('compliance')" class="mp-more">View full compliance &rarr;</button></div>
                 @php $dotColors = ['green' => 'var(--ds-green)', 'amber' => 'var(--ds-amber)', 'red' => 'var(--ds-crimson)', 'grey' => 'var(--text-muted)', 'missing' => 'var(--text-muted)']; @endphp
                 @php
                     // AT-267 §10 / AUDIT 2026-07-26 (F9) — filtered against the keys
@@ -255,10 +268,10 @@
                         'tax_clearance' => 'Tax Clearance',
                     ], fn ($label, $key) => array_key_exists($key, $complianceStatus), ARRAY_FILTER_USE_BOTH);
                 @endphp
-                <div class="space-y-2">
+                <div class="mp-grid mp-g2">
                     @foreach($overviewItems as $key => $label)
                     @php $item = $complianceStatus[$key]; @endphp
-                    <div class="flex items-center justify-between py-1.5 px-3" style="border:1px solid var(--border); border-radius:6px;">
+                    <div class="mp-row">
                         <div class="flex items-center gap-2">
                             <span class="w-2 h-2 rounded-full flex-shrink-0" style="background:{{ $dotColors[$item['status']] ?? 'var(--text-muted)' }};"></span>
                             <span class="text-xs font-medium" style="color:var(--text-primary);">{{ $label }}</span>
@@ -267,7 +280,6 @@
                     </div>
                     @endforeach
                 </div>
-                <button @click="setTab('compliance')" class="mt-3 text-xs font-medium no-underline" style="color:var(--brand-icon); background:none; border:none; cursor:pointer; padding:0;">View full compliance &rarr;</button>
             </div>
         </div>
 
@@ -275,10 +287,10 @@
         @unless($isAssistant ?? false)
         @if(isset($presentationStats))
         <div x-show="sub.overview === 'presentations'" x-cloak class="pg-pane ">
-            <div class="px-5 py-3 flex items-center justify-between" style="border-bottom:1px solid var(--border);">
-                <h3 class="text-sm font-bold" style="color:var(--text-primary);">My Presentations</h3>
+            <div class="mp-h">
+                <h3>My Presentations</h3>
                 @if(\Illuminate\Support\Facades\Route::has('presentations.index'))
-                    <a href="{{ route('presentations.index') }}" style="font-size:0.6875rem;color:var(--brand-button);text-decoration:none;">View all →</a>
+                    <a href="{{ route('presentations.index') }}" class="mp-more">View all →</a>
                 @endif
             </div>
             <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:1px;background:var(--border);">
@@ -311,15 +323,20 @@
 
         {{-- Recent activity --}}
         <div x-show="sub.overview === 'activity'" x-cloak class="pg-pane pg-wide">
-            <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
-                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Recent Activity</h3>
+            <div class="mp-h">
+                <h3>Recent Activity</h3>
+                @unless($isAssistant ?? false)
+                @feature('commission-management')
+                <a href="{{ route('commission.dashboard') }}" class="mp-more">Show all &rarr;</a>
+                @endfeature
+                @endunless
             </div>
             @if($recentActivity->isEmpty())
-                <div class="p-6 text-center text-xs" style="color:var(--text-muted);">No commission entries yet.</div>
+                <div class="text-xs" style="color:var(--text-muted); padding:8px 0;">No commission entries yet.</div>
             @else
-            <div class="divide-y" style="border-color:var(--border);">
-                @foreach($recentActivity as $tx)
-                <div class="flex items-center justify-between px-5 py-2.5">
+            <div class="divide-y" style="border-color:var(--border);" data-portal-rows="recent-activity" data-portal-cap="8">
+                @foreach($recentActivity->take(8) as $tx)
+                <div class="flex items-center justify-between px-2 py-1.5">
                     <div class="flex items-center gap-3 min-w-0">
                         <span class="text-xs whitespace-nowrap" style="color:var(--text-muted);">{{ $tx->deal_date ? $tx->deal_date->format('d M') : $tx->created_at->format('d M') }}</span>
                         <span class="text-sm truncate" style="color:var(--text-primary);">{{ \Illuminate\Support\Str::limit($tx->description, 40) }}</span>
@@ -343,8 +360,7 @@
         </div>{{-- /activity pane --}}
             @if($trainingTotal > 0)
             <div x-show="sub.overview === 'training'" x-cloak class="pg-pane ">
-                <h3 class="text-sm font-bold mb-4" style="color:var(--text-primary);">Training Progress</h3>
-                <div class="text-xs mb-2" style="color:var(--text-muted);">Required for your role: {{ $trainingTotal }} {{ Str::plural('guide', $trainingTotal) }}</div>
+                <div class="mp-h"><h3>Training Progress</h3><span class="mp-note">Required for your role: {{ $trainingTotal }} {{ Str::plural('guide', $trainingTotal) }}</span></div>
                 <div class="text-lg font-bold mb-2" style="color:var(--text-primary);">{{ $trainingDone }} of {{ $trainingTotal }} completed</div>
                 <div class="w-full h-2 rounded-full overflow-hidden mb-3" style="background:var(--surface-2);">
                     <div class="h-full rounded-full transition-all" style="width:{{ $trainingPct }}%; background:{{ $trainingPct >= 100 ? 'var(--ds-green, #059669)' : 'var(--brand-icon, #0ea5e9)' }};"></div>
@@ -363,22 +379,22 @@
     </div>
 
     {{-- Impersonation audit (visible to all users on Overview tab) --}}
-    <div x-show="tab === 'overview'" x-cloak>
+    <div x-show="tab === 'overview'" x-cloak data-portal-pane="overview">
         @if($impersonationLogs->count() > 0)
-        <div class="mt-4 rounded-md px-5 py-4" style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);">
-            <div class="flex items-center gap-2 mb-3">
+        <div class="rounded-md px-3 py-2" style="margin-top:8px; background:color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);" data-portal-rows="admin-access" data-portal-cap="4">
+            <div class="flex items-center gap-2 mb-1">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--ds-amber);"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" /></svg>
                 <span class="text-xs font-bold uppercase tracking-wider" style="color:var(--ds-amber);">Admin Access Log</span>
             </div>
-            <p class="text-xs mb-3" style="color:var(--text-muted);">An administrator accessed your account on the following occasions. This is normal for support and compliance review.</p>
-            <div class="space-y-1">
-                @foreach($impersonationLogs as $log)
-                <div class="flex items-center justify-between text-xs py-1" style="border-bottom:1px solid color-mix(in srgb, var(--ds-amber) 15%, transparent);">
+            <div class="mp-grid mp-g2">
+                @foreach($impersonationLogs->take(4) as $log)
+                <div class="flex items-center justify-between text-xs">
                     <span style="color:var(--text-primary);">{{ $log->admin?->name ?? 'Unknown admin' }}</span>
                     <span style="color:var(--text-muted);">{{ $log->created_at->format('d M Y, H:i') }}</span>
                 </div>
                 @endforeach
             </div>
+            @if($impersonationLogs->count() > 4)<div class="mp-note" style="margin-top:2px;">and {{ $impersonationLogs->count() - 4 }} earlier in the last 30 days</div>@endif
         </div>
         @endif
     </div>
@@ -386,19 +402,19 @@
     {{-- ═══════════════════════════════════════════
          TAB: PROFILE
          ═══════════════════════════════════════════ --}}
-    <div x-show="tab === 'profile'" x-cloak>
+    <div x-show="tab === 'profile'" x-cloak data-portal-pane="profile">
         <nav class="pg-subs" aria-label="Sections">
-            <button type="button" class="pg-sub" @click="sub.profile = 'signature'" :aria-current="sub.profile === 'signature' ? 'page' : null">Signature &amp; PIN</button>
-            <button type="button" class="pg-sub" @click="sub.profile = 'photo'" :aria-current="sub.profile === 'photo' ? 'page' : null">Photo &amp; Public Page</button>
-            <button type="button" class="pg-sub" @click="sub.profile = 'details'" :aria-current="sub.profile === 'details' ? 'page' : null">Contact &amp; Licence</button>
+            <button type="button" class="pg-sub" data-portal-sub="signature" @click="sub.profile = 'signature'" :aria-current="sub.profile === 'signature' ? 'page' : null">Signature &amp; PIN</button>
+            <button type="button" class="pg-sub" data-portal-sub="photo" @click="sub.profile = 'photo'" :aria-current="sub.profile === 'photo' ? 'page' : null">Photo &amp; Public Page</button>
+            <button type="button" class="pg-sub" data-portal-sub="details" @click="sub.profile = 'details'" :aria-current="sub.profile === 'details' ? 'page' : null">Contact &amp; Licence</button>
             @unless($isAssistant ?? false)
-            <button type="button" class="pg-sub" @click="sub.profile = 'website'" :aria-current="sub.profile === 'website' ? 'page' : null">Public Website Profile</button>
+            <button type="button" class="pg-sub" data-portal-sub="website" @click="sub.profile = 'website'" :aria-current="sub.profile === 'website' ? 'page' : null">Public Website Profile</button>
             @endunless
-            <button type="button" class="pg-sub" @click="sub.profile = 'admin'" :aria-current="sub.profile === 'admin' ? 'page' : null">Admin Managed</button>
+            <button type="button" class="pg-sub" data-portal-sub="admin" @click="sub.profile = 'admin'" :aria-current="sub.profile === 'admin' ? 'page' : null">Admin Managed</button>
             @if(!empty($canSelfAssignBranches) && $selfAssignAgencyBranches->count() > 0)
-            <button type="button" class="pg-sub" @click="sub.profile = 'branches'" :aria-current="sub.profile === 'branches' ? 'page' : null">Branches I Manage</button>
+            <button type="button" class="pg-sub" data-portal-sub="branches" @click="sub.profile = 'branches'" :aria-current="sub.profile === 'branches' ? 'page' : null">Branches I Manage</button>
             @endif
-            <button type="button" class="pg-sub" @click="sub.profile = 'articles'" :aria-current="sub.profile === 'articles' ? 'page' : null">Articles</button>
+            <button type="button" class="pg-sub" data-portal-sub="articles" @click="sub.profile = 'articles'" :aria-current="sub.profile === 'articles' ? 'page' : null">Articles</button>
         </nav>
 
         <div x-show="sub.profile === 'signature'" x-cloak class="pg-pane pg-wide">
@@ -407,10 +423,9 @@
 
         <div x-show="sub.profile === 'photo'" x-cloak class="pg-pane ">
         {{-- Live preview of the public agent page --}}
-        <div style="margin-bottom:24px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+        <div style="margin-bottom:10px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;">
             <div>
                 <div class="text-sm font-bold" style="color:var(--text-primary);">Your public agent page</div>
-                <div class="text-xs mt-0.5" style="color:var(--text-muted);">See exactly how your profile, listings &amp; testimonials look on the agency website.</div>
             </div>
             <a href="{{ auth()->user()->publicProfileUrl() }}" target="_blank" class="corex-btn-primary text-sm" style="white-space:nowrap;">
                 Preview my agent page ↗
@@ -419,10 +434,9 @@
 
         {{-- Profile photo upload --}}
         <div x-data="{ open:true }">
-            <button type="button" @click="open=!open" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 0 12px; background:none; border:0; cursor:pointer; text-align:left;">
+            <button type="button" @click="open=!open" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 0 8px; background:none; border:0; cursor:pointer; text-align:left;">
                 <div>
                     <div class="text-sm font-bold" style="color:var(--text-primary);">Profile Photo</div>
-                    <div class="text-xs mt-0.5" style="color:var(--text-muted);">Square crop, face centered — applied automatically.</div>
                 </div>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted); flex:0 0 16px; transition:transform .2s;" :style="{ transform: open ? 'rotate(180deg)' : 'none' }"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
             </button>
@@ -444,13 +458,11 @@
             @method('patch')
 
             <div x-show="sub.profile === 'details'" x-cloak class="pg-pane ">
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; max-width:760px;">
+                <div class="mp-grid mp-g3 mp-field">
                     {{-- Name --}}
-                    <div style="grid-column:span 2;">
-                        <label for="name" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Name <span class="text-red-500">*</span></label>
-                        <input id="name" name="name" type="text" value="{{ old('name', $user->name) }}" required autocomplete="name"
-                               style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box; transition:border-color 200ms;"
-                               onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'">
+                    <div>
+                        <label for="name">Name <span class="text-red-500">*</span></label>
+                        <input id="name" name="name" type="text" value="{{ old('name', $user->name) }}" required autocomplete="name">
                         @error('name') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                     </div>
 
@@ -458,15 +470,12 @@
                     <div style="grid-column:span 2;">
                         @if($user->isSubUser())
                         {{-- AT-423 — a sub-user's username is changed only by an admin. --}}
-                        <label for="email" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Username</label>
-                        <input id="email" type="text" value="{{ $user->email }}" disabled
-                               style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-muted); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box; cursor:not-allowed;">
-                        <p style="font-size:0.6875rem; color:var(--text-muted); margin-top:3px;">You sign in with this username. Your CoreX emails go to {{ $user->deliveryEmail() ?? 'your agency\'s shared inbox' }}. Only your admin can change it.</p>
+                        <label for="email">Username</label>
+                        <input id="email" type="text" value="{{ $user->email }}" disabled>
+                        <p style="font-size:0.6875rem; color:var(--text-muted); margin-top:3px;">Sign-in username; CoreX emails go to {{ $user->deliveryEmail() ?? 'your agency\'s shared inbox' }}. Only your admin can change it.</p>
                         @else
-                        <label for="email" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Email <span class="text-red-500">*</span></label>
-                        <input id="email" name="email" type="email" value="{{ old('email', $user->email) }}" required autocomplete="username"
-                               style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box; transition:border-color 200ms;"
-                               onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'">
+                        <label for="email">Email <span class="text-red-500">*</span></label>
+                        <input id="email" name="email" type="email" value="{{ old('email', $user->email) }}" required autocomplete="username">
                         @endif
                         @error('email') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                         @if ($user instanceof \Illuminate\Contracts\Auth\MustVerifyEmail && ! $user->hasVerifiedEmail())
@@ -480,42 +489,34 @@
 
                     {{-- Phone --}}
                     <div>
-                        <label for="phone" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Phone</label>
-                        <input id="phone" name="phone" type="tel" value="{{ old('phone', $user->phone) }}" placeholder="Landline"
-                               style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box; transition:border-color 200ms;"
-                               onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'">
+                        <label for="phone">Phone</label>
+                        <input id="phone" name="phone" type="tel" value="{{ old('phone', $user->phone) }}" placeholder="Landline">
                         @error('phone') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                     </div>
 
                     {{-- Cell --}}
                     <div>
-                        <label for="cell" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Cell <span class="text-red-500">*</span></label>
-                        <input id="cell" name="cell" type="tel" value="{{ old('cell', $user->cell) }}" placeholder="Mobile" required
-                               style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box; transition:border-color 200ms;"
-                               onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'">
+                        <label for="cell">Cell <span class="text-red-500">*</span></label>
+                        <input id="cell" name="cell" type="tel" value="{{ old('cell', $user->cell) }}" placeholder="Mobile" required>
                         @error('cell') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                     </div>
 
                     {{-- WhatsApp --}}
                     <div>
-                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
-                            <label for="whatsapp_number" style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">WhatsApp</label>
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:3px;">
+                            <label for="whatsapp_number" style="margin:0;">WhatsApp</label>
                             <button type="button"
                                     onclick="const f=this.closest('form'); const w=f.querySelector('[name=whatsapp_number]'); w.value=f.querySelector('[name=cell]').value; w.dispatchEvent(new Event('input'));"
                                     style="font-size:0.6875rem; font-weight:600; color:var(--brand-button); background:none; border:none; cursor:pointer; padding:0;">Same as cell</button>
                         </div>
-                        <input id="whatsapp_number" name="whatsapp_number" type="tel" value="{{ old('whatsapp_number', $user->whatsapp_number) }}" placeholder="WhatsApp number"
-                               style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box; transition:border-color 200ms;"
-                               onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'">
+                        <input id="whatsapp_number" name="whatsapp_number" type="tel" value="{{ old('whatsapp_number', $user->whatsapp_number) }}" placeholder="WhatsApp number">
                         @error('whatsapp_number') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                     </div>
 
                     {{-- ID Number --}}
                     <div>
-                        <label for="id_number" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">ID Number</label>
-                        <input id="id_number" name="id_number" type="text" value="{{ old('id_number', $user->id_number) }}" placeholder="SA ID number"
-                               style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box; transition:border-color 200ms;"
-                               onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'">
+                        <label for="id_number">ID Number</label>
+                        <input id="id_number" name="id_number" type="text" value="{{ old('id_number', $user->id_number) }}" placeholder="SA ID number">
                         @error('id_number') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                     </div>
 
@@ -523,25 +524,21 @@
                     @unless($isAssistant ?? false)
                     {{-- FFC Number --}}
                     <div>
-                        <label for="ffc_number" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">FFC Number</label>
-                        <input id="ffc_number" name="ffc_number" type="text" value="{{ old('ffc_number', $user->ffc_number) }}" placeholder="FFC number"
-                               style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box; transition:border-color 200ms;"
-                               onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'">
+                        <label for="ffc_number">FFC Number</label>
+                        <input id="ffc_number" name="ffc_number" type="text" value="{{ old('ffc_number', $user->ffc_number) }}" placeholder="FFC number">
                         @error('ffc_number') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                     </div>
 
                     {{-- FFC Expiry Date --}}
                     <div>
-                        <label for="ffc_expiry_date" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">FFC Expiry Date</label>
-                        <input id="ffc_expiry_date" name="ffc_expiry_date" type="date" value="{{ old('ffc_expiry_date', $user->ffc_expiry_date?->format('Y-m-d')) }}"
-                               style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box; transition:border-color 200ms;"
-                               onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'">
+                        <label for="ffc_expiry_date">FFC Expiry Date</label>
+                        <input id="ffc_expiry_date" name="ffc_expiry_date" type="date" value="{{ old('ffc_expiry_date', $user->ffc_expiry_date?->format('Y-m-d')) }}">
                         @error('ffc_expiry_date') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                     </div>
                     @endunless
                 </div>
 
-                <div style="margin-top:20px;">
+                <div style="margin-top:10px;">
                     <button type="submit" class="corex-btn-primary">Save Profile</button>
                 </div>
             </div>
@@ -553,25 +550,23 @@
                      ad/OAuth accounts under the Tools tab). AT-267 §10: assistants have no public page. --}}
                 @unless($isAssistant ?? false)
                 <div>
-                    <div class="flex items-center gap-2 mb-1">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:14px; height:14px; color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0 0a8.949 8.949 0 0 0 4.951-1.488A3.987 3.987 0 0 0 13 16h-2a3.987 3.987 0 0 0-3.951 3.512A8.949 8.949 0 0 0 12 21Zm3-11a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
-                        <span style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Public Website Profile</span>
+                    <div class="mp-h">
+                        <h3>Public Website Profile</h3>
+                        <a href="{{ auth()->user()->publicProfileUrl() }}" target="_blank" class="mp-more">Preview ↗</a>
                     </div>
-                    <p style="font-size:0.75rem; color:var(--text-muted); margin:0 0 12px;">Shown on your public agent page. <a href="{{ auth()->user()->publicProfileUrl() }}" target="_blank" style="color:var(--brand-icon); text-decoration:underline;">Preview ↗</a></p>
-                    <div style="max-width:560px;">
-                        <div style="margin-bottom:16px;">
+                    <div class="mp-field">
+                        <div style="margin-bottom:8px;">
                             <label for="about_me" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">About me</label>
                             <textarea id="about_me" name="about_me" rows="4" placeholder="A short bio shown on your website profile…"
-                                      style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box; resize:vertical;">{{ old('about_me', $user->about_me) }}</textarea>
+                                      style="resize:vertical;">{{ old('about_me', $user->about_me) }}</textarea>
                             @error('about_me') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                         </div>
-                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+                        <div class="mp-grid mp-g4">
                             @foreach(['facebook' => 'Facebook', 'instagram' => 'Instagram', 'linkedin' => 'LinkedIn', 'youtube' => 'YouTube'] as $net => $label)
                             <div>
-                                <label for="website_social_{{ $net }}" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">{{ $label }}</label>
+                                <label for="website_social_{{ $net }}">{{ $label }}</label>
                                 <input id="website_social_{{ $net }}" name="website_social_{{ $net }}" type="text"
-                                       value="{{ old('website_social_'.$net, $user->{'website_social_'.$net}) }}" placeholder="Profile URL"
-                                       style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box;">
+                                       value="{{ old('website_social_'.$net, $user->{'website_social_'.$net}) }}" placeholder="Profile URL">
                                 @error('website_social_'.$net) <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                             </div>
                             @endforeach
@@ -580,7 +575,7 @@
                 </div>
                 @endunless
 
-                <div style="margin-top:20px;">
+                <div style="margin-top:10px;">
                     <button type="submit" class="corex-btn-primary">Save Profile</button>
                 </div>
             </div>
@@ -589,31 +584,31 @@
             <div x-show="sub.profile === 'admin'" x-cloak class="pg-pane ">
                 {{-- Read-only admin fields --}}
                 <div>
-                    <div class="flex items-center gap-2 mb-3">
+                    <div class="flex items-center gap-2 mb-2">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:14px; height:14px; color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" /></svg>
                         <span style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Admin Managed</span>
                     </div>
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; max-width:560px;">
+                    <div style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px;">
                         <div>
                             <div style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Designation</div>
-                            <div style="padding:9px 12px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:0.8125rem; opacity:0.7;">{{ $user->designation ?: 'Not set' }}</div>
+                            <div style="padding:6px 10px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:0.8125rem; opacity:0.7;">{{ $user->designation ?: 'Not set' }}</div>
                         </div>
                         <div>
                             <div style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Role</div>
-                            <div style="padding:9px 12px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:0.8125rem; opacity:0.7;">{{ ucfirst(str_replace('_', ' ', $user->role ?? 'agent')) }}</div>
+                            <div style="padding:6px 10px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:0.8125rem; opacity:0.7;">{{ ucfirst(str_replace('_', ' ', $user->role ?? 'agent')) }}</div>
                         </div>
                         <div>
                             <div style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Branch</div>
-                            <div style="padding:9px 12px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:0.8125rem; opacity:0.7;">{{ $user->branch?->display_name ?? 'Not assigned' }}</div>
+                            <div style="padding:6px 10px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:0.8125rem; opacity:0.7;">{{ $user->branch?->display_name ?? 'Not assigned' }}</div>
                         </div>
                         <div>
                             <div style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Agency</div>
-                            <div style="padding:9px 12px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:0.8125rem; opacity:0.7;">{{ $user->agency?->name ?? 'Not assigned' }}</div>
+                            <div style="padding:6px 10px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:0.8125rem; opacity:0.7;">{{ $user->agency?->name ?? 'Not assigned' }}</div>
                         </div>
                         @unless($isAssistant ?? false)
                         <div>
                             <div style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">PPRA Status</div>
-                            <div style="padding:9px 12px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:0.8125rem; opacity:0.7;">
+                            <div style="padding:6px 10px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:0.8125rem; opacity:0.7;">
                                 {{ ucfirst($user->ppra_status ?? 'Not set') }}
                                 @if($user->ppra_last_verified_at)
                                     @php $ppraVerifiedAt = \Carbon\Carbon::parse($user->ppra_last_verified_at); @endphp
@@ -636,139 +631,132 @@
              branches here lets you "act as" their manager from the sidebar;
              it never changes what you can see. --}}
         @if(!empty($canSelfAssignBranches) && $selfAssignAgencyBranches->count() > 0)
-        <div x-data="{ open:true }" x-show="sub.profile === 'branches'" x-cloak class="pg-pane">
-            <button type="button" @click="open=!open" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 0 14px; background:none; border:0; cursor:pointer; text-align:left;">
-                <div>
-                    <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0;">Branches I Manage</h3>
-                    <p style="font-size:0.75rem; color:var(--text-muted); margin:2px 0 0;">Choose the branches you manage and the one CoreX opens to. Switch between them anytime from the sidebar.</p>
-                </div>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted); flex:0 0 16px; transition:transform .2s;" :style="{ transform: open ? 'rotate(180deg)' : 'none' }"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
-            </button>
-            <div x-show="open" x-cloak>
-                <p style="font-size:0.8125rem; color:var(--text-secondary); margin:0 0 16px;">Tick each branch you manage, then mark one as your <strong>default</strong> (the branch loaded when you sign in). The default must be one of the branches you tick.</p>
-                <form method="POST" action="{{ route('agent.portal.managed-branches.update') }}">
-                    @csrf
-                    @method('PATCH')
-                    <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
-                        @foreach($selfAssignAgencyBranches as $b)
-                            @php
-                                $isManaged = $managedBranchIds->contains((int) $b->id);
-                                $isDefault = $defaultManagedBranchId === (int) $b->id;
-                            @endphp
-                            <div style="display:flex; align-items:center; gap:12px; padding:10px 12px; border:1px solid var(--border); border-radius:6px; background:var(--surface-2);">
-                                <label style="display:flex; align-items:center; gap:8px; flex:1; cursor:pointer; margin:0;">
-                                    <input type="checkbox" name="managed_branches[]" value="{{ $b->id }}" {{ $isManaged ? 'checked' : '' }}>
-                                    <span style="font-size:0.8125rem; color:var(--text-primary);">{{ $b->name }}@if($b->code)<span style="color:var(--text-muted);"> ({{ $b->code }})</span>@endif</span>
-                                </label>
-                                <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:0.75rem; color:var(--text-muted); margin:0;">
-                                    <input type="radio" name="default_branch_id" value="{{ $b->id }}" {{ $isDefault ? 'checked' : '' }}>
-                                    Default
-                                </label>
-                            </div>
-                        @endforeach
-                    </div>
-                    <button type="submit" class="corex-btn-primary">Save Managed Branches</button>
-                </form>
-            </div>
-        </div>
-        @endif
-
-        {{-- Articles — agent-authored content for the public website profile --}}
-        @php $inputStyle = 'width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box;'; @endphp
-        <div x-data="{ editingId: null, open:true }" x-show="sub.profile === 'articles'" x-cloak class="pg-pane pg-wide">
-            <button type="button" @click="open=!open" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 0 14px; background:none; border:0; cursor:pointer; text-align:left;">
-                <div>
-                    <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0;">Articles</h3>
-                    <p style="font-size:0.75rem; color:var(--text-muted); margin:2px 0 0;">Content for your public website profile.</p>
-                </div>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted); flex:0 0 16px; transition:transform .2s;" :style="{ transform: open ? 'rotate(180deg)' : 'none' }"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
-            </button>
-            <div x-show="open" x-cloak>
-            <p style="font-size:0.8125rem; color:var(--text-secondary); margin:0 0 16px;">Tick <strong>Publish</strong> to make one live; untick to hide it.</p>
-
-            {{-- Add article --}}
-            <form method="POST" action="{{ route('agent.portal.articles.store') }}" enctype="multipart/form-data" style="margin-bottom:18px; display:flex; flex-direction:column; gap:8px;">
+        <div x-show="sub.profile === 'branches'" x-cloak class="pg-pane">
+            <div class="mp-h"><h3>Branches I Manage</h3><span class="mp-note">Tick each branch you manage and mark one default (opens when you sign in). Switch between them from the sidebar.</span></div>
+            <form method="POST" action="{{ route('agent.portal.managed-branches.update') }}">
                 @csrf
-                <input name="title" required maxlength="200" placeholder="Article title" style="{{ $inputStyle }}">
-                <input name="excerpt" maxlength="500" placeholder="Short summary (optional)" style="{{ $inputStyle }}">
-                <textarea name="body" rows="5" placeholder="Article content…" style="{{ $inputStyle }} resize:vertical;"></textarea>
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-                    <input name="link_url" type="url" maxlength="500" placeholder="Connecting link (optional, e.g. https://…)" style="{{ $inputStyle }}">
-                    <input name="tags" maxlength="500" placeholder="Tags, comma separated (e.g. BondApproval, HomeBuying)" style="{{ $inputStyle }}">
-                </div>
-                <label style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Cover image (optional)
-                    <input name="cover_image" type="file" accept="image/jpeg,image/png,image/webp" style="display:block; margin-top:4px; font-size:0.8125rem; color:var(--text-secondary);">
-                </label>
-                @error('cover_image') <p style="font-size:0.6875rem; color:var(--ds-crimson);">{{ $message }}</p> @enderror
-                @error('link_url') <p style="font-size:0.6875rem; color:var(--ds-crimson);">{{ $message }}</p> @enderror
-                <div style="display:flex; justify-content:flex-end;"><button type="submit" class="corex-btn-primary" style="font-size:0.8125rem;">Add Article</button></div>
-            </form>
-
-            @if($articles->isEmpty())
-                <p style="font-size:0.8125rem; color:var(--text-muted);">No articles yet. Add one above.</p>
-            @else
-                {{-- Carousel of square article cards (cover image, or blank if none) --}}
-                <div style="display:flex; gap:14px; overflow-x:auto; padding-bottom:10px; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch;">
-                    @foreach($articles as $article)
-                        <div style="flex:0 0 200px; scroll-snap-align:start;">
-                            <div style="position:relative; width:200px; height:200px; border-radius:10px; overflow:hidden; border:1px solid var(--border); background:var(--surface-2);">
-                                @if($article->coverImageUrl())
-                                    <img src="{{ $article->coverImageUrl() }}" alt="{{ $article->title }}" style="width:100%; height:100%; object-fit:cover;">
-                                @endif
-                                <span class="ds-badge {{ $article->is_published ? 'ds-badge-success' : 'ds-badge-default' }}" style="position:absolute; top:8px; left:8px;">{{ $article->is_published ? 'Published' : 'Draft' }}</span>
-                                <div style="position:absolute; left:0; right:0; bottom:0; padding:26px 10px 10px; background:linear-gradient(to top, rgba(0,0,0,.72), transparent); color:#fff; font-weight:700; font-size:0.8125rem; line-height:1.25;">{{ \Illuminate\Support\Str::limit($article->title, 60) }}</div>
-                            </div>
-                            <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin-top:7px;">
-                                <span style="font-size:0.625rem; color:var(--text-muted);">{{ $article->readMinutes() }} MIN • {{ number_format($article->wordCount()) }}w</span>
-                                <div style="display:flex; align-items:center; gap:12px;">
-                                    <a href="{{ route('corex.agents.article.preview', [auth()->user(), $article, $article->previewSlug()]) }}" target="_blank" title="Preview" style="font-size:0.75rem; color:var(--brand-icon); text-decoration:none;">↗</a>
-                                    <button type="button" @click="editingId = (editingId === {{ $article->id }} ? null : {{ $article->id }})" style="font-size:0.6875rem; font-weight:600; color:var(--brand-icon); background:none; border:none; cursor:pointer;">Edit</button>
-                                    <form method="POST" action="{{ route('agent.portal.articles.destroy', $article) }}" onsubmit="return confirm('Delete this article?');">
-                                        @csrf @method('DELETE')
-                                        <button type="submit" title="Delete" style="font-size:0.75rem; font-weight:700; color:var(--ds-crimson); background:none; border:none; cursor:pointer;">✕</button>
-                                    </form>
-                                </div>
-                            </div>
-                            <form method="POST" action="{{ route('agent.portal.articles.publish', $article) }}" style="margin-top:4px;">
-                                @csrf @method('PATCH')
-                                <input type="hidden" name="is_published" value="0">
-                                <label style="display:flex; align-items:center; gap:5px; font-size:0.625rem; color:var(--text-secondary); cursor:pointer;">
-                                    <input type="checkbox" name="is_published" value="1" onchange="this.form.submit()" {{ $article->is_published ? 'checked' : '' }} style="accent-color:var(--brand-button);"> On website
-                                </label>
-                            </form>
+                @method('PATCH')
+                <div class="mp-grid mp-g3" style="margin-bottom:10px;" data-portal-rows="managed-branches" data-portal-cap="12">
+                    @foreach($selfAssignAgencyBranches->take(12) as $b)
+                        @php
+                            $isManaged = $managedBranchIds->contains((int) $b->id);
+                            $isDefault = $defaultManagedBranchId === (int) $b->id;
+                        @endphp
+                        <div class="mp-row" style="background:var(--surface-2);">
+                            <label style="display:flex; align-items:center; gap:8px; flex:1; cursor:pointer; margin:0; min-width:0;">
+                                <input type="checkbox" name="managed_branches[]" value="{{ $b->id }}" {{ $isManaged ? 'checked' : '' }}>
+                                <span class="truncate" style="font-size:0.8125rem; color:var(--text-primary);">{{ $b->name }}@if($b->code)<span style="color:var(--text-muted);"> ({{ $b->code }})</span>@endif</span>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:0.75rem; color:var(--text-muted); margin:0;">
+                                <input type="radio" name="default_branch_id" value="{{ $b->id }}" {{ $isDefault ? 'checked' : '' }}>
+                                Default
+                            </label>
                         </div>
                     @endforeach
                 </div>
+                <button type="submit" class="corex-btn-primary">Save Managed Branches</button>
+            </form>
+        </div>
+        @endif
 
-                {{-- Edit panels (full-width, shown when a card's Edit is clicked) --}}
-                @foreach($articles as $article)
-                    <form x-show="editingId === {{ $article->id }}" x-cloak method="POST" action="{{ route('agent.portal.articles.update', $article) }}" enctype="multipart/form-data" style="margin-top:14px; display:flex; flex-direction:column; gap:8px; border-top:1px solid var(--border); padding-top:14px;">
-                        @csrf @method('PUT')
-                        <div style="font-size:0.6875rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">Editing: {{ $article->title }}</div>
-                        <input name="title" required maxlength="200" value="{{ $article->title }}" style="{{ $inputStyle }}">
-                        <input name="excerpt" maxlength="500" value="{{ $article->excerpt }}" placeholder="Short summary" style="{{ $inputStyle }}">
-                        <textarea name="body" rows="5" style="{{ $inputStyle }} resize:vertical;">{{ $article->body }}</textarea>
-                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
-                            <input name="link_url" type="url" maxlength="500" value="{{ $article->link_url }}" placeholder="Connecting link (optional)" style="{{ $inputStyle }}">
-                            <input name="tags" maxlength="500" value="{{ $article->tags }}" placeholder="Tags, comma separated" style="{{ $inputStyle }}">
+        {{-- Articles - agent-authored content for the public website profile.
+             One form slot on the left (Add, or Edit when a row's Edit is pressed); the agent's articles on the right,
+             six to a page, so the pane never grows with the number of articles. --}}
+        <div x-data="{ editingId: null, page: 0, per: 6, total: {{ $articles->count() }} }" x-show="sub.profile === 'articles'" x-cloak class="pg-pane pg-wide mp-field">
+            @error('cover_image') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin:0 0 6px;">{{ $message }}</p> @enderror
+            @error('link_url') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin:0 0 6px;">{{ $message }}</p> @enderror
+            <div class="mp-grid" style="grid-template-columns:minmax(0, 5fr) minmax(0, 7fr); align-items:start;">
+                <div>
+                    {{-- Add article --}}
+                    <form x-show="editingId === null" method="POST" action="{{ route('agent.portal.articles.store') }}" enctype="multipart/form-data" style="display:flex; flex-direction:column; gap:6px;">
+                        @csrf
+                        <div class="mp-h" style="margin:0;"><h3>Add article</h3><span class="mp-note">Tick Publish on a row to put it on your website</span></div>
+                        <input name="title" required maxlength="200" placeholder="Article title">
+                        <input name="excerpt" maxlength="500" placeholder="Short summary (optional)">
+                        <textarea name="body" rows="4" placeholder="Article content…" style="resize:vertical;"></textarea>
+                        <div class="mp-grid mp-g2">
+                            <input name="link_url" type="url" maxlength="500" placeholder="Connecting link (optional)">
+                            <input name="tags" maxlength="500" placeholder="Tags, comma separated">
                         </div>
-                        @if($article->coverImageUrl())
-                            <div style="display:flex; align-items:center; gap:10px;">
-                                <img src="{{ $article->coverImageUrl() }}" alt="cover" style="width:60px; height:45px; object-fit:cover; border-radius:4px; border:1px solid var(--border);">
-                                <label style="font-size:0.6875rem; color:var(--text-secondary); display:flex; align-items:center; gap:5px; cursor:pointer;"><input type="checkbox" name="remove_cover" value="1" style="accent-color:var(--ds-crimson);"> Remove cover image</label>
-                            </div>
-                        @endif
-                        <label style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em;">{{ $article->coverImageUrl() ? 'Replace' : 'Add' }} cover image
-                            <input name="cover_image" type="file" accept="image/jpeg,image/png,image/webp" style="display:block; margin-top:4px; font-size:0.8125rem; color:var(--text-secondary);">
-                        </label>
-                        <div style="display:flex; justify-content:flex-end; gap:8px;">
-                            <button type="button" @click="editingId = null" style="font-size:0.8125rem; padding:6px 12px; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text-secondary); cursor:pointer;">Cancel</button>
-                            <button type="submit" class="corex-btn-primary" style="font-size:0.8125rem;">Save</button>
+                        <div class="flex items-center justify-between gap-2">
+                            <input name="cover_image" type="file" accept="image/jpeg,image/png,image/webp" title="Cover image (optional)" style="font-size:0.75rem; padding:3px 6px;">
+                            <button type="submit" class="corex-btn-primary" style="font-size:0.8125rem; white-space:nowrap;">Add Article</button>
                         </div>
                     </form>
-                @endforeach
-            @endif
-            </div>{{-- /x-show articles --}}
+
+                    {{-- Edit panels (take the form's place when a row's Edit is pressed) --}}
+                    @foreach($articles as $article)
+                        <form x-show="editingId === {{ $article->id }}" x-cloak method="POST" action="{{ route('agent.portal.articles.update', $article) }}" enctype="multipart/form-data" style="display:flex; flex-direction:column; gap:6px;">
+                            @csrf @method('PUT')
+                            <div class="mp-h" style="margin:0;"><h3>Editing: {{ \Illuminate\Support\Str::limit($article->title, 40) }}</h3></div>
+                            <input name="title" required maxlength="200" value="{{ $article->title }}">
+                            <input name="excerpt" maxlength="500" value="{{ $article->excerpt }}" placeholder="Short summary">
+                            <textarea name="body" rows="4" style="resize:vertical;">{{ $article->body }}</textarea>
+                            <div class="mp-grid mp-g2">
+                                <input name="link_url" type="url" maxlength="500" value="{{ $article->link_url }}" placeholder="Connecting link (optional)">
+                                <input name="tags" maxlength="500" value="{{ $article->tags }}" placeholder="Tags, comma separated">
+                            </div>
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="flex items-center gap-2">
+                                    <input name="cover_image" type="file" accept="image/jpeg,image/png,image/webp" title="{{ $article->coverImageUrl() ? 'Replace' : 'Add' }} cover image" style="font-size:0.75rem; padding:3px 6px;">
+                                    @if($article->coverImageUrl())
+                                        <label style="font-size:0.6875rem; color:var(--text-secondary); display:flex; align-items:center; gap:4px; cursor:pointer; margin:0; text-transform:none; letter-spacing:0;"><input type="checkbox" name="remove_cover" value="1" style="width:auto; accent-color:var(--ds-crimson);"> Remove cover</label>
+                                    @endif
+                                </span>
+                                <span class="flex gap-2">
+                                    <button type="button" @click="editingId = null" style="font-size:0.8125rem; padding:5px 12px; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text-secondary); cursor:pointer;">Cancel</button>
+                                    <button type="submit" class="corex-btn-primary" style="font-size:0.8125rem;">Save</button>
+                                </span>
+                            </div>
+                        </form>
+                    @endforeach
+                </div>
+
+                <div>
+                    <div class="mp-h" style="margin-bottom:6px;"><h3>My articles <span class="mp-note" style="font-weight:400;">({{ $articles->count() }})</span></h3>
+                        <span class="flex items-center gap-2" x-show="total > per" x-cloak>
+                            <button type="button" class="mp-more" @click="page = Math.max(0, page - 1)" :disabled="page === 0" :style="page === 0 ? 'opacity:.4' : ''">&larr; Newer</button>
+                            <span class="mp-note" x-text="(page + 1) + ' / ' + Math.ceil(total / per)"></span>
+                            <button type="button" class="mp-more" @click="page = Math.min(Math.ceil(total / per) - 1, page + 1)" :disabled="(page + 1) * per >= total" :style="(page + 1) * per >= total ? 'opacity:.4' : ''">Older &rarr;</button>
+                        </span>
+                    </div>
+                    @if($articles->isEmpty())
+                        <p style="font-size:0.8125rem; color:var(--text-muted); margin:0;">No articles yet. Add one on the left.</p>
+                    @else
+                        <div style="display:flex; flex-direction:column; gap:5px;" data-portal-rows="articles" data-portal-cap="6">
+                            @foreach($articles as $article)
+                                <div class="mp-row" x-show="{{ $loop->index }} >= page * per && {{ $loop->index }} < (page + 1) * per" @if($loop->index >= 6) x-cloak @endif>
+                                    <div class="flex items-center gap-2 min-w-0">
+                                        @if($article->coverImageUrl())
+                                            <img src="{{ $article->coverImageUrl() }}" alt="" style="width:30px; height:30px; object-fit:cover; border-radius:4px; border:1px solid var(--border); flex:0 0 30px;">
+                                        @endif
+                                        <div class="min-w-0">
+                                            <div class="truncate" style="font-size:0.8125rem; font-weight:600; color:var(--text-primary);">{{ \Illuminate\Support\Str::limit($article->title, 48) }}</div>
+                                            <div class="mp-note">{{ $article->readMinutes() }} min &middot; {{ number_format($article->wordCount()) }} words</div>
+                                        </div>
+                                    </div>
+                                    <div class="flex items-center gap-3" style="flex:0 0 auto;">
+                                        <span class="ds-badge {{ $article->is_published ? 'ds-badge-success' : 'ds-badge-default' }}">{{ $article->is_published ? 'Published' : 'Draft' }}</span>
+                                        <form method="POST" action="{{ route('agent.portal.articles.publish', $article) }}">
+                                            @csrf @method('PATCH')
+                                            <input type="hidden" name="is_published" value="0">
+                                            <label style="display:flex; align-items:center; gap:4px; font-size:0.6875rem; color:var(--text-secondary); cursor:pointer; margin:0; text-transform:none; letter-spacing:0;">
+                                                <input type="checkbox" name="is_published" value="1" onchange="this.form.submit()" {{ $article->is_published ? 'checked' : '' }} style="width:auto; accent-color:var(--brand-button);"> On website
+                                            </label>
+                                        </form>
+                                        <a href="{{ route('corex.agents.article.preview', [auth()->user(), $article, $article->previewSlug()]) }}" target="_blank" title="Preview" style="font-size:0.75rem; color:var(--brand-icon); text-decoration:none;">↗</a>
+                                        <button type="button" @click="editingId = (editingId === {{ $article->id }} ? null : {{ $article->id }})" style="font-size:0.6875rem; font-weight:600; color:var(--brand-icon); background:none; border:none; cursor:pointer;">Edit</button>
+                                        <form method="POST" action="{{ route('agent.portal.articles.destroy', $article) }}" onsubmit="return confirm('Delete this article?');">
+                                            @csrf @method('DELETE')
+                                            <button type="submit" title="Delete" style="font-size:0.75rem; font-weight:700; color:var(--ds-crimson); background:none; border:none; cursor:pointer;">✕</button>
+                                        </form>
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    @endif
+                </div>
+            </div>
         </div>
     </div>{{-- /tab: profile --}}
 
@@ -780,11 +768,11 @@
          can open — no hand-maintained page registry, nothing to keep in sync.
          Spec: .ai/specs/sidebar-favourites.md §6.3, §6.4
          ═══════════════════════════════════════════ --}}
-    <div x-show="tab === 'favourites'" x-cloak>
+    <div x-show="tab === 'favourites'" x-cloak data-portal-pane="favourites">
         <nav class="pg-subs" aria-label="Sections">
-            <button type="button" class="pg-sub" @click="sub.favourites = 'intro'" :aria-current="sub.favourites === 'intro' ? 'page' : null">Favourites</button>
-            <button type="button" class="pg-sub" @click="sub.favourites = 'mine'" :aria-current="sub.favourites === 'mine' ? 'page' : null">My Favourites</button>
-            <button type="button" class="pg-sub" @click="sub.favourites = 'all'" :aria-current="sub.favourites === 'all' ? 'page' : null">All Pages</button>
+            <button type="button" class="pg-sub" data-portal-sub="intro" @click="sub.favourites = 'intro'" :aria-current="sub.favourites === 'intro' ? 'page' : null">Favourites</button>
+            <button type="button" class="pg-sub" data-portal-sub="mine" @click="sub.favourites = 'mine'" :aria-current="sub.favourites === 'mine' ? 'page' : null">My Favourites</button>
+            <button type="button" class="pg-sub" data-portal-sub="all" @click="sub.favourites = 'all'" :aria-current="sub.favourites === 'all' ? 'page' : null">All Pages</button>
         </nav>
         <form method="POST" action="{{ route('agent.portal.favourites.update') }}"
               x-data="corexFavouritesPicker(@js($navFavourites->map(fn($f) => ['key' => $f->nav_key, 'label' => $f->label])->values()), {{ $navFavouriteMax }}, @js((bool) $user->nav_favourites_autoopen))"
@@ -794,11 +782,7 @@
 
             <div>
                 <div x-show="sub.favourites === 'intro'" x-cloak class="pg-pane">
-                <h3 style="font-size:0.9375rem; font-weight:600; color:var(--text-primary); margin-bottom:4px;">Favourites</h3>
-                <p style="font-size:0.8125rem; color:var(--text-secondary); margin-bottom:20px;">
-                    Pick the pages you use most. They appear in a Favourites list just above your name in the
-                    sidebar, one click away from anywhere in CoreX.
-                </p>
+                <div class="mp-h"><h3>Favourites</h3><span class="mp-note">Your most-used pages, in a list above your name in the sidebar.</span></div>
 
                 {{-- ── Auto-open ─────────────────────────────────────────── --}}
                 {{-- The hidden 0 keeps auto_open ALWAYS present in this post, so
@@ -807,14 +791,13 @@
                      guard (which protects partial posts from other forms) would
                      otherwise read "absent" and leave the setting untouched. --}}
                 <input type="hidden" name="auto_open" value="0">
-                <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer; padding:12px 14px; border:1px solid var(--border); border-radius:6px; background:var(--surface-2);">
+                <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer; padding:8px 12px; border:1px solid var(--border); border-radius:6px; background:var(--surface-2);">
                     <input type="checkbox" name="auto_open" value="1" x-model="autoOpen"
                            style="margin-top:2px; width:16px; height:16px; accent-color:var(--brand-button, #0ea5e9);">
                     <span>
                         <span style="display:block; font-size:0.8125rem; font-weight:500; color:var(--text-primary);">Open my Favourites automatically when I sign in</span>
                         <span style="display:block; font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
-                            What this changes: the Favourites list opens by itself the first time you land in CoreX
-                            after signing in. Close it and it stays closed until your next sign-in.
+                            The list opens by itself the first time you land in CoreX after signing in.
                         </span>
                     </span>
                 </label>
@@ -823,15 +806,10 @@
 
                 {{-- ── My favourites (ordered) ───────────────────────────── --}}
                 <div x-show="sub.favourites === 'mine'" x-cloak class="pg-pane">
-                    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
-                        <h4 style="font-size:0.8125rem; font-weight:600; color:var(--text-primary);">My favourites</h4>
-                        <span style="font-size:0.75rem; color:var(--text-muted);">
-                            <span x-text="chosen.length"></span> of {{ $navFavouriteMax }}
-                        </span>
+                    <div class="mp-h">
+                        <h3>My favourites <span class="mp-note" style="font-weight:400;"><span x-text="chosen.length"></span> of {{ $navFavouriteMax }}</span></h3>
+                        <span class="mp-note">Drag to reorder, or use the arrows - this is the sidebar order.</span>
                     </div>
-                    <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:10px;">
-                        Drag a page to reorder it, or use the arrows. This is the order they appear in the sidebar.
-                    </p>
 
                     <template x-if="chosen.length === 0">
                         <div style="padding:16px; border:1px dashed var(--border); border-radius:6px; font-size:0.8125rem; color:var(--text-muted);">
@@ -839,7 +817,7 @@
                         </div>
                     </template>
 
-                    <div x-show="chosen.length > 0" style="border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+                    <div x-show="chosen.length > 0" style="display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:4px;">
                         <template x-for="(fav, i) in chosen" :key="fav.key">
                             <div draggable="true"
                                  @dragstart="startDrag(i)" @dragover.prevent="dragOver(i)"
@@ -849,11 +827,11 @@
                                       style attribute — a string binding here wiped display:flex and
                                       wrapped every row. Object syntax merges per property. --}}
                                  :style="{ opacity: i === dragIndex ? 0.45 : 1 }"
-                                 style="display:flex; align-items:center; gap:10px; padding:8px 12px; border-bottom:1px solid var(--border); background:var(--surface); cursor:grab;">
+                                 style="display:flex; align-items:center; gap:6px; padding:4px 8px; border:1px solid var(--border); border-radius:6px; background:var(--surface); cursor:grab; min-width:0;">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:14px; height:14px; color:var(--text-muted); flex-shrink:0;">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9h16.5m-16.5 6.75h16.5" />
                                 </svg>
-                                <span style="flex:1; font-size:0.8125rem; color:var(--text-primary);" x-text="fav.label"></span>
+                                <span style="flex:1; font-size:0.8125rem; color:var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" x-text="fav.label" :title="fav.label"></span>
                                 <button type="button" @click="move(i, -1)" :disabled="i === 0" title="Move up"
                                         style="padding:3px; border:none; background:transparent; cursor:pointer; color:var(--text-muted);"
                                         :style="{ opacity: i === 0 ? 0.3 : 1, cursor: i === 0 ? 'default' : 'pointer' }">
@@ -881,14 +859,13 @@
 
                 {{-- ── All pages you can open ────────────────────────────── --}}
                 <div x-show="sub.favourites === 'all'" x-cloak class="pg-pane pg-wide">
-                    <h4 style="font-size:0.8125rem; font-weight:600; color:var(--text-primary); margin-bottom:10px;">All pages you can open</h4>
-
-                    <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:14px;">
+                    <div class="flex flex-wrap items-center gap-2" style="margin-bottom:8px;">
+                        <h3 style="font-size:0.875rem; font-weight:700; color:var(--text-primary); margin:0;">All pages you can open</h3>
                         <input type="text" x-model="q" placeholder="Search pages…" autocomplete="off" spellcheck="false"
                                aria-label="Search pages"
-                               style="flex:1; min-width:200px; padding:7px 10px; font-size:0.8125rem; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary);">
+                               style="flex:1; min-width:200px; padding:5px 10px; font-size:0.8125rem; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary);">
                         <select x-model="filterMode" aria-label="Filter pages"
-                                style="padding:7px 10px; font-size:0.8125rem; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary);">
+                                style="padding:5px 10px; font-size:0.8125rem; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary);">
                             <option value="all">All pages</option>
                             <option value="mine">Only my favourites</option>
                         </select>
@@ -902,37 +879,45 @@
                         <p style="font-size:0.8125rem; color:var(--text-muted);">Couldn't read your menu — please reload the page.</p>
                     </template>
 
-                    <template x-if="ready && !failed && visibleSections().length === 0">
+                    <template x-if="ready && !failed && shownGroups().length === 0">
                         <p style="font-size:0.8125rem; color:var(--text-muted);"
                            x-text="filterMode === 'mine' ? 'You haven\'t chosen any pages yet.' : 'No pages match “' + q + '”.'"></p>
                     </template>
 
-                    {{-- The page list scrolls INSIDE itself. With ~150 pages across a
-                         dozen sections, letting it run down the page pushed Save far
-                         below the fold — the user had to scroll past everything just to
-                         save. Bounded here, so Save stays a short reach away whatever
-                         the menu size. The pane shrinks to fit when a search narrows it. --}}
-                    <div class="space-y-3 corex-brand-scroll"
-                         x-show="ready && !failed && visibleSections().length > 0"
-                         style="max-height:460px; overflow-y:auto; overscroll-behavior:contain; box-sizing:border-box; padding:12px; border:1px solid var(--border); border-radius:6px;">
-                        <template x-for="section in visibleSections()" :key="section.label">
-                            <div style="border:1px solid var(--border); border-radius:6px; padding:12px 14px; background:var(--surface-2);">
-                                <div style="font-size:0.6875rem; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:8px;"
-                                     x-text="section.label"></div>
-                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                                    <template x-for="page in section.pages" :key="page.key">
-                                        <label style="display:flex; align-items:center; gap:8px; font-size:0.8125rem; color:var(--text-primary); padding:2px 0;"
+                    {{-- With ~150 pages in a dozen sections a list always ran off the screen. So: pick a section, see ITS pages
+                         four across; a search or "Only my favourites" shows matches from every section instead. At most
+                         forty pages are drawn at once - the search narrows the rest. --}}
+                    <div x-show="ready && !failed && !searching()" class="flex flex-wrap gap-1" style="margin-bottom:8px;">
+                        <template x-for="section in sections" :key="section.label">
+                            <button type="button" @click="activeSection = section.label"
+                                    :style="currentSection() === section.label
+                                        ? 'background:color-mix(in srgb, var(--brand-button) 14%, transparent); color:var(--brand-button); border-color:color-mix(in srgb, var(--brand-button) 35%, transparent);'
+                                        : 'background:var(--surface-2); color:var(--text-secondary); border-color:var(--border);'"
+                                    style="font-size:0.75rem; padding:3px 9px; border-radius:999px; border:1px solid; cursor:pointer;">
+                                <span x-text="section.label"></span><span x-show="chosenIn(section) > 0" style="opacity:.7;" x-text="' · ' + chosenIn(section)"></span>
+                            </button>
+                        </template>
+                    </div>
+
+                    <div x-show="ready && !failed && shownGroups().length > 0" style="display:flex; flex-direction:column; gap:6px;">
+                        <template x-for="group in shownGroups()" :key="group.label">
+                            <div>
+                                <div x-show="searching()" style="font-size:0.6875rem; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:2px;" x-text="group.label"></div>
+                                <div style="display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:2px 12px;">
+                                    <template x-for="page in group.pages" :key="page.key">
+                                        <label style="display:flex; align-items:center; gap:8px; font-size:0.8125rem; color:var(--text-primary); padding:2px 0; min-width:0;"
                                                :style="{ opacity: (!isChosen(page.key) && atLimit()) ? 0.45 : 1, cursor: (!isChosen(page.key) && atLimit()) ? 'default' : 'pointer' }">
                                             <input type="checkbox" :checked="isChosen(page.key)"
                                                    :disabled="!isChosen(page.key) && atLimit()"
                                                    @change="togglePage(page)"
-                                                   style="width:16px; height:16px; border-radius:4px; accent-color:var(--brand-button, #0ea5e9);">
-                                            <span x-text="page.label"></span>
+                                                   style="width:16px; height:16px; border-radius:4px; flex:0 0 16px; accent-color:var(--brand-button, #0ea5e9);">
+                                            <span x-text="page.label" :title="page.label" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
                                         </label>
                                     </template>
                                 </div>
                             </div>
                         </template>
+                        <p x-show="hiddenCount() > 0" x-cloak style="font-size:0.75rem; color:var(--text-muted); margin:0;" x-text="hiddenCount() + ' more match - type in the search box to narrow them down.'"></p>
                     </div>
                 </div>
 
@@ -960,6 +945,8 @@
             q: '',
             filterMode: 'all',
             dragIndex: null,
+            activeSection: '',
+            cap: 40,
 
             init() {
                 const run = () => this.build();
@@ -1056,6 +1043,36 @@
 
             endDrag() { this.dragIndex = null; },
 
+            // True when the list shows matches across every section instead of the one chosen section.
+            searching() { return (this.q || '').trim() !== '' || this.filterMode === 'mine'; },
+
+            currentSection() { return this.activeSection || (this.sections[0] ? this.sections[0].label : ''); },
+
+            chosenIn(section) { return section.pages.filter((p) => this.isChosen(p.key)).length; },
+
+            allGroups() {
+                if (this.searching()) return this.visibleSections();
+                const s = this.sections.find((x) => x.label === this.currentSection());
+                return s ? [{ label: s.label, pages: s.pages }] : [];
+            },
+
+            shownGroups() {
+                let budget = this.cap;
+                const out = [];
+                this.allGroups().forEach((g) => {
+                    if (budget <= 0) return;
+                    const pages = g.pages.slice(0, budget);
+                    budget -= pages.length;
+                    out.push({ label: g.label, pages: pages });
+                });
+                return out;
+            },
+
+            hiddenCount() {
+                const total = this.allGroups().reduce((n, g) => n + g.pages.length, 0);
+                return Math.max(0, total - this.cap);
+            },
+
             visibleSections() {
                 const q = (this.q || '').trim().toLowerCase();
                 const mine = this.filterMode === 'mine';
@@ -1077,28 +1094,26 @@
     {{-- ═══════════════════════════════════════════
          TAB: TOOLS — utilities moved out of Profile
          ═══════════════════════════════════════════ --}}
-    <div x-show="tab === 'tools'" x-cloak>
+    <div x-show="tab === 'tools'" x-cloak data-portal-pane="tools">
         <nav class="pg-subs" aria-label="Sections">
-            <button type="button" class="pg-sub" @click="sub.tools = 'theme'" :aria-current="sub.tools === 'theme' ? 'page' : null">Theme</button>
-            <button type="button" class="pg-sub" @click="sub.tools = 'app'" :aria-current="sub.tools === 'app' ? 'page' : null">App Access</button>
+            <button type="button" class="pg-sub" data-portal-sub="theme" @click="sub.tools = 'theme'" :aria-current="sub.tools === 'theme' ? 'page' : null">Theme</button>
+            <button type="button" class="pg-sub" data-portal-sub="app" @click="sub.tools = 'app'" :aria-current="sub.tools === 'app' ? 'page' : null">App Access</button>
             @if($user->portal_show_api_token)
-            <button type="button" class="pg-sub" @click="sub.tools = 'api'" :aria-current="sub.tools === 'api' ? 'page' : null">API Token</button>
-            <button type="button" class="pg-sub" @click="sub.tools = 'chrome'" :aria-current="sub.tools === 'chrome' ? 'page' : null">Chrome Extension</button>
+            <button type="button" class="pg-sub" data-portal-sub="chrome" @click="sub.tools = 'chrome'" :aria-current="sub.tools === 'chrome' ? 'page' : null">Chrome extension</button>
             @endif
             @if($user->portal_show_social_accounts && \Illuminate\Support\Facades\Route::has('corex.social.oauth.redirect'))
-            <button type="button" class="pg-sub" @click="sub.tools = 'social'" :aria-current="sub.tools === 'social' ? 'page' : null">Social Media</button>
+            <button type="button" class="pg-sub" data-portal-sub="social" @click="sub.tools = 'social'" :aria-current="sub.tools === 'social' ? 'page' : null">Social Media</button>
             @endif
-            <button type="button" class="pg-sub" @click="sub.tools = 'qr'" :aria-current="sub.tools === 'qr' ? 'page' : null">Client QR Code</button>
+            <button type="button" class="pg-sub" data-portal-sub="qr" @click="sub.tools = 'qr'" :aria-current="sub.tools === 'qr' ? 'page' : null">Client QR Code</button>
             @if(auth()->user()->hasPermission('access_communication'))
-            <button type="button" class="pg-sub" @click="sub.tools = 'wa'" :aria-current="sub.tools === 'wa' ? 'page' : null">WhatsApp</button>
+            <button type="button" class="pg-sub" data-portal-sub="wa" @click="sub.tools = 'wa'" :aria-current="sub.tools === 'wa' ? 'page' : null">WhatsApp</button>
             @endif
         </nav>
 
         {{-- Theme Preference --}}
         <div x-show="sub.tools === 'theme'" x-cloak class="pg-pane "
              x-data="{ current: localStorage.getItem('corex-theme') || '{{ $user->theme ?? 'dark' }}' }">
-            <h3 class="text-base font-bold mb-1" style="color:var(--text-primary);">Theme Preference</h3>
-            <p class="text-xs mb-4" style="color:var(--text-muted);">Choose how CoreX looks for you. Synced across your devices.</p>
+            <div class="mp-h"><h3>Theme Preference</h3><span class="mp-note">Synced across your devices.</span></div>
             <div role="radiogroup" aria-label="Theme"
                  class="inline-flex rounded-md p-1"
                  style="background:var(--surface-2); border:1px solid var(--border);">
@@ -1129,8 +1144,7 @@
              Spec: .ai/specs/mobile-app-access.md §5. Unconditional: every
              agent has this, unlike the settings-gated cards below. --}}
         <div x-show="sub.tools === 'app'" x-cloak class="pg-pane ">
-            <h3 class="text-base font-bold mb-1" style="color:var(--text-primary);">App Access</h3>
-            <p class="text-xs mb-4" style="color:var(--text-muted);">Whether you can log into the CoreX mobile app. Turning this off in the app (Delete my account) never affects your CoreX account here on the website.</p>
+            <div class="mp-h"><h3>App Access</h3><span class="mp-note">Whether you can sign in to the CoreX mobile app. Turning it off in the app never affects your account here.</span></div>
             @if($user->hasAppAccess())
                 <span class="ds-badge ds-badge-success">Enabled</span>
             @else
@@ -1145,8 +1159,16 @@
         </div>
 
         @if($user->portal_show_api_token)
-        {{-- API Token --}}
-        <div x-show="sub.tools === 'api'" x-cloak class="pg-pane "
+        {{-- Chrome extension - ONE sub-tab (Johan, 26 Oct 2026): the API token exists only for the extension, so the token, then
+             the install, then the connect step sit together, in that order. --}}
+        @php
+            $corexExtVersion = null;
+            $corexExtManifest = public_path('chrome-extension/portal-capture/manifest.json');
+            if (is_file($corexExtManifest)) {
+                $corexExtVersion = json_decode(@file_get_contents($corexExtManifest), true)['version'] ?? null;
+            }
+        @endphp
+        <div x-show="sub.tools === 'chrome'" x-cloak class="pg-pane pg-wide" data-testid="chrome-extension-pane"
              x-data="{
                 hasToken: {{ auth()->user()->api_token ? 'true' : 'false' }},
                 plaintext: null, loading: false, copied: false, error: null,
@@ -1163,64 +1185,52 @@
                 },
                 copyToken() { navigator.clipboard.writeText(this.plaintext); this.copied = true; setTimeout(() => this.copied = false, 2000); }
              }">
-            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 12px;">API Token</h3>
-            <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 12px;">Used by the CoreX Chrome extension to authenticate with CoreX.</p>
-            <template x-if="error">
-                <div class="rounded-md" style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); padding:10px 14px; margin-bottom:10px;">
-                    <div class="text-xs font-semibold" style="color:var(--ds-crimson);" x-text="error"></div>
-                </div>
-            </template>
-            <template x-if="plaintext">
-                <div>
-                    <div class="rounded-md" style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); padding:10px 14px; margin-bottom:10px;">
-                        <div class="text-xs font-semibold" style="color:var(--ds-amber);">Copy this token now &mdash; you won't see it again.</div>
-                    </div>
-                    <div style="display:flex; gap:8px; align-items:center;">
-                        <input type="text" readonly :value="plaintext" style="flex:1; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.75rem; font-family:monospace; box-sizing:border-box;">
-                        <button @click="copyToken()" type="button" class="corex-btn-primary"><span x-text="copied ? 'Copied!' : 'Copy'"></span></button>
-                    </div>
-                    <button @click="generate()" :disabled="loading" type="button" class="corex-btn-outline mt-2 disabled:opacity-40 disabled:cursor-not-allowed"><span x-text="loading ? 'Generating...' : 'Regenerate'"></span></button>
-                </div>
-            </template>
-            <template x-if="!plaintext">
-                <div>
-                    <template x-if="hasToken">
+            <div class="mp-h"><h3>CoreX Chrome extension
+                @if($corexExtVersion)<span style="font-size:0.7rem; font-weight:600; color:var(--text-muted); border:1px solid var(--border); border-radius:4px; padding:1px 6px; margin-left:6px; vertical-align:middle;">v{{ $corexExtVersion }}</span>@endif
+            </h3><span class="mp-note">Pull properties from Property24 straight into CoreX.</span></div>
+            <div class="mp-grid mp-g3" style="align-items:start;">
+                {{-- 1. The token --}}
+                <div class="mp-card" data-testid="chrome-step-token">
+                    <div class="mp-lbl" style="margin-bottom:6px;">1 &middot; Your API token</div>
+                    <template x-if="error"><div class="text-xs" style="color:var(--ds-crimson); margin-bottom:6px;" x-text="error"></div></template>
+                    <template x-if="plaintext">
                         <div>
-                            <div class="flex items-center gap-2 mb-3">
-                                <span class="ds-badge ds-badge-success">Token active</span>
-                                <span style="font-size:0.75rem; color:var(--text-muted); font-family:monospace;">••••••••••</span>
+                            <div class="text-xs font-semibold" style="color:var(--ds-amber); margin-bottom:6px;">Copy this token now &mdash; you won't see it again.</div>
+                            <div style="display:flex; gap:6px; align-items:center;">
+                                <input type="text" readonly :value="plaintext" style="flex:1; min-width:0; border-radius:6px; border:1px solid var(--border); background:var(--surface); color:var(--text-primary); padding:6px 8px; font-size:0.75rem; font-family:monospace; box-sizing:border-box;">
+                                <button @click="copyToken()" type="button" class="corex-btn-primary text-xs"><span x-text="copied ? 'Copied!' : 'Copy'"></span></button>
                             </div>
-                            <button @click="generate()" :disabled="loading" type="button" class="corex-btn-primary disabled:opacity-40 disabled:cursor-not-allowed"><span x-text="loading ? 'Generating...' : 'Regenerate Token'"></span></button>
+                            <button @click="generate()" :disabled="loading" type="button" class="corex-btn-outline text-xs disabled:opacity-40 disabled:cursor-not-allowed" style="margin-top:6px;"><span x-text="loading ? 'Generating...' : 'Regenerate'"></span></button>
                         </div>
                     </template>
-                    <template x-if="!hasToken">
-                        <button @click="generate()" :disabled="loading" type="button" class="corex-btn-primary disabled:opacity-40 disabled:cursor-not-allowed"><span x-text="loading ? 'Generating...' : 'Generate Token'"></span></button>
+                    <template x-if="!plaintext">
+                        <div>
+                            <template x-if="hasToken">
+                                <div>
+                                    <div class="flex items-center gap-2" style="margin-bottom:6px;">
+                                        <span class="ds-badge ds-badge-success">Token active</span>
+                                        <span style="font-size:0.75rem; color:var(--text-muted); font-family:monospace;">••••••••••</span>
+                                    </div>
+                                    <button @click="generate()" :disabled="loading" type="button" class="corex-btn-primary text-xs disabled:opacity-40 disabled:cursor-not-allowed"><span x-text="loading ? 'Generating...' : 'Regenerate Token'"></span></button>
+                                </div>
+                            </template>
+                            <template x-if="!hasToken">
+                                <button @click="generate()" :disabled="loading" type="button" class="corex-btn-primary text-xs disabled:opacity-40 disabled:cursor-not-allowed"><span x-text="loading ? 'Generating...' : 'Generate Token'"></span></button>
+                            </template>
+                        </div>
                     </template>
                 </div>
-            </template>
-        </div>
-
-        {{-- Chrome Extension --}}
-        <div x-show="sub.tools === 'chrome'" x-cloak class="pg-pane ">
-            @php
-                $corexExtVersion = null;
-                $corexExtManifest = public_path('chrome-extension/portal-capture/manifest.json');
-                if (is_file($corexExtManifest)) {
-                    $corexExtVersion = json_decode(@file_get_contents($corexExtManifest), true)['version'] ?? null;
-                }
-            @endphp
-            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 8px;">
-                CoreX Chrome Extension
-                @if($corexExtVersion)
-                    <span style="font-size:0.7rem; font-weight:600; color:var(--text-muted); border:1px solid var(--border); border-radius:4px; padding:1px 6px; margin-left:6px; vertical-align:middle;">v{{ $corexExtVersion }}</span>
-                @endif
-            </h3>
-            <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 12px;">Pull properties from Property24 directly into CoreX. Install it from the Chrome Web Store — Chrome keeps it up to date automatically. If you previously loaded a downloaded copy, remove it in <code>chrome://extensions</code> first.</p>
-            <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                <a href="https://chromewebstore.google.com/detail/corex/hkphgfonopgghdpdjabdfpfdjlhedkcc?authuser=0&hl=en" target="_blank" rel="noopener" class="corex-btn-primary">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/></svg>
-                    Get it on the Chrome Web Store
-                </a>
+                {{-- 2. Install --}}
+                <div class="mp-card" data-testid="chrome-step-install">
+                    <div class="mp-lbl" style="margin-bottom:6px;">2 &middot; Install the extension</div>
+                    <a href="https://chromewebstore.google.com/detail/corex/hkphgfonopgghdpdjabdfpfdjlhedkcc?authuser=0&hl=en" target="_blank" rel="noopener" class="corex-btn-primary text-xs">Get it on the Chrome Web Store &nearr;</a>
+                    <div class="mp-note" style="margin-top:6px;">Chrome keeps it up to date. If you loaded a downloaded copy before, remove it in <code>chrome://extensions</code> first.</div>
+                </div>
+                {{-- 3. Connect --}}
+                <div class="mp-card" data-testid="chrome-step-connect">
+                    <div class="mp-lbl" style="margin-bottom:6px;">3 &middot; Connect it</div>
+                    <div class="text-xs" style="color:var(--text-secondary);">Open the CoreX extension in Chrome and paste the token into its <strong>API Token</strong> field. Capture works as soon as it is saved.</div>
+                </div>
             </div>
         </div>
         @endif
@@ -1231,8 +1241,8 @@
             $fbSocial = $socialAccounts->firstWhere('platform', 'facebook');
         @endphp
         <div x-show="sub.tools === 'social'" x-cloak class="pg-pane ">
-            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 12px;">Social Media Accounts</h3>
-            <div style="display:grid; grid-template-columns:1fr; gap:12px;">
+            <div class="mp-h"><h3>Social Media Accounts</h3></div>
+            <div style="display:grid; grid-template-columns:1fr; gap:8px; max-width:420px;">
                 {{-- Facebook --}}
                 <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:14px;">
                     <div class="flex items-center gap-3 mb-3">
@@ -1278,14 +1288,11 @@
             $qrPngSrc = "https://api.qrserver.com/v1/create-qr-code/?size=1024x1024&margin=8&ecc=H&format=png&data={$qrParam}";
         @endphp
         <div x-show="sub.tools === 'qr'" x-cloak class="pg-pane ">
-            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">Your Client QR Code</h3>
-            <p style="font-size:0.8125rem; color:var(--text-secondary); margin:0 0 16px;">
-                Hand this to prospects. When they scan it in the CoreX app, they sign up directly as your client.
-            </p>
+            <div class="mp-h"><h3>Your Client QR Code</h3><span class="mp-note">Prospects who scan it in the CoreX app sign up as your client.</span></div>
             <div style="display:flex; gap:24px; align-items:center; flex-wrap:wrap;">
-                <div style="background:#ffffff; padding:12px; border-radius:6px; border:1px solid var(--border); width:200px; height:200px; display:flex; align-items:center; justify-content:center;">{{-- White is intentional: QR code requires high-contrast white background --}}
+                <div style="background:#ffffff; padding:10px; border-radius:6px; border:1px solid var(--border); width:184px; height:184px; display:flex; align-items:center; justify-content:center;">{{-- White is intentional: QR code requires high-contrast white background --}}
                     <img src="{{ $qrImgSrc }}" alt="Your client onboarding QR code"
-                         style="width:176px; height:176px; display:block;">
+                         style="width:164px; height:164px; display:block;">
                 </div>
                 <div style="flex:1; min-width:240px;">
                     <div style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">URL</div>
@@ -1305,10 +1312,7 @@
         @if(auth()->user()->hasPermission('access_communication'))
         <div x-data="waLink()" x-init="init()"
              x-show="sub.tools === 'wa'" x-cloak class="pg-pane ">
-            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">WhatsApp Link</h3>
-            <p style="font-size:0.8125rem; color:var(--text-secondary); margin:0 0 16px;">
-                Link your work WhatsApp so CoreX can capture your client conversations into the compliance archive. Read-only — CoreX never sends from your number.
-            </p>
+            <div class="mp-h"><h3>WhatsApp Link</h3><span class="mp-note">Captures your client conversations into the compliance archive. Read-only - CoreX never sends from your number.</span></div>
 
             {{-- loading --}}
             <div x-show="state === 'loading'" style="font-size:0.8125rem; color:var(--text-muted);">Checking link status…</div>
@@ -1349,8 +1353,8 @@
                     Capture is <b>read-only</b> — CoreX never sends messages from this number. It's fine to link the same number you use for your own manual WhatsApp outreach. Just don't connect this number to any external automated or bulk-sending bot/service.
                 </div>
                 <div style="display:flex; gap:24px; align-items:flex-start; flex-wrap:wrap;">
-                    <div style="background:#ffffff; padding:12px; border-radius:6px; border:1px solid var(--border); width:224px; height:224px; display:flex; align-items:center; justify-content:center;">
-                        <img :src="qrSrc" alt="WhatsApp pairing QR" style="width:200px; height:200px; display:block;"
+                    <div style="background:#ffffff; padding:8px; border-radius:6px; border:1px solid var(--border); width:200px; height:200px; display:flex; align-items:center; justify-content:center;">
+                        <img :src="qrSrc" alt="WhatsApp pairing QR" style="width:184px; height:184px; display:block;"
                              x-on:error="qrError = true" x-show="!qrError">
                         <span x-show="qrError" x-cloak style="font-size:0.75rem; color:var(--text-muted); text-align:center;">Waiting for QR…</span>
                     </div>
@@ -1428,7 +1432,7 @@
     {{-- ═══════════════════════════════════════════
          TAB: DOCUMENTS
          ═══════════════════════════════════════════ --}}
-    <div x-show="tab === 'documents'" x-cloak>
+    <div x-show="tab === 'documents'" x-cloak data-portal-pane="documents">
         @php
             $docTypeConfig = [
                 ['type' => 'ffc_certificate', 'label' => 'FFC Certificate', 'has_expiry' => true,
@@ -1476,11 +1480,11 @@
                 $navDoc = $documents->get($navKey);
                 $navStatus = $navDoc ? $navDoc->status : 'missing';
             @endphp
-            <button type="button" class="pg-sub" @click="sub.documents = '{{ $navKey }}'" :aria-current="sub.documents === '{{ $navKey }}' ? 'page' : null">{{ $docCfg['label'] }}<span class="pg-dot" style="background:{{ $docDotColors[$navStatus] ?? 'var(--text-muted)' }};" title="{{ $statusPills[$navStatus]['text'] ?? '' }}"></span></button>
+            <button type="button" class="pg-sub" data-portal-sub="{{ $navKey }}" @click="sub.documents = '{{ $navKey }}'" :aria-current="sub.documents === '{{ $navKey }}' ? 'page' : null">{{ $docCfg['label'] }}<span class="pg-dot" style="background:{{ $docDotColors[$navStatus] ?? 'var(--text-muted)' }};" title="{{ $statusPills[$navStatus]['text'] ?? '' }}"></span></button>
             @endforeach
             @unless($isAssistant ?? false)
             @if(($ppraLetterCanReceive ?? false) && feature('ppra-employment-letters'))
-            <button type="button" class="pg-sub" @click="sub.documents = 'ppra_employment_letter'" :aria-current="sub.documents === 'ppra_employment_letter' ? 'page' : null">PPRA Employment Letter</button>
+            <button type="button" class="pg-sub" data-portal-sub="ppra_employment_letter" @click="sub.documents = 'ppra_employment_letter'" :aria-current="sub.documents === 'ppra_employment_letter' ? 'page' : null">PPRA Employment Letter</button>
             @endif
             @endunless
         </nav>
@@ -1627,7 +1631,7 @@
             @unless($isAssistant ?? false)
             @feature('ppra-employment-letters')
             <div x-show="sub.documents === 'ppra_employment_letter'" x-cloak class="pg-pane pg-pane-col">
-                <div style="font-size:0.8125rem; font-weight:700; color:var(--text-primary); margin-bottom:12px;">PPRA FFC Employment Letter</div>
+                <div class="mp-h" style="margin-bottom:6px;"><h3>PPRA FFC Employment Letter</h3></div>
 
                 @if(($ppraLetterMissing ?? []) !== [])
                 <div class="rounded-md" style="font-size:0.75rem; color:var(--ds-amber); background:color-mix(in srgb, var(--ds-amber) 10%, transparent); padding:8px 10px; margin-bottom:10px;">
@@ -1653,9 +1657,15 @@
                 @endif
 
                 @if(($ppraLetters ?? collect())->isNotEmpty())
-                <div class="space-y-2" style="margin-bottom:14px;">
+                <div x-data="{ page: 0, per: 3, total: {{ $ppraLetters->count() }} }" style="margin-bottom:8px;">
+                    <div class="flex items-center justify-end gap-2" x-show="total > per" x-cloak style="margin-bottom:4px;">
+                        <button type="button" class="mp-more" @click="page = Math.max(0, page - 1)" :disabled="page === 0" :style="page === 0 ? 'opacity:.4' : ''">&larr; Newer</button>
+                        <span class="mp-note" x-text="(page + 1) + ' / ' + Math.ceil(total / per)"></span>
+                        <button type="button" class="mp-more" @click="page = Math.min(Math.ceil(total / per) - 1, page + 1)" :disabled="(page + 1) * per >= total" :style="(page + 1) * per >= total ? 'opacity:.4' : ''">Older &rarr;</button>
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:6px;" data-portal-rows="ppra-letters" data-portal-cap="3">
                     @foreach($ppraLetters as $letter)
-                    <div class="py-2 px-3" style="border:1px solid var(--border); border-radius:6px;">
+                    <div class="py-1 px-3" style="border:1px solid var(--border); border-radius:6px;" x-show="{{ $loop->index }} >= page * per && {{ $loop->index }} < (page + 1) * per" @if($loop->index >= 3) x-cloak @endif>
                         <div class="flex items-center justify-between">
                             <div>
                                 <div style="font-size:0.75rem; font-weight:600; color:var(--text-primary);">{{ \App\Models\Compliance\PpraEmploymentLetter::statusLabel($letter->status) }}</div>
@@ -1663,7 +1673,7 @@
                             </div>
                             <a href="{{ route('ppra-employment-letters.show', $letter) }}" style="font-size:0.6875rem; padding:4px 10px; border-radius:6px; background:color-mix(in srgb, var(--brand-button) 12%, transparent); color:var(--brand-button); text-decoration:none; font-weight:600;">Open</a>
                         </div>
-                        <div style="margin-top:6px;">
+                        <div style="margin-top:2px;">
                             @include('compliance.ppra-employment-letters._signed-copies', [
                                 'letter'         => $letter,
                                 'uploadUrl'      => route('ppra-employment-letters.upload', $letter),
@@ -1673,6 +1683,7 @@
                         </div>
                     </div>
                     @endforeach
+                    </div>
                 </div>
                 @endif
 
@@ -1688,7 +1699,7 @@
     {{-- ═══════════════════════════════════════════
          TAB: COMPLIANCE
          ═══════════════════════════════════════════ --}}
-    <div x-show="tab === 'compliance'" x-cloak data-tour="portal-home-compliance-tab">
+    <div x-show="tab === 'compliance'" x-cloak data-portal-pane="compliance" data-tour="portal-home-compliance-tab">
 
         {{-- Overall status card --}}
         @php
@@ -1701,22 +1712,22 @@
                 default => 'var(--surface-2)',
             };
         @endphp
-        <div class="pg-pane pg-wide" style="text-align:center; padding-bottom:0;">
-            <div class="mx-auto mb-3 flex items-center justify-center" style="width:48px; height:48px; border-radius:50%; background:{{ $overallTint }};">
-                <span style="width:20px; height:20px; border-radius:50%; background:{{ $overallColor }}; display:block;"></span>
-            </div>
-            <div class="text-base font-bold" style="color:var(--text-primary);">
-                @if($overallStatus === 'green') Your compliance is up to date
-                @elseif($overallStatus === 'amber') {{ $complianceStatus['issues_count'] }} item(s) need attention
-                @else Action required @endif
+        <div class="pg-pane pg-wide" style="padding-bottom:0;">
+            <div class="flex items-center gap-3" data-testid="compliance-overall">
+                <span class="flex items-center justify-center" style="width:28px; height:28px; border-radius:50%; background:{{ $overallTint }};">
+                    <span style="width:12px; height:12px; border-radius:50%; background:{{ $overallColor }}; display:block;"></span>
+                </span>
+                <span class="text-base font-bold" style="color:var(--text-primary);">
+                    @if($overallStatus === 'green') Your compliance is up to date
+                    @elseif($overallStatus === 'amber') {{ $complianceStatus['issues_count'] }} item(s) need attention
+                    @else Action required @endif
+                </span>
             </div>
         </div>
 
         {{-- Breakdown list --}}
         <div class="pg-pane pg-wide" data-tour="portal-home-compliance-breakdown">
-            <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
-                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Compliance Breakdown</h3>
-            </div>
+            <div class="mp-h"><h3>Compliance Breakdown</h3></div>
 
             @php
                 $complianceItems = [
@@ -1739,10 +1750,10 @@
                 ));
             @endphp
 
-            <div class="divide-y" style="border-color:var(--border);">
+            <div class="mp-grid mp-g2" data-portal-rows="compliance-items" data-portal-cap="8">
                 @foreach($complianceItems as $ci)
                 @php $ciData = $complianceStatus[$ci['key']]; @endphp
-                <div class="flex items-center justify-between px-5 py-3">
+                <div class="mp-row" style="padding:6px 10px;">
                     <div class="flex items-center gap-3">
                         <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:{{ $dotColors[$ciData['status']] ?? 'var(--text-muted)' }};"></span>
                         <div>
@@ -1797,16 +1808,16 @@
     {{-- ═══════════════════════════════════════════
          TAB: TRAINING
          ═══════════════════════════════════════════ --}}
-    <div x-show="tab === 'training'" x-cloak>
+    <div x-show="tab === 'training'" x-cloak data-portal-pane="training">
         <nav class="pg-subs" aria-label="Sections">
-            <button type="button" class="pg-sub" @click="sub.training = 'rmcp'" :aria-current="sub.training === 'rmcp' ? 'page' : null">RMCP Acknowledgement</button>
+            <button type="button" class="pg-sub" data-portal-sub="rmcp" @click="sub.training = 'rmcp'" :aria-current="sub.training === 'rmcp' ? 'page' : null">RMCP Acknowledgement</button>
             @isset($outstandingPolicies)
             @if($outstandingPolicies->isNotEmpty())
-            <button type="button" class="pg-sub" @click="sub.training = 'policies'" :aria-current="sub.training === 'policies' ? 'page' : null">Policies</button>
+            <button type="button" class="pg-sub" data-portal-sub="policies" @click="sub.training = 'policies'" :aria-current="sub.training === 'policies' ? 'page' : null">Policies</button>
             @endif
             @endisset
             @if($trainingItems->isNotEmpty())
-            <button type="button" class="pg-sub" @click="sub.training = 'other'" :aria-current="sub.training === 'other' ? 'page' : null">Other Training</button>
+            <button type="button" class="pg-sub" data-portal-sub="other" @click="sub.training = 'other'" :aria-current="sub.training === 'other' ? 'page' : null">Other Training</button>
             @endif
         </nav>
         {{-- RMCP Acknowledgement — primary card --}}
@@ -1835,13 +1846,12 @@
         @isset($outstandingPolicies)
         @if($outstandingPolicies->isNotEmpty())
         <div x-show="sub.training === 'policies'" x-cloak class="pg-pane ">
-            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 4px;">Policies to acknowledge</h3>
-            <p style="font-size:0.75rem; color:var(--text-muted); margin:0 0 16px;">You have {{ $outstandingPolicies->count() }} {{ \Illuminate\Support\Str::plural('policy', $outstandingPolicies->count()) }} that need your sign-off.</p>
-            <div class="space-y-3">
-                @foreach($outstandingPolicies as $row)
+            <div class="mp-h"><h3>Policies to acknowledge</h3><span class="mp-note">{{ $outstandingPolicies->count() }} {{ \Illuminate\Support\Str::plural('policy', $outstandingPolicies->count()) }} need your sign-off.</span></div>
+            <div class="mp-grid mp-g2" data-portal-rows="policies" data-portal-cap="10">
+                @foreach($outstandingPolicies->take(10) as $row)
                 @php $statusColor = $row['status'] === 'in_progress' ? 'var(--ds-amber)' : 'var(--ds-crimson)'; @endphp
-                <div class="flex items-center justify-between py-3 px-4" style="border:1px solid var(--border); border-radius:6px;">
-                    <div class="flex items-center gap-3">
+                <div class="mp-row">
+                    <div class="flex items-center gap-3 min-w-0">
                         <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:{{ $statusColor }};"></span>
                         <div>
                             <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $row['policy']->name }}</div>
@@ -1865,11 +1875,11 @@
         {{-- Other training courses --}}
         @if($trainingItems->isNotEmpty())
         <div x-show="sub.training === 'other'" x-cloak class="pg-pane ">
-            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 16px;">Other Training</h3>
-            <div class="space-y-3">
-                @foreach($trainingItems as $item)
-                <div class="flex items-center justify-between py-3 px-4" style="border:1px solid var(--border); border-radius:6px;">
-                    <div class="flex items-center gap-3">
+            <div class="mp-h"><h3>Other Training</h3>@if(\Illuminate\Support\Facades\Route::has('training.index'))<a href="{{ route('training.index') }}" class="mp-more">Show all{{ $trainingItems->count() > 10 ? ' (' . $trainingItems->count() . ')' : '' }} &rarr;</a>@endif</div>
+            <div class="mp-grid mp-g2" data-portal-rows="training-items" data-portal-cap="10">
+                @foreach($trainingItems->take(10) as $item)
+                <div class="mp-row">
+                    <div class="flex items-center gap-3 min-w-0">
                         <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:{{ $dotColors[$item['status']] }};"></span>
                         <div>
                             <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $item['title'] }}</div>
@@ -1891,49 +1901,42 @@
     {{-- ═══════════════════════════════════════════
          TAB: PASSWORD
          ═══════════════════════════════════════════ --}}
-    <div x-show="tab === 'password'" x-cloak>
+    <div x-show="tab === 'password'" x-cloak data-portal-pane="password">
         <nav class="pg-subs" aria-label="Sections">
-            <button type="button" class="pg-sub" @click="sub.password = 'update'" :aria-current="sub.password === 'update' ? 'page' : null">Update Password</button>
+            <button type="button" class="pg-sub" data-portal-sub="update" @click="sub.password = 'update'" :aria-current="sub.password === 'update' ? 'page' : null">Update Password</button>
             @unless($isAssistant ?? false)
-            <button type="button" class="pg-sub" @click="sub.password = 'delete'" :aria-current="sub.password === 'delete' ? 'page' : null">Delete Account</button>
+            <button type="button" class="pg-sub" data-portal-sub="delete" @click="sub.password = 'delete'" :aria-current="sub.password === 'delete' ? 'page' : null">Delete Account</button>
             @endunless
         </nav>
         <div x-show="sub.password === 'update'" x-cloak class="pg-pane ">
-            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">Update Password</h3>
-            <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 20px;">Ensure your account is using a long, random password to stay secure.</p>
+            <div class="mp-h"><h3>Update Password</h3><span class="mp-note">Use a long, random password.</span></div>
 
             <form method="post" action="{{ route('password.update') }}">
                 @csrf
                 @method('put')
 
-                <div style="display:flex; flex-direction:column; gap:16px; max-width:400px;">
+                <div class="mp-grid mp-g3 mp-field" style="align-items:end;">
                     <div>
-                        <label for="update_password_current_password" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Current Password</label>
-                        <input id="update_password_current_password" name="current_password" type="password" autocomplete="current-password"
-                               style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box; transition:border-color 200ms;"
-                               onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'">
+                        <label for="update_password_current_password">Current Password</label>
+                        <input id="update_password_current_password" name="current_password" type="password" autocomplete="current-password">
                         @error('current_password', 'updatePassword') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                     </div>
 
                     <div>
-                        <label for="update_password_password" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">New Password</label>
-                        <input id="update_password_password" name="password" type="password" autocomplete="new-password"
-                               style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box; transition:border-color 200ms;"
-                               onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'">
+                        <label for="update_password_password">New Password</label>
+                        <input id="update_password_password" name="password" type="password" autocomplete="new-password">
                         @error('password', 'updatePassword') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                     </div>
 
                     <div>
-                        <label for="update_password_password_confirmation" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Confirm Password</label>
-                        <input id="update_password_password_confirmation" name="password_confirmation" type="password" autocomplete="new-password"
-                               style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box; transition:border-color 200ms;"
-                               onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'">
+                        <label for="update_password_password_confirmation">Confirm Password</label>
+                        <input id="update_password_password_confirmation" name="password_confirmation" type="password" autocomplete="new-password">
                         @error('password_confirmation', 'updatePassword') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                     </div>
 
-                    <div>
-                        <button type="submit" class="corex-btn-primary">Update Password</button>
-                    </div>
+                </div>
+                <div style="margin-top:10px;">
+                    <button type="submit" class="corex-btn-primary">Update Password</button>
                 </div>
             </form>
         </div>
@@ -1941,8 +1944,7 @@
         {{-- Delete Account — AT-267 §10: deleting an assistant is an admin action, not self-service --}}
         @unless($isAssistant ?? false)
         <div x-show="sub.password === 'delete'" x-cloak class="pg-pane " x-data="{ confirmDelete: false }">
-            <h3 class="text-sm font-semibold" style="color:var(--text-primary); margin:0 0 6px; border-left:3px solid var(--ds-crimson); padding-left:12px;">Delete Account</h3>
-            <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 16px;">Once your account is deleted, all of its resources and data will be permanently deleted.</p>
+            <div class="mp-h"><h3 style="border-left:3px solid var(--ds-crimson); padding-left:10px;">Delete Account</h3><span class="mp-note">Deleting your account permanently deletes all of its data.</span></div>
 
             <button @click="confirmDelete = true" x-show="!confirmDelete" type="button" class="corex-btn-primary" style="background:var(--ds-crimson, #c41e3a); box-shadow:none;">Delete Account</button>
 
@@ -1967,13 +1969,12 @@
 
     {{-- ══ Payslips tab ══ --}}
     @if(!($isAssistant ?? false) && auth()->user()->hasPermission('view_own_payslips'))
-    <div x-show="tab === 'payslips'" x-cloak>
+    <div x-show="tab === 'payslips'" x-cloak data-portal-pane="payslips">
         <div class="pg-pane">
-            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">My Payslips</h3>
-            <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 20px;">Your finalised payslips from the payroll system.</p>
+            <div class="mp-h"><h3>My Payslips</h3>@if(isset($latestPayslip) && $latestPayslip)<a href="{{ route('my-portal.payslips') }}" class="mp-more">View All Payslips &rarr;</a>@endif</div>
 
             @if(isset($latestPayslip) && $latestPayslip)
-                <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-bottom:20px;">
+                <div class="mp-grid mp-g3">
                     <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:14px; text-align:center;">
                         <p style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.05em; margin:0 0 4px;">Latest Period</p>
                         <p style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0;">{{ $latestPayslip->period_month->format('M Y') }}</p>
@@ -1988,12 +1989,8 @@
                     </div>
                 </div>
 
-                <a href="{{ route('my-portal.payslips') }}" class="corex-btn-primary" style="display:inline-flex; align-items:center; gap:6px;">
-                    View All Payslips
-                    <svg style="width:14px; height:14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>
-                </a>
             @else
-                <p style="font-size:0.8125rem; color:var(--text-muted); text-align:center; padding:24px 0;">No payslips yet. Your payslips will appear here once your employer finalises a payroll run.</p>
+                <p style="font-size:0.8125rem; color:var(--text-muted); padding:8px 0;">No payslips yet. Your payslips will appear here once your employer finalises a payroll run.</p>
             @endif
         </div>
     </div>
@@ -2001,10 +1998,9 @@
 
     {{-- ══ Leave tab ══ · AT-267 §10: hidden for assistants (v1) --}}
     @if(!($isAssistant ?? false) && auth()->user()->hasPermission('apply_for_leave'))
-    <div x-show="tab === 'leave'" x-cloak>
+    <div x-show="tab === 'leave'" x-cloak data-portal-pane="leave">
         <div class="pg-pane">
-            <h3 style="font-size:1rem; font-weight:700; color:var(--text-primary); margin:0 0 6px;">My Leave</h3>
-            <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 20px;">View your leave balances, apply for leave, and track your applications.</p>
+            <div class="mp-h"><h3>My Leave</h3><span class="mp-note">Balances, applications and tracking.</span></div>
 
             <a href="{{ route('my-portal.leave.index') }}" class="corex-btn-primary" style="display:inline-flex; align-items:center; gap:6px;">
                 View Leave Dashboard

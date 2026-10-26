@@ -202,9 +202,9 @@ final class SigningModeFillAllTest extends TestCase
 
         [$three] = $this->seller('adopt_once');
         $html = $this->withHeaders($phone)->get('/sign/' . $three->token)->assertOk()->getContent();
-        $this->assertStringContainsString('Apply to all my places', $html);
+        $this->assertStringContainsString('Sign everything', $html);
         $this->assertStringContainsString('@click="confirmFillAll()"', $html);
-        $this->assertStringContainsString('one by one afterwards', $html);
+        $this->assertStringContainsString('yourself afterwards', $html);
         $this->assertStringContainsString('name="viewport"', $html);
 
         // Sign each place: no apply-to-all confirmation exists on the page at all.

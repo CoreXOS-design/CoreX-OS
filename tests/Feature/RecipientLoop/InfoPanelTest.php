@@ -28,7 +28,7 @@ final class InfoPanelTest extends TestCase
         $resp = $this->get('/sign/' . $seller2->token);
         $resp->assertOk();
         $resp->assertSee('recipient-info-panel', false);
-        $resp->assertSee('How to sign', false);
+        $resp->assertSee('Your three steps', false);
     }
 
     public function test_signing_as_label_uses_indexed_role(): void
@@ -60,9 +60,11 @@ final class InfoPanelTest extends TestCase
 
         $resp = $this->get('/sign/' . $seller2->token);
         $resp->assertOk();
-        $resp->assertSee('Need help?', false);
+        // First-time signer flow (esign-signing-modes.md §13.1): help is ONE line - "Questions? Call <agent> <phone>".
+        $resp->assertSee('Questions? Call', false);
         $resp->assertSee('Lewis Listing', false);
-        $resp->assertSee($agentEmail, false);
+        $resp->assertSee('+27 76 618 5578', false);
+        $resp->assertDontSee('Need help?', false);
     }
 
     public function test_panel_uses_responsive_classes(): void
