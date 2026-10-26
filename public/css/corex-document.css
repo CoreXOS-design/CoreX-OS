@@ -288,6 +288,15 @@
     background: #f8fafc;
 }
 
+/* Cell text is left-aligned unless the source said otherwise (an inline text-align from the import).
+   Without this a cell inherits the page's justified text and a narrow cell wraps into ragged gaps. */
+.corex-table td,
+.corex-table th,
+.corex-disclosure-table td.corex-disclosure-statement {
+    text-align: left;
+    overflow-wrap: break-word;
+}
+
 /* === CONDITIONAL SECTIONS === */
 .corex-conditional { /* visible — no special styling */ }
 .corex-conditional[data-hidden="true"] { display: none; }
