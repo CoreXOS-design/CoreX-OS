@@ -47,6 +47,8 @@
 </style>
 </head>
 <body>
+    <x-agency-letterhead-footer :agency-id="$inventory->agency_id" :fixed="true" />
+    <x-agency-letterhead :agency-id="$inventory->agency_id" />
     @if($forSignature)
         <div class="for-signature-banner">For signature — this document is not yet complete</div>
     @endif

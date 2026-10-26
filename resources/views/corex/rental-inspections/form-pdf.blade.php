@@ -83,6 +83,21 @@
             @endif
         @endforeach
 
+        {{-- The shared agency letterhead (spec agency-letterhead.md): header block on page 1, footer line on every page, left of
+             the QR. Plain printed text and a logo - never marked or read back, so the scan geometry is untouched. --}}
+        @if($p === 1 && $letterhead)
+            <div class="abs" style="left:{{ $mx }}pt; top:{{ $layout['letterhead']['y'] }}pt; width:{{ $pw - 2 * $mx }}pt;">
+                <x-agency-letterhead :letterhead="$letterhead" />
+            </div>
+        @endif
+        @if($letterhead && $letterhead->footerLine !== '')
+            @foreach($layout['qr_codes'] as $qr)
+                @if($qr['page'] === $p)
+                    <div class="abs" style="left:{{ $mx }}pt; top:{{ $qr['y'] + 12 }}pt; width:{{ $qr['x'] - 10 - $mx }}pt; font-size:6.5pt; color:#555;">{{ $letterhead->footerLine }}</div>
+                @endif
+            @endforeach
+        @endif
+
         @if($p === 1)
             {{-- Header — property, inspection type/date, parties. Plain
                  printed text, never geometry-tracked (nothing here is

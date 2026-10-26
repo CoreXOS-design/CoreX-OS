@@ -1056,6 +1056,9 @@ class SettingsController extends Controller
 
         $data = $request->validate([
             'trading_name'     => ['nullable', 'string', 'max:255'],
+            // Letterhead footer / website line - written only when the form posted the box (validated() omits absent keys, CLAUDE.md 10a / wizard spec 6.1).
+            'legal_name'       => ['nullable', 'string', 'max:255'],
+            'document_website' => ['nullable', 'string', 'max:255'],
             'tagline'          => ['nullable', 'string', 'max:255'],
             'address'          => ['nullable', 'string', 'max:500'],
             'phone'                  => ['nullable', 'string', 'max:255'],
@@ -1166,7 +1169,7 @@ class SettingsController extends Controller
 
         // Build a temporary agency-like object with query param overrides
         $overrides = $request->only([
-            'trading_name', 'tagline', 'address', 'phone', 'phone_label',
+            'trading_name', 'legal_name', 'document_website', 'tagline', 'address', 'phone', 'phone_label',
             'phone_secondary', 'phone_secondary_label', 'fax', 'email',
             'reg_no', 'vat_no', 'ffc_no', 'ppra_number', 'fic_no', 'name',
         ]);
