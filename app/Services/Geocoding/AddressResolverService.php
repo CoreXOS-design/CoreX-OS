@@ -8,6 +8,7 @@ use App\Models\Geocoding\GeocodingCache;
 use App\Models\MarketReports\MarketReport;
 use App\Models\PortalCapture;
 use App\Support\Geocoding\AddressNormaliser;
+use App\Support\Geocoding\GeocodingArea;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -42,24 +43,8 @@ final class AddressResolverService
 {
     private const NETWORK_TIMEOUT_SEC = 5;
 
-    /**
-     * KZN province bounding box — sent to Google as a viewport-biasing
-     * `bounds=` hint AND used as a strict post-resolution clamp. Any
-     * lat/lng outside this box returns null (transient) rather than
-     * being cached, so a stray out-of-region resolve doesn't poison
-     * future lookups.
-     *
-     * Covers Pongola in the north (-27.0) down past Port Edward to the
-     * EC border (-32.0); coast (28.5) to Drakensberg foothills (33.0).
-     * Caught by the post-resolution clamp post-2026-05-27 backfill:
-     *   - 150 SA centroid pins (~-30.56, 22.94 — Karoo, lng west of 28.5)
-     *   - 15 wrong-city pins (JHB, PTA, CPT, PE, Polokwane, Stellenbosch)
-     *   - 1 NZ outlier (-37.08, 174.95)
-     */
-    private const ZA_KZN_BBOX_SW_LAT = -32.0;
-    private const ZA_KZN_BBOX_SW_LNG = 28.5;
-    private const ZA_KZN_BBOX_NE_LAT = -27.0;
-    private const ZA_KZN_BBOX_NE_LNG = 33.0;
+    // Accepted area: App\Support\Geocoding\GeocodingArea (config geo.geocoding.countries + agencies.geocode_country).
+    // It used to be a hard-coded KZN box that threw away every Gauteng / Cape Town result (26 Oct 2026).
 
     /** Track the last Nominatim call timestamp for the 1 req/sec throttle. */
     private static ?float $nominatimLastCallAt = null;
@@ -70,6 +55,8 @@ final class AddressResolverService
         ?string $town = null,
         ?string $context = null,
         bool $bypassCache = false,
+        ?string $province = null,
+        ?int $agencyId = null,
     ): GeocodingResult {
         $normalised = AddressNormaliser::normalise($address, $suburb, $town);
         $suburbNorm = $suburb !== null ? mb_strtolower(trim($suburb)) : null;
@@ -125,7 +112,7 @@ final class AddressResolverService
             $limiter = app(GeocodeRateLimiter::class);
             if ($limiter->canGeocode()) {
                 $googleStatus = 'attempted';
-                $googleResult = $this->callGoogle($normalised, (string) $googleKey);
+                $googleResult = $this->callGoogle($normalised, (string) $googleKey, GeocodingArea::forAgency($agencyId), $province);
                 // Record AFTER the call. Definitive failures still consume
                 // quota (Google bills failed-but-attempted). Transient nulls
                 // are recorded too — they hit the same upstream endpoint.
@@ -302,27 +289,19 @@ final class AddressResolverService
      * the caller doesn't cache; returns a 'failed' result only on a
      * definitive "no result" response.
      */
-    private function callGoogle(string $normalised, string $key): ?GeocodingResult
+    private function callGoogle(string $normalised, string $key, GeocodingArea $area, ?string $province = null): ?GeocodingResult
     {
         $url = 'https://maps.googleapis.com/maps/api/geocode/json';
-        $address = $normalised . ', South Africa';
 
-        // KZN viewport bias — biases Google toward the KZN bbox but does
-        // not strictly constrain results (Google's docs are clear that
-        // bounds is hint-only). The strict post-resolution clamp below
-        // handles the cases where Google ignores the hint.
-        $bounds = sprintf(
-            '%s,%s|%s,%s',
-            self::ZA_KZN_BBOX_SW_LAT, self::ZA_KZN_BBOX_SW_LNG,
-            self::ZA_KZN_BBOX_NE_LAT, self::ZA_KZN_BBOX_NE_LNG,
-        );
-
+        // `components=country:XX` limits Google to the agency's country; `bounds` is only a hint that
+        // biases towards the property's province (or the whole country when no province is known).
         try {
             $response = $this->http()->get($url, [
-                'address' => $address,
-                'key'     => $key,
-                'region'  => 'za',
-                'bounds'  => $bounds,
+                'address'    => $normalised,
+                'key'        => $key,
+                'region'     => strtolower(substr($area->googleComponent(), strlen('country:'))),
+                'components' => $area->googleComponent(),
+                'bounds'     => $area->boundsHint($province),
             ]);
         } catch (\Throwable $e) {
             Log::warning('Google geocode network error', ['err' => $e->getMessage(), 'addr' => $normalised]);
@@ -354,20 +333,22 @@ final class AddressResolverService
             return new GeocodingResult(null, null, 'failed', 'google', null, false, 'no geometry');
         }
 
-        // Strict KZN bbox clamp — bounds= is only a hint, so a result
-        // outside the KZN province (SA centroid Karoo fallback, JHB/CPT
-        // mis-resolves, NZ outlier from ambiguous suburb names like
-        // 'Rocklands' / 'Glenmore' / 'Melville') is treated as a
-        // DEFINITIVE failure for this address: cached with the distinct
-        // failure_reason 'google:out_of_bbox' so operators can filter
-        // for it during data quality reviews and so future calls with
-        // the same normalised key short-circuit immediately (no repeat
-        // Google billing for known-bad addresses).
+        // Country clamp — bounds= is only a hint, so a result outside the agency's country (an NZ
+        // 'Rocklands', a Windhoek address) is a DEFINITIVE failure for this address: cached with the
+        // distinct failure_reason 'google:out_of_bbox' so operators can filter for it and future calls
+        // with the same normalised key short-circuit (no repeat Google billing for known-bad addresses).
+        // A result Google places inside the country is always kept, whichever province it is in.
         $lat = (float) $loc['lat'];
         $lng = (float) $loc['lng'];
-        if ($lat < self::ZA_KZN_BBOX_SW_LAT || $lat > self::ZA_KZN_BBOX_NE_LAT
-            || $lng < self::ZA_KZN_BBOX_SW_LNG || $lng > self::ZA_KZN_BBOX_NE_LNG) {
-            Log::channel('geocoding')->info('Google result rejected — outside KZN bbox', [
+        $googleCountry = null;
+        foreach (($top['address_components'] ?? []) as $comp) {
+            if (in_array('country', $comp['types'] ?? [], true)) {
+                $googleCountry = (string) ($comp['short_name'] ?? '');
+                break;
+            }
+        }
+        if (!$area->accepts($lat, $lng, $googleCountry)) {
+            Log::channel('geocoding')->info('Google result rejected — outside ' . $area->country, [
                 'addr'              => $normalised,
                 'resolved_lat'      => $lat,
                 'resolved_lng'      => $lng,

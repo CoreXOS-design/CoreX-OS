@@ -921,7 +921,12 @@ final class LearnedLayoutReader
                 continue;
             }
             $after = substr($line, $m[0][1] + strlen($m[0][0]));
-            $after = ltrim($after, " \t:-");
+            $after = ltrim($after, " \t:");
+            // A minus sign glued to a number is part of the value ("Latitude: -25.94173" — every South
+            // African latitude is negative); a dash used as a separator ("Label - value") is dropped.
+            if ($type === 'money' || !preg_match('/^-\d/', $after)) {
+                $after = ltrim($after, " \t:-");
+            }
             if ($type === 'money') {
                 if (preg_match('/^R?\s*(\d[\d ,]*)(?:\.\d{1,2})?(?=\s|$)/u', $after, $mm)) {
                     $v = self::parseMoney($mm[0]);

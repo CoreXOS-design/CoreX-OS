@@ -1818,7 +1818,7 @@
                 {{-- E-Sign Settings: Recipient Presets | Recipient Templates | Finalisation Settings --}}
                 @php $_esignsettingsTabs = \App\Support\Navigation\Hubs\ESignSettingsTabs::forUser($user); @endphp
                 @if($_esignsettingsTabs !== [])
-                <a href="{{ route('corex.hubs.esign-settings') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\ESignSettingsTabs::searchEntries($_esignsettingsTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.esign-settings', 'docuperfect.esign.recipient-presets.*', 'docuperfect.recipient-templates.*', 'docuperfect.esign.settings.finalization*') ? 'active' : '' }}">E-Sign Settings</a>
+                <a href="{{ route('corex.hubs.esign-settings') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\ESignSettingsTabs::searchEntries($_esignsettingsTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.esign-settings', 'docuperfect.esign.recipient-presets.*', 'docuperfect.recipient-templates.*', 'docuperfect.esign.settings.finalization*', 'docuperfect.esign.settings.signing-mode*') ? 'active' : '' }}">E-Sign Settings</a>
                 @endif
             </div>
         </div>

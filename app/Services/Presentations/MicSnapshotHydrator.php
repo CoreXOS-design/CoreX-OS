@@ -922,7 +922,10 @@ final class MicSnapshotHydrator
             try {
                 $result = (new \App\Services\Geocoding\AddressResolverService())->resolve(
                     (string) $row->address,
-                    null, // suburb already in $row->address typically
+                    // The row's own suburb. A report row's address is just "22 Edinburgh Street": asked without
+                    // the suburb it was keyed as the bare street and answered with a same-named street in KZN
+                    // (a pin 540 km away). Same suburb CompRowGeocoder already sends.
+                    $row->suburb_normalised ?: ($presentation->suburb ?: null),
                     null,
                     context: 'mic_comp_row:' . (int) $row->id,
                 );
