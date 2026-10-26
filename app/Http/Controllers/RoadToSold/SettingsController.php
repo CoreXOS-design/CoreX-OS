@@ -81,7 +81,10 @@ class SettingsController extends Controller
 
         $this->saveFor($request, $agencyId, (int) $user->id);
 
-        return redirect()->route(Routing::base() . 'index')->with('success', 'Road to Sold settings saved.');
+        // The Training & flags tab saves its thresholds through this same writer and comes back to its own tab.
+        $home = $request->input('back_to') === 'flags' && \Illuminate\Support\Facades\Route::has(Routing::base() . 'flags.index') ? 'flags.index' : 'index';
+
+        return redirect()->route(Routing::base() . $home)->with('success', 'Road to Sold settings saved.');
     }
 
     public function reset(Request $request): RedirectResponse
@@ -190,6 +193,11 @@ class SettingsController extends Controller
             'capture_needs_review'         => ['sometimes', 'boolean'],
             'levels_signoff_required'      => ['sometimes', 'boolean'],
             'level_periods_required'       => ['sometimes', 'integer', 'min:1', 'max:52'],
+            'flag_min_sample'              => ['sometimes', 'integer', 'min:1', 'max:1000'],
+            'flag_below_pct'               => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'flag_window_days'             => ['sometimes', 'integer', 'min:7', 'max:366'],
+            'suggest_window_weeks'         => ['sometimes', 'integer', 'min:2', 'max:52'],
+            'suggest_growth_pct'           => ['sometimes', 'integer', 'min:0', 'max:100'],
             'selections'                   => ['sometimes', 'array'],
             'summary_steps'                => ['sometimes', 'array'],
             // The agency's default week: when sent, all seven days are required (0 is fine).
@@ -457,6 +465,8 @@ class SettingsController extends Controller
             ['budgets', 'Budgets', 'road_to_sold.manage_targets|road_to_sold.manage_settings', Routing::base() . 'budgets.index'],
             ['targets', 'Targets', 'road_to_sold.manage_targets', Routing::base() . 'targets.index'],
             ['recipe', 'Recipe', 'road_to_sold.manage_recipe', Routing::base() . 'recipe.index'],
+            ['task-targets', 'Task targets', 'road_to_sold.manage_targets', Routing::base() . 'task-targets.index'],
+            ['flags', 'Training & flags', 'road_to_sold.manage_settings', Routing::base() . 'flags.index'],
         ];
 
         // Budgets and Targets are reachable without the Road to Sold feature; General, Areas and Recipe are the call list's own.
@@ -464,7 +474,7 @@ class SettingsController extends Controller
 
         $tabs = [];
         foreach ($defs as [$key, $label, $permission, $route]) {
-            if (! $rtsOn && in_array($key, ['general', 'areas', 'recipe'], true)) {
+            if (! $rtsOn && in_array($key, ['general', 'areas', 'recipe', 'task-targets', 'flags'], true)) {
                 continue;
             }
             if (\Illuminate\Support\Facades\Route::has($route) && collect(explode('|', $permission))->contains(fn ($p) => $user->hasPermission($p))) {
@@ -518,6 +528,11 @@ class SettingsController extends Controller
         'capture_needs_review'    => 'Captured tasks wait for a manager\'s approval',
         'levels_signoff_required' => 'A manager signs off each level',
         'level_periods_required'  => 'Weeks on target before a level is put forward',
+        'flag_min_sample'         => 'Fewest events before a ratio can be flagged',
+        'flag_below_pct'          => 'Flag a ratio below (% of the agency median)',
+        'flag_window_days'        => 'Days the funnel and its flags look back',
+        'suggest_window_weeks'    => 'Weeks a suggested target learns from',
+        'suggest_growth_pct'      => 'Growth a suggested target allows (%)',
         'missed_items_mode'       => 'Missed items',
         'public_holiday_country'  => 'Public holidays of',
         'add_to_day_max'          => 'Most properties one "Add to my day" adds',

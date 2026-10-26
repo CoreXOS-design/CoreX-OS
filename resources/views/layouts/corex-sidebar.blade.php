@@ -1009,7 +1009,7 @@
                 @feature('road-to-sold')
                 @permission('access_road_to_sold')
                 @if(\Illuminate\Support\Facades\Route::has('road-to-sold.index'))
-                <a href="{{ route('road-to-sold.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.index', 'road-to-sold.drilldown', 'road-to-sold.report', 'road-to-sold.report.*', 'road-to-sold.add-to-day', 'road-to-sold.outcomes.*', 'road-to-sold.settings.index', 'road-to-sold.settings.general.*', 'road-to-sold.settings.areas.*', 'road-to-sold.settings.outcomes.*', 'road-to-sold.settings.recipe.*') ? 'active' : '' }}">Road to Sold</a>
+                <a href="{{ route('road-to-sold.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.index', 'road-to-sold.drilldown', 'road-to-sold.report', 'road-to-sold.report.*', 'road-to-sold.add-to-day', 'road-to-sold.outcomes.*', 'road-to-sold.settings.index', 'road-to-sold.settings.general.*', 'road-to-sold.settings.areas.*', 'road-to-sold.settings.outcomes.*', 'road-to-sold.settings.recipe.*', 'road-to-sold.settings.flags.*', 'road-to-sold.settings.task-targets.*') ? 'active' : '' }}">Road to Sold</a>
                 @endif
                 @endpermission
                 @endfeature
@@ -1029,6 +1029,15 @@
                 @permission('road_to_sold.signoff_levels')
                 @if(\Illuminate\Support\Facades\Route::has('road-to-sold.signoffs.index'))
                 <a href="{{ route('road-to-sold.signoffs.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.signoffs.*') ? 'active' : '' }}">Level sign-offs</a>
+                @endif
+                @endpermission
+                @endfeature
+
+                {{-- AT-454 v2 phase 5 - the team funnel, training flags and suggested targets. Managers and admins only. --}}
+                @feature('road-to-sold')
+                @permission('road_to_sold.view_funnel')
+                @if(\Illuminate\Support\Facades\Route::has('road-to-sold.funnel.index'))
+                <a href="{{ route('road-to-sold.funnel.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.funnel.*') ? 'active' : '' }}">Team funnel</a>
                 @endif
                 @endpermission
                 @endfeature

@@ -52,6 +52,7 @@ class RtsSetting extends Model
         'hot_pocket_weight_buyers', 'hot_pocket_weight_leads', 'hot_pocket_weight_sales',
         'summary_ahead_from_pct', 'capture_back_date_hours', 'capture_needs_review',
         'levels_signoff_required', 'level_periods_required',
+        'flag_min_sample', 'flag_below_pct', 'flag_window_days', 'suggest_window_weeks', 'suggest_growth_pct',
     ];
 
     protected $casts = [
@@ -90,6 +91,11 @@ class RtsSetting extends Model
         'capture_needs_review'         => 'boolean',
         'levels_signoff_required'      => 'boolean',
         'level_periods_required'       => 'integer',
+        'flag_min_sample'              => 'integer',
+        'flag_below_pct'               => 'integer',
+        'flag_window_days'             => 'integer',
+        'suggest_window_weeks'         => 'integer',
+        'suggest_growth_pct'           => 'integer',
     ];
 
     /** Scalar defaults — the single source of truth (migration defaults mirror these). */
@@ -123,6 +129,11 @@ class RtsSetting extends Model
         'capture_needs_review'         => false,
         'levels_signoff_required'      => true,
         'level_periods_required'       => 4,
+        'flag_min_sample'              => 20,
+        'flag_below_pct'               => 60,
+        'flag_window_days'             => 30,
+        'suggest_window_weeks'         => 8,
+        'suggest_growth_pct'           => 10,
     ];
 
     /**

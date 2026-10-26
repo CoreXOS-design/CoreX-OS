@@ -65,6 +65,24 @@ return function () {
         Route::post('/copy-previous', [$c, 'copyPrevious'])->name('copy-previous');
     });
 
+    // Task targets - an agent's own target for each task on their level, over the level's (v2 phase 5, spec 5.2 / 10.4).
+    Route::middleware([$rts, 'permission:road_to_sold.manage_targets'])->prefix('task-targets')->name('task-targets.')->group(function () {
+        $c = \App\Http\Controllers\RoadToSold\TaskTargetsController::class;
+        Route::get('/', [$c, 'index'])->name('index');
+        Route::put('/agents/{user}/tasks/{task}', [$c, 'save'])->whereNumber('user')->whereNumber('task')->name('save');
+        Route::delete('/agents/{user}/tasks/{task}', [$c, 'clear'])->whereNumber('user')->whereNumber('task')->name('clear');
+        Route::post('/agents/{user}/tasks/{task}/restore', [$c, 'restore'])->whereNumber('user')->whereNumber('task')->name('restore');
+    });
+
+    // Training & flags - the thresholds (saved through the General tab's writer) and the training an agency points at for each funnel ratio (v2 phase 5, spec 9.3).
+    Route::middleware([$rts, 'permission:road_to_sold.manage_settings'])->prefix('flags')->name('flags.')->group(function () {
+        $c = \App\Http\Controllers\RoadToSold\FlagSettingsController::class;
+        Route::get('/', [$c, 'index'])->name('index');
+        Route::post('/pointers', [$c, 'save'])->name('pointer.save');
+        Route::delete('/pointers/{ratio}', [$c, 'archive'])->name('pointer.archive');
+        Route::post('/pointers/{ratio}/restore', [$c, 'restore'])->name('pointer.restore');
+    });
+
     // Recipe - the 13 steps, the tasks inside them and the levels an agent works through (road-to-sold.md section 5, 10.4, 13.1).
     Route::middleware([$rts, 'permission:road_to_sold.manage_recipe'])->prefix('recipe')->name('recipe.')->group(function () use ($rts) {
         $c = \App\Http\Controllers\RoadToSold\RecipeController::class;

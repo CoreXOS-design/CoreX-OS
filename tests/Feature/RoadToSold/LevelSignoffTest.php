@@ -574,7 +574,7 @@ final class LevelSignoffTest extends TestCase
 
         $this->setting(['level_periods_required' => 2]);
         $this->levels->check($this->agent, 'sales');
-        $this->actingAs($this->agent)->get(route('road-to-sold.index'))->assertOk()->assertSee("Waiting for your manager's sign-off");
+        $this->actingAs($this->agent)->get(route('road-to-sold.index'))->assertOk()->assertSee("Waiting for your manager's sign-off", false);
     }
 
     // ── settings, command, sidebar ───────────────────────────────────────

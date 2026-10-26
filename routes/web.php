@@ -6530,6 +6530,19 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 Route::delete('/{agentLevel}', [$c, 'archive'])->whereNumber('agentLevel')->name('archive');
                 Route::post('/{agentLevel}/restore', [$c, 'restore'])->whereNumber('agentLevel')->name('restore');
             });
+            // The team funnel, training flags and suggested targets (v2 phase 5). Permission road_to_sold.view_funnel; breadth = road_to_sold.view
+            // through VisibleAgents; an agent outside it is a 404 on every action. A suggestion is only ever accepted by a person.
+            Route::prefix('funnel')->middleware('permission:road_to_sold.view_funnel')->name('funnel.')->group(function () {
+                $c = \App\Http\Controllers\RoadToSold\FunnelController::class;
+                Route::get('/', [$c, 'index'])->name('index');
+                Route::get('/flags', [$c, 'flags'])->name('flags');
+                Route::post('/flags/assign', [$c, 'assign'])->name('assign');
+                Route::post('/flags/note', [$c, 'note'])->name('note');
+                Route::post('/flags/acknowledge', [$c, 'acknowledge'])->name('acknowledge');
+                Route::get('/suggestions', [$c, 'suggestions'])->name('suggestions');
+                Route::post('/suggestions/accept', [$c, 'accept'])->name('suggestions.accept');
+                Route::post('/suggestions/ignore', [$c, 'ignore'])->name('suggestions.ignore');
+            });
             Route::get('/drilldown', [\App\Http\Controllers\RoadToSold\ReportController::class, 'drilldown'])->name('drilldown');
             Route::get('/report', [\App\Http\Controllers\RoadToSold\ReportController::class, 'index'])->name('report');
             Route::get('/report/print', [\App\Http\Controllers\RoadToSold\ReportController::class, 'print'])->name('report.print');

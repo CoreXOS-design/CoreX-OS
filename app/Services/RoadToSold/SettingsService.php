@@ -368,6 +368,36 @@ class SettingsService
         return max(1, (int) $this->scalar('level_periods_required'));
     }
 
+    /** Fewest events in the denominator before a funnel ratio can be flagged (spec 9.3). */
+    public function flagMinSample(): int
+    {
+        return max(1, (int) $this->scalar('flag_min_sample'));
+    }
+
+    /** A ratio is flagged when it is below this percentage of the agency median (spec 9.3). */
+    public function flagBelowPct(): int
+    {
+        return max(1, (int) $this->scalar('flag_below_pct'));
+    }
+
+    /** The trailing window, in days, the funnel and its flags are read over by default (spec 9.3). */
+    public function flagWindowDays(): int
+    {
+        return max(1, (int) $this->scalar('flag_window_days'));
+    }
+
+    /** How many trailing weeks a suggested target learns from (spec 9.4). */
+    public function suggestWindowWeeks(): int
+    {
+        return max(1, (int) $this->scalar('suggest_window_weeks'));
+    }
+
+    /** The growth a suggested target allows over what the agent really did, in percent (spec 9.4). */
+    public function suggestGrowthPct(): int
+    {
+        return max(0, (int) $this->scalar('suggest_growth_pct'));
+    }
+
     /** green at/above the green line, red below the red line, amber between. */
     public function statusForPct(float $pct): string
     {

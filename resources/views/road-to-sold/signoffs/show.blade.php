@@ -112,6 +112,35 @@
         @endif
     </div>
 
+    @if($funnel)
+        <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="px-4 py-3 text-xs font-bold" style="color: var(--text-primary); border-bottom: 1px solid var(--border);">
+                Funnel and training flags <span class="font-normal" style="color: var(--text-muted);">- last {{ $funnel['days'] }} days, against the agency median</span>
+            </div>
+            <table class="w-full text-xs ds-table">
+                <thead>
+                    <tr style="color: var(--text-muted);">
+                        <th class="px-3 py-2 text-left">Ratio</th>
+                        <th class="px-3 py-2 text-left">{{ $row->agent?->name }}</th>
+                        <th class="px-3 py-2 text-left">Agency median</th>
+                        <th class="px-3 py-2 text-left">Flag</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach(\App\Services\RoadToSold\FunnelService::RATIOS as $key => $r)
+                    @php $cell = $funnel['ratios'][$key] ?? ['num' => 0, 'den' => 0, 'pct' => null]; $flag = $funnel['flags'][$key] ?? null; @endphp
+                    <tr style="border-top: 1px solid var(--border);">
+                        <td class="px-3 py-2" style="color: var(--text-primary);">{{ $r[0] }}</td>
+                        <td class="px-3 py-2" style="color: var(--text-primary);">{{ $cell['pct'] !== null ? $cell['pct'] . '%' : '-' }} <span style="color: var(--text-muted);">({{ number_format($cell['num']) }} of {{ number_format($cell['den']) }})</span></td>
+                        <td class="px-3 py-2" style="color: var(--text-primary);">{{ ($funnel['medians'][$key] ?? null) !== null ? $funnel['medians'][$key] . '%' : 'Not enough data yet' }}</td>
+                        <td class="px-3 py-2" style="color: var(--text-primary);">{{ $flag ? \App\Services\RoadToSold\FunnelService::flagText($key) : '' }}</td>
+                    </tr>
+                @endforeach
+                </tbody>
+            </table>
+        </div>
+    @endif
+
     <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="px-4 py-3 text-xs font-bold" style="color: var(--text-primary); border-bottom: 1px solid var(--border);">History</div>
         @if($ledger->isEmpty())
@@ -124,7 +153,7 @@
                         <td class="px-3 py-2 whitespace-nowrap" style="color: var(--text-primary);">{{ \App\Support\AppDate::dateTime($e->decided_at) }}</td>
                         <td class="px-3 py-2" style="color: var(--text-primary);">
                             {{ $decisions[$e->decision] ?? $e->decision }}
-                            @if($e->decision === 'approved' && $e->toLevel) to <strong>{{ $e->toLevel->name }}</strong>@elseif($e->decision === 'approved') at the top level@endif
+                            @if($e->decision === 'approved' && $e->toLevel) to <strong>{{ $e->toLevel->name }}</strong>@elseif($e->decision === 'approved') at the top level @endif
                             <span style="color: var(--text-muted);">from {{ $e->fromLevel?->name }}</span>
                         </td>
                         <td class="px-3 py-2" style="color: var(--text-primary);">{{ $e->automatic ? 'Automatically' : ($e->decidedBy?->name ?? 'CoreX') }}</td>

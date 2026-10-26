@@ -31,12 +31,19 @@ class DrilldownService
 
     public const LOG_METRICS = ['calls_made', 'attempts', 'conversations', 'evaluations_booked', 'dropped'];
 
+    /** Phase 5 funnel figures: a presentation first delivered, a viewing held, an offer to purchase signed, a deal registered. */
+    public const SELL_METRICS = ['presentations_given', 'viewings_held', 'otp_signed', 'deals_registered'];
+
+    /** The document type slug a signed offer to purchase carries (the CoreX `otp` type; an agency's own types come with the 13.1 setting). */
+    public const OTP_TYPE = 'otp';
+
     public function supports(string $metric): bool
     {
         return in_array($metric, self::LOG_METRICS, true)
             || str_starts_with($metric, 'outcome:')
             || in_array($metric, self::ITEM_METRICS, true)
-            || in_array($metric, ['target', 'evaluations_done', 'mandates_signed', 'listings_live'], true);
+            || in_array($metric, ['target', 'evaluations_done', 'mandates_signed', 'listings_live'], true)
+            || in_array($metric, self::SELL_METRICS, true);
     }
 
     /**
@@ -57,6 +64,10 @@ class DrilldownService
             $metric === 'evaluations_done' => $this->evaluationsDone($agentIds, $from, $to, $agencyId, $period),
             $metric === 'mandates_signed' => $this->mandatesSigned($agentIds, $from, $to, $agencyId, $period),
             $metric === 'listings_live'   => $this->listingsLive($agentIds, $from, $to, $agencyId, $period, $track),
+            $metric === 'presentations_given' => $this->presentationsGiven($agentIds, $from, $to, $agencyId, $period),
+            $metric === 'viewings_held'   => $this->viewingsHeld($agentIds, $from, $to, $agencyId, $period),
+            $metric === 'otp_signed'      => $this->otpSigned($agentIds, $from, $to, $agencyId, $period),
+            $metric === 'deals_registered' => $this->dealsRegistered($agentIds, $period),
             $metric === 'target'          => $this->targetDays($agentIds, $agencyId, $period, $track),
             in_array($metric, self::ITEM_METRICS, true) => $this->listItems($metric, $agentIds, $agencyId, $period, $track),
             default                       => $this->callLog($metric, $agentIds, $from, $to, $agencyId, $period, $track),
@@ -81,10 +92,71 @@ class DrilldownService
             $metric === 'evaluations_done' => $this->evaluationsDoneQuery($agentIds, $from, $to, $agencyId)->count(),
             $metric === 'mandates_signed' => $this->mandatesQuery($agentIds, $from, $to, $agencyId)->count(),
             $metric === 'listings_live'   => $this->listingsQuery($agentIds, $from, $to, $agencyId, $track)->count(),
+            $metric === 'presentations_given' => $this->presentationsQuery($agentIds, $from, $to, $agencyId)->count(),
+            $metric === 'viewings_held'   => $this->viewingsQuery($agentIds, $from, $to, $agencyId)->count(),
+            $metric === 'otp_signed'      => $this->mandatesQuery($agentIds, $from, $to, $agencyId, self::OTP_TYPE)->count(),
+            $metric === 'deals_registered' => array_sum($this->registeredByAgent($agentIds, $period)),
             $metric === 'target'          => $this->targetTotal($agentIds, $agencyId, $period, $track),
             in_array($metric, self::ITEM_METRICS, true) => $this->itemsQuery($metric, $agentIds, $period, $agencyId, $track)->count(),
             default                       => $this->callLogQuery($metric, $agentIds, $from, $to, $agencyId, $track)->count(),
         };
+    }
+
+    /**
+     * The same figure for MANY agents at once, one query per figure: agent id => count. Built from the SAME query builders count() and
+     * rows() use (grouped by the owner column of that source), so a grid cell and the figure behind it cannot disagree.
+     *
+     * Who a count belongs to (the funnel's population rule, road-to-sold.md 9.2) is the source's own owner column: a call, a booked
+     * evaluation and a conversation by the list owner on the call log; an evaluation and a viewing by the calendar owner; a mandate and
+     * an offer by the document owner; a listing by the property's agent; a presentation by who created it; a registered deal by the
+     * agents on the deal. Every agent who is passed appears in the answer, with 0 when there is nothing.
+     *
+     * $doneBy narrows the call-log figures only ('agent' = made by the agent themselves, 'assistant' = made by an assistant on their
+     * behalf, recorded_by_user_id differs): the other sources do not record who pressed the button, so for them 'agent' is the whole
+     * figure and 'assistant' is 0 - the two always add up to the total.
+     *
+     * @param  int[]  $agentIds
+     * @return array<int,int>
+     */
+    public function countsByAgent(string $metric, array $agentIds, Period $period, int $agencyId, string $track = 'sales', ?string $doneBy = null): array
+    {
+        $agentIds = array_values(array_unique(array_map('intval', $agentIds)));
+        $out = array_fill_keys($agentIds, 0);
+        if ($agencyId <= 0 || $agentIds === [] || ! $this->supports($metric) || in_array($metric, ['target', ...self::ITEM_METRICS], true)) {
+            return $out;
+        }
+        $from = $period->start->toDateTimeString();
+        $to = $period->end->toDateTimeString();
+        $isLog = in_array($metric, self::LOG_METRICS, true) || str_starts_with($metric, 'outcome:');
+
+        if ($metric === 'deals_registered') {
+            $counts = $this->registeredByAgent($agentIds, $period);
+
+            return ($doneBy === 'assistant' ? [] : $counts) + $out;
+        }
+        if (! $isLog && $doneBy === 'assistant') {
+            return $out;
+        }
+
+        [$query, $column] = match (true) {
+            $metric === 'evaluations_done'     => [$this->evaluationsDoneQuery($agentIds, $from, $to, $agencyId), 'ce.user_id'],
+            $metric === 'mandates_signed'      => [$this->mandatesQuery($agentIds, $from, $to, $agencyId), 'd.owner_id'],
+            $metric === 'otp_signed'           => [$this->mandatesQuery($agentIds, $from, $to, $agencyId, self::OTP_TYPE), 'd.owner_id'],
+            $metric === 'listings_live'        => [$this->listingsQuery($agentIds, $from, $to, $agencyId, $track), 'p.agent_id'],
+            $metric === 'presentations_given'  => [$this->presentationsQuery($agentIds, $from, $to, $agencyId), 'pr.created_by_user_id'],
+            $metric === 'viewings_held'        => [$this->viewingsQuery($agentIds, $from, $to, $agencyId), 'ce.user_id'],
+            default                            => [$this->callLogQuery($metric, $agentIds, $from, $to, $agencyId, $track), 'o.user_id'],
+        };
+        if ($isLog && $doneBy === 'agent') {
+            $query->whereColumn('o.recorded_by_user_id', 'o.user_id');
+        } elseif ($isLog && $doneBy === 'assistant') {
+            $query->whereColumn('o.recorded_by_user_id', '!=', 'o.user_id');
+        }
+        foreach ($query->selectRaw($column . ' as agent_id, COUNT(*) as n')->groupBy($column)->get() as $row) {
+            $out[(int) $row->agent_id] = (int) $row->n;
+        }
+
+        return $out;
     }
 
     public function title(string $metric, Period $period): string
@@ -99,6 +171,10 @@ class DrilldownService
                 'evaluations_done'   => 'Evaluations done',
                 'mandates_signed'   => 'Mandates signed',
                 'listings_live'     => 'Listings live',
+                'presentations_given' => 'Presentations given',
+                'viewings_held'     => 'Viewings held',
+                'otp_signed'        => 'Offers to purchase signed',
+                'deals_registered'  => 'Deals registered',
                 'dropped'           => 'Dropped after repeated no-answers',
                 'worked'            => 'Worked toward the target',
                 'added_worked'      => 'Worked on top of the target',
@@ -276,7 +352,7 @@ class DrilldownService
 
     // ── Mandates signed: a mandate e-sign document reaching COMPLETED ──────────────────────
 
-    private function mandatesQuery(array $agentIds, string $from, string $to, int $agencyId)
+    private function mandatesQuery(array $agentIds, string $from, string $to, int $agencyId, string $type = 'mandate')
     {
         return DB::table('signature_templates as st')
             ->join('docuperfect_documents as d', 'd.id', '=', 'st.document_id')
@@ -285,7 +361,7 @@ class DrilldownService
             ->leftJoin('users as u', 'u.id', '=', 'd.owner_id')
             ->where('d.agency_id', $agencyId)->whereNull('d.deleted_at')
             ->where('st.status', 'completed')
-            ->whereRaw("COALESCE(t.template_type, d.document_type) = 'mandate'")
+            ->whereRaw('COALESCE(t.template_type, d.document_type) = ?', [$type])
             ->whereIn('d.owner_id', $agentIds)->whereBetween('st.completed_at', [$from, $to]);
     }
 
@@ -334,6 +410,124 @@ class DrilldownService
             ['key' => 'property', 'label' => 'Property', 'align' => 'left'],
             ['key' => 'price', 'label' => 'Price', 'align' => 'right', 'format' => 'currency'],
         ], $rows, $total, $total > self::MAX_ROWS);
+    }
+
+    // ── Presentations given: the FIRST delivery that reached the seller (email sent, link copied, WhatsApp click-through) ──
+
+    private function presentationsQuery(array $agentIds, string $from, string $to, int $agencyId)
+    {
+        $first = DB::table('presentation_deliveries')->whereNull('deleted_at')->whereNotNull('sent_at')
+            ->selectRaw('presentation_id, MIN(sent_at) as first_sent_at')->groupBy('presentation_id');
+
+        return DB::table('presentations as pr')
+            ->joinSub($first, 'fd', 'fd.presentation_id', '=', 'pr.id')
+            ->leftJoin('users as u', 'u.id', '=', 'pr.created_by_user_id')
+            ->where('pr.agency_id', $agencyId)->whereNull('pr.deleted_at')
+            ->whereIn('pr.created_by_user_id', $agentIds)->whereBetween('fd.first_sent_at', [$from, $to]);
+    }
+
+    private function presentationsGiven(array $agentIds, string $from, string $to, int $agencyId, Period $period): array
+    {
+        $q = $this->presentationsQuery($agentIds, $from, $to, $agencyId);
+        $total = (clone $q)->count();
+        $rows = $q->orderByDesc('fd.first_sent_at')->limit(self::MAX_ROWS)->get(['pr.id', 'pr.title', 'pr.property_address', 'fd.first_sent_at', 'u.name as agent'])
+            ->map(fn ($r) => [
+                'when' => Carbon::parse($r->first_sent_at)->format('j M Y'), 'agent' => $r->agent,
+                'property' => $r->property_address ?: ($r->title ?: 'Presentation'), 'href' => route('presentations.show', $r->id),
+            ])->all();
+
+        return $this->envelope($this->title('presentations_given', $period), [
+            ['key' => 'when', 'label' => 'Given', 'align' => 'left'],
+            ['key' => 'agent', 'label' => 'Agent', 'align' => 'left'],
+            ['key' => 'property', 'label' => 'Property', 'align' => 'left'],
+        ], $rows, $total, $total > self::MAX_ROWS);
+    }
+
+    // ── Viewings held: a viewing appointment with feedback captured as "viewed" ───────────────
+
+    private function viewingsQuery(array $agentIds, string $from, string $to, int $agencyId)
+    {
+        return DB::table('calendar_events as ce')
+            ->leftJoin('properties as p', 'p.id', '=', 'ce.property_id')
+            ->leftJoin('users as u', 'u.id', '=', 'ce.user_id')
+            ->where('ce.agency_id', $agencyId)->whereNull('ce.deleted_at')
+            ->where('ce.category', 'viewing')
+            ->whereIn('ce.user_id', $agentIds)->whereBetween('ce.event_date', [$from, $to])
+            ->whereExists(fn ($e) => $e->select(DB::raw(1))->from('calendar_event_feedback as f')
+                ->whereColumn('f.calendar_event_id', 'ce.id')->where('f.viewing_status', 'viewed')->whereNotNull('f.captured_at')->whereNull('f.deleted_at'));
+    }
+
+    private function viewingsHeld(array $agentIds, string $from, string $to, int $agencyId, Period $period): array
+    {
+        $q = $this->viewingsQuery($agentIds, $from, $to, $agencyId);
+        $total = (clone $q)->count();
+        $rows = $q->orderByDesc('ce.event_date')->limit(self::MAX_ROWS)->get(['ce.id', 'ce.title', 'ce.event_date', 'p.title as property', 'u.name as agent'])
+            ->map(fn ($r) => [
+                'when' => Carbon::parse($r->event_date)->format('j M Y H:i'), 'agent' => $r->agent,
+                'property' => $r->property ?: $r->title, 'href' => route('command-center.calendar.show', $r->id),
+            ])->all();
+
+        return $this->envelope($this->title('viewings_held', $period), [
+            ['key' => 'when', 'label' => 'When', 'align' => 'left'],
+            ['key' => 'agent', 'label' => 'Agent', 'align' => 'left'],
+            ['key' => 'property', 'label' => 'Viewing', 'align' => 'left'],
+        ], $rows, $total, $total > self::MAX_ROWS);
+    }
+
+    // ── Offers to purchase signed: the same query as mandates, for the offer document type ───
+
+    private function otpSigned(array $agentIds, string $from, string $to, int $agencyId, Period $period): array
+    {
+        $q = $this->mandatesQuery($agentIds, $from, $to, $agencyId, self::OTP_TYPE);
+        $total = (clone $q)->count();
+        $rows = $q->orderByDesc('st.completed_at')->limit(self::MAX_ROWS)->get(['st.completed_at', 'p.id as property_id', 'p.title as property', 'u.name as agent'])
+            ->map(fn ($r) => [
+                'when' => Carbon::parse($r->completed_at)->format('j M Y'), 'agent' => $r->agent, 'property' => $r->property ?: 'Offer to purchase',
+                'href' => $r->property_id ? route('corex.properties.show', $r->property_id) : null,
+            ])->all();
+
+        return $this->envelope($this->title('otp_signed', $period), [
+            ['key' => 'when', 'label' => 'Signed', 'align' => 'left'],
+            ['key' => 'agent', 'label' => 'Agent', 'align' => 'left'],
+            ['key' => 'property', 'label' => 'Property', 'align' => 'left'],
+        ], $rows, $total, $total > self::MAX_ROWS);
+    }
+
+    // ── Deals registered: the agency's own registered-deals figure (DR1 + DR2 deduplicated) ───
+
+    /** @return array<int,int> agent id => deals registered in the window */
+    private function registeredByAgent(array $agentIds, Period $period): array
+    {
+        return (new \App\Services\Performance\Providers\DealsRegisteredProvider())->forUsers($agentIds, $period);
+    }
+
+    private function dealsRegistered(array $agentIds, Period $period): array
+    {
+        $start = $period->start->toDateString();
+        $end = $period->end->toDateString();
+        $names = DB::table('users')->whereIn('id', $agentIds)->pluck('name', 'id');
+        $rows = [];
+        $seen = [];
+        $mine = DB::table('deals as d')->leftJoin('deal_user as du', 'du.deal_id', '=', 'd.id')
+            ->whereNull('d.deleted_at')->whereNotNull('d.registration_date')->whereBetween('d.registration_date', [$start, $end])
+            ->where(fn ($w) => $w->whereIn('d.managed_by_user_id', $agentIds)->orWhereIn('du.user_id', $agentIds))
+            ->orderByDesc('d.registration_date')->limit(self::MAX_ROWS)
+            ->get(['d.id', 'd.property_address', 'd.registration_date', 'd.managed_by_user_id', 'du.user_id as du_user']);
+        foreach ($mine as $r) {
+            if (isset($seen[$r->id])) {
+                continue;
+            }
+            $seen[$r->id] = true;
+            $who = in_array((int) $r->managed_by_user_id, $agentIds, true) ? (int) $r->managed_by_user_id : (int) $r->du_user;
+            $rows[] = ['when' => Carbon::parse($r->registration_date)->format('j M Y'), 'agent' => $names[$who] ?? '', 'property' => $r->property_address ?: 'Deal', 'href' => null];
+        }
+        $total = array_sum($this->registeredByAgent($agentIds, $period));
+
+        return $this->envelope($this->title('deals_registered', $period), [
+            ['key' => 'when', 'label' => 'Registered', 'align' => 'left'],
+            ['key' => 'agent', 'label' => 'Agent', 'align' => 'left'],
+            ['key' => 'property', 'label' => 'Property', 'align' => 'left'],
+        ], $rows, $total, $total > count($rows));
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────────────────────

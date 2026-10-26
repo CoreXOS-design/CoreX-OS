@@ -29,7 +29,7 @@ class SignoffController extends Controller
     public const STATUSES = ['awaiting_signoff' => 'Waiting for sign-off', 'active' => 'Working on it', 'signed_off' => 'Top level reached', 'any' => 'Any'];
     public const ARCHIVED = ['active' => 'Not archived', 'archived' => 'Archived', 'all' => 'All'];
 
-    public function __construct(private readonly AgentLevelService $levels)
+    public function __construct(private readonly AgentLevelService $levels, private readonly \App\Services\RoadToSold\FunnelService $funnel)
     {
     }
 
@@ -104,7 +104,16 @@ class SignoffController extends Controller
         $ledger = RtsLevelSignoff::query()->visibleTo($viewer)->where('track', $row->track)->where('user_id', $row->user_id)
             ->with(['decidedBy:id,name', 'fromLevel', 'toLevel'])->orderByDesc('decided_at')->orderByDesc('id')->get();
 
-        return view('road-to-sold.signoffs.show', [
+        // The agent's funnel and flags beside the decision (spec 8.4), for the managers who may see the funnel at all.
+        $funnel = null;
+        if ($viewer->hasPermission('road_to_sold.view_funnel')) {
+            $settings = \App\Services\RoadToSold\SettingsService::forAgency((int) $row->agency_id, $row->track);
+            $period = $this->funnel->windowPeriod($settings->flagWindowDays());
+            $snap = $this->funnel->snapshot((int) $row->agency_id, $period, $row->track, $settings);
+            $funnel = ['period' => $period, 'ratios' => $snap['computed']['ratios'][$row->user_id] ?? [], 'medians' => $snap['medians'], 'flags' => $snap['flags'][$row->user_id] ?? [], 'days' => $settings->flagWindowDays()];
+        }
+
+        return view('road-to-sold.signoffs.show', ['funnel' => $funnel,
             'row' => $row, 'progress' => $progress, 'ledger' => $ledger, 'viewer' => $viewer, 'track' => $row->track,
             'own' => in_array((int) $row->user_id, array_map('intval', $viewer->dataIdentityIds()), true),
         ]);
