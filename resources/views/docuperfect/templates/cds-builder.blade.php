@@ -5,10 +5,18 @@
 {{-- Re-import from Word — the match report is the FIRST thing on the screen after an upload: what
      came back, then the next action, with a link to every field that still needs a decision.
      Spec: .ai/specs/cds-reimport-from-word.md. --}}
+@if(empty($reimportReport) && !empty($cds['parse_report']['dropped'] ?? []))
+    <div id="cdsParseReport" data-testid="parse-report-line" class="mx-4 mt-3 rounded-md px-4 py-2 text-sm" style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber) 40%, transparent); color: var(--text-primary);">
+        {{ $cds['parse_report']['line'] }}
+    </div>
+@endif
 @if(!empty($reimportReport))
     @php($rr = $reimportReport)
     <div id="cdsReimportReport" class="mx-4 mt-3 rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--brand-icon) 8%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent); color: var(--text-primary);">
         <p class="font-semibold mb-1">Word file read: {{ $reimportFileName }}</p>
+        @if(!empty($rr['parse_line']))
+            <p class="mb-2 text-xs" data-testid="parse-report-line" style="color: var(--text-muted);">{{ $rr['parse_line'] }}</p>
+        @endif
         <p class="mb-2">
             {{ $rr['matched_count'] }} of the {{ $rr['old_count'] }} {{ \Illuminate\Support\Str::plural('field', $rr['old_count']) }} in the old template
             {{ $rr['matched_count'] === 1 ? 'was' : 'were' }} found again in the new file by name
