@@ -28,6 +28,7 @@ final class BackfillCompRowTitleTypes extends Command
     protected $signature = 'market-reports:backfill-comp-title-types
                             {--agency= : Limit to a specific agency_id}
                             {--report= : Limit to a specific market report id}
+                            {--clear-stray-pins : Also clear a map pin that sits far from the rest of its report (a same-named street elsewhere)}
                             {--dry-run : Count only, no writes}';
 
     protected $description = 'Clear placeholder section numbers and let comp rows with no property type inherit their report\'s title type.';
@@ -108,6 +109,8 @@ final class BackfillCompRowTitleTypes extends Command
             }
         }
 
+        $stray = $this->option('clear-stray-pins') ? $this->clearStrayPins(clone $base, $dryRun) : null;
+
         $verb = $dryRun ? 'would be' : 'were';
         $this->info("{$placeholders} placeholder section numbers {$verb} cleared.");
         $this->info("{$inherited} comp rows {$verb} given their report's title type.");
@@ -115,7 +118,44 @@ final class BackfillCompRowTitleTypes extends Command
             $this->warn(count($left) . ' report(s) have rows with no title type and nothing to inherit (shown as "title type unknown", never excluded for it): ' . implode(', ', array_slice($left, 0, 20)));
         }
 
+        if ($stray !== null) {
+            $this->info("{$stray} stray map pins {$verb} cleared (the next presentation asks the geocoder again, with the suburb).");
+        }
+
         return self::SUCCESS;
+    }
+
+    /**
+     * A report's comparable sales sit together (one CMA = one neighbourhood). A pin more than 25 km from the median
+     * pin of its own report is another place with the same street name, not the comp: it is cleared so it is
+     * resolved again. Needs at least 5 pinned rows in the report to have a median to trust.
+     */
+    private function clearStrayPins(\Illuminate\Database\Query\Builder $base, bool $dryRun): int
+    {
+        $cleared = 0;
+        $reportIds = (clone $base)->whereNotNull('latitude')->whereNotNull('longitude')->distinct()->pluck('market_report_id');
+        foreach ($reportIds as $reportId) {
+            $rows = DB::table('market_report_comp_rows')->whereNull('deleted_at')->where('market_report_id', $reportId)
+                ->whereNotNull('latitude')->whereNotNull('longitude')->get(['id', 'latitude', 'longitude']);
+            if ($rows->count() < 5) {
+                continue;
+            }
+            $lats = $rows->pluck('latitude')->map(fn ($v) => (float) $v)->sort()->values();
+            $lngs = $rows->pluck('longitude')->map(fn ($v) => (float) $v)->sort()->values();
+            $mid = intdiv($rows->count(), 2);
+            foreach ($rows as $r) {
+                $d = \App\Support\MarketAnalytics\HaversineDistance::distanceMetres($lats[$mid], $lngs[$mid], (float) $r->latitude, (float) $r->longitude);
+                if ($d <= 25_000) {
+                    continue;
+                }
+                $cleared++;
+                if (!$dryRun) {
+                    DB::table('market_report_comp_rows')->where('id', $r->id)->update(['latitude' => null, 'longitude' => null, 'updated_at' => now()]);
+                }
+            }
+        }
+
+        return $cleared;
     }
 
     /** @return array<string, mixed> */

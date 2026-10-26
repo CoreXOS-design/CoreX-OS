@@ -1134,6 +1134,8 @@ The system values protect the platform's AI bill and the trustworthiness of dete
 - The hydrator saves `pool_diagnostics` (candidates, after the type gate, selected) into `hydration_summary_json`. When comps were read but none hydrated, the review banner shows `PresentationImportSummaryService::emptyReason()`: one line saying why (title type / price and distance / outside the area or date window / not regenerated yet) with an "Open the report" link to the report screen.
 - Back-fill for rows already stored: `php artisan market-reports:backfill-comp-title-types [--agency=] [--report=] [--dry-run]` clears filler section numbers and gives blank-type rows the type their report's other rows agree on. Idempotent (only rows that need a change are touched). A report with no type anywhere (the learned-layout read 439) is listed as nothing-to-inherit: its comps show "title type unknown" and are kept. Existing presentations pick the change up on Regenerate.
 
+- Map pins (26 Oct, same case): `MicSnapshotHydrator::encodeRaw()` geocoded a report row with NO suburb, so "22 Edinburgh Street" was keyed as the bare street and answered by a cached same-named street in KZN (a pin 540 km away, outside every radius). It now sends the row's own suburb (as `CompRowGeocoder` already did). Pins already stored: `market-reports:backfill-comp-title-types --clear-stray-pins [--dry-run]` clears a pin more than 25 km from the median pin of its own report (needs 5 pinned rows), so the next presentation resolves it again. The geocoder's own faults (a house-number-blind match to a report's subject address; the per-user daily cap) are cc2's and are reported, not changed here.
+
 **Tests.** `tests/Feature/Presentation/CompTitleTypeInheritanceTest.php`.
 
 ---
