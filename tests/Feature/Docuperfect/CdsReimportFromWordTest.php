@@ -236,6 +236,12 @@ final class CdsReimportFromWordTest extends TestCase
         $this->assertStringContainsString('cdsGoToField(' . $this->keyOf($this->parse(self::V2), 'email') . ')', $html);
         // The settings panel carries the control.
         $this->assertStringContainsString('Re-import from Word', $html);
+        // The app's own confirm dialog, never a browser confirm(): a native pop-up freezes the page for
+        // anyone driving it from a browser extension and breaks the "no browser dialogs" rule.
+        $this->assertSame(1, preg_match('/<form[^>]*\/reimport"[^>]*>/s', $html, $form));
+        $this->assertStringContainsString('data-confirm="Re-import replaces', $form[0]);
+        $this->assertStringNotContainsString('onsubmit', $form[0]);
+        $this->assertStringNotContainsString("return confirm(", $html);
 
         $fields = $resp->viewData('fields');
         $name = $this->keyOf($this->parse(self::V2), 'full_name');
