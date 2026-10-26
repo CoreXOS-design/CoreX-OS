@@ -777,3 +777,12 @@ icons ("icons before the numbers"), so a typed "no icons" lost.
 ## Richer designs by default (Johan, 2026-10-23 — do not re-ask)
 
 - The designs looked too simple. Design rule 7 of the property-template prompt now asks for a rich, layered, finished ad: 14–22 elements (was 8–14), with a shaped or framed main photo plus a second photo where there is room, depth under the text plus at least one accent shape or line in the brand colours, the headline and price each on a pill or band, beds/baths/garages as a row (with icons unless the idea rules icons out), and the agent and logo on their own band. The building blocks are to be used "generously" (was "not all of them, and not for decoration's sake"). The pop-up is unchanged. Unticked extras (decision 20), "no icons" and the overlap/contrast HARD LIMITS still apply. The per-design token cap rose from 3000 to 4500 to fit the longer answer; `PROMPT_VERSION` is `at456b10-v4`. Company ads are unchanged.
+
+### B.12 Real-listing text fit (Johan, 2026-10-26)
+
+Live AI templates lost words (a long title clipped by its own box), wrapped prices out of sight, and let prices run past the edge of the shape behind them. `AdLayoutValidator` now judges every property-template text element against the LONGEST realistic value of its field (`WORST_CASE_COPY`: title 60 chars, price `R 99 999 999`, address 60, agent name 28, email 38 ...), not the sample copy:
+
+- **Fit:** estimated wrapped height must fit the box. Price, phones, email, website, reference, badges, features and the listing facts must stay on ONE line. `validateAndRepair` shrinks the font (never below the minimum, never more than 30%) when that makes it fit; otherwise the option is refused with the numbers needed.
+- **Shape edges:** a text box must sit wholly on, or wholly off, a solid shape / colour block beneath it (inscribed safe area per shape, `SHAPE_SAFE_AREA`: circle 70%, diamond 50% ...). Never repaired.
+- The prompt teaches both (HARD LIMITS 1d, 1e). Heuristic, deliberately on the wide side. Company ads: only the shape-edge rule applies.
+- Test: `tests/Feature/Tools/AiTemplateTextFitTest.php`.

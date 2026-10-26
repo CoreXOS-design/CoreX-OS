@@ -437,7 +437,11 @@ final class AdLayoutValidator
             $errors[] = 'A property ad needs at least one property photo element (image_1 … image_5, or a collage).';
         }
 
+        if ($layoutMode === self::MODE_PROPERTY) {
+            $this->checkTextFit($elements, $errors, $repair, $repairs);
+        }
         $this->checkOverlaps($elements, $errors);
+        $this->checkShapeEdges($elements, $errors);
 
         $this->checkContrast($elements, $canvasStops, $errors, $repair, $repairs);
 
@@ -1017,6 +1021,13 @@ final class AdLayoutValidator
             . '1c. No overlaps: two elements that show words or a picture of their own (every element except ' . implode(', ', $exempt) . ') must never share space. '
             . 'Their boxes may touch by at most ' . self::OVERLAP_TOLERANCE . 'px. Facts that belong together go SIDE BY SIDE (the second starts at the first one\'s x + w plus a gap) or ONE UNDER THE OTHER (the second starts at the first one\'s y + h plus a gap) - never at the same x and y. '
             . 'Before you answer, compare every such pair in every option, and move or shrink one of any two that overlap.' . "\n"
+            . ($company ? '' : '1d. Words must FIT their box for the LONGEST real listing, not the sample copy. A box clips whatever does not fit, so a long title silently loses its last words. '
+            . 'Design for: title up to 60 characters (about 0.55 x fontSize pixels per character, so at fontSize 32 that is roughly 1050px on one line - give it a box wide enough, or tall enough for 2 lines: height at least 2 x fontSize x lineHeight + 2 x padding); '
+            . 'price like "R 99 999 999" (12 characters, about 0.62 x fontSize per character, ONE line only); address up to 60 characters; suburb up to 40; agent name up to 28; agent email up to 38. '
+            . 'Price, phone numbers, email, website, reference, status badge, features and the listing facts must stay on ONE line, so their box width must be at least characters x 0.62 x fontSize + 2 x padding. '
+            . 'When in doubt make the box wider and the font a little smaller - a smaller headline that is whole beats a big one that is cut off. Text is checked against these worst cases and the design is refused if it does not fit.' . "\n")
+            . '1e. Text on a shape: a text box must sit WHOLLY inside the shape or colour block behind it, or wholly outside it - never half on and half off (a price running past the edge of its circle looks broken). '
+            . 'Inside a circle only the middle 70% across and down is usable, inside a diamond or triangle only the middle 50%, a hexagon 80%, so size the shape clearly bigger than the text it holds, or use a rounded rectangle / pill / colour band for prices and headlines.' . "\n"
             . '2. Count: between ' . self::MIN_ELEMENTS . ' and ' . self::MAX_ELEMENTS . ' elements per option, '
             . ($company ? "at most one custom_image, and the agency always on the ad (agency_name, logo or agency_logo).\n" : "and at least one property photo (image_1 to image_5).\n")
             . "3. Font size: fontSize is at least {$min} on every text element (the watermark is exempt). Never write a smaller number.\n"
@@ -1382,6 +1393,245 @@ final class AdLayoutValidator
         }
         if ($found > self::MAX_OVERLAP_ERRORS) {
             $errors[] = 'And ' . ($found - self::MAX_OVERLAP_ERRORS) . ' more pairs of elements sit on top of each other in this design: re-space the whole block so no two boxes share space.';
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Real-listing text fit (Johan 2026-10-26)
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * The longest realistic value of each listing field. A template is poured full of many different listings, so it is judged
+     * against the worst of them, not the short sample copy the builder shows: a long title that wraps past its box loses words
+     * (the box clips what does not fit), and a price that is wider than its box wraps onto a line nobody sees.
+     */
+    private const WORST_CASE_COPY = [
+        'price'             => 'R 99 999 999',
+        'title'             => 'Spacious Three Bedroom Family Home With Sea Views In Margate',
+        'suburb'            => 'Port Edward, KwaZulu-Natal South Coast',
+        'address'           => '1234 Ocean View Drive, Uvongo Beach, Margate, KwaZulu-Natal',
+        'features'          => '10 Bed · 10 Bath · 10 Garage',
+        'property_type'     => 'COMMERCIAL',
+        'status_badge'      => 'UNDER OFFER',
+        'reference'         => 'REF 123456789',
+        'agent_name'        => 'Johannes van der Westhuizen',
+        'agent_email'       => 'johannes.vanderwesthuizen@agency.co.za',
+        'agent_phone'       => '082 000 0000',
+        'agent_designation' => 'Principal Property Practitioner',
+        'agency_name'       => 'Home Finders Coastal Property Group',
+        'website'           => 'WWW.COASTALPROPERTYGROUP.CO.ZA',
+        'agency_phone'      => '012 345 6789',
+        'size_m2'           => '10 450 m²',
+        'size_or_land'      => '10 450 M²',
+        'rent_per_month'    => 'R 125 000 per month',
+        'price_per_m2'      => 'R 107 656 per m²',
+        'available_from'    => 'Available from 1 November 2026',
+        'show_day'          => 'Sat 25 Oct · 10:00–13:00',
+    ];
+
+    /** Fields that must stay on ONE line: a price or phone number split across two lines is wrong even if the box is tall enough. */
+    private const SINGLE_LINE_FIELDS = ['price', 'rent_per_month', 'price_per_m2', 'agent_phone', 'agency_phone', 'agent_email', 'website',
+        'reference', 'status_badge', 'features', 'size_m2', 'size_or_land', 'property_type', 'erf_size', 'levy', 'rates_taxes', 'pet_friendly',
+        'available_from', 'show_day', 'auction_date', 'badge'];
+
+    /** Width of an average character, in em, per font family; the rest use 1.0. Deliberately on the wide side: a false "fits" is the failure. */
+    private const FONT_WIDTH = [
+        'Oswald' => 0.78, 'Bebas Neue' => 0.7, 'Barlow Condensed' => 0.72, 'Anton' => 0.75,
+        'Montserrat' => 1.1, 'Poppins' => 1.08, 'Space Grotesk' => 1.05, 'Raleway' => 1.04, 'Work Sans' => 1.04, 'Quicksand' => 1.02,
+        'Playfair Display' => 1.06, 'DM Serif Display' => 1.04, 'Libre Baskerville' => 1.08, 'Lora' => 1.0, 'Cormorant Garamond' => 0.9,
+        'Great Vibes' => 0.85, 'Dancing Script' => 0.95,
+    ];
+
+    /**
+     * How much of a shape's box is safely "on" the shape, as [share of width, share of height], centred. Words placed outside it
+     * spill over the shape's visible edge. Wave / curve / arc shapes are edge decoration and are not checked.
+     */
+    private const SHAPE_SAFE_AREA = [
+        'rectangle' => [1.0, 1.0], 'rounded' => [0.94, 0.94], 'pill' => [0.9, 0.78], 'circle' => [0.7, 0.7], 'diamond' => [0.5, 0.5],
+        'triangle' => [0.5, 0.5], 'pentagon' => [0.68, 0.68], 'hexagon' => [0.8, 0.84], 'star' => [0.45, 0.45], 'chevron' => [0.6, 0.7],
+        'blob_1' => [0.65, 0.65], 'blob_2' => [0.65, 0.65], 'blob_3' => [0.65, 0.65],
+    ];
+
+    /** The copy to test an element against: its own words, else the worst realistic value of its field, else its sample copy. */
+    private function copyFor(array $el): string
+    {
+        if (in_array($el['field'], ['custom_text', 'badge', 'ribbon'], true)) {
+            return (string) $el['text'];
+        }
+
+        return self::WORST_CASE_COPY[$el['field']] ?? (string) ($el['preview'] ?? '');
+    }
+
+    /** Estimated width in pixels of one unbroken run of text at this element's font settings (a heuristic, on the generous side). */
+    private function textWidth(string $text, array $el): float
+    {
+        $fs   = (float) $el['fontSize'];
+        $unit = self::FONT_WIDTH[$el['fontFamily']] ?? 1.0;
+        $unit *= (int) $el['fontWeight'] >= 900 ? 1.1 : ((int) $el['fontWeight'] >= 700 ? 1.06 : 1.0);
+        $em = 0.0;
+        foreach (mb_str_split($text) as $ch) {
+            $em += match (true) {
+                $ch === ' '                            => 0.28,
+                (bool) preg_match('/\p{Lu}/u', $ch)    => 0.68,
+                (bool) preg_match('/\d/', $ch)         => 0.58,
+                (bool) preg_match('/\p{L}/u', $ch)     => 0.54,
+                default                                => 0.32,
+            };
+            $em += (float) $el['letterSpacing'] / max($unit, 0.01);
+        }
+
+        return $em * $unit * $fs * 1.04;
+    }
+
+    /**
+     * Lines the copy needs in a box of $availW pixels (words are never broken, as in the browser), or null when one word alone is
+     * wider than the box.
+     */
+    private function linesNeeded(string $text, array $el, float $availW): ?int
+    {
+        if ($text === '') {
+            return 0;
+        }
+        $space = $this->textWidth(' ', $el);
+        $lines = 1;
+        $used  = 0.0;
+        foreach (preg_split('/\s+/u', trim($text)) ?: [] as $word) {
+            $w = $this->textWidth($word, $el);
+            if ($w > $availW) {
+                return null;
+            }
+            if ($used > 0 && $used + $space + $w > $availW) {
+                $lines++;
+                $used = $w;
+            } else {
+                $used += ($used > 0 ? $space : 0) + $w;
+            }
+        }
+
+        return $lines;
+    }
+
+    /** True when the copy fits the element's box at $fontSize: one line for single-line fields, otherwise as many as the box is tall. */
+    private function copyFits(array $el, string $text, float $fontSize): bool
+    {
+        $probe = $el;
+        $probe['fontSize'] = $fontSize;
+        if ($probe['textTransform'] === 'uppercase') {
+            $text = mb_strtoupper($text);
+        }
+        $icon   = $probe['icon'] ? (float) ($probe['iconSize'] ?: $fontSize) + $fontSize * 0.4 : 0.0;
+        $availW = (float) $el['w'] - 2 * (float) $el['padding'] - $icon;
+        // The box clips at its padding edge, not its content edge: a line may use half the vertical padding on each side.
+        $availH = (float) $el['h'] - (float) $el['padding'];
+        $lines  = $this->linesNeeded($text, $probe, $availW);
+        if ($lines === null) {
+            return false;
+        }
+        if (in_array($el['field'], self::SINGLE_LINE_FIELDS, true) && $lines > 1) {
+            return false;
+        }
+
+        return $lines * $fontSize * (float) $el['lineHeight'] <= $availH + 1;
+    }
+
+    /**
+     * Words must fit the box they are drawn in, for the longest realistic listing. A box that is too small is repaired by shrinking
+     * the font (never below the minimum, and never by more than 30%); if even that does not fit, the design is refused with the
+     * numbers the AI needs to enlarge the box. Skips the elements the page draws itself (logo, QR, pills, ribbon, photos, blocks).
+     *
+     * @param array<int, array<string, mixed>> $elements  Updated in place when $repair shrinks a font.
+     * @param array<int, string>               $errors
+     * @param array<int, string>               $repairs
+     */
+    private function checkTextFit(array &$elements, array &$errors, bool $repair, array &$repairs): void
+    {
+        foreach ($elements as $idx => $el) {
+            if (! $this->isTextField($el['field']) || in_array($el['field'], ['watermark', 'ribbon', 'feature_pills'], true)) {
+                continue;
+            }
+            $text = $this->copyFor($el);
+            if ($text === '' || $this->copyFits($el, $text, (float) $el['fontSize'])) {
+                continue;
+            }
+            $tag = 'Element ' . ($idx + 1) . " ({$el['field']} at x " . (int) $el['x'] . ', y ' . (int) $el['y'] . ')';
+
+            if ($repair) {
+                $floor = max((float) self::MIN_FONT_SIZE, ceil((float) $el['fontSize'] * 0.7));
+                for ($fs = (float) $el['fontSize'] - 1; $fs >= $floor; $fs--) {
+                    if ($this->copyFits($el, $text, $fs)) {
+                        $repairs[] = "{$tag}: the longest realistic value (\"" . mb_substr($text, 0, 40) . "\") did not fit its box, so fontSize {$el['fontSize']} was reduced to " . (int) $fs . '.';
+                        $elements[$idx]['fontSize'] = (int) $fs;
+                        continue 2;
+                    }
+                }
+            }
+
+            $single = in_array($el['field'], self::SINGLE_LINE_FIELDS, true);
+            $errors[] = "{$tag}: the longest realistic value (\"" . mb_substr($text, 0, 50) . '") does not fit a ' . (int) $el['w'] . ' x ' . (int) $el['h']
+                . ' box at fontSize ' . $el['fontSize'] . ' - ' . ($single ? 'it must stay on ONE line' : 'words that do not fit are cut off')
+                . '. Make the box wider' . ($single ? '' : ' or taller') . ' or lower the fontSize (but not below ' . self::MIN_FONT_SIZE . ').';
+        }
+    }
+
+    /**
+     * A text box must sit wholly ON a shape / colour block or wholly OFF it. Half on and half off - a price running past the edge of
+     * the circle behind it, a title hanging over the end of its band - looks broken. Only solid, visible blocks drawn BENEATH the text
+     * count; for a non-rectangular shape the usable area is its inscribed middle (SHAPE_SAFE_AREA). Never repaired: moving text
+     * automatically could push it off its panel.
+     *
+     * @param array<int, array<string, mixed>> $elements
+     * @param array<int, string>               $errors
+     */
+    private function checkShapeEdges(array $elements, array &$errors): void
+    {
+        $tol   = self::OVERLAP_TOLERANCE;
+        $found = 0;
+        foreach ($elements as $ti => $t) {
+            if (! $this->isTextField($t['field']) || in_array($t['field'], ['watermark', 'ribbon', 'feature_pills'], true)) {
+                continue;
+            }
+            foreach ($elements as $bi => $b) {
+                if (! in_array($b['field'], ['shape', 'color_block'], true) || (float) $b['opacity'] < self::BACKDROP_MIN_ALPHA || (int) $b['zIndex'] >= (int) $t['zIndex']) {
+                    continue;
+                }
+                $kind = $b['field'] === 'shape' ? (string) $b['shapeType'] : 'rectangle';
+                if (! isset(self::SHAPE_SAFE_AREA[$kind])) {
+                    continue;
+                }
+                $tl = (float) $t['x'];
+                $tt = (float) $t['y'];
+                $tr = $tl + (float) $t['w'];
+                $tb = $tt + (float) $t['h'];
+                $bl = (float) $b['x'];
+                $bt = (float) $b['y'];
+                $br = $bl + (float) $b['w'];
+                $bb = $bt + (float) $b['h'];
+                $across = min($tr, $br) - max($tl, $bl);
+                $down   = min($tb, $bb) - max($tt, $bt);
+                if ($across <= $tol || $down <= $tol) {
+                    continue;   // wholly off the block
+                }
+                if ($bl >= $tl - $tol && $br <= $tr + $tol && $bt >= $tt - $tol && $bb <= $tb + $tol) {
+                    continue;   // the block is a small accent inside the text box, not a panel the text sits on
+                }
+                [$fx, $fy] = self::SHAPE_SAFE_AREA[$kind];
+                $sw = ($br - $bl) * $fx;
+                $sh = ($bb - $bt) * $fy;
+                $sl = $bl + (($br - $bl) - $sw) / 2;
+                $st = $bt + (($bb - $bt) - $sh) / 2;
+                if ($tl >= $sl - $tol && $tr <= $sl + $sw + $tol && $tt >= $st - $tol && $tb <= $st + $sh + $tol) {
+                    continue;   // wholly on it
+                }
+                $found++;
+                if ($found <= self::MAX_OVERLAP_ERRORS) {
+                    $errors[] = 'Element ' . ($ti + 1) . " ({$t['field']} at x " . (int) $tl . ', y ' . (int) $tt . ') is partly on and partly off Element ' . ($bi + 1)
+                        . " ({$b['field']}" . ($kind !== 'rectangle' && $b['field'] === 'shape' ? ", {$kind}" : '') . ' at x ' . (int) $bl . ', y ' . (int) $bt . '), so its words run over the shape\'s edge. '
+                        . 'Put the whole text box inside the shape (' . ($fx < 1.0 ? 'for a ' . $kind . ' that is the middle ' . (int) round($fx * 100) . '% across and ' . (int) round($fy * 100) . '% down: x ' . (int) round($sl) . ' to ' . (int) round($sl + $sw) . ', y ' . (int) round($st) . ' to ' . (int) round($st + $sh) : 'x ' . (int) $bl . ' to ' . (int) $br . ', y ' . (int) $bt . ' to ' . (int) $bb) . ') or move it completely off.';
+                }
+            }
+        }
+        if ($found > self::MAX_OVERLAP_ERRORS) {
+            $errors[] = 'And ' . ($found - self::MAX_OVERLAP_ERRORS) . ' more text boxes run over the edge of a shape in this design: keep every text box wholly inside the shape or colour block it sits on, or wholly outside it.';
         }
     }
 
