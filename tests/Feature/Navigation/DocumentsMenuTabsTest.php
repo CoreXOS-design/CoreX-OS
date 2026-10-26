@@ -102,7 +102,7 @@ final class DocumentsMenuTabsTest extends TestCase
                 'packages' => fn (User $u) => $dp($u) && $u->isOwnerRole() && $p($u, 'templates.transfer'),
             ],
             ESignSettingsTabs::class => [
-                'presets' => $esign, 'recipient-templates' => $esign, 'finalisation' => $esign,
+                'presets' => $esign, 'recipient-templates' => $esign, 'finalisation' => $esign, 'signing-mode' => $esign,
             ],
         ];
     }
@@ -129,7 +129,8 @@ final class DocumentsMenuTabsTest extends TestCase
                 }
             }
         }
-        $this->assertSame(5 * 18, $checked);
+        // every tab of every hub, for each of the five users - derived from the gate list, not hard-coded, so a new tab cannot silently break the count
+        $this->assertSame(count($users) * array_sum(array_map('count', $this->oldMenuGates())), $checked);
     }
 
     public function test_the_menu_has_six_items_and_every_tab_screen_opens_with_its_tab_marked(): void
