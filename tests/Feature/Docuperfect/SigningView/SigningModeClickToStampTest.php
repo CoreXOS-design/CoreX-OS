@@ -162,7 +162,7 @@ final class SigningModeClickToStampTest extends TestCase
         ]);
 
         $res->assertStatus(422);
-        $this->assertStringContainsString('adopted', (string) $res->json('error'));
+        $this->assertStringContainsString('saved', (string) $res->json('error'));
         $this->assertSame(0, SignaturePlaceGeneration::count());
     }
 

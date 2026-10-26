@@ -45,7 +45,7 @@ final class SigningAdoptionStepTest extends TestCase
         [$r] = $this->seller('sign_each');
 
         $html = $this->asRecipient($r)->assertOk()->getContent();
-        $this->assertStringNotContainsString('Adopt your signature and initial', $html);
+        $this->assertStringNotContainsString('Add your signature and initials</h2>', $html);
         $this->assertStringContainsString('"required":false', str_replace(' ', '', $html));
     }
 
@@ -54,7 +54,7 @@ final class SigningAdoptionStepTest extends TestCase
         [$r] = $this->seller('adopt_then_stamp');
 
         $html = $this->asRecipient($r)->assertOk()->getContent();
-        $this->assertStringContainsString('Adopt your signature and initial', $html);
+        $this->assertStringContainsString('Add your signature and initials</h2>', $html);
         $this->assertStringContainsString('"required":true', str_replace(' ', '', $html));
         $this->assertStringContainsString('applied wherever you click to sign or initial on this document.', $html);
     }
@@ -109,7 +109,7 @@ final class SigningAdoptionStepTest extends TestCase
 
         $blocked = $this->postJson('/sign/' . $r->token . '/complete-web', $payload);
         $blocked->assertStatus(422);
-        $this->assertStringContainsString('adopt your signature', (string) $blocked->json('error'));
+        $this->assertStringContainsString('add your signature', (string) $blocked->json('error'));
 
         $this->adopt($r)->assertOk();
         $after = $this->postJson('/sign/' . $r->token . '/complete-web', $payload);
