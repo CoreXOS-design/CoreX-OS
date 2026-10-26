@@ -350,6 +350,71 @@ class MobileRentalInspectionController extends Controller
         return response()->json(['duplicate' => false] + $this->photoPayload($photo) + ($late ? ['message' => $body['message'] ?? null] : []), 201);
     }
 
+    /**
+     * POST …/photos — the camera on a checklist item, a room, or the whole inspection: the SAME upload the web recording screen makes
+     * (RentalInspectionRecordingController::storePhotos). `item_id` files the photo against that item (its pending observation is created on the
+     * spot if the item has none yet, so a photo never waits for a condition); `room_id` files a general room shot; neither leaves it loose in the
+     * inspection's tray, exactly as on the web. Everything uploaded here shows on the web the same minute, and a web upload shows in the detail.
+     */
+    public function storeTaggedPhoto(Request $request, int $inspection): JsonResponse
+    {
+        $insp = $this->findInspection($inspection);
+        $v = $request->validate([
+            'photo' => ['required', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
+            'client_idempotency_key' => ['required', 'uuid'],
+            'captured_at' => ['nullable'],
+            'item_id' => ['nullable', 'integer'],
+            'room_id' => ['nullable', 'integer'],
+            'observation_id' => ['nullable', 'integer'],
+        ]);
+        $key = $v['client_idempotency_key'];
+
+        // looked up globally and trashed included, like the web: our own row replays, another inspection's key is a 422, an archived one is a 410
+        $existing = RentalInspectionPhoto::withoutGlobalScopes()->withTrashed()->where('client_idempotency_key', $key)->first();
+        if ($existing) {
+            if ((int) $existing->rental_inspection_id !== (int) $insp->id) {
+                return response()->json(['message' => 'That retry key was already used for a different inspection.'], 422);
+            }
+            if ($existing->trashed()) {
+                return $this->archived('This photo was archived, so it was not added again.');
+            }
+
+            return response()->json(['duplicate' => true] + $this->photoPayload($existing), 200);
+        }
+
+        // the web action takes a batch (photos[] + client_idempotency_keys[] + captured_at[]); a phone sends one photo per request, a batch of one.
+        // A fresh request object, because Laravel caches a request's converted uploaded files the first time they are read.
+        $fields = array_filter([
+            'client_idempotency_keys' => [$key],
+            'property_room_id' => $v['room_id'] ?? null,
+            'rental_inspection_item_id' => $v['item_id'] ?? null,
+            'rental_inspection_observation_id' => $v['observation_id'] ?? null,
+        ]);
+        if (isset($v['captured_at']) && is_string($v['captured_at'])) {
+            $fields['captured_at'] = [substr($v['captured_at'], 0, 64)];
+        }
+        $batch = Request::create($request->path(), 'POST', $fields, [], ['photos' => [$request->file('photo')]]);
+        $batch->setUserResolver($request->getUserResolver());
+
+        $response = $this->recording()->storePhotos($batch, $insp);
+        if ($response->getStatusCode() >= 300) {
+            return $this->failure($response);
+        }
+
+        $photo = RentalInspectionPhoto::withoutGlobalScopes()->where('client_idempotency_key', $key)->firstOrFail();
+        $body = (array) $response->getData(true);
+        $observation = $photo->rental_inspection_observation_id
+            ? RentalInspectionObservation::withoutGlobalScopes()->with('item')->find($photo->rental_inspection_observation_id)
+            : null;
+
+        return response()->json(
+            ['duplicate' => false] + $this->photoPayload($photo)
+            + ($observation ? ['observation' => $this->observationPayload($observation)] : [])
+            + (! empty($body['added_after_signing']) ? ['message' => $body['message'] ?? null] : []),
+            201,
+        );
+    }
+
     /** POST …/rooms/{room}/notes — the note box under a room table. Immutable: a correction is a new note. */
     public function storeRoomNote(Request $request, int $inspection, int $room): JsonResponse
     {
@@ -771,12 +836,21 @@ class MobileRentalInspectionController extends Controller
     }
 
     /** @return array<string, mixed> */
-    private function photoPayload(RentalInspectionPhoto $p): array
+    private function photoPayload(RentalInspectionPhoto $p, ?array $itemByObservation = null): array
     {
+        // which checklist item a photo is filed against comes through its observation (a loose or room-only photo has none)
+        $itemId = null;
+        if ($p->rental_inspection_observation_id) {
+            $itemId = $itemByObservation !== null
+                ? ($itemByObservation[$p->rental_inspection_observation_id] ?? null)
+                : RentalInspectionObservation::withoutGlobalScopes()->whereKey($p->rental_inspection_observation_id)->value('rental_inspection_item_id');
+        }
+
         return [
             'id' => $p->id,
             'inspection_id' => $p->rental_inspection_id,
             'observation_id' => $p->rental_inspection_observation_id,
+            'item_id' => $itemId ? (int) $itemId : null,
             'room_id' => $p->property_room_id,
             'url' => self::absoluteUrl($p->storage_path),
             'taken_at' => $this->iso($p->taken_at),
@@ -847,6 +921,7 @@ class MobileRentalInspectionController extends Controller
         $photos = RentalInspectionPhoto::withoutGlobalScopes()->where('rental_inspection_id', $i->id)->whereNull('deleted_at')
             ->orderBy('taken_at')->orderBy('id')->get();
         $photosByObservation = $photos->groupBy('rental_inspection_observation_id');
+        $itemByObservation = $observations->pluck('rental_inspection_item_id', 'id')->all();
         $discrepancies = RentalInspectionDiscrepancy::withoutGlobalScopes()->where('rental_inspection_id', $i->id)->with('observations')->orderBy('id')->get();
         $signatures = RentalInspectionSignature::withoutGlobalScopes()->where('rental_inspection_id', $i->id)->orderBy('id')->get();
         $notes = RentalInspectionRoomNote::withoutGlobalScopes()->where('rental_inspection_id', $i->id)->orderBy('created_at')->orderBy('id')->get();
@@ -900,10 +975,10 @@ class MobileRentalInspectionController extends Controller
             'overall_notes' => $i->overall_notes,
             'checklist' => $checklist,
             'observations' => $observations->map(fn ($o) => $this->observationPayload($o) + [
-                'photos' => ($photosByObservation[$o->id] ?? collect())->map(fn ($p) => $this->photoPayload($p))->values()->all(),
+                'photos' => ($photosByObservation[$o->id] ?? collect())->map(fn ($p) => $this->photoPayload($p, $itemByObservation))->values()->all(),
             ])->values()->all(),
             // every live photo on the inspection, including ones not attached to an observation
-            'photos' => $photos->map(fn ($p) => $this->photoPayload($p))->values()->all(),
+            'photos' => $photos->map(fn ($p) => $this->photoPayload($p, $itemByObservation))->values()->all(),
             'room_notes' => $notes->map(fn ($n) => $this->roomNotePayload($n))->values()->all(),
             'discrepancies' => $discrepancies->map(fn ($d) => $this->discrepancyPayload($d))->values()->all(),
             'signatures' => [

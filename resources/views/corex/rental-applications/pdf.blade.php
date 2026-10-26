@@ -32,6 +32,7 @@
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Address of property: <span class="corex-field-value">{{ $application->property?->buildDisplayAddress() ?? $application->property_address_override ?? '' }}</span></span></div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Full name and Surname: <span class="corex-field-value">{{ $application->full_name }}</span></span></div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">I.D Number: <span class="corex-field-value">{{ $application->id_number }}</span> &nbsp; Marital Status: <span class="corex-field-value">{{ $application->marital_status }}</span></span></div>
+<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Income Tax No: <span class="corex-field-value">{{ $application->income_tax_no }}</span> &nbsp; How Married: <span class="corex-field-value">{{ $application->marriage_regime }}</span></span></div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Spouse Full Name: <span class="corex-field-value">{{ $application->spouse_name }}</span></span></div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Spouse I.D Number: <span class="corex-field-value">{{ $application->spouse_id }}</span> &nbsp; Citizenship: <span class="corex-field-value">{{ $application->citizenship }}</span></span></div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Current Residential Address: <span class="corex-field-value">{{ $application->current_residential_address }}</span></span></div>
@@ -61,6 +62,7 @@
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Current Rental Amount: R<span class="corex-field-value">{{ $application->current_rental_amount }}</span> &nbsp; Due Day: <span class="corex-field-value">{{ $application->current_rental_due_day ?? '—' }}</span></span></div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">From: <span class="corex-field-value">{{ optional($application->current_rental_from)->format('d/m/Y') }}</span> &nbsp; To: <span class="corex-field-value">{{ $application->current_rental_still_living ? 'Still living there' : optional($application->current_rental_to)->format('d/m/Y') }}</span></span></div>
 @endif
+<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Previous Landlord / Agent / Owner Name: <span class="corex-field-value">{{ $application->previous_landlord_name }}</span> &nbsp; Tel No: <span class="corex-field-value">{{ $application->previous_landlord_tel }}</span></span></div>
 @if($application->current_living_situation_notes)
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">In their own words: <span class="corex-field-value">{{ $application->current_living_situation_notes }}</span></span></div>
 @endif
@@ -70,11 +72,90 @@
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Position: <span class="corex-field-value">{{ $application->employer_position }}</span></span></div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Employer Address: <span class="corex-field-value">{{ $application->employer_address }}</span></span></div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Tel No of Employer: <span class="corex-field-value">{{ $application->employer_tel }}</span> &nbsp; Monthly Salary: <span class="corex-field-value">{{ $application->monthly_salary }}</span></span></div>
+<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Years Employed: <span class="corex-field-value">{{ $application->years_employed }}</span> &nbsp; Pay Day: <span class="corex-field-value">{{ $application->pay_date }}</span></span></div>
+
+<div class="corex-h2">Banking and Vehicle</div>
+<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Bank: <span class="corex-field-value">{{ $application->bank_name }}</span> &nbsp; Account No: <span class="corex-field-value">{{ $application->bank_account_no }}</span></span></div>
+<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Any judgments against you? <span class="corex-field-value">{{ $application->judgments ? ucfirst($application->judgments) : '' }}</span> &nbsp; If yes, please specify: <span class="corex-field-value">{{ $application->judgments_details }}</span></span></div>
+<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Car Make: <span class="corex-field-value">{{ $application->car_make }}</span> &nbsp; Colour: <span class="corex-field-value">{{ $application->car_colour }}</span> &nbsp; Year: <span class="corex-field-value">{{ $application->car_year }}</span> &nbsp; Registration: <span class="corex-field-value">{{ $application->car_reg }}</span></span></div>
+
+@php
+    $pdfCo = (array) ($application->co_applicant ?? []);
+    $pdfOcc = (array) ($application->co_occupants ?? []);
+    $pdfPets = (array) ($application->pets ?? []);
+    $pdfAfford = (array) ($application->affordability ?? []);
+    $pdfMoney = fn ($v) => $v === null || $v === '' ? '' : 'R ' . number_format((float) $v, 2, '.', ',');
+    if ($pdfOcc === []) { $pdfOcc = array_fill(0, 3, []); }
+    if ($pdfPets === []) { $pdfPets = array_fill(0, 2, []); }
+    $pdfIncome = ($pdfAfford['income'] ?? []) ?: array_map(fn ($l) => ['label' => $l, 'amount' => null], \App\Models\RentalApplication::AFFORDABILITY_INCOME_LINES);
+    $pdfExpenses = ($pdfAfford['expenses'] ?? []) ?: array_map(fn ($l) => ['label' => $l, 'amount' => null], \App\Models\RentalApplication::AFFORDABILITY_EXPENSE_LINES);
+    $pdfIncomeTotal = $application->affordabilityTotal('income');
+    $pdfExpenseTotal = $application->affordabilityTotal('expenses');
+    $pdfFilled = ! empty($pdfAfford);
+    $pdfTerms = \App\Services\Rentals\ApplicationTerms::for(
+        $application->agency_id,
+        $application->property && $application->property->rental_amount ? (float) $application->property->rental_amount : null,
+        1 + (filled($pdfCo['full_name'] ?? null) ? 1 : 0),
+        $application->property?->buildDisplayAddress() ?: $application->property_address_override,
+        $application->full_name,
+        null,
+    );
+@endphp
+
+<div class="corex-h2">Co-applicant / Spouse</div>
+@foreach(\App\Models\RentalApplication::CO_APPLICANT_FIELDS as $coKey => [$coLabel, $coKind])
+<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">{{ $coLabel }}: <span class="corex-field-value">{{ $coKind === 'money' ? $pdfMoney($pdfCo[$coKey] ?? null) : (($pdfCo[$coKey] ?? '') !== '' && $coKind === 'yesno' ? ucfirst($pdfCo[$coKey]) : ($pdfCo[$coKey] ?? '')) }}</span></span></div>
+@endforeach
+
+<div class="corex-h2">Other People Who Will Live in the Property</div>
+<table class="corex-table"><thead><tr><th>Name</th><th>Relationship</th><th>Age</th></tr></thead>
+<tbody>@foreach($pdfOcc as $r)<tr><td>{{ $r['name'] ?? '' }}&nbsp;</td><td>{{ $r['relationship'] ?? '' }}</td><td>{{ $r['age'] ?? '' }}</td></tr>@endforeach</tbody></table>
+
+<div class="corex-h2">Pets</div>
+<table class="corex-table"><thead><tr><th>Type</th><th>Breed</th><th>Size</th></tr></thead>
+<tbody>@foreach($pdfPets as $r)<tr><td>{{ $r['type'] ?? '' }}&nbsp;</td><td>{{ $r['breed'] ?? '' }}</td><td>{{ $r['size'] ?? '' }}</td></tr>@endforeach</tbody></table>
+
+<div class="corex-h2">Monthly Income and Expenses</div>
+<table class="corex-table"><thead><tr><th>Income per month</th><th>Amount</th><th>Expenses per month</th><th>Amount</th></tr></thead>
+<tbody>
+@for($i = 0; $i < max(count($pdfIncome), count($pdfExpenses)); $i++)
+<tr><td>{{ $pdfIncome[$i]['label'] ?? '' }}&nbsp;</td><td>{{ $pdfMoney($pdfIncome[$i]['amount'] ?? null) }}</td><td>{{ $pdfExpenses[$i]['label'] ?? '' }}</td><td>{{ $pdfMoney($pdfExpenses[$i]['amount'] ?? null) }}</td></tr>
+@endfor
+<tr><td><strong>Total income</strong></td><td>{{ $pdfFilled ? $pdfMoney($pdfIncomeTotal) : '' }}</td><td><strong>Total expenses</strong></td><td>{{ $pdfFilled ? $pdfMoney($pdfExpenseTotal) : '' }}</td></tr>
+</tbody></table>
 
 <div class="corex-h2">Requirement of Lease</div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Effective Date of Occupation: <span class="corex-field-value">{{ optional($application->occupation_date)->format('d/m/Y') }}</span> &nbsp; Rental Terms Required: <span class="corex-field-value">{{ $application->rental_term_months ? $application->rental_term_months . ' months' : $application->rental_terms }}</span></span></div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Special Conditions: <span class="corex-field-value">{{ $application->special_conditions }}</span></span></div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Number of Occupants: Adults: <span class="corex-field-value">{{ $application->adults }}</span> &nbsp; Children: <span class="corex-field-value">{{ $application->children }}</span></span></div>
+
+@if($pdfTerms['amounts'] !== [])
+<div class="corex-h2">Amounts Payable</div>
+@foreach($pdfTerms['amounts'] as $row)
+<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">{{ $row['label'] }}: <span class="corex-field-value">{{ $row['value'] }}</span></span></div>
+@endforeach
+@endif
+@if($pdfTerms['bank'] !== null)
+<div class="corex-h2">Deposit Banking Details</div>
+@foreach($pdfTerms['bank']['rows'] as $row)
+<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">{{ $row['label'] }}: <span class="corex-field-value">{{ $row['value'] }}</span></span></div>
+@endforeach
+@if($pdfTerms['bank']['reference'] !== '')
+<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Payment reference: <span class="corex-field-value">{{ $pdfTerms['bank']['reference'] }}</span></span></div>
+@endif
+@endif
+@if($pdfTerms['documents'] !== [])
+<div class="corex-h2">Documents to Accompany This Application</div>
+@foreach($pdfTerms['documents'] as $line)
+<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">&bull; {{ $line }}</span></div>
+@endforeach
+@endif
+@if($pdfTerms['summary'] !== [])
+<div class="corex-h2">Tenant Information Summary</div>
+@foreach($pdfTerms['summary'] as $line)
+<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">&bull; {{ $line }}</span></div>
+@endforeach
+@endif
 
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">I hereby declare that all the above information given is true and accurate.</span></div>
 <div class="corex-clause corex-clause-indent-1">

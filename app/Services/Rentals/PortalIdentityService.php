@@ -127,6 +127,11 @@ class PortalIdentityService
             ->get();
     }
 
+    /**
+     * Does this contact hold the side? Only when they are really linked to a rental: a lease tenant (tenant side) or a property's landlord /
+     * lessor (owner side). A person merely MARKED Lessee or Lessor but not linked to any rental holds nothing and sees nothing (Johan, 26 Oct 2026;
+     * spec at-508-mobile-rentals.md, "Rentals only for lessees and lessors"). The Contact Type never grants access on its own.
+     */
     private function holds(Contact $contact, string $side): bool
     {
         if ($side === self::SIDE_TENANT) {

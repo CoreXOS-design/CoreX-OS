@@ -75,6 +75,9 @@ class ClientPortalController extends Controller
                 'tenant'   => ($sideContacts['tenant'] ?? null) ? $this->shapeContact($sideContacts['tenant']) : null,
                 'landlord' => ($sideContacts['landlord'] ?? null) ? $this->shapeContact($sideContacts['landlord']) : null,
             ],
+            // Which Rentals views this person gets at all (spec at-508-mobile-rentals.md, "Rentals only for lessees and lessors"). `tenant` = they are a
+            // Lessee, `owner` = a Lessor, AND the agency has Rentals and that side's portal switched on. Both false = show no Rentals anywhere.
+            'rentals' => $this->rentalSides($agencyId, $sideContacts),
         ];
 
         // Sibling of `contact`: the client's assigned agent in the current
@@ -85,6 +88,22 @@ class ClientPortalController extends Controller
         }
 
         return response()->json($payload);
+    }
+
+    /**
+     * @param  array<string,?Contact>  $sideContacts  PortalIdentityService::contactsBySide()
+     * @return array{tenant:bool, owner:bool}
+     */
+    private function rentalSides(?int $agencyId, array $sideContacts): array
+    {
+        $access = app(\App\Services\Rentals\RentalPortalAccessService::class);
+
+        return [
+            'tenant' => ($sideContacts['tenant'] ?? null) !== null
+                && $access->enabledFor($agencyId, \App\Services\Rentals\RentalPortalAccessService::ROLE_TENANT),
+            'owner' => ($sideContacts['landlord'] ?? null) !== null
+                && $access->enabledFor($agencyId, \App\Services\Rentals\RentalPortalAccessService::ROLE_LANDLORD),
+        ];
     }
 
     /**

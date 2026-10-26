@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\CoreX\RentalInventoryCaptureController;
+use App\Http\Controllers\CoreX\RentalInventoryRecordingController;
 use App\Models\PropertyRoom;
 use App\Models\RentalInventory;
+use App\Models\RentalInventoryLine;
 use App\Models\RentalInventoryPhoto;
 use App\Models\RentalInventorySetting;
 use App\Services\Rentals\RentalInspectionPhotoCaptureTime;
@@ -14,6 +16,7 @@ use App\Services\Rentals\RentalRoomPhotoSet;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 
 /**
@@ -161,6 +164,74 @@ class MobileRentalInventoryController extends Controller
         return response()->json(['duplicate' => false] + $this->photoPayload($photo->fresh()), 201);
     }
 
+    /**
+     * POST /mobile/rental-inventories/{inventory}/lines — type a line: what the item is, how many, its condition, and the room it is in. The SAME
+     * action the web inventory screen uses (RentalInventoryRecordingController::storeLine), so what the web refuses the phone is refused too
+     * (a completed or cancelled inventory is 409). `description` is required; `quantity` and `condition_key` may be left blank; the room is
+     * `property_room_id` (the property's own room) or, failing that, a typed `room_label`. A retry of the same `client_idempotency_key` returns
+     * the same line, HTTP 200 `duplicate: true`, never a second line.
+     */
+    public function storeLine(Request $request, int $inventory, RentalInventoryRecordingController $web): JsonResponse
+    {
+        $inv = $this->findInventory($inventory);
+        $v = $request->validate(['client_idempotency_key' => ['required', 'uuid']]);
+        $claim = "mobile-inventory-line:{$inv->id}:{$v['client_idempotency_key']}";
+
+        // two identical retries racing: the second waits here and then finds the first one's line
+        return Cache::lock($claim . ':lock', 15)->block(10, function () use ($request, $inv, $web, $claim) {
+            if ($lineId = Cache::get($claim)) {
+                $line = RentalInventoryLine::withoutGlobalScopes()->where('rental_inventory_id', $inv->id)->find($lineId);
+                if ($line !== null) {
+                    return response()->json(['duplicate' => true] + $this->linePayload($line), 200);
+                }
+            }
+
+            $response = $web->storeLine($request, $inv);
+            if ($response->getStatusCode() >= 300) {
+                return response()->json((array) $response->getData(true) + ['code' => 'refused'], $response->getStatusCode());
+            }
+            $line = RentalInventoryLine::withoutGlobalScopes()->findOrFail($response->getData()->id);
+            Cache::put($claim, $line->id, now()->addDays(30));
+
+            return response()->json(['duplicate' => false] + $this->linePayload($line), 201);
+        });
+    }
+
+    /** PUT /mobile/rental-inventories/{inventory}/lines/{line} — change a line's room, description, quantity or condition (draft inventories only). */
+    public function updateLine(Request $request, int $inventory, int $line, RentalInventoryRecordingController $web): JsonResponse
+    {
+        $inv = $this->findInventory($inventory);
+        $row = RentalInventoryLine::query()->where('rental_inventory_id', $inv->id)->where('is_retired', false)->find($line);
+        abort_if($row === null, 404);
+
+        $response = $web->updateLine($request, $inv, $row);
+        if ($response->getStatusCode() >= 300) {
+            return response()->json((array) $response->getData(true) + ['code' => 'refused'], $response->getStatusCode());
+        }
+
+        return response()->json($this->linePayload($row->fresh()));
+    }
+
+    /** POST /mobile/rental-inventories/{inventory}/lines/{line}/retire — remove a line from the inventory (kept on record, never deleted). Repeating it is harmless. */
+    public function retireLine(Request $request, int $inventory, int $line, RentalInventoryRecordingController $web): JsonResponse
+    {
+        $inv = $this->findInventory($inventory);
+        $row = RentalInventoryLine::query()->where('rental_inventory_id', $inv->id)->find($line);
+        abort_if($row === null, 404);
+        if ($row->is_retired) {
+            $inv->assertEditable();
+
+            return response()->json(['message' => 'Line retired.', 'duplicate' => true]);
+        }
+
+        $response = $web->retireLine($request, $inv, $row);
+        if ($response->getStatusCode() >= 300) {
+            return response()->json((array) $response->getData(true) + ['code' => 'refused'], $response->getStatusCode());
+        }
+
+        return response()->json(['message' => 'Line retired.', 'duplicate' => false]);
+    }
+
     // ── resolution ────────────────────────────────────────────────────────────────────
 
     /** AgencyScope 404 -> own/branch/agency 403 -> archived 410. */
@@ -234,6 +305,15 @@ class MobileRentalInventoryController extends Controller
             'url' => self::absoluteUrl($p->storage_path),
             'captured_at' => $this->iso($p->created_at),
             'client_idempotency_key' => $p->client_idempotency_key,
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function linePayload(RentalInventoryLine $l): array
+    {
+        return [
+            'id' => $l->id, 'inventory_id' => $l->rental_inventory_id, 'room_id' => $l->property_room_id, 'room_label' => $l->room_label,
+            'quantity' => $l->quantity, 'description' => $l->description, 'condition_key' => $l->condition_key,
         ];
     }
 

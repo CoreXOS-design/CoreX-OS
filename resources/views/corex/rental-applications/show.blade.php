@@ -515,6 +515,8 @@
             @endif
         </div>
 
+        @include('rental-applications.partials.extended-sections', ['application' => $rentalApplication, 'fieldConfig' => $fieldConfig, 'requiredFieldKeys' => [], 'mode' => 'agent'])
+
         <div>
             <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Requirement of Lease</h2>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">

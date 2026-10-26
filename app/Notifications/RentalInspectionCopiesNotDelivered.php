@@ -37,6 +37,12 @@ class RentalInspectionCopiesNotDelivered extends Notification
             : "{$label} for {$this->propertyAddress}: {$this->problemCount} " . ($this->problemCount === 1 ? 'copy' : 'copies') . " did not go out — open the inspection to resend.";
     }
 
+    /** The agent's phone (AT-508): the gateway pushes this when the type supports push and the agent's own switches allow it. */
+    public function toFcmPayload(): array
+    {
+        return \App\Support\Push\PushTarget::payload('Report copies not delivered', $this->message(), 'rental_inspection.copies_not_delivered', \App\Models\RentalInspection::class, $this->inspectionId, $this->id, 'warning');
+    }
+
     public function toArray(object $notifiable): array
     {
         return [

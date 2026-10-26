@@ -711,6 +711,15 @@ class AgencySetupWizardController extends Controller
                     'default_deposit_months' => LeaseSetting::defaultDepositMonthsFor($agency->id),
                     'default_lease_fee' => LeaseSetting::defaultLeaseFeeFor($agency->id),
                     'lease_fee_label' => LeaseSetting::leaseFeeLabelFor($agency->id),
+                    // rental-applications.md "Application terms" (26 Oct 2026).
+                    'renewal_fee' => LeaseSetting::renewalFeeFor($agency->id) ?? '',
+                    'rent_before_occupation_text' => LeaseSetting::rentOccupationTextFor($agency->id),
+                    'deposit_bank_account_name' => (string) (\App\Models\LeaseSetting::withoutGlobalScopes()->where('agency_id', $agency->id)->value('deposit_bank_account_name') ?? ''),
+                    'deposit_bank_name' => (string) (\App\Models\LeaseSetting::withoutGlobalScopes()->where('agency_id', $agency->id)->value('deposit_bank_name') ?? ''),
+                    'deposit_bank_branch_code' => (string) (\App\Models\LeaseSetting::withoutGlobalScopes()->where('agency_id', $agency->id)->value('deposit_bank_branch_code') ?? ''),
+                    'deposit_bank_account_type' => (string) (\App\Models\LeaseSetting::withoutGlobalScopes()->where('agency_id', $agency->id)->value('deposit_bank_account_type') ?? ''),
+                    'deposit_bank_account_number' => (string) (\App\Models\LeaseSetting::withoutGlobalScopes()->where('agency_id', $agency->id)->value('deposit_bank_account_number') ?? ''),
+                    'deposit_reference_rule' => LeaseSetting::depositReferenceRuleFor($agency->id),
                     // .ai/specs/rental-renewals.md §2 — AT-444.
                     'tenant_notice_period_days' => LeaseSetting::tenantNoticePeriodDaysFor($agency->id),
                     'cpa_early_cancel_business_days' => LeaseSetting::cpaEarlyCancelBusinessDaysFor($agency->id),

@@ -136,6 +136,8 @@
         </div>
     @endif
 
+    @include('rental-applications.partials.terms-panels', ['application' => $application, 'mode' => 'public'])
+
     <form id="rentalApplicationSubmitForm" method="POST" action="{{ route('rental-applications.public.submit', $application->token) }}"
           @submit="beforeSubmit">
         @csrf
@@ -430,6 +432,8 @@
                     @endif
                 </div>
             </section>
+
+            @include('rental-applications.partials.extended-sections', ['application' => $application, 'fieldConfig' => $fieldConfig, 'requiredFieldKeys' => $requiredFieldKeys, 'mode' => 'public'])
 
             <section data-progress-section="Lease Requirement">
                 <h2 class="font-semibold text-slate-700 mb-3">Lease Requirement</h2>

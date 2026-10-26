@@ -2895,6 +2895,16 @@
             <span>System Updates</span>
         </a>
 
+        {{-- Push Test Lab (AT-508) — send a test phone notification to one person and see every notification the app receives.
+             Owner-only, no permission key BY DESIGN (a grantable key could push to any agency's phones). Already inside if($isOwner).
+             Spec: push-test-lab.md --}}
+        <a href="{{ route('admin.push-test-lab.index') }}" class="corex-nav-item {{ request()->routeIs('admin.push-test-lab.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" />
+            </svg>
+            <span>Push Test Lab</span>
+        </a>
+
         {{-- Demo Access (AT-230) — system-owner sales tooling: who is evaluating
              CoreX, what they looked at, when their access dies.
 

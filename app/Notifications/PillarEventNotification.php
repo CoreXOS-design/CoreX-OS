@@ -94,7 +94,7 @@ class PillarEventNotification extends Notification
                 'action_url'      => (string) $this->actionUrl,
                 'severity'        => $this->severity,
                 'notification_id' => (string) $this->id,
-            ],
+            ] + \App\Support\Push\PushTarget::for($this->subjectType, $this->subjectId),
         ];
     }
 }

@@ -45,5 +45,10 @@ return [
             'label' => 'Repair updates',
             'description' => 'General updates on repairs at your property.',
         ],
+        'inspection_ready' => [
+            'audience' => 'both', 'mandatory' => false,
+            'label' => 'An inspection report is ready',
+            'description' => 'A move-in or move-out inspection report is ready for you to view.',
+        ],
     ],
 ];

@@ -83,15 +83,17 @@ final class AuditP1AlertsAndQueueTest extends TestCase
 
     // ── C-B1..B5: separate types, so the cooldown cannot swallow a different event ─────────────────────────────────────────────
 
-    public function test_every_new_alert_type_is_registered_in_app_and_email_without_push(): void
+    public function test_every_new_alert_type_is_registered_in_app_and_email_and_on_the_phone_only_where_the_agent_must_act(): void
     {
+        // AT-508 (26 Oct 2026): the agent's phone is on for alerts the agent has to act on; the agent's own actions coming back stay in-app + email.
+        $phoneOff = ['contractor_photo', 'go_ahead_sent'];
         foreach ([
             'contractor_accepted', 'contractor_declined', 'contractor_invoice', 'contractor_extra_money', 'contractor_photo', 'contractor_finished',
             'owner_started', 'owner_finished', 'tenant_started', 'tenant_not_fixed', 'go_ahead_sent',
         ] as $k) {
             $row = DB::table('notification_event_types')->where('key', 'rental_work_order.' . $k)->first();
             $this->assertNotNull($row, $k);
-            $this->assertSame([1, 1, 0, 1], [(int) $row->supports_in_app, (int) $row->supports_email, (int) $row->supports_push, (int) $row->default_enabled], $k);
+            $this->assertSame([1, 1, in_array($k, $phoneOff, true) ? 0 : 1, 1], [(int) $row->supports_in_app, (int) $row->supports_email, (int) $row->supports_push, (int) $row->default_enabled], $k);
         }
         foreach (['rental_fault_report.owner_resumed', 'rental_job_card.crew_completed'] as $k) {
             $this->assertNotNull(DB::table('notification_event_types')->where('key', $k)->first(), $k);

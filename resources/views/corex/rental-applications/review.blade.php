@@ -849,6 +849,13 @@
                             ];
                         };
 
+                        // Fuller application (26 Oct 2026) - the new single facts; the blocks follow below the list.
+                        foreach (['income_tax_no', 'marriage_regime', 'years_employed', 'pay_date', 'previous_landlord_name', 'previous_landlord_tel',
+                                  'bank_name', 'bank_account_no', 'car_make', 'car_colour', 'car_year', 'car_reg'] as $extKey) {
+                            $addSummaryField($extKey, $rentalApplication->{$extKey}, null, true);
+                        }
+                        $addSummaryField('judgments', $rentalApplication->judgments, $rentalApplication->judgments ? ucfirst($rentalApplication->judgments) : null, true);
+                        $addSummaryField('judgments_details', $rentalApplication->judgments_details, null, true);
                         $addSummaryField('employer_name', $rentalApplication->employer_name);
                         $addSummaryField('employer_position', $rentalApplication->employer_position);
                         $addSummaryField('monthly_salary', $rentalApplication->monthly_salary,
@@ -904,6 +911,8 @@
                             <dt style="color: var(--text-muted);">{{ $row['label'] }}</dt><dd>{{ $row['display'] }}</dd>
                         @endforeach
                     </dl>
+                    @include('rental-applications.partials.extended-readout', ['application' => $rentalApplication])
+                    @include('rental-applications.partials.terms-panels', ['application' => $rentalApplication, 'mode' => 'agent'])
                     @php
                         // .ai/specs/rental-application-field-config.md §7,
                         // piece (c)(3) — custom field ANSWERS, sourced from

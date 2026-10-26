@@ -33,6 +33,11 @@ class LeaseSettingsController extends Controller
             'defaultLeaseFee' => LeaseSetting::defaultLeaseFeeFor($agencyId),
             'leaseFeeLabel' => LeaseSetting::leaseFeeLabelFor($agencyId),
             'leaseFeeLabelDefault' => LeaseSetting::DEFAULT_LEASE_FEE_LABEL,
+            // rental-applications.md "Application terms" - printed in the application's Amounts payable / Deposit banking sections.
+            'renewalFee' => LeaseSetting::renewalFeeFor($agencyId),
+            'rentOccupationText' => LeaseSetting::rentOccupationTextFor($agencyId),
+            'depositBank' => collect(LeaseSetting::depositBankDetailsFor($agencyId) ?? [])->pluck('value', 'key')->all(),
+            'depositReferenceRule' => LeaseSetting::depositReferenceRuleFor($agencyId),
             // .ai/specs/rental-renewals.md §2 — tenant notice period.
             'tenantNoticePeriodDays' => LeaseSetting::tenantNoticePeriodDaysFor($agencyId),
             'tenantNoticePeriodDaysDefault' => LeaseSetting::DEFAULT_TENANT_NOTICE_PERIOD_DAYS,
@@ -113,6 +118,15 @@ class LeaseSettingsController extends Controller
             'default_deposit_months' => ['nullable', 'numeric', 'min:0.1', 'max:12'],
             // leases.md "Lease fee" (26 Oct 2026) - the starting lease fee for a new lease; same §6.1 has()-guard. Blank = 0 (not charged).
             'default_lease_fee' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
+            // Application terms (rental-applications.md) - same §6.1 has()-guard; blank = not set, nothing printed.
+            'renewal_fee' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
+            'rent_before_occupation_text' => ['nullable', 'string', 'max:1000'],
+            'deposit_bank_account_name' => ['nullable', 'string', 'max:191'],
+            'deposit_bank_name' => ['nullable', 'string', 'max:100'],
+            'deposit_bank_branch_code' => ['nullable', 'string', 'max:50'],
+            'deposit_bank_account_type' => ['nullable', 'string', 'max:50'],
+            'deposit_bank_account_number' => ['nullable', 'string', 'max:50'],
+            'deposit_reference_rule' => ['nullable', 'string', 'in:' . implode(',', LeaseSetting::DEPOSIT_REFERENCE_RULES)],
             // ... and what the agency calls it (blank = "Lease fee"); same has()-guard.
             'lease_fee_label' => ['nullable', 'string', 'max:60'],
             // .ai/specs/rental-renewals.md §2 — same §6.1 nullable/has()-guard
@@ -182,6 +196,19 @@ class LeaseSettingsController extends Controller
         if ($request->has('lease_fee_label')) {
             $label = trim((string) ($validated['lease_fee_label'] ?? ''));
             $data['lease_fee_label'] = $label === '' ? null : $label; // blank = back to "Lease fee"
+        }
+        if ($request->has('renewal_fee')) {
+            $v = $validated['renewal_fee'] ?? null;
+            $data['renewal_fee'] = $v === null || $v === '' ? null : round((float) $v, 2); // blank = not set
+        }
+        foreach (['rent_before_occupation_text', 'deposit_bank_account_name', 'deposit_bank_name', 'deposit_bank_branch_code',
+            'deposit_bank_account_type', 'deposit_bank_account_number'] as $field) {
+            if ($request->has($field)) {
+                $data[$field] = trim((string) ($validated[$field] ?? '')) ?: null; // blank = not set
+            }
+        }
+        if ($request->has('deposit_reference_rule')) {
+            $data['deposit_reference_rule'] = trim((string) ($validated['deposit_reference_rule'] ?? '')) ?: null; // blank = the property address
         }
         if ($request->has('tenant_notice_period_days')) {
             $data['tenant_notice_period_days'] = $validated['tenant_notice_period_days'];
@@ -274,6 +301,15 @@ class LeaseSettingsController extends Controller
             'restore_end_date_on_leaving_month_to_month' => LeaseSetting::restoreEndDateOnLeavingMonthToMonthFor($agencyId),
             'signed_copy_not_live_note' => LeaseSetting::signedCopyNotLiveNoteFor($agencyId),
             'end_tenancy_on_move_out_date' => LeaseSetting::endTenancyOnMoveOutDateFor($agencyId),
+            // Application terms: what a tenant is told to pay and where, so who changed it is on record.
+            'renewal_fee' => LeaseSetting::renewalFeeFor($agencyId),
+            'rent_before_occupation_text' => LeaseSetting::rentOccupationTextFor($agencyId) ?: null,
+            'deposit_bank_account_name' => LeaseSetting::withoutGlobalScopes()->where('agency_id', $agencyId)->value('deposit_bank_account_name'),
+            'deposit_bank_name' => LeaseSetting::withoutGlobalScopes()->where('agency_id', $agencyId)->value('deposit_bank_name'),
+            'deposit_bank_branch_code' => LeaseSetting::withoutGlobalScopes()->where('agency_id', $agencyId)->value('deposit_bank_branch_code'),
+            'deposit_bank_account_type' => LeaseSetting::withoutGlobalScopes()->where('agency_id', $agencyId)->value('deposit_bank_account_type'),
+            'deposit_bank_account_number' => LeaseSetting::withoutGlobalScopes()->where('agency_id', $agencyId)->value('deposit_bank_account_number'),
+            'deposit_reference_rule' => LeaseSetting::withoutGlobalScopes()->where('agency_id', $agencyId)->value('deposit_reference_rule'),
             // AT-489 - these two move when every lease's expiry notice goes out, so who changed them, and from what, is on record like the others.
             'expiry_notice_send_business_days' => LeaseSetting::expiryNoticeSendBusinessDaysFor($agencyId),
             'expiry_notice_alert_business_days' => LeaseSetting::expiryNoticeAlertBusinessDaysFor($agencyId),

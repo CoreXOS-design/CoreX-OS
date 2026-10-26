@@ -191,3 +191,43 @@ Full contract: `.ai/specs/at-508-P5P6-build-notes.md` (Appendix B of the mobile 
 
 ### Client view of the move-in / move-out inspection (Johan, 25 Oct 2026)
 `GET /api/v1/client/rentals/inspections/{id}` (tenant) and `GET /api/v1/client/rentals/landlord/inspections/{id}` (owner): read-only, ONLY an inspection the portal already lists as SENT (completed, or a copy logged as sent); a booked date, a draft, someone else's, or the other side's route is a 404. Payload (`RentalPortalInspectionViewService`): `id,type,type_label,status,date,completed_at,property{id,address},header{meters,furnished,keys,remotes},overall_notes,rooms[{id,label,note,items[{id,label,condition,notes,photos[{id,url,taken_at,added_after_signing}],move_in?{condition,notes}}],photos[]}],meters[],other_items[],signatures,related{id,type,type_label}|null`. A move-out shows each item's `move_in` condition when the move-in was also sent; `related` points to the other half of the pair. Tenant `signatures` = `{you_signed, agent_signed}` (nothing about the lessor); owner adds `tenant_signed`. No discrepancies, attendance, user ids or storage paths. The overview/inspections list rows gain `viewable: true|false`. Photo urls are signed, expiring. Test: `MobileRentalsClientInspectionTest` (4).
+
+### Rentals only for lessees and lessors (Johan, 26 Oct 2026)
+
+**Rule (Johan):** a client sees the rental screens only when they are a **Lessee** (tenant) or a **Lessor** (owner) **and linked to a rental**; an agent sees them only when Rentals is on for them. Everyone else sees no rental screens, tabs or tiles at all.
+
+**Client app** — `GET /api/v1/client/me` now carries `rentals: { tenant: bool, owner: bool }` (agency = the sign-in's current agency).
+- `tenant` is true only when the login has a contact in that agency that is **linked to a rental as a tenant** (on a lease); `owner` only when a contact is **linked to a property as its landlord / lessor**. Johan, 26 Oct 2026: "when a user is marked as a lessee they need to be linked to a rental to see all the rental info; if they are not linked to a property they shouldn't see anything". So the **Contact Type Lessee / Lessor alone grants nothing** — a person marked Lessee or Lessor but linked to no rental gets both flags false. Rule lives in `PortalIdentityService::holds()` (one place; `/client/me` side contacts, the portal header and call-time contact choice all use it).
+- AND the agency has Rentals on (feature `rentals`) AND that side's portal switch on (`RentalPortalSetting` tenant/landlord) — `RentalPortalAccessService::enabledFor()`.
+- Both false = a buyer/seller/anyone else: the app shows no Rentals anywhere. Both true = a person who is both: two views.
+- Server-side nothing else changed: every rentals call was already limited to the person's own leases/properties (a non-party only ever got empty lists), and the agency switches already answered 403.
+
+**Agent app** — `GET /api/v1/mobile/visibility` now carries `rentals_enabled: bool` beside the existing `rentals{screen: {can_view, can_act, scope}}` map. True = the agency has Rentals on AND the person may view at least one rental screen (their role's rental permissions). The per-screen `can_view` now also respects the agency's Rentals switch (it previously looked at permissions only, so an agency with Rentals off still told its agents they could see rental screens; the web menu and the permission middleware already honoured the switch).
+- The old per-user "Can Capture Rentals" tick on the user form is retired (AT-439, gates nothing) and is NOT the switch; a person's rental access is their role's rental permissions.
+
+Multi-agency: nothing here names an agency; all four inputs (feature, portal switch, contact type, permissions) are per-agency data.
+Tests: `tests/Feature/Api/MobileRentalsOnlyForPartiesTest.php`.
+
+### Inspection photos and typed inventory lines (Johan, 26 Oct 2026)
+
+Johan: inspection images must flow both ways between web and app; the inventory on the app must let you type, not only upload photos; the app needs a move-out inspection section; lessee and lessor must see the inspection and move-out photos.
+
+Verified first (Staging, 26 Oct): photo links the API hands out load (HTTP 200, image/jpeg); the detail returned all photos; but the app only ever *read* (no photo POST reached the server that day) and never opened the tenant/owner inspection view. Server gaps found and closed:
+
+| Method + path (`v1.mobile.…`) | Purpose |
+|---|---|
+| `POST /mobile/rental-inspections/{id}/photos` (`rental-inspections.photos.store`) | camera on an item (`item_id`), a room (`room_id`) or the whole inspection (neither = loose in the tray). Multipart `photo`, required `client_idempotency_key`, optional `captured_at`. Wraps the web's `RentalInspectionRecordingController::storePhotos` — an item photo creates the item's pending observation on the spot (no condition needed first), exactly as the web does. 201 `duplicate:false` + photo (+ `observation` when one is filed); replay 200 `duplicate:true`; archived 410. Before this the phone could only attach a photo to an observation it had already created. |
+| `POST /mobile/rental-inventories/{id}/lines` (`rental-inventories.lines.store`) | type a line: `description` (required), `property_room_id` or `room_label` (one required), `quantity`, `condition_key`. Required `client_idempotency_key` (replay = 200 `duplicate:true`, held 30 days in cache — `rental_inventory_lines` has no key column, no migration). Completed / cancelled inventory → 409. |
+| `PUT /mobile/rental-inventories/{id}/lines/{line}` (`…lines.update`) | change room / description / quantity / condition (draft only). |
+| `POST /mobile/rental-inventories/{id}/lines/{line}/retire` (`…lines.retire`) | remove a line (kept, never deleted); repeating answers `duplicate:true`. |
+
+All four call the same web action as the office screen and sit behind `rental_inspections.create` / `rental_inventories.create`; scoping as the rest of P5/P6 (404 other agency, 403 outside own/branch). Every inspection photo payload (detail `photos[]`, `observations[].photos[]`, upload responses) now carries `item_id` (null for a room-only or loose photo) beside `room_id` / `observation_id`, so the app can place web-uploaded tray and room photos, which have no observation.
+
+Move-out: the server already starts, lists (`type=out`), schedules (`/due`) and records a move-out (`type: "out"`) identically to a move-in; the missing "Move-out" section is the app's (see the mobile prompt). Tenant/owner viewing of sent move-in / move-out inspections and photos is the existing `GET /client/rentals/{landlord/}inspections/{id}` (§ "Client view of the move-in / move-out inspection"); the app had not yet opened it.
+
+Tests: `tests/Feature/Api/MobileInspectionPhotosAndInventoryLinesTest.php`.
+
+
+## Phone notifications for agents, the new inspection_ready alert and the Push Test Lab (Johan, 26 Oct 2026)
+
+See `.ai/specs/push-test-lab.md`. Summary: every rentals alert an agent has to act on now reaches the agent's phone (`supports_push` was 0 on all 40); pushes carry `target` + `target_id` so the app opens the right screen; tenants and owners get a switchable `inspection_ready` push when an inspection report is readable in their app; System Developer -> Push Test Lab sends a test to any person's phone.

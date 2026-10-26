@@ -53,6 +53,12 @@ class RentalInspectionSigningReminder extends Notification
         ];
     }
 
+    /** The agent's phone (AT-508): the gateway pushes this when the type supports push and the agent's own switches allow it. */
+    public function toFcmPayload(): array
+    {
+        return \App\Support\Push\PushTarget::payload('Signing reminder', $this->message(), 'rental_inspection.signing_reminder', \App\Models\RentalInspection::class, $this->inspectionId, $this->id);
+    }
+
     public function toMail(object $notifiable): MailMessage
     {
         return (new MailMessage)

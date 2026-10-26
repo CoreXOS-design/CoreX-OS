@@ -122,6 +122,10 @@ class LeaseSetting extends Model
     /** rental-renewals.md §22.1 - testing knob (QA / Staging only): off unless an admin switches it on; never read on a production install. */
     public const DEFAULT_ALLOW_ADVANCE_AS_OF_DATE = false;
 
+    /** What a deposit payment's bank reference is built from (rental-applications.md "Application terms"). */
+    public const DEPOSIT_REFERENCE_RULES = ['property_address', 'tenant_name', 'lease_reference'];
+    public const DEFAULT_DEPOSIT_REFERENCE_RULE = 'property_address';
+
     protected $fillable = [
         'agency_id',
         'expiry_notice_window_days',
@@ -129,6 +133,14 @@ class LeaseSetting extends Model
         'default_deposit_months',
         'default_lease_fee',
         'lease_fee_label',
+        'renewal_fee',
+        'rent_before_occupation_text',
+        'deposit_bank_account_name',
+        'deposit_bank_name',
+        'deposit_bank_branch_code',
+        'deposit_bank_account_type',
+        'deposit_bank_account_number',
+        'deposit_reference_rule',
         'tenant_notice_period_days',
         'cpa_early_cancel_business_days',
         'breach_remedy_business_days',
@@ -162,6 +174,7 @@ class LeaseSetting extends Model
         'show_lease_type_field' => 'boolean',
         'default_deposit_months' => 'decimal:2',
         'default_lease_fee' => 'decimal:2',
+        'renewal_fee' => 'decimal:2',
         'tenant_notice_period_days' => 'integer',
         'cpa_early_cancel_business_days' => 'integer',
         'breach_remedy_business_days' => 'integer',
@@ -529,5 +542,70 @@ class LeaseSetting extends Model
         $v = self::noticeRow($agencyId)?->default_early_cancellation_penalty;
 
         return is_string($v) && trim($v) !== '' ? trim($v) : self::DEFAULT_EARLY_CANCELLATION_PENALTY;
+    }
+
+    /** The agency's renewal fee (application terms): null = not set, nothing is printed. */
+    public static function renewalFeeFor(?int $agencyId): ?float
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return null;
+        }
+        $v = self::withoutGlobalScopes()->where('agency_id', $agencyId)->value('renewal_fee');
+
+        return $v !== null && (float) $v > 0 ? (float) $v : null;
+    }
+
+    /** The agency's own words for "rent payable before occupation" (application terms): '' = nothing is printed. */
+    public static function rentOccupationTextFor(?int $agencyId): string
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return '';
+        }
+
+        return trim((string) self::withoutGlobalScopes()->where('agency_id', $agencyId)->value('rent_before_occupation_text'));
+    }
+
+    /**
+     * The agency's deposit banking details (application terms), labelled rows in print order, or null when the agency
+     * has not set an account number or account name (a half-filled block is never printed).
+     *
+     * @return array<int, array{key: string, label: string, value: string}>|null
+     */
+    public static function depositBankDetailsFor(?int $agencyId): ?array
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return null;
+        }
+        $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
+        if (! $row) {
+            return null;
+        }
+        $labels = [
+            'deposit_bank_account_name' => 'Account name',
+            'deposit_bank_name' => 'Bank',
+            'deposit_bank_branch_code' => 'Branch code',
+            'deposit_bank_account_type' => 'Account type',
+            'deposit_bank_account_number' => 'Account number',
+        ];
+        $rows = [];
+        foreach ($labels as $col => $label) {
+            $v = trim((string) ($row->{$col} ?? ''));
+            if ($v !== '') {
+                $rows[] = ['key' => $col, 'label' => $label, 'value' => $v];
+            }
+        }
+        $has = fn (string $col) => trim((string) ($row->{$col} ?? '')) !== '';
+
+        return ($has('deposit_bank_account_number') || $has('deposit_bank_account_name')) ? $rows : null;
+    }
+
+    public static function depositReferenceRuleFor(?int $agencyId): string
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_DEPOSIT_REFERENCE_RULE;
+        }
+        $v = self::withoutGlobalScopes()->where('agency_id', $agencyId)->value('deposit_reference_rule');
+
+        return in_array($v, self::DEPOSIT_REFERENCE_RULES, true) ? $v : self::DEFAULT_DEPOSIT_REFERENCE_RULE;
     }
 }
