@@ -30,6 +30,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/documents-menu-tabs.md - How my signers sign is a tab of Documents > E-Sign Settings --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\ESignSettingsTabs::class])
+
     @if(session('status'))
         <div class="rounded-md px-4 py-3 text-sm font-medium"
              style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);
