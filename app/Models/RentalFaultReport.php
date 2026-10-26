@@ -146,6 +146,9 @@ class RentalFaultReport extends Model
         'cancelled_by_user_id',
         'cancel_reason',
         'created_by_user_id',
+        'reported_urgent',
+        // AT-508 - the mobile app's own uuid for a report it queued offline; a repeat send returns the stored report (never a second row).
+        'client_idempotency_key',
     ];
 
     protected $casts = [
@@ -169,6 +172,7 @@ class RentalFaultReport extends Model
         'tenant_confirmed_at' => 'datetime',
         'tenant_confirmed_recorded_at' => 'datetime',
         'fault_type_other' => 'boolean',
+        'reported_urgent' => 'boolean',
     ];
 
     /** Deleted-related-record rule (.ai/BUILD_STANDARD.md §4) — see Lease::property(). */
@@ -213,10 +217,16 @@ class RentalFaultReport extends Model
         return $this->faultType?->urgency === RentalFaultType::URGENCY_EMERGENCY;
     }
 
+    /** AT-508 P4 - an emergency by the catalogue (type) OR because the tenant marked it urgent when reporting. The one question the alert and the list ask. */
+    public function isEmergency(): bool
+    {
+        return $this->isEmergencyType() || (bool) $this->reported_urgent;
+    }
+
     /** An emergency that still needs someone: flagged and sorted above routine on the list. Closed faults are not "urgent" any more. */
     public function isOpenEmergency(): bool
     {
-        return $this->isEmergencyType() && ! in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED, self::STATUS_DECLINED], true);
+        return $this->isEmergency() && ! in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED, self::STATUS_DECLINED], true);
     }
 
     public function typeName(): ?string

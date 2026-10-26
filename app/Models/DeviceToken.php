@@ -11,7 +11,7 @@ class DeviceToken extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'user_id', 'platform', 'token', 'app_version', 'last_seen_at',
+        'user_id', 'client_user_id', 'platform', 'token', 'app_version', 'last_seen_at',
     ];
 
     protected $casts = [
@@ -21,5 +21,10 @@ class DeviceToken extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function clientUser(): BelongsTo
+    {
+        return $this->belongsTo(ClientUser::class);
     }
 }

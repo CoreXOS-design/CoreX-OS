@@ -227,6 +227,20 @@ class RentalFaultProgressService
     }
 
     /** The key a notification de-duplicates on: the current step AND which variant of it (approved vs not). */
+    /**
+     * AT-508 P1 — the mobile app's timeline: reported -> owner decision -> contractor booked -> work done -> confirmed, one row per step,
+     * derived from the SAME progress line (no new state). Words come from the same config, in the viewer's own audience.
+     *
+     * @return list<array{key:string,label:string,state:string,current:bool,at:?string}>
+     */
+    public function timeline(RentalFaultReport $fault, string $audience = self::AUDIENCE_TENANT): array
+    {
+        return array_map(
+            fn (array $s) => ['key' => $s['key'], 'label' => $s['label'], 'state' => $s['state'], 'current' => (bool) $s['current'], 'at' => $s['at']],
+            $this->forFault($fault, $audience)['steps']
+        );
+    }
+
     public function currentKey(RentalFaultReport $fault): string
     {
         $p = $this->forFault($fault, self::AUDIENCE_AGENT);

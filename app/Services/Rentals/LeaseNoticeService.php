@@ -203,6 +203,7 @@ class LeaseNoticeService
 
         $notice = $notice->fresh();
         $this->tellOtherParty($notice, $agent);
+        \App\Events\Rentals\LeaseNoticeReviewed::dispatch($notice, 'accepted', $agent->id);
 
         return $notice->fresh();
     }
@@ -224,6 +225,7 @@ class LeaseNoticeService
         $this->logEvent($notice->lease, LeaseEvent::TYPE_NOTICE_DECIDED, 'Notice rejected - ' . $reason, $agent, ['lease_notice_id' => $notice->id, 'decision' => 'rejected']);
 
         $this->tellGiverOfRejection($notice);
+        \App\Events\Rentals\LeaseNoticeReviewed::dispatch($notice->fresh(), 'rejected', $agent->id);
 
         return $notice->fresh();
     }

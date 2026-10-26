@@ -32,6 +32,8 @@ class RentalPortalNotificationService
     public function notifyLandlordDecisionNeeded(RentalFaultReport|RentalWorkOrder $subject, int $reminderNumber = 0): array
     {
         $agencyId = $subject->agency_id;
+        // AT-508: the owner's phone is told whatever the email setting says - a decision is mandatory news (config/rental-push.php).
+        \App\Events\Rentals\RentalOwnerDecisionNeeded::dispatch($subject, $reminderNumber);
         $say = function (string $reason) use ($subject, $reminderNumber): array {
             if ($subject instanceof RentalFaultReport) {
                 $subject->recordHistory(\App\Models\RentalFaultReportUpdate::TYPE_OWNER_NOT_TOLD, null, ($reminderNumber > 0 ? 'Owner reminder not sent' : 'Owner could not be told') . ' - ' . $reason);
@@ -85,6 +87,11 @@ class RentalPortalNotificationService
      */
     public function notifyTenantStatusChanged(RentalFaultReport $faultReport): void
     {
+        // AT-508: the tenant's phone hears each step once, independent of the email setting below (the push listener de-dupes per fault+step).
+        $stepNow = app(\App\Services\Rentals\RentalFaultProgressService::class)->currentKey(RentalFaultReport::withoutGlobalScopes()->find($faultReport->id) ?? $faultReport);
+        if (in_array($stepNow, self::TENANT_STEPS, true)) {
+            \App\Events\Rentals\RentalTenantFaultStatusChanged::dispatch($faultReport, $stepNow);
+        }
         if (!RentalPortalSetting::notifyTenantOnStatusChangeFor($faultReport->agency_id)) {
             return;
         }

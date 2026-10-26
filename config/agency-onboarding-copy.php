@@ -569,6 +569,7 @@ return [
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateContractorLinksEnabled'],
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateNotifyLandlordOnDecisionNeeded'],
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateNotifyTenantOnStatusChange'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updatePushInformationalDefault'],
             ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateAutoPortalAccessOnSigning'],
             // .ai/specs/rental-work-orders.md §14.27.3 / §14.28 — crew links (Build 1's five). Each saver is
             // has()-guarded (onboarding §6.1) — an absent field leaves the saved value alone.
@@ -932,6 +933,10 @@ return [
              'label' => 'Email the tenant when a fault\'s status changes',
              'explain' => 'When a fault report the tenant raised is approved, declined, or resolved, CoreX emails them the update.',
              'affects' => 'Whether the tenant gets an email on each status change, or only finds out by checking the portal themselves. On by default.'],
+            ['key' => 'push_informational_default', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Send tenants and owners the general (non-urgent) updates on their phone',
+             'explain' => 'When a tenant or owner uses the mobile app, CoreX can send general progress updates to their phone - for example that a fault was sent to the owner or approved. Anything that needs a decision, is urgent, is an appointment, is finished work or is a notice outcome is always sent and cannot be switched off.',
+             'affects' => 'Whether tenants and owners start with the general updates on or off. Each person can still change this for themselves in the app. On by default.'],
             // rental-work-orders.md §14.27.3 — Build 2 (crew page + client visibility). Appended after the last
             // rental_portal control so it never collides with the per-job crew-link controls (§14.30).
             ['key' => 'crew_photos_visible_to_clients', 'source' => 'rental_portal', 'type' => 'select', 'default' => 'in_progress_and_completed',
