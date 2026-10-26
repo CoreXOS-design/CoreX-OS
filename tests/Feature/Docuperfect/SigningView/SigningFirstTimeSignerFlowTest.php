@@ -312,7 +312,7 @@ final class SigningFirstTimeSignerFlowTest extends TestCase
 
         // ...and each of those is chosen by the same "is this an initial?" test the place that opened the dialog set, so a signature still reads as a signature.
         $html = html_entity_decode($html, ENT_QUOTES);   // Blade writes the quotes inside an attribute as entities; the browser reads them back
-        $isInitial = "(currentWebSigBlockId || '').indexOf('-init-') !== -1";
+        $isInitial = "captureIsInitial()";
         $this->assertStringContainsString("x-text=\"(" . $isInitial . ") ? 'Your initials' : ('Sign Here')\"", $html);
         $this->assertStringContainsString("(" . $isInitial . ") ? 'Type your initials' : 'Type your full name here'", $html);
         $this->assertStringContainsString("(" . $isInitial . ") ? 'Apply initials' : 'Apply Signature'", $html);
@@ -343,14 +343,14 @@ final class SigningFirstTimeSignerFlowTest extends TestCase
         $this->assertStringContainsString("scrollIntoView({ behavior: 'smooth', block: 'start' })", $html, 'the next document is shown from its top');
         // the status line names it, and says so before it is opened
         $this->assertStringContainsString("'Press Next to open ' + this._docTitle(unviewed, info)", $html);
-        $this->assertStringContainsString("blocker = { text: 'Next: open ' + this._docTitle(unviewed, info), kind: 'view' }", $html);
+        $this->assertStringNotContainsString("kind: 'view' }", $html, 'the status line says it; no second line repeats it');
         // the Next button stays while a document is unseen, even when every place is already signed (Sign everything)
         $this->assertStringContainsString("(this.stepNo === 3 && here.length === 0 && unviewed === -1) ? '' : 'Next'", $html);
         // Sign everything is not a view: only a click on a place or Next marks a document as seen
         $this->assertStringContainsString('self._noteDocTouched(el);', $html);
         $this->assertSame(2, substr_count($html, 'self._noteDocTouched(el);'), 'signature places and initial places');
         // Finish and the tick wait for the last document, and cannot be reached by any other path
-        $this->assertStringContainsString("_setIfChanged('showFinish', unviewed === -1)", $html);
+        $this->assertStringContainsString("this.stepNo === 3 && unviewed === -1 && work.work.length === 0 && this.changeInitialsRemaining === 0", $html);
         $this->assertStringContainsString('x-show="showFinish"', $html);
         $this->assertStringContainsString('this.unviewedDoc === -1', $html, 'canSubmitWeb also requires every document to have been reached');
     }
@@ -362,6 +362,70 @@ final class SigningFirstTimeSignerFlowTest extends TestCase
         $this->assertStringNotContainsString('viewedDocs = {}; ', $html);
         // confirmFillAll never marks a document as seen
         $this->assertDoesNotMatchRegularExpression('/confirmFillAll\([^)]*\)\s*\{(?:(?!\n        \},).)*_markViewed/s', $html);
+    }
+
+    // ── three defects from the Staging walk (Johan 26 Oct): every initials entry point, one counter, one instruction per screen ──
+
+    #[DataProvider('modes')]
+    public function test_every_initials_entry_point_opens_the_initials_dialog(string $mode, bool $pack): void
+    {
+        $html = html_entity_decode($this->asRecipient($this->seller($mode, $pack))->assertOk()->getContent(), ENT_QUOTES);
+
+        // One predicate, one dialog. The web-signature dialog takes its words from captureIsInitial(), and nothing else decides.
+        $this->assertStringContainsString("'savedIsInitial' => ", file_get_contents(resource_path('views/docuperfect/signatures/external/sign.blade.php')));
+        $this->assertStringContainsString("(captureIsInitial()) ? 'Your initials'", $html);
+        $this->assertStringNotContainsString("(currentWebSigBlockId || '').indexOf('-init-') !== -1) ? ", $html, 'no second, narrower test of its own');
+
+        // The predicate counts every way the dialog is opened for initials: the first popup's "Add initials" (adoptionStage),
+        // an initials place on the page ('-init-' key) and a proposed disclosure change (pendingDisclosureAmend).
+        $this->assertMatchesRegularExpression("/captureIsInitial\(\) \{\s*return this\.adoptionStage === 'initial'\s*\|\| !!this\.pendingDisclosureAmend\s*\|\| \(this\.currentWebSigBlockId \|\| ''\)\.indexOf\('-init-'\) !== -1;/", $html);
+        if ($mode === 'adopt_once') {   // only that agency has the first popup
+            $this->assertStringContainsString("@click=\"openAdoptionCapture('initial')\"", $html, 'the first popup has an Add initials button');
+        }
+        $this->assertStringContainsString("this.adoptionStage = kind;", $html);
+        $this->assertStringContainsString("self.currentWebSigBlockId = initKey;", $html);
+        $this->assertStringContainsString("this.pendingDisclosureAmend = { key: key", $html);
+        // the saved-initial choice and the validation messages follow the same predicate
+        $this->assertStringContainsString("const isInit = this.captureIsInitial();", $html);
+        $this->assertStringContainsString("Please draw your initials first.", $html);
+        $this->assertStringContainsString("Please type your initials.", $html);
+        // (The click-through of each entry point in a real browser is scripts/esign/first-time-flow-proof.cjs.)
+    }
+
+    #[DataProvider('modes')]
+    public function test_the_counter_counts_only_what_the_signer_must_do_and_the_left_column_reads_the_same_figure(string $mode, bool $pack): void
+    {
+        $html = $this->asRecipient($this->seller($mode, $pack))->assertOk()->getContent();
+
+        // Details CoreX already filled are not progress: both field loops skip them, so the figure starts at 0.
+        $this->assertStringContainsString('_detailNeedsSigner(inp)', $html);
+        $this->assertSame(2, substr_count($html, 'if (!this._detailNeedsSigner(inp)) return;'), 'ceremony details and recipient-editable details');
+        $this->assertStringContainsString("inp.dataset.signerMustAct = filled ? '0' : '1'", $html);
+        // ONE figure: the header and the left column both print progressText, nothing else prints a count of done things
+        $this->assertSame(1, substr_count($html, 'data-header-progress x-text="progressText"'));
+        $this->assertSame(1, substr_count($html, 'data-rail-progress x-show="isWebTemplate && signingMethod === \'electronic\'" x-cloak x-text="progressText"'));
+        $this->assertStringContainsString("this.signedCount + ' of ' + this.totalRequired + ' done'", $html);
+    }
+
+    #[DataProvider('modes')]
+    public function test_one_instruction_per_screen(string $mode, bool $pack): void
+    {
+        $html = html_entity_decode($this->asRecipient($this->seller($mode, $pack))->assertOk()->getContent(), ENT_QUOTES);
+
+        // (a) while any popup is open the header carries no Start / Next / Finish / blocker / tick
+        $this->assertStringContainsString('get headerQuiet()', $html);
+        $this->assertStringContainsString('this.showAdoption || this.showWebSigCapture || this.showSignModal || this.showFillAll || (this.dlg && this.dlg.open)', $html);
+        $this->assertStringContainsString("headerBlocker && !headerQuiet", $html);
+        $this->assertStringContainsString("showFinish && !headerQuiet", $html);
+        $this->assertStringContainsString("signingMethod === 'electronic' && !headerQuiet\" x-cloak data-header-actions", $html);
+        // (b) the step rail lights a step only on the signing screen, not on "How would you like to sign?"
+        $this->assertStringContainsString("'is-live': signingMethod === 'electronic' && stepNo ===", $html);
+        $this->assertStringContainsString("'is-done': signingMethod === 'electronic' && stepNo >", $html);
+        // (c) "open Document 2" is said once (the status line), never again as a blocker
+        $this->assertStringNotContainsString("'Next: open '", $html);
+        // (d) the tick and Finish wait for every place on every document, and start hidden
+        $this->assertStringContainsString('showFinish: false,', $html);
+        $this->assertStringContainsString("this.stepNo === 3 && unviewed === -1 && work.work.length === 0 && this.changeInitialsRemaining === 0", $html);
     }
 
     // ── one finish control (Johan 26 Oct, defect 3) ──
