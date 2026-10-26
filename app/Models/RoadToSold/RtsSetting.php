@@ -51,6 +51,7 @@ class RtsSetting extends Model
         'add_to_day_max', 'scan_page_size', 'min_area_properties',
         'hot_pocket_weight_buyers', 'hot_pocket_weight_leads', 'hot_pocket_weight_sales',
         'summary_ahead_from_pct', 'capture_back_date_hours', 'capture_needs_review',
+        'levels_signoff_required', 'level_periods_required',
     ];
 
     protected $casts = [
@@ -87,6 +88,8 @@ class RtsSetting extends Model
         'summary_ahead_from_pct'       => 'integer',
         'capture_back_date_hours'      => 'integer',
         'capture_needs_review'         => 'boolean',
+        'levels_signoff_required'      => 'boolean',
+        'level_periods_required'       => 'integer',
     ];
 
     /** Scalar defaults — the single source of truth (migration defaults mirror these). */
@@ -118,6 +121,8 @@ class RtsSetting extends Model
         'summary_ahead_from_pct'       => 105,
         'capture_back_date_hours'      => 48,
         'capture_needs_review'         => false,
+        'levels_signoff_required'      => true,
+        'level_periods_required'       => 4,
     ];
 
     /**

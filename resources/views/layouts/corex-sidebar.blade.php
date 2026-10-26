@@ -1024,6 +1024,15 @@
                 @endpermission
                 @endfeature
 
+                {{-- AT-454 v2 phase 4 - the manager's level sign-off (agents waiting to move up a level). Managers and admins only. --}}
+                @feature('road-to-sold')
+                @permission('road_to_sold.signoff_levels')
+                @if(\Illuminate\Support\Facades\Route::has('road-to-sold.signoffs.index'))
+                <a href="{{ route('road-to-sold.signoffs.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.signoffs.*') ? 'active' : '' }}">Level sign-offs</a>
+                @endif
+                @endpermission
+                @endfeature
+
                 {{-- AT-454 - Budgets & Targets: the agency's planning numbers (monthly budgets, requirements and targets), NOT part of the Road to Sold
                      call list, so they are reachable with the Road to Sold switch OFF (Johan, 23 Oct 2026; the routes and the permission are already
                      ungated). Permission-gated only - no @feature wrap - and exempted by route in SidebarFeatureCoverage::CORE_ROUTES. Same keys as the

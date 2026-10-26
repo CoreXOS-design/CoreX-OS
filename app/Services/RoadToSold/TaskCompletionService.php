@@ -115,7 +115,7 @@ class TaskCompletionService
             return null;
         }
 
-        $level = $this->levelFor($agencyId, (string) $task->track);
+        $level = $this->levelFor($agencyId, (string) $task->track, $user);
         if (! $level) {
             return null;
         }
@@ -143,6 +143,9 @@ class TaskCompletionService
         if (RtsTaskCompletion::query()->withoutGlobalScopes()->withTrashed()->where('idempotency_key', $key)->exists()) {
             return null;
         }
+
+        // The first write for an agent gives them their level row (phase 4). Never on read; null for an owner or principal.
+        app(AgentLevelService::class)->ensure($user, (string) $task->track);
 
         $recordedBy = $context['recorded_by'] ?? null;
         $recordedBy = $recordedBy instanceof User ? $recordedBy : $user;
@@ -239,9 +242,19 @@ class TaskCompletionService
         return $this->visibleTo($viewer)->whereKey($id)->firstOrFail();
     }
 
-    /** The level an agent works at. Phase 4 swaps this for the agent's own level record. */
-    public function levelFor(int $agencyId, string $track): ?RtsLevel
+    /**
+     * The level an agent works at (phase 4): their own level record's level, else the lowest active level - where a new agent
+     * starts, and where anyone without a record (an owner or principal, an agency that has not begun) is measured. Read only.
+     */
+    public function levelFor(int $agencyId, string $track, ?User $agent = null): ?RtsLevel
     {
+        if ($agent !== null) {
+            $own = app(AgentLevelService::class)->levelOf($agent, $track, $agencyId);
+            if ($own) {
+                return $own;
+            }
+        }
+
         return RtsLevel::query()->withoutGlobalScope(AgencyScope::class)
             ->where('agency_id', $agencyId)->where('track', $track)->where('is_active', true)
             ->orderBy('number')->first();

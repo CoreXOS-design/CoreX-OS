@@ -290,6 +290,29 @@
             </div>
         </div>
 
+        {{-- Levels and sign-off (v2 phase 4) --}}
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Levels and sign-off</h3>
+            </div>
+            <div class="p-5 space-y-4">
+                <label class="flex items-start gap-3 text-sm" style="color:var(--text-primary);">
+                    <input type="hidden" name="levels_signoff_required" value="0">
+                    <input type="checkbox" name="levels_signoff_required" value="1" class="mt-1" @checked(old('levels_signoff_required', $settings->levelsSignoffRequired()))>
+                    <span>
+                        <span class="font-semibold">A manager signs off each level</span><br>
+                        <span style="color:var(--text-muted);">On: an agent moves up only when their manager approves it. Off: they move up by themselves as soon as they have met the level for the weeks below.</span>
+                    </span>
+                </label>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="level_periods_required">Weeks on target before a level is put forward</label>
+                    <input id="level_periods_required" type="number" min="1" max="52" name="level_periods_required" value="{{ old('level_periods_required', $settings->levelPeriodsRequired()) }}"
+                           class="w-28 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    <span class="text-xs ml-2" style="color:var(--text-muted);">weeks in a row (standard: {{ $defaults['level_periods_required'] }})</span>
+                </div>
+            </div>
+        </div>
+
         </fieldset>
 
         @if($canManage)

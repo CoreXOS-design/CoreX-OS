@@ -44,6 +44,17 @@
             <div class="flex items-center gap-3 flex-wrap">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Road to Sold</h1>
                 @if($progress['level'])<span class="ds-badge ds-badge-info">{{ $progress['level']['name'] }}</span>@endif
+                @if(($levelStatus['eligible'] ?? false) && $levelStatus['level'] && $levelStatus['required'] !== [])
+                    <span class="text-xs" style="color: var(--text-primary);" data-level-status>
+                        @if($levelStatus['status'] === 'awaiting_signoff')
+                            Waiting for your manager's sign-off
+                        @elseif($levelStatus['status'] === 'signed_off')
+                            Top level reached
+                        @else
+                            <strong>{{ min($levelStatus['streak'], $levelStatus['needed']) }} of {{ $levelStatus['needed'] }}</strong> weeks on target
+                        @endif
+                    </span>
+                @endif
                 @if($counts['any'] > 0 && ! $isCaptures)
                     <span class="text-xs" style="color: var(--text-primary);"><strong>{{ $counts['worked'] }} of {{ $counts['target_items'] }}</strong> worked {{ $date->isToday() ? 'today' : 'on ' . $date->format('j M') }}@if($counts['added'] > 0)<span style="color: var(--text-muted);"> · {{ $counts['added_worked'] }} of {{ $counts['added'] }} added on top</span>@endif</span>
                 @endif

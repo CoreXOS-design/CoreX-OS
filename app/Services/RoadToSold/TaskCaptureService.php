@@ -61,7 +61,7 @@ class TaskCaptureService
     public function capturableTasks(User $agent, string $track): Collection
     {
         $agencyId = (int) ($agent->effectiveAgencyId() ?: $agent->agency_id ?: 0);
-        $level = $agencyId > 0 ? $this->engine->levelFor($agencyId, $track) : null;
+        $level = $agencyId > 0 ? $this->engine->levelFor($agencyId, $track, $agent) : null;
         if (! $level) {
             return collect();
         }

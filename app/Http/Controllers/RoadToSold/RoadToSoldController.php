@@ -38,6 +38,7 @@ class RoadToSoldController extends Controller
         private readonly NextActionService $nextAction,
         private readonly TaskCaptureService $capture,
         private readonly CompletionListService $completionList,
+        private readonly \App\Services\RoadToSold\AgentLevelService $levels,
     ) {
     }
 
@@ -137,6 +138,7 @@ class RoadToSoldController extends Controller
             'captureFilters' => $captureFilters,
             'captureChoices' => $captureChoices,
             'canManageRecipe' => $viewer->hasPermission('road_to_sold.manage_recipe'),
+            'levelStatus'    => $agentUser ? $this->levels->progress($agentUser, $track) : null,
             'bar'            => $bar,
             'drilldownBase'  => route('road-to-sold.drilldown', [
                 'agent_id' => $agentId, 'period' => 'custom',

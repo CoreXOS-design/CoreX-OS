@@ -6519,6 +6519,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 Route::post('/{completion}/approve', [$c, 'approve'])->whereNumber('completion')->name('approve');
                 Route::post('/{completion}/send-back', [$c, 'sendBack'])->whereNumber('completion')->name('send-back');
             });
+            // Level sign-off (v2 phase 4). Permission road_to_sold.signoff_levels; breadth = road_to_sold.view applied in the query;
+            // an agent outside it is a 404. Nobody signs off their own level.
+            Route::prefix('signoffs')->middleware('permission:road_to_sold.signoff_levels')->name('signoffs.')->group(function () {
+                $c = \App\Http\Controllers\RoadToSold\SignoffController::class;
+                Route::get('/', [$c, 'index'])->name('index');
+                Route::get('/{agentLevel}', [$c, 'show'])->whereNumber('agentLevel')->name('show');
+                Route::post('/{agentLevel}/approve', [$c, 'approve'])->whereNumber('agentLevel')->name('approve');
+                Route::post('/{agentLevel}/send-back', [$c, 'sendBack'])->whereNumber('agentLevel')->name('send-back');
+                Route::delete('/{agentLevel}', [$c, 'archive'])->whereNumber('agentLevel')->name('archive');
+                Route::post('/{agentLevel}/restore', [$c, 'restore'])->whereNumber('agentLevel')->name('restore');
+            });
             Route::get('/drilldown', [\App\Http\Controllers\RoadToSold\ReportController::class, 'drilldown'])->name('drilldown');
             Route::get('/report', [\App\Http\Controllers\RoadToSold\ReportController::class, 'index'])->name('report');
             Route::get('/report/print', [\App\Http\Controllers\RoadToSold\ReportController::class, 'print'])->name('report.print');

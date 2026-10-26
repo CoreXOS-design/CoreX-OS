@@ -356,6 +356,18 @@ class SettingsService
         return (bool) $this->scalar('capture_needs_review');
     }
 
+    /** Does moving up a level need a manager's sign-off (spec 8.1, 13.1)? On by default; off = the agent advances by themselves. */
+    public function levelsSignoffRequired(): bool
+    {
+        return (bool) $this->scalar('levels_signoff_required');
+    }
+
+    /** Consecutive weeks on target before a level is put forward for sign-off (spec 8.1, 13.1). */
+    public function levelPeriodsRequired(): int
+    {
+        return max(1, (int) $this->scalar('level_periods_required'));
+    }
+
     /** green at/above the green line, red below the red line, amber between. */
     public function statusForPct(float $pct): string
     {

@@ -188,6 +188,8 @@ class SettingsController extends Controller
             'summary_ahead_from_pct'       => ['sometimes', 'integer', 'min:100', 'max:500'],
             'capture_back_date_hours'      => ['sometimes', 'integer', 'min:1', 'max:720'],
             'capture_needs_review'         => ['sometimes', 'boolean'],
+            'levels_signoff_required'      => ['sometimes', 'boolean'],
+            'level_periods_required'       => ['sometimes', 'integer', 'min:1', 'max:52'],
             'selections'                   => ['sometimes', 'array'],
             'summary_steps'                => ['sometimes', 'array'],
             // The agency's default week: when sent, all seven days are required (0 is fine).
@@ -514,6 +516,8 @@ class SettingsController extends Controller
         'summary_ahead_from_pct'  => 'Ahead from (%)',
         'capture_back_date_hours' => 'Hours a captured task may be back-dated',
         'capture_needs_review'    => 'Captured tasks wait for a manager\'s approval',
+        'levels_signoff_required' => 'A manager signs off each level',
+        'level_periods_required'  => 'Weeks on target before a level is put forward',
         'missed_items_mode'       => 'Missed items',
         'public_holiday_country'  => 'Public holidays of',
         'add_to_day_max'          => 'Most properties one "Add to my day" adds',

@@ -88,7 +88,7 @@ class RecipeProgressService
             return $empty;
         }
 
-        $level = $this->engine->levelFor($agencyId, $track);
+        $level = $this->engine->levelFor($agencyId, $track, $agent);
         if (! $level) {
             return ['started' => true] + $empty;
         }
