@@ -108,6 +108,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'auth.nocache' => \App\Http\Middleware\PreventAuthPageCaching::class,
+            'recipient.link' => \App\Http\Middleware\RecipientLinkIsAnonymous::class,
             'rental.link.hold' => \App\Http\Middleware\RentalLinkHoldGuard::class,
             'rental.link.misses' => \App\Http\Middleware\RentalLinkMissGuard::class,
             'tv' => \App\Http\Middleware\TvTokenMiddleware::class,

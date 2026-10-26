@@ -7689,7 +7689,9 @@ Route::get('/sales-documents/return/{token}/download', [\App\Http\Controllers\Do
 Route::post('/sales-documents/return/{token}', [\App\Http\Controllers\Docuperfect\SalesDocumentController::class, 'handleUpload'])->middleware('throttle:30,1')->name('sales-documents.upload.store');
 
 // ===== EXTERNAL SIGNING (no auth, token-based) =====
-Route::prefix('sign')->group(function () {
+Route::prefix('sign')->middleware('recipient.link')->group(function () {
+    // 2026-10-26 - recipient.link: the link runs as an anonymous visitor even when a staff session is open in the same browser
+    // (a staff user switched into another agency made the link's own template invisible to AgencyScope -> 500).
     // 2026-08-24 (Johan) — throttle:30,1 on the entry point (token-enumeration
     // gap, previously unthrottled), throttle:5,1 on /verify specifically — an
     // ID-number check, brute-forceable, not just enumerable.

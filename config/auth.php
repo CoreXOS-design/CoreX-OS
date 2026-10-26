@@ -51,6 +51,15 @@ return [
             'driver' => 'agency-api',
         ],
 
+        // Recipient signing links (/sign/{token}). The person holding a link is
+        // never a CoreX user, so these routes run as this always-anonymous guard
+        // (RecipientLinkIsAnonymous). A staff session that happens to be open in
+        // the same browser, switched into another agency, must not tenant-scope
+        // the link's template/document/markers. Registered in AppServiceProvider.
+        'recipient-link' => [
+            'driver' => 'recipient-link',
+        ],
+
         // AT-445 — .ai/specs/rental-portal-access.md §9/§6. Session guard for
         // the tenant/landlord web portal's Sanctum stateful-SPA login
         // (cookie-based, same /api/v1/client/* endpoints the mobile app
