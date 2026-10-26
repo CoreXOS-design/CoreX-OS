@@ -86,8 +86,9 @@
         {{-- The shared agency letterhead (spec agency-letterhead.md): header block on page 1, footer line on every page, left of
              the QR. Plain printed text and a logo - never marked or read back, so the scan geometry is untouched. --}}
         @if($p === 1 && $letterhead)
-            <div class="abs" style="left:{{ $mx }}pt; top:{{ $layout['letterhead']['y'] }}pt; width:{{ $pw - 2 * $mx }}pt;">
-                <x-agency-letterhead :letterhead="$letterhead" />
+            {{-- 80 pt narrower than the page: the page-identifier grid sits in the top-right corner of every page. --}}
+            <div class="abs" style="left:{{ $mx }}pt; top:{{ $layout['letterhead']['y'] }}pt; width:{{ $pw - 2 * $mx - 80 }}pt;">
+                <x-agency-letterhead :letterhead="$letterhead" :compact="true" />
             </div>
         @endif
         @if($letterhead && $letterhead->footerLine !== '')

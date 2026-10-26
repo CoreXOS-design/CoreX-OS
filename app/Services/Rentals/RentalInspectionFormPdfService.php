@@ -76,7 +76,7 @@ class RentalInspectionFormPdfService
     private const ID_BITS_VERSION = 8;     // up to 255 form versions
 
     private const HEADER_HEIGHT = 150.0; // page 1 only
-    private const LETTERHEAD_HEIGHT = 58.0; // page 1 only: the shared agency letterhead (spec agency-letterhead.md) above the form title
+    private const LETTERHEAD_HEIGHT = 56.0; // page 1 only: the shared agency letterhead (spec agency-letterhead.md) above the form title
     private const ROOM_HEADING_HEIGHT = 16.0;
     private const CONDITION_HEADER_HEIGHT = 14.0;
     private const ROW_HEIGHT = 20.0;
