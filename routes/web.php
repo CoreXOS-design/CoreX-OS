@@ -332,7 +332,9 @@ Route::middleware('auth')->group(function () {
     Route::prefix('corex/compliance/rcr')
         ->name('corex.compliance.rcr.')
         ->group(function () {
-            Route::get('/',                                          [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'index'])->name('index');
+            // RCR · FIC 2026 is retired from the menu (agency-tracker-rehome.md step 9): the list address 301s to the FICA centre in Compliance.
+            // The submission pages, their POSTs, the deadline job and the rcr_* tables are untouched (no feature switch, nothing deleted).
+            Route::get('/', fn () => redirect()->route('compliance.fica.index', [], 301))->name('index');
             Route::post('/',                                         [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'store'])->name('store');
             Route::get('/{rcrSubmission}',                           [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'show'])->name('show');
             Route::patch('/{rcrSubmission}/answers/{rcrAnswer}',     [\App\Http\Controllers\Compliance\Rcr\RcrSubmissionController::class, 'saveAnswer'])->name('answers.save');
@@ -729,8 +731,14 @@ Route::middleware('auth')->group(function () {
     Route::post('/calculators/upload-fee-sheet', [\App\Http\Controllers\CalculatorController::class, 'uploadFeeSheet'])->middleware('permission:access_calculators')->name('calculators.uploadFeeSheet');
     Route::post('/calculators/bond-overpayment', [\App\Http\Controllers\CalculatorController::class, 'calculateBondOverpayment'])->middleware('permission:access_calculators')->name('calculators.bondOverpayment');
 
-    Route::get('/worksheet', [WorksheetController::class, 'index'])->middleware('permission:view_worksheet')->name('worksheet.index');
-    Route::post('/worksheet', [WorksheetController::class, 'store'])->middleware('permission:view_worksheet')->name('worksheet.store');
+    // The Worksheet is retired (agency-tracker-rehome.md step 5): My Portal > Targets & Budget replaces it. The route NAMES are kept so every
+    // caller still resolves; both addresses 301 there. WorksheetController and the views stay in place but are no longer reachable, and nothing
+    // is saved (a stale POST is answered with the same redirect). No data is touched.
+    Route::get('/worksheet', fn (\Illuminate\Http\Request $request) => redirect()->route('agent.portal', array_filter([
+        'sub'    => 'targets',
+        'period' => $request->query('period'),
+    ]), 301))->middleware('permission:view_worksheet')->name('worksheet.index');
+    Route::post('/worksheet', fn () => redirect()->route('agent.portal', ['sub' => 'targets'], 301))->middleware('permission:view_worksheet')->name('worksheet.store');
 
     Route::get('/company-summary', [CompanySummaryController::class, 'index'])->middleware('permission:view_dashboard')->name('company.summary');
 
@@ -1889,7 +1897,14 @@ Route::middleware(['auth'])->group(function () {
 
 Route::get('/bm/performance', [\App\Http\Controllers\BM\PerformanceController::class, 'index'])->middleware('permission:view_performance')->name('bm.performance');
 
-Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::class, 'index'])->middleware(['permission:access_listing_stock', 'permission:view_branch_stats'])->name('bm.listings');
+// Branch Listing Stock is retired (agency-tracker-rehome.md step 9): it read the frozen Propcon import. The address 301s to the Properties list
+// for the manager's own branch (scope=branch + branch_id). The route NAME is kept for the Branch Performance tiles and every other caller;
+// ListingStockController, the view and the listing_stocks data are untouched.
+Route::get('/bm/listings', fn (\Illuminate\Http\Request $request) => redirect()->route('corex.properties.index', array_filter([
+    'scope'     => 'branch',
+    'branch_id' => $request->user()?->branch_id,
+    'status'    => $request->query('filter') === 'active' ? 'active' : null,
+]), 301))->middleware(['permission:access_listing_stock', 'permission:view_branch_stats'])->name('bm.listings');
 
     // ===== TV DISPLAY (codes + messages) - one settings screen (agency-tracker-rehome.md 10.2, step 8; Johan 20 Oct 2026) =====
     // Lives in the settings hub: Settings > Operations > TV Display. Whole-agency viewers work the company code, every branch and every

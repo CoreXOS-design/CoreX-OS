@@ -111,21 +111,17 @@
     // ── Active group detection (ONE mechanism: routeIs) ──
     $activeGroup = null;
     if (request()->routeIs(
-        'worksheet.*',
         // 'agent.daily' + 'agent.daily.print' (the capture form) live under My Portal now; the summary stays here
         // until Road to Sold phase 3 replaces it (agency-tracker-rehome.md §14 step 3).
         'agent.dashboard', 'agent.daily.summary*',
-        'bm.daily*', 'bm.listings*',
+        'bm.daily*',
         // (Branch / Agency Performance, their agent drill-downs and both Worksheet Market pages moved to the Reports group - step 7.)
         'admin.listings.*',
         'admin.daily*', 'admin.targets*',
         'admin.activity-mappings.*', 'admin.daily-activities.setup*',
-        // The RCR link lives in the Agency Tracker panel, so its routes must open it.
-        // 'corex.compliance.rcr.*' does NOT match the 'compliance.*' matcher below —
-        // routeIs() globs the whole name, and this one is prefixed 'corex.'.
+        // (RCR · FIC 2026 left this panel - step 9; its routes now open Compliance, see the compliance matcher below.)
         // (The deal register routes — deals-dr2.*, agent.deals.*, admin.deals* — moved to the
         // Deals group; agency-tracker-rehome.md §14 step 6.)
-        'corex.compliance.rcr.*',
         'admin.expenses*',
         // (tools.commission, tools.cma*, tools.history.* moved to the Calculators group - step 10.)
         'commission.index', 'commission.principal', 'commission.confirm', 'commission.pay'
@@ -167,7 +163,9 @@
         $activeGroup = 'documents';
     } elseif ((request()->routeIs('compliance.*')
         && !request()->routeIs('compliance.comm-archive.*', 'compliance.comm-flags.*', 'compliance.comm-mailboxes.*'))
-        || request()->routeIs('corex.hubs.rmcp-policies', 'corex.hubs.compliance-agents', 'corex.hubs.compliance-reports')) {
+        || request()->routeIs('corex.hubs.rmcp-policies', 'corex.hubs.compliance-agents', 'corex.hubs.compliance-reports')
+        // RCR · FIC 2026 is retired from the menu (agency-tracker-rehome.md step 9); a bookmarked / notification deep link still opens Compliance.
+        || request()->routeIs('corex.compliance.rcr.*')) {
         // .ai/specs/compliance-menu-tabs.md - the tabbed Compliance items' landing routes open this panel too.
         // AT-161 IA re-cut — the compliance.comm-* routes (Message Archive, Flagged
         // Messages, Archive Mailboxes) live in the COMMUNICATIONS group, not
@@ -1414,6 +1412,17 @@
              ═══════════════════════════════════════════ --}}
         @feature('agency-tracker')
         @permission('access_agency_tracker')
+        {{-- Agency Tracker re-home step 11 (agency-tracker-rehome.md section 14): what is left in this panel is the Daily Activities summary / Setup
+             for an agency whose daily activity has not yet moved into Road to Sold, and Commission for the owner. A user who would see neither
+             gets no empty "Agency Tracker" entry. --}}
+        @php
+            $atDailyMoved = \App\Services\Activity\ActivityPointsService::usesCompletions((int) (auth()->user()?->effectiveAgencyId() ?: 0));
+            $atShowGroup = (! $atDailyMoved && (auth()->user()?->hasPermission('view_daily_activity')
+                                                || auth()->user()?->hasPermission('manage_targets')
+                                                || auth()->user()?->hasPermission('manage_activity_mappings')))
+                        || (feature('commission-management') && ($isOwner || $effectiveRole === 'super_admin'));
+        @endphp
+        @if($atShowGroup)
         <div>
             <button type="button" @click="push('agency-tracker')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'agency-tracker' ? 'active' : '' }}">
@@ -1431,10 +1440,7 @@
                 </button>
                 <div class="corex-nav-panel-title">Agency Tracker</div>
 
-                {{-- Common items (all roles) --}}
-                @permission('view_worksheet')
-                <a href="{{ route('worksheet.index') }}" class="corex-nav-subitem {{ request()->routeIs('worksheet.*') ? 'active' : '' }}">Worksheet</a>
-                @endpermission
+                {{-- The Worksheet left this panel (agency-tracker-rehome.md step 5): /worksheet now 301s to My Portal > Targets & Budget. --}}
 
                 {{-- AT-454 v2 phase 3: an agency whose daily activity has moved into Road to Sold (road-to-sold.md section 7) no longer shows the old
                      Daily Activities groups below - the summaries are Road to Sold's Captures / Team views, the setup is its Recipe tab. The routes still
@@ -1442,7 +1448,6 @@
                 @php $dailyMoved = \App\Services\Activity\ActivityPointsService::usesCompletions((int) (auth()->user()?->effectiveAgencyId() ?: 0)); @endphp
                 {{-- Agent section (view own stats) --}}
                 @permission('view_own_stats')
-                <div class="corex-nav-sublabel">My Performance</div>
                 @unless($dailyMoved)
                 @permission('view_daily_activity')
                 <div class="corex-nav-sublabel">Daily Activities</div>
@@ -1457,11 +1462,7 @@
 
                 {{-- Branch Manager section (view branch stats) --}}
                 @permission('view_branch_stats')
-                <div class="corex-nav-sublabel">Branch</div>
-                {{-- Branch Performance moved to Reports (agency-tracker-rehome.md step 7). --}}
-                @permission('access_listing_stock')
-                <a href="{{ route('bm.listings') }}" class="corex-nav-subitem {{ request()->routeIs('bm.listings*') ? 'active' : '' }}">Branch Listing Stock</a>
-                @endpermission
+                {{-- Branch Performance moved to Reports (agency-tracker-rehome.md step 7). Branch Listing Stock retired (step 9): /bm/listings 301s to Properties. --}}
                 {{-- Deal Register (old + DR2) moved to the Deals main menu (agency-tracker-rehome.md §8.2, step 6). --}}
                 {{-- Branch Manager section ends here (matches the section's own opening
                      comment above) — permission-block fix, 2026-08-22. Previously the
@@ -1492,35 +1493,7 @@
 
                 {{-- Unfiled Emails moved to the Deals main menu as "Unfiled deal emails" (agency-tracker-rehome.md §8.2, step 6). --}}
 
-                @if(auth()->user() && in_array((string) auth()->user()->role, ['admin', 'super_admin', 'branch_manager', 'principal'], true) && \Illuminate\Support\Facades\Route::has('corex.compliance.rcr.index'))
-                    @php
-                        // Phase 9d — open RCR submissions for current agency.
-                        $rcrOpenCount = 0; $rcrNextDeadline = null;
-                        try {
-                            $agencyId = auth()->user()?->effectiveAgencyId();
-                            if ($agencyId) {
-                                $open = \App\Models\Compliance\Rcr\RcrSubmission::where('agency_id', $agencyId)
-                                    ->whereIn('status', ['draft', 'in_review', 'approved_for_submission'])
-                                    ->orderBy('submission_deadline')
-                                    ->first();
-                                if ($open) {
-                                    $rcrOpenCount = 1;
-                                    $rcrNextDeadline = (int) round(now()->diffInDays($open->submission_deadline, false));
-                                }
-                            }
-                        } catch (\Throwable $e) { /* sidebar must never blow up */ }
-                    @endphp
-                    <a href="{{ route('corex.compliance.rcr.index') }}"
-                       class="corex-nav-subitem {{ request()->routeIs('corex.compliance.rcr.*') ? 'active' : '' }}"
-                       style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-                        <span>RCR · FIC 2026</span>
-                        @if($rcrOpenCount > 0)
-                            <span style="display:inline-block;min-width:18px;padding:1px 6px;background:{{ $rcrNextDeadline !== null && $rcrNextDeadline < 0 ? 'var(--ds-crimson, #c41e3a)' : ($rcrNextDeadline !== null && $rcrNextDeadline <= 7 ? 'var(--ds-amber, #f59e0b)' : 'var(--brand-icon, #0ea5e9)') }};color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;">
-                                {{ $rcrNextDeadline !== null ? ($rcrNextDeadline < 0 ? 'OVERDUE' : $rcrNextDeadline . 'd') : '!' }}
-                            </span>
-                        @endif
-                    </a>
-                @endif
+                {{-- RCR · FIC 2026 retired from the menu (agency-tracker-rehome.md step 9): /corex/compliance/rcr 301s to the FICA centre. Nothing deleted. --}}
 
                 {{-- HIDDEN 2026-08-24 (Johan, quick wins) — menu-only hide, legacy/pre-CoreX
                      screen; route left fully live (assertAdmin() in DealLinkReviewController
@@ -1573,7 +1546,6 @@
 
                 {{-- Admin section (view company stats) --}}
                 @permission('view_company_stats')
-                <div class="corex-nav-sublabel">Admin</div>
                 {{-- Agency Performance moved to Reports (agency-tracker-rehome.md step 7), beside the Performance & ROI Report. --}}
                 @permission('view_listings')
                 {{-- HIDDEN 2026-08-24 (Johan, quick wins) — menu-only hide, legacy/pre-CoreX
@@ -1638,6 +1610,7 @@
                      the Calculators main menu below (agency-tracker-rehome.md step 10). --}}
             </div>
         </div>
+        @endif{{-- atShowGroup --}}
         @endpermission
         @endfeature{{-- agency-tracker --}}
 

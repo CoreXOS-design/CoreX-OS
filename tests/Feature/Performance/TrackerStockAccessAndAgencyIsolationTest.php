@@ -206,10 +206,10 @@ final class TrackerStockAccessAndAgencyIsolationTest extends TestCase
             ->assertDontSee('ZZMARGATE-HOUSE')
             ->assertDontSee('ZZSEAPOINT-HOUSE');
 
-        $this->get(route('bm.listings'))->assertOk()
-            ->assertSee('ZZRAMSGATE-HOUSE')
-            ->assertDontSee('ZZMARGATE-HOUSE')
-            ->assertDontSee('ZZSEAPOINT-HOUSE');
+        // Branch Listing Stock is retired (agency-tracker-rehome.md step 9): the address 301s to the Properties list for the manager's own branch,
+        // so there is no stock page left to read here. The 403 for an agent (first test) is unchanged - the permission gate runs before the redirect.
+        $this->get(route('bm.listings'))->assertStatus(301)
+            ->assertRedirect(route('corex.properties.index', ['scope' => 'branch', 'branch_id' => $this->bm->branch_id]));
 
         $totals = $this->get(route('admin.listings.agents'))->assertOk();
         // The app layout carries a user-switcher list, so compare inside <main> only.
