@@ -83,7 +83,7 @@ final class AiTemplateOverlapGuardTest extends TestCase
         $v   = new AdLayoutValidator();
         $tol = AdLayoutValidator::OVERLAP_TOLERANCE;
         $at  = fn (int $shared) => $this->option([
-            ['field' => 'agency_name', 'x' => 760, 'y' => 380, 'w' => 260, 'h' => 30, 'fontSize' => 16, 'color' => '#ffffff'],
+            ['field' => 'agency_name', 'x' => 760, 'y' => 380, 'w' => 400, 'h' => 30, 'fontSize' => 16, 'color' => '#ffffff'],
             ['field' => 'agent_phone', 'x' => 760, 'y' => 410 - $shared, 'w' => 260, 'h' => 30, 'fontSize' => 16, 'color' => '#ffffff'],
         ]);
 
@@ -208,7 +208,7 @@ final class AiTemplateOverlapGuardTest extends TestCase
             'elements' => array_merge([
                 ['field' => 'image_1', 'x' => 0, 'y' => 0, 'w' => 720, 'h' => 628, 'zIndex' => 1],
                 ['field' => 'color_block', 'x' => 680, 'y' => 0, 'w' => 520, 'h' => 628, 'zIndex' => 1, 'bg' => '#0b2a4a'],
-                ['field' => 'title', 'x' => 720, 'y' => 140, 'w' => 440, 'h' => 80, 'zIndex' => 10, 'fontSize' => 40, 'color' => '#ffffff'],
+                ['field' => 'title', 'x' => 720, 'y' => 140, 'w' => 470, 'h' => 120, 'zIndex' => 10, 'fontSize' => 30, 'color' => '#ffffff'],
                 ['field' => 'price', 'x' => 720, 'y' => 278, 'w' => 440, 'h' => 72, 'zIndex' => 10, 'fontSize' => 56, 'color' => '#ffffff'],
                 ['field' => 'agent_name', 'x' => 720, 'y' => 470, 'w' => 300, 'h' => 30, 'zIndex' => 10, 'fontSize' => 16, 'color' => '#ffffff'],
             ], array_map(fn (array $e) => $e + ['zIndex' => 10], $extra)),

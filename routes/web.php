@@ -3570,6 +3570,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/contractor-links-enabled', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateContractorLinksEnabled'])->name('corex.settings.rental-portal.contractor-links-enabled');
         Route::post('/notify-landlord-on-decision-needed', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateNotifyLandlordOnDecisionNeeded'])->name('corex.settings.rental-portal.notify-landlord-on-decision-needed');
         Route::post('/notify-tenant-on-status-change', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateNotifyTenantOnStatusChange'])->name('corex.settings.rental-portal.notify-tenant-on-status-change');
+        Route::post('/push-informational-default', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updatePushInformationalDefault'])->name('corex.settings.rental-portal.push-informational-default');
         Route::post('/auto-portal-access-on-signing', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateAutoPortalAccessOnSigning'])->name('corex.settings.rental-portal.auto-portal-access-on-signing');
         // §14.27.3 — crew links (rental-work-orders.md): Build 1's five settings.
         Route::post('/crew-links-enabled', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewLinksEnabled'])->name('corex.settings.rental-portal.crew-links-enabled');

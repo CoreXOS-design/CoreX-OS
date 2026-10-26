@@ -97,7 +97,7 @@ final class AdBuildingBlocksKernelTest extends TestCase
                 ['field' => 'shape', 'x' => 600, 'y' => 400, 'w' => 600, 'h' => 228, 'shapeType' => 'wave', 'bg' => '#2a9d8f'],
                 ['field' => 'shape', 'x' => 900, 'y' => 20, 'w' => 200, 'h' => 200, 'shapeType' => 'blob_3', 'bg' => '#e9c46a'],
                 ['field' => 'line', 'x' => 640, 'y' => 300, 'w' => 500, 'h' => 12, 'lineStyle' => 'dashed', 'borderWidth' => 4, 'color' => '#ffffff'],
-                ['field' => 'title', 'x' => 640, 'y' => 330, 'w' => 540, 'h' => 60, 'fontSize' => 36, 'fontFamily' => 'Cormorant Garamond', 'color' => '#ffffff', 'shadowOn' => true],
+                ['field' => 'title', 'x' => 640, 'y' => 316, 'w' => 540, 'h' => 100, 'fontSize' => 36, 'fontFamily' => 'Cormorant Garamond', 'color' => '#ffffff', 'shadowOn' => true],
                 ['field' => 'beds', 'x' => 640, 'y' => 420, 'w' => 200, 'h' => 40, 'fontSize' => 20, 'fontFamily' => 'Space Grotesk', 'icon' => 'sea_view', 'numberFormat' => 'label', 'color' => '#ffffff', 'bgColor' => '#000000', 'bgOpacity' => 0.8],
             ],
         ];
@@ -125,7 +125,7 @@ final class AdBuildingBlocksKernelTest extends TestCase
             'name' => 'Bad', 'canvasBg' => '#0b1220',
             'elements' => [
                 array_merge(['field' => 'image_1', 'x' => 0, 'y' => 0, 'w' => 600, 'h' => 628], $patch),
-                ['field' => 'title', 'x' => 640, 'y' => 330, 'w' => 540, 'h' => 60, 'fontSize' => 36, 'color' => '#ffffff', 'shadowOn' => true],
+                ['field' => 'title', 'x' => 640, 'y' => 316, 'w' => 540, 'h' => 84, 'fontSize' => 30, 'color' => '#ffffff', 'shadowOn' => true],
                 ['field' => 'price', 'x' => 640, 'y' => 400, 'w' => 540, 'h' => 60, 'fontSize' => 36, 'color' => '#ffffff', 'shadowOn' => true],
             ],
         ];

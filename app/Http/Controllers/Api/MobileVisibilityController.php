@@ -29,6 +29,37 @@ class MobileVisibilityController extends Controller
         return response()->json([
             'contacts'   => $this->moduleVisibility($user, 'contacts'),
             'properties' => $this->moduleVisibility($user, 'properties'),
+            // AT-508: which rental screens this person may show, and how wide their records reach (own | branch | all)
+            'rentals'    => $this->rentalScreens($user),
         ]);
+    }
+
+    /**
+     * @return array<string, array{can_view:bool, can_act:bool, scope:?string}>
+     */
+    private function rentalScreens(User $user): array
+    {
+        // screen => [data-scope module, view permission, action permission]
+        $screens = [
+            'waiting'       => ['rental_command_centre', 'rental_command_centre.view', 'rental_command_centre.view'],
+            'fault_reports' => ['rental_fault_reports', 'rental_fault_reports.view', 'rental_fault_reports.create'],
+            'work_orders'   => ['rental_work_orders', 'rental_work_orders.view', 'rental_work_orders.create'],
+            'leases'        => ['leases', 'leases.view', 'leases.renew'],
+            'notices'       => ['rental_notices', 'rental_notices.review', 'rental_notices.review'],
+            'inspections'   => ['rental_inspections', 'rental_inspections.view', 'rental_inspections.create'],
+            'inventories'   => ['rental_inventories', 'rental_inventories.view', 'rental_inventories.create'],
+        ];
+
+        $out = [];
+        foreach ($screens as $screen => [$module, $view, $act]) {
+            $canView = $user->hasPermission($view);
+            $out[$screen] = [
+                'can_view' => $canView,
+                'can_act'  => $canView && $user->hasPermission($act),
+                'scope'    => $canView ? (\App\Services\PermissionService::getDataScope($user, $module) ?? 'own') : null,
+            ];
+        }
+
+        return $out;
     }
 }

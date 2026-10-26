@@ -112,6 +112,7 @@
     {{-- flex-wrap + max-w-full: on a phone the action buttons used to run off the right edge (Book viewing / Save Changes
          were already cut off); they now wrap onto a second row instead, so nothing - incl. Send to Auction - is lost. --}}
     <div class="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end max-w-full ml-auto">
+        @if(!$property->compliance_status_hidden)
         @if($complianceMode === 'modal')
         <button type="button" @click="complianceModalOpen = true"
                 class="prop-action-btn prop-action-btn-neutral"
@@ -128,6 +129,7 @@
             Compliance Status
             <span class="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded" style="background:{{ $cmpPillBg }}; color:{{ $cmpPillFg }};">{{ $cmpLabel }}</span>
         </a>
+        @endif
         @endif
 
         {{-- Quick Links W2 (spec §5.2) — book a viewing of THIS property: opens the calendar's new-viewing form with the property

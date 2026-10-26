@@ -400,12 +400,14 @@ class RentalInspectionDueController extends Controller
     }
 
     /**
+     * (public since AT-508 P6: the mobile due list calls this, applyFilters() and sorted() — one definition of the due list.)
+     *
      * Every row for the scope the viewer chose — In/Out items and loaded dates — BEFORE search/status/date filters, so the
      * tiles never drift from "All" on that scope. In archived mode only archived loaded dates are shown.
      *
      * @return Collection<int, array<string, mixed>>
      */
-    private function baseRows(Request $request, User $user): Collection
+    public function baseRows(Request $request, User $user): Collection
     {
         $agencyId = $user->effectiveAgencyId();
         $requestedScope = $request->get('scope');
@@ -500,7 +502,7 @@ class RentalInspectionDueController extends Controller
         ];
     }
 
-    private function applyFilters(Request $request, Collection $rows): Collection
+    public function applyFilters(Request $request, Collection $rows): Collection
     {
         if ($type = $request->get('type')) {
             $rows = $rows->where('type', $type);
@@ -543,7 +545,7 @@ class RentalInspectionDueController extends Controller
         return $request->get('direction', $this->sortKey($request) === 'overdue' ? 'desc' : 'asc') === 'desc' ? 'desc' : 'asc';
     }
 
-    private function sorted(Request $request, Collection $rows): Collection
+    public function sorted(Request $request, Collection $rows): Collection
     {
         $sort = $this->sortKey($request);
         $desc = $this->direction($request) === 'desc';

@@ -80,6 +80,22 @@ class PropertyPullController extends Controller
         /** @var \App\Models\User $user */
         $user = $request->user();
 
+        // Pull creates the agency's OWN draft (mandate, owner documents, compliance chase). A listing
+        // advertised by a different agency must come in through Other Agency Stock instead — refuse it here.
+        if ($this->advertisedByAnotherAgency($data['agency_name'] ?? null, \App\Models\Agency::find($user->effectiveAgencyId()))) {
+            return response()->json([
+                'message' => "This listing belongs to another agency ({$data['agency_name']}). Use \"Other Agency Stock\" to import it, not \"Pull from portal\".",
+            ], 422);
+        }
+
+        // A rental's rent belongs in rental_amount (price is 0 on a rental). The extension does not always send
+        // listing_type, so fall back to what the advert itself says ("…to rent", /to-rent/ in the URL).
+        $listingType = $data['listing_type'] ?? null;
+        if ($listingType === null && preg_match('/\bto[\s-]rent\b/i', ($data['portal_url'] ?? '') . ' ' . $data['title'])) {
+            $listingType = 'rental';
+        }
+        $isRental = $listingType === 'rental';
+
         // .ai/specs/other-agency-stock.md §3/§4 — 2026-09-29 Pomona fix.
         // An explicit property_type (a hand-built payload, or a legacy
         // caller) still wins outright; otherwise derive property_type +
@@ -129,7 +145,8 @@ class PropertyPullController extends Controller
             'title'          => $data['title'],
             'description'    => $data['description'] ?? null,
             'excerpt'        => !empty($data['description']) ? Str::limit(strip_tags($data['description']), 300) : null,
-            'price'          => $data['price'] ?? 0,
+            'price'          => $isRental ? 0 : ($data['price'] ?? 0),
+            'rental_amount'  => $isRental ? ($data['price'] ?? null) : null,
             'address'        => $data['address'] ?? null,
             'suburb'         => $p24Location['suburb'] ?? $data['suburb'] ?? '',
             'city'           => $p24Location['city'] ?? $data['city'] ?? null,
@@ -139,7 +156,7 @@ class PropertyPullController extends Controller
             'p24_suburb_id'  => $p24Location['p24_suburb_id'] ?? null,
             'p24_city_id'    => $p24Location['p24_city_id'] ?? null,
             'p24_province_id' => $p24Location['p24_province_id'] ?? null,
-            'listing_type'   => $data['listing_type'] ?? null,
+            'listing_type'   => $listingType,
             'beds'           => $data['beds'] ?? 0,
             'baths'          => $data['baths'] ?? 0,
             'garages'        => $data['garages'] ?? 0,
@@ -236,6 +253,23 @@ class PropertyPullController extends Controller
             'property_url' => url('/corex/properties/' . $property->id),
             'images_count' => $imageCount,
         ]);
+    }
+
+    /** True when the advert names an agency that is not the pulling user's own (name or trading name). */
+    private function advertisedByAnotherAgency(?string $advertAgency, ?\App\Models\Agency $own): bool
+    {
+        $norm = fn (?string $n) => trim(preg_replace('/\b(pty|ltd|t\/a|cc|inc)\b|[^a-z0-9 ]/', ' ', strtolower((string) $n)));
+        $advert = preg_replace('/\s+/', ' ', $norm($advertAgency));
+        if ($advert === '' || ! $own) {
+            return false;
+        }
+        foreach ([$own->name, $own->trading_name] as $mine) {
+            $mine = preg_replace('/\s+/', ' ', $norm($mine));
+            if ($mine !== '' && (str_contains($advert, $mine) || str_contains($mine, $advert))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
