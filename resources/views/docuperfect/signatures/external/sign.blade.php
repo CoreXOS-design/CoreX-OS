@@ -335,6 +335,19 @@
         </div>
     </div>
 
+    {{-- The page's own confirm dialog. A native confirm()/alert() blocks the whole tab (and every automation tool with it) —
+         the 09 Oct "no browser pop-ups" rule — so nothing on this page may call them. --}}
+    <div x-show="dlg.open" x-cloak data-app-dialog class="fixed inset-0 flex items-center justify-center p-4" style="background:rgba(15,23,42,0.55); z-index:80;"
+         @keydown.escape.window="dlgAnswer(false)">
+        <div role="dialog" aria-modal="true" class="w-full max-w-sm rounded-2xl bg-white shadow-xl border border-slate-200 p-5 space-y-4">
+            <p class="text-sm text-slate-800" x-text="dlg.body"></p>
+            <div class="flex items-center justify-end gap-2">
+                <button type="button" data-dialog-cancel @click="dlgAnswer(false)" class="rounded-lg px-4 text-sm font-semibold text-slate-700" style="min-height:44px; border:1px solid #cbd5e1;" x-text="dlg.cancel"></button>
+                <button type="button" data-dialog-ok @click="dlgAnswer(true)" class="rounded-lg px-4 text-sm font-semibold text-white" style="min-height:44px; background:#0f172a;" x-text="dlg.ok"></button>
+            </div>
+        </div>
+    </div>
+
     {{-- Notification toast --}}
     <div x-show="showNotificationBar" x-cloak x-transition
          style="left:50%; bottom:24px; transform:translateX(-50%); width:max-content;" class="fixed z-[70] max-w-sm rounded-xl px-5 py-3 shadow-lg text-sm font-medium"
@@ -499,6 +512,7 @@
                     // recipient can only accept-and-initial or decline — NO third edit. Hide the amend tool.
                     // Matches cc2's server guard in editSelection (422 when template is amendment_initialing).
                     'allowEdit'        => empty($inAmendmentInitialing),
+                    'useAppDialog'     => true,   // this page has its own dialog; no native confirm()/alert()
                 ])
                 </div>
                 {{-- AT-373 reject flow (Johan 2026-08-12): the "your agent rejected these — Remove" box now
@@ -1652,6 +1666,8 @@ function externalSign() {
         detailsConfirmed: false,      // the signer pressed Next with every detail filled in
         showAmend: {{ (!empty($wetInkPendingReview) || !empty($myRemovableChanges) || !empty($inAmendmentInitialing)) ? 'true' : 'false' }},   // the wording-changes panel is closed unless the document already carries changes
         focusedEl: null,              // the spot Next last walked to; pressing Next again signs it
+        _refreshing: false,
+        dlg: { open: false, body: '', ok: 'OK', cancel: 'Cancel', resolve: null },   // the page's own confirm dialog (never a native pop-up)
         stampedKeys: {},              // places stamped from the adopted mark this visit (key -> true); only these can be taken back
         pendingPlaceKeys: [],         // clicks whose request did not get through; completeWeb records them (reconcile)
         // Fill all (Mode 3): one confirmation stamps every place that is the signer's.
@@ -1706,6 +1722,10 @@ function externalSign() {
             }
             this.firstSignatureDone = this.markers.some(m => m.is_mine && m.signed);
             this.initSavedSig();   // agent-only saved-signature availability check
+
+            // The shared amendments panel (its own scope) asks through this page's dialog, not a native pop-up.
+            window.corexAskConfirm = (b, ok, cancel) => this.askConfirm(b, ok, cancel);
+            window.corexNotify = (m, t) => this.showNotification(m, t || 'error');
 
             // Wording changes (§13.6): the panel stays closed unless the document already carries changes, or one is made.
             document.addEventListener('corex-doc-ready', () => {
@@ -1782,12 +1802,12 @@ function externalSign() {
 
             // WET-INK per-change initial (recipient / authoriser) — clicking YOUR OWN slot in a change's
             // initial row opens the SAME capture modal; applySignature applies your REAL initial to that slot.
-            document.addEventListener('corex-open-change-initial', (e) => {
+            document.addEventListener('corex-open-change-initial', async (e) => {
                 e.preventDefault();
                 const d = e.detail || {};
                 // Modes 2/3: a deliberate click on the signer's own change-initial slot may use their adopted initial.
                 // This is the signer's own act on this one change — never part of fill-all.
-                if (this._adoptedInitialReady() && window.confirm('Initial this change with your saved initials?\n\nOK = use them   Cancel = draw new initials')) {
+                if (this._adoptedInitialReady() && await this.askConfirm('Initial this change with your saved initials?', 'Use my initials', 'Draw new initials')) {
                     this._initialChangeWithAdopted(d.changeId, d.partyKey);
                     return;
                 }
@@ -2366,6 +2386,25 @@ function externalSign() {
             }
         },
 
+        // ── The page's own confirm dialog (replaces every native browser pop-up) ──
+        askConfirm(body, ok, cancel) {
+            return new Promise(resolve => {
+                if (this.dlg.resolve) this.dlg.resolve(false);
+                this.dlg = { open: true, body: body, ok: ok || 'OK', cancel: cancel || 'Cancel', resolve: resolve };
+            });
+        },
+        dlgAnswer(v) {
+            const r = this.dlg.resolve;
+            this.dlg = { open: false, body: '', ok: 'OK', cancel: 'Cancel', resolve: null };
+            if (r) r(!!v);
+        },
+
+        // Assign a reactive property only when its value really changed — a fresh-but-equal array/object would re-render
+        // everything bound to it every time the page recounts.
+        _setIfChanged(key, value) {
+            if (JSON.stringify(this[key]) !== JSON.stringify(value)) this[key] = value;
+        },
+
         // ── Sticky header + steps (esign-signing-modes.md §13) ──
         // Items still to do, classified: signature | initial | condition | disclosure | consent | field.
         _classifiedItems() {
@@ -2414,16 +2453,22 @@ function externalSign() {
         },
 
         _refreshHeader() {
+            if (this._refreshing) return;      // never re-enter: a recount must not trigger another recount
+            this._refreshing = true;
+            try { this._refreshHeaderNow(); } finally { this._refreshing = false; }
+        },
+
+        _refreshHeaderNow() {
             const items = this._classifiedItems();
             const fields = items.filter(i => i.kind === 'field');
             const rest = items.filter(i => i.kind !== 'field');
-            this.detailsToFill = fields.map(f => ({ label: f.label }));
+            this._setIfChanged('detailsToFill', fields.map(f => ({ label: f.label })));
             const saved = !!(this.adoption && this.adoption.required);
 
             const step1Done = saved ? this._marksAdopted() : (this.signStarted || this._signedSpotCount() > 0);
             const noDetails = this._totalDetails() === 0;
             const step2Done = fields.length === 0 && (this.detailsConfirmed || noDetails);
-            this.stepNo = !step1Done ? 1 : (!step2Done ? 2 : 3);
+            this._setIfChanged('stepNo', !step1Done ? 1 : (!step2Done ? 2 : 3));
 
             let status;
             if (this.stepNo === 1) {
@@ -2435,9 +2480,9 @@ function externalSign() {
             } else {
                 status = 'Sign' + (rest.length > 0 ? this._docLineFor(rest[0].el) : '') + (rest.length === 0 ? ' — everything is done, press Finish' : '');
             }
-            this.statusLine = 'Step ' + this.stepNo + ' of 3: ' + status;
-            this.progressText = this.signedCount + ' of ' + this.totalRequired + ' done';
-            this.primaryLabel = this.stepNo === 1 ? 'Start' : ((this.stepNo === 3 && rest.length === 0) ? '' : 'Next');
+            this._setIfChanged('statusLine', 'Step ' + this.stepNo + ' of 3: ' + status);
+            this._setIfChanged('progressText', this.signedCount + ' of ' + this.totalRequired + ' done');
+            this._setIfChanged('primaryLabel', this.stepNo === 1 ? 'Start' : ((this.stepNo === 3 && rest.length === 0) ? '' : 'Next'));
 
             // The one thing in the way, in plain words.
             const first = this.stepNo === 2 ? fields[0] : (this.stepNo === 3 ? rest[0] : null);
@@ -2455,10 +2500,10 @@ function externalSign() {
             } else if (this.stepNo === 3 && this.changeInitialsRemaining > 0) {
                 blocker = { text: 'A change to the wording needs your initials — click it.', kind: 'change' };
             }
-            this.headerBlocker = blocker;
+            this._setIfChanged('headerBlocker', blocker);
 
-            this.finishTitle = this.canSubmitWeb ? 'Finish and send your signed document'
-                : (blocker ? ('Not yet — ' + blocker.text.replace(/^Next: /, 'still to do: ').replace(/^Waiting on: /, 'still to fill in: ')) : 'Not yet — finish the steps first');
+            this._setIfChanged('finishTitle', this.canSubmitWeb ? 'Finish and send your signed document'
+                : (blocker ? ('Not yet — ' + blocker.text.replace(/^Next: /, 'still to do: ').replace(/^Waiting on: /, 'still to fill in: ')) : 'Not yet — finish the steps first'));
         },
 
         // Walk to an element: scroll it to the middle, pulse it, focus it if it is a field.
@@ -2746,7 +2791,7 @@ function externalSign() {
         // show the reverted (original) document before signing.
         async removeMyEdit(changeId) {
             if (this.removingEdit) return;
-            if (!confirm('Remove this change and revert to the original text?')) return;
+            if (!(await this.askConfirm('Remove this change and revert to the original text?', 'Remove it', 'Keep it'))) return;
             this.removingEdit = true;
             try {
                 const resp = await fetch('/sign/' + this.token + '/revert-change', {
@@ -2836,7 +2881,7 @@ function externalSign() {
                     }
                 }
             } catch (err) {
-                alert('Failed to set signing method. Please try again.');
+                this.showNotification('Failed to set signing method. Please try again.', 'error');
             }
         },
 
@@ -3490,11 +3535,11 @@ function externalSign() {
 
                     return true;
                 } else {
-                    alert(data.error || 'Failed to capture signature.');
+                    this.showNotification(data.error || 'Failed to capture signature.', 'error');
                     return false;
                 }
             } catch (err) {
-                alert('Network error. Please try again.');
+                this.showNotification('Network error. Please try again.', 'error');
                 return false;
             }
         },
@@ -3884,7 +3929,7 @@ function externalSign() {
         },
 
         async _unstampPlace(key, kind) {
-            if (!window.confirm('Take this ' + (kind === 'initial' ? 'initials' : 'signature') + ' back?')) return;
+            if (!(await this.askConfirm('Take this ' + (kind === 'initial' ? 'initials' : 'signature') + ' back?', 'Take it back', 'Keep it'))) return;
             try {
                 const resp = await this._postPlace('/place/remove', key);
                 const d = await resp.json().catch(() => ({}));
@@ -4546,14 +4591,14 @@ function externalSign() {
         // AT-303 Stage 2 — a downstream owner recipient proposes a change to a
         // LOCKED disclosure mark. Opens the existing draw/type modal to capture
         // the amender's initial; applyWebSignature() then posts to the endpoint.
-        proposeDisclosureChange(key, statement, newValue) {
+        async proposeDisclosureChange(key, statement, newValue) {
             if (!newValue) {
                 this.showNotification('Tap the answer you want to change it to first, then Propose.', 'warning');
                 return;
             }
             this.pendingDisclosureAmend = { key: key, statement: statement, newValue: newValue };
             // Modes 2/3: the proposer's own initial on the change is one deliberate click with the adopted initial.
-            if (this._adoptedInitialReady() && window.confirm('Initial your proposed change with your saved initials?\n\nOK = use them   Cancel = draw new initials')) {
+            if (this._adoptedInitialReady() && await this.askConfirm('Initial your proposed change with your saved initials?', 'Use my initials', 'Draw new initials')) {
                 const amend = this.pendingDisclosureAmend;
                 this.pendingDisclosureAmend = null;
                 this.submitDisclosureAmendment(amend, null, true);
@@ -4868,7 +4913,7 @@ function externalSign() {
                     window.location.reload();
                 }
             } catch (err) {
-                alert('Failed to decline. Please try again.');
+                this.showNotification('Failed to decline. Please try again.', 'error');
             }
             this.declining = false;
         },
@@ -4918,7 +4963,7 @@ function uploadForm() {
      via the wet-ink amend tool at their turn.) --}}
 @isset($request)
     @php $token = $request->token; @endphp
-    @include('docuperfect.signatures._partials.add-condition-modal', ['token' => $token, 'numberedClauses' => $numberedClauses ?? []])
+    @include('docuperfect.signatures._partials.add-condition-modal', ['token' => $token, 'numberedClauses' => $numberedClauses ?? [], 'useAppDialog' => true])
     {{-- WET-INK recipient-side per-change initialing (item 4): a recipient initials changes the agent made.
          viewerPartyKey MUST be canonicalPartyKey — the SAME convention the row slots (SelectionEditService::parties)
          and the fill endpoint (SigningController::initialChange) use. currentRoleIdentity ('{role}_{index}', always

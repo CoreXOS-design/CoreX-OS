@@ -46,6 +46,8 @@
     // (float ✎ button + "Amend highlighted text" control + the amend modal) while the navigable list and
     // its View/Initial actions stay. Mirrors cc2's server guard in editSelection (422 when closed).
     $allowEdit        = $allowEdit ?? true;
+    // The recipient page passes true: it has its own dialog, so this panel must not open a native confirm()/alert().
+    $useAppDialog     = $useAppDialog ?? false;
 @endphp
 <div x-data="selectionEditor({ url: @js($editSelectionUrl), viewerKey: @js($viewerKey), pendingReview: @js((bool) $pendingReview), allowEdit: @js((bool) $allowEdit) })" class="{{ $wrapperClass }}">
 
@@ -116,7 +118,11 @@
                                 </style>
                                 <script>
                                     window.__corexRemoveRejected = window.__corexRemoveRejected || async function (kind, id, btn) {
+                                        @if($useAppDialog)
+                                        if (!(await window.corexAskConfirm('Remove this rejected change? This reverts it to the original — required before you can sign again.', 'Remove it', 'Keep it'))) return;
+                                        @else
                                         if (!confirm('Remove this rejected change? This reverts it to the original — required before you can sign again.')) return;
+                                        @endif
                                         if (btn) { btn.disabled = true; btn.textContent = 'Removing…'; }
                                         try {
                                             const r = await fetch('{{ route('signatures.external.removeRejected', $token) }}', {
@@ -126,8 +132,13 @@
                                             });
                                             const d = await r.json().catch(() => ({}));
                                             if (r.ok && d.ok) { window.location.reload(); return; }
+                                            @if($useAppDialog)
+                                            window.corexNotify(d.error || 'Could not remove the change.', 'error');
+                                        } catch (e) { window.corexNotify('Could not remove the change. Please try again.', 'error'); }
+                                            @else
                                             alert(d.error || 'Could not remove the change.');
                                         } catch (e) { alert('Could not remove the change. Please try again.'); }
+                                            @endif
                                         if (btn) { btn.disabled = false; btn.textContent = 'Remove'; }
                                     };
                                 </script>
