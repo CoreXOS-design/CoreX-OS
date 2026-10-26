@@ -31,6 +31,7 @@ final class GeocodingBackfillCommand extends Command
         {--id= : Single property ID to re-resolve (implies --force)}
         {--suspect-only : Limit re-resolve to suburb_centroid / unresolved / low-confidence pins (implies --force)}
         {--agency= : Only this agency id (properties + tracked properties; the comp-row and competition passes are skipped)}
+        {--clear-subject-borrowed-pins : Only clear comp-row pins that sit on a report subject with a DIFFERENT house number (+ their cached copies); no geocoding, no Google calls}
         {--apply : Really resolve and write. Without it the command only counts (dry run) — it costs Google calls}
         {--dry-run : Count the rows that would be processed — no geocoder calls, no writes (the default)}';
 
@@ -49,6 +50,10 @@ final class GeocodingBackfillCommand extends Command
 
         // --id and --suspect-only both imply force re-resolve.
         if ($singleId !== null || $suspectOnly) $force = true;
+
+        if ($this->option('clear-subject-borrowed-pins')) {
+            return $this->clearSubjectBorrowedPins($dry, $agencyId);
+        }
 
         if (!in_array($type, ['both', 'properties', 'tracked_properties', 'comp_rows', 'competition'], true)) {
             $this->error("Invalid --type: {$type}");
@@ -140,6 +145,82 @@ final class GeocodingBackfillCommand extends Command
             }
         }
         $this->line("Batch ID: {$batchId}");
+        return self::SUCCESS;
+    }
+
+    /**
+     * Clean-up for the NUMBER-MATCH-FIX bug (spec: geocoding-spec.md "Reusing a stored coordinate"). Before the
+     * fix the resolver gave "14 Manikie St" the pin of the report subject "11 Manikie St". Those comp rows still
+     * sit exactly on their report's subject pin although their house number differs. This clears the pin (NULL)
+     * and the cached copy of the answer; it does NOT geocode — the row is re-pinned by the next presentation
+     * generate or backfill, which keeps today's Google cap free. Dry run unless --apply; --agency narrows it.
+     *
+     * A cache row is deleted only when it is the borrowed answer (source market_report, same coordinates as the
+     * subject) — a Google answer for the same address is left alone.
+     */
+    private function clearSubjectBorrowedPins(bool $dry, ?int $agencyId): int
+    {
+        $query = \Illuminate\Support\Facades\DB::table('market_report_comp_rows as c')
+            ->join('market_reports as r', 'r.id', '=', 'c.market_report_id')
+            ->whereNull('c.deleted_at')
+            ->where('c.row_type', '<>', 'subject')
+            ->whereColumn('c.latitude', 'r.subject_latitude')
+            ->whereColumn('c.longitude', 'r.subject_longitude')
+            ->select('c.id', 'c.agency_id', 'c.address', 'c.suburb_normalised', 'c.market_report_id', 'r.subject_address', 'r.subject_latitude', 'r.subject_longitude');
+        if ($agencyId !== null) {
+            $query->where('c.agency_id', $agencyId);
+        }
+
+        $borrowed = [];
+        foreach ($query->orderBy('c.id')->get() as $row) {
+            $own     = \App\Support\Geocoding\StreetAddressMatch::parse((string) $row->address);
+            $subject = \App\Support\Geocoding\StreetAddressMatch::parse((string) $row->subject_address);
+            if ($own !== null && $subject !== null && $own['number'] !== $subject['number']) {
+                $borrowed[] = $row;
+            }
+        }
+
+        $perReport = [];
+        foreach ($borrowed as $row) {
+            $perReport[$row->market_report_id] = ($perReport[$row->market_report_id] ?? 0) + 1;
+        }
+        $this->info('=== Comp rows pinned on a report subject with a different house number' . ($agencyId !== null ? " (agency {$agencyId})" : '') . ' ===');
+        $this->line('  ' . count($borrowed) . ' comp row(s) in ' . count($perReport) . ' report(s).');
+        arsort($perReport);
+        foreach (array_slice($perReport, 0, 10, true) as $reportId => $n) {
+            $this->line("    report {$reportId}: {$n}");
+        }
+
+        $cleared = 0;
+        $cacheRows = 0;
+        foreach ($borrowed as $row) {
+            $key = \App\Support\Geocoding\AddressNormaliser::normalise((string) $row->address, $row->suburb_normalised, null);
+            $cacheQuery = \Illuminate\Support\Facades\DB::table('geocoding_cache')
+                ->where('address_normalised', $key)
+                ->where('source', 'market_report')
+                ->where('latitude', $row->subject_latitude)
+                ->where('longitude', $row->subject_longitude);
+            if ($dry) {
+                $cacheRows += (clone $cacheQuery)->count();
+
+                continue;
+            }
+            $cacheRows += $cacheQuery->delete();
+            $cleared   += \Illuminate\Support\Facades\DB::table('market_report_comp_rows')->where('id', $row->id)
+                ->update(['latitude' => null, 'longitude' => null, 'updated_at' => now()]);
+        }
+
+        if ($dry) {
+            $this->line("  {$cacheRows} cached copy(ies) would be deleted. Dry run — nothing was changed (add --apply).");
+
+            return self::SUCCESS;
+        }
+
+        $this->line("  Cleared {$cleared} comp-row pin(s) and deleted {$cacheRows} cached copy(ies). Nothing was geocoded: the rows re-pin on the next presentation generate or backfill.");
+        \Illuminate\Support\Facades\Log::channel('geocoding')->info('geocoding:backfill --clear-subject-borrowed-pins', [
+            'comp_rows_cleared' => $cleared, 'cache_rows_deleted' => $cacheRows, 'agency' => $agencyId,
+        ]);
+
         return self::SUCCESS;
     }
 
