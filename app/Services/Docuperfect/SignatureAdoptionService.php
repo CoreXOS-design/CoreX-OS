@@ -52,7 +52,53 @@ class SignatureAdoptionService
     public function required(SignatureRequest $signingRequest): bool
     {
         return in_array($this->modeOf($signingRequest), self::MODES, true)
-            && ! in_array((string) $signingRequest->party_role, self::AGENT_SIDE_ROLES, true);
+            && ! in_array((string) $signingRequest->party_role, self::AGENT_SIDE_ROLES, true)
+            && $signingRequest->isSigningParticipant(); // a party a proxy signs for (or a deceased party) never adopts
+    }
+
+    /**
+     * Build step 6 — a deferred or waiting signer is not on their turn: they adopt when their own turn comes, in the
+     * mode their envelope was created with (never the agency's live setting), not before.
+     */
+    public function notTheirTurn(SignatureRequest $signingRequest): bool
+    {
+        return in_array($signingRequest->status, [SignatureRequest::STATUS_WAITING, SignatureRequest::STATUS_DEFERRED], true);
+    }
+
+    /**
+     * Build step 6 (proxy) — when this signer signs AS A PROXY the adoption and every mark it leads to are recorded as the
+     * proxy's own, and the audit names both the person who signed and the party they signed for. Empty for everyone else.
+     *
+     * @return array<string,mixed> keys to merge into an audit row's metadata
+     */
+    public function signingContext(SignatureRequest $signingRequest): array
+    {
+        if (! $signingRequest->is_proxy) {
+            return [];
+        }
+
+        $represented = $signingRequest->represented_contact_id
+            ? \App\Models\Contact::withoutGlobalScopes()->find($signingRequest->represented_contact_id)
+            : null;
+
+        $covered = SignatureRequest::query()
+            ->where('signature_template_id', $signingRequest->signature_template_id)
+            ->where('party_role', $signingRequest->party_role)
+            ->where('id', '!=', $signingRequest->id)
+            ->get()
+            ->filter(fn (SignatureRequest $r) => $r->nonSigningReason() === SignatureRequest::NON_SIGNING_REASON_PROXY_COLLAPSED)
+            ->map(fn (SignatureRequest $r) => ['request_id' => $r->id, 'name' => $r->signer_name])
+            ->values()
+            ->all();
+
+        return [
+            'signing_as' => 'proxy',
+            'proxy_name' => $signingRequest->signer_name,
+            'proxy_email' => $signingRequest->signer_email,
+            'represented_contact_id' => $signingRequest->represented_contact_id,
+            'represented_name' => $represented?->full_name,
+            'signing_for' => $covered,
+        ];
     }
 
     public function modeOf(SignatureRequest $signingRequest): string
@@ -127,7 +173,7 @@ class SignatureAdoptionService
                     'signature_image_hash' => $sigHash,
                     'initial_image_hash' => $initHash,
                     'previous_adoption_id' => $previous?->id,
-                ],
+                ] + $this->signingContext($signingRequest),
             ]);
 
             return $row;

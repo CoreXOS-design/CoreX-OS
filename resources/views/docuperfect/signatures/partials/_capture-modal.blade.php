@@ -49,14 +49,14 @@
      class="fixed inset-0 z-50 flex items-center justify-center"
      style="background:rgba(0,0,0,0.6);"
      @keydown.escape.window="{{ $show }} = false">
-    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" @click.stop>
+    <div class="corex-capture-sheet bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden" @click.stop>
 
         {{-- Header --}}
-        <div class="px-6 py-4 border-b border-slate-200" style="background:#0b2a4a;">
+        <div class="corex-capture-head px-6 py-4 border-b border-slate-200" style="background:#0b2a4a;">
             <h3 class="text-white font-semibold text-lg" x-text="{{ $title }}"></h3>
         </div>
 
-        <div class="p-6 space-y-4">
+        <div class="corex-capture-body p-6 space-y-4">
 
             {{-- Mode tabs --}}
             <div class="flex gap-2">
@@ -82,7 +82,7 @@
 
             {{-- Draw mode --}}
             <div x-show="{{ $mode }} === 'draw'" x-transition>
-                <div class="border-2 border-slate-300 rounded-xl bg-white overflow-hidden" style="touch-action:none;">
+                <div class="corex-capture-pad border-2 border-slate-300 rounded-xl bg-white overflow-hidden" style="touch-action:none;">
                     @if($variant === 'manual')
                         <canvas x-ref="{{ $canvasRef }}"
                                 width="400" height="150"
@@ -95,7 +95,7 @@
                                 @touchmove.prevent="webDraw($event)"
                                 @touchend="webStopDrawing()"></canvas>
                     @else
-                        <canvas x-ref="{{ $canvasRef }}" class="w-full block" style="height:160px; cursor:crosshair;"></canvas>
+                        <canvas x-ref="{{ $canvasRef }}" data-corex-pad="pad" class="w-full block" style="height:160px; cursor:crosshair;"></canvas>
                     @endif
                 </div>
                 <div class="flex justify-between items-center mt-2">
@@ -174,3 +174,54 @@
         </div>
     </div>
 </div>
+
+{{-- Landscape pad (e-sign signing modes, build step 6). A phone held sideways is ~320-430px tall: the portrait sheet (header,
+     tabs, 160px pad, consent line, buttons) overflowed it and the Apply button fell off the screen. In a short landscape
+     viewport the sheet becomes wide and compact, the pad takes the height that is left, and the sheet scrolls rather than
+     clip. The pad's drawing surface is re-fitted when the phone rotates (below), keeping the ink already drawn. One copy of
+     this block per page: the partial is rendered more than once and the rules are idempotent. --}}
+<style>
+    .corex-capture-sheet { max-height: 100vh; max-height: 100dvh; overflow-y: auto !important; }
+    @media (orientation: landscape) and (max-height: 540px) {
+        .corex-capture-sheet { max-width: min(46rem, calc(100vw - 1rem)); margin-left: .5rem; margin-right: .5rem; }
+        .corex-capture-head { padding: .5rem 1rem; }
+        .corex-capture-head h3 { font-size: 1rem; line-height: 1.25rem; }
+        .corex-capture-body { padding: .75rem 1rem; }
+        .corex-capture-body > * + * { margin-top: .5rem; }
+        .corex-capture-pad canvas { height: clamp(96px, calc(100dvh - 230px), 220px) !important; }
+    }
+</style>
+<script>
+(function () {
+    if (window.__corexPadFit) return;
+    window.__corexPadFit = true;
+    var timer = null;
+
+    // The pad's bitmap is sized to its on-screen box when it opens (initCanvas). After a rotation the box is a different size:
+    // re-fit it and carry the strokes across, scaled to the new box, so a signer who turns the phone loses nothing.
+    function refit() {
+        document.querySelectorAll('canvas[data-corex-pad]').forEach(function (c) {
+            try {
+                if (!c.offsetWidth) return;                      // modal closed
+                var root = c.closest('[x-data]');
+                var d = root && window.Alpine && Alpine.$data ? Alpine.$data(root) : null;
+                if (!d || !d.signaturePad || typeof d.initCanvas !== 'function') return;
+                var ratio = Math.max(window.devicePixelRatio || 1, 1);
+                var oldW = c.width / ratio, oldH = c.height / ratio;
+                var newW = c.offsetWidth, newH = c.offsetHeight;
+                if (Math.abs(oldW - newW) < 2 && Math.abs(oldH - newH) < 2) return;
+                var strokes = d.signaturePad.toData();
+                d.initCanvas();
+                if (strokes && strokes.length && oldW > 0 && oldH > 0) {
+                    var sx = newW / oldW, sy = newH / oldH;
+                    strokes.forEach(function (g) { (g.points || []).forEach(function (p) { p.x *= sx; p.y *= sy; }); });
+                    d.signaturePad.fromData(strokes);
+                }
+            } catch (e) { /* a failed re-fit leaves the pad exactly as it was */ }
+        });
+    }
+    function schedule() { clearTimeout(timer); timer = setTimeout(refit, 250); }
+    window.addEventListener('orientationchange', schedule);
+    window.addEventListener('resize', schedule);
+})();
+</script>
