@@ -110,7 +110,7 @@ final class SigningFirstTimeSignerFlowTest extends TestCase
             $this->assertStringNotContainsString($old, $text, "'{$old}' belonged to the old counters");
         }
         $this->assertStringNotContainsString("webIncompleteCount + ' item", $html);
-        $this->assertStringContainsString("this.progressText = this.signedCount + ' of ' + this.totalRequired + ' done'", $html, 'one counter, one source');
+        $this->assertStringContainsString("_setIfChanged('progressText', this.signedCount + ' of ' + this.totalRequired + ' done')", $html, 'one counter, one source');
         // the header and the left column both read that one figure
         $this->assertSame(1, substr_count($html, 'data-rail-progress'));
         $this->assertSame(2, substr_count($html, 'x-text="progressText"'));
@@ -126,7 +126,7 @@ final class SigningFirstTimeSignerFlowTest extends TestCase
         $this->assertStringContainsString('Add your signature and initials', $html);
         $this->assertStringContainsString("How you'll sign", $html);
         $this->assertStringContainsString('Check your details', $html);
-        $this->assertStringContainsString("this.primaryLabel = this.stepNo === 1 ? 'Start'", $html);
+        $this->assertStringContainsString("_setIfChanged('primaryLabel', this.stepNo === 1 ? 'Start'", $html);
         $this->assertStringContainsString("'Next'", $html);
         $this->assertStringContainsString('Sign everything', $html);
         $this->assertStringContainsString('Finish', $html);
@@ -234,5 +234,29 @@ final class SigningFirstTimeSignerFlowTest extends TestCase
         $this->assertStringContainsString('data-header-status', $html);
         $this->assertStringContainsString('min-width: 0 !important', $html, 'the A4 sheet scrolls inside its own box instead of pushing the header off the screen');
         $this->assertStringContainsString('min-height:40px', $html);
+    }
+
+    // ── no freeze: no native pop-ups, no self-feeding recount ──
+
+    #[DataProvider('modes')]
+    public function test_the_page_never_opens_a_native_browser_dialog(string $mode, bool $pack): void
+    {
+        $html = $this->asRecipient($this->seller($mode, $pack))->assertOk()->getContent();
+        $code = preg_replace('#<!--.*?-->#s', '', $html);
+
+        // A native alert / confirm / prompt blocks the whole tab and every automation tool with it (the 09 Oct no-pop-ups rule).
+        $this->assertDoesNotMatchRegularExpression('/(?<![\w$.])(?:window\.)?(?:alert|confirm|prompt)\s*\(/', $code);
+        // ...so the page carries its own dialog instead.
+        $this->assertStringContainsString('data-app-dialog', $html);
+        $this->assertStringContainsString('askConfirm(', $html);
+    }
+
+    public function test_the_recount_cannot_feed_itself(): void
+    {
+        $html = $this->asRecipient($this->seller('adopt_once', pack: true))->assertOk()->getContent();
+
+        $this->assertStringContainsString('if (this._refreshing) return;', $html, 'a recount never re-enters itself');
+        $this->assertStringContainsString("_setIfChanged('detailsToFill'", $html, 'an unchanged list is not re-assigned (it would re-render the left column every recount)');
+        $this->assertStringContainsString("_setIfChanged('headerBlocker'", $html);
     }
 }

@@ -134,10 +134,18 @@
                 return true;
             }
             const j = await r.json().catch(() => ({}));
+            @if(!empty($useAppDialog))
+            window.corexNotify(j.error || ('Could not initial (' + r.status + ')'), 'error');
+            @else
             alert(j.error || ('Could not initial (' + r.status + ')'));
+            @endif
             return false;
         } catch (e) {
+            @if(!empty($useAppDialog))
+            window.corexNotify('Network error: ' + e.message, 'error');
+            @else
             alert('Network error: ' + e.message);
+            @endif
             return false;
         }
     }

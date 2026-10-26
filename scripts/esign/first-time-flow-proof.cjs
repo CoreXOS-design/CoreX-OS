@@ -1,26 +1,45 @@
-// usage: node flow2.cjs <base> <token> <out> <width> <mode: saved|each>
+// Walks the recipient signing page as a first-time signer would (esign-signing-modes.md §13) in a real Chromium and FAILS (exit 1) if
+//   - the page does not become idle within 2s of load (main thread answers, DOM stops changing, no recount loop), or
+//   - any native browser dialog (alert / confirm / prompt) opens at any point, or
+//   - a page error is thrown.
+// usage: NODE_PATH=<app>/node_modules node first-time-flow-proof.cjs <base> <token> <out-prefix> <width> <saved|each> [headful]
+//   headful: run a visible Chromium (use xvfb-run on a server).
 const puppeteer = require('puppeteer');
 const fs = require('fs'), os = require('os'), path = require('path');
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 (async () => {
-  const [base, token, out, widthArg, mode] = process.argv.slice(2);
+  const [base, token, out, widthArg, mode, headful] = process.argv.slice(2);
+  const failures = [];
   const width = parseInt(widthArg, 10);
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'corex-ui-profile-'));
   let browser;
   try {
-    browser = await puppeteer.launch({ headless: 'new', userDataDir: profile, executablePath: '/usr/bin/chromium',
+    browser = await puppeteer.launch({ headless: headful ? false : 'new', userDataDir: profile, executablePath: '/usr/bin/chromium',
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--disable-crash-reporter', '--disable-breakpad'] });
     const page = await browser.newPage();
     await page.setViewport({ width, height: width < 600 ? 800 : 900, isMobile: width < 600, hasTouch: width < 600 });
     const log = [];
     page.on('pageerror', e => log.push('PAGEERROR ' + e.message.slice(0, 200)));
-    page.on('dialog', async d => { log.push('DIALOG ' + d.message().slice(0, 50)); await d.dismiss(); });
+    page.on('dialog', async d => { failures.push('native dialog opened: ' + d.type() + ' "' + d.message().slice(0, 60) + '"'); log.push('DIALOG ' + d.message().slice(0, 50)); await d.dismiss(); });
+    page.on('pageerror', e => failures.push('page error: ' + e.message.slice(0, 120)));
+    await page.evaluateOnNewDocument(() => { window.__mut = 0; document.addEventListener('DOMContentLoaded', () => { new MutationObserver(m => { window.__mut += m.length; }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, characterData: true }); }); });
     page.on('response', r => { if (/\/sign\/[^/]+\/(adopt|place|place-all|place\/remove)$/.test(r.url())) log.push('HTTP ' + r.url().split('/sign/')[1].replace(/^[^/]+/, '') + ' ' + r.status()); });
     await page.goto(base + '/sign/' + token, { waitUntil: 'networkidle2', timeout: 60000 });
     await sleep(1200);
     const choose = await page.evaluate(() => { const b = [...document.querySelectorAll('button')].find(x => /Sign Electronically/.test(x.textContent)); if (b && b.getBoundingClientRect().width > 0) { b.click(); return true; } return false; });
     if (choose) await sleep(3500);
+    // Idle check: after the page has settled the main thread must answer promptly and the DOM must stop changing.
+    const assertIdle = async (label) => {
+      await sleep(1000);
+      const m1 = await page.evaluate(() => window.__mut);
+      let slow = 0;
+      for (let i = 0; i < 4; i++) { const t = Date.now(); const ok = await Promise.race([page.evaluate(() => 1).then(() => true), sleep(2000).then(() => false)]); if (!ok || Date.now() - t > 500) slow++; await sleep(250); }
+      const m2 = await page.evaluate(() => window.__mut);
+      console.log('idle check', label, JSON.stringify({ unresponsiveChecks: slow, domChangesWhileIdle: m2 - m1 }));
+      if (slow > 0) failures.push(label + ': the page did not stay responsive');
+      if (m2 - m1 > 5) failures.push(label + ': the page keeps changing itself while idle (' + (m2 - m1) + ' DOM changes in 1s)');
+    };
     const snap = async (label, shot) => {
       const s = await page.evaluate(() => {
         const vis = el => { if (!el) return false; const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.display !== 'none' && cs.visibility !== 'hidden'; };
@@ -45,6 +64,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       if (shot) await page.screenshot({ path: out + '-' + shot + '.png' });
     };
     const click = async sel => page.evaluate(sel => { const b = document.querySelector(sel); if (b) b.click(); return !!b; }, sel);
+    await assertIdle('after load');
     await snap('1 open', 'open');
     if (mode === 'saved') {
       await page.evaluate(PNG => { const d = Alpine.$data(document.querySelector('[x-ref="webDocContent"]').closest('[x-data]')); d.adoptionSig = PNG; d.adoptionInit = PNG; d.adoptionAgree = true; d.submitAdoption(); }, PNG);
@@ -75,7 +95,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     }
     await page.evaluate(() => { const c = document.getElementById('consent-checkbox'); if (c && !c.checked) c.click(); }); await sleep(800);
     await snap('9 consent ticked', 'final');
+    await assertIdle('after the walk-through');
     console.log('log', JSON.stringify(log));
+    if (failures.length) { console.log('FAIL', JSON.stringify(failures)); process.exitCode = 1; } else { console.log('PASS'); }
   } finally {
     try { if (browser) await Promise.race([browser.close(), new Promise(r => setTimeout(r, 5000))]); } catch (e) {}
     try { const p = browser && browser.process && browser.process(); if (p && !p.killed) p.kill('SIGKILL'); } catch (e) {}
