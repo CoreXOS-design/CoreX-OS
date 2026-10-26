@@ -420,6 +420,12 @@
     ],
     "reason": "JSON lookup behind an inventory line (audit 2026-10-19 B32): lists the move-out inspection photos the line can use as its evidence instead of photographing it again. Not a page, so it has no sidebar entry."
   },
+  "corex.documents.file": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "File stream for one stored document (private document storage), opened from the Download / View links on the document and deal screens. Not a page, so it has no sidebar entry."
+  },
   "corex.rental-inventories.signatures.wet-ink-file": {
     "flags": [
       "NO_ITEM"
