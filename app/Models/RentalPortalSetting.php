@@ -23,6 +23,8 @@ class RentalPortalSetting extends Model
     public const DEFAULT_CONTRACTOR_SECURE_LINK_EXPIRY_DAYS = 14;
     public const DEFAULT_NOTIFY_LANDLORD_ON_DECISION_NEEDED = true;
     public const DEFAULT_NOTIFY_TENANT_ON_STATUS_CHANGE = true;
+    /** AT-508: informational phone notifications are ON unless the agency switches the default off (mandatory ones are never affected). */
+    public const DEFAULT_PUSH_INFORMATIONAL = true;
     /** rental-portal-access.md §16 — a signed lease gives its tenant(s) and landlord(s) portal access automatically. */
     public const DEFAULT_AUTO_PORTAL_ACCESS_ON_SIGNING = true;
 
@@ -121,6 +123,7 @@ class RentalPortalSetting extends Model
         'contractor_secure_link_expiry_days',
         'notify_landlord_on_decision_needed',
         'notify_tenant_on_status_change',
+        'push_informational_default',
         'auto_portal_access_on_signing',
         'crew_links_enabled',
         'crew_job_link_expiry_days',
@@ -150,6 +153,7 @@ class RentalPortalSetting extends Model
         'contractor_secure_link_expiry_days' => 'integer',
         'notify_landlord_on_decision_needed' => 'boolean',
         'notify_tenant_on_status_change' => 'boolean',
+        'push_informational_default' => 'boolean',
         'auto_portal_access_on_signing' => 'boolean',
         'crew_links_enabled' => 'boolean',
         'crew_job_link_expiry_days' => 'integer',
@@ -219,6 +223,11 @@ class RentalPortalSetting extends Model
     public static function notifyTenantOnStatusChangeFor(?int $agencyId): bool
     {
         return self::boolFor($agencyId, 'notify_tenant_on_status_change', self::DEFAULT_NOTIFY_TENANT_ON_STATUS_CHANGE);
+    }
+
+    public static function pushInformationalDefaultFor(?int $agencyId): bool
+    {
+        return self::boolFor($agencyId, 'push_informational_default', self::DEFAULT_PUSH_INFORMATIONAL);
     }
 
     public static function autoPortalAccessOnSigningFor(?int $agencyId): bool

@@ -553,6 +553,8 @@ class ClientLandlordRentalsController extends Controller
             'work_order' => $this->workOrderSummaryFor($fault),
             // The same progress line the tenant sees, in the owner's words.
             'progress' => app(\App\Services\Rentals\RentalFaultProgressService::class)->forFault($fault, \App\Services\Rentals\RentalFaultProgressService::AUDIENCE_OWNER),
+            // AT-508 P1 — the same line as a flat list for the app's timeline.
+            'timeline' => app(\App\Services\Rentals\RentalFaultProgressService::class)->timeline($fault, \App\Services\Rentals\RentalFaultProgressService::AUDIENCE_OWNER),
             'reported_at' => $fault->reported_at?->toIso8601String(),
             'sent_to_owner_at' => $fault->sent_to_owner_at?->toIso8601String(),
             'awaiting_decision' => $awaiting,

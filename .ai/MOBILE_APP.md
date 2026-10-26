@@ -267,3 +267,11 @@ These files remain from the old tabbed layout and are no longer imported:
 - `lib/widgets/property_list_tile.dart`
 - `lib/screens/properties_screen.dart` (if still exists)
 - `lib/screens/profile_screen.dart` (if still exists)
+
+
+## Rentals (AT-508, server side built 25 Oct 2026 — Staging)
+The full app-side contract is `.ai/specs/at-508-mobile-rentals-MOBILE-PROMPT.md` (every endpoint, JSON, error codes, offline queue, push categories, screens). Summary:
+- Staff (`/api/v1/mobile/...`): rentals waiting list, faults, work orders, leases, notices to review, inspections (+ due, offline-safe, resync), inventories. `GET /mobile/visibility` now returns `rentals{screen:{can_view,can_act,scope}}`.
+- Tenants and owners (`/api/v1/client/rentals[/landlord]/...`): My Lease card, waiting list, fault timeline, urgent flag, push preferences (switchable only), `POST /client/device-tokens`.
+- Offline: queued writes carry `client_idempotency_key` + `captured_at`; replay = 200 `duplicate:true`; archived = 410; inspection complete needs `pending_client_items` (409 `items_pending`).
+- Rules: no rent/payments; the tenant sees nothing about the lessor; neutral multi-agency wording.

@@ -32,6 +32,7 @@ class RentalPortalSettingsController extends Controller
             'contractorSecureLinkExpiryDays' => RentalPortalSetting::contractorSecureLinkExpiryDaysFor($agencyId),
             'notifyLandlordOnDecisionNeeded' => RentalPortalSetting::notifyLandlordOnDecisionNeededFor($agencyId),
             'notifyTenantOnStatusChange' => RentalPortalSetting::notifyTenantOnStatusChangeFor($agencyId),
+            'pushInformationalDefault' => RentalPortalSetting::pushInformationalDefaultFor($agencyId),
             'autoPortalAccessOnSigning' => RentalPortalSetting::autoPortalAccessOnSigningFor($agencyId),
             'defaultContractorSecureLinkExpiryDays' => RentalPortalSetting::DEFAULT_CONTRACTOR_SECURE_LINK_EXPIRY_DAYS,
             // §14.27.3 — crew links.
@@ -109,6 +110,12 @@ class RentalPortalSettingsController extends Controller
     public function updateNotifyTenantOnStatusChange(Request $request): RedirectResponse
     {
         return $this->updateToggle($request, 'notify_tenant_on_status_change', 'Tenant status-change notification');
+    }
+
+    /** AT-508 — the agency default for the purely informational phone notifications (mandatory ones are never affected). has()-guarded (onboarding §6.1). */
+    public function updatePushInformationalDefault(Request $request): RedirectResponse
+    {
+        return $this->updateToggle($request, 'push_informational_default', 'Informational phone notifications default');
     }
 
     /** rental-portal-access.md §16 — has()-guarded like every other toggle (onboarding §6.1). */

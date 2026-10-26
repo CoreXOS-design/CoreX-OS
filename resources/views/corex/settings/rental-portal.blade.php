@@ -162,6 +162,14 @@
                     Email the tenant when a fault's status changes
                 </label>
             </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.push-informational-default') }}">
+                @csrf
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="push_informational_default" value="0">
+                    <input type="checkbox" name="push_informational_default" value="1" onchange="this.form.submit()" @checked($pushInformationalDefault)>
+                    Send tenants and owners the general (non-urgent) updates on their phone
+                </label>
+            </form>
         </div>
     </div>
 

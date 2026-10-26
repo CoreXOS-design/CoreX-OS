@@ -878,25 +878,12 @@ class RentalFaultReportController extends Controller
             'client_idempotency_key' => 'nullable|uuid',
         ]);
 
-        $clientKey = $request->input('client_idempotency_key');
-        if ($clientKey) {
-            $existing = RentalFaultReportPhoto::where('client_idempotency_key', $clientKey)
-                ->where('rental_fault_report_id', $rentalFaultReport->id)->first();
-            if ($existing) {
-                return response()->json($existing, 200);
-            }
+        [$photo, $duplicate] = app(RentalFaultReportService::class)->storePhoto(
+            $rentalFaultReport, $request->file('photo'), $request->user(), $request->input('client_idempotency_key')
+        );
+        if ($duplicate) {
+            return response()->json($photo, 200);
         }
-
-        $url = app(PropertyImageStorer::class)->store($request->file('photo'), $rentalFaultReport->property_id);
-
-        $photo = RentalFaultReportPhoto::create([
-            'agency_id' => $rentalFaultReport->agency_id,
-            'rental_fault_report_id' => $rentalFaultReport->id,
-            'storage_path' => $url,
-            'uploaded_by_user_id' => $request->user()->id,
-            'client_idempotency_key' => $clientKey,
-            'file_size_bytes' => $request->file('photo')->getSize(),
-        ]);
 
         return response()->json($photo, 201);
     }

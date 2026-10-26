@@ -782,6 +782,7 @@ class AgencySetupWizardController extends Controller
                     'contractor_secure_link_expiry_days' => \App\Models\RentalPortalSetting::contractorSecureLinkExpiryDaysFor($agency->id),
                     'notify_landlord_on_decision_needed' => \App\Models\RentalPortalSetting::notifyLandlordOnDecisionNeededFor($agency->id),
                     'notify_tenant_on_status_change' => \App\Models\RentalPortalSetting::notifyTenantOnStatusChangeFor($agency->id),
+                    'push_informational_default' => \App\Models\RentalPortalSetting::pushInformationalDefaultFor($agency->id),
                     'auto_portal_access_on_signing' => \App\Models\RentalPortalSetting::autoPortalAccessOnSigningFor($agency->id),
                     'crew_links_enabled' => \App\Models\RentalPortalSetting::crewLinksEnabledFor($agency->id),
                     'crew_job_link_expiry_days' => \App\Models\RentalPortalSetting::crewJobLinkExpiryDaysFor($agency->id),

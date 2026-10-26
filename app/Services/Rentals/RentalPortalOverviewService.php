@@ -318,6 +318,7 @@ class RentalPortalOverviewService
             'type' => $inspection->type,
             'type_label' => RentalInspection::typeName((string) $inspection->type),
             'when' => $upcoming ? 'upcoming' : 'past',
+            'viewable' => ! $upcoming,   // AT-508: a sent inspection can be opened (GET .../inspections/{id}); a booked date is a date only
             'status' => $upcoming ? 'scheduled' : $inspection->status,
             'status_label' => $upcoming ? 'Scheduled' : ($inspection->status === RentalInspection::STATUS_COMPLETED ? 'Completed' : 'Report sent'),
             'date' => $date?->toDateString(),
