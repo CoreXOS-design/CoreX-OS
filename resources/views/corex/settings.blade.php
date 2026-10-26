@@ -541,7 +541,7 @@
 
             <form method="POST" action="{{ route('corex.settings.compliance-switches.update') }}" class="space-y-4">
                 @csrf
-                @include('corex.settings.partials.compliance-switches-form', $complianceSwitches)
+                @include('corex.settings.partials.compliance-switches-form', $complianceSwitches + ['csAutoSave' => true])
                 <div class="flex justify-end">
                     <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save</button>
                 </div>

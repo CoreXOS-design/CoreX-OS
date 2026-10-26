@@ -56,6 +56,7 @@ class SettingsController extends Controller
             'feature-properties', 'feature-presentations', 'feature-matches', 'feature-dashboard',
             'leave-visibility', 'remote-access', 'commission', 'command-center', 'core-matches', 'prospecting-setup',
             'outreach-templates', 'team-inbox', 'leave-types',
+            'compliance-switches', // AT-509
         ];
         if (!in_array($section, $validSections, true)) {
             $section = 'agency';

@@ -1,15 +1,18 @@
 {{--
     AT-509 — Compliance Switches form fields (.ai/specs/property-compliance-gate-settings.md §7.1).
-    Shared by Settings → Compliance Switches and the Setup Wizard's Properties & listings step: it renders
-    NO <form> of its own, it sits inside the host page's form and posts to ComplianceSwitchesController@update.
-    Switching anything OFF opens the disclaimer before the host form is allowed to submit; the server
-    refuses a switch-off without the accepted version anyway (ComplianceGateSettingsService::apply).
+    Shared by Settings → Compliance Switches and the Setup Wizard's Compliance step: it renders NO <form> of
+    its own, it sits inside the host page's form and posts to ComplianceSwitchesController@update.
+    Clicking a check OFF opens the disclaimer straight away (Andre 2026-10-26); Confirm switches it off and,
+    on the Settings page ($csAutoSave), saves at once. Cancel leaves it on. The server refuses a switch-off
+    without the accepted version anyway (ComplianceGateSettingsService::apply).
 
     Needs: $complianceGates, $complianceLastChange, $complianceDisclaimer (ComplianceSwitchesController::formData()).
 --}}
 @php
     $csGates = $complianceGates;
-    $csAll = array_merge([$csGates['master']], $csGates['documents'], $csGates['other_documents'], $csGates['core']);
+    // Only the document checks the agency has today (Andre 2026-10-26: no "other document types you can
+    // require" list, and no Photos / Listing details switches — those two checks always stay on).
+    $csAll = array_merge([$csGates['master']], $csGates['documents']);
     $csUid = 'cs' . substr(md5(uniqid('', true)), 0, 8);
     $csData = [
         'initial'  => collect($csAll)->mapWithKeys(fn ($g) => [$g['key'] => (bool) $g['enabled']])->all(),
@@ -17,11 +20,12 @@
         'order'    => array_column($csAll, 'key'),
         'template' => $complianceDisclaimer['template'],
         'version'  => $complianceDisclaimer['version'],
+        // Settings page: confirming the disclaimer saves straight away. Setup Wizard: it only marks the
+        // switch off; the wizard's own Save posts it with the rest of the step.
+        'autoSave' => (bool) ($csAutoSave ?? false),
     ];
     $csGroups = [
         ['title' => 'Documents', 'note' => 'Each switched-on document must be on file before the property can be marketed.', 'items' => $csGates['documents']],
-        ['title' => 'Listing', 'note' => null, 'items' => $csGates['core']],
-        ['title' => 'Other document types you can require', 'note' => 'Not required today. Switch one on to make it a requirement for marketing.', 'items' => $csGates['other_documents']],
     ];
 @endphp
 
@@ -36,22 +40,37 @@
 
 <div class="space-y-4"
      x-data="{
-        state: {}, initial: {}, labels: {}, order: [], template: '', version: '',
-        open: false, accepted: false, confirmed: false, offList: [], submitter: null, form: null,
+        state: {}, initial: {}, labels: {}, order: [], template: '', version: '', autoSave: false,
+        open: false, accepted: false, confirmed: false, offList: [], pendingKey: null, submitter: null, form: null,
         init() {
             const d = JSON.parse(document.getElementById('{{ $csUid }}-data').textContent);
             this.initial = d.initial; this.state = Object.assign({}, d.initial);
             this.labels = d.labels; this.order = d.order; this.template = d.template; this.version = d.version;
+            this.autoSave = d.autoSave;
             this.form = this.$el.closest('form');
             if (this.form) { this.form.addEventListener('submit', (e) => this.onSubmit(e)); }
         },
-        flip(key) { this.state[key] = !this.state[key]; },
+        // Switching a check that is on today OFF asks for the disclaimer first; switching on needs none.
+        flip(key) {
+            if (this.state[key] && this.initial[key]) { this.askDisclaimer(key); return; }
+            this.state[key] = !this.state[key];
+        },
+        // Every check being switched off in this save, so the text names all of them (the server stores it).
+        offKeys(extra) { return this.order.filter((k) => this.initial[k] && (!this.state[k] || k === extra)); },
+        askDisclaimer(key) {
+            this.pendingKey = key;
+            this.offList = this.offKeys(key).map((k) => this.labels[k]);
+            this.accepted = false;
+            this.open = true;
+        },
+        // Safety net: anything still off without an accepted disclaimer is asked before the form posts.
         onSubmit(e) {
             if (this.confirmed) { return; }
-            const off = this.order.filter((k) => this.initial[k] && !this.state[k]);
+            const off = this.offKeys(null);
             if (off.length === 0) { return; }
             e.preventDefault();
             this.submitter = e.submitter || null;
+            this.pendingKey = null;
             this.offList = off.map((k) => this.labels[k]);
             this.accepted = false;
             this.open = true;
@@ -59,12 +78,17 @@
         disclaimerText() { return this.template.replace('{gates}', this.offList.join(', ')); },
         confirm() {
             if (!this.accepted) { return; }
+            if (this.pendingKey) { this.state[this.pendingKey] = false; }
             this.$refs.accepted.value = this.version;
             this.confirmed = true;
             this.open = false;
-            this.$nextTick(() => { this.submitter ? this.form.requestSubmit(this.submitter) : this.form.requestSubmit(); });
+            const fromSave = this.pendingKey === null;
+            this.pendingKey = null;
+            if (fromSave || this.autoSave) {
+                this.$nextTick(() => { this.submitter ? this.form.requestSubmit(this.submitter) : this.form.requestSubmit(); });
+            }
         },
-        cancel() { this.open = false; this.accepted = false; }
+        cancel() { this.open = false; this.accepted = false; this.pendingKey = null; }
      }">
 
     <input type="hidden" name="compliance_switches_submitted" value="1">
@@ -88,11 +112,16 @@
             </div>
         </div>
         <input type="hidden" name="gates[{{ $g['key'] }}]" value="{{ $g['enabled'] ? 1 : 0 }}" :value="state['{{ $g['key'] }}'] ? 1 : 0">
-        <button type="button" class="cs-switch {{ $g['enabled'] ? 'on' : '' }}" :class="state['{{ $g['key'] }}'] && 'on'" role="switch"
+        <button type="button" class="cs-switch" :class="{ 'on': state['{{ $g['key'] }}'] }" role="switch"
                 :aria-checked="state['{{ $g['key'] }}']" aria-label="{{ $g['label'] }}" @click="flip('{{ $g['key'] }}')"></button>
     </div>
 
     <div class="space-y-4" :style="state['master'] ? '' : 'opacity:.5;'">
+        @if(empty($csGates['documents']))
+            <div class="p-4 rounded-md text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">
+                Your agency has no document checks set up, so no documents are required before a property can be marketed.
+            </div>
+        @endif
         @foreach ($csGroups as $group)
             @continue(empty($group['items']))
             <div class="rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
@@ -109,7 +138,7 @@
                             <div class="text-xs mt-0.5" style="color:var(--text-secondary);">{{ $g['explain'] }}</div>
                         </div>
                         <input type="hidden" name="gates[{{ $g['key'] }}]" value="{{ $g['enabled'] ? 1 : 0 }}" :value="state['{{ $g['key'] }}'] ? 1 : 0">
-                        <button type="button" class="cs-switch {{ $g['enabled'] ? 'on' : '' }}" :class="state['{{ $g['key'] }}'] && 'on'" role="switch"
+                        <button type="button" class="cs-switch" :class="{ 'on': state['{{ $g['key'] }}'] }" role="switch"
                                 :aria-checked="state['{{ $g['key'] }}']" aria-label="{{ $g['label'] }}" @click="flip('{{ $g['key'] }}')"></button>
                     </div>
                 @endforeach
@@ -128,9 +157,9 @@
 
     {{-- Disclaimer --}}
     <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,.55);" @keydown.escape.window="cancel()">
-        <div class="w-full max-w-lg rounded-md p-5 space-y-4" style="background:var(--surface); border:1px solid var(--border);" @click.outside="cancel()">
-            <div class="text-base font-semibold" style="color:var(--text-primary);">Switching off compliance checks</div>
-            <div class="text-sm max-h-80 overflow-y-auto" style="color:var(--text-secondary); white-space:pre-line;" x-text="disclaimerText()"></div>
+        <div class="w-full max-w-5xl rounded-md p-8 space-y-5" style="background:var(--surface); border:1px solid var(--border);" @click.outside="cancel()">
+            <div class="text-lg font-semibold" style="color:var(--text-primary);">Switching off compliance checks</div>
+            <div class="text-base overflow-y-auto" style="max-height:65vh; color:var(--text-secondary); white-space:pre-line;" x-text="disclaimerText()"></div>
             <label class="flex items-start gap-2 text-sm cursor-pointer" style="color:var(--text-primary);">
                 <input type="checkbox" class="mt-0.5" x-model="accepted">
                 <span>{{ $complianceDisclaimer['accept_label'] }}</span>

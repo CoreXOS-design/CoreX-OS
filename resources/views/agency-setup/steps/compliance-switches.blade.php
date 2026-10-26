@@ -6,8 +6,8 @@
         <div>
             <h3 class="text-sm font-semibold" style="color:var(--text-primary);">Compliance checks before marketing</h3>
             <p class="text-xs mt-0.5" style="color:var(--text-secondary);">
-                Before a property can be marketed, CoreX checks it has what your agency requires: the mandate, FICA on the seller,
-                the disclosure form, photos and the listing details. Everything is on by default. If your agency handles a check
+                Before a property can be marketed, CoreX checks it has the documents your agency requires, such as the mandate,
+                FICA on the seller and the disclosure form. Everything is on by default. If your agency handles one of these
                 outside CoreX you can switch it off here. You'll be asked to accept responsibility for that, and the choice is recorded.
                 What this changes: a switched-off check no longer stops a property from being marketed.
             </p>

@@ -137,13 +137,13 @@ class ComplianceSwitchesAuditController extends Controller
             fputcsv($out, ['Date', 'Time', 'Agency', 'Check', 'Action', 'Name', 'Email', 'IP address', 'Browser', 'Disclaimer version', 'Disclaimer accepted at', 'Disclaimer text']);
             foreach ($query->cursor() as $c) {
                 $at = Carbon::parse($c->created_at)->timezone($tz);
-                fputcsv($out, [
+                fputcsv($out, array_map([$this, 'csvCell'], [
                     $at->format('Y-m-d'), $at->format('H:i:s'), $c->agency_name, $c->gate_label,
                     $c->action === ComplianceGateChange::ACTION_OFF ? 'Switched off' : 'Switched on',
                     $c->user_name, $c->user_email, $c->ip_address, $c->user_agent, $c->disclaimer_version,
                     $c->disclaimer_accepted_at ? Carbon::parse($c->disclaimer_accepted_at)->timezone($tz)->format('Y-m-d H:i:s') : '',
                     $c->disclaimer_text,
-                ]);
+                ]));
             }
             fclose($out);
         }, 'compliance-switch-history-' . now()->format('Y-m-d') . '.csv', ['Content-Type' => 'text/csv']);
@@ -179,8 +179,6 @@ class ComplianceSwitchesAuditController extends Controller
     {
         $options = [
             ComplianceGateSettingsService::MASTER  => 'All compliance checks',
-            ComplianceGateSettingsService::PHOTOS  => 'Photos',
-            ComplianceGateSettingsService::DETAILS => 'Listing details',
         ];
 
         foreach (DB::table('compliance_gate_changes')->select('gate_key', DB::raw('MAX(gate_label) as gate_label'))->groupBy('gate_key')->get() as $g) {
@@ -188,6 +186,17 @@ class ComplianceSwitchesAuditController extends Controller
         }
 
         return $options;
+    }
+
+    /**
+     * Agency and user names are typed by people; a cell starting with = + - @ would run as a formula when the
+     * export is opened in a spreadsheet. Prefix those with a quote so they stay plain text.
+     */
+    private function csvCell(mixed $value): string
+    {
+        $value = (string) ($value ?? '');
+
+        return $value !== '' && in_array($value[0], ['=', '+', '-', '@', "\t", "\r"], true) ? "'" . $value : $value;
     }
 
     private function date(mixed $value): ?Carbon

@@ -53,9 +53,11 @@ not under Properties & Listings):
 | Gate key | Label | Backed by |
 |---|---|---|
 | `master` | Property compliance check (all gates) | new |
-| `doc:<slug>` (one per required document type: mandate, disclosure, fica, …) | Document type label | existing `is_compliance_required` |
-| `photos` | Photos | new |
-| `details_complete` | Listing details | new |
+| `doc:<slug>` (one per document type the agency requires, or has switched off: mandate, disclosure, fica, …) | Document type label | existing `is_compliance_required` |
+
+`photos` / `details_complete` are NOT agency switches (Andre 2026-10-26): those two checks always apply,
+a posted key for them is ignored, and only the master switch skips them. The table and the readiness code
+still understand a `photos` / `details_complete` row (defensive); nothing writes one.
 
 - **Master off** means every gate is off and the property is marketable as soon as it's
   captured. The individual switches keep their positions, so switching master back on
@@ -158,7 +160,7 @@ into the page like every other settings section, never a separate page (Andre 20
 Setup Wizard render the same controls and disclaimer and post to the same saver.
 
 - Master toggle at the top: "Compliance check before marketing".
-- Under it, one toggle per gate (the agency's document types + Photos + Listing details),
+- Under it, one toggle per document check the agency has,
   each with one sentence explaining what it blocks.
 - Below that: "Last changed: FICA switched off by Jane Smith, 26 Oct 2026 10:14".
 - **Switching anything OFF** opens a modal with the disclaimer (§8). The user must tick "I
@@ -166,9 +168,11 @@ Setup Wizard render the same controls and disclaimer and post to the same saver.
   they do. Cancel leaves the toggle as it was.
 - **Switching ON** needs no disclaimer. It is still recorded, and a one-line confirmation
   says it applies to every listing that is not live yet (Q1).
-- The document list shows every active document type: the ones currently required first, then
-  "Other document types you can require". Turning one ON makes it a marketing requirement,
-  exactly like the old "Required to market" tick.
+- The document list shows only the document checks the agency has (the ones required today, or
+  ever switched off). There is NO "Other document types you can require" list (Andre 2026-10-26:
+  removed from the page).
+- There are NO Photos / Listing details switches on the page (Andre 2026-10-26: removed). Those two
+  checks always apply; the agency cannot switch them off. (The master switch still skips every check.)
 
 ### 7.2 Readiness panel and Drive checklist
 - Grey "switched off" rows (§5) on the readiness panel for listings that aren't live yet.
@@ -206,7 +210,7 @@ AgencyScope owner-switcher blind spot). They are read-only. There are no edit or
 
 Stored in `config/corex-compliance.php` as `gate_disclaimer.version` + `gate_disclaimer.text`
 with `{agency}` and `{gates}` placeholders. One acceptance covers every check switched off in
-the same save, so the text names them all (`{gates}` = "FICA, Photos"), and that exact rendered
+the same save, so the text names them all (`{gates}` = "FICA, Disclosure"), and that exact rendered
 text is stored on each of those history rows. It is system-owned, not agency-editable, because
 it protects CoreX. Changing the wording means bumping the version, and the old accepted text
 stays in each history row unchanged.
@@ -270,7 +274,23 @@ Switching off in the wizard shows the same disclaimer and records the same histo
 7. Dev Settings screens list all agencies and the full history with search, sort, filters,
    pagination, an empty state and CSV export. A non-owner gets 403, including on direct URL.
 8. Listings that are live today (v2 snapshots) render exactly as before.
-9. Tests: `tests/Feature/Compliance/ComplianceGateSettingsTest.php` covers 1–8.
+9. Photos / Listing details cannot be switched off; a crafted post is ignored and records nothing.
+10. Opening Settings (or the wizard step) never switches a check on: an agency with no document
+    checks keeps none and sees "Your agency has no document checks set up".
+11. Only a document check the page shows can change; a crafted post for any other type is ignored.
+12. The CSV export neutralises cells starting with = + - @ (spreadsheet formula injection).
+13. Tests: `tests/Feature/Compliance/ComplianceGateSettingsTest.php` covers 1–12.
+
+### 12a. Audit 2026-10-26 (Andre: "full audit check on everything")
+Fixed: (a) `gatesFor()` seeded the default required types on read, silently switching
+Mandate/FICA/Disclosure ON for an agency with none (local agency 23) when an admin opened Settings;
+(b) the server still accepted a crafted post for Photos/Listing details and for hidden document types;
+(c) the property list re-read the document catalogue and required map once per property (now cached
+per instance); (d) CSV formula injection; (e) the Dev Settings filter still offered Photos/Listing details.
+Checked and fine: IPs are real visitor IPs (corexos.co.za resolves straight to the server, no proxy);
+Command Center "documents missing" chores are independent of these checks; the mobile API passes the
+checklist rows through unchanged (same shape); the readiness service is not a singleton, so no stale
+switch state is kept between requests.
 
 ## 13. Files
 - **new** migration ×2, `database/schema/mysql-schema.sql` regenerated (DEFINER-stripped)

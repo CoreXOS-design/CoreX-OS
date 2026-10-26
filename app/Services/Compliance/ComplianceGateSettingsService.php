@@ -41,6 +41,11 @@ class ComplianceGateSettingsService
     /** @var array<int, array<string, ComplianceGateChange>> per-agency latest change per gate, per instance */
     private array $latestCache = [];
 
+    /** @var array<int, array<int, bool>> per-agency required document map, per instance */
+    private array $requiredCache = [];
+
+    private ?\Illuminate\Support\Collection $docTypeCache = null;
+
     public function __construct(
         private AgencyComplianceDocTypeService $docTypes = new AgencyComplianceDocTypeService(),
     ) {
@@ -60,34 +65,37 @@ class ComplianceGateSettingsService
     }
 
     /**
-     * Everything the Compliance Switches form shows, in display order.
+     * Everything the Compliance Switches form shows, in display order: the master switch and the agency's own
+     * document checks (required today, or switched off at some point so they can be switched back on).
+     * Photos / Listing details are not agency switches and there is no "other document types" list
+     * (Andre 2026-10-26).
      *
-     * @return array{master: array, documents: list<array>, other_documents: list<array>, core: list<array>}
+     * A pure read: it never seeds the default required types. An agency with no required documents has no
+     * document checks today, and opening Settings must not silently switch any on.
+     *
+     * @return array{master: array, documents: list<array>}
      */
     public function gatesFor(int $agencyId): array
     {
-        $this->docTypes->ensureDefaults($agencyId);
-
         $core = $this->coreStates($agencyId);
-        $required = $this->docTypes->complianceMapFor($agencyId);
+        $required = $this->requiredMap($agencyId);
         $ficaSlug = config('corex-compliance.fica_slug', 'fica');
 
         $documents = [];
-        $other = [];
         foreach ($this->activeDocumentTypes() as $type) {
-            $row = [
-                'key'     => self::DOC_PREFIX . $type->slug,
+            $key = self::DOC_PREFIX . $type->slug;
+            $enabled = (bool) ($required[$type->id] ?? false);
+            if (! $enabled && ! $this->latestChange($agencyId, $key)) {
+                continue;
+            }
+            $documents[] = [
+                'key'     => $key,
                 'label'   => $type->label,
-                'enabled' => (bool) ($required[$type->id] ?? false),
+                'enabled' => $enabled,
                 'explain' => $type->slug === $ficaSlug
                     ? 'Every seller or landlord linked to the property must have approved FICA.'
                     : 'A ' . $type->label . ' must be on the property Drive (or on a seller\'s contact).',
             ];
-            if ($row['enabled'] || $this->latestChange($agencyId, $row['key'])) {
-                $documents[] = $row;
-            } else {
-                $other[] = $row;
-            }
         }
 
         return [
@@ -95,14 +103,7 @@ class ComplianceGateSettingsService
                 'key' => self::MASTER, 'label' => 'Compliance check before marketing', 'enabled' => $core[self::MASTER],
                 'explain' => 'When this is on, a property cannot be marketed until every check below that is switched on has passed.',
             ],
-            'documents'       => $documents,
-            'other_documents' => $other,
-            'core' => [
-                ['key' => self::PHOTOS, 'label' => self::CORE_LABELS[self::PHOTOS], 'enabled' => $core[self::PHOTOS],
-                 'explain' => 'At least 4 photos must be uploaded.'],
-                ['key' => self::DETAILS, 'label' => self::CORE_LABELS[self::DETAILS], 'enabled' => $core[self::DETAILS],
-                 'explain' => 'The address, suburb, price and other required listing details must be filled in.'],
-            ],
+            'documents' => $documents,
         ];
     }
 
@@ -115,7 +116,7 @@ class ComplianceGateSettingsService
     public function switchedOffGates(int $agencyId): array
     {
         $core = $this->coreStates($agencyId);
-        $required = $this->docTypes->complianceMapFor($agencyId);
+        $required = $this->requiredMap($agencyId);
         $typesBySlug = $this->activeDocumentTypes()->keyBy('slug');
 
         $out = [];
@@ -176,7 +177,9 @@ class ComplianceGateSettingsService
     public function apply(int $agencyId, string $agencyName, array $posted, User $by, Request $request, ?string $acceptedVersion): array
     {
         $gates = $this->gatesFor($agencyId);
-        $ordered = array_merge([$gates['master']], $gates['documents'], $gates['other_documents'], $gates['core']);
+        // Only what the page shows can change: a posted photos / details_complete key, or a document type the
+        // agency does not have, is ignored (Andre 2026-10-26).
+        $ordered = array_merge([$gates['master']], $gates['documents']);
         $docTypeIds = $this->activeDocumentTypes()->pluck('id', 'slug');
 
         $changes = [];
@@ -235,7 +238,7 @@ class ComplianceGateSettingsService
             return $rows;
         });
 
-        unset($this->coreCache[$agencyId], $this->latestCache[$agencyId]);
+        unset($this->coreCache[$agencyId], $this->latestCache[$agencyId], $this->requiredCache[$agencyId]);
 
         return $written;
     }
@@ -290,9 +293,17 @@ class ComplianceGateSettingsService
         ];
     }
 
+    /** @return array<int, bool> document_type_id => required, for this agency */
+    private function requiredMap(int $agencyId): array
+    {
+        return $this->requiredCache[$agencyId] ??= $this->docTypes->complianceMapFor($agencyId);
+    }
+
+    // The property list runs the readiness check for every row on one instance, so the global catalogue is
+    // read once per instance, not once per property.
     private function activeDocumentTypes(): \Illuminate\Support\Collection
     {
-        return DB::table('document_types')
+        return $this->docTypeCache ??= DB::table('document_types')
             ->whereNull('deleted_at')
             ->where('is_active', true)
             ->orderBy('sort_order')

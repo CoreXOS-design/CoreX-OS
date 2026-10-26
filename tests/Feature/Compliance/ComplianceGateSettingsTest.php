@@ -216,15 +216,18 @@ final class ComplianceGateSettingsTest extends TestCase
         $this->assertSame(2, ComplianceGateChange::where('gate_key', 'master')->count());
     }
 
-    public function test_photos_switch_off_is_a_grey_row_not_a_block(): void
+    public function test_photos_and_listing_details_cannot_be_switched_off(): void
     {
-        $this->save(['photos' => '0'], $this->version);
+        // Andre 2026-10-26: not agency switches — a posted key is ignored and the checks still apply.
+        $this->save(['photos' => '0', 'details_complete' => '0'], $this->version)->assertSessionHasNoErrors();
+        $this->assertSame(0, ComplianceGateChange::count());
+
         $p = $this->listingBlockedOnlyByFica();
         $p->update(['gallery_images_json' => []]);
 
         $report = $this->readiness($p);
-        $this->assertTrue($report->checklist['photos']['passed']);
-        $this->assertTrue($report->checklist['photos']['switched_off']);
+        $this->assertFalse($report->checklist['photos']['passed']);
+        $this->assertArrayNotHasKey('switched_off', $report->checklist['photos']);
     }
 
     public function test_saver_does_nothing_without_its_marker_so_the_wizard_cannot_wipe_it(): void
@@ -315,6 +318,40 @@ final class ComplianceGateSettingsTest extends TestCase
 
         $this->assertSame(0, ComplianceGateChange::count());
         $this->assertTrue((new AgencyComplianceDocTypeService())->complianceMapFor($this->agency->id)[$this->typeIds['fica']]);
+    }
+
+    public function test_opening_settings_never_switches_checks_on_for_an_agency_without_any(): void
+    {
+        // Audit 2026-10-26: gatesFor() used to seed mandate/FICA/disclosure as required on first read, so an
+        // agency with no document checks got them silently switched on by an admin merely opening Settings.
+        $bare = Agency::create(['name' => 'Bare Agency', 'slug' => 'bare-' . uniqid()]);
+        $gates = app(\App\Services\Compliance\ComplianceGateSettingsService::class)->gatesFor($bare->id);
+
+        $this->assertSame([], $gates['documents']);
+        $this->assertSame([], (new AgencyComplianceDocTypeService())->complianceMapFor($bare->id));
+    }
+
+    public function test_a_document_type_the_agency_does_not_have_cannot_be_switched_on_by_a_crafted_post(): void
+    {
+        $other = $this->documentTypeId('rates', 'Rates & Taxes', ['grouping' => 'shared']);
+
+        $this->save(['doc:rates' => '1'])->assertSessionHasNoErrors();
+
+        $this->assertFalse((new AgencyComplianceDocTypeService())->complianceMapFor($this->agency->id)[$other] ?? false);
+        $this->assertSame(0, ComplianceGateChange::count());
+    }
+
+    public function test_csv_export_neutralises_spreadsheet_formulas(): void
+    {
+        $this->admin->forceFill(['name' => '=HYPERLINK("http://x","click")'])->save();
+        $this->save(['doc:fica' => '0'], $this->version);
+
+        Role::forceCreate(['name' => 'test-owner', 'label' => 'Owner', 'agency_id' => null, 'is_owner' => true]);
+        Role::clearCache();
+        $owner = User::factory()->create(['agency_id' => null, 'branch_id' => null, 'role' => 'test-owner', 'is_active' => true]);
+
+        $csv = $this->actingAs($owner)->get(route('admin.dev-settings.compliance-switches.history.export'))->streamedContent();
+        $this->assertStringContainsString("'=HYPERLINK", $csv);
     }
 
     public function test_history_rows_cannot_be_edited_or_deleted(): void
