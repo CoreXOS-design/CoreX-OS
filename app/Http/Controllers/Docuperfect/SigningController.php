@@ -1813,7 +1813,7 @@ class SigningController extends Controller
         if ($gate = $this->identityGateResponse($signingRequest, $token)) {
             return $gate;
         }
-        if ($signingRequest->status === SignatureRequest::STATUS_WAITING) {
+        if (app(\App\Services\Docuperfect\SignatureAdoptionService::class)->notTheirTurn($signingRequest)) {
             return response()->json(['ok' => false, 'error' => 'It is not your turn to sign yet. Please wait for notification.'], 403);
         }
 
@@ -1890,11 +1890,16 @@ class SigningController extends Controller
             'place_keys.*' => 'required|string|max:60',
             'one_by_one' => 'nullable|integer|min:0|max:10000',
             'confirmed' => 'accepted',
+            // A pack: what the confirmation showed for each member document (the server checks it adds up).
+            'by_document' => 'nullable|array|max:50',
+            'by_document.*.index' => 'required|integer|min:0|max:49',
+            'by_document.*.signatures' => 'required|integer|min:0|max:' . \App\Services\Docuperfect\SignaturePlacementService::FILL_ALL_MAX_PLACES,
+            'by_document.*.initials' => 'required|integer|min:0|max:' . \App\Services\Docuperfect\SignaturePlacementService::FILL_ALL_MAX_PLACES,
         ]);
 
         try {
             $result = app(\App\Services\Docuperfect\SignaturePlacementService::class)
-                ->fillAll($signingRequest, $data['place_keys'], (int) ($data['one_by_one'] ?? 0), $request);
+                ->fillAll($signingRequest, $data['place_keys'], (int) ($data['one_by_one'] ?? 0), $request, (array) ($data['by_document'] ?? []));
         } catch (\App\Services\Docuperfect\FillAllUnavailableException $e) {
             return response()->json(['ok' => false, 'fill_all_unavailable' => true, 'error' => $e->getMessage()], 409);
         } catch (\InvalidArgumentException $e) {
@@ -1937,7 +1942,8 @@ class SigningController extends Controller
         if ($gate = $this->identityGateResponse($signingRequest, $token)) {
             return $gate;
         }
-        if ($signingRequest->status === SignatureRequest::STATUS_WAITING) {
+        // Waiting or deferred: they adopt and place when their own turn comes (build step 6), not before.
+        if (app(\App\Services\Docuperfect\SignatureAdoptionService::class)->notTheirTurn($signingRequest)) {
             return response()->json(['ok' => false, 'error' => 'It is not your turn to sign yet. Please wait for notification.'], 403);
         }
 
@@ -1970,6 +1976,8 @@ class SigningController extends Controller
             'adopted' => $current !== null,
             'signatureImage' => $current?->signature_image,
             'initialImage' => $current?->initial_image,
+            // A pack is one envelope and one adoption; Mode 3's confirmation lists the count for each member document.
+            'documents' => app(\App\Services\Docuperfect\SignaturePlacementService::class)->packDocuments($signingRequest),
         ];
     }
 
@@ -4540,6 +4548,16 @@ CSS;
         if ($newValue === '' || $newValue === $oldValue) {
             return response()->json(['ok' => false, 'error' => 'Choose a different answer to propose a change.'], 422);
         }
+        // Modes 2/3 (build step 6): the signer may initial the change with a deliberate click — the image is then their
+        // server-held adopted initial, never a posted one. Nothing else about the change is automatic.
+        if ($request->boolean('use_adopted')) {
+            try {
+                $initialImage = app(\App\Services\Docuperfect\SignaturePlacementService::class)
+                    ->stampDeliberateInitial($signingRequest, 'disclosure', $key, $request);
+            } catch (\DomainException $e) {
+                return response()->json(['ok' => false, 'error' => $e->getMessage()], 409);
+            }
+        }
         if (trim($initialImage) === '') {
             return response()->json(['ok' => false, 'error' => 'Please initial your proposed change.'], 422);
         }
@@ -4748,8 +4766,18 @@ CSS;
 
         $validated = $request->validate([
             'change_id'     => ['required', 'string', 'max:64'],
-            'initial_image' => ['required', 'string'],   // the recipient's REAL captured initial (data URL)
+            'initial_image' => [$request->boolean('use_adopted') ? 'nullable' : 'required', 'string'],   // the recipient's REAL captured initial (data URL)
+            'use_adopted'   => ['nullable', 'boolean'],
         ]);
+        // Modes 2/3 (build step 6): a deliberate click can initial the change with the signer's server-held adopted initial.
+        if ($request->boolean('use_adopted')) {
+            try {
+                $validated['initial_image'] = app(\App\Services\Docuperfect\SignaturePlacementService::class)
+                    ->stampDeliberateInitial($signingRequest, 'change', $validated['change_id'], $request);
+            } catch (\DomainException $e) {
+                return response()->json(['ok' => false, 'error' => $e->getMessage()], 409);
+            }
+        }
         $template = $signingRequest->template;
         // GATING: this recipient can only fill THEIR OWN row slot (their canonical party key, from the token).
         $partyKey = method_exists($signingRequest, 'canonicalPartyKey')

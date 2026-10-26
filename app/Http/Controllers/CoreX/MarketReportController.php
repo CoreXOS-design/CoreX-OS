@@ -543,7 +543,11 @@ final class MarketReportController extends Controller
     {
         $user = $request->user();
         $agencyId = $user?->effectiveAgencyId() ?? $user?->agency_id ?? null;
-        if ($agencyId === null) abort(403);
+        if ($agencyId === null) {
+            // A CoreX owner signed in with no agency selected. The bulk importer shows `message` per file and falls
+            // back to "HTTP 403" when it is empty, which told the user nothing — say what to do instead.
+            abort(403, 'No agency is selected. Choose the agency this report belongs to in the agency switcher, then upload again.');
+        }
         return (int) $agencyId;
     }
 

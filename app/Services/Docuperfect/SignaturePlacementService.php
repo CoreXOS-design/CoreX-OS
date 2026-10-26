@@ -158,7 +158,7 @@ class SignaturePlacementService
 
         $bad = [];
         foreach ($posted as $key => $image) {
-            if (! is_string($image) || trim($image) === '' || str_starts_with((string) $key, 'marker-')) {
+            if (! is_string($image) || trim($image) === '' || str_starts_with((string) $key, 'marker-') || $this->isForeignWitnessKey($req, (string) $key)) {
                 continue;
             }
             $parsed = $this->parseKey((string) $key);
@@ -185,7 +185,7 @@ class SignaturePlacementService
         $adoptions = SignatureAdoption::where('signature_request_id', $req->id)->orderByDesc('generation')->get();
 
         foreach ($posted as $key => $image) {
-            if (! is_string($image) || trim($image) === '' || str_starts_with((string) $key, 'marker-')) {
+            if (! is_string($image) || trim($image) === '' || str_starts_with((string) $key, 'marker-') || $this->isForeignWitnessKey($req, (string) $key)) {
                 continue;
             }
             $parsed = $this->parseKey((string) $key);
@@ -229,13 +229,19 @@ class SignaturePlacementService
      * ceiling above, and what is baked onto the document is decided by ownership in the document, not by these keys.
      * Condition initials, amendment initials and disclosure answers have their own endpoints and are never in this list.
      *
+     * In a pack (one envelope, several documents) the confirmation the signer saw states the count PER DOCUMENT, so the
+     * request carries that breakdown. It must add up to the keys sent; its signature counts cannot exceed what each
+     * document carries for the signer (when the server can tell the documents apart); it is stored with the event, with
+     * the document names resolved on the server.
+     *
      * @param string[] $placeKeys
+     * @param array<int,array{index:int,signatures:int,initials:int}> $byDocument what the confirmation showed, per document
      * @return array{event_id:int,count:int,placed:string[],already:string[]}
      * @throws DomainException               not Mode 3 / not adopted / no web document
      * @throws FillAllUnavailableException   the server cannot vouch for the list — sign each place instead
      * @throws InvalidArgumentException      an empty, oversized or foreign list
      */
-    public function fillAll(SignatureRequest $req, array $placeKeys, int $oneByOneRemaining, Request $http): array
+    public function fillAll(SignatureRequest $req, array $placeKeys, int $oneByOneRemaining, Request $http, array $byDocument = []): array
     {
         [$document, $adoption] = $this->preflightRequest($req);
         if ($this->adoptions->modeOf($req) !== \App\Models\Docuperfect\EsignSettings::MODE_ADOPT_AND_FILL_ALL) {
@@ -257,9 +263,11 @@ class SignaturePlacementService
             throw new FillAllUnavailableException('This document cannot be filled in automatically. Please click each place to sign it.');
         }
 
+        $perDocument = $this->checkedPerDocument($req, $document, $byDocument, $signatureKeys, $initialKeys);
+
         sort($keys);
 
-        return DB::transaction(function () use ($req, $adoption, $keys, $signatureKeys, $initialKeys, $oneByOneRemaining, $http) {
+        return DB::transaction(function () use ($req, $adoption, $keys, $signatureKeys, $initialKeys, $oneByOneRemaining, $http, $perDocument) {
             $event = $this->audit($req, 'fill_all_confirmed', $http, [
                 'adoption_id' => $adoption->id,
                 'adoption_generation' => $adoption->generation,
@@ -269,7 +277,7 @@ class SignaturePlacementService
                 'count_initials' => $initialKeys,
                 'left_for_one_by_one' => max(0, $oneByOneRemaining),
                 'place_list_hash' => hash('sha256', implode("\n", $keys)),
-            ]);
+            ] + ($perDocument === [] ? [] : ['per_document' => $perDocument]));
 
             $placed = [];
             $already = [];
@@ -292,14 +300,181 @@ class SignaturePlacementService
     /** How many signature places the canonical document carries for this signer (0 when it cannot be told). */
     private function ownedSignaturePlaces(SignatureRequest $req, Document $document): int
     {
+        $html = $this->canonicalHtml($req, $document);
+        $sole = $req->template->requests()->where('party_role', $req->party_role)->count() === 1;
+
+        return $this->composer->countOwnedMarkers($html, $req, 'signature', $sole);
+    }
+
+    /** The canonical HTML this signer's document is signed on (the persisted artifact, or composed from the envelope). */
+    private function canonicalHtml(SignatureRequest $req, Document $document): string
+    {
         $data = is_array($document->web_template_data) ? $document->web_template_data : [];
         $html = (string) ($data['canonical_html'] ?? '');
         if (trim($html) === '') {
             $html = app(CanonicalDocumentRenderer::class)->compose($req->template);
         }
+
+        return $html;
+    }
+
+    /**
+     * Build step 6 (packs) — the HTML of each member document of a pack, in pack order. A pack is ONE envelope and ONE
+     * signing session (the signer adopts once); each member is a `.corex-document-wrapper`. A single document yields one entry.
+     *
+     * @return string[]
+     */
+    private function documentFragments(string $html): array
+    {
+        if (trim($html) === '' || stripos($html, 'corex-document-wrapper') === false) {
+            return [];
+        }
+        try {
+            $dom = new \DOMDocument();
+            @$dom->loadHTML('<?xml encoding="utf-8"?>' . $html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING);
+            $xpath = new \DOMXPath($dom);
+            $out = [];
+            foreach ($xpath->query('//*[contains(concat(" ", normalize-space(@class), " "), " corex-document-wrapper ")]') as $node) {
+                // A wrapper nested inside another is not a document of its own.
+                $nested = false;
+                for ($p = $node->parentNode; $p instanceof \DOMElement; $p = $p->parentNode) {
+                    if (in_array('corex-document-wrapper', preg_split('/\s+/', $p->getAttribute('class')) ?: [], true)) {
+                        $nested = true;
+                        break;
+                    }
+                }
+                if (! $nested) {
+                    $out[] = (string) $dom->saveHTML($node);
+                }
+            }
+
+            return $out;
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
+
+    /**
+     * The documents of a pack with the names the signer knows them by, or [] when this is a single document. Names come
+     * from the envelope's own template list (same order as the pack); if the two lists do not line up they are "Document N".
+     *
+     * @return array<int,array{index:int,name:string}>
+     */
+    public function packDocuments(SignatureRequest $req): array
+    {
+        $document = $this->webDocument($req);
+        if (! $document) {
+            return [];
+        }
+        $fragments = $this->documentFragments($this->canonicalHtml($req, $document));
+        if (count($fragments) < 2) {
+            return [];
+        }
+
+        $data = is_array($document->web_template_data) ? $document->web_template_data : [];
+        $ids = array_values((array) ($data['template_ids'] ?? []));
+        $names = count($ids) === count($fragments)
+            ? \App\Models\Docuperfect\Template::withoutGlobalScopes()->whereIn('id', $ids)->pluck('name', 'id')->all()
+            : [];
+
+        $out = [];
+        foreach ($fragments as $i => $_) {
+            $name = count($ids) === count($fragments) ? (string) ($names[$ids[$i]] ?? '') : '';
+            $out[] = ['index' => $i, 'name' => $name !== '' ? $name : 'Document ' . ($i + 1)];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Validates and resolves the per-document breakdown a pack confirmation showed (see fillAll). [] for a single document.
+     *
+     * @param array<int,array{index?:mixed,signatures?:mixed,initials?:mixed}> $byDocument
+     * @return array<int,array{index:int,name:string,signatures:int,initials:int}>
+     */
+    private function checkedPerDocument(SignatureRequest $req, Document $document, array $byDocument, int $signatureKeys, int $initialKeys): array
+    {
+        $docs = $this->packDocuments($req);
+        if ($docs === []) {
+            return [];
+        }
+        if ($byDocument === []) {
+            throw new InvalidArgumentException('This pack has several documents; the confirmation has to say how many places are filled in each.');
+        }
+
+        $byIndex = [];
+        foreach ($byDocument as $row) {
+            $i = (int) ($row['index'] ?? -1);
+            if ($i < 0 || $i >= count($docs) || isset($byIndex[$i])) {
+                throw new InvalidArgumentException('That is not a document of this pack.');
+            }
+            $byIndex[$i] = ['signatures' => max(0, (int) ($row['signatures'] ?? 0)), 'initials' => max(0, (int) ($row['initials'] ?? 0))];
+        }
+        if (array_sum(array_column($byIndex, 'signatures')) !== $signatureKeys || array_sum(array_column($byIndex, 'initials')) !== $initialKeys) {
+            throw new InvalidArgumentException('The count shown for each document does not add up to the places sent.');
+        }
+
+        $owned = $this->ownedSignaturePlacesPerDocument($req, $document);
+        foreach ($byIndex as $i => $row) {
+            if ($owned !== null && $row['signatures'] > ($owned[$i] ?? 0)) {
+                throw new FillAllUnavailableException('This document cannot be filled in automatically. Please click each place to sign it.');
+            }
+        }
+
+        ksort($byIndex);
+        $out = [];
+        foreach ($byIndex as $i => $row) {
+            $out[] = ['index' => $i, 'name' => $docs[$i]['name']] + $row;
+        }
+
+        return $out;
+    }
+
+    /** Signature places each member document carries for this signer (by document index), or null when it cannot be told. @return array<int,int>|null */
+    private function ownedSignaturePlacesPerDocument(SignatureRequest $req, Document $document): ?array
+    {
+        $fragments = $this->documentFragments($this->canonicalHtml($req, $document));
+        if ($fragments === []) {
+            return null;
+        }
         $sole = $req->template->requests()->where('party_role', $req->party_role)->count() === 1;
 
-        return $this->composer->countOwnedMarkers($html, $req, 'signature', $sole);
+        return array_map(fn (string $html) => $this->composer->countOwnedMarkers($html, $req, 'signature', $sole), $fragments);
+    }
+
+    /**
+     * Build step 6 (disclosure / change interplay, AT-303) — a deliberate click that initials a change or a proposed disclosure
+     * change with the signer's ADOPTED initial. The image is the server-held adoption (the request only says which change); one
+     * place generation + one audit row record it, method stamped_click. It is never part of fill-all.
+     *
+     * @param string $what 'change' | 'disclosure'
+     * @return string the adopted initial image to record against the change
+     * @throws DomainException not an adoption-mode signer / not adopted / no web document
+     */
+    public function stampDeliberateInitial(SignatureRequest $req, string $what, string $ref, Request $http): string
+    {
+        [$document, $adoption] = $this->preflightRequest($req);
+
+        $ref = substr((string) preg_replace('/[^A-Za-z0-9_-]/', '', $ref), 0, 100);
+        $placeKey = 'r' . $req->id . '-init-' . $what . '-' . $ref;
+
+        $written = $this->recorder->record($document, $req, [$placeKey => $adoption->initial_image], [], $http, [
+            'method' => SignaturePlaceGeneration::METHOD_STAMPED_CLICK,
+            'adoption_id' => $adoption->id,
+        ]);
+        $mine = collect($written)->first(fn (SignaturePlaceGeneration $g) => (int) $g->signature_request_id === (int) $req->id);
+        $this->audit($req, 'signature_placed', $http, [
+            'place_key' => $placeKey,
+            'kind' => SignaturePlaceGeneration::KIND_INITIAL,
+            'method' => SignaturePlaceGeneration::METHOD_STAMPED_CLICK,
+            'generation' => $mine?->generation,
+            'adoption_id' => $adoption->id,
+            'adoption_generation' => $adoption->generation,
+            'disclaimer_version' => $adoption->disclaimer_version,
+            'deliberate_act' => $what === 'disclosure' ? 'disclosure_change_initial' : 'change_initial',
+        ]);
+
+        return $adoption->initial_image;
     }
 
     /** What the document's JSON map held for this signer's places before now (the recorder's legacy-original recovery). @return array<string,mixed> */
@@ -342,11 +517,28 @@ class SignaturePlacementService
     private function parseOwnKey(SignatureRequest $req, string $placeKey): array
     {
         $parsed = $this->parseKey($placeKey);
+        if ($parsed && $this->isForeignWitnessKey($req, $placeKey)) {
+            throw new InvalidArgumentException('That place is for the witness to sign. It is never filled in for you.');
+        }
         if (! $parsed || ! in_array($parsed['party'], $this->composer->partyTokensFor((string) $req->party_role), true)) {
             throw new InvalidArgumentException('That is not one of your signature places.');
         }
 
         return $parsed;
+    }
+
+    /**
+     * Build step 6 (witness) — a witness cell belongs to the witness. Another party's adopted mark is never stamped on it,
+     * by a click or by fill-all; if the page shows it to a non-witness signer it is a deliberate capture of their own. A
+     * witness who is a recipient adopts and stamps their own cells like any other signer.
+     */
+    public function isForeignWitnessKey(SignatureRequest $req, string $placeKey): bool
+    {
+        $parsed = $this->parseKey($placeKey);
+
+        return $parsed !== null
+            && $parsed['party'] === 'witness'
+            && ! in_array('witness', $this->composer->partyTokensFor((string) $req->party_role), true);
     }
 
     /** @param array<string,mixed> $metadata */
@@ -361,7 +553,7 @@ class SignaturePlacementService
             'actor_email' => $req->signer_email,
             'actor_ip_address' => $http->ip(),
             'actor_user_agent' => $http->userAgent(),
-            'metadata_json' => $metadata,
+            'metadata_json' => $metadata + $this->adoptions->signingContext($req),
         ]);
     }
 }

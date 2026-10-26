@@ -12,10 +12,22 @@ namespace App\Services\MarketReports;
  * Mapping shape (built by LayoutLearner):
  *   tables[] : {type:'comps', kind:'comp'|'listing', cells:int, columns:[{i,field,format?}]}
  *              {type:'comps', kind, text_slots:[{field,from,to}], entries:[{type:'date'|'num'|'pct', c:int, field?, format?}],
- *               min_fields:int, wrap:bool}   (version 2, for tables whose rows have blank cells or tight columns, where a
- *               cell COUNT is not stable)
+ *               min_fields:int, wrap:bool, lead?:{field:'address', index:bool}}   (an entry may carry `cs`: its column
+ *               position at each scale the table is printed at, when pages differ; version 2, for tables whose rows have
+ *               blank cells or tight columns, where a cell COUNT is not stable; `lead`: the row's text is printed on the
+ *               line above its figures, behind a row number when `index`)
  *              {type:'stats', cells:int, year_col:int, metrics:[{i,metric}]}
- *   scalars[]: {field:'valuation.lower'|'suburb'|…, label:string, type:'money'|'text'}
+ *              {type:'chart', heading:string, nth:int, series:[{metric, kind:'int'|'money_short'|'money'|'pct', rank:int}]}
+ *                (figures printed as data labels on a chart: see "Charts" below)
+ *   scalars[]: {field:'valuation.lower'|'suburb'|…, label:string, type:'money'|'text', placement?:'below'}
+ *              (placement 'below': the label is a column heading and the figure is printed under it, in the same columns)
+ *
+ * Charts: pdftotext -layout puts every data label of a chart on a line of its own, at the character column where it was
+ * drawn, above a line of axis labels (a row of years). A chart is found by its heading line (the nth line with exactly
+ * that text) and the first row of years after it. Every line between them made only of chart labels (R 4.58 M, 44, 12 %)
+ * is read; each label belongs to the year whose axis label is nearest to it (labels beside the axis, further than half a
+ * year-gap from every year, belong to none). A series is "the label of this kind at this rank from the top of the
+ * column" (rank -1 = the lowest): which one carries which metric is learned from the AI read and proven by the self-test.
  *
  * A table row is a line that splits (on runs of 2+ spaces) into exactly `cells` cells
  * AND whose price/date/year cells parse. Anything else — headers, footers, wrapped
@@ -57,11 +69,17 @@ final class LearnedLayoutReader
                 foreach ($this->readStats($lines, $table) as $row) {
                     $out['suburb_stats'][] = $row;
                 }
+            } elseif (($table['type'] ?? null) === 'chart') {
+                foreach ($this->readChart($lines, $table) as $row) {
+                    $out['suburb_stats'][] = $row;
+                }
             }
         }
 
         foreach ((array) ($mapping['scalars'] ?? []) as $scalar) {
-            $value = $this->readScalar($lines, (string) ($scalar['label'] ?? ''), (string) ($scalar['type'] ?? 'text'));
+            $value = ($scalar['placement'] ?? null) === 'below'
+                ? $this->readScalarBelow($lines, (string) ($scalar['label'] ?? ''))
+                : $this->readScalar($lines, (string) ($scalar['label'] ?? ''), (string) ($scalar['type'] ?? 'text'));
             if ($value === null) {
                 continue;
             }
@@ -363,6 +381,9 @@ final class LearnedLayoutReader
         $wrap       = !empty($table['wrap']);
         $skip       = array_map(fn ($s) => [(int) $s['from'], (int) $s['to']], $textSlots);
         $needsDate  = (bool) array_filter($entries, fn ($e) => ($e['field'] ?? null) === 'sale_date');
+        $lead       = is_array($table['lead'] ?? null) ? $table['lead'] : null;
+        $atomLines  = $lead === null ? [] : array_map(fn (string $l) => self::atoms($l), $lines);
+        $dataLines  = [];
 
         $rows = [];
         $lastRow = null;   // index into $rows of the data row a wrapped line may belong to
@@ -377,6 +398,15 @@ final class LearnedLayoutReader
 
             $row = $this->readRowByEntries($atoms, $textSlots, $entries, $skip, $kind);
             if ($row !== null && isset($row['row'][$priceField]) && (!$needsDate || isset($row['row']['sale_date'])) && $row['found'] >= $minFields) {
+                if ($lead !== null) {
+                    // numbered two-line rows: the line above is "<n>  <address>", and a row without it is not a row
+                    $leadText = self::leadText($atomLines, $li, $dataLines, !empty($lead['index']));
+                    if ($leadText === null) {
+                        continue;
+                    }
+                    $row['row'][(string) $lead['field']] = mb_substr($leadText, 0, 160);
+                }
+                $dataLines[$li] = true;
                 $rows[] = $row['row'];
                 $lastRow = count($rows) - 1;
                 $lastLine = $li;
@@ -400,6 +430,43 @@ final class LearnedLayoutReader
         }
 
         return $rows;
+    }
+
+    /**
+     * The text of a row printed on the line ABOVE its figures (within two lines): "8 Carlyke Street", or, with
+     * $needIndex, "3   8 Carlyke Street" where the leading whole number is the row number and is dropped. Null when the
+     * line above is itself a data row, is missing, or (with $needIndex) does not start with a row number.
+     *
+     * @param  array<int, array<int, array{0: string, 1: int, 2: int}>> $atomLines
+     * @param  array<int, bool> $dataLines  lines already read as data rows
+     */
+    public static function leadText(array $atomLines, int $li, array $dataLines, bool $needIndex): ?string
+    {
+        for ($p = $li - 1; $p >= max(0, $li - 2); $p--) {
+            $atoms = $atomLines[$p] ?? [];
+            if ($atoms === []) {
+                continue;
+            }
+            if (isset($dataLines[$p])) {
+                return null;
+            }
+            if ($needIndex) {
+                // a row number: 1-3 digits, no leading zero (the day in "08 Mar 2007" is not one)
+                if (count($atoms) < 2 || !preg_match('/^[1-9]\d{0,2}$/', $atoms[0][0])) {
+                    return null;
+                }
+                $atoms = array_slice($atoms, 1);
+            }
+            foreach (self::typedTokens($atoms) as $token) {
+                if ($token['type'] === 'date') {
+                    return null;   // a property is not described by a date: this is another table's row
+                }
+            }
+
+            return implode(' ', array_map(fn ($a) => $a[0], $atoms));
+        }
+
+        return null;
     }
 
     /**
@@ -458,6 +525,30 @@ final class LearnedLayoutReader
      */
     public static function alignTokens(array $tokens, array $entries): ?array
     {
+        // A table printed at more than one scale (the columns of page 3 and of page 4 sit at different characters)
+        // carries one set of column positions per scale in each entry's `cs`; the row is placed with whichever set fits it best.
+        $variants = 1;
+        foreach ($entries as $e) {
+            $variants = max($variants, count((array) ($e['cs'] ?? [])));
+        }
+        $best = null;
+        $bestCost = INF;
+        for ($v = 0; $v < $variants; $v++) {
+            $set = array_map(fn ($e) => ['c' => $e['cs'][$v] ?? $e['c']] + $e, $entries);
+            $cost = INF;
+            $assign = self::alignOnce($tokens, $set, $cost);
+            if ($assign !== null && $cost < $bestCost) {
+                $best = $assign;
+                $bestCost = $cost;
+            }
+        }
+
+        return $best;
+    }
+
+    /** @return array<int, int>|null */
+    private static function alignOnce(array $tokens, array $entries, float &$totalCost): ?array
+    {
         $a = count($tokens);
         $b = count($entries);
         if ($a === 0 || $a > $b) {
@@ -488,6 +579,7 @@ final class LearnedLayoutReader
         if ($dp[$a][$b] === $inf) {
             return null;
         }
+        $totalCost = $dp[$a][$b];
         $assign = [];
         $i = $a;
         $j = $b;
@@ -570,6 +662,248 @@ final class LearnedLayoutReader
         }
 
         return $rows;
+    }
+
+    // ── charts ───────────────────────────────────────────────────────────
+
+    /**
+     * The words of one line grouped into runs: words one space apart belong together ("R 4.58 M"), a gap of 2+ spaces
+     * starts a new run. [text, from, to) in characters.
+     *
+     * @return array<int, array{0: string, 1: int, 2: int}>
+     */
+    public static function runs(string $line): array
+    {
+        $runs = [];
+        foreach (self::atoms($line) as $atom) {
+            $last = count($runs) - 1;
+            if ($last >= 0 && $atom[1] - $runs[$last][2] < 2) {
+                $runs[$last][0] .= ' ' . $atom[0];
+                $runs[$last][2] = $atom[2];
+            } else {
+                $runs[] = $atom;
+            }
+        }
+
+        return $runs;
+    }
+
+    /**
+     * A line that is only a row of years (an axis): [year, centre column] for each, at least three of them.
+     *
+     * @return array<int, array{0: int, 1: float}>|null
+     */
+    public static function yearAxis(string $line): ?array
+    {
+        $atoms = self::atoms($line);
+        if (count($atoms) < 3) {
+            return null;
+        }
+        $years = [];
+        foreach ($atoms as $a) {
+            if (!preg_match('/^(?:19|20)\d{2}$/', $a[0])) {
+                return null;
+            }
+            $years[] = [(int) $a[0], ($a[1] + $a[2]) / 2];
+        }
+
+        return $years;
+    }
+
+    /**
+     * What one chart label is: ['money_short', 4580000] for "R 4.58 M", ['int', 44], ['pct', 11.5], ['money', 1200000];
+     * null for anything else (a word, a date, a caption).
+     *
+     * @return array{0: string, 1: int|float}|null
+     */
+    public static function chartToken(string $text): ?array
+    {
+        $text = trim($text);
+        if (preg_match('/^R\s?(\d+(?:\.\d+)?)\s?([MK])$/i', $text, $m)) {
+            return ['money_short', (int) round((float) $m[1] * (strtoupper($m[2]) === 'M' ? 1000000 : 1000))];
+        }
+        if (preg_match('/^-?\d+(?:\.\d+)?\s?%$/', $text)) {
+            return ['pct', (float) $text];
+        }
+        if (preg_match('/^R\s?\d[\d ,]*$/', $text)) {
+            $v = self::parseMoney($text);
+
+            return $v === null ? null : ['money', $v];
+        }
+        if (preg_match('/^\d{1,7}$/', $text)) {
+            return ['int', (int) $text];
+        }
+
+        return null;
+    }
+
+    public static function headingKey(string $s): string
+    {
+        return mb_strtolower(trim((string) preg_replace('/\s+/u', ' ', $s)));
+    }
+
+    /**
+     * The chart with this heading: the heading line (the nth line whose whole text is the heading) and the first axis
+     * line after it.
+     *
+     * @param  array<int, string> $lines
+     * @return array{0: int, 1: int}|null [heading line, axis line]
+     */
+    public static function findChart(array $lines, string $heading, int $nth): ?array
+    {
+        $key = self::headingKey($heading);
+        $seen = 0;
+        foreach ($lines as $i => $line) {
+            if (self::headingKey($line) !== $key) {
+                continue;
+            }
+            if ($seen++ < $nth) {
+                continue;
+            }
+            for ($j = $i + 1, $n = count($lines); $j < $n; $j++) {
+                if (self::yearAxis($lines[$j]) !== null) {
+                    return [$i, $j];
+                }
+            }
+
+            return null;
+        }
+
+        return null;
+    }
+
+    /**
+     * Every chart label between a heading and its axis, by year and kind, top of the chart first.
+     *
+     * @param  array<int, string> $lines
+     * @return array<int, array<string, array<int, int|float>>> year => kind => values
+     */
+    public static function chartColumns(array $lines, int $heading, int $axis): array
+    {
+        $years = self::yearAxis($lines[$axis] ?? '');
+        if ($years === null) {
+            return [];
+        }
+        $gap = null;
+        for ($i = 1, $n = count($years); $i < $n; $i++) {
+            $d = $years[$i][1] - $years[$i - 1][1];
+            $gap = $gap === null ? $d : min($gap, $d);
+        }
+        $reach = ($gap ?? 0) / 2;
+
+        $cols = [];
+        for ($li = $heading + 1; $li < $axis; $li++) {
+            $tokens = [];
+            foreach (self::runs($lines[$li]) as [$text, $from, $to]) {
+                $tok = self::chartToken($text);
+                if ($tok === null) {
+                    $tokens = [];   // a line with anything else on it (a caption, a table row) is not a row of chart labels
+                    break;
+                }
+                $tokens[] = [$tok, ($from + $to) / 2];
+            }
+            foreach ($tokens as [$tok, $centre]) {
+                $best = null;
+                foreach ($years as [$year, $yc]) {
+                    $d = abs($centre - $yc);
+                    if ($d <= $reach && ($best === null || $d < $best[1])) {
+                        $best = [$year, $d];
+                    }
+                }
+                if ($best !== null) {
+                    $cols[$best[0]][$tok[0]][] = $tok[1];
+                }
+            }
+        }
+
+        return $cols;
+    }
+
+    /** The label of this kind at this rank in a column (rank 0 = top, -1 = lowest), or null. */
+    public static function pickRank(array $values, int $rank): int|float|null
+    {
+        if ($values === []) {
+            return null;
+        }
+        $i = $rank >= 0 ? $rank : count($values) + $rank;
+
+        return $values[$i] ?? null;
+    }
+
+    /**
+     * @param  array<int, string> $lines
+     * @param  array<string, mixed> $table
+     * @return array<int, array<string, mixed>>
+     */
+    private function readChart(array $lines, array $table): array
+    {
+        $found = self::findChart($lines, (string) ($table['heading'] ?? ''), (int) ($table['nth'] ?? 0));
+        if ($found === null) {
+            return [];
+        }
+        $cols = self::chartColumns($lines, $found[0], $found[1]);
+        $rows = [];
+        foreach ((array) ($table['series'] ?? []) as $s) {
+            foreach ($cols as $year => $byKind) {
+                $value = self::pickRank($byKind[(string) ($s['kind'] ?? '')] ?? [], (int) ($s['rank'] ?? 0));
+                if ($value !== null) {
+                    $rows[] = ['metric' => (string) $s['metric'], 'year' => (int) $year, 'value' => $value];
+                }
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * A figure printed under its own column heading ("Lower Boundary" over "R 4,530,000"): find the heading, then the
+     * amount on the next line that sits in the same columns.
+     *
+     * @param array<int, string> $lines
+     */
+    private function readScalarBelow(array $lines, string $label): ?int
+    {
+        $key = self::headingKey($label);
+        if ($key === '') {
+            return null;
+        }
+        foreach ($lines as $li => $line) {
+            foreach (self::runs($line) as [$text, $from, $to]) {
+                if (self::headingKey($text) !== $key) {
+                    continue;
+                }
+                $v = self::amountUnder($lines, $li, $from, $to);
+                if ($v !== null) {
+                    return $v;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The amount on the first non-empty line below $li (within three lines) whose columns overlap [from, to).
+     *
+     * @param array<int, string> $lines
+     */
+    public static function amountUnder(array $lines, int $li, int $from, int $to): ?int
+    {
+        for ($j = $li + 1; $j <= $li + 3 && $j < count($lines); $j++) {
+            $runs = self::runs($lines[$j]);
+            if ($runs === []) {
+                continue;
+            }
+            foreach ($runs as [$text, $f, $t]) {
+                if (min($t, $to) - max($f, $from) > 0 && preg_match('/^R?\s?\d[\d ,]*$/', trim($text))) {
+                    return self::parseMoney($text);
+                }
+            }
+
+            return null;   // the first non-empty line is the one that counts
+        }
+
+        return null;
     }
 
     /** @param array<int, string> $lines */

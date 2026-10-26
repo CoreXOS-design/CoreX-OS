@@ -1460,6 +1460,16 @@
                         <strong x-text="'all ' + fillAllN + ' place' + (fillAllN === 1 ? '' : 's')"></strong>
                         on this document that <span x-text="fillAllN === 1 ? 'is' : 'are'"></span> yours.
                     </p>
+                    {{-- A pack: one adoption, but the count is stated for EACH document in it, never as one total. --}}
+                    <ul class="text-sm text-slate-800 divide-y divide-slate-100 rounded-lg border border-slate-200" x-show="fillAllDocs.length > 1" data-fill-all-documents>
+                        <template x-for="d in fillAllDocs" :key="d.index">
+                            <li class="flex items-baseline justify-between gap-3 px-3 py-2">
+                                <span class="font-medium" x-text="d.name"></span>
+                                <span class="text-slate-600 whitespace-nowrap"
+                                      x-text="(d.signatures + d.initials) + ' place' + ((d.signatures + d.initials) === 1 ? '' : 's') + ' (' + d.signatures + ' signature' + (d.signatures === 1 ? '' : 's') + ', ' + d.initials + ' initial' + (d.initials === 1 ? '' : 's') + ')'"></span>
+                            </li>
+                        </template>
+                    </ul>
                     <p class="text-sm text-slate-700" x-show="fillAllM > 0">
                         <strong x-text="fillAllM"></strong>
                         <span x-text="fillAllM === 1 ? 'place needs' : 'places need'"></span>
@@ -1631,6 +1641,7 @@ function externalSign() {
         fillAllUnavailable: false,    // the server could not vouch for the list -> fall back to clicking each place
         showFillAll: false,
         fillAllKeys: [],
+        fillAllDocs: [],              // a pack: [{index, name, signatures, initials}] shown in the confirmation
         fillAllN: 0,
         fillAllM: 0,
         fillAllBusy: false,
@@ -1751,6 +1762,12 @@ function externalSign() {
             document.addEventListener('corex-open-change-initial', (e) => {
                 e.preventDefault();
                 const d = e.detail || {};
+                // Modes 2/3: a deliberate click on the signer's own change-initial slot may use their adopted initial.
+                // This is the signer's own act on this one change — never part of fill-all.
+                if (this._adoptedInitialReady() && window.confirm('Initial this change with your adopted initial?\n\nOK = use it   Cancel = draw a new initial')) {
+                    this._initialChangeWithAdopted(d.changeId, d.partyKey);
+                    return;
+                }
                 this.activeMarker = {
                     type: 'initial', assigned_party: this.signerRole || 'signer', label: 'Initial this change',
                     page_number: '', _isChangeInitial: true, _changeId: d.changeId, _partyKey: d.partyKey,
@@ -3453,6 +3470,7 @@ function externalSign() {
         // Handles a click on one of the signer's own places in an adoption mode. Returns true when it was handled
         // here (stamped, or taken back), false to let the normal capture-pad flow run (default mode, or before adopting).
         _stampClick(key, kind) {
+            if (this._isForeignWitnessKey(key)) return false;   // witness cell: the normal capture pad, one deliberate mark
             if (this._fillAllMode()) {
                 if (this.stampedKeys[key]) {
                     this._unstampPlace(key, kind);
@@ -3476,21 +3494,45 @@ function externalSign() {
             const container = this.$refs.webDocContent || null;
             if (container) {
                 container.querySelectorAll('.web-sig-interactive[data-sig-id]').forEach(el => {
+                    if (this._isForeignWitnessKey(el.getAttribute('data-sig-id'))) return; // the witness signs their own cell
                     if (el.getAttribute('data-signed') !== 'true') out.push({ key: el.getAttribute('data-sig-id'), kind: 'signature', el });
                 });
             }
             (this.webInitialElements || []).forEach(e => {
+                if (this._isForeignWitnessKey(e.initKey)) return;
                 if (e.isMine && !e.signed) out.push({ key: e.initKey, kind: 'initial', el: e.el });
             });
             out.sort((a, b) => (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1);
             return out;
         },
 
-        // Places that are never filled automatically: condition initials, change (amendment) initials, disclosure answers.
+        // A witness cell is signed by the witness. For anyone else it is never stamped or filled in for them (build step 6).
+        _isForeignWitnessKey(key) {
+            return typeof key === 'string' && key.indexOf('witness-') === 0 && (this.signerRole || '').toLowerCase() !== 'witness';
+        },
+
+        // True when the signer is in an adoption mode and has adopted: a deliberate click can use the adopted initial.
+        _adoptedInitialReady() {
+            return !!(this.adoption && this.adoption.required && this.adoption.adopted && this.adoption.initialImage);
+        },
+
+        async _initialChangeWithAdopted(changeId, partyKey) {
+            const ok = await window.__corexApplyChangeInitial(changeId, partyKey, null, true);
+            if (!ok) { this.showNotification('Could not initial this change. Please try again.', 'error'); return; }
+            this._paintChangeInitialSlot(changeId, partyKey, this.adoption.initialImage);
+            this.updateIncompleteCount();
+            document.dispatchEvent(new CustomEvent('corex-change-initialed', { detail: { changeId: changeId, partyKey: partyKey } }));
+        },
+
+        // Places that are never filled automatically: condition initials, change (amendment) initials, disclosure answers,
+        // and a witness cell shown to a signer who is not the witness.
         _oneByOneRemaining() {
             let n = document.querySelectorAll('.cir-slot.cir-mine:not(.cir-filled)').length;
             const container = this.$refs.webDocContent || null;
             if (container) {
+                if (this._isForeignWitnessKey('witness-')) {
+                    n += container.querySelectorAll('.web-sig-interactive[data-sig-id^="witness-"]:not([data-signed="true"])').length;
+                }
                 n += container.querySelectorAll('.btn-add-initial[data-condition-id]:not(.initial-filled)').length;
             }
             if (this._signerIsDisclosingParty() && this.totalDisclosureRows > 0) {
@@ -3511,7 +3553,25 @@ function externalSign() {
             this.fillAllKeys = places.map(p => p.key);
             this.fillAllN = places.length;
             this.fillAllM = this._oneByOneRemaining();
+            this.fillAllDocs = this._countByDocument(places);
             this.showFillAll = true;
+        },
+
+        // A pack is N documents in one session: count the places to be filled in each (document order), named by the server.
+        // A single document yields [] and the confirmation shows its one total, exactly as before.
+        _countByDocument(places) {
+            const docs = (this.adoption && this.adoption.documents) || [];
+            if (docs.length < 2) return [];
+            const container = this.$refs.webDocContent || null;
+            const wrappers = container ? Array.from(container.querySelectorAll('.corex-document-wrapper')) : [];
+            const rows = docs.map(d => ({ index: d.index, name: d.name, signatures: 0, initials: 0 }));
+            places.forEach(p => {
+                const w = p.el ? p.el.closest('.corex-document-wrapper') : null;
+                const i = w ? wrappers.indexOf(w) : -1;
+                if (i < 0 || !rows[i]) return;
+                if (p.kind === 'initial') rows[i].initials++; else rows[i].signatures++;
+            });
+            return rows;
         },
 
         async confirmFillAll() {
@@ -3521,7 +3581,7 @@ function externalSign() {
                 const resp = await fetch('/sign/' + this.token + '/place-all', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': this._csrf() },
-                    body: JSON.stringify({ place_keys: this.fillAllKeys, one_by_one: this.fillAllM, confirmed: true }),
+                    body: JSON.stringify({ place_keys: this.fillAllKeys, one_by_one: this.fillAllM, confirmed: true, by_document: this.fillAllDocs.map(d => ({ index: d.index, signatures: d.signatures, initials: d.initials })) }),
                 });
                 const d = await resp.json().catch(() => ({}));
                 if (!resp.ok || !d.ok) {
@@ -4294,6 +4354,13 @@ function externalSign() {
                 return;
             }
             this.pendingDisclosureAmend = { key: key, statement: statement, newValue: newValue };
+            // Modes 2/3: the proposer's own initial on the change is one deliberate click with the adopted initial.
+            if (this._adoptedInitialReady() && window.confirm('Initial your proposed change with your adopted initial?\n\nOK = use it   Cancel = draw a new initial')) {
+                const amend = this.pendingDisclosureAmend;
+                this.pendingDisclosureAmend = null;
+                this.submitDisclosureAmendment(amend, null, true);
+                return;
+            }
             this.currentWebSigBlockId = null;
             this.webSigMode = 'draw';
             this.webTypedSignature = '';
@@ -4301,7 +4368,7 @@ function externalSign() {
             this.$nextTick(() => this.initWebSigCanvas());
         },
 
-        submitDisclosureAmendment(amend, initialImage) {
+        submitDisclosureAmendment(amend, initialImage, useAdopted) {
             fetch('/sign/' + this.token + '/disclosure/' + encodeURIComponent(amend.key) + '/amend', {
                 method: 'POST',
                 headers: {
@@ -4313,6 +4380,7 @@ function externalSign() {
                     new_value: amend.newValue,
                     statement: amend.statement,
                     initial_image: initialImage,
+                    use_adopted: !!useAdopted,
                 }),
             })
             .then(r => r.json().then(d => ({ ok: r.ok, d })))
