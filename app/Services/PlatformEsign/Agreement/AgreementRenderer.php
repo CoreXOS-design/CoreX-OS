@@ -22,6 +22,8 @@ class AgreementRenderer
     /** Screen-only helper text beside the dates RR sets (never in a PDF; a declared addition of the proof). */
     public const TAKE_ON_TIP = 'Set by CoreX as agreed for your take-on month.';
     public const AMOUNT_TIP = 'Fills in automatically from your monthly fee in section 3.';
+    /** A date the server stamps on the day the agency signs (Part A date and the mandate Date) — nothing to fill in, nothing to link to. */
+    public const SIGNING_DATE_TIP = 'Filled in on the day you sign.';
 
     private const LINE_APPLIES = ['team' => ['team_seats'], 'agency' => ['agency_base', 'agency_t1', 'agency_t2', 'agency_t3', 'branches']];
 
@@ -209,7 +211,7 @@ class AgreementRenderer
                 // The date the agency signs: stamped by the server when they sign — shown, never typed (Johan 2026-10-27). Until then it reads today.
                 $v = $this->value($key);
 
-                return '<input type="date" class="fld" name="' . e($key) . '" id="fld-' . e($key) . '" data-field="' . e($key) . '" value="' . e($v !== '' ? $v : now()->toDateString()) . '" readonly tabindex="-1" data-derived="1" aria-label="' . e($f['label']) . '" title="Filled in automatically with the date you sign.">'; // no on-page text: the word-for-word proof stays exact
+                return '<input type="date" class="fld" name="' . e($key) . '" id="fld-' . e($key) . '" data-field="' . e($key) . '" value="' . e($v !== '' ? $v : now()->toDateString()) . '" readonly tabindex="-1" data-derived="1" aria-label="' . e($f['label']) . '">' . self::tipHtml([self::SIGNING_DATE_TIP, null, null]);
             }
             if (!empty($this->ctx['rr']['single_entry']) && isset(AgreementFields::FOLLOW[$key])) {
                 // Starts from (and follows) Part A until the recipient types their own value here; clearing the box makes it follow again.
@@ -318,7 +320,7 @@ class AgreementRenderer
         'da_account' => ['Fills in automatically from the {link}.', 'debit order mandate', 'fld-m_account'],
         'da_type' => ['Fills in automatically from the {link}.', 'debit order mandate', 'fld-m_account_type-current'],
         'm_place' => ['Fills in automatically from the {link} in section 6.', 'place', 'fld-sig_place'],
-        'm_date' => ['Fills in automatically from the {link} in section 6.', 'date', 'fld-sig_date'],
+        'm_date' => [self::SIGNING_DATE_TIP, null, null], // stamped by the server on the day of signing, not read from another box
     ];
 
     /** Mandate address / contact number: follow Part A but stay editable (Johan 2026-10-06 13:20). Screen only. */
@@ -332,7 +334,32 @@ class AgreementRenderer
     {
         [$sentence, $link] = self::MIRROR_TIPS[$key];
 
-        return str_replace('{link}', $link, $sentence);
+        return $link === null ? $sentence : str_replace('{link}', $link, $sentence);
+    }
+
+    /**
+     * The ONE place a mirror tip becomes markup. A sentence that names a link ("from the {link} in section N") needs a non-empty link
+     * text AND a target; if either is missing no tip is rendered at all — a half-built sentence ("from the  in section 6") can never reach a page.
+     *
+     * @param array{0:string,1:?string,2:?string} $spec [sentence, link text, link target id]
+     */
+    public static function tipHtml(array $spec): string
+    {
+        [$sentence, $label, $target] = $spec + [null, null, null];
+        $sentence = trim((string) $sentence);
+        if ($sentence === '') {
+            return '';
+        }
+        if (str_contains($sentence, '{link}')) {
+            if (trim((string) $label) === '' || trim((string) $target) === '') {
+                return '';
+            }
+            $link = '<a href="#' . e($target) . '" data-goto="' . e($target) . '">' . e($label) . '</a>';
+
+            return '<span class="auto-tip" data-screen-only="1">' . str_replace('{link}', $link, e($sentence)) . '</span>';
+        }
+
+        return '<span class="auto-tip" data-screen-only="1">' . e($sentence) . '</span>';
     }
 
     private function mirrorField(string $key, array $f): string
@@ -347,11 +374,7 @@ class AgreementRenderer
         };
         $attrs = ' data-mirror-of="' . e($source) . '"' . ($sf['type'] === 'date' ? ' data-format="date"' : '')
             . (in_array($sf['type'], ['radio', 'select'], true) ? " data-map='" . e(json_encode($sf['options'], JSON_UNESCAPED_UNICODE), ENT_QUOTES) . "'" : '');
-        $tip = '';
-        if ($spec = self::MIRROR_TIPS[$key] ?? null) {
-            $link = '<a href="#' . e($spec[2]) . '" data-goto="' . e($spec[2]) . '">' . e($spec[1]) . '</a>';
-            $tip = '<span class="auto-tip" data-screen-only="1">' . str_replace('{link}', $link, e($spec[0])) . '</span>';
-        }
+        $tip = ($spec = self::MIRROR_TIPS[$key] ?? null) ? self::tipHtml($spec) : '';
         $common = ' readonly tabindex="-1" data-derived="1"' . $attrs . ' aria-label="' . e($f['label']) . '"';
         if ($sf['type'] === 'textarea') {
             return '<textarea class="fld" rows="2"' . $common . '>' . e($shown) . '</textarea>' . $tip;
@@ -492,7 +515,10 @@ class AgreementRenderer
         $type = $f['type'] === 'date' ? 'date' : 'text';
         if ($key === 'rr_date') {
             // The countersign date is stamped by the server when RR countersigns — shown, never typed (Johan 2026-10-27).
-            return '<input type="date" class="fld" name="rr_date" id="fld-rr_date" data-field="rr_date" data-required="1" value="' . e($v !== '' ? $v : now()->toDateString()) . '" readonly tabindex="-1" data-derived="1" aria-label="' . e($f['label']) . '">';
+            $co = $this->ctx['company'] ?? app(AgreementCompany::class);
+
+            return '<input type="date" class="fld" name="rr_date" id="fld-rr_date" data-field="rr_date" data-required="1" value="' . e($v !== '' ? $v : now()->toDateString()) . '" readonly tabindex="-1" data-derived="1" aria-label="' . e($f['label']) . '">'
+                . self::tipHtml(['Filled in on the day ' . $co->legalName() . ' countersigns.', null, null]);
         }
 
         return '<input type="' . $type . '" class="fld' . ($err ? ' err' : '') . '" name="' . e($key) . '" id="fld-' . e($key) . '" data-field="' . e($key) . '" data-required="1" maxlength="' . (int) $f['max'] . '" value="' . e($v) . '" aria-label="' . e($f['label']) . '"' . ($err ? ' title="' . e($err) . '"' : '') . '>';
