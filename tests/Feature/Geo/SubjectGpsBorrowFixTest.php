@@ -91,9 +91,9 @@ final class SubjectGpsBorrowFixTest extends TestCase
     public function test_suburb_alone_never_borrows_a_sibling_pin(): void
     {
         // Only a DIFFERENT-street report exists in the same suburb.
-        $this->seedReport('ACACIA ROAD', 'margate', -30.8468120, 30.3764720);
+        $this->seedReport('3 ACACIA ROAD', 'margate', -30.8468120, 30.3764720);
 
-        $result = (new AddressResolverService())->resolve('Duke Road', 'Margate');
+        $result = (new AddressResolverService())->resolve('12 Duke Road', 'Margate');
 
         // No address match → must NOT borrow Acacia Road's coords. With no
         // Google key the resolver returns a clean failure, not a wrong pin.
@@ -106,10 +106,10 @@ final class SubjectGpsBorrowFixTest extends TestCase
     {
         // Correct report first (lower id), wrong sibling second (HIGHER id).
         // Pre-fix the suburb OR-clause + orderByDesc(id) returned the sibling.
-        $this->seedReport('DUKE ROAD', 'margate', -30.8578220, 30.3742930);
-        $this->seedReport('ACACIA ROAD', 'margate', -30.8468120, 30.3764720);
+        $this->seedReport('12 DUKE ROAD', 'margate', -30.8578220, 30.3742930);
+        $this->seedReport('3 ACACIA ROAD', 'margate', -30.8468120, 30.3764720);
 
-        $result = (new AddressResolverService())->resolve('Duke Road', 'Margate');
+        $result = (new AddressResolverService())->resolve('12 Duke Road', 'Margate');
 
         $this->assertTrue($result->hasGps());
         $this->assertEqualsWithDelta(-30.8578220, $result->latitude, 0.00001,
@@ -122,13 +122,13 @@ final class SubjectGpsBorrowFixTest extends TestCase
     public function test_suspect_pin_self_heals_bypassing_poisoned_cache_and_upgrading_confidence(): void
     {
         // The corrected source-of-truth report exists.
-        $this->seedReport('DUKE ROAD', 'margate', -30.8578220, 30.3742930);
+        $this->seedReport('12 DUKE ROAD', 'margate', -30.8578220, 30.3742930);
 
         // Poison the cache with the wrong (borrowed) coords for this address.
-        $normalised = AddressNormaliser::normalise('Duke Road', 'Margate', null);
+        $normalised = AddressNormaliser::normalise('12 Duke Road', 'Margate', null);
         GeocodingCache::create([
             'address_normalised' => $normalised,
-            'address_raw'        => 'Duke Road',
+            'address_raw'        => '12 Duke Road',
             'latitude'           => -30.8468120,
             'longitude'          => 30.3764720,
             'confidence'         => 'suburb',
@@ -142,7 +142,7 @@ final class SubjectGpsBorrowFixTest extends TestCase
             'agent_id'       => $this->userId,
             'external_id'    => 'GPS-' . Str::random(6),
             'title'          => 'Duke Road',
-            'address'        => 'Duke Road',
+            'address'        => '12 Duke Road',
             'suburb'         => 'Margate',
             'latitude'       => -30.8468120,
             'longitude'      => 30.3764720,

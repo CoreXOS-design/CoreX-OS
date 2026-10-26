@@ -322,6 +322,29 @@ African latitude is negative). A report that prints the pair as one "GPS: -25.9,
 (stated limit). Tests: `ReportSubjectCoordinatesCanonicalTest` (canonical read, learned layout, unknown layout ->
 property).
 
+## Reusing a stored coordinate: number + street + suburb (27 Oct 2026, NUMBER-MATCH-FIX)
+
+**What went wrong.** The resolver's "market_reports.subject_address" step (and the portal-capture step) matched a
+stored record on the street name alone — its needle list always included the address with the house number
+stripped. "14 Manikie St" was pinned exactly on the report subject "11 Manikie St" (report 438, presentation 231 on
+QA1, cached as `market_report` / `exact`), and the comparable pool then dropped it as the subject itself.
+
+**Rule (one place: `App\Support\Geocoding\StreetAddressMatch`, used by both steps; the property fallback in "Report
+coordinates" is the same rule).** Another record's coordinates are reused only when the street **number**, the street
+**name** and the **suburb** all match, as whole words: `11` is not `111` or `11A`; no number on the address being
+resolved, no number on the stored subject, or no suburb = no reuse. Anything else goes to Google (or stays unpinned),
+never to the neighbour's pin. No street-type canonicalisation (`St` vs `Street`): a miss costs one Google call, a false
+hit puts a house on its neighbour. The old number-stripping needle builder was deleted so it cannot be used again.
+
+**Clearing a bad stored pin.** A comp row or cache entry that already holds a neighbour's pin is cleared by nulling the
+row's latitude/longitude and deleting its `geocoding_cache` entry; the next presentation generate re-geocodes it.
+Tests: `ResolverNumberMatchTest` (same street + different number is not the subject's pin; it goes to Google and gets its
+own; same number still reuses; suburb leg; no-number both ways; 11 vs 111 / 11A).
+
+**Per-user daily Google cap.** `GeocodeRateLimiter::getUserCap()` reads `config('geo.geocoding.user_daily_cap')`, i.e. the
+`GEOCODING_USER_DAILY_CAP` environment value (code default 30), per environment — not a hard-coded constant, so there is
+nothing to turn into a setting. QA1 and Staging run it at 50.
+
 ## Failure is recorded (27 Oct 2026)
 
 `PropertyObserver` create/update hooks swallowed a thrown geocode with a log line, leaving `geo_source` NULL
