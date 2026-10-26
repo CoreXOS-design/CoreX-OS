@@ -1849,6 +1849,8 @@ return [
             ['controller' => SettingsController::class, 'method' => 'savePpraEmploymentLetterSettings'],
             // Rentals cross-cut — FICA time windows; has()-guarded per field (§6.1).
             ['controller' => FicaOfficerAppointmentsController::class, 'method' => 'saveWindowSettings'],
+            // E-sign signing modes (esign-signing-modes.md, ruling 5) — has()-guarded; 403 before any write without esign.settings.
+            ['controller' => \App\Http\Controllers\Docuperfect\EsignSigningModeSettingsController::class, 'method' => 'saveFromWizard'],
         ],
         'controls' => [
             ['key' => 'financial_year_start_month', 'source' => 'agency', 'type' => 'select', 'default' => 3,
@@ -1912,6 +1914,16 @@ return [
              'label' => 'Trust account name (rent and deposits)',
              'explain' => 'How your clients should refer to the trust account their rent and deposit are paid into. Tenants and landlords see it in the payment guidance on the FICA form. Leave it blank and the form says "the agency\'s trust account".',
              'affects' => 'The wording of the payment hints on the FICA form your tenants and landlords fill in, e.g. "paid via EFT to the Smith Property Trust Account".'],
+            // E-sign signing modes (esign-signing-modes.md, Johan's ruling 5, 23 Oct 2026) - the same choice as E-Sign -> How my signers sign.
+            ['key' => 'signing_mode', 'source' => 'esign', 'type' => 'select', 'default' => 'sign_each', 'heading' => 'E-signing',
+             'options' => [
+                 'sign_each' => 'Sign every place - the signer signs or initials each place, one by one',
+                 'adopt_then_stamp' => 'Adopt once, then click to stamp - the signer adopts a signature and initial once, then each place is one click',
+                 'adopt_and_fill_all' => 'Adopt once and fill everything - the signer adopts once, confirms once, and every signature and initial place that is theirs is filled',
+             ],
+             'label' => 'How my signers sign',
+             'explain' => 'How people who sign by link (tenants, landlords, sellers, buyers, directors, witnesses) put their signature and initials on a document you send them. Your own agents keep their saved signature either way.',
+             'affects' => 'What a signer does on the signing page. Documents already out for signing finish the way they were sent; only documents sent from now on follow this choice. Condition and amendment initials and disclosure answers are always done one by one, whichever you pick.'],
         ],
     ],
 
