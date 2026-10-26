@@ -408,6 +408,18 @@
     ],
     "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
   },
+  "corex.rental-inventories.inspection-photos.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "JSON lookup behind the room screen of an inventory (audit 2026-10-19 B32): lists the move-in inspection photos the inventory can share instead of photographing the room again. Not a page, so it has no sidebar entry."
+  },
+  "corex.rental-inventories.lines.move-out-inspection-photos.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "JSON lookup behind an inventory line (audit 2026-10-19 B32): lists the move-out inspection photos the line can use as its evidence instead of photographing it again. Not a page, so it has no sidebar entry."
+  },
   "corex.rental-inventories.signatures.wet-ink-file": {
     "flags": [
       "NO_ITEM"
