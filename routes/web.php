@@ -3510,10 +3510,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Conductor's ruling, AT-442 follow-up — own narrow saver, same discipline.
     Route::post('/settings/rental-work-orders/show-costs-on-printed-job-card', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'updateShowCostsOnPrintedJobCard'])
         ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.show-costs-on-printed-job-card');
-    // AT-509 — .ai/specs/property-compliance-gate-settings.md §7.1. Compliance Switches: the agency's own
-    // on/off for each property marketing-compliance check, with the disclaimer and permanent history.
+    // AT-509 — .ai/specs/property-compliance-gate-settings.md §7.1. Compliance Switches (a section of the
+    // Settings page): the agency's own on/off for each property marketing-compliance check, with the
+    // disclaimer and permanent history. Save endpoint only — the form lives on /corex/settings.
     Route::prefix('settings/compliance-switches')->middleware('permission:compliance_switches.manage')->group(function () {
-        Route::get('/', [\App\Http\Controllers\CoreX\ComplianceSwitchesController::class, 'edit'])->name('corex.settings.compliance-switches.edit');
         Route::post('/', [\App\Http\Controllers\CoreX\ComplianceSwitchesController::class, 'update'])->name('corex.settings.compliance-switches.update');
     });
     // AT-445 — .ai/specs/rental-portal-access.md §7. Tenant/landlord/contractor portal on/off switches.

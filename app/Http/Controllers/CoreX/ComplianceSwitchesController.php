@@ -7,10 +7,10 @@ use App\Models\Agency;
 use App\Services\Compliance\ComplianceGateSettingsService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\View\View;
 
 /**
- * AT-509 — Settings → Agency → Compliance Switches (.ai/specs/property-compliance-gate-settings.md §7.1).
+ * AT-509 — Settings → Agency → Compliance Switches (.ai/specs/property-compliance-gate-settings.md §7.1). The
+ * form is a section of the Settings page (SettingsController::index() loads formData()); this is its saver.
  *
  * update() is ALSO the Setup Wizard's saver for the Properties & listings step (spec §11). Per
  * .ai/specs/agency-onboarding-setup.md §6.1 it does nothing unless the form's marker field was posted, and
@@ -21,16 +21,6 @@ class ComplianceSwitchesController extends Controller
 {
     public function __construct(private ComplianceGateSettingsService $gates)
     {
-    }
-
-    public function edit(Request $request): View
-    {
-        abort_unless($request->user()->hasPermission('compliance_switches.manage'), 403);
-
-        $agencyId = (int) $request->user()->effectiveAgencyId();
-        abort_unless($agencyId > 0, 404);
-
-        return view('corex.settings.compliance-switches', self::formData($this->gates, $agencyId));
     }
 
     public function update(Request $request): RedirectResponse
@@ -65,7 +55,9 @@ class ComplianceSwitchesController extends Controller
             ? 'No compliance switches changed.'
             : 'Compliance switches saved. Checks switched on apply to every listing that is not live yet; listings already live keep the checks they went live with.';
 
-        return back()->with('success', $message);
+        // Back to the Settings page's Compliance Switches section. (Inside the Setup Wizard this return
+        // value is ignored — the wizard redirects itself.)
+        return redirect()->route('corex.settings', ['s' => 'compliance-switches'])->with('success', $message);
     }
 
     /**

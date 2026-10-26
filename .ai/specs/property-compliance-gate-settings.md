@@ -149,9 +149,11 @@ each gate at the moment it went live.
 
 ## 7. UI
 
-### 7.1 Settings → Agency → "Compliance Switches" (its own page)
-Route `corex/settings/compliance-switches` (`corex.settings.compliance-switches.edit/update`),
-linked from the Settings rail's Agency group. The form itself is one shared partial
+### 7.1 Settings → Agency → "Compliance Switches" (a section of the Settings page)
+A `section` in the Settings page's Agency group (`/corex/settings?s=compliance-switches`), built
+into the page like every other settings section, never a separate page (Andre 2026-10-26).
+`SettingsController::index()` loads its data for users holding the key; the form posts to
+`corex.settings.compliance-switches.update` and returns to the section. The form itself is one shared partial
 (`corex/settings/partials/compliance-switches-form.blade.php`) so the settings page and the
 Setup Wizard render the same controls and disclaimer and post to the same saver.
 
@@ -276,13 +278,12 @@ Switching off in the wizard shows the same disclaimer and records the same histo
 - **new** `app/Models/ComplianceGateChange.php` (no update/delete)
 - **new** `app/Http/Controllers/Admin/ComplianceSwitchesAuditController.php` + views under
   `resources/views/admin/dev-settings/compliance-switches/` (index, history, _header)
-- **new** `app/Http/Controllers/CoreX/ComplianceSwitchesController.php`,
-  `resources/views/corex/settings/compliance-switches.blade.php`,
+- **new** `app/Http/Controllers/CoreX/ComplianceSwitchesController.php` (saver + shared `formData()`),
   `resources/views/corex/settings/partials/compliance-switches-form.blade.php`,
   `resources/views/agency-setup/steps/compliance-switches.blade.php`
 - **mod** `MarketingReadinessService.php` (read via service, snapshot v3, grey rows, Drive checklist empty when master off)
 - **mod** `readiness-panel.blade.php`
-- **mod** `resources/views/corex/settings.blade.php` (rail link only), `routes/web.php`
+- **mod** `resources/views/corex/settings.blade.php` (rail entry + section), `SettingsController::index()`, `routes/web.php`
 - **mod** `SplitterDocTypeController.php` + `admin/splitter/doc-types.blade.php` (read-only tick)
 - **mod** `config/corex-compliance.php` (disclaimer), `config/corex-permissions.php`,
   `config/agency-onboarding-copy.php` + `AgencySetupWizardController::stepData()` (wizard)

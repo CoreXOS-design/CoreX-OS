@@ -113,7 +113,7 @@ final class ComplianceGateSettingsTest extends TestCase
     private function save(array $gates, ?string $accepted = null)
     {
         return $this->actingAs($this->admin)
-            ->from(route('corex.settings.compliance-switches.edit'))
+            ->from(route('corex.settings', ['s' => 'compliance-switches']))
             ->withServerVariables(['REMOTE_ADDR' => '41.13.250.7'])
             ->post(route('corex.settings.compliance-switches.update'), array_filter([
                 'compliance_switches_submitted' => '1',
@@ -249,13 +249,30 @@ final class ComplianceGateSettingsTest extends TestCase
         $this->assertSame(0, ComplianceGateChange::count());
     }
 
-    public function test_settings_page_renders_for_a_permitted_user_and_is_403_without_the_key(): void
+    public function test_settings_page_has_the_section_for_a_permitted_user_only(): void
     {
-        $this->actingAs($this->admin)->get(route('corex.settings.compliance-switches.edit'))
-            ->assertOk()->assertSee('Compliance Switches')->assertSee('FICA');
+        // The Settings page is several MB of HTML; plain contains-checks keep a failure message readable.
+        $page = $this->actingAs($this->admin)->get(route('corex.settings', ['s' => 'compliance-switches']));
+        $this->assertSame(200, $page->getStatusCode());
+        $html = $page->getContent();
+        $this->assertTrue(str_contains($html, "activeSection === 'compliance-switches'"), 'section missing');
+        $this->assertTrue(str_contains($html, 'compliance_switches_submitted'), 'form missing');
+        $this->assertTrue(str_contains($html, 'Compliance check before marketing'), 'master switch missing');
 
+        // Someone who can open Settings but does not hold the key sees no section and cannot save.
+        Role::create(['name' => 'agent', 'label' => 'Agent', 'agency_id' => $this->agency->id]);
+        RolePermission::updateOrCreate(['role' => 'agent', 'permission_key' => 'access_settings', 'agency_id' => $this->agency->id], []);
+        Role::clearCache();
+        PermissionService::clearCache();
         $agent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent', 'is_active' => true]);
-        $this->actingAs($agent)->get(route('corex.settings.compliance-switches.edit'))->assertForbidden();
+
+        $agentPage = $this->actingAs($agent)->get(route('corex.settings'));
+        $this->assertSame(200, $agentPage->getStatusCode());
+        $this->assertFalse(str_contains($agentPage->getContent(), 'compliance_switches_submitted'), 'section shown without the key');
+        $this->actingAs($agent)->post(route('corex.settings.compliance-switches.update'), [
+            'compliance_switches_submitted' => '1', 'gates' => ['doc:fica' => '0'], 'compliance_disclaimer_accepted' => $this->version,
+        ])->assertForbidden();
+        $this->assertSame(0, ComplianceGateChange::count());
     }
 
     public function test_dev_settings_pages_list_every_agency_and_the_history_for_the_system_owner_only(): void

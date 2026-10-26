@@ -356,7 +356,7 @@
                                               title="Whether a {{ $t->label }} must be on file before a property can be marketed (this agency only).">
                                             {{ ($complianceMap[$t->id] ?? false) ? 'Required to market' : 'Not required to market' }}
                                         </span>
-                                        <a href="{{ route('corex.settings.compliance-switches.edit') }}" class="block text-[11px] mt-1 underline" style="color:var(--text-muted);">Manage in Compliance Switches</a>
+                                        <a href="{{ route('corex.settings', ['s' => 'compliance-switches']) }}" class="block text-[11px] mt-1 underline" style="color:var(--text-muted);">Manage in Compliance Switches</a>
                                     </div>
 
                                     {{-- Buyer pack (catalogue default + per-agency override) --}}

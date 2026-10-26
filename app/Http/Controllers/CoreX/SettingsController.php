@@ -374,6 +374,14 @@ class SettingsController extends Controller
             $data['leaveTypes'] = \App\Http\Controllers\Leave\LeaveTypeController::listData($request);
         }
 
+        // AT-509 — Agency: Compliance Switches section (.ai/specs/property-compliance-gate-settings.md §7.1).
+        $data['complianceSwitches'] = null;
+        if ($user && $user->hasPermission('compliance_switches.manage') && (int) $user->effectiveAgencyId() > 0) {
+            $data['complianceSwitches'] = \App\Http\Controllers\CoreX\ComplianceSwitchesController::formData(
+                app(\App\Services\Compliance\ComplianceGateSettingsService::class), (int) $user->effectiveAgencyId()
+            );
+        }
+
         return view('corex.settings', $data);
     }
 
