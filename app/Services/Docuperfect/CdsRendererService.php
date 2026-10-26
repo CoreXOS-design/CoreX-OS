@@ -148,27 +148,117 @@ class CdsRendererService
 
     private function renderTable(array $section): string
     {
-        $html = '<table class="corex-table">';
+        $colWidths = $this->tableColumnWidths($section);
+        $html = '<table class="corex-table"' . $this->tableGeometryAttributes($section, $colWidths) . '>';
+        $html .= $this->tableColgroup($colWidths);
+
+        // The first rendered row also carries the column widths on its cells: dompdf (the print-and-sign
+        // PDF) honours cell widths more reliably than <col>.
+        $widthsOnCells = $colWidths;
 
         if (!empty($section['headers'])) {
             $html .= '<thead><tr>';
-            foreach ($section['headers'] as $header) {
-                $html .= '<th>' . e($header) . '</th>';
-            }
+            $html .= $this->tableCells('th', $section['headers'], $section['header_meta'] ?? [], $widthsOnCells);
             $html .= '</tr></thead>';
+            $widthsOnCells = [];
         }
 
         $html .= '<tbody>';
-        foreach ($section['rows'] ?? [] as $row) {
+        foreach ($section['rows'] ?? [] as $i => $row) {
             $html .= '<tr>';
-            foreach ($row as $cell) {
-                $html .= '<td>' . e($cell) . '</td>';
-            }
+            $html .= $this->tableCells('td', $row, $section['cell_meta'][$i] ?? [], $widthsOnCells);
             $html .= '</tr>';
+            $widthsOnCells = [];
         }
         $html .= '</tbody></table>';
 
         return $html;
+    }
+
+    /**
+     * The imported table's column widths as percentages of the table, or [] when the source stated
+     * none (a table stored before widths were read renders exactly as it always did).
+     */
+    private function tableColumnWidths(array $section, ?int $expectedColumns = null): array
+    {
+        $widths = array_values(array_filter((array) ($section['col_widths'] ?? []), fn ($w) => is_numeric($w) && $w > 0));
+        if (count($widths) < 2 || count($widths) !== count((array) ($section['col_widths'] ?? []))) {
+            return [];
+        }
+        if ($expectedColumns !== null && count($widths) !== $expectedColumns) {
+            return [];
+        }
+
+        return array_map('floatval', $widths);
+    }
+
+    /** ` style="…" data-src-geometry="1"` for a table with stored geometry; '' when it has none. */
+    private function tableGeometryAttributes(array $section, array $colWidths): string
+    {
+        $style = [];
+        $widthPct = isset($section['width_pct']) && is_numeric($section['width_pct']) ? (float) $section['width_pct'] : null;
+        if ($widthPct !== null) {
+            $style[] = 'width:' . $this->pct($widthPct);
+        }
+        if ($colWidths !== []) {
+            $style[] = 'table-layout:fixed';
+        }
+        if (($section['align'] ?? '') === 'center') {
+            $style[] = 'margin-left:auto;margin-right:auto';
+        } elseif (($section['align'] ?? '') === 'right') {
+            $style[] = 'margin-left:auto';
+        }
+
+        return $style === []
+            ? ''
+            : ' style="' . implode(';', $style) . '" data-src-geometry="1"';
+    }
+
+    private function tableColgroup(array $colWidths): string
+    {
+        if ($colWidths === []) {
+            return '';
+        }
+        $html = '<colgroup>';
+        foreach ($colWidths as $w) {
+            $html .= '<col style="width:' . $this->pct($w) . '">';
+        }
+
+        return $html . '</colgroup>';
+    }
+
+    /**
+     * One row of cells. $meta[i] may carry a merged-cell span and the source's alignment for the cell;
+     * $colWidths (first row only) puts each cell's width on the cell itself.
+     */
+    private function tableCells(string $tag, array $cells, array $meta, array $colWidths): string
+    {
+        $html = '';
+        $col = 0;
+        foreach ($cells as $i => $cell) {
+            $span = max(1, (int) ($meta[$i]['span'] ?? 1));
+            $attrs = $span > 1 ? ' colspan="' . $span . '"' : '';
+            $style = [];
+            if ($colWidths !== []) {
+                $style[] = 'width:' . $this->pct(array_sum(array_slice($colWidths, $col, $span)));
+            }
+            $align = $meta[$i]['align'] ?? null;
+            if (in_array($align, ['center', 'right', 'justify'], true)) {
+                $style[] = 'text-align:' . $align;
+            }
+            if ($style !== []) {
+                $attrs .= ' style="' . implode(';', $style) . '"';
+            }
+            $html .= "<{$tag}{$attrs}>" . e($cell) . "</{$tag}>";
+            $col += $span;
+        }
+
+        return $html;
+    }
+
+    private function pct(float $value): string
+    {
+        return rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.') . '%';
     }
 
     /**
@@ -427,7 +517,11 @@ class CdsRendererService
         $html = '<div class="corex-disclosure-checklist" '
             . 'data-section-type="disclosure_checklist">';
 
-        $html .= '<table class="corex-disclosure-table">';
+        // Keep the source's column widths when the Word grid has exactly the columns drawn here
+        // (a grid with an extra Notes column cannot be mapped one-to-one, so it keeps the stylesheet widths).
+        $colWidths = $this->tableColumnWidths($section, $cols);
+        $html .= '<table class="corex-disclosure-table"' . $this->tableGeometryAttributes($section, $colWidths) . '>';
+        $html .= $this->tableColgroup($colWidths);
         $html .= '<thead><tr>';
         $html .= '<th class="corex-disclosure-statement">Statement</th>';
         $html .= '<th class="corex-disclosure-option">YES</th>';
