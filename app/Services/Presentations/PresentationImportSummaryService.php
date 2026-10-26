@@ -26,7 +26,7 @@ class PresentationImportSummaryService
 {
     /**
      * @return array{
-     *   reports_imported:int, comps_parsed:int, sold_hydrated:int,
+     *   report_ids:list<int>, reports_imported:int, comps_parsed:int, sold_hydrated:int,
      *   active_hydrated:int, mapped:int, unmapped:int
      * }
      */
@@ -70,12 +70,53 @@ class PresentationImportSummaryService
         $totalHydrated = $soldHydrated + $activeHydrated;
 
         return [
+            'report_ids'       => array_values(array_map('intval', $subjectReportIds)),
             'reports_imported' => count($subjectReportIds),
             'comps_parsed'     => $compsParsed,
             'sold_hydrated'    => $soldHydrated,
             'active_hydrated'  => $activeHydrated,
             'mapped'           => $mapped,
             'unmapped'         => max(0, $totalHydrated - $mapped),
+        ];
+    }
+
+    /**
+     * The one-line answer to "comps were read but nothing was hydrated — why?", with the page that fixes it.
+     * Null when the screen has nothing to explain (something hydrated, or no comp was read from any report).
+     *
+     * @param  array<string, mixed> $summary   build() plus excluded_by_type
+     * @param  array<string, mixed> $hydration the version's hydration_summary_json (written by the hydrator)
+     * @return array{text:string, url:?string, link:string}|null
+     */
+    public function emptyReason(array $summary, array $hydration): ?array
+    {
+        $hydrated = (int) ($summary['sold_hydrated'] ?? 0) + (int) ($summary['active_hydrated'] ?? 0);
+        $parsed   = (int) ($summary['comps_parsed'] ?? 0);
+        if ($hydrated > 0 || $parsed === 0) {
+            return null;
+        }
+
+        $diag      = (array) ($hydration['pool_diagnostics'] ?? []);
+        $candidates = (int) ($diag['n_candidates'] ?? 0);
+        $afterType  = $diag['n_after_type'] ?? null;
+        $n          = $parsed . ' ' . \Illuminate\Support\Str::plural('comparable sale', $parsed);
+
+        if ($candidates > 0 && $afterType !== null && (int) $afterType === 0) {
+            $text = $n . ' read from the report, but every one was set aside because its title type (full or sectional) did not match this property. Open the report and check the type and unit number it was read with, then regenerate.';
+        } elseif ($candidates > 0) {
+            $text = $n . ' read from the report, but none passed the price and distance checks for this property. Open the report to see what was read, or widen the comp scope, then regenerate.';
+        } elseif ($diag === []) {
+            $text = $n . ' read from the report, but this presentation has not been regenerated since they were read. Regenerate it to bring them in.';
+        } else {
+            $text = $n . ' read from the report, but none sit in the area or date window set for this presentation. Open the report, or widen the comp scope, then regenerate.';
+        }
+
+        $reportId = ($summary['report_ids'][0] ?? null);
+
+        return [
+            'text' => $text,
+            'url'  => $reportId ? route('market-intelligence.reports.show', ['report' => $reportId]) : null,
+            'link' => 'Open the report',
         ];
     }
 

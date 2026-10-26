@@ -129,6 +129,11 @@ final class PresentationReviewController extends Controller
             // at hydration time. Trust the analyst's grouping and do not
             // visually mark them as cross-type.
             $subjectMatchUsed = (bool) ($raw['subject_match_used'] ?? false);
+            // A comp that says nothing about its title type is KEPT (never excluded for it) and shown as
+            // "title type unknown" — the hydrator marks it; older rows are judged from a blank property type.
+            $titleTypeUnknown = array_key_exists('title_type_unknown', $raw)
+                ? (bool) $raw['title_type_unknown']
+                : (trim((string) $c->property_type) === '' && $classifier->fromPropertyType($c->property_type) === null);
             return [
                 'id'              => $c->id,
                 // Route through CompLabel — same never-blank 5-step
@@ -152,8 +157,10 @@ final class PresentationReviewController extends Controller
                         (float) $subjLat, (float) $subjLng, (float) $raw['latitude'], (float) $raw['longitude']))
                     : null,
                 'title_type'      => $compTitleType,
+                'title_type_unknown' => $titleTypeUnknown,
                 'is_included'     => in_array($c->id, $includedIds, true),
                 'is_cross_type'   => !$subjectMatchUsed
+                    && !$titleTypeUnknown
                     && $subjectTitleType !== null
                     && $subjectTitleType !== $compTitleType,
             ];
@@ -217,6 +224,9 @@ final class PresentationReviewController extends Controller
         // stateless across requests, so this cannot be recomputed from a live
         // counter on a fresh page load). Read from source, not re-derived.
         $importSummary['excluded_by_type'] = (int) ($version->hydration_summary_json['excluded_by_type'] ?? 0);
+        // "0 hydrated" must say why, in one line, with a way to the fix.
+        $importSummary['empty_reason'] = app(\App\Services\Presentations\PresentationImportSummaryService::class)
+            ->emptyReason($importSummary, (array) ($version->hydration_summary_json ?? []));
 
         // AT-214 — the "N of M comps used" denominator M is the CANONICAL count of
         // comparable sales AVAILABLE for the subject property (same source as the

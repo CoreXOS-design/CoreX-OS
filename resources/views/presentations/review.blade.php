@@ -206,6 +206,13 @@
             <span style="flex-basis:100%; font-size:11px; color:var(--ds-text-muted, #64748b);">
                 {{ $_s['unmapped'] }} could not be placed on the map (no location resolved) — they are still counted in the analysis.
             </span>
+        @elseif($_totalHydrated === 0 && !empty($_s['empty_reason']))
+            <span style="flex-basis:100%; font-size:11px; color:var(--ds-amber, #f59e0b);" data-empty-reason>
+                {{ $_s['empty_reason']['text'] }}
+                @if(!empty($_s['empty_reason']['url']))
+                    <a href="{{ $_s['empty_reason']['url'] }}" style="text-decoration:underline; font-weight:600;">{{ $_s['empty_reason']['link'] }}</a>
+                @endif
+            </span>
         @elseif($_totalHydrated === 0 && ($_s['excluded_by_type'] ?? 0) > 0)
             {{-- AT-405 (Johan, 2026-09-10) — comps existed and were found, but every one was
                  excluded because its title type could not be matched to this property. Telling
@@ -545,6 +552,9 @@
                             </div>
                             <div title="{{ $row['address'] }}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
                                 {{ $row['address'] }}
+                                @if(!empty($row['title_type_unknown']))
+                                    <span data-title-type-unknown title="This report row does not say whether it is full title or sectional. It is included; check it before relying on it." style="font-size:10px; color:var(--ds-amber,#f59e0b);">· title type unknown</span>
+                                @endif
                             </div>
                             <div style="color: var(--text-muted); font-size: 11px;">{{ $row['sale_date'] ?? '—' }}</div>
                             <div style="text-align:right; font-weight: 600;">
