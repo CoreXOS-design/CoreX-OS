@@ -280,30 +280,60 @@
         </div>
     @endif
 
-    {{-- Header --}}
-    <div class="rounded-2xl px-6 py-4" style="background:#0b2a4a;">
-        <div class="flex items-start justify-between">
-            <div>
-                <h1 class="text-xl font-bold text-white leading-tight">{{ $document->name }}</h1>
-                <div class="text-sm text-white/60 mt-1">
+    {{-- Header — STICKY (locked at the top while the signer scrolls). Johan, 26 Oct 2026: it carries the signing model in plain
+         words, live progress, the primary actions and the one thing that blocks finishing, so the signer never has to scroll to
+         find what to do next. Compact on a phone. --}}
+    <div data-signing-header class="rounded-2xl px-3 py-2 sm:px-6 sm:py-3 shadow-lg" style="background:#0b2a4a; position:sticky; top:8px; z-index:30;">
+        <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+                <h1 class="text-sm sm:text-xl font-bold text-white leading-tight truncate" title="{{ $document->name }}">{{ $document->name }}</h1>
+                <div class="hidden sm:block text-sm text-white/60 mt-0.5 truncate">
                     Sent by {{ $template->creator->name ?? (\App\Support\Docuperfect\DocumentAgencyContext::pinnedAgency()?->name ?? ($template->creator?->agency?->name ?? 'Agency')) }}
                     @if($request->sent_at)
                         on {{ $request->sent_at->format('d M Y') }}
                     @endif
+                    @if($request->token_expires_at)
+                        <span class="text-white/40">· expires {{ $request->token_expires_at->format('d M Y') }} ({{ $request->daysUntilExpiry() }} days)</span>
+                    @endif
                 </div>
+                <div class="sm:hidden text-[11px] text-white/60 truncate">{{ $request->signer_name }} · <span class="capitalize">{{ str_replace('_', ' ', $request->party_role) }}</span></div>
             </div>
-            <div class="text-right">
-                <div class="text-xs text-white/40">Signing as</div>
-                <div class="text-sm font-medium text-white">{{ $request->signer_name }}</div>
-                <div class="text-xs text-white/50 capitalize">{{ str_replace('_', ' ', $request->party_role) }}</div>
+            <div class="hidden sm:block text-right shrink-0">
+                <div class="text-[11px] text-white/40 leading-none">Signing as</div>
+                <div class="text-sm font-medium text-white truncate">{{ $request->signer_name }}</div>
+                <div class="text-[11px] text-white/50 capitalize leading-none">{{ str_replace('_', ' ', $request->party_role) }}</div>
             </div>
         </div>
-        @if($request->token_expires_at)
-            <div class="text-xs text-white/40 mt-2">
-                Expires: {{ $request->token_expires_at->format('d M Y') }}
-                ({{ $request->daysUntilExpiry() }} days remaining)
+
+        {{-- Model, progress, actions, blocker — only while there is a web document to sign. --}}
+        <div x-show="isWebTemplate && signingMethod === 'electronic'" x-cloak class="mt-1.5 pt-1.5 sm:mt-2 sm:pt-2 flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5" style="border-top:1px solid rgba(255,255,255,0.15);">
+            <div class="min-w-0 w-full sm:w-auto sm:flex-1 text-xs sm:text-sm">
+                <div class="text-white">
+                    <span class="font-semibold" data-header-model x-text="signingModelText()"></span>
+                    <span class="text-white/50"> · </span>
+                    <span data-header-progress x-text="placesDone + ' of ' + placesTotal + ' place' + (placesTotal === 1 ? '' : 's') + ' done'"></span>
+                </div>
+                <div x-show="headerBlocker" x-cloak data-header-blocker style="color:#fcd34d;">
+                    <span x-text="headerBlocker ? headerBlocker.text : ''"></span>
+                    <button type="button" class="font-semibold underline" style="color:#fff;" @click="headerBlockerGo()" x-text="headerBlocker ? headerBlocker.link : ''"></button>
+                </div>
             </div>
-        @endif
+            <div class="flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
+                <button type="button" data-header-adopt x-show="adoption && adoption.required" @click="showAdoption = true"
+                        class="flex-1 sm:flex-none rounded-lg px-2 sm:px-3 text-xs sm:text-sm font-semibold text-white" style="min-height:40px; border:1px solid rgba(255,255,255,0.4);">
+                    <span class="sm:hidden" x-text="adoption && adoption.adopted ? 'My marks' : 'Adopt'"></span>
+                    <span class="hidden sm:inline" x-text="adoption && adoption.adopted ? 'Change my marks' : 'Adopt my marks'"></span>
+                </button>
+                <button type="button" data-header-apply-all x-show="adoption && adoption.required && !fillAllUnavailable" @click="openFillAll()"
+                        class="flex-1 sm:flex-none rounded-lg px-2 sm:px-3 text-xs sm:text-sm font-semibold" style="min-height:40px; background:#fff; color:#0b2a4a;">
+                    <span class="sm:hidden">Apply to all</span><span class="hidden sm:inline">Apply to all my places</span>
+                </button>
+                <button type="button" data-header-finish @click="completeWebSigning()" :disabled="completing"
+                        class="flex-1 sm:flex-none rounded-lg px-2 sm:px-4 text-xs sm:text-sm font-semibold text-white"
+                        :style="'min-height:40px; background:' + (canSubmitWeb ? '#059669' : 'rgba(255,255,255,0.18)') + ';' + (canSubmitWeb ? '' : 'color:rgba(255,255,255,0.75);')"
+                        x-text="completing ? 'Submitting…' : 'Finish'"></button>
+            </div>
+        </div>
     </div>
 
     {{-- Notification toast --}}
@@ -1395,11 +1425,12 @@
     </style>
     <template x-if="adoption && adoption.required">
         <div>
-            <div x-show="showAdoption" x-cloak class="fixed inset-0 z-40 flex items-center justify-center p-4" style="background: rgba(15,23,42,0.55);">
+            {{-- Opens as soon as the signer is in the document (after they choose to sign electronically); never over the method chooser. --}}
+            <div x-show="showAdoption && signingMethod === 'electronic'" x-cloak class="fixed inset-0 z-40 flex items-center justify-center p-4" style="background: rgba(15,23,42,0.55);">
                 <div class="w-full max-w-lg rounded-2xl bg-white shadow-xl border border-slate-200 p-5 space-y-4 max-h-[92vh] overflow-y-auto">
                     <div>
                         <h2 class="text-base font-bold text-slate-900">Adopt your signature and initial</h2>
-                        <p class="text-xs text-slate-500 mt-1">Do this once. Then you sign this document by clicking where it asks for your signature or initial.</p>
+                        <p class="text-xs text-slate-500 mt-1">Do this once. Then click each place that asks for your signature or initial, or press "Apply to all my places".</p>
                     </div>
 
                     <div class="grid grid-cols-2 gap-3">
@@ -1429,7 +1460,7 @@
                     </label>
 
                     <div class="flex items-center justify-end gap-2">
-                        <button type="button" @click="showAdoption = false" x-show="adoption.adopted" class="text-sm text-slate-600 px-3" style="min-height:44px;">Cancel</button>
+                        <button type="button" @click="showAdoption = false; pendingAdoptAction = null" x-show="adoption.adopted" class="text-sm text-slate-600 px-3" style="min-height:44px;">Cancel</button>
                         <button type="button" @click="submitAdoption()" :disabled="!adoptionSig || !adoptionInit || !adoptionAgree || adoptionBusy"
                                 class="rounded-lg px-4 text-sm font-semibold text-white disabled:opacity-40" style="background:#0f172a; min-height:44px;"
                                 x-text="adoptionBusy ? 'Saving…' : 'Adopt and continue'"></button>
@@ -1437,21 +1468,7 @@
                 </div>
             </div>
 
-            {{-- Reminder strip while the step is closed and not yet done; a small link to change the adopted marks afterwards. --}}
-            <div x-show="!showAdoption" x-cloak class="rounded-xl px-4 py-3 text-sm flex flex-wrap items-center justify-between gap-x-3"
-                 :style="adoption.adopted ? 'background:#f1f5f9;border:1px solid #e2e8f0;color:#334155' : 'background:#fffbeb;border:1px solid #fcd34d;color:#92400e'">
-                <span x-text="adoption.adopted ? 'Your signature and initial are adopted.' : 'Adopt your signature and initial before you sign.'"></span>
-                <span class="flex items-center gap-3">
-                    @if(($adoption['mode'] ?? null) === 'adopt_and_fill_all')
-                    <button type="button" x-show="_fillAllMode()" @click="openFillAll()" class="font-semibold rounded-lg px-3 text-white" style="min-height:44px; background:#0f172a;">Apply to all my places</button>
-                    @endif
-                    <button type="button" @click="showAdoption = true" class="font-semibold underline" style="min-height:44px;"
-                            x-text="adoption.adopted ? 'Change' : 'Adopt now'"></button>
-                </span>
-            </div>
-
-            @if(($adoption['mode'] ?? null) === 'adopt_and_fill_all')
-            {{-- Fill all (Mode 3): the one confirmation. States exactly how many places will be filled and how many stay with the signer. --}}
+            {{-- Apply to all my places: the one confirmation. States exactly how many places will be filled and how many stay with the signer. --}}
             <div x-show="showFillAll" x-cloak class="fixed inset-0 z-40 flex items-center justify-center p-4" style="background: rgba(15,23,42,0.55);">
                 <div class="w-full max-w-lg rounded-2xl bg-white shadow-xl border border-slate-200 p-5 space-y-4 max-h-[92vh] overflow-y-auto" role="dialog" aria-modal="true">
                     <h2 class="text-base font-bold text-slate-900">Apply your signature and initial</h2>
@@ -1460,6 +1477,7 @@
                         <strong x-text="'all ' + fillAllN + ' place' + (fillAllN === 1 ? '' : 's')"></strong>
                         on this document that <span x-text="fillAllN === 1 ? 'is' : 'are'"></span> yours.
                     </p>
+                    <p class="text-xs text-slate-600" x-text="adoption.applyAllNotice"></p>
                     {{-- A pack: one adoption, but the count is stated for EACH document in it, never as one total. --}}
                     <ul class="text-sm text-slate-800 divide-y divide-slate-100 rounded-lg border border-slate-200" x-show="fillAllDocs.length > 1" data-fill-all-documents>
                         <template x-for="d in fillAllDocs" :key="d.index">
@@ -1484,7 +1502,6 @@
                     </div>
                 </div>
             </div>
-            @endif
         </div>
     </template>
     @endif
@@ -1635,6 +1652,10 @@ function externalSign() {
         adoptionAgree: false,
         adoptionBusy: false,
         showAdoption: false,
+        pendingAdoptAction: null,     // what the signer asked for before adopting ({type:'place',key,kind} | {type:'all'}); done as soon as they have adopted
+        placesTotal: 0,               // the signer's own signature + initial places on the page (header progress)
+        placesDone: 0,
+        headerBlocker: null,          // {text, link, go} — the one thing in the way of finishing, linked to where to fix it
         stampedKeys: {},              // places stamped from the adopted mark this visit (key -> true); only these can be taken back
         pendingPlaceKeys: [],         // clicks whose request did not get through; completeWeb records them (reconcile)
         // Fill all (Mode 3): one confirmation stamps every place that is the signer's.
@@ -1872,14 +1893,19 @@ function externalSign() {
                         el.setAttribute('data-sig-id', sigKey);
                         el.innerHTML = '<div class="web-sig-prompt"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg> Click to sign</div>';
 
-                        el.addEventListener('click', () => {
-                            if (self._stampClick(sigKey, 'signature')) return;
-                            if (el.getAttribute('data-signed') === 'true') return;
-                            if (self._adoptionGuard()) return;
-                            self.currentWebSigBlockId = sigKey;
-                            self.showWebSigCapture = true;
-                            self.$nextTick(() => self.initWebSigCanvas());
-                        });
+                        // Bind ONCE: this runs again after the signer chooses to sign electronically (the document is paginated and
+                        // re-initialised), and a second listener made one click stamp the place and then ask "Take this signature back?".
+                        if (!el._corexClickBound) {
+                            el._corexClickBound = true;
+                            el.addEventListener('click', () => {
+                                if (self._stampClick(sigKey, 'signature')) return;
+                                if (el.getAttribute('data-signed') === 'true') return;
+                                if (self._adoptionGuard()) return;
+                                self.currentWebSigBlockId = sigKey;
+                                self.showWebSigCapture = true;
+                                self.$nextTick(() => self.initWebSigCanvas());
+                            });
+                        }
                     } else {
                         // Other party, not yet signed — greyed placeholder.
                         el.classList.add('web-sig-other-party');
@@ -2080,14 +2106,19 @@ function externalSign() {
                         el.innerHTML = '<span class="init-prompt" style="font-size:9px;color:#b45309;font-weight:600;">Click to initial</span>';
                     }
 
-                    el.addEventListener('click', () => {
-                        if (self._stampClick(initKey, 'initial')) return;
-                        if (entry.signed) return;
-                        if (self._adoptionGuard()) return;
-                        self.currentWebSigBlockId = initKey;
-                        self.showWebSigCapture = true;
-                        self.$nextTick(() => self.initWebSigCanvas());
-                    });
+                    if (!el._corexClickBound) {
+                        el._corexClickBound = true;
+                        el.addEventListener('click', () => {
+                            if (self._stampClick(initKey, 'initial')) return;
+                            // The page re-initialises after choosing to sign electronically: read the CURRENT entry for this place, not the first closure's.
+                            const current = (self.webInitialElements || []).find(e => e.initKey === initKey) || entry;
+                            if (current.signed) return;
+                            if (self._adoptionGuard()) return;
+                            self.currentWebSigBlockId = initKey;
+                            self.showWebSigCapture = true;
+                            self.$nextTick(() => self.initWebSigCanvas());
+                        });
+                    }
                 } else {
                     el.style.opacity = '0.5';
                     el.style.pointerEvents = 'none';
@@ -2328,7 +2359,53 @@ function externalSign() {
                 this.webIncompleteCount = incomplete + myInitials;
                 this.totalRequired = total + myInitials;
                 this.signedCount = total - incomplete;
+                this._refreshHeader();
             }
+        },
+
+        // ── Sticky header state (Johan, 26 Oct 2026): signing model in plain words, live progress, and the one blocker ──
+        signingModelText() {
+            return (this.adoption && this.adoption.required) ? 'Adopt once, click to apply or apply to all' : 'Sign each place';
+        },
+
+        _refreshHeader() {
+            let total = 0, done = 0;
+            const container = this.$refs.webDocContent || null;
+            if (container) {
+                container.querySelectorAll('.web-sig-interactive').forEach(el => {
+                    if (this._isForeignWitnessKey(el.getAttribute('data-sig-id'))) return;
+                    total++;
+                    if (el.getAttribute('data-signed') === 'true') done++;
+                });
+            }
+            (this.webInitialElements || []).forEach(e => {
+                if (!e.isMine || this._isForeignWitnessKey(e.initKey)) return;
+                total++;
+                if (e.signed) done++;
+            });
+            this.placesTotal = total;
+            this.placesDone = done;
+
+            let blocker = null;
+            try {
+                if (this.adoption && this.adoption.required && !this._marksAdopted()) {
+                    blocker = { text: 'Add your signature and initial to start.', link: 'Adopt now', go: 'adopt' };
+                } else {
+                    const items = this._computeIncompleteItems();
+                    if (items.length > 0) {
+                        const first = items[0];
+                        blocker = first.label === 'Consent'
+                            ? { text: 'Tick the consent box at the bottom of the document, then Finish.', link: 'Go to it', go: 'next' }
+                            : { text: items.length + ' left — next: ' + first.label + '.', link: 'Go there', go: 'next' };
+                    }
+                }
+            } catch (e) { blocker = null; }
+            this.headerBlocker = blocker;
+        },
+
+        headerBlockerGo() {
+            if (this.headerBlocker && this.headerBlocker.go === 'adopt') { this.showAdoption = true; return; }
+            this.scrollToNextIncomplete();
         },
 
         /**
@@ -3453,33 +3530,28 @@ function externalSign() {
             return this.webConsented && this.webIncompleteCount === 0 && this._adoptionSatisfied();
         },
 
-        // ── Click to stamp (Mode 2) ──
-        // True when a click on a place stamps the adopted mark instead of opening the capture pad.
-        _stampMode() {
-            if (!(this.adoption && this.adoption.required && this.adoption.adopted)) return false;
-            return this.adoption.mode === 'adopt_then_stamp'
-                || (this.adoption.mode === 'adopt_and_fill_all' && this.fillAllUnavailable);
+        // ── Adopt once: click to apply, and/or apply to all ──
+        // True once the signer has adopted BOTH marks (a signature place is stamped from the signature, an initial place from the initial).
+        _marksAdopted() {
+            return !!(this.adoption && this.adoption.required && this.adoption.adopted && this.adoption.signatureImage && this.adoption.initialImage);
         },
 
-        // Mode 3 while the server is willing to fill all: a click on a place asks for the one confirmation.
-        _fillAllMode() {
-            return !!(this.adoption && this.adoption.required && this.adoption.adopted
-                && this.adoption.mode === 'adopt_and_fill_all' && !this.fillAllUnavailable);
+        // No adoption yet: open the adopt popup and remember what the signer asked for, so it is applied right after adopting.
+        _needAdoption(action) {
+            this.pendingAdoptAction = action || null;
+            this.showAdoption = true;
         },
 
-        // Handles a click on one of the signer's own places in an adoption mode. Returns true when it was handled
-        // here (stamped, or taken back), false to let the normal capture-pad flow run (default mode, or before adopting).
+        // Handles a click on one of the signer's own places when the envelope is "adopt once". Returns true when it was handled
+        // here (popup opened, stamped, or taken back), false to let the normal capture-pad flow run (sign each place).
+        // Rule (Johan, 26 Oct 2026): a click on ANY signature/initial place with no adoption opens the adopt popup, then applies the click.
         _stampClick(key, kind) {
+            if (!(this.adoption && this.adoption.required)) return false;
             if (this._isForeignWitnessKey(key)) return false;   // witness cell: the normal capture pad, one deliberate mark
-            if (this._fillAllMode()) {
-                if (this.stampedKeys[key]) {
-                    this._unstampPlace(key, kind);
-                } else {
-                    this.openFillAll();
-                }
+            if (!this._marksAdopted()) {
+                this._needAdoption({ type: 'place', key: key, kind: kind });
                 return true;
             }
-            if (!this._stampMode()) return false;
             if (this.stampedKeys[key]) {
                 this._unstampPlace(key, kind);
             } else {
@@ -3544,7 +3616,8 @@ function externalSign() {
         },
 
         openFillAll() {
-            if (this._adoptionGuard()) return;
+            // Refused until both a signature and an initial are adopted - the popup opens instead, then the confirmation follows.
+            if (!this._marksAdopted()) { this._needAdoption({ type: 'all' }); return; }
             const places = this._myOpenPlaces();
             if (places.length === 0) {
                 this.showNotification('Every place that is yours is already filled.', 'info');
@@ -3586,6 +3659,7 @@ function externalSign() {
                 const d = await resp.json().catch(() => ({}));
                 if (!resp.ok || !d.ok) {
                     this.showFillAll = false;
+                    if (d.adoption_required) { this.adoption.adopted = false; this._needAdoption({ type: 'all' }); this.fillAllBusy = false; return; }
                     if (d.fill_all_unavailable) {
                         // The server will not fill this document in one go: from here a click stamps one place.
                         this.fillAllUnavailable = true;
@@ -3669,7 +3743,7 @@ function externalSign() {
 
         async _stampPlace(key, kind) {
             const data = kind === 'initial' ? this.adoption.initialImage : this.adoption.signatureImage;
-            if (!data) { this._adoptionGuard(); return; }
+            if (!data) { this._needAdoption({ type: 'place', key: key, kind: kind }); return; }
             this._paintStamped(key, data);
             this.stampedKeys[key] = true;
             this.updateIncompleteCount();
@@ -3681,6 +3755,7 @@ function externalSign() {
                     delete this.stampedKeys[key];
                     this._paintUnstamped(key);
                     this.updateIncompleteCount();
+                    if (d.adoption_required) { this.adoption.adopted = false; this._needAdoption({ type: 'place', key: key, kind: kind }); return; }
                     this.showNotification(d.error || 'Could not place your mark here.', 'error');
                     return;
                 }
@@ -3770,7 +3845,15 @@ function externalSign() {
                     this.adoption.signatureImage = this.adoptionSig;
                     this.adoption.initialImage = this.adoptionInit;
                     this.showAdoption = false;
-                    this.showNotification('Your signature and initial are saved. Now sign the document.', 'success');
+                    this.showNotification('Your signature and initial are saved.', 'success');
+                    const pending = this.pendingAdoptAction;
+                    this.pendingAdoptAction = null;
+                    if (pending && pending.type === 'place') {
+                        this.$nextTick(() => this._stampClick(pending.key, pending.kind));
+                    } else if (pending && pending.type === 'all') {
+                        this.$nextTick(() => this.openFillAll());
+                    }
+                    this.updateIncompleteCount();
                 } else {
                     const msg = (d && (d.error || (d.errors && Object.values(d.errors)[0] && Object.values(d.errors)[0][0]))) || 'Could not save your signature.';
                     this.showNotification(msg, 'error');

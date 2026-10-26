@@ -93,7 +93,8 @@ final class SigningModeClickToStampTest extends TestCase
     {
         [$r] = $this->seller('adopt_then_stamp', adopted: false);
 
-        $this->place($r, 'seller-sig-0')->assertStatus(409);
+        // Johan, 26 Oct 2026: refused with a signal the page answers by opening the adopt popup (never a silent failure).
+        $this->place($r, 'seller-sig-0')->assertStatus(422)->assertJsonPath('adoption_required', true);
         $this->assertSame(0, SignaturePlaceGeneration::count());
     }
 

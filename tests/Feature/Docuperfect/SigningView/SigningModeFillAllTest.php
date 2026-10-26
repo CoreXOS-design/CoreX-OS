@@ -131,21 +131,24 @@ final class SigningModeFillAllTest extends TestCase
         $this->assertSame(2, SignaturePlaceGeneration::count());
     }
 
-    public function test_only_mode_three_has_fill_all(): void
+    public function test_adopt_once_has_fill_all_and_sign_each_does_not(): void
     {
-        [$two] = $this->seller('adopt_then_stamp');
-        $this->fillAll($two, ['seller-sig-0'])->assertStatus(409);
+        // An envelope still carrying the retired click-to-stamp value is the same choice now: apply to all is available.
+        [$legacy] = $this->seller('adopt_then_stamp');
+        $this->fillAll($legacy, ['seller-sig-0'])->assertOk();
+        $this->assertSame(1, SignaturePlaceGeneration::count());
 
         [$one] = $this->seller('sign_each');
         $this->fillAll($one, ['seller-sig-0'])->assertStatus(409);
 
-        $this->assertSame(0, SignaturePlaceGeneration::count());
+        $this->assertSame(1, SignaturePlaceGeneration::count(), 'the sign-each signer wrote nothing');
     }
 
     public function test_nothing_is_filled_before_adopting_or_without_ticking_the_confirmation(): void
     {
         [$notAdopted] = $this->seller('adopt_and_fill_all', adopted: false);
-        $this->fillAll($notAdopted, ['seller-sig-0'])->assertStatus(409);
+        // Johan, 26 Oct 2026: refused until both marks exist - the page opens the adopt popup on this signal.
+        $this->fillAll($notAdopted, ['seller-sig-0'])->assertStatus(422)->assertJsonPath('adoption_required', true);
 
         [$r] = $this->seller('adopt_and_fill_all');
         $this->fillAll($r, ['seller-sig-0'], ['confirmed' => false])->assertStatus(422);
@@ -193,21 +196,21 @@ final class SigningModeFillAllTest extends TestCase
         $this->assertSame(['stamped_auto'], SignaturePlaceGeneration::pluck('method')->unique()->values()->all());
     }
 
-    public function test_the_page_offers_the_confirmation_only_in_mode_three_and_it_works_on_a_phone(): void
+    public function test_the_page_offers_the_confirmation_only_when_adopting_once_and_it_works_on_a_phone(): void
     {
         $phone = ['User-Agent' => 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36'];
 
-        [$three] = $this->seller('adopt_and_fill_all');
+        [$three] = $this->seller('adopt_once');
         $html = $this->withHeaders($phone)->get('/sign/' . $three->token)->assertOk()->getContent();
         $this->assertStringContainsString('Apply to all my places', $html);
-        $this->assertStringContainsString('confirmFillAll()', $html);
+        $this->assertStringContainsString('@click="confirmFillAll()"', $html);
         $this->assertStringContainsString('one by one afterwards', $html);
         $this->assertStringContainsString('name="viewport"', $html);
 
-        [$two] = $this->seller('adopt_then_stamp');
-        $this->assertStringNotContainsString('Apply to all my places', $this->get('/sign/' . $two->token)->assertOk()->getContent());
-
+        // Sign each place: no apply-to-all confirmation exists on the page at all.
         [$one] = $this->seller('sign_each');
-        $this->assertStringNotContainsString('Apply to all my places', $this->get('/sign/' . $one->token)->assertOk()->getContent());
+        $each = $this->get('/sign/' . $one->token)->assertOk()->getContent();
+        $this->assertStringNotContainsString('@click="confirmFillAll()"', $each);
+        $this->assertStringNotContainsString('data-fill-all-documents', $each);
     }
 }

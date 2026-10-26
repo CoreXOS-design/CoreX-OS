@@ -1922,13 +1922,12 @@ return [
             // E-sign signing modes (esign-signing-modes.md, Johan's ruling 5, 23 Oct 2026) - the same choice as E-Sign -> How my signers sign.
             ['key' => 'signing_mode', 'source' => 'esign', 'type' => 'select', 'default' => 'sign_each', 'heading' => 'E-signing',
              'options' => [
-                 'sign_each' => 'Sign every place - the signer signs or initials each place, one by one',
-                 'adopt_then_stamp' => 'Adopt once, then click to stamp - the signer adopts a signature and initial once, then each place is one click',
-                 'adopt_and_fill_all' => 'Adopt once and fill everything - the signer adopts once, confirms once, and every signature and initial place that is theirs is filled',
+                 'sign_each' => 'Sign and initial each place - the signer signs or initials each place, one by one',
+                 'adopt_once' => 'Adopt once - the signer adopts a signature and initial once, then clicks each place to apply it and/or presses "Apply to all my places"',
              ],
              'label' => 'How my signers sign',
              'explain' => 'How people who sign by link (tenants, landlords, sellers, buyers, directors, witnesses) put their signature and initials on a document you send them. Your own agents keep their saved signature either way.',
-             'affects' => 'What a signer does on the signing page. Documents already out for signing finish the way they were sent; only documents sent from now on follow this choice. Condition and amendment initials and disclosure answers are always done one by one, whichever you pick.'],
+             'affects' => 'What a signer does on the signing page: sign every place themselves, or adopt once and apply it place by place or to all their places at once. Documents already out for signing finish the way they were sent; only documents sent from now on follow this choice. Condition and amendment initials and disclosure answers are always done one by one, whichever you pick.'],
         ],
     ],
 

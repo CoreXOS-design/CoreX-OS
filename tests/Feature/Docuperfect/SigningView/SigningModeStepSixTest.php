@@ -308,17 +308,17 @@ final class SigningModeStepSixTest extends TestCase
         // The agency changes its setting while the signer is still deferred.
         $agencyId = (int) $session['signatureTemplate']->agency_id;
         $settings = EsignSettings::forAgency($agencyId);
-        $settings->signing_mode = 'adopt_and_fill_all';
+        $settings->signing_mode = 'sign_each';
         $settings->save();
 
         // Their turn comes (what resume + advance do): they are asked to adopt, in the mode the envelope was sent in.
         SignatureRequest::whereKey($r->id)->update(['status' => SignatureRequest::STATUS_PENDING]);
         $r = $r->fresh();
         $this->adopt($r)->assertOk();
-        $this->assertSame('adopt_then_stamp', SignatureAdoption::firstOrFail()->mode);
+        $this->assertSame('adopt_once', SignatureAdoption::firstOrFail()->mode, 'the envelope kept the mode it was sent in, not the new agency setting');
         $this->postJson('/sign/' . $r->token . '/place', ['place_key' => 'seller-sig-0'])->assertOk();
         $this->assertSame('stamped_click', SignaturePlaceGeneration::firstOrFail()->method);
-        $this->fillAll($r, ['seller-sig-0'])->assertStatus(409); // fill-all belongs to the other mode
+        $this->fillAll($r, ['seller-sig-0', 'seller-init-0'])->assertOk(); // apply-to-all is part of the same choice
     }
 
     // ─────────────────────── disclosure change (AT-303) ───────────────────────

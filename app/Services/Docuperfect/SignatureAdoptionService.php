@@ -15,7 +15,7 @@ use InvalidArgumentException;
  * esign-signing-modes.md §5 / §6 (Build step 2). Records a signer adopting their signature and initial once:
  * the adoption row (with the exact wording and its version), and the audit trail entry the certificate prints.
  *
- *  - Only an envelope in mode adopt_then_stamp / adopt_and_fill_all can be adopted on (the mode is the envelope's,
+ *  - Only an envelope in mode adopt_once (or one of the two retired modes it replaced) can be adopted on (the mode is the envelope's,
  *    fixed when it was created — never the agency's live setting).
  *  - Adopting the same two images again is a no-op (returns the current adoption); different images are a new
  *    generation and the earlier adoption is stamped superseded, never edited. Marks already placed keep pointing
@@ -23,12 +23,12 @@ use InvalidArgumentException;
  */
 class SignatureAdoptionService
 {
-    public const MODES = [EsignSettings::MODE_ADOPT_THEN_STAMP, EsignSettings::MODE_ADOPT_AND_FILL_ALL];
+    public const MODES = [EsignSettings::MODE_ADOPT_ONCE];
 
     /** The agreement text and version a signer is shown for a mode. @return array{version:int,text:string} */
     public function wordingFor(string $mode): array
     {
-        $text = (string) config("esign-adoption.wording.{$mode}", '');
+        $text = (string) config("esign-adoption.wording." . EsignSettings::normaliseMode($mode), '');
         if ($text === '') {
             throw new InvalidArgumentException("No adoption wording for mode '{$mode}'.");
         }
@@ -105,7 +105,8 @@ class SignatureAdoptionService
     {
         $signingRequest->loadMissing('template');
 
-        return (string) ($signingRequest->template?->signing_mode ?: EsignSettings::MODE_SIGN_EACH);
+        // An envelope sent before 26 Oct 2026 may still carry one of the two retired adoption modes: both mean adopt_once.
+        return EsignSettings::normaliseMode($signingRequest->template?->signing_mode);
     }
 
     /**
@@ -130,7 +131,7 @@ class SignatureAdoptionService
                 ->orderByDesc('generation')->lockForUpdate()->first();
 
             if ($previous && $previous->signature_image_hash === $sigHash && $previous->initial_image_hash === $initHash
-                && $previous->disclaimer_version === $wording['version'] && $previous->mode === $mode) {
+                && $previous->disclaimer_version === $wording['version'] && EsignSettings::normaliseMode($previous->mode) === $mode) {
                 return $previous; // the same adoption confirmed again — nothing new happened
             }
 

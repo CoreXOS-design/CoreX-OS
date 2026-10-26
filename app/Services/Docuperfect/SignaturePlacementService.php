@@ -237,17 +237,14 @@ class SignaturePlacementService
      * @param string[] $placeKeys
      * @param array<int,array{index:int,signatures:int,initials:int}> $byDocument what the confirmation showed, per document
      * @return array{event_id:int,count:int,placed:string[],already:string[]}
-     * @throws DomainException               not Mode 3 / not adopted / no web document
+     * @throws AdoptionRequiredException     no adoption with both marks yet (the page opens the adopt popup)
+     * @throws DomainException               not an adoption envelope / no web document
      * @throws FillAllUnavailableException   the server cannot vouch for the list — sign each place instead
      * @throws InvalidArgumentException      an empty, oversized or foreign list
      */
     public function fillAll(SignatureRequest $req, array $placeKeys, int $oneByOneRemaining, Request $http, array $byDocument = []): array
     {
         [$document, $adoption] = $this->preflightRequest($req);
-        if ($this->adoptions->modeOf($req) !== \App\Models\Docuperfect\EsignSettings::MODE_ADOPT_AND_FILL_ALL) {
-            throw new DomainException('This document is signed by clicking each place.');
-        }
-
         $keys = array_values(array_unique(array_map('strval', $placeKeys)));
         if ($keys === [] || count($keys) > self::FILL_ALL_MAX_PLACES) {
             throw new InvalidArgumentException('There are no places to fill.');
@@ -505,8 +502,9 @@ class SignaturePlacementService
             throw new DomainException('This document does not use an adopted signature.');
         }
         $adoption = $this->adoptions->current($req);
-        if ($requireAdoption && ! $adoption) {
-            throw new DomainException('Please adopt your signature and initial first.');
+        // Both marks must exist: a signature place is stamped from the adopted signature, an initial place from the adopted initial.
+        if ($requireAdoption && (! $adoption || trim((string) $adoption->signature_image) === '' || trim((string) $adoption->initial_image) === '')) {
+            throw new AdoptionRequiredException('Please adopt your signature and initial first.');
         }
         $document = $this->webDocument($req) ?? throw new DomainException('This document is signed by signing every place.');
 

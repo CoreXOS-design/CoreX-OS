@@ -59,9 +59,9 @@ final class SigningAdoptionStepTest extends TestCase
         $this->assertStringContainsString('applied wherever you click to sign or initial on this document.', $html);
     }
 
-    public function test_the_fill_all_mode_shows_its_own_wording(): void
+    public function test_the_apply_to_all_confirmation_carries_the_approved_apply_all_wording(): void
     {
-        [$r] = $this->seller('adopt_and_fill_all');
+        [$r] = $this->seller('adopt_once');
 
         $html = $this->asRecipient($r)->assertOk()->getContent();
         $this->assertStringContainsString('without you clicking each one.', $html);
