@@ -11,6 +11,7 @@ use App\Models\MarketReports\MarketDataPoint;
 use App\Models\MarketReports\MarketReport;
 use App\Services\AI\AnthropicGateway;
 use App\Services\AI\DTOs\NarrativeRequest;
+use App\Services\MarketReports\Parsers\LearnedLayoutParser;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -87,9 +88,15 @@ class SpotCheckMarketReportJob implements ShouldQueue
 
         // Get the raw text once — every point checks against this same haystack.
         $rawText = '';
+        $layoutText = '';
         $absolutePath = $this->absoluteFilePath($report);
         if ($absolutePath !== null && is_file($absolutePath)) {
             $rawText = $textExtractor->extractText($absolutePath, 'application/pdf');
+            // Yearly figures are mostly chart data labels, which only make sense where they were drawn
+            // (over their year): the page-by-page layout text, not the first 8 000 plain characters.
+            if ($points->contains(fn (MarketDataPoint $p) => $p->periodYear() !== null)) {
+                $layoutText = app(LearnedLayoutParser::class)->textFor($absolutePath);
+            }
         }
 
         $discrepancies = 0;
@@ -102,7 +109,7 @@ class SpotCheckMarketReportJob implements ShouldQueue
                 continue;
             }
             try {
-                $verdict = $this->verifyDataPoint($point, $report, $rawText, $gateway);
+                $verdict = $this->verifyDataPoint($point, $report, $rawText, $layoutText, $gateway);
                 if ($verdict['cannot_tell']) {
                     $cannotAudit[] = ['data_point_id' => $point->id, 'metric_key' => $point->metric_key, 'reason' => 'the report text does not tie this figure to its year'];
                     continue;
@@ -160,6 +167,7 @@ class SpotCheckMarketReportJob implements ShouldQueue
         MarketDataPoint $point,
         MarketReport $report,
         string $rawText,
+        string $layoutText,
         AnthropicGateway $gateway,
     ): array {
         $facts = [
@@ -169,7 +177,7 @@ class SpotCheckMarketReportJob implements ShouldQueue
             'parsed_string'        => $point->metric_value_string,
             'parsed_suburb'        => $point->suburb_normalised,
             'period_year'          => $point->periodYear(),
-            'raw_text_excerpt'     => mb_substr($rawText, 0, 8000),
+            'raw_text_excerpt'     => $this->evidenceFor($point, $rawText, $layoutText),
             'parser_confidence'    => $point->confidence,
         ];
 
@@ -185,7 +193,7 @@ class SpotCheckMarketReportJob implements ShouldQueue
             cacheTtlMinutes: 365 * 24 * 60, // ~1 year — audit never re-runs once cached
             agencyId:        (int) $report->agency_id,
             fallbackData:    ['text' => '{"agrees": true, "audit_value": null, "severity": "low", "notes": "fallback — gateway unavailable"}'],
-            promptVersion:   'v2', // v2: yearly figures are compared with their own year only
+            promptVersion:   'v3', // v3: yearly figures are compared with their own year only, on the page that prints them
         );
 
         $response = $gateway->generateStructured($request, [
@@ -194,13 +202,70 @@ class SpotCheckMarketReportJob implements ShouldQueue
 
         $json = is_array($response->outputJson) ? $response->outputJson : [];
 
+        // An auditor that says "disagrees" and then quotes the very figure we hold has agreed (same tolerance as its own rules).
+        $agrees = (bool) ($json['agrees'] ?? true);
+        if (!$agrees && $this->sameFigure($point, $json['audit_value'] ?? null)) {
+            $agrees = true;
+        }
+
         return [
-            'agrees'      => (bool) ($json['agrees'] ?? true),
+            'agrees'      => $agrees,
             'cannot_tell' => (bool) ($json['cannot_tell'] ?? false),
             'audit_value' => $json['audit_value'] ?? null,
             'severity'    => (string) ($json['severity'] ?? 'medium'),
             'type'        => $this->inferType($point, $json['audit_value'] ?? null),
         ];
+    }
+
+    /**
+     * What the auditor reads for one figure. A yearly figure gets the layout text of the page(s) that print it (a chart's data
+     * label sits over its year's column there); everything else, and a yearly figure found on no page, keeps the first 8 000
+     * plain characters.
+     */
+    private function evidenceFor(MarketDataPoint $point, string $rawText, string $layoutText): string
+    {
+        $head = mb_substr($rawText, 0, 8000);
+        if ($point->periodYear() === null || $layoutText === '' || $point->metric_value_numeric === null) {
+            return $head;
+        }
+        $value = (float) $point->metric_value_numeric;
+        $patterns = [
+            '/' . preg_quote(number_format($value, 0, '.', ','), '/') . '(?!\d)/',
+            '/' . str_replace('\ ', '[\s\x{00A0}]', preg_quote(number_format($value, 0, '.', ' '), '/')) . '(?!\d)/u',
+        ];
+        if ($value >= 100_000) {
+            $millions = rtrim(rtrim(number_format($value / 1_000_000, 2, '.', ''), '0'), '.');
+            $patterns[] = '/(?<![\d.])' . preg_quote($millions, '/') . '\s*M\b/i';
+        }
+        $hits = [];
+        foreach (explode("\f", $layoutText) as $page) {
+            foreach ($patterns as $pattern) {
+                if (preg_match($pattern, $page) === 1) {
+                    $hits[] = rtrim($page);
+                    break;
+                }
+            }
+        }
+
+        return $hits === [] ? $head : mb_substr(implode("\n\f\n", array_slice($hits, 0, 2)), 0, 12000);
+    }
+
+    /** True when the auditor's own figure is the one we hold (prices within 2%, anything else exact). */
+    private function sameFigure(MarketDataPoint $point, mixed $auditValue): bool
+    {
+        if ($point->metric_value_numeric === null || (!is_string($auditValue) && !is_numeric($auditValue))) {
+            return false;
+        }
+        $text = strtoupper((string) $auditValue);
+        $clean = preg_replace('/[^0-9.]/', '', str_replace(',', '', $text)) ?? '';
+        if ($clean === '' || !is_numeric($clean)) {
+            return false;
+        }
+        $audit = (float) $clean * (str_contains($text, 'M') ? 1_000_000 : 1);
+        $parsed = (float) $point->metric_value_numeric;
+        $isPrice = str_contains((string) $point->metric_key, 'price') || str_contains((string) $point->metric_key, 'value');
+
+        return $isPrice ? abs($audit - $parsed) <= 0.02 * $parsed : $audit === $parsed;
     }
 
     private function systemPrompt(): string
@@ -217,7 +282,8 @@ class SpotCheckMarketReportJob implements ShouldQueue
         - Addresses: case-insensitive normalised match
 
         YEARLY FIGURES: when the facts carry period_year, the figure is that calendar year's figure
-        and ONLY that year's. A different figure printed for another year is never a disagreement and
+        and ONLY that year's. The excerpt is then the page's layout text: a chart's data labels
+        sit on their own lines, over the column of the year they belong to, above the row of years. A different figure printed for another year is never a disagreement and
         never an audit_value. Charts print their data labels away from the year axis; if the text does
         not let you tie a figure to period_year with certainty, answer cannot_tell=true (agrees=true)
         rather than comparing against a figure that may belong to another year.

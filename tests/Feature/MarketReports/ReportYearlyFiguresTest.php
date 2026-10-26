@@ -147,6 +147,42 @@ final class ReportYearlyFiguresTest extends TestCase
         $this->assertSame(MarketReport::SPOT_PASSED, $report->fresh()->spot_check_status);
     }
 
+    public function test_a_yearly_figure_is_audited_on_the_page_that_prints_it_not_the_first_8000_characters(): void
+    {
+        $layout = (string) file_get_contents(base_path('tests/Fixtures/market_reports/loom_cma.layout.txt'));
+        $this->assertStringNotContainsString('R 4.58 M', mb_substr($layout, 0, 8000), 'precondition: the chart label is beyond the old excerpt');
+        $this->mock(TextExtractionService::class, fn ($m) => $m->shouldReceive('extractText')->andReturn($layout));
+        $relative = 'market-reports/test/' . $this->agencyId . '/' . Str::random(12) . '.pdf';
+        $absolute = \Illuminate\Support\Facades\Storage::disk('local')->path($relative);
+        @mkdir(dirname($absolute), 0777, true);
+        file_put_contents($absolute, 'not a real pdf');
+
+        try {
+            $report = $this->report();
+            $report->update(['file_path' => $relative]);
+            $this->point($report, 'suburb_average_price_year', 4_580_000, '2024-12-31');
+            Http::fake(['https://api.anthropic.com/*' => $this->auditAnswer(['agrees' => true, 'cannot_tell' => false, 'audit_value' => 4580000, 'severity' => 'low', 'notes' => 'ok'])]);
+
+            SpotCheckMarketReportJob::dispatchSync($report->id);
+
+            Http::assertSent(fn ($request) => str_contains(json_encode($request->data()), 'R 4.58 M'));
+        } finally {
+            @unlink($absolute);
+        }
+    }
+
+    public function test_an_auditor_that_calls_a_figure_a_mismatch_but_quotes_our_own_figure_has_agreed(): void
+    {
+        $report = $this->report();
+        $this->point($report, 'suburb_average_price_year', 4_580_000, '2024-12-31');
+        Http::fake(['https://api.anthropic.com/*' => $this->auditAnswer(['agrees' => false, 'cannot_tell' => false, 'audit_value' => 'R 4,580,000', 'severity' => 'low', 'notes' => 'x'])]);
+
+        SpotCheckMarketReportJob::dispatchSync($report->id);
+
+        $this->assertSame(0, MarketDataDiscrepancy::query()->where('report_id', $report->id)->count());
+        $this->assertSame(MarketReport::SPOT_PASSED, $report->fresh()->spot_check_status);
+    }
+
     public function test_a_yearly_figure_with_no_year_is_cannot_audit_not_a_value_mismatch(): void
     {
         $report = $this->report();
