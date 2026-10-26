@@ -35,7 +35,7 @@ final class SigningUiPolishTest extends TestCase
         $ext = $this->read('resources/views/docuperfect/signatures/external/sign.blade.php');
         $start = strpos($ext, "document.addEventListener('corex-open-change-initial'");
         $this->assertNotFalse($start);
-        $region = substr($ext, (int) $start, 900);
+        $region = substr($ext, (int) $start, 1600);
         $this->assertMatchesRegularExpression("/this\\.typedName\\s*=\\s*'';/", $region, 'the amendment-initial field must start empty');
         $this->assertStringNotContainsString('signerName.split', $region, 'no pre-filled initials from the signer name');
     }

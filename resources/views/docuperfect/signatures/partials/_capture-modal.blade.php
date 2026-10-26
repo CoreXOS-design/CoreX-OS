@@ -40,6 +40,9 @@
     // so the saved option works in BOTH the modals the ceremony actually opens.
     $chooseSaved    = $chooseSaved    ?? 'chooseSavedSignature';
     $savedIsInitial = $savedIsInitial ?? "activeMarker && activeMarker.type === 'initial'";
+    // The dialog is shared by signatures and initials; every word in it follows what is being captured. $savedIsInitial is the
+    // host's "is this an initial?" expression, so the same one drives the title, the labels, the button and the footer.
+    $isInit = '(' . $savedIsInitial . ')';
 @endphp
 
 {{-- Google Font for typed signatures (idempotent — browser dedupes) --}}
@@ -53,7 +56,7 @@
 
         {{-- Header --}}
         <div class="corex-capture-head px-6 py-4 border-b border-slate-200" style="background:#0b2a4a;">
-            <h3 class="text-white font-semibold text-lg" x-text="{{ $title }}"></h3>
+            <h3 class="text-white font-semibold text-lg" x-text="{{ $isInit }} ? 'Your initials' : ({{ $title }})"></h3>
         </div>
 
         <div class="corex-capture-body p-6 space-y-4">
@@ -75,7 +78,7 @@
                 <button x-show="savedSigConfigured && !savedSigImpersonating" @click="{{ $chooseSaved }}()"
                         class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                         :class="{{ $mode }} === 'saved' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'">
-                    <span x-text="savedSigUnlocked ? 'Use my saved signature' : 'Use my saved signature 🔒'"></span>
+                    <span x-text="({{ $isInit }} ? 'Use my saved initials' : 'Use my saved signature') + (savedSigUnlocked ? '' : ' 🔒')"></span>
                 </button>
                 @endif
             </div>
@@ -100,7 +103,7 @@
                 </div>
                 <div class="flex justify-between items-center mt-2">
                     <button @click="{{ $clear }}()" class="text-sm text-slate-500 hover:text-slate-700 font-medium">Clear</button>
-                    <span class="text-xs text-slate-400">Draw your signature above</span>
+                    <span class="text-xs text-slate-400" x-text="{{ $isInit }} ? 'Draw your initials above' : 'Draw your signature above'"></span>
                 </div>
             </div>
 
@@ -110,11 +113,11 @@
             <div x-show="{{ $mode }} === 'type'" x-transition>
                 <div class="mb-2">
                     <label class="block text-sm font-semibold text-slate-700 mb-1"
-                           x-text="activeMarker && activeMarker.type === 'initial' ? 'Type your initials here' : 'Type your full name here'"></label>
+                           x-text="{{ $isInit }} ? 'Type your initials' : 'Type your full name here'"></label>
                     <input type="text" x-model="{{ $typed }}"
                            x-effect="if ({{ $mode }} === 'type' && {{ $show }}) $nextTick(() => $el.focus())"
                            class="w-full rounded-lg border-2 border-blue-500 text-xl font-medium text-slate-800 px-4 py-3 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-600"
-                           :placeholder="{{ $placeholder }}">
+                           :placeholder="{{ $isInit }} ? 'Your initials' : ({{ $placeholder }})">
                 </div>
                 <span class="block text-[11px] uppercase tracking-wide text-slate-400 mb-1">Preview</span>
                 <div class="border border-dashed border-slate-200 rounded-lg bg-slate-50/60 px-3 py-2 min-h-[44px] flex items-center">
@@ -122,7 +125,7 @@
                         <span class="text-2xl text-slate-500" style="font-family:'Dancing Script',cursive;" x-text="{{ $typed }}"></span>
                     </template>
                     <template x-if="!{{ $typed }}.trim()">
-                        <span class="text-xs text-slate-300 italic">Your typed signature appears here</span>
+                        <span class="text-xs text-slate-300 italic" x-text="{{ $isInit }} ? 'Your typed initials appear here' : 'Your typed signature appears here'"></span>
                     </template>
                 </div>
                 @if($showTypedCanvas)
@@ -151,10 +154,10 @@
             @endif
 
             {{-- Consent line --}}
-            <p class="text-xs text-slate-500 leading-relaxed">
-                By signing, you confirm your identity and consent to this document.
-                Your signature will be recorded with a timestamp and IP address.
-            </p>
+            <p class="text-xs text-slate-500 leading-relaxed"
+               x-text="{{ $isInit }}
+                   ? 'By adding your initials, you confirm they are yours and that you consent to this document. Your initials will be recorded with a timestamp and IP address.'
+                   : 'By signing, you confirm your identity and consent to this document. Your signature will be recorded with a timestamp and IP address.'"></p>
 
             {{-- Actions --}}
             <div class="flex items-center justify-end gap-3 pt-2">
@@ -167,7 +170,7 @@
                         style="background:#0b2a4a;"
                         :disabled="applying"
                         :class="applying ? 'opacity-50 cursor-not-allowed' : ''">
-                    <span x-show="!applying">Apply Signature</span>
+                    <span x-show="!applying" x-text="{{ $isInit }} ? 'Apply initials' : 'Apply Signature'"></span>
                     <span x-show="applying" x-cloak>Applying...</span>
                 </button>
             </div>

@@ -135,6 +135,26 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       await page.evaluate(() => { Alpine.$data(document.querySelector('[x-ref="webDocContent"]').closest('[x-data]')).confirmFillAll(); }); await sleep(2000);
       await snap('8 after sign everything', 'all');
     }
+    // A pack: after Sign everything the signer must still be taken to every document - Next opens the next one, and the tick + Finish
+    // only appear once the last document has been reached.
+    const visible = sel => page.evaluate(sel => { const e = document.querySelector(sel); return !!e && e.offsetParent !== null; }, sel);
+    const statusNow = () => page.evaluate(() => (document.querySelector('[data-header-status]') || {}).innerText || '');
+    if (/Document \d+ of \d+/.test(await statusNow()) || mode === 'saved') {
+      let sawLast = false, sawAny = false;
+      for (let i = 0; i < 14; i++) {
+        const st = await statusNow();
+        const m = st.match(/Document (\d+) of (\d+)/);
+        if (m) { sawAny = true; if (m[1] === m[2]) sawLast = true; }
+        const finishShown = await visible('[data-header-finish]');
+        if (sawAny && !sawLast && finishShown) failures.push('Finish was shown before the last document of the pack was reached: ' + st);
+        if (!(await visible('[data-header-next]'))) break;
+        await click('[data-header-next]'); await sleep(1300);
+        if (i === 13) failures.push('Next never finished walking the pack');
+      }
+      if (sawAny && !sawLast) failures.push('the pack never reached its last document');
+      await snap('8b last document reached', 'lastdoc');
+      if (sawAny && !(await visible('[data-header-finish]'))) failures.push('Finish is not shown after the last document was reached');
+    }
     await page.evaluate(() => { const c = document.getElementById('consent-checkbox'); if (c && !c.checked) c.click(); }); await sleep(800);
     await snap('9 consent ticked', 'final');
     await assertIdle('after the walk-through');

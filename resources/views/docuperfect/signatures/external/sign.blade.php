@@ -319,8 +319,26 @@
                 </div>
                 <div x-show="isWebTemplate && signingMethod === 'electronic' && headerBlocker" x-cloak data-header-blocker class="text-xs sm:text-sm" style="color:#fcd34d;">
                     <span x-text="headerBlocker ? headerBlocker.text : ''"></span>
-                    <button type="button" class="font-semibold underline" style="color:#fff;" @click="headerBlockerGo()">Go there</button>
+                    <button type="button" class="font-semibold underline" style="color:#fff;" x-show="headerBlocker && headerBlocker.kind !== 'consent'" @click="headerBlockerGo()">Go there</button>
                 </div>
+                @unless($reacceptanceMode ?? false)
+                {{-- The ECTA tick lives here, beside Finish: the ONE place the signer agrees and finishes. In a pack it only appears once the
+                     last document has been reached (the signer is taken through every document first). --}}
+                <div x-show="isWebTemplate && signingMethod === 'electronic' && showFinish" x-cloak data-header-consent class="mt-1 text-white">
+                    <label id="consent-checkbox-label" class="flex items-start gap-2 cursor-pointer text-[11px] sm:text-xs leading-snug">
+                        <input type="checkbox" x-model="webConsented" id="consent-checkbox" @change="updateIncompleteCount()"
+                               class="mt-0.5 w-4 h-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500">
+                        <span>I have read and understood this document and I consent to signing it electronically.
+                            <button type="button" class="underline text-white/80" @click.prevent.stop="showEctaText = !showEctaText" x-text="showEctaText ? 'Hide the wording' : 'Read the full wording'"></button></span>
+                    </label>
+                    <p x-show="showEctaText" x-cloak data-ecta-wording class="mt-1 text-[11px] sm:text-xs text-white/80 leading-snug">
+                        I confirm that I have read and understood this document.
+                        I consent to signing this document electronically.
+                        I understand that my electronic signature has the same legal effect
+                        as a handwritten signature under South African law (ECTA Section 13).
+                    </p>
+                </div>
+                @endunless
             </div>
             <div x-show="isWebTemplate && signingMethod === 'electronic'" x-cloak class="flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
                 <button type="button" data-header-next x-show="primaryLabel" @click="nextAction()"
@@ -328,7 +346,7 @@
                         x-text="primaryLabel"></button>
                 <button type="button" data-header-sign-everything x-show="adoption && adoption.required && stepNo === 3 && !fillAllUnavailable" x-cloak @click="openFillAll()"
                         class="flex-1 sm:flex-none rounded-lg px-3 sm:px-5 text-xs sm:text-sm font-semibold text-white" style="min-height:40px; min-width:6rem; border:1px solid rgba(255,255,255,0.55);">Sign everything</button>
-                <button type="button" data-header-finish @click="completeWebSigning()" :disabled="completing || !canSubmitWeb" :title="finishTitle"
+                <button type="button" data-header-finish x-show="showFinish" @click="completeWebSigning()" :disabled="completing || !canSubmitWeb" :title="finishTitle"
                         class="flex-1 sm:flex-none rounded-lg px-3 sm:px-5 text-xs sm:text-sm font-semibold text-white"
                         :style="'min-height:40px; min-width:6rem; background:' + (canSubmitWeb ? '#059669' : 'rgba(255,255,255,0.18)') + ';' + (canSubmitWeb ? '' : 'color:rgba(255,255,255,0.75);cursor:not-allowed;')"
                         x-text="completing ? 'Submitting…' : 'Finish'"></button>
@@ -1013,50 +1031,7 @@
                 </div>
             @endif
 
-            {{-- Web Template Consent + Submit (only for live HTML signing). Suppressed entirely in
-                 re-acceptance mode (the editor re-accepts via the panel above — they have already
-                 signed, so there is no normal submit for them). --}}
-            @unless($reacceptanceMode ?? false)
-            <template x-if="isWebTemplate">
-                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 space-y-4">
-                    <label id="consent-checkbox-label" class="flex items-start gap-3 cursor-pointer">
-                        <input type="checkbox" x-model="webConsented"
-                               id="consent-checkbox"
-                               class="mt-0.5 w-4 h-4 text-teal-600 rounded border-slate-300 focus:ring-teal-500"
-                               @change="updateIncompleteCount()">
-                        <span class="text-sm text-slate-700 leading-relaxed">
-                            I confirm that I have read and understood this document.
-                            I consent to signing this document electronically.
-                            I understand that my electronic signature has the same legal effect
-                            as a handwritten signature under South African law (ECTA Section 13).
-                        </span>
-                    </label>
-
-                    {{-- WET-INK gate — the viewer must apply their own initial to every amendment before submitting. --}}
-                    <div x-show="changeInitialsRemaining > 0" x-cloak
-                         class="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
-                        <span class="font-semibold" x-text="changeInitialsRemaining"></span>
-                        amendment initial<span x-show="changeInitialsRemaining !== 1">s</span> outstanding —
-                        initial each amended clause (the highlighted slot with your name) before you can submit.
-                    </div>
-                    <div class="flex items-center justify-end gap-3">
-                        <button @click="signingMethod = null"
-                                class="text-sm text-slate-500 hover:text-slate-700 font-medium">
-                            &larr; Back
-                        </button>
-                        <button @click="completeWebSigning()"
-                                :disabled="!canSubmitWeb || completing"
-                                :class="canSubmitWeb && !completing
-                                    ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                                    : 'bg-slate-100 text-slate-400 cursor-not-allowed'"
-                                class="rounded-lg px-6 py-2.5 text-sm font-medium transition-colors">
-                            <span x-show="!completing">Submit Signed Document</span>
-                            <span x-show="completing" x-cloak>Submitting...</span>
-                        </button>
-                    </div>
-                </div>
-            </template>
-            @endunless
+            {{-- No second finish control for a web document: the ECTA tick and Finish live in the sticky header (esign-signing-modes.md §13.10). --}}
 
             {{-- Complete Signing (standard marker-based flow — hidden for web templates) --}}
             <div x-show="!isWebTemplate" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 flex items-center justify-between">
@@ -1667,6 +1642,11 @@ function externalSign() {
         detailsConfirmed: false,      // the signer pressed Next with every detail filled in
         showAmend: {{ (!empty($wetInkPendingReview) || !empty($myRemovableChanges) || !empty($inAmendmentInitialing)) ? 'true' : 'false' }},   // the wording-changes panel is closed unless the document already carries changes
         focusedEl: null,              // the spot Next last walked to; pressing Next again signs it
+        viewedDocs: {},               // a pack: documents the signer has been taken to or touched (index -> true); document 1 counts from the start
+        packFocusDoc: 0,              // a pack: the document the signer is on once nothing is left to sign in the ones already seen
+        unviewedDoc: -1,              // a pack: index of the first document not yet seen; -1 when all are seen (or this is not a pack)
+        showFinish: true,             // the ECTA tick and Finish; in a pack only once the last document has been reached
+        showEctaText: false,
         _refreshing: false,
         dlg: { open: false, body: '', ok: 'OK', cancel: 'Cancel', resolve: null },   // the page's own confirm dialog (never a native pop-up)
         stampedKeys: {},              // places stamped from the adopted mark this visit (key -> true); only these can be taken back
@@ -1925,6 +1905,7 @@ function externalSign() {
                         if (!el._corexClickBound) {
                             el._corexClickBound = true;
                             el.addEventListener('click', () => {
+                                self._noteDocTouched(el);
                                 if (self._stampClick(sigKey, 'signature')) return;
                                 if (el.getAttribute('data-signed') === 'true') return;
                                 if (self._adoptionGuard()) return;
@@ -2136,6 +2117,7 @@ function externalSign() {
                     if (!el._corexClickBound) {
                         el._corexClickBound = true;
                         el.addEventListener('click', () => {
+                            self._noteDocTouched(el);
                             if (self._stampClick(initKey, 'initial')) return;
                             // The page re-initialises after choosing to sign electronically: read the CURRENT entry for this place, not the first closure's.
                             const current = (self.webInitialElements || []).find(e => e.initKey === initKey) || entry;
@@ -2444,6 +2426,58 @@ function externalSign() {
             return ' — Document ' + (i + 1) + ' of ' + info.docs.length + ' — ' + d.name;
         },
 
+        _docIdxOf(el, info) {
+            const w = el ? el.closest('.corex-document-wrapper') : null;
+            const i = w ? info.wrappers.indexOf(w) : 0;
+            return i < 0 ? 0 : i;
+        },
+
+        _docTitle(i, info) {
+            const d = info.docs[i] || { name: 'Document ' + (i + 1) };
+            return 'Document ' + (i + 1) + ' of ' + info.docs.length + ' — ' + d.name;
+        },
+
+        // A pack: the first document the signer has not yet been taken to (or touched). Document 1 is seen from the start.
+        _firstUnviewed(info) {
+            if (!info.isPack) return -1;
+            const n = Math.min(info.docs.length, info.wrappers.length);
+            for (let i = 1; i < n; i++) if (!this.viewedDocs[i]) return i;
+            return -1;
+        },
+
+        _markViewed(i) {
+            if (i > 0 && !this.viewedDocs[i]) this.viewedDocs = Object.assign({}, this.viewedDocs, { [i]: true });
+        },
+
+        // The signer touched one of their own places: that document has been seen.
+        _noteDocTouched(el) {
+            const info = this._packInfo();
+            if (!info.isPack) return;
+            const i = this._docIdxOf(el, info);
+            if (i > 0 && !this.viewedDocs[i]) { this._markViewed(i); this.packFocusDoc = i; this._refreshHeader(); }
+        },
+
+        // Things to sign (not details, not the tick), split into all of them and those in documents the signer has already seen.
+        _stepThreeWork(items, info) {
+            const work = items.filter(i => i.kind !== 'field' && i.kind !== 'consent');
+            const here = info.isPack ? work.filter(i => this._docIdxOf(i.el, info) === 0 || this.viewedDocs[this._docIdxOf(i.el, info)]) : work;
+            return { work: work, here: here };
+        },
+
+        // Take the signer to document i of a pack: it becomes seen, the page scrolls to the top of it, the status line follows.
+        _openDoc(i, info) {
+            this._markViewed(i);
+            this.packFocusDoc = i;
+            this.focusedEl = null;
+            const w = info.wrappers[i];
+            if (w) {
+                const header = document.querySelector('[data-signing-header]');
+                w.style.scrollMarginTop = ((header ? header.offsetHeight : 0) + 16) + 'px';
+                w.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            this._refreshHeader();
+        },
+
         // Signature / initials spots of this signer that already carry a signature (not details, not consent).
         _signedSpotCount() {
             const container = this.$refs.webDocContent || null;
@@ -2466,9 +2500,13 @@ function externalSign() {
         _refreshHeaderNow() {
             const items = this._classifiedItems();
             const fields = items.filter(i => i.kind === 'field');
-            const rest = items.filter(i => i.kind !== 'field');
             this._setIfChanged('detailsToFill', fields.map(f => ({ label: f.label })));
             const saved = !!(this.adoption && this.adoption.required);
+            const info = this._packInfo();
+            const unviewed = this._firstUnviewed(info);
+            this._setIfChanged('unviewedDoc', unviewed);
+            this._setIfChanged('showFinish', unviewed === -1);
+            const here = this._stepThreeWork(items, info).here;
 
             const step1Done = saved ? this._marksAdopted() : (this.signStarted || this._signedSpotCount() > 0);
             const noDetails = this._totalDetails() === 0;
@@ -2482,15 +2520,20 @@ function externalSign() {
                 status = fields.length > 0
                     ? 'Check your details — ' + fields.length + (fields.length === 1 ? ' detail' : ' details') + ' to fill in'
                     : 'Check your details — all filled in, press Next';
+            } else if (here.length > 0) {
+                status = 'Sign' + this._docLineFor(here[0].el);
+            } else if (unviewed !== -1) {
+                status = 'Press Next to open ' + this._docTitle(unviewed, info);
             } else {
-                status = 'Sign' + (rest.length > 0 ? this._docLineFor(rest[0].el) : '') + (rest.length === 0 ? ' — everything is done, press Finish' : '');
+                status = 'Sign' + (info.isPack ? ' — ' + this._docTitle(Math.min(this.packFocusDoc, info.docs.length - 1), info) : '')
+                    + (this.webConsented ? ' — everything is done, press Finish' : ' — everything is done, tick the box and press Finish');
             }
             this._setIfChanged('statusLine', 'Step ' + this.stepNo + ' of 3: ' + status);
             this._setIfChanged('progressText', this.signedCount + ' of ' + this.totalRequired + ' done');
-            this._setIfChanged('primaryLabel', this.stepNo === 1 ? 'Start' : ((this.stepNo === 3 && rest.length === 0) ? '' : 'Next'));
+            this._setIfChanged('primaryLabel', this.stepNo === 1 ? 'Start' : ((this.stepNo === 3 && here.length === 0 && unviewed === -1) ? '' : 'Next'));
 
             // The one thing in the way, in plain words.
-            const first = this.stepNo === 2 ? fields[0] : (this.stepNo === 3 ? rest[0] : null);
+            const first = this.stepNo === 2 ? fields[0] : (this.stepNo === 3 ? here[0] : null);
             let blocker = null;
             if (first) {
                 const t = {
@@ -2499,11 +2542,14 @@ function externalSign() {
                     initial: 'Next: your initials',
                     condition: 'This condition needs your initials — click it.',
                     disclosure: "This is your own answer — it can't be filled in for you.",
-                    consent: "Tick the box to say you've read and agree, then press Finish.",
                 }[first.kind];
                 blocker = { text: t, kind: first.kind };
+            } else if (this.stepNo === 3 && unviewed !== -1) {
+                blocker = { text: 'Next: open ' + this._docTitle(unviewed, info), kind: 'view' };
             } else if (this.stepNo === 3 && this.changeInitialsRemaining > 0) {
                 blocker = { text: 'A change to the wording needs your initials — click it.', kind: 'change' };
+            } else if (this.stepNo === 3 && !this.webConsented) {
+                blocker = { text: "Tick the box to say you've read and agree, then press Finish.", kind: 'consent' };
             }
             this._setIfChanged('headerBlocker', blocker);
 
@@ -2531,8 +2577,9 @@ function externalSign() {
                 this._goTo(document.querySelector('.cir-slot.cir-mine:not(.cir-filled)'));
                 return;
             }
+            if (this.headerBlocker && this.headerBlocker.kind === 'view') { this.nextAction(); return; }
             const items = this._classifiedItems();
-            const target = this.stepNo === 2 ? items.find(i => i.kind === 'field') : items.find(i => i.kind !== 'field');
+            const target = this.stepNo === 2 ? items.find(i => i.kind === 'field') : this._stepThreeWork(items, this._packInfo()).here[0];
             if (target) this._goTo(target.el);
         },
 
@@ -2552,8 +2599,15 @@ function externalSign() {
                 this._refreshHeader();
                 return;
             }
-            const next = items.find(i => i.kind !== 'field');
-            if (!next) return;
+            // A pack: Next works through the documents already seen; when none of them has anything left to sign it OPENS the next
+            // document (top of it, status line follows). The signer is taken through every document before Finish appears.
+            const info = this._packInfo();
+            const next = this._stepThreeWork(items, info).here[0];
+            if (!next) {
+                const u = this._firstUnviewed(info);
+                if (u !== -1) this._openDoc(u, info);
+                return;
+            }
             if ((next.kind === 'signature' || next.kind === 'initial') && next.el) {
                 // First press walks to the spot; pressing Next again (or clicking the spot) signs it — the saved signature,
                 // or the pad for a sign-each agency.
@@ -3692,7 +3746,7 @@ function externalSign() {
         },
 
         get canSubmitWeb() {
-            return this.webConsented && this.webIncompleteCount === 0 && this._adoptionSatisfied();
+            return this.webConsented && this.webIncompleteCount === 0 && this._adoptionSatisfied() && this.unviewedDoc === -1;
         },
 
         // ── Adopt once: click to apply, and/or apply to all ──
