@@ -278,6 +278,26 @@ final class ReportLifecycleTest extends TestCase
         $this->assertFalse($report->fresh()->trashed());
     }
 
+    public function test_bulk_import_without_an_agency_says_what_to_do_instead_of_a_bare_403(): void
+    {
+        $this->seedAgency();
+        $type = $this->seedVicinityType();
+        Storage::fake('local');
+        // a CoreX owner signed in with no agency and none selected in the switcher
+        $owner = User::factory()->create(['agency_id' => null, 'branch_id' => null, 'role' => 'super_admin']);
+
+        $resp = $this->actingAs($owner)
+            ->postJson(route('market-intelligence.reports.bulk-import.store'), [
+                'file'           => $this->fixtureUploadedFile(),
+                'report_type_id' => $type->id,
+            ]);
+
+        $resp->assertForbidden();
+        // the importer prints `message` per file and falls back to "HTTP 403" when it is empty
+        $this->assertStringContainsString('agency switcher', (string) $resp->json('message'));
+        $this->assertSame(0, MarketReport::query()->withoutGlobalScopes()->count());
+    }
+
     public function test_uploading_same_file_as_active_report_preserves_duplicate_ux(): void
     {
         [$agencyId, $userId] = $this->seedAgency();
