@@ -154,6 +154,15 @@ class PresentationGeneratorService
                 ?? $agency?->presentations_default_radius_m
                 ?? 1000);
             $property     = $presentation->property_id ? \App\Models\Property::find($presentation->property_id) : null;
+            // A property with no location takes it from the agency's own imported report before the
+            // analytics below read it (no Google call). Spec: geocoding-spec.md "Report coordinates".
+            if ($property) {
+                try {
+                    (new \App\Services\Geocoding\PropertyReportCoordinates())->fillIfMissing($property);
+                } catch (\Throwable $e) {
+                    Log::warning('Report-coordinates fallback failed', ['property_id' => $property->id, 'err' => $e->getMessage()]);
+                }
+            }
             $subjectLat   = $property?->latitude !== null && $property?->latitude !== '' ? (float) $property->latitude : null;
             $subjectLng   = $property?->longitude !== null && $property?->longitude !== '' ? (float) $property->longitude : null;
 

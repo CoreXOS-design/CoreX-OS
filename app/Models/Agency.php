@@ -340,6 +340,8 @@ class Agency extends Model
         // Presentations V2 Phase 3b — comp scope + radius defaults.
         'presentations_default_comp_scope',
         'presentations_default_radius_m',
+        // Country the agency's addresses are geocoded in (null = config default ZA) — geocoding-spec.md "Accepted area".
+        'geocode_country',
         // SS presentations — dedicated complex/sectional sales section toggle.
         'ss_show_complex_section',
         // Presentations V2 Phase 3e — holding-cost defaults.

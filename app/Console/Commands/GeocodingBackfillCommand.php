@@ -29,7 +29,10 @@ final class GeocodingBackfillCommand extends Command
         {--type=both : both | properties | tracked_properties | comp_rows | competition}
         {--force : Re-resolve rows that already have GPS}
         {--id= : Single property ID to re-resolve (implies --force)}
-        {--suspect-only : Limit re-resolve to suburb_centroid / unresolved / low-confidence pins (implies --force)}';
+        {--suspect-only : Limit re-resolve to suburb_centroid / unresolved / low-confidence pins (implies --force)}
+        {--agency= : Only this agency id (properties + tracked properties; the comp-row and competition passes are skipped)}
+        {--apply : Really resolve and write. Without it the command only counts (dry run) — it costs Google calls}
+        {--dry-run : Count the rows that would be processed — no geocoder calls, no writes (the default)}';
 
     protected $description = 'Resolve GPS via AddressResolverService for properties, tracked properties, market_report_comp_rows (sold-comp pool), and prospecting_listings (Active Competition pool).';
 
@@ -40,6 +43,9 @@ final class GeocodingBackfillCommand extends Command
         $force       = (bool)   $this->option('force');
         $singleId    = $this->option('id') !== null ? (int) $this->option('id') : null;
         $suspectOnly = (bool)   $this->option('suspect-only');
+        $agencyId    = $this->option('agency') !== null && $this->option('agency') !== '' ? (int) $this->option('agency') : null;
+        // Dry run unless --apply (Johan, 27 Oct 2026). A single --id is an explicit action and applies.
+        $dry         = $singleId === null && (!$this->option('apply') || (bool) $this->option('dry-run'));
 
         // --id and --suspect-only both imply force re-resolve.
         if ($singleId !== null || $suspectOnly) $force = true;
@@ -79,14 +85,22 @@ final class GeocodingBackfillCommand extends Command
 
         if ($type === 'both' || $type === 'properties') {
             $this->info('=== Backfilling properties ===');
-            $this->runForModel(Property::query()->withoutGlobalScopes(), $svc, 'property', $limit, $force, $suspectOnly, $batchId, $tallyTotal, $bySource);
+            $this->runForModel(Property::query()->withoutGlobalScopes(), $svc, 'property', $limit, $force, $suspectOnly, $batchId, $tallyTotal, $bySource, $agencyId, $dry);
             $this->newLine();
         }
 
         if ($type === 'both' || $type === 'tracked_properties') {
             $this->info('=== Backfilling tracked_properties ===');
-            $this->runForModel(TrackedProperty::query()->withoutGlobalScopes(), $svc, 'tracked_property', $limit, $force, false, $batchId, $tallyTotal, $bySource);
+            $this->runForModel(TrackedProperty::query()->withoutGlobalScopes(), $svc, 'tracked_property', $limit, $force, false, $batchId, $tallyTotal, $bySource, $agencyId, $dry);
             $this->newLine();
+        }
+
+        if ($dry || $agencyId !== null) {
+            // The comp-row / competition passes are not agency-scoped and are not counted here.
+            if (in_array($type, ['both', 'comp_rows', 'competition'], true)) {
+                $this->line('(comp-row and competition passes skipped: ' . ($dry ? '--dry-run' : '--agency') . ')');
+            }
+            $type = in_array($type, ['properties', 'tracked_properties'], true) ? $type : 'skip_extras';
         }
 
         // CMA-map backfill: comp rows (market_report_comp_rows — 25% of
@@ -107,6 +121,10 @@ final class GeocodingBackfillCommand extends Command
         }
 
         $this->newLine();
+        if ($dry) {
+            $this->info('Dry run — nothing was resolved or written.');
+            return self::SUCCESS;
+        }
         $this->info('=== Summary ===');
         $this->line(sprintf(
             'Resolved: %d | Pre-existing GPS: %d | Failed: %d',
@@ -140,7 +158,16 @@ final class GeocodingBackfillCommand extends Command
         string $batchId,
         array &$tallyTotal,
         array &$bySource,
+        ?int $agencyId = null,
+        bool $dry = false,
     ): void {
+        if ($agencyId !== null) {
+            $query = $query->where('agency_id', $agencyId);
+        }
+        if ($kind === 'property') {
+            // Archived properties are not worth a Google call (withoutGlobalScopes also removes the soft-delete scope).
+            $query = $query->whereNull('deleted_at');
+        }
         if ($suspectOnly && $kind === 'property') {
             // Re-resolve only rows that came back as a suburb_centroid /
             // unresolved / low-confidence — the legacy frontend Nominatim
@@ -154,8 +181,12 @@ final class GeocodingBackfillCommand extends Command
                       ->orWhereNull('geo_confidence');
                 });
         } elseif (!$force) {
+            // No location = NULL, or the (0,0) "unset" sentinel the geocoder itself treats as no pin.
             $query = $query->where(function ($q) {
-                $q->whereNull('latitude')->orWhereNull('longitude');
+                $q->whereNull('latitude')->orWhereNull('longitude')
+                    ->orWhere(function ($z) {
+                        $z->where('latitude', 0)->where('longitude', 0);
+                    });
             });
         }
         if ($limit > 0) {
@@ -166,6 +197,16 @@ final class GeocodingBackfillCommand extends Command
         $total = $rows->count();
         if ($total === 0) {
             $this->line('  Nothing to resolve.');
+            return;
+        }
+        if ($dry) {
+            $perAgency = $rows->groupBy('agency_id')->map->count()->sortDesc();
+            $this->line("  {$total} {$kind} row(s) would be processed" . ($agencyId !== null ? " (agency {$agencyId})" : '') . '.');
+            if ($agencyId === null) {
+                foreach ($perAgency->take(10) as $aid => $n) {
+                    $this->line("    agency {$aid}: {$n}");
+                }
+            }
             return;
         }
 

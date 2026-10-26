@@ -33,7 +33,34 @@ final class PropertyGeoBackfillService
 
     public function __construct(
         private readonly AddressResolverService $resolver = new AddressResolverService(),
+        private readonly PropertyReportCoordinates $reportCoords = new PropertyReportCoordinates(),
     ) {}
+
+    /**
+     * Write down that a property's location could not be worked out, so "never attempted" cannot
+     * look the same as "tried and failed". Used when the geocode itself threw. Only touches a property
+     * that still has no real pin, and never fires model events.
+     */
+    public static function recordFailure(Property $property, string $reason): void
+    {
+        try {
+            Property::withoutGlobalScopes()->whereKey($property->id)
+                ->where(function ($q) {
+                    $q->whereNull('latitude')->orWhereNull('longitude')
+                        ->orWhere(function ($z) {
+                            $z->where('latitude', 0)->where('longitude', 0);
+                        });
+                })
+                ->update([
+                    'geo_source'      => 'unresolved',
+                    'geo_confidence'  => 'failed',
+                    'geo_resolved_at' => now(),
+                ]);
+        } catch (\Throwable $e) {
+            Log::channel('geocoding')->warning('could not record geocode failure', ['property_id' => $property->id, 'err' => $e->getMessage()]);
+        }
+        Log::channel('geocoding')->warning('property geocode failed', ['property_id' => $property->id, 'reason' => $reason]);
+    }
 
     /**
      * @return array{
@@ -61,7 +88,11 @@ final class PropertyGeoBackfillService
         $shouldResolve = !$latLngBefore || $force || $this->pinIsSuspect($property);
 
         $result = null;
-        if ($shouldResolve) {
+        // The agency's own imported report knows where this property is (street + suburb match) —
+        // use it before sending the address to Google. Only when there is no pin yet.
+        $filledFromReport = $shouldResolve && !$latLngBefore && $this->reportCoords->fillIfMissing($property);
+
+        if ($shouldResolve && !$filledFromReport) {
             $addressForResolve = $this->composePropertyAddress($property);
             $result = $this->resolver->resolve(
                 $addressForResolve,
@@ -71,6 +102,8 @@ final class PropertyGeoBackfillService
                 // A re-resolve (we already had coords) bypasses the geocode
                 // cache so a poisoned/stale entry can't re-serve the wrong pin.
                 bypassCache: $latLngBefore,
+                province: $property->province,
+                agencyId: $property->agency_id ? (int) $property->agency_id : null,
             );
             if ($result->hasGps()) {
                 // CONFIDENCE GUARD — never DOWNGRADE a pin. Overwrite only when
@@ -121,11 +154,11 @@ final class PropertyGeoBackfillService
 
         $latency = (int) round((microtime(true) - $started) * 1000);
         $row = [
-            'lat_lng_resolved'         => $latLngBefore || ($result !== null && $result->hasGps()),
+            'lat_lng_resolved'         => $latLngBefore || $filledFromReport || ($result !== null && $result->hasGps()),
             'municipal_value_resolved' => $munResolved,
             'municipality_resolved'    => $result?->municipality !== null,
-            'source'                   => $result?->source ?? ($latLngBefore ? 'pre_existing' : null),
-            'confidence'               => $result?->confidence ?? ($latLngBefore ? 'pre_existing' : null),
+            'source'                   => $filledFromReport ? PropertyReportCoordinates::GEO_SOURCE : ($result?->source ?? ($latLngBefore ? 'pre_existing' : null)),
+            'confidence'               => $filledFromReport ? 'high' : ($result?->confidence ?? ($latLngBefore ? 'pre_existing' : null)),
             'latency_ms'               => $latency,
         ];
         $this->log($batchId, 'property', $property->id, $property->address ?? '', $result, $latency);
@@ -164,7 +197,11 @@ final class PropertyGeoBackfillService
         // (Google can still resolve them to suburb-level GPS). Mirrors the
         // staging hot-patch deployed 2026-05-27.
         if (!$latLngBefore && ($address !== '' || !empty($tp->suburb))) {
-            $result = $this->resolver->resolve($address, $tp->suburb, $tp->town, 'tracked_property:' . $tp->id);
+            $result = $this->resolver->resolve(
+                $address, $tp->suburb, $tp->town, 'tracked_property:' . $tp->id,
+                province: $tp->getAttribute('province'),
+                agencyId: $tp->agency_id ? (int) $tp->agency_id : null,
+            );
             if ($result->hasGps()) {
                 $tp->latitude        = $result->latitude;
                 $tp->longitude       = $result->longitude;

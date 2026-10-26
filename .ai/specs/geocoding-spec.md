@@ -254,8 +254,82 @@ $limiter->getRemainingToday();
 ### Manual purge
 
 ```bash
-php artisan geo:cache-purge
+php artisan geo:cache-purge                          # expired rows (the 03:00 schedule)
+php artisan geo:cache-purge --out-of-bbox            # DRY RUN (the default): counts the cached "outside the area" failures
+php artisan geo:cache-purge --out-of-bbox --apply    # deletes ONLY those (other failures + good rows stay)
 ```
+
+### Re-run properties with no location
+
+```bash
+php artisan geocoding:backfill --type=properties                           # DRY RUN (the default): counts per agency, no Google calls, no writes
+php artisan geocoding:backfill --type=properties --agency=22               # dry run for one agency
+php artisan geocoding:backfill --type=properties --agency=22 --apply       # really resolve (costs Google calls)
+```
+
+Both commands are dry-run unless `--apply` is given (Johan, 27 Oct 2026); `--apply` with `--dry-run` still only
+counts. A single `--id=` re-resolve is an explicit action and applies. The backfill selects properties whose
+latitude/longitude is NULL **or** the (0,0) "unset" sentinel; archived properties are skipped. `--agency` also
+skips the comp-row and competition passes (they are not agency-scoped). Purge the `out_of_bbox` rows first,
+otherwise a cached failure is served again. The addresses thrown away by the old KZN box were test data: the fix
+is about going forward, so there is no all-agency clean-up run.
+
+---
+
+## Accepted area (27 Oct 2026 — Gauteng fix)
+
+**What went wrong.** `AddressResolverService` threw away every Google result outside a hard-coded
+KwaZulu-Natal rectangle (a `bounds=` hint plus a strict reject), cached it as `google:out_of_bbox`, and served
+that failure for good. Staging held 1,778 such rows; a Centurion estate (property 21960, agency 22) never got a
+pin. A hard-coded province also broke "multi-agency, never single".
+
+**Now.**
+- Google is asked with `components=country:<code>`, `region=<code>`, and a `bounds=` **hint**: the property's
+  province box when it has a province, otherwise the whole country. No hard-coded ", South Africa" suffix.
+- A result Google places in the agency's country is **always kept**, whichever province. A result outside the
+  country (a Windhoek or Maputo address, an NZ "Rocklands") is a definitive failure, cached `google:out_of_bbox`.
+  When Google returns no country, a union of rectangles decides (one rectangle round South Africa would also
+  contain Windhoek).
+- The country is the agency's setting: `agencies.geocode_country` (2-letter, NULL = `geo.geocoding.default_country`
+  = `ZA`). Shapes and province hints live in `config/geo.php` (`geocoding.countries`). A country code the config
+  does not know falls back to the default. Code: `App\Support\Geocoding\GeocodingArea`.
+- Province hints are keyed by the lower-case letters of the name, so "KwaZulu Natal" and "KwaZulu-Natal" (both
+  occur in the data) find the same box.
+- Setup Wizard (non-negotiable 10a): `geocode_country` has **no screen yet**; it is a deliberate omission, Johan's
+  call. Every agency geocodes in South Africa until that changes.
+
+## Report coordinates (27 Oct 2026)
+
+A property with no real location (NULL or 0,0) takes it from the **agency's own** imported market report before any
+Google call: `PropertyReportCoordinates` (`geo_source = market_report_subject`, confidence `high`). Strict, because
+borrowing a neighbour's pin is never right (GPS-BORROW-FIX): same agency; the report's subject address contains the
+property's street number **and** street name as whole words; the property's suburb/estate appears in the report's
+address, suburb or scheme name. No street number, no street name or no suburb = no match. It never overwrites a real
+pin. It runs inside `PropertyGeoBackfillService::backfillProperty`, so the create/update hook, the Map panel's
+geocode button, `geocoding:backfill` and presentation generation all use it; `PresentationGeneratorService` also calls
+it before the analytics read the subject's coordinates. `BackfillPropertyGpsFromReportJob` (report-parse time) is
+unchanged and still fills the other direction.
+
+**Any layout, one field (Johan, 27 Oct 2026 — not LOOM-only).** The subject's coordinates are a first-class field
+of the canonical read: `subject.latitude` / `subject.longitude` (`CanonicalReadMapper::sanitise` keeps them,
+-90..90 / -180..180; `toParseResult` hands them on as `subject_latitude` / `subject_longitude`, which
+`ParseMarketReportJob` writes to `market_reports` for every parser). The fallback reads only
+`market_reports.subject_latitude/longitude`, never a parser-specific path. CMA Info parsers fill it; the AI read is
+asked for it (`AiReportReadService` schema); and a **learned layout** now learns it too (`LayoutLearner` learns a
+"Latitude:" / "Longitude:" label next to a number that matches the AI read to ~2 m) so a layout read for free keeps
+delivering it. `LearnedLayoutReader` no longer eats the minus sign of a number glued to its label (every South
+African latitude is negative). A report that prints the pair as one "GPS: -25.9, 28.1" line is not learned
+(stated limit). Tests: `ReportSubjectCoordinatesCanonicalTest` (canonical read, learned layout, unknown layout ->
+property).
+
+## Failure is recorded (27 Oct 2026)
+
+`PropertyObserver` create/update hooks swallowed a thrown geocode with a log line, leaving `geo_source` NULL
+("never attempted"). The catch now calls `PropertyGeoBackfillService::recordFailure()`: the property gets
+`geo_source = unresolved`, `geo_confidence = failed`, `geo_resolved_at`, and a `geocoding`-channel warning. It only
+touches a property that still has no real pin. NULL `geo_source` now means the hook genuinely never ran.
+
+Tests: `AddressResolverAcceptedAreaTest`, `GeocodingCommandsTest`, `PropertyReportCoordinatesTest`.
 
 ---
 

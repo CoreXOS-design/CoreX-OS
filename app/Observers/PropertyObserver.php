@@ -448,6 +448,9 @@ class PropertyObserver
             }
         } catch (\Throwable $e) {
             Log::warning("Geocode-on-create failed for property #{$property->id}: {$e->getMessage()}");
+            // Leave a trace on the property itself: "never attempted" (geo_source NULL) must be
+            // distinguishable from "tried and failed" (property 21960, Oct 2026).
+            \App\Services\Geocoding\PropertyGeoBackfillService::recordFailure($property, $e->getMessage());
         }
     }
 
@@ -477,6 +480,7 @@ class PropertyObserver
             }
         } catch (\Throwable $e) {
             Log::warning("Geocode-on-address-change failed for property #{$property->id}: {$e->getMessage()}");
+            \App\Services\Geocoding\PropertyGeoBackfillService::recordFailure($property, $e->getMessage());
         }
     }
 

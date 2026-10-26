@@ -969,7 +969,55 @@ final class LayoutLearner
             }
         }
 
+        // The subject's coordinates, when the report prints them ("Latitude: -25.94173"). Learned like any
+        // other subject scalar so a layout read for free keeps delivering them to the property fallback
+        // (spec: geocoding-spec.md "Report coordinates"). Only a label-then-number pair is learned.
+        foreach (['subject.latitude', 'subject.longitude'] as $field) {
+            $value = $clean['subject'][substr($field, 8)] ?? null;
+            if (!is_numeric($value)) {
+                continue;
+            }
+            $label = $this->coordinateLabel($rawLines, $cellLines, (float) $value);
+            if ($label !== null) {
+                $out[] = ['field' => $field, 'label' => $label, 'type' => 'text'];
+            }
+        }
+
         return $out;
+    }
+
+    /**
+     * The label printed in front of a coordinate: "Latitude:" before -25.94173, on the same line or in the
+     * cell to its left. The number must match the AI read to ~2 m (0.00002 degrees).
+     *
+     * @param array<int, string> $rawLines
+     * @param array<int, array<int, string>> $cellLines
+     */
+    private function coordinateLabel(array $rawLines, array $cellLines, float $value): ?string
+    {
+        $same = static fn (string $s): bool => (bool) preg_match('/^-?\d{1,3}\.\d{3,}$/', trim($s))
+            && abs((float) trim($s) - $value) < 0.00002;
+
+        foreach ($rawLines as $li => $line) {
+            if (preg_match('/^\s*(.{3,40}?)\s*:\s*(.+)$/u', $line, $m)) {
+                $first = LearnedLayoutReader::cells($m[2])[0] ?? '';
+                if ($same($first) && !preg_match('/\d/', $m[1])) {
+                    return trim($m[1]) . ':';
+                }
+            }
+            $cells = $cellLines[$li] ?? [];
+            foreach ($cells as $k => $cell) {
+                if ($k > 0 && $same($cell)) {
+                    $label = $cells[$k - 1];
+                    if (mb_strlen($label) <= 40 && !preg_match('/\d/', $label)
+                        && mb_strlen((string) preg_replace('/[^\p{L}]+/u', '', $label)) >= 3) {
+                        return $label;
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
