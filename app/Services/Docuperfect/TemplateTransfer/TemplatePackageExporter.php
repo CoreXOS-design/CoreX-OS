@@ -28,9 +28,11 @@ final class TemplatePackageExporter
 
     /**
      * @return array{filename:string, bytes:string, checksum:string, warnings:string[]}
+     * @param bool $audit false when the package is only an in-memory step of a same-box copy
+     *                    (TemplateAgencyCopier writes its own single source -> target audit row)
      * @throws TemplateTransferException when the template cannot be exported faithfully
      */
-    public function export(Template $template, User $actor): array
+    public function export(Template $template, User $actor, bool $audit = true): array
     {
         $template->loadMissing('signatureZones');
 
@@ -154,21 +156,23 @@ final class TemplatePackageExporter
 
         $built = TemplatePackage::build($data, $files, (string) $template->name, $this->sourceLabel());
 
-        TemplateTransferLog::create([
-            'direction'        => 'export',
-            'outcome'          => 'success',
-            'actor_user_id'    => $actor->id,
-            'actor_name'       => $actor->name,
-            'source_agency_id' => $template->agency_id,
-            'template_name'    => $template->name,
-            'template_id'      => $template->id,
-            'package_checksum' => $built['checksum'],
-            'format_version'   => TemplatePackage::VERSION,
-            'source_label'     => $this->sourceLabel(),
-            'warnings'         => $data['warnings'] ?: null,
-        ]);
+        if ($audit) {
+            TemplateTransferLog::create([
+                'direction'        => 'export',
+                'outcome'          => 'success',
+                'actor_user_id'    => $actor->id,
+                'actor_name'       => $actor->name,
+                'source_agency_id' => $template->agency_id,
+                'template_name'    => $template->name,
+                'template_id'      => $template->id,
+                'package_checksum' => $built['checksum'],
+                'format_version'   => TemplatePackage::VERSION,
+                'source_label'     => $this->sourceLabel(),
+                'warnings'         => $data['warnings'] ?: null,
+            ]);
 
-        event(new TemplatePackageExported((int) $template->id, $template->agency_id ? (int) $template->agency_id : null, $actor->id, $built['checksum']));
+            event(new TemplatePackageExported((int) $template->id, $template->agency_id ? (int) $template->agency_id : null, $actor->id, $built['checksum']));
+        }
 
         return [
             'filename' => (Str::slug((string) $template->name) ?: 'template') . '-' . now()->format('Ymd') . '.cxpkg',

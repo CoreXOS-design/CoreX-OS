@@ -2,6 +2,65 @@
 
 @section('corex-content')
 
+{{-- Re-import from Word — the match report is the FIRST thing on the screen after an upload: what
+     came back, then the next action, with a link to every field that still needs a decision.
+     Spec: .ai/specs/cds-reimport-from-word.md. --}}
+@if(!empty($reimportReport))
+    @php($rr = $reimportReport)
+    <div id="cdsReimportReport" class="mx-4 mt-3 rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--brand-icon) 8%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent); color: var(--text-primary);">
+        <p class="font-semibold mb-1">Word file read: {{ $reimportFileName }}</p>
+        <p class="mb-2">
+            {{ $rr['matched_count'] }} of the {{ $rr['old_count'] }} {{ \Illuminate\Support\Str::plural('field', $rr['old_count']) }} in the old template
+            {{ $rr['matched_count'] === 1 ? 'was' : 'were' }} found again in the new file by name
+            ({{ $rr['carried_count'] }} kept {{ $rr['carried_count'] === 1 ? 'its' : 'their' }} binding).
+            @if(empty($rr['dropped']) && empty($rr['added']))
+                Every field matched.
+            @endif
+        </p>
+        @if(!empty($rr['added']))
+            <p class="font-semibold mb-1" style="color: var(--ds-amber);">{{ count($rr['added']) }} new or unmatched {{ \Illuminate\Support\Str::plural('field', count($rr['added'])) }} in the new file — set {{ count($rr['added']) === 1 ? 'it' : 'them' }} up below:</p>
+            <ul class="space-y-1 mb-2">
+                @foreach($rr['added'] as $a)
+                    <li class="flex items-start gap-2 flex-wrap">
+                        <a href="#docContainer" onclick="cdsGoToField({{ (int) $a['new_index'] }}); return false;" class="font-medium underline" style="color: var(--brand-icon);">{{ $a['label'] }}</a>
+                        <span class="text-xs" style="color: var(--text-muted);">{{ $a['reason'] }}</span>
+                    </li>
+                @endforeach
+            </ul>
+        @endif
+        @if(!empty($rr['dropped']))
+            <p class="font-semibold mb-1" style="color: var(--ds-amber);">{{ count($rr['dropped']) }} {{ \Illuminate\Support\Str::plural('field', count($rr['dropped'])) }} from the old template {{ count($rr['dropped']) === 1 ? 'is' : 'are' }} no longer in the new file:</p>
+            <ul class="space-y-1 mb-2">
+                @foreach($rr['dropped'] as $d)
+                    <li class="text-xs" style="color: var(--text-muted);"><span class="font-medium" style="color: var(--text-primary);">{{ $d['label'] }}</span>
+                        @if(!empty($d['was_bound_to'])) (was set to {{ $d['was_bound_to'] }}) @endif — {{ $d['reason'] }}</li>
+                @endforeach
+            </ul>
+        @endif
+        <p class="font-semibold">Next: check the fields above{{ !empty($rr['added']) ? ', set up the new ones' : '' }}, then press Save. Until you Save, the template stays exactly as it was.</p>
+    </div>
+    <script>
+        function cdsGoToField(idx) {
+            const root = document.querySelector('[x-data="cdsEditor()"]');
+            const d = (root && window.Alpine) ? Alpine.$data(root) : null;
+            const tag = d && (d.tags || []).find(t => t.type === 'input' && t.parserIndex === idx);
+            const el = tag && document.querySelector('#docContainer [data-tag-id="' + tag.id + '"]');
+            if (!el) return;
+            el.scrollIntoView({behavior: 'smooth', block: 'center'});
+            el.style.outline = '3px solid var(--ds-amber)';
+            setTimeout(() => { el.style.outline = ''; }, 2500);
+        }
+    </script>
+@endif
+
+@if(session('status') || (isset($errors) && ($errors->has('document') || $errors->has('copy_to_agency'))))
+    <div class="mx-4 mt-3 rounded-md px-4 py-2 text-sm" style="background: color-mix(in srgb, var(--brand-icon) 8%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent); color: var(--text-primary);">
+        @if(session('status')) <p>{{ session('status') }}</p> @endif
+        @if(isset($errors) && $errors->has('document')) <p class="font-semibold" style="color: var(--ds-crimson);">{{ $errors->first('document') }}</p> @endif
+        @if(isset($errors) && $errors->has('copy_to_agency')) <p class="font-semibold" style="color: var(--ds-crimson);">{{ $errors->first('copy_to_agency') }}</p> @endif
+    </div>
+@endif
+
 {{-- AT-262 — near-miss marker warning. A marker-like sequence in the imported doc
      that did NOT parse (wrong tilde count, stray ~, empty) is listed here with WHY,
      so the agent can fix the source doc instead of wondering why a field is missing. --}}
@@ -65,6 +124,24 @@
     <div class="mx-4 mt-3 rounded-md px-4 py-2 text-xs flex items-center gap-3 flex-wrap" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);">
         <a href="{{ route('docuperfect.templates.export', $sourceTemplateId) }}" class="corex-btn-outline text-xs px-3 py-1.5">Export package</a>
         <span>Downloads the last SAVED version of this template as a package you can import on another system or agency.</span>
+        {{-- Copy to another agency (CoreX administrators only) — spec: .ai/specs/cds-reimport-from-word.md --}}
+        <form method="POST" action="{{ route('docuperfect.templates.copyToAgency', $sourceTemplateId) }}" class="flex items-center gap-2 flex-wrap"
+              onsubmit="return confirm('Copy the last SAVED version of this template to the chosen agency? A new template is created there; nothing is replaced.');">
+            @csrf
+            <select name="agency_id" required class="text-xs border border-gray-300 rounded px-2 py-1.5 bg-white text-gray-700">
+                <option value="">Copy to agency&hellip;</option>
+                @foreach(\App\Models\Agency::orderBy('name')->get(['id', 'name']) as $copyAgency)
+                    @if((int) $copyAgency->id !== (int) ($sourceTemplate->agency_id ?? 0))
+                        <option value="{{ $copyAgency->id }}">{{ $copyAgency->name }}</option>
+                    @endif
+                @endforeach
+            </select>
+            <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                <input type="checkbox" name="copy_lease_field_map" value="1" class="w-3 h-3 rounded border-gray-300 text-teal-600">
+                Also copy the rental lease link and field map
+            </label>
+            <button type="submit" class="corex-btn-outline text-xs px-3 py-1.5">Copy to another agency</button>
+        </form>
     </div>
 @endif
 
@@ -353,6 +430,32 @@
                                 Match source document keeps the Word file's centred titles and alignment, draws section headings as a light-grey band and uses greyscale only. It shows in this preview, the signing view and the signed PDF. Alignment is read from the Word file when it is imported, so a template imported before this setting existed keeps its original alignment until it is re-imported.
                             </p>
                         </div>
+
+                        {{-- Word file — Re-import from Word (spec: .ai/specs/cds-reimport-from-word.md) --}}
+                        @if(!empty($sourceTemplate) && $sourceTemplate->template_type === 'cds')
+                        <div>
+                            <label class="text-[10px] font-semibold text-gray-500 uppercase block mb-1">Word file</label>
+                            @forelse($wordFiles as $wf)
+                                <p class="text-[10px] text-gray-500 mb-0.5">
+                                    @if($wf->document)
+                                        <a href="{{ route('corex.documents.file', ['document' => $wf->document, 'download' => 1]) }}" class="underline text-teal-700">{{ $wf->original_filename }}</a>
+                                    @else
+                                        Content before the first re-import (no Word file was kept)
+                                    @endif
+                                    &middot; version {{ $wf->generation }} &middot; {{ $wf->status === 'current' ? 'in use' : 'replaced' }} &middot; {{ ($wf->applied_at ?? $wf->superseded_at ?? $wf->created_at)?->format('j M Y') }}
+                                </p>
+                            @empty
+                                <p class="text-[10px] text-gray-400 mb-1">No Word file is kept for this template yet. Upload the corrected file to replace its wording.</p>
+                            @endforelse
+                            <form method="POST" action="{{ route('docuperfect.templates.reimport', $sourceTemplate->id) }}" enctype="multipart/form-data" class="space-y-1.5 mt-1.5"
+                                  onsubmit="return confirm('Re-import replaces this template\'s wording with the new Word file once you Save. Fields are matched by name and keep their bindings. Edits in this builder that are not saved are not carried over. Continue?');">
+                                @csrf
+                                <input type="file" name="document" accept=".docx" required class="block w-full text-[11px] text-gray-600">
+                                <button type="submit" class="corex-btn-outline text-xs px-3 py-1.5">Re-import from Word</button>
+                            </form>
+                            <p class="text-[10px] text-gray-400 pt-1">Replaces the wording from a corrected Word file. The template keeps its number, settings and signing roles; fields are matched by name. Nothing changes until you Save, and the previous version is kept.</p>
+                        </div>
+                        @endif
 
                         {{-- Delivery Modes --}}
                         <div>

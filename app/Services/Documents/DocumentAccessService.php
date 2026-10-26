@@ -31,6 +31,13 @@ class DocumentAccessService
 
     public function allows(User $user, Document $document): bool
     {
+        // A template's source Word file belongs to the template, not to a property / contact / deal:
+        // only someone who may manage templates AND may open that template. Checked first so an
+        // agency-wide `documents` scope on its own never opens it.
+        if ($document->source_type === \App\Services\Docuperfect\CdsReimportService::SOURCE_TYPE) {
+            return $this->allowsTemplateSource($user, $document);
+        }
+
         if ($this->isIdentityDocument($document) && ! $this->hasAnyPermission($user, self::IDENTITY_PERMISSIONS)) {
             return false;
         }
@@ -73,6 +80,24 @@ class DocumentAccessService
         }
 
         return false;
+    }
+
+    private function allowsTemplateSource(User $user, Document $document): bool
+    {
+        if (! $user->hasPermission('manage_templates') || $document->source_id === null) {
+            return false;
+        }
+        $template = \App\Models\Docuperfect\Template::query()->find($document->source_id);
+        if (! $template) {
+            return false;
+        }
+        try {
+            $template->assertAccessibleBy($user);
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface) {
+            return false;
+        }
+
+        return true;
     }
 
     /** FICA / identity paperwork needs the compliance permission on top of record access. */
