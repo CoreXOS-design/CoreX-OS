@@ -135,6 +135,9 @@
                 @if(isset($report->spot_check_results['discrepancies']))
                     <div style="font-size: 0.625rem; color: var(--text-muted);">{{ $report->spot_check_results['discrepancies'] }} discrepancies</div>
                 @endif
+                @if(!empty($report->spot_check_results['cannot_audit']))
+                    <div style="font-size: 0.625rem; color: var(--text-muted);">{{ $report->spot_check_results['cannot_audit'] }} could not be audited (no year, or not tied to its year)</div>
+                @endif
             </div>
             <div style="padding: 8px 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px;">
                 <div style="font-size: 0.625rem; text-transform: uppercase; font-weight: 600; color: var(--text-muted);">Data points</div>
@@ -229,7 +232,7 @@
                                 <td style="padding: 5px 10px; color: var(--text-primary);">{{ $dp->metric_key }}</td>
                                 <td style="padding: 5px 10px; color: var(--text-secondary);">{{ $dp->suburb_normalised ?? '—' }}</td>
                                 <td style="padding: 5px 10px; text-align: right; font-family: ui-monospace, monospace;">{{ $dp->metric_value_numeric !== null ? number_format((float) $dp->metric_value_numeric, 2) : '—' }}</td>
-                                <td style="padding: 5px 10px; color: var(--text-secondary);">{{ $dp->metric_value_date ? \Carbon\Carbon::parse($dp->metric_value_date)->format('Y-m-d') : '—' }}</td>
+                                <td style="padding: 5px 10px; color: var(--text-secondary);">{{ $dp->metric_value_date ? \Carbon\Carbon::parse($dp->metric_value_date)->format('Y-m-d') : ($dp->periodYear() ?? '—') }}</td>
                                 <td style="padding: 5px 10px; color: var(--text-secondary); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ $dp->metric_value_string }}">{{ $dp->metric_value_string ?? '—' }}</td>
                                 <td style="padding: 5px 10px; color: var(--text-secondary);">{{ $dp->confidence }}</td>
                             </tr>

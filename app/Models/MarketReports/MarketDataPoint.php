@@ -85,6 +85,32 @@ final class MarketDataPoint extends Model
         });
     }
 
+    /**
+     * A yearly figure ("median price 2017") belongs to one calendar year. The year lives in
+     * metric_date, which every producer (known-format parsers, AI read, learned layout) sets to
+     * 31 Dec of that year (metric_value_date is for date-valued metrics, and metric_date is NOT NULL,
+     * so a producer with no year can only fall back to some other date such as the upload date).
+     * Every reader that compares or shows such a figure asks periodYear(), never the value columns.
+     */
+    public static function isYearlyMetric(?string $metricKey): bool
+    {
+        return $metricKey !== null
+            && (str_ends_with($metricKey, '_year') || $metricKey === 'suburb_annual_change_pct');
+    }
+
+    /**
+     * The calendar year a yearly figure is for. Null for any other metric, and for a yearly figure
+     * whose date is not a year-end — that date is when it was read, not the year it describes.
+     */
+    public function periodYear(): ?int
+    {
+        if (!self::isYearlyMetric($this->metric_key) || $this->metric_date === null) {
+            return null;
+        }
+
+        return $this->metric_date->format('m-d') === '12-31' ? (int) $this->metric_date->format('Y') : null;
+    }
+
     public function report(): BelongsTo
     {
         return $this->belongsTo(MarketReport::class, 'report_id');

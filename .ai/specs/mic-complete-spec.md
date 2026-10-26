@@ -1105,6 +1105,19 @@ The system values protect the platform's AI bill and the trustworthiness of dete
 
 **Tests.** `tests/Feature/MarketReports/ReportChartLayoutTest.php` (LOOM learn + every figure back; second report read by the layout with no AI call; an invented publisher's charts and headed estimate; figures the text does not carry are never saved), `ReportLifecycleTest::test_bulk_import_without_an_agency_says_what_to_do_instead_of_a_bare_403`. Fixtures `loom_cma.layout.txt` / `loom_cma.read.json` are the real report's text and the AI's real answer with the people removed.
 
+#### 8.9.2 Yearly figures carry their year; the spot check audits the same year (26 Oct 2026, QA1)
+
+**What was reported.** On the LOOM report the spot check flagged "2 discrepancies": the 2017 and 2018 median prices (R 3 300 000 / R 3 580 000, both correct) "audited" against R 4 450 000 (the 2025 median); the report screen's Date column was "—" on all 30 yearly rows.
+
+**What was actually wrong.** Not storage. Every yearly figure already carried its year: `market_data_points.metric_date` (NOT NULL) = 31 Dec of the year, written by the known-format parser, the AI read and the learned layout alike (QA1: 1 051 yearly rows, Staging: 991, every one dated 12-31, none missing — so there is nothing to back-fill and no back-fill command was written). The two defects were on the READ side: (1) the spot check sent the auditor the value columns only, never the year, and its answers were cached for a year per point; (2) the report screen's Date column printed `metric_value_date` (for date-valued metrics) and never looked at `metric_date`.
+
+**The rule (class fix).**
+- `MarketDataPoint::isYearlyMetric($key)` = key ends `_year`, or `suburb_annual_change_pct`; `periodYear()` = the year of `metric_date` when it is a 31 Dec, else null (a year-end is the producers' convention; any other date is the day the figure was read, not the year it describes). Every reader that compares or shows a yearly figure asks `periodYear()`.
+- Spot check: a yearly figure is audited against THAT year's figure only (`period_year` is in the facts; the prompt says another year's figure is never a disagreement). A yearly figure with no year is NOT sent to the AI and is listed under `spot_check_results.cannot_audit_points` ("no year"); when the text does not let the auditor tie a figure to its year (chart data labels) it answers `cannot_tell` — likewise listed, never a discrepancy. Prompt version v2 and the year in the cache key, so earlier cached (wrong-year) verdicts are not reused. A re-run replaces the earlier run's OPEN findings (soft delete); findings someone resolved stay.
+- Report screen: the Date column shows the year (2017) for a yearly row, the date for a date-valued row, "—" for a yearly figure with no year; the Spot check card says how many "could not be audited"; the discrepancies page names the year beside the metric.
+
+**Tests.** `tests/Feature/MarketReports/ReportYearlyFiguresTest.php` (every producer writes the year — mapper for AI + learned layout, known-format parser; the audit is told the year; no-year and cannot-tell are never mismatches; a real same-year mismatch is still flagged; re-run replaces open findings only; the report and discrepancies screens show the year).
+
 ---
 
 ## 9. WhatsApp Action Flow
