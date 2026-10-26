@@ -709,6 +709,7 @@ class AgencySetupWizardController extends Controller
                     'expiry_notice_window_days' => LeaseSetting::expiryNoticeWindowDaysFor($agency->id),
                     'show_lease_type_field' => LeaseSetting::showLeaseTypeFieldFor($agency->id),
                     'default_deposit_months' => LeaseSetting::defaultDepositMonthsFor($agency->id),
+                    'default_lease_fee' => LeaseSetting::defaultLeaseFeeFor($agency->id),
                     // .ai/specs/rental-renewals.md §2 — AT-444.
                     'tenant_notice_period_days' => LeaseSetting::tenantNoticePeriodDaysFor($agency->id),
                     'cpa_early_cancel_business_days' => LeaseSetting::cpaEarlyCancelBusinessDaysFor($agency->id),

@@ -98,6 +98,8 @@ class Lease extends Model
         'status',
         'rental_amount',
         'deposit_amount',
+        // leases.md "Lease fee" (26 Oct 2026) - the letting/placement fee for this term; null = not on record, 0 = not charged.
+        'lease_fee',
         'start_date',
         'end_date',
         'is_month_to_month',
@@ -162,6 +164,7 @@ class Lease extends Model
     protected $casts = [
         'rental_amount' => 'decimal:2',
         'deposit_amount' => 'decimal:2',
+        'lease_fee' => 'decimal:2',
         'expiry_notice_sent_at' => 'datetime',
         'expiry_notice_alerted_at' => 'datetime',
         'start_date' => 'date',

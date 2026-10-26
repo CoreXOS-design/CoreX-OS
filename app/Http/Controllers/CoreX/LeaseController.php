@@ -1059,6 +1059,7 @@ class LeaseController extends Controller
 
         $validated = $request->validate([
             'deposit_amount' => ['nullable', 'numeric', 'min:0'],
+            'lease_fee' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
             'end_date' => ['nullable', 'date', 'after:' . $lease->start_date->format('Y-m-d')],
             'is_month_to_month' => ['nullable', 'boolean'],
             'lease_type' => ['nullable', 'string', 'max:40'],
@@ -1103,6 +1104,8 @@ class LeaseController extends Controller
 
         $lease->update([
             'deposit_amount' => array_key_exists('deposit_amount', $validated) ? $validated['deposit_amount'] : $lease->deposit_amount,
+            // leases.md "Lease fee": a field that was not posted keeps the lease's value (same has()-guard as the rest of this edit).
+            'lease_fee' => array_key_exists('lease_fee', $validated) ? $validated['lease_fee'] : $lease->lease_fee,
             'end_date' => $endDate,
             'is_month_to_month' => $monthToMonth,
             'lease_type' => $validated['lease_type'] ?? $lease->lease_type,

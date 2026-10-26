@@ -93,6 +93,24 @@
 
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Lease fee default</h3>
+            </div>
+            <div class="p-5 space-y-3">
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Default lease fee (R)</label>
+                    <input type="number" name="default_lease_fee" value="{{ old('default_lease_fee', number_format((float) $defaultLeaseFee, 2, '.', '')) }}"
+                           step="0.01" min="0" max="99999999.99"
+                           class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        The lease (letting) fee a new lease starts with. 0.00 means no fee is charged. It is always a starting figure
+                        the agent can change on the lease, and it prints on your lease agreement when your agreement has a lease fee line linked to it.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">Notice and early cancellation (defaults for new leases)</h3>
             </div>
             <div class="p-5 space-y-3">
