@@ -62,9 +62,9 @@ final class SharedCaptureModalUnificationTest extends TestCase
             'manual variant binds the SAME shared modal to showWebSigCapture (web-sig blocks)');
 
         // Both renders are the ONE component — a fingerprint unique to this partial (the
-        // typed-signature Dancing Script font link) is emitted by each.
+        // typed-signature font stylesheet link) is emitted by each.
         foreach (['pad' => $pad, 'manual' => $manual] as $label => $html) {
-            $this->assertStringContainsString('family=Dancing+Script', $html,
+            $this->assertStringContainsString('/css/esign-fonts.css', $html,
                 "the [{$label}] render must be the shared capture modal (its typed-signature font link)");
         }
 

@@ -463,7 +463,7 @@ async function typeAndApplySignature(page, name) {
         await page.keyboard.type(name, { delay: 15 });
         await sleep(300);
     }
-    const applyClicked = await clickVisibleBtn(page, (t) => t.startsWith('Apply Signature'));
+    const applyClicked = await clickVisibleBtn(page, (t) => t.startsWith('Apply Signature') || t.startsWith('Apply initials'));
     if (process.env.ESIGN_HARNESS_DEBUG) console.error(`[signing-debug] typeAndApplySignature: applyClicked=${applyClicked}`);
     await sleep(1500);
     const dlg = await page.evaluate(() => document.body.innerText.includes('Apply to Remaining Markers?'));
@@ -573,7 +573,7 @@ async function robustCompleteSigningAsCurrentParty(page, signerName, { maxLoops 
                     const text = document.body.innerText;
                     if (text.includes('Use my saved signature')) return true;
                     const btns = Array.from(document.querySelectorAll('button')).map(b => b.innerText.trim());
-                    return btns.some(t => t === 'Type') && btns.some(t => t.startsWith('Apply Signature'));
+                    return btns.some(t => t === 'Type') && btns.some(t => t.startsWith('Apply Signature') || t.startsWith('Apply initials'));
                 });
                 if (hasSigModal) {
                     await typeAndApplySignature(page, signerName);

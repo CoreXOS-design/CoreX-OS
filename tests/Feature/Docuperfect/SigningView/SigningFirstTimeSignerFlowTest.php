@@ -296,4 +296,97 @@ final class SigningFirstTimeSignerFlowTest extends TestCase
         $this->assertStringContainsString('if (this._inited) return;', $html);
         $this->assertStringContainsString('this._inited = true;', $html);
     }
+
+    // ── initials dialog: every word follows what is being captured (Johan 26 Oct, defect 1) ──
+
+    #[DataProvider('modes')]
+    public function test_the_initials_dialog_says_initials_not_signature(string $mode, bool $pack): void
+    {
+        $html = $this->asRecipient($this->seller($mode, $pack))->assertOk()->getContent();
+        $text = $this->visibleText($html);
+
+        foreach (['Your initials', 'Type your initials', 'Apply initials', 'Your typed initials appear here', 'Draw your initials above'] as $s) {
+            $this->assertStringContainsString($s, $text, "the initials dialog must say '{$s}'");
+        }
+        $this->assertStringContainsString('By adding your initials, you confirm they are yours', $html, 'the footer is about initials, not "By signing"');
+
+        // ...and each of those is chosen by the same "is this an initial?" test the place that opened the dialog set, so a signature still reads as a signature.
+        $html = html_entity_decode($html, ENT_QUOTES);   // Blade writes the quotes inside an attribute as entities; the browser reads them back
+        $isInitial = "(currentWebSigBlockId || '').indexOf('-init-') !== -1";
+        $this->assertStringContainsString("x-text=\"(" . $isInitial . ") ? 'Your initials' : ('Sign Here')\"", $html);
+        $this->assertStringContainsString("(" . $isInitial . ") ? 'Type your initials' : 'Type your full name here'", $html);
+        $this->assertStringContainsString("(" . $isInitial . ") ? 'Apply initials' : 'Apply Signature'", $html);
+        $this->assertStringContainsString("(" . $isInitial . ") ? 'Your typed initials appear here' : 'Your typed signature appears here'", $html);
+        $this->assertStringContainsString('By signing, you confirm your identity', $html, 'a signature keeps its own wording');
+        $this->assertStringContainsString('Apply Signature', $html);
+    }
+
+    public function test_the_marker_dialog_gets_the_initials_wording_too(): void
+    {
+        $modal = file_get_contents(resource_path('views/docuperfect/signatures/partials/_capture-modal.blade.php'));
+        $this->assertStringContainsString("activeMarker && activeMarker.type === 'initial'", $modal);
+        foreach (['Your initials', 'Type your initials', 'Apply initials', 'Your typed initials appear here', 'Draw your initials above', 'Use my saved initials'] as $s) {
+            $this->assertStringContainsString($s, $modal);
+        }
+        $this->assertStringNotContainsString('Type your initials here', $modal, 'the old half-reused label is gone');
+    }
+
+    // ── a pack is viewed document by document (Johan 26 Oct, defect 2) ──
+
+    public function test_a_pack_takes_the_signer_to_every_document_before_finish(): void
+    {
+        $html = $this->asRecipient($this->seller('adopt_once', pack: true))->assertOk()->getContent();
+
+        // Next opens the next unseen document once nothing is left to sign in the ones already seen.
+        $this->assertStringContainsString('_openDoc(i, info)', $html);
+        $this->assertStringContainsString("if (u !== -1) this._openDoc(u, info);", $html);
+        $this->assertStringContainsString("scrollIntoView({ behavior: 'smooth', block: 'start' })", $html, 'the next document is shown from its top');
+        // the status line names it, and says so before it is opened
+        $this->assertStringContainsString("'Press Next to open ' + this._docTitle(unviewed, info)", $html);
+        $this->assertStringContainsString("blocker = { text: 'Next: open ' + this._docTitle(unviewed, info), kind: 'view' }", $html);
+        // the Next button stays while a document is unseen, even when every place is already signed (Sign everything)
+        $this->assertStringContainsString("(this.stepNo === 3 && here.length === 0 && unviewed === -1) ? '' : 'Next'", $html);
+        // Sign everything is not a view: only a click on a place or Next marks a document as seen
+        $this->assertStringContainsString('self._noteDocTouched(el);', $html);
+        $this->assertSame(2, substr_count($html, 'self._noteDocTouched(el);'), 'signature places and initial places');
+        // Finish and the tick wait for the last document, and cannot be reached by any other path
+        $this->assertStringContainsString("_setIfChanged('showFinish', unviewed === -1)", $html);
+        $this->assertStringContainsString('x-show="showFinish"', $html);
+        $this->assertStringContainsString('this.unviewedDoc === -1', $html, 'canSubmitWeb also requires every document to have been reached');
+    }
+
+    public function test_the_sign_everything_confirmation_does_not_skip_the_viewing(): void
+    {
+        $html = $this->asRecipient($this->seller('adopt_once', pack: true))->assertOk()->getContent();
+        $this->assertStringContainsString("_stepThreeWork(items, info)", $html);
+        $this->assertStringNotContainsString('viewedDocs = {}; ', $html);
+        // confirmFillAll never marks a document as seen
+        $this->assertDoesNotMatchRegularExpression('/confirmFillAll\([^)]*\)\s*\{(?:(?!\n        \},).)*_markViewed/s', $html);
+    }
+
+    // ── one finish control (Johan 26 Oct, defect 3) ──
+
+    #[DataProvider('modes')]
+    public function test_there_is_one_finish_and_the_bottom_submit_button_is_gone(string $mode, bool $pack): void
+    {
+        $html = $this->asRecipient($this->seller($mode, $pack))->assertOk()->getContent();
+
+        $this->assertStringNotContainsString('Submit Signed Document', $html);
+        $this->assertSame(1, substr_count($html, 'data-header-finish'));
+        $this->assertSame(1, substr_count($html, 'id="consent-checkbox"'), 'one tick');
+        $this->assertSame(1, substr_count($html, 'id="consent-checkbox-label"'));
+        $this->assertSame(1, substr_count($html, 'data-header-consent'));
+        // the tick sits in the sticky header, before the page body
+        $header = strpos($html, 'data-signing-header');
+        $tick = strpos($html, 'id="consent-checkbox"');
+        $finish = strpos($html, 'data-header-finish');
+        $this->assertGreaterThan($header, $tick);
+        $this->assertLessThan($finish + 5000, $tick, 'tick and Finish are next to each other');
+        $this->assertLessThan(strpos($html, 'data-app-dialog'), $finish, 'both are inside the header, ahead of the document');
+        // the legal wording is still there, one press away
+        $this->assertStringContainsString('as a handwritten signature under South African law (ECTA Section 13)', $html);
+        // the bottom keeps only the decline link
+        $this->assertSame(1, substr_count($html, 'I decline to sign this document'));
+    }
 }
+
