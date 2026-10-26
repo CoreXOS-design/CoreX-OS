@@ -80,7 +80,7 @@ class WebTemplateBladeEnsurer
     {
         try {
             $bladeView = $this->ensure($template);
-            return view($bladeView, $viewData)->render();
+            return view($bladeView, $viewData + $template->headerDisplayViewData())->render();
         } catch (\Throwable $e) {
             Log::warning('WebTemplateBladeEnsurer: blade render failed — using stored-HTML fallback', [
                 'template_id' => $template->id ?? null,
