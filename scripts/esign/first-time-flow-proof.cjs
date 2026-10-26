@@ -222,6 +222,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     }
     await page.evaluate(() => { const c = document.getElementById('consent-checkbox'); if (c && !c.checked) c.click(); }); await sleep(800);
     await snap('9 consent ticked', 'final');
+    await sleep(3500);   // the last Next pulses its spot for 3s and the toast fades: let those finish before measuring idle
     await assertIdle('after the walk-through');
     console.log('log', JSON.stringify(log));
     if (failures.length) { console.log('FAIL', JSON.stringify(failures)); process.exitCode = 1; } else { console.log('PASS'); }
