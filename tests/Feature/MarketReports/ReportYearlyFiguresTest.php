@@ -171,6 +171,35 @@ final class ReportYearlyFiguresTest extends TestCase
         }
     }
 
+    public function test_a_count_is_looked_for_as_a_chart_label_on_the_page_with_its_year_not_inside_a_date(): void
+    {
+        $datePage = "Sales\n  22 Jul 2024   R 3 900 000\n  23 Jul 2024   R 3 800 000\n";
+        $chartPage = "Number of sales\n      23\n      2023    2024    2025\n  CHART-PAGE-MARKER\n";
+        $layout = $datePage . "\f" . $chartPage;
+        $this->mock(TextExtractionService::class, fn ($m) => $m->shouldReceive('extractText')->andReturn($layout));
+        $relative = 'market-reports/test/' . $this->agencyId . '/' . Str::random(12) . '.pdf';
+        $absolute = \Illuminate\Support\Facades\Storage::disk('local')->path($relative);
+        @mkdir(dirname($absolute), 0777, true);
+        file_put_contents($absolute, 'not a real pdf');
+
+        try {
+            $report = $this->report();
+            $report->update(['file_path' => $relative]);
+            $this->point($report, 'suburb_sales_count_year', 23, '2024-12-31');
+            Http::fake(['https://api.anthropic.com/*' => $this->auditAnswer(['agrees' => true, 'cannot_tell' => false, 'audit_value' => 23, 'severity' => 'low', 'notes' => 'ok'])]);
+
+            SpotCheckMarketReportJob::dispatchSync($report->id);
+
+            Http::assertSent(function ($request) {
+                $body = json_encode($request->data());
+
+                return str_contains($body, 'CHART-PAGE-MARKER') && !str_contains($body, '23 Jul 2024');
+            });
+        } finally {
+            @unlink($absolute);
+        }
+    }
+
     public function test_an_auditor_that_calls_a_figure_a_mismatch_but_quotes_our_own_figure_has_agreed(): void
     {
         $report = $this->report();

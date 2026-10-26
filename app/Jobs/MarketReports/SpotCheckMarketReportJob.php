@@ -193,7 +193,7 @@ class SpotCheckMarketReportJob implements ShouldQueue
             cacheTtlMinutes: 365 * 24 * 60, // ~1 year — audit never re-runs once cached
             agencyId:        (int) $report->agency_id,
             fallbackData:    ['text' => '{"agrees": true, "audit_value": null, "severity": "low", "notes": "fallback — gateway unavailable"}'],
-            promptVersion:   'v3', // v3: yearly figures are compared with their own year only, on the page that prints them
+            promptVersion:   'v4', // v4: yearly figures are compared with their own year only, on the page that prints them
         );
 
         $response = $gateway->generateStructured($request, [
@@ -229,16 +229,27 @@ class SpotCheckMarketReportJob implements ShouldQueue
             return $head;
         }
         $value = (float) $point->metric_value_numeric;
-        $patterns = [
-            '/' . preg_quote(number_format($value, 0, '.', ','), '/') . '(?!\d)/',
-            '/' . str_replace('\ ', '[\s\x{00A0}]', preg_quote(number_format($value, 0, '.', ' '), '/')) . '(?!\d)/u',
-        ];
-        if ($value >= 100_000) {
-            $millions = rtrim(rtrim(number_format($value / 1_000_000, 2, '.', ''), '0'), '.');
-            $patterns[] = '/(?<![\d.])' . preg_quote($millions, '/') . '\s*M\b/i';
+        $year = (int) $point->periodYear();
+        $isPrice = str_contains((string) $point->metric_key, 'price');
+        if ($isPrice) {
+            $patterns = [
+                '/' . preg_quote(number_format($value, 0, '.', ','), '/') . '(?!\d)/',
+                '/' . str_replace(' ', '[\\s\\x{00A0}]', preg_quote(number_format($value, 0, '.', ' '), '/')) . '(?!\d)/u',
+            ];
+            if ($value >= 100_000) {
+                $millions = rtrim(rtrim(number_format($value / 1_000_000, 2, '.', ''), '0'), '.');
+                $patterns[] = '/(?<![\d.])' . preg_quote($millions, '/') . '\\s*M\\b/i';
+            }
+        } else {
+            // a count or a percentage is only ever a chart label when it stands alone on its line ("23" inside a date is not)
+            $plain = rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.');
+            $patterns = ['/^\\s*' . preg_quote($plain, '/') . '\\s*%?\\s*$/m'];
         }
         $hits = [];
         foreach (explode("\f", $layoutText) as $page) {
+            if (preg_match('/(?<!\d)' . $year . '(?!\d)/', $page) !== 1) {
+                continue;   // the figure's own year is printed on the page that draws it
+            }
             foreach ($patterns as $pattern) {
                 if (preg_match($pattern, $page) === 1) {
                     $hits[] = rtrim($page);
