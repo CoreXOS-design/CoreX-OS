@@ -3631,6 +3631,7 @@ CSS;
 .corex-a4-page .corex-page-header { top: 8mm !important; }
 .corex-a4-page .corex-page-footer { bottom: 8mm !important; }
 .corex-page-number.is-set::before { content: none !important; }
+.corex-a4-page table.corex-split-table { margin: 0 !important; }
 .corex-a4-page .page-number {
     position: absolute !important;
     bottom: 10mm !important;

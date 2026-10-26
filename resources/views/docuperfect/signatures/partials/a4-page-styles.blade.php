@@ -41,6 +41,8 @@
 .corex-a4-page .corex-page-header { top: 8mm; }
 .corex-a4-page .corex-page-footer { bottom: 8mm; }
 .corex-page-number.is-set::before { content: none; }
+/* An imported box split row by row for page packing: the pieces sit flush, as one box */
+.corex-a4-page table.corex-split-table { margin: 0 !important; }
 /* Kill inner container styling when A4 pages are active */
 .corex-a4-page .corex-document-wrapper,
 .corex-a4-page .corex-page {
@@ -436,7 +438,22 @@ function _paginateWrapper(wrapper, docIdx, parties) {
     });
     wrapper._srcFrame = frame;
     var hasFooter = !!frame.footer;
+    // The document's own footer carries the page number, so CoreX's "Page X of Y" is not added. CoreX's per-page INITIALS strip
+    // STAYS: paginateDocument() removes every in-document [data-marker-type="initial"] before packing (initials are the strip's
+    // page-break slots), and an imported document's own initial places are plain lines (initials-line), so without the strip
+    // nobody could initial the pages. (A footer-aware replacement for in-document initial places is a separate build.)
+    var dropStrip = false;
     if (children.length === 0) return;
+
+    // An imported Word "box" is one table of many rows (its clauses). The packer below places TOP-LEVEL children, so a whole
+    // box would be one unsplittable child (a 3-page box on a single overflowing sheet). Each row (a row with its merged-down
+    // rows stays together) becomes its own top-level table, so the box breaks between rows like it does in Word.
+    var packed = [];
+    children.forEach(function (ch) {
+        var parts = _splitSourceTable(ch, doc);
+        parts.forEach(function (x) { packed.push(x); });
+    });
+    children = packed;
 
     // Keep the wrapper's own <style>/<link> so intra-document CSS survives.
     var styleNodes = Array.from(contentEl.children).filter(function (el) {
@@ -482,7 +499,7 @@ function _paginateWrapper(wrapper, docIdx, parties) {
         wrapper.appendChild(box);
         // The real furniture element (same one the assembler appends) — reused
         // for every measurement on this page; reserved on non-last (non-sig) pages.
-        var strip = (parties.length && !hasFooter) ? _buildInitialsRow(parties, 'measure') : null;
+        var strip = (parties.length && !dropStrip) ? _buildInitialsRow(parties, 'measure') : null;
         var group = [];
 
         while (i < children.length) {
@@ -538,20 +555,18 @@ function _paginateWrapper(wrapper, docIdx, parties) {
             pageDiv.insertBefore(_frameClone(frame.header, p + 1), pageDiv.firstChild);
         }
         if (hasFooter) {
-            // The document has a footer of its own (with its own page number text): CoreX's "Page X of Y" and initials strip
-            // are not added - initials are the document's own places.
+            // The document has a footer of its own (with its own page number text): CoreX's "Page X of Y" is not added.
             pageDiv.appendChild(_frameClone(frame.footer, p + 1));
         } else {
             var pn = doc.createElement('div');
             pn.className = 'page-number';
             pn.textContent = 'Page ' + (p + 1) + ' of ' + total; // per-document
             pageDiv.appendChild(pn);
-
-            // §19.3 — initial slot on every page EXCEPT this document's last page.
-            // _buildInitialsRow encodes the key as docIdx-pageIdx-partyIdx.
-            if (p < total - 1 && parties.length > 0) {
-                pageDiv.appendChild(_buildInitialsRow(parties, docIdx + '-' + p));
-            }
+        }
+        // §19.3 — initial slot on every page EXCEPT this document's last page (kept unless the document has initial places of
+        // its own). _buildInitialsRow encodes the key as docIdx-pageIdx-partyIdx.
+        if (!dropStrip && p < total - 1 && parties.length > 0) {
+            pageDiv.appendChild(_buildInitialsRow(parties, docIdx + '-' + p));
         }
 
         wrapper.appendChild(pageDiv);
@@ -565,6 +580,41 @@ function _paginateWrapper(wrapper, docIdx, parties) {
 
     wrapper.style.width = origW;
     wrapper.style.maxWidth = origMW;
+}
+
+/**
+ * Split an imported source table (data-src-borders) into one table per row group so the page packer can break between rows.
+ * Returns [table] unchanged for anything else (a plain block, a table with one row group, a table the importer did not mark).
+ * The rows are MOVED (not cloned): every field, signature and initial place inside keeps its identity.
+ */
+function _splitSourceTable(el, doc) {
+    if (!el || el.nodeType !== 1 || el.tagName !== 'TABLE' || !el.hasAttribute('data-src-borders')) return [el];
+    var spacer = el.querySelector('tr.corex-grid-widths');
+    var rows = Array.from(el.querySelectorAll('tr')).filter(function (tr) { return tr !== spacer; });
+    if (rows.length < 2) return [el];
+
+    var groups = [], cur = [], carry = 0;
+    rows.forEach(function (tr) {
+        cur.push(tr);
+        var span = 1;
+        Array.from(tr.children).forEach(function (td) { var rs = parseInt(td.getAttribute('rowspan') || '1', 10); if (rs > span) span = rs; });
+        carry = Math.max(carry - 1, span - 1);
+        if (carry === 0) { groups.push(cur); cur = []; }
+    });
+    if (cur.length) groups.push(cur);
+    if (groups.length < 2) return [el];
+
+    var colgroup = el.querySelector('colgroup');
+    return groups.map(function (g) {
+        var t = el.cloneNode(false);
+        t.classList.add('corex-split-table');
+        if (colgroup) t.appendChild(colgroup.cloneNode(true));
+        var tb = doc.createElement('tbody');
+        if (spacer) tb.appendChild(spacer.cloneNode(true));
+        g.forEach(function (tr) { tb.appendChild(tr); });
+        t.appendChild(tb);
+        return t;
+    });
 }
 
 /** A per-page copy of the source's running header / footer, its {PAGE} token filled with this page's number. */
