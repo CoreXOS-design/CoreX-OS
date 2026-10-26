@@ -9,6 +9,7 @@ use App\Models\MarketReports\MarketReportCompRow;
 use App\Models\Prospecting\TrackedProperty;
 use App\Services\Address\AddressParser;
 use App\Services\MarketReports\DTOs\MarketReportParseResult;
+use App\Services\TitleTypeClassifier;
 use Carbon\Carbon;
 
 /**
@@ -60,7 +61,8 @@ final class CanonicalReadMapper
         $clean['subject'] = array_filter([
             'address'        => $this->text($subject['address'] ?? null, 255),
             'scheme_name'    => $this->text($subject['scheme_name'] ?? null, 200),
-            'section_number' => $this->text($subject['section_number'] ?? null, 40),
+            'section_number' => $this->sectionNumber($subject['section_number'] ?? null),
+            'property_type'  => $this->text($subject['property_type'] ?? null, 60),
             'extent_m2'      => $this->intInRange($subject['extent_m2'] ?? null, 1, 1_000_000, 'subject.extent_m2', $dropped),
             'latitude'       => $this->floatInRange($subject['latitude'] ?? null, -90, 90, 'subject.latitude', $dropped),
             'longitude'      => $this->floatInRange($subject['longitude'] ?? null, -180, 180, 'subject.longitude', $dropped),
@@ -88,7 +90,7 @@ final class CanonicalReadMapper
                 'kind'                  => $kind,
                 'address'               => $this->text($row['address'] ?? null, 255),
                 'scheme_name'           => $this->text($row['scheme_name'] ?? null, 200),
-                'section_number'        => $this->text($row['section_number'] ?? null, 40),
+                'section_number'        => $this->sectionNumber($row['section_number'] ?? null),
                 'property_type'         => $this->text($row['property_type'] ?? null, 60),
                 'suburb'                => $this->text($row['suburb'] ?? null, 120),
                 'extent_m2'             => $this->intInRange($row['extent_m2'] ?? null, 1, 1_000_000, "comps.$i.extent_m2", $dropped),
@@ -107,6 +109,8 @@ final class CanonicalReadMapper
             }
             $clean['comps'][] = array_filter($c, fn ($v) => $v !== null && $v !== '');
         }
+
+        $clean['comps'] = $this->inheritTitleType($clean['comps'], $clean['subject']['property_type'] ?? null);
 
         $thisYear = (int) now()->format('Y');
         foreach ((array) ($raw['suburb_stats'] ?? []) as $i => $row) {
@@ -307,6 +311,52 @@ final class CanonicalReadMapper
         $s = trim((string) preg_replace('/\s+/u', ' ', (string) $v));
 
         return $s === '' ? null : mb_substr($s, 0, $max);
+    }
+
+    /** A section number that is only a filler ("00000", "-", "n/a") is no section number: stored empty. */
+    private function sectionNumber(mixed $v): ?string
+    {
+        $s = $this->text($v, 40);
+
+        return $s === null || TitleTypeClassifier::isPlaceholderSignal($s) ? null : $s;
+    }
+
+    /**
+     * A comparable row that carries no property type takes the report's title type — the one the subject block
+     * prints once ("Property Type: Full Title"), or, when the read has no subject type, the single type every
+     * row that does name one agrees on. A report that names two types gives a blank row nothing to inherit.
+     * The row is marked title_type_source = report so the review screen can tell inherited from read.
+     *
+     * @param  array<int, array<string, mixed>> $comps
+     * @return array<int, array<string, mixed>>
+     */
+    public function inheritTitleType(array $comps, ?string $subjectType): array
+    {
+        $classifier = app(TitleTypeClassifier::class);
+        $source = ($subjectType !== null && $classifier->fromPropertyType($subjectType) !== null) ? $subjectType : null;
+        if ($source === null) {
+            $named = [];
+            foreach ($comps as $c) {
+                $t = trim((string) ($c['property_type'] ?? ''));
+                if ($t !== '') {
+                    $named[strtolower($t)] ??= $t;
+                }
+            }
+            if (count($named) === 1 && $classifier->fromPropertyType(reset($named)) !== null) {
+                $source = reset($named);
+            }
+        }
+        if ($source === null) {
+            return $comps;
+        }
+        foreach ($comps as $i => $c) {
+            if (trim((string) ($c['property_type'] ?? '')) === '') {
+                $comps[$i]['property_type'] = $source;
+                $comps[$i]['title_type_source'] = 'report';
+            }
+        }
+
+        return $comps;
     }
 
     private function number(mixed $v): ?float

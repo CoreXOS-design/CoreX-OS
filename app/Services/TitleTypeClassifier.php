@@ -67,7 +67,9 @@ final class TitleTypeClassifier
      * "Business" are NOT here either: those describe land USE, not title
      * TENURE, and tell you nothing about freehold vs sectional.
      */
-    public const FULL_KEYWORDS = ['house', 'farm', 'freehold'];
+    public const FULL_KEYWORDS = ['house', 'farm', 'freehold', 'full title', 'full-title', 'fulltitle'];
+    // "Full Title" is the exact word LOOM / CMA reports print for a freehold property (26 Oct 2026): until it was
+    // listed here a row that said so plainly was read as "type unknown".
 
     /**
      * Canonical heuristic — classify a free-text property_type string.
@@ -129,10 +131,27 @@ final class TitleTypeClassifier
      */
     public function categoryForComp(?string $propertyType, ?string $schemeName = null, ?string $sectionNumber = null): ?string
     {
-        if (trim((string) $schemeName) !== '' || trim((string) $sectionNumber) !== '') {
+        if (!self::isPlaceholderSignal($schemeName) || !self::isPlaceholderSignal($sectionNumber)) {
             return self::TITLE_SECTIONAL;
         }
         return $this->fromPropertyType($propertyType);
+    }
+
+    /**
+     * A scheme name / section number that is only a "nothing here" filler, not a real sectional signal.
+     * The LOOM report prints "Unit Number 00000" for every freehold (Full Title) property; counting that
+     * as "has a section number" classified all 25 Blue Valley Golf Estate freehold sales as sectional
+     * units and excluded every one of them from a Full Title presentation (Staging version 540, 26 Oct).
+     * Blank, all zeros, dashes and "n/a"-style words are placeholders; anything else is a real signal.
+     */
+    public static function isPlaceholderSignal(?string $value): bool
+    {
+        $v = strtolower(trim((string) $value));
+        if ($v === '' || preg_match('/^[\s0\-–—._\/]*$/u', $v) === 1) {
+            return true;
+        }
+
+        return in_array($v, ['n/a', 'na', 'none', 'null', 'nil', 'unknown', 'nan'], true);
     }
 
     /**

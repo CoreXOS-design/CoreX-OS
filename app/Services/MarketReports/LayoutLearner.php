@@ -957,6 +957,7 @@ final class LayoutLearner
             'subject.address'        => $clean['subject']['address'] ?? null,
             'subject.scheme_name'    => $clean['subject']['scheme_name'] ?? null,
             'subject.section_number' => $clean['subject']['section_number'] ?? null,
+            'subject.property_type'  => $clean['subject']['property_type'] ?? null,
         ];
         foreach ($texts as $field => $value) {
             if (!is_string($value) || $value === '') {
