@@ -866,6 +866,7 @@ class RentalApplicationSigningController extends Controller
         $rules = RentalApplication::fieldValidationRules();
         $input = $request->only(array_keys($rules));
         $input = array_merge($input, RentalApplication::sanitizeNumericInput($request->only(RentalApplication::NUMERIC_FIELDS)));
+        $input = RentalApplication::normaliseBlocks($input); // co-applicant / co-occupants / pets / affordability: blank rows never stored
 
         // .ai/specs/rental-application-field-config.md §7, piece (c)(2) —
         // custom fields autosave through this SAME endpoint, never a
@@ -959,6 +960,7 @@ class RentalApplicationSigningController extends Controller
         // number'." Strip thousand separators/spaces/R-prefix on every
         // numeric field before validation, same as the agent-side fix.
         $request->merge(RentalApplication::sanitizeNumericInput($request->only(RentalApplication::NUMERIC_FIELDS)));
+        $request->merge(RentalApplication::normaliseBlocks($request->only(RentalApplication::BLOCK_KEYS))); // blank rows out, so a ticked-compulsory block means real content
 
         // Same RA-02 fix, custom number-type fields — sanitizeNumericInput()
         // works on a flat array, so this runs against custom_field_values'

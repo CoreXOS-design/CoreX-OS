@@ -15069,3 +15069,43 @@ What was chosen, item by item (the audit's numbering). Tests: `tests/Feature/Ren
 ### Send greyed out whenever a property was being linked (Johan, QA1, 21 Oct 2026) - cc2
 **Report:** "an application does not want to send whenever a property is selected; with no property it works" (contact HAS an email). **Cause (found in a real browser on QA1, app 443):** not the server - create + send with a property answers exactly like without one for every kind of rental property on QA1 (let_out, to_let, active, draft; the AT-485 duplicate guard keys on the applicant only; the property rule on create is "rental listing the user can see" and says so on screen). The **"Link a property" control on the application page sits INSIDE the application form**, and that form marks itself edited (`dirty = true`, Send then says "Save your changes first" and is disabled) on every input/change event that bubbles up to it - so typing in the property search greyed Send out, and linking the property (saved by its own request) never released it. **Fix:** the control stops its own input/change events at its wrapper (`@input.stop @change.stop` on `[data-qa=application-property-link]`, `partials/property-link-control.blade.php`); real edits to the form still mark it edited. Test: `RentalApplicationPropertySendTest`. Same bug class to watch: any non-field control (search box, picker) placed inside this form must do the same.
 
+
+## Application terms: fees, deposit banking, summary, documents (26 Oct 2026)
+
+What the application tells a tenant to pay, where, and what to bring is the AGENCY'S wording and figures - settings, never code. Blank = that line / section is not printed, so an agency that sets nothing sees nothing new.
+
+| Setting | Where it lives | Edited at |
+|---|---|---|
+| Application fee per applicant (R) | `rental_application_qualifying_settings.application_fee` | Settings -> Rental applications ("Application fee, tenant summary and documents") |
+| Tenant information summary (one point per line) | `...tenant_info_summary` | same card |
+| Documents to accompany (one per line) - a printed list, NOT the upload checklist | `...documents_to_accompany` | same card |
+| Deposit multiple (existing `default_deposit_months`); the agent still changes the deposit amount on each lease | `lease_settings` | Settings -> Leases |
+| First lease fee + its label (existing `default_lease_fee`, `lease_fee_label`) | `lease_settings` | Settings -> Leases |
+| Renewal fee (R) | `lease_settings.renewal_fee` | Settings -> Leases ("Amounts payable on the rental application") |
+| Rent payable before occupation (the agency's own sentence) | `lease_settings.rent_before_occupation_text` | same card |
+| Deposit banking details: account name, bank, branch code, account type, account number | `lease_settings.deposit_bank_*` | Settings -> Leases ("Deposit banking details"). Prints only when an account name or number is set |
+| Deposit payment reference rule: property address (default) / tenant name / lease reference | `lease_settings.deposit_reference_rule` | same card |
+
+**One builder, three surfaces.** `App\Services\Rentals\ApplicationTerms::for($agencyId, $monthlyRent, $applicants, $propertyAddress, $tenantName, $leaseReference)` returns `['amounts' => [[label, value]...], 'bank' => null|['rows' => [[label, value]...], 'reference' => string], 'summary' => [string...], 'documents' => [string...]]`. The online form, the agent review and the printed/PDF application all print from it, so they cannot disagree. Rows: application fee (with the total when there is a co-applicant, because each applicant pays their own), deposit (rent x deposit multiple, only when the rent is known), the first lease fee (only when above 0, under the agency's own label), renewal fee, the rent-before-occupation sentence. Money prints `R 1,234.00`.
+
+**Savers (has()-guarded, onboarding spec section 6.1; every change is written to `rental_setting_audit`).** `LeaseSettingsController::update` (lease fields) and `RentalApplicationSettingsController::updateFrontHalfDefaults` (application fee, summary, documents). Both are also wizard savers on the Rentals ("leases") step, where each control has its own explain/affects in `config/agency-onboarding-copy.php`; nothing is deliberately left out of the wizard.
+
+**Multi-agency:** no value is seeded by a migration. An agency fills its own in Settings or the wizard.
+
+Tests: `tests/Feature/Rentals/ApplicationTermsSettingsTest.php`.
+
+## Fuller application (26 Oct 2026)
+
+A letting agency's own paper application asks for more than the first V8 form did. Built for Mega Rent (agency 23) but generic: nothing is HFC's or Mega's by assumption, and an agency that has hidden a field or left a setting blank sees nothing it did not choose.
+
+**New single facts** (nullable columns on `rental_applications`; one `fieldValidationRules()` rule, one `submissionFieldRegistry()` entry and one `SUBMISSION_FIELD_SECTIONS` slot each, so the agency can hide, relabel, reorder or make them compulsory in Settings -> Rental applications like every other field): income tax number, how married (`marriage_regime`, a list of the common SA regimes), years employed, pay day, previous landlord name + telephone, bank, bank account number, judgments (yes/no) + details, car make / colour / year / registration. `years_employed` and `pay_date` belong to the "employed" group and `marriage_regime` to the "married" group, so a compulsory tick only bites where the question applies.
+
+**Four repeating blocks** (one JSON column + one registry entry each): `co_applicant` (the same facts as the main applicant, `CO_APPLICANT_FIELDS`), `co_occupants` (name / relationship / age rows, add as many as needed), `pets` (type / breed / size rows), `affordability` (the tenant's own monthly income and expense lines, standard lines pre-filled, live totals). Block rules: top-level array rules only (the autosave reads `$request->only(array_keys($rules))`, so no wildcard keys); `RentalApplication::normaliseBlocks()` is the ONE cleaner - trims, drops blank rows, caps lengths, keeps known keys, reads "R 1 200,50" as money, turns an empty block into null - and runs on every write path (applicant submit + autosave, agent edit). A payload that does not carry a block never touches it (a partial autosave cannot wipe a saved block); a block posted empty clears it. `blockShapeRule()` rejects a malformed (non-scalar) post.
+
+**Affordability, reuse.** The agent's review screen already totals Income / Expenses / Net monthly from document-anchored ledger entries; the tenant's schedule is the same two groups with the same totals (`RentalApplication::affordabilityTotal()`), shown to the agent as a read-only "as stated" block under the submitted application. It never feeds the ledger or the qualifying maths - the agent still verifies against statements.
+
+**Surfaces (one partial each, so they cannot drift):** `rental-applications/partials/extended-sections` (applicant form AND agent capture form, `mode` public|agent), `partials/extended-readout` (agent review), `partials/terms-panels` (applicant form + agent review: summary, documents, amounts payable, deposit banking - from `ApplicationTerms`), and the printed application `corex/rental-applications/pdf.blade.php` (new lines, a Banking and Vehicle section, co-applicant, occupants/pets/income-expense tables with blank rows to write in on a paper copy, then Amounts Payable / Deposit Banking Details / Documents / Tenant Information Summary before the declaration). The PDF uses the shared company-header, so it prints the agency's own letterhead (logo, name, address, reg no ...).
+
+**Deliberately not done:** the application fee is shown, not collected (no payment step); "documents to accompany" is a printed list, separate from the employment-type upload checklist; the tenant's schedule does not auto-fill the review ledger.
+
+Tests: `tests/Feature/RentalApplications/RentalApplicationFullerFormTest.php`.

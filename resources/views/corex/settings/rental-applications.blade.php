@@ -969,6 +969,32 @@
         </form>
     </div>
 
+    {{-- Application terms (26 Oct 2026): what the application tells the tenant to pay, read and bring. Blank = that section is not printed. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-qa="application-terms-card">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Application fee, tenant summary and documents</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">These appear on the online application, the agent's review screen and the printed application. Leave a box empty and that part is simply not shown. The renewal fee, the deposit and the deposit bank details are on the Leases settings page.</p>
+        <form method="POST" action="{{ route('corex.settings.rental-applications.front-half') }}" class="space-y-3">
+            @csrf
+            <div>
+                <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);">Application fee per applicant (R)</label>
+                <input type="number" name="application_fee" step="0.01" min="0" max="99999999.99" value="{{ old('application_fee', $applicationTerms['application_fee'] !== null ? number_format((float) $applicationTerms['application_fee'], 2, '.', '') : '') }}"
+                       class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" data-qa="application-fee-input">
+                <p class="text-xs" style="color: var(--text-muted);">Charged for each applicant (a co-applicant pays their own). Empty = no fee is shown.</p>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);">Tenant information summary (one point per line)</label>
+                <textarea name="tenant_info_summary" rows="8" maxlength="4000" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" data-qa="tenant-info-summary-input">{{ old('tenant_info_summary', $applicationTerms['tenant_info_summary']) }}</textarea>
+                <p class="text-xs" style="color: var(--text-muted);">Shown to the applicant as a bullet list before they sign, for example what the application fee covers, how long a decision takes and what happens next. Empty = no summary.</p>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);">Documents to accompany the application (one document per line)</label>
+                <textarea name="documents_to_accompany" rows="6" maxlength="2000" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" data-qa="documents-to-accompany-input">{{ old('documents_to_accompany', $applicationTerms['documents_to_accompany']) }}</textarea>
+                <p class="text-xs" style="color: var(--text-muted);">A plain list printed on the application so the tenant knows what to bring. It is separate from the upload checklist further down, which controls what the applicant can upload online.</p>
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
     {{-- Rentals front-half decisions (8 Oct 2026) - six switches, each with the recommended value as its default. --}}
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Applying, handing over and withdrawing</h2>
