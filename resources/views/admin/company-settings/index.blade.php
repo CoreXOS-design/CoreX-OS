@@ -102,6 +102,22 @@
                                placeholder="e.g. YOUR HORIZON HOME">
                     </div>
                     <div>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Registered company name (document footer)</label>
+                        <input type="text" name="legal_name" value="{{ old('legal_name', $agency->legal_name) }}" maxlength="255"
+                               class="w-full rounded-md px-3 py-2 text-sm"
+                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                               placeholder="e.g. Sunrise Rentals cc t/a Coastal Rentals">
+                        <p class="text-[11px] mt-1" style="color:var(--text-muted);">First part of the footer line on every document: "name | Reg No | PPRA Reg". Blank = the trading name.</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Website printed on documents</label>
+                        <input type="text" name="document_website" value="{{ old('document_website', $agency->document_website) }}" maxlength="255"
+                               class="w-full rounded-md px-3 py-2 text-sm"
+                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                               placeholder="e.g. www.coastalrentals.co.za">
+                        <p class="text-[11px] mt-1" style="color:var(--text-muted);">A printed line in the letterhead only - separate from the address your public listings use. Blank = no website line.</p>
+                    </div>
+                    <div>
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Registration No</label>
                         <input type="text" name="reg_no" value="{{ old('reg_no', $agency->reg_no) }}"
                                class="w-full rounded-md px-3 py-2 text-sm"

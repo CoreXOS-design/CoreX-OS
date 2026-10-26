@@ -205,6 +205,8 @@ class Agency extends Model
         'viewing_pack_cover_phone',
         'viewing_pack_cover_accent_color',
         'trading_name',
+        'legal_name',        // the registered company line of the document footer (blank = trading name)
+        'document_website',  // the website line printed on documents - NOT website_url (that one drives the listing redirect)
         'tagline',
         'address',
         'phone',

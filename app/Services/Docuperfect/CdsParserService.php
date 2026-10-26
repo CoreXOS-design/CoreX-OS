@@ -1187,6 +1187,51 @@ class CdsParserService
         return ['frame' => $frame, 'read_chars' => $chars];
     }
 
+    /**
+     * A running header that carries DOCUMENT-SPECIFIC text - Mega's Word file prints "Mega Rent Lease - 50d Madeira Crescent -
+     * Arendse - 2026" on every page, the previous tenant's details - must not be printed verbatim on every future document made
+     * from the template. The title part stays; the property, surname and year parts become the {PROPERTY} / {SURNAME} / {YEAR}
+     * merge tokens (the {PAGE} precedent), which the renderer turns into merge fields filled from each document's own data.
+     *
+     * Only a line that clearly is that shape is touched (a leading title, then a street-numbered address segment and a year):
+     * an ordinary header ("Mega Rent Lease - Confidential") is left exactly as the Word file has it.
+     */
+    private function frameMergeFields(string $text): string
+    {
+        if ($text === '' || ! preg_match('/\s[\x{2013}\x{2014}-]\s/u', $text)) {
+            return $text;
+        }
+        $parts = preg_split('/\s+[\x{2013}\x{2014}-]\s+/u', $text) ?: [];
+        if (count($parts) < 3) {
+            return $text;
+        }
+        $year = $address = null;
+        foreach ($parts as $i => $part) {
+            $part = trim($part);
+            if ($i === 0) {
+                continue; // the document title stays as written
+            }
+            if (preg_match('/^(19|20)\d{2}$/', $part)) {
+                $year = $i;
+            } elseif ($address === null && preg_match('/^\d+\s*[A-Za-z]?\s+\p{L}/u', $part)) {
+                $address = $i;
+            }
+        }
+        if ($year === null || $address === null) {
+            return $text;
+        }
+        $parts[$address] = '{PROPERTY}';
+        $parts[$year] = '{YEAR}';
+        foreach ($parts as $i => $part) {
+            // a single capitalised word between the address and the year is the tenant's surname
+            if ($i > $address && $i < $year && preg_match("/^\p{Lu}[\p{L}'\x{2019}-]+$/u", trim($part))) {
+                $parts[$i] = '{SURNAME}';
+            }
+        }
+
+        return implode(' – ', array_map('trim', $parts));
+    }
+
     /** @return array{lines:array,rule:bool,chars:int} */
     private function readFramePart(string $xml): array
     {
@@ -1231,7 +1276,7 @@ class CdsParserService
                     }
                 }
             }
-            $left = trim($left);
+            $left = $this->frameMergeFields(trim($left));
             $right = $right === null ? null : trim($right);
             if ($left === '' && ($right === null || $right === '')) {
                 continue;

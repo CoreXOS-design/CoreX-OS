@@ -75,11 +75,11 @@ class CdsRendererService
                 if (! empty($line['align'])) {
                     $style[] = 'text-align:' . $line['align'];
                 }
-                $text = str_replace('{PAGE}', '<span class="corex-page-number"></span>', e($line['text'] ?? ''));
+                $text = $this->frameTokens(e($line['text'] ?? ''));
                 $out .= '<div class="corex-page-line"' . ($style ? ' style="' . implode(';', $style) . '"' : '') . '>';
                 if (isset($line['right'])) {
                     $out .= '<span class="corex-page-left">' . $text . '</span><span class="corex-page-right">'
-                        . str_replace('{PAGE}', '<span class="corex-page-number"></span>', e($line['right'])) . '</span>';
+                        . $this->frameTokens(e($line['right'])) . '</span>';
                 } else {
                     $out .= $text;
                 }
@@ -100,6 +100,23 @@ class CdsRendererService
         }
 
         return '<!--pf:' . $kind . '-->' . $html . '<!--/pf:' . $kind . '-->';
+    }
+
+    /**
+     * The tokens a running header / footer line may carry: {PAGE} (the page number) and {PROPERTY} / {SURNAME} / {YEAR}, the merge
+     * fields a header with document-specific text is mapped to on import. The merge spans show a readable chip in the builder;
+     * TemplateController::generateCdsBladeView turns them into the document's own values (spec cds-reimport-from-word.md section 10).
+     */
+    private function frameTokens(string $escaped): string
+    {
+        $merge = fn (string $key, string $label) => '<span class="corex-merge" data-merge="' . $key . '">[' . $label . ']</span>';
+
+        return strtr($escaped, [
+            '{PAGE}' => '<span class="corex-page-number"></span>',
+            '{PROPERTY}' => $merge('property', 'property address'),
+            '{SURNAME}' => $merge('surname', 'tenant surname'),
+            '{YEAR}' => $merge('year', 'year'),
+        ]);
     }
 
     /**

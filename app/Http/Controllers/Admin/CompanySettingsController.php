@@ -101,6 +101,8 @@ class CompanySettingsController extends Controller
 
         $data = $request->validate([
             'trading_name'          => ['nullable', 'string', 'max:255'],
+            'legal_name'            => ['nullable', 'string', 'max:255'],
+            'document_website'      => ['nullable', 'string', 'max:255'],
             'tagline'               => ['nullable', 'string', 'max:255'],
             'address'               => ['nullable', 'string', 'max:500'],
             'phone'                 => ['nullable', 'string', 'max:255'],

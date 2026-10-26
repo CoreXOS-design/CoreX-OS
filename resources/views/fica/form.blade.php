@@ -75,9 +75,8 @@
 
         {{-- ═══════════ AGENCY HEADER ═══════════ --}}
         <div class="fica-card" style="text-align: center; border-bottom: 3px solid #0d9488;">
-            @if($agency->logo_path)
-                <img src="{{ asset('storage/' . $agency->logo_path) }}" alt="{{ $agency->name }}" style="max-height: 60px; margin: 0 auto 1rem;">
-            @endif
+            {{-- The shared agency letterhead (logo; name, address, tel, e-mail, website, VAT) - spec agency-letterhead.md --}}
+            <div style="text-align: left; margin-bottom: 1rem;"><x-agency-letterhead :agency-id="$agency->id" /></div>
             <h1 style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary, #111827); margin: 0;">FICA Verification Form</h1>
             <p style="color: #64748b; margin: 0.5rem 0 0; font-size: 0.875rem;">Financial Intelligence Centre Act — Client Due Diligence</p>
         </div>
@@ -741,6 +740,7 @@
                 </div>
             </div>
         </form>
+        <x-agency-letterhead-footer :agency-id="$agency->id" />
     </div>
 
     @vite(['resources/js/app.js'])

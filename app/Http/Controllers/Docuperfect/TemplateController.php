@@ -1310,7 +1310,7 @@ BLADE;
         $blade .= '<div class="corex-page">' . "\n\n";
         $blade .= '@include("docuperfect.web-templates.components.company-header")' . "\n\n";
 
-        $blade .= $html . "\n\n";
+        $blade .= $this->frameMergeFieldsToBlade($html) . "\n\n";
 
         // Signature block — use the authoritative sales/rental classifier
         // (category/template_type aware) so a sales CDS template bakes
@@ -1379,6 +1379,26 @@ BLADE;
      * variable name derivation as WebTemplateDataService::resolve().
      * Signature/initial tags become @include directives.
      */
+    /**
+     * The merge chips a Word running header was mapped to on import (CdsParserService::frameMergeFields: property, surname, year)
+     * become each document's own values, so the header never prints a previous tenant's details. A value the document does not
+     * carry prints nothing (the year falls back to the current year). Variables come from WebTemplateDataService's base data.
+     */
+    private function frameMergeFieldsToBlade(string $html): string
+    {
+        $expressions = [
+            'property' => "{{ \$property_address ?? '' }}",
+            'surname' => "{{ \$lessee_last_name ?? (\$seller_last_name ?? '') }}",
+            'year' => "{{ !empty(\$lease_start) ? date('Y', strtotime(\$lease_start)) : date('Y') }}",
+        ];
+
+        return (string) preg_replace_callback(
+            '/<span class="corex-merge" data-merge="(property|surname|year)">.*?<\/span>/s',
+            fn ($m) => $expressions[$m[1]],
+            $html
+        );
+    }
+
     private function processTaggedHtmlToBladeBody(string $taggedHtml, array $mappings): string
     {
         // Pre-load all NamedFields referenced by mappings

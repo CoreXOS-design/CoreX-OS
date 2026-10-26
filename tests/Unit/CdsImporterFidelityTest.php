@@ -349,6 +349,55 @@ class CdsImporterFidelityTest extends TestCase
         $this->assertStringNotContainsString('corex-page-footer', $rest, 'the print-and-sign route sets the frame first in <body>, where dompdf repeats it');
     }
 
+    private function headerOnly(string $headerText): array
+    {
+        $sect = '<w:sectPr ' . self::REL_NS . '><w:headerReference w:type="default" r:id="rIdH"/></w:sectPr>';
+        $path = tempnam(sys_get_temp_dir(), 'ph') . '.docx';
+        $zip = new ZipArchive();
+        $zip->open($path, ZipArchive::CREATE);
+        $zip->addFromString('word/document.xml', '<?xml version="1.0"?><w:document ' . self::W . '><w:body><w:p>' . self::r('Body') . '</w:p>' . $sect . '</w:body></w:document>');
+        $zip->addFromString('word/_rels/document.xml.rels', $this->rels(['rIdH' => ['header', 'header1.xml']]));
+        $zip->addFromString('word/header1.xml', '<w:hdr ' . self::W . '><w:p><w:r><w:t>' . $headerText . '</w:t></w:r></w:p></w:hdr>');
+        $zip->close();
+        $cds = (new CdsParserService())->parse($path);
+        @unlink($path);
+
+        return $cds;
+    }
+
+    public function test_a_running_header_with_the_previous_tenants_details_becomes_merge_fields_not_verbatim_text(): void
+    {
+        // Mega's Word header: a previous lease's property, surname and year printed on every page of every future document.
+        $cds = $this->headerOnly('Mega Rent Lease – 50d Madeira Crescent – Arendse - 2026');
+
+        $this->assertSame('Mega Rent Lease – {PROPERTY} – {SURNAME} – {YEAR}', $cds['page_header']['lines'][0]['text']);
+
+        $html = (new CdsRendererService())->render($cds);
+        $this->assertStringNotContainsString('Madeira', $html);
+        $this->assertStringNotContainsString('Arendse', $html);
+        $this->assertStringContainsString('data-merge="property"', $html);
+        $this->assertStringContainsString('data-merge="surname"', $html);
+        $this->assertStringContainsString('data-merge="year"', $html);
+
+        // ...and the saved template fills them from each document's own data.
+        $compile = new \ReflectionMethod(\App\Http\Controllers\Docuperfect\TemplateController::class, 'frameMergeFieldsToBlade');
+        $compile->setAccessible(true);
+        $blade = $compile->invoke((new \ReflectionClass(\App\Http\Controllers\Docuperfect\TemplateController::class))->newInstanceWithoutConstructor(), $html);
+        $out = \Illuminate\Support\Facades\Blade::render($blade, ['property_address' => '12 Beach Road, Uvongo', 'lessee_last_name' => 'Dlamini', 'lease_start' => '2027-03-01']);
+        $this->assertStringContainsString('Mega Rent Lease', $out);
+        $this->assertStringContainsString('12 Beach Road, Uvongo', $out);
+        $this->assertStringContainsString('Dlamini', $out);
+        $this->assertStringContainsString('2027', $out);
+        $this->assertStringNotContainsString('Arendse', $out);
+    }
+
+    public function test_an_ordinary_running_header_is_left_exactly_as_the_word_file_has_it(): void
+    {
+        foreach (['Mega Rent Lease – Confidential – Page 1', 'Mega Rent Lease - 50d Madeira Crescent', 'Lease Agreement – 2026'] as $text) {
+            $this->assertSame($text, $this->headerOnly($text)['page_header']['lines'][0]['text'], $text);
+        }
+    }
+
     public function test_a_hard_page_break_between_boxes_is_kept(): void
     {
         $tbl = fn (string $t) => '<w:tbl><w:tblPr/><w:tblGrid><w:gridCol w:w="9000"/></w:tblGrid><w:tr><w:tc><w:p>' . self::r($t) . '</w:p></w:tc></w:tr></w:tbl>';
