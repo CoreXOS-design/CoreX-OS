@@ -256,6 +256,8 @@ class CdsParserService
         $body = $xpath->query('//w:body')->item(0);
         if (!$body) return $sections;
 
+        $textWidth = $this->pageTextWidthTwips($xpath);
+
         foreach ($body->childNodes as $node) {
             if ($node->nodeName === 'w:p') {
                 $section = $this->parseParagraph($node, $xpath, $styleMap, $numberingMap);
@@ -263,7 +265,7 @@ class CdsParserService
                     $sections[] = $section;
                 }
             } elseif ($node->nodeName === 'w:tbl') {
-                $sections[] = $this->parseTable($node, $xpath);
+                $sections[] = $this->parseTable($node, $xpath, $styleMap, $textWidth);
             }
         }
 
@@ -787,29 +789,94 @@ class CdsParserService
     }
 
     /**
-     * Parse a table (w:tbl) element.
+     * Width of the page's text area in twips (page width minus left/right margins), from the
+     * document's final section properties. A4 with 1" margins when Word wrote none.
      */
-    private function parseTable($tableNode, DOMXPath $xpath): array
+    private function pageTextWidthTwips(DOMXPath $xpath): int
+    {
+        $sect = $xpath->query('//w:body/w:sectPr')->item(0);
+        $pgW = 11906;
+        $left = 1440;
+        $right = 1440;
+        if ($sect) {
+            $sz = $xpath->query('w:pgSz', $sect)->item(0);
+            $mar = $xpath->query('w:pgMar', $sect)->item(0);
+            if ($sz && (int) $sz->getAttribute('w:w') > 0) {
+                $pgW = (int) $sz->getAttribute('w:w');
+            }
+            if ($mar) {
+                $left = (int) $mar->getAttribute('w:left');
+                $right = (int) $mar->getAttribute('w:right');
+            }
+        }
+        $width = $pgW - $left - $right;
+
+        return $width > 1000 ? $width : 9026;
+    }
+
+    /**
+     * Parse a table (w:tbl) element.
+     *
+     * Text lives in `rows` / `headers` exactly as before. The table's GEOMETRY is kept beside it so
+     * the builder preview, the signing page and the PDF can draw the table the way the Word file did:
+     *   col_widths  — each grid column as a % of the table (sums to 100), from w:tblGrid (falling back
+     *                 to the widest row's w:tcW when the grid is missing)
+     *   width_pct   — the table as a % of the page's text area (w:tblW; the grid total when "auto")
+     *   align       — 'center' | 'right' when the whole table is positioned (w:tblPr/w:jc)
+     *   cell_meta / header_meta — per row, per cell: ['span' => n] for a merged cell, ['align' => ...]
+     *                 for a centred / right / justified cell. Only present when something differs.
+     * A key exists only when the source stated it, so a table with no geometry stores nothing extra.
+     */
+    private function parseTable($tableNode, DOMXPath $xpath, array $styleMap = [], int $textWidth = 9026): array
     {
         $rows = [];
+        $meta = [];
         $rowNodes = $xpath->query('w:tr', $tableNode);
+        $rowTcWidths = [];
 
         foreach ($rowNodes as $rowNode) {
             $cells = [];
+            $cellMeta = [];
+            $tcWidths = [];
             $cellNodes = $xpath->query('w:tc', $rowNode);
 
             foreach ($cellNodes as $cellNode) {
                 // Get all paragraph text from the cell
                 $cellText = '';
+                $cellAlign = null;
                 $cellParagraphs = $xpath->query('w:p', $cellNode);
                 foreach ($cellParagraphs as $cp) {
                     $runs = $this->extractRuns($cp, $xpath);
-                    $cellText .= $this->contentToPlainText($runs);
+                    $paraText = $this->contentToPlainText($runs);
+                    $cellText .= $paraText;
+                    if ($cellAlign === null && trim($paraText) !== '') {
+                        $psNode = $xpath->query('w:pPr/w:pStyle', $cp)->item(0);
+                        $look = $this->extractParagraphLook($cp, $xpath, $psNode ? $psNode->getAttribute('w:val') : null, $styleMap);
+                        $cellAlign = $look['align'] ?? '';
+                    }
                 }
                 $cells[] = trim($cellText);
+
+                $info = [];
+                $spanNode = $xpath->query('w:tcPr/w:gridSpan', $cellNode)->item(0);
+                $span = $spanNode ? max(1, (int) $spanNode->getAttribute('w:val')) : 1;
+                if ($span > 1) {
+                    $info['span'] = $span;
+                }
+                if ($cellAlign) {
+                    $info['align'] = $cellAlign;
+                }
+                $cellMeta[] = $info;
+
+                $tcw = $xpath->query('w:tcPr/w:tcW', $cellNode)->item(0);
+                $tcWidths[] = ($tcw && in_array($tcw->getAttribute('w:type'), ['dxa', ''], true))
+                    ? ['span' => $span, 'w' => (int) $tcw->getAttribute('w:w')]
+                    : ['span' => $span, 'w' => 0];
             }
 
             $rows[] = $cells;
+            $meta[] = $cellMeta;
+            $rowTcWidths[] = $tcWidths;
         }
 
         // Detect if first row is a header
@@ -827,8 +894,81 @@ class CdsParserService
             'rows' => $rows,
         ];
 
+        // ── Geometry ──
+        $grid = [];
+        foreach ($xpath->query('w:tblGrid/w:gridCol', $tableNode) as $g) {
+            $grid[] = (int) $g->getAttribute('w:w');
+        }
+        $gridCount = 0;
+        foreach ($meta as $rowMeta) {
+            $n = 0;
+            foreach ($rowMeta as $info) {
+                $n += $info['span'] ?? 1;
+            }
+            $gridCount = max($gridCount, $n);
+        }
+        if ($grid === [] || count($grid) !== $gridCount || min($grid) <= 0) {
+            // Grid missing or inconsistent with the rows: use the widest row whose cells all state a width.
+            $grid = [];
+            foreach ($rowTcWidths as $tcWidths) {
+                if ($tcWidths !== [] && count($tcWidths) === $gridCount && min(array_column($tcWidths, 'w')) > 0
+                    && array_sum(array_column($tcWidths, 'span')) === $gridCount) {
+                    foreach ($tcWidths as $c) {
+                        $grid[] = $c['w'];
+                    }
+                    break;
+                }
+            }
+        }
+        $gridTotal = array_sum($grid);
+        if ($gridTotal > 0 && count($grid) === $gridCount && count($grid) > 1) {
+            $pct = array_map(fn ($w) => round($w / $gridTotal * 100, 2), $grid);
+            $pct[count($pct) - 1] = round(100 - array_sum(array_slice($pct, 0, -1)), 2);
+            $result['col_widths'] = $pct;
+        }
+
+        $tableTwips = $gridTotal;
+        $tblW = $xpath->query('w:tblPr/w:tblW', $tableNode)->item(0);
+        if ($tblW) {
+            $type = $tblW->getAttribute('w:type');
+            $raw = trim($tblW->getAttribute('w:w'));
+            if ($type === 'dxa' && (int) $raw > 0) {
+                $tableTwips = (int) $raw;
+            } elseif ($type === 'pct' && (float) $raw > 0) {
+                $tableTwips = (str_ends_with($raw, '%') ? (float) $raw / 100 : (float) $raw / 5000) * $textWidth;
+            }
+        }
+        if ($tableTwips > 0 && $textWidth > 0) {
+            $widthPct = round(min(100, max(5, $tableTwips / $textWidth * 100)), 1);
+            // 100% is what a table already gets; only record a table that is narrower than the page.
+            if ($widthPct < 99.5) {
+                $result['width_pct'] = $widthPct;
+            }
+        }
+
+        $tblJc = strtolower((string) $xpath->query('w:tblPr/w:jc', $tableNode)->item(0)?->getAttribute('w:val'));
+        if (in_array($tblJc, ['center', 'right', 'end'], true)) {
+            $result['align'] = $tblJc === 'center' ? 'center' : 'right';
+        }
+
+        $hasMeta = false;
+        foreach ($meta as $rowMeta) {
+            foreach ($rowMeta as $info) {
+                if ($info !== []) {
+                    $hasMeta = true;
+                }
+            }
+        }
+
         if ($hasHeader && count($rows) > 0) {
             $result['headers'] = array_shift($result['rows']);
+            $headerMeta = array_shift($meta);
+            if ($hasMeta) {
+                $result['header_meta'] = $headerMeta;
+            }
+        }
+        if ($hasMeta) {
+            $result['cell_meta'] = $meta;
         }
 
         return $result;
