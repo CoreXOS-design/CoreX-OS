@@ -46,6 +46,9 @@ class LeaseSetting extends Model
     // so an agency that never sets it is never charged a fee it did not choose. Consumed by LeaseCaptureService.
     public const DEFAULT_LEASE_FEE = 0.0;
 
+    // leases.md "Lease fee" (26 Oct 2026, Johan) - what the agency calls that fee (HFC "Admin fee", Mega "Lease fee"). Blank = this wording.
+    public const DEFAULT_LEASE_FEE_LABEL = 'Lease fee';
+
     // .ai/specs/rental-renewals.md §2 — SA residential-lease convention, not a
     // legal minimum CoreX enforces; an agency-configurable sensible default.
     public const DEFAULT_TENANT_NOTICE_PERIOD_DAYS = 30;
@@ -125,6 +128,7 @@ class LeaseSetting extends Model
         'show_lease_type_field',
         'default_deposit_months',
         'default_lease_fee',
+        'lease_fee_label',
         'tenant_notice_period_days',
         'cpa_early_cancel_business_days',
         'breach_remedy_business_days',
@@ -219,6 +223,19 @@ class LeaseSetting extends Model
         $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
 
         return $row?->default_lease_fee !== null ? (float) $row->default_lease_fee : self::DEFAULT_LEASE_FEE;
+    }
+
+    /** What the agency calls the lease fee (leases.md "Lease fee"): its own wording, else "Lease fee". Used everywhere the fee is shown or mapped. */
+    public static function leaseFeeLabelFor(?int $agencyId): string
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_LEASE_FEE_LABEL;
+        }
+
+        $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
+        $label = trim((string) ($row?->lease_fee_label ?? ''));
+
+        return $label !== '' ? $label : self::DEFAULT_LEASE_FEE_LABEL;
     }
 
     public static function tenantNoticePeriodDaysFor(?int $agencyId): int

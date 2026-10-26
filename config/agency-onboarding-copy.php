@@ -1076,6 +1076,11 @@ return [
              'label' => 'Default lease fee (R)',
              'explain' => 'The lease (letting) fee a new lease starts with. The agent can change it on any lease, and it prints on your lease agreement when your agreement has a lease fee line linked to it.',
              'affects' => 'The lease fee a new lease or renewal starts with, and what prints on the lease fee line of your lease agreement. 0 (the default) means no fee is charged.'],
+            // leases.md "Lease fee" (26 Oct 2026, Johan) - the agency's own name for that fee. Same saver, same has()-guard.
+            ['key' => 'lease_fee_label', 'source' => 'leases', 'type' => 'text', 'default' => 'Lease fee',
+             'label' => 'What you call the lease fee',
+             'explain' => 'The name your agency uses for the fee charged when a lease is set up - for example "Admin fee", "Lease fee" or "Letting fee". Leave it as "Lease fee" if you have no other name for it.',
+             'affects' => 'The name shown for that fee on the lease screen, the new-lease and renewal screens, the agreement check and the lease agreement set-up. It does not change the wording printed inside your own lease document - that stays as your document has it.'],
             // rental-work-orders.md — the two remaining work-order settings
             // (Stage 4 shipped). Saved by RentalWorkOrderSettingsController::
             // update(), has()-guarded there (§6.1).

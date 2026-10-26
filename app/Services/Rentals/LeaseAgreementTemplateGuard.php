@@ -2,6 +2,7 @@
 
 namespace App\Services\Rentals;
 
+use App\Models\LeaseSetting;
 use App\Models\Docuperfect\Template;
 use App\Models\RentalLeaseTemplate;
 use Illuminate\Validation\ValidationException;
@@ -170,7 +171,7 @@ class LeaseAgreementTemplateGuard
         return [
             'state' => $mapProblems === [] ? self::STATE_READY : self::STATE_NEEDS_MAP,
             'problems' => $mapProblems,
-            'warnings' => $this->unresolvedWarnings($template, (array) ($row->field_map ?? [])),
+            'warnings' => $this->unresolvedWarnings($template, (array) ($row->field_map ?? []), $agencyId),
         ];
     }
 
@@ -180,14 +181,14 @@ class LeaseAgreementTemplateGuard
      *
      * @return array<int, string>
      */
-    public function unresolvedWarnings(Template $template, array $fieldMap): array
+    public function unresolvedWarnings(Template $template, array $fieldMap, int $agencyId = 0): array
     {
         $registry = (array) config('lease-agreement-fields.fields', []);
         $mapped = app(LeaseAgreementValuesReader::class)->normaliseMap($fieldMap);
 
         $out = [];
         foreach (app(LeaseWizardFieldResolver::class)->unresolved($template, $mapped) as $key => $field) {
-            $label = $mapped[$key]['label'] ?? ($registry[$key]['label'] ?? $key);
+            $label = $mapped[$key]['label'] ?? ($key === 'lease_fee' ? LeaseSetting::leaseFeeLabelFor($agencyId) : ($registry[$key]['label'] ?? $key));
             $out[] = "“{$label}” points at “{$field}”, which is not on this document - it will be left blank.";
         }
 

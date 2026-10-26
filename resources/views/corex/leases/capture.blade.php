@@ -250,7 +250,7 @@
                 <input type="number" name="deposit_amount" value="{{ $depositValue }}" step="0.01" min="0" x-ref="deposit" @input="depositTouched = true" class="prop-input">
             </div>
             <div class="col-span-2 sm:col-span-1">
-                <label class="prop-label">Lease fee (R)</label>
+                <label class="prop-label">{{ $leaseFeeLabel ?? 'Lease fee' }} (R)</label>
                 <input type="number" name="lease_fee" value="{{ $leaseFeeValue }}" step="0.01" min="0" data-qa="lease-fee-input" class="prop-input">
                 <p class="text-[11px] mt-0.5" style="color: var(--text-muted);">{{ $isRenew && ($dflt['lease_fee'] ?? null) !== null ? 'From the term being renewed.' : 'From your agency default. 0.00 means no fee.' }}</p>
             </div>
