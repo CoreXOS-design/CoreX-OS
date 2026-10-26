@@ -274,11 +274,11 @@ class RentalApplication extends Model
     ];
 
     /** The tenant's own schedule: what comes in and what goes out each month (the review screen totals the same two groups). */
-    public const AFFORDABILITY_INCOME_LINES = ['Salary / wages (after tax)', 'Other income'];
+    public const AFFORDABILITY_INCOME_LINES = ['Salary (after tax)', 'Other income'];
 
     public const AFFORDABILITY_EXPENSE_LINES = [
-        'Bond / current rent', 'Groceries', 'Transport / fuel', 'Insurance', 'Cell phone / internet', 'School fees / childcare',
-        'Loans / credit cards / accounts', 'Other',
+        'Bond / current rent', 'Groceries', 'Transport / fuel', 'Insurance', 'Cell phone / internet', 'School / childcare',
+        'Loans / credit cards', 'Other',
     ];
 
     public const CURRENT_LIVING_SITUATION_LABELS = [
