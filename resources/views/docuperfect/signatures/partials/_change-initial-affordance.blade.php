@@ -25,12 +25,13 @@
     const CSRF   = document.querySelector('meta[name=csrf-token]')?.content || @json(csrf_token());
     // Applies the captured REAL initial image to the acting party's slot (called by the capture modal's
     // applySignature on this surface). Returns true on success.
-    window.__corexApplyChangeInitial = async function (changeId, partyKey, imageDataUrl) {
+    // useAdopted (recipient Modes 2/3 only): the server uses the signer's own adopted initial; no image is posted.
+    window.__corexApplyChangeInitial = async function (changeId, partyKey, imageDataUrl, useAdopted) {
         try {
             const r = await fetch(URL_, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF, 'X-Requested-With': 'XMLHttpRequest' },
-                body: JSON.stringify({ change_id: changeId, initial_image: imageDataUrl }),
+                body: JSON.stringify(useAdopted ? { change_id: changeId, use_adopted: true } : { change_id: changeId, initial_image: imageDataUrl }),
             });
             const d = await r.json().catch(() => ({}));
             return r.ok && !!d.ok;
