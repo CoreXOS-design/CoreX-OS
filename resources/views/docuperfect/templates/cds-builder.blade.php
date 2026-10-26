@@ -126,7 +126,7 @@
         <span>Downloads the last SAVED version of this template as a package you can import on another system or agency.</span>
         {{-- Copy to another agency (CoreX administrators only) — spec: .ai/specs/cds-reimport-from-word.md --}}
         <form method="POST" action="{{ route('docuperfect.templates.copyToAgency', $sourceTemplateId) }}" class="flex items-center gap-2 flex-wrap"
-              onsubmit="return confirm('Copy the last SAVED version of this template to the chosen agency? A new template is created there; nothing is replaced.');">
+              data-confirm="Copy the last SAVED version of this template to the chosen agency? A new template is created there; nothing is replaced." data-confirm-label="Copy">
             @csrf
             <select name="agency_id" required class="text-xs border border-gray-300 rounded px-2 py-1.5 bg-white text-gray-700">
                 <option value="">Copy to agency&hellip;</option>
@@ -448,7 +448,7 @@
                                 <p class="text-[10px] text-gray-400 mb-1">No Word file is kept for this template yet. Upload the corrected file to replace its wording.</p>
                             @endforelse
                             <form method="POST" action="{{ route('docuperfect.templates.reimport', $sourceTemplate->id) }}" enctype="multipart/form-data" class="space-y-1.5 mt-1.5"
-                                  onsubmit="return confirm('Re-import replaces this template\'s wording with the new Word file once you Save. Fields are matched by name and keep their bindings. Edits in this builder that are not saved are not carried over. Continue?');">
+                                  data-confirm="Re-import replaces this template's wording with the new Word file once you Save. Fields are matched by name and keep their bindings. Edits in this builder that are not saved are not carried over. Continue?" data-confirm-label="Re-import">
                                 @csrf
                                 <input type="file" name="document" accept=".docx" required class="block w-full text-[11px] text-gray-600">
                                 <button type="submit" class="corex-btn-outline text-xs px-3 py-1.5">Re-import from Word</button>

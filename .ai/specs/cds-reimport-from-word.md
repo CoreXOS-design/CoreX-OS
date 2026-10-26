@@ -125,6 +125,10 @@ overrule.
 - Copy does not copy lease links unless ticked, never branch assignments, and never overwrites.
 - No screen lists generations beyond the builder's Word-file block; no "restore a superseded generation" button
   (the content is kept so it can be restored by hand or in a follow-up).
+- **No browser pop-ups.** The two confirmations (Re-import, Copy to another agency) use the app's own in-page dialog
+  (`data-confirm`, `partials/corex-confirm`), never `confirm()`. A first build used `confirm()`; on 26 Oct 2026 that
+  pop-up froze the page for a browser-driven session (no request ever reached the server, so it looked like a hang).
+  A test now fails if either form carries `onsubmit`/`confirm(`.
 
 ## 8. Acceptance criteria
 
