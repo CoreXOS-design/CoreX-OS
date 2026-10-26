@@ -41,7 +41,7 @@
                 <tbody>
                     @foreach($discrepancies as $d)
                         <tr style="border-top: 1px solid var(--border);">
-                            <td style="padding: 8px 12px; color: var(--text-primary); font-family: ui-monospace, monospace; font-size: 0.75rem;">{{ $d->dataPoint?->metric_key ?? '—' }}</td>
+                            <td style="padding: 8px 12px; color: var(--text-primary); font-family: ui-monospace, monospace; font-size: 0.75rem;">{{ $d->dataPoint?->metric_key ?? '—' }}@if($d->dataPoint?->periodYear()) · {{ $d->dataPoint->periodYear() }}@endif</td>
                             <td style="padding: 8px 12px; color: var(--text-secondary);">{{ $d->parsed_value }}</td>
                             <td style="padding: 8px 12px; color: var(--text-secondary);">{{ $d->audit_value }}</td>
                             <td style="padding: 8px 12px; color: var(--text-secondary); font-size: 0.75rem;">{{ str_replace('_', ' ', $d->discrepancy_type) }}</td>

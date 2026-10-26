@@ -29,6 +29,11 @@ use Throwable;
  * gateway does not yet support image vision; Phase F.2 will swap in vision
  * when AnthropicGateway gets a multipart-content branch.
  *
+ * A yearly figure ("median price 2017") is audited against that year's figure only. Its year is
+ * MarketDataPoint::periodYear(); a yearly figure with no year cannot be audited and is listed as such —
+ * never as a value mismatch. When the text does not let the auditor tie a figure to its year (chart data
+ * labels), it answers "cannot tell", which is likewise not a mismatch.
+ *
  * Tolerance bands enforced in the system prompt:
  *   - Prices: ±2% (treat as agree)
  *   - Counts (sales, bedrooms): exact match required
@@ -51,6 +56,12 @@ class SpotCheckMarketReportJob implements ShouldQueue
         /** @var MarketReport $report */
         $report = MarketReport::query()->findOrFail($this->reportId);
         $report->update(['spot_check_status' => MarketReport::SPOT_RUNNING]);
+
+        // A re-run replaces the earlier run's open findings (soft delete; a finding someone resolved stays).
+        MarketDataDiscrepancy::withoutGlobalScopes()
+            ->where('report_id', $report->id)
+            ->where('resolved', false)
+            ->delete();
 
         // Build sample set — 20% but at least 3, capped at the actual count.
         $total = (int) $report->dataPoints()->count();
@@ -83,10 +94,19 @@ class SpotCheckMarketReportJob implements ShouldQueue
 
         $discrepancies = 0;
         $checked = 0;
+        $cannotAudit = [];
 
         foreach ($points as $point) {
+            if (MarketDataPoint::isYearlyMetric($point->metric_key) && $point->periodYear() === null) {
+                $cannotAudit[] = ['data_point_id' => $point->id, 'metric_key' => $point->metric_key, 'reason' => 'no year'];
+                continue;
+            }
             try {
                 $verdict = $this->verifyDataPoint($point, $report, $rawText, $gateway);
+                if ($verdict['cannot_tell']) {
+                    $cannotAudit[] = ['data_point_id' => $point->id, 'metric_key' => $point->metric_key, 'reason' => 'the report text does not tie this figure to its year'];
+                    continue;
+                }
                 $checked++;
 
                 if (!$verdict['agrees']) {
@@ -118,6 +138,8 @@ class SpotCheckMarketReportJob implements ShouldQueue
                 'discrepancies'  => $discrepancies,
                 'sample_size'    => $sampleSize,
                 'total_points'   => $total,
+                'cannot_audit'   => count($cannotAudit),
+                'cannot_audit_points' => $cannotAudit,
                 'completed_at'   => now()->toIso8601String(),
             ],
         ]);
@@ -132,7 +154,7 @@ class SpotCheckMarketReportJob implements ShouldQueue
     }
 
     /**
-     * @return array{agrees:bool, audit_value?:mixed, severity?:string, type?:string}
+     * @return array{agrees:bool, cannot_tell:bool, audit_value?:mixed, severity?:string, type?:string}
      */
     private function verifyDataPoint(
         MarketDataPoint $point,
@@ -146,13 +168,14 @@ class SpotCheckMarketReportJob implements ShouldQueue
             'parsed_date'          => $point->metric_value_date,
             'parsed_string'        => $point->metric_value_string,
             'parsed_suburb'        => $point->suburb_normalised,
+            'period_year'          => $point->periodYear(),
             'raw_text_excerpt'     => mb_substr($rawText, 0, 8000),
             'parser_confidence'    => $point->confidence,
         ];
 
         $request = new NarrativeRequest(
             narrativeType:   'audit_finding',
-            cacheKey:        "audit:report:{$report->id}:point:{$point->id}",
+            cacheKey:        "audit:report:{$report->id}:point:{$point->id}:" . ($point->periodYear() ?? 'noyear'),
             modelAlias:      'fast',  // Haiku 4.5
             systemPrompt:    $this->systemPrompt(),
             userPrompt:      $this->userPrompt($facts),
@@ -162,17 +185,18 @@ class SpotCheckMarketReportJob implements ShouldQueue
             cacheTtlMinutes: 365 * 24 * 60, // ~1 year — audit never re-runs once cached
             agencyId:        (int) $report->agency_id,
             fallbackData:    ['text' => '{"agrees": true, "audit_value": null, "severity": "low", "notes": "fallback — gateway unavailable"}'],
-            promptVersion:   'v1',
+            promptVersion:   'v2', // v2: yearly figures are compared with their own year only
         );
 
         $response = $gateway->generateStructured($request, [
-            'description' => 'Return JSON: { agrees: bool, audit_value: string|number|null, severity: "low"|"medium"|"high", notes: string }',
+            'description' => 'Return JSON: { agrees: bool, cannot_tell: bool, audit_value: string|number|null, severity: "low"|"medium"|"high", notes: string }',
         ]);
 
         $json = is_array($response->outputJson) ? $response->outputJson : [];
 
         return [
             'agrees'      => (bool) ($json['agrees'] ?? true),
+            'cannot_tell' => (bool) ($json['cannot_tell'] ?? false),
             'audit_value' => $json['audit_value'] ?? null,
             'severity'    => (string) ($json['severity'] ?? 'medium'),
             'type'        => $this->inferType($point, $json['audit_value'] ?? null),
@@ -192,6 +216,12 @@ class SpotCheckMarketReportJob implements ShouldQueue
         - Dates: EXACT match required (same day)
         - Addresses: case-insensitive normalised match
 
+        YEARLY FIGURES: when the facts carry period_year, the figure is that calendar year's figure
+        and ONLY that year's. A different figure printed for another year is never a disagreement and
+        never an audit_value. Charts print their data labels away from the year axis; if the text does
+        not let you tie a figure to period_year with certainty, answer cannot_tell=true (agrees=true)
+        rather than comparing against a figure that may belong to another year.
+
         If the raw text does not contain the value at all OR contradicts it
         beyond tolerance, return agrees=false. If the raw text appears to
         confirm the value within tolerance, return agrees=true.
@@ -203,7 +233,7 @@ class SpotCheckMarketReportJob implements ShouldQueue
                   contradictory evidence in the text
 
         Return STRICT JSON ONLY. No preamble. Structure:
-        { "agrees": bool, "audit_value": string|number|null, "severity": "low"|"medium"|"high", "notes": string }
+        { "agrees": bool, "cannot_tell": bool, "audit_value": string|number|null, "severity": "low"|"medium"|"high", "notes": string }
         PROMPT;
     }
 
