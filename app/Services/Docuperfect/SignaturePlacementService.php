@@ -247,7 +247,7 @@ class SignaturePlacementService
         [$document, $adoption] = $this->preflightRequest($req);
         $keys = array_values(array_unique(array_map('strval', $placeKeys)));
         if ($keys === [] || count($keys) > self::FILL_ALL_MAX_PLACES) {
-            throw new InvalidArgumentException('There are no places to fill.');
+            throw new InvalidArgumentException('There is nothing to sign everywhere.');
         }
         $signatureKeys = 0;
         $initialKeys = 0;
@@ -257,7 +257,7 @@ class SignaturePlacementService
         }
 
         if ($signatureKeys > $this->ownedSignaturePlaces($req, $document)) {
-            throw new FillAllUnavailableException('This document cannot be filled in automatically. Please click each place to sign it.');
+            throw new FillAllUnavailableException('This document cannot be signed everywhere in one go. Please sign each spot.');
         }
 
         $perDocument = $this->checkedPerDocument($req, $document, $byDocument, $signatureKeys, $initialKeys);
@@ -396,7 +396,7 @@ class SignaturePlacementService
             return [];
         }
         if ($byDocument === []) {
-            throw new InvalidArgumentException('This pack has several documents; the confirmation has to say how many places are filled in each.');
+            throw new InvalidArgumentException('This pack has several documents; the confirmation has to say how many are signed in each.');
         }
 
         $byIndex = [];
@@ -408,13 +408,13 @@ class SignaturePlacementService
             $byIndex[$i] = ['signatures' => max(0, (int) ($row['signatures'] ?? 0)), 'initials' => max(0, (int) ($row['initials'] ?? 0))];
         }
         if (array_sum(array_column($byIndex, 'signatures')) !== $signatureKeys || array_sum(array_column($byIndex, 'initials')) !== $initialKeys) {
-            throw new InvalidArgumentException('The count shown for each document does not add up to the places sent.');
+            throw new InvalidArgumentException('The count shown for each document does not add up to the signatures and initials sent.');
         }
 
         $owned = $this->ownedSignaturePlacesPerDocument($req, $document);
         foreach ($byIndex as $i => $row) {
             if ($owned !== null && $row['signatures'] > ($owned[$i] ?? 0)) {
-                throw new FillAllUnavailableException('This document cannot be filled in automatically. Please click each place to sign it.');
+                throw new FillAllUnavailableException('This document cannot be signed everywhere in one go. Please sign each spot.');
             }
         }
 
@@ -499,14 +499,14 @@ class SignaturePlacementService
     private function preflightRequest(SignatureRequest $req, bool $requireAdoption = true): array
     {
         if (! $this->adoptions->required($req)) {
-            throw new DomainException('This document does not use an adopted signature.');
+            throw new DomainException('This document is signed by signing each spot yourself.');
         }
         $adoption = $this->adoptions->current($req);
         // Both marks must exist: a signature place is stamped from the adopted signature, an initial place from the adopted initial.
         if ($requireAdoption && (! $adoption || trim((string) $adoption->signature_image) === '' || trim((string) $adoption->initial_image) === '')) {
-            throw new AdoptionRequiredException('Please adopt your signature and initial first.');
+            throw new AdoptionRequiredException('Please add your signature and initials first.');
         }
-        $document = $this->webDocument($req) ?? throw new DomainException('This document is signed by signing every place.');
+        $document = $this->webDocument($req) ?? throw new DomainException('This document is signed by signing each spot yourself.');
 
         return [$document, $adoption];
     }
@@ -516,10 +516,10 @@ class SignaturePlacementService
     {
         $parsed = $this->parseKey($placeKey);
         if ($parsed && $this->isForeignWitnessKey($req, $placeKey)) {
-            throw new InvalidArgumentException('That place is for the witness to sign. It is never filled in for you.');
+            throw new InvalidArgumentException('That spot is for the witness to sign. It is never filled in for you.');
         }
         if (! $parsed || ! in_array($parsed['party'], $this->composer->partyTokensFor((string) $req->party_role), true)) {
-            throw new InvalidArgumentException('That is not one of your signature places.');
+            throw new InvalidArgumentException('That is not one of your signature spots.');
         }
 
         return $parsed;

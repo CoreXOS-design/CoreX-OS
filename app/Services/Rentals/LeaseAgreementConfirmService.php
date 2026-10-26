@@ -2,6 +2,7 @@
 
 namespace App\Services\Rentals;
 
+use App\Models\LeaseSetting;
 use App\Exceptions\Rentals\LeaseAgreementConfirmationRefused;
 use App\Models\Docuperfect\SignatureTemplate;
 use App\Models\Lease;
@@ -178,7 +179,7 @@ class LeaseAgreementConfirmService
         if ($start && $end && $end <= $start) {
             throw new LeaseAgreementConfirmationRefused(LeaseAgreementConfirmationRefused::INVALID, 'The dates in the agreement do not make a valid lease: the end date must be after the start date. Correct the agreement first.');
         }
-        foreach (['rental_amount' => 'rent', 'deposit_amount' => 'deposit', 'lease_fee' => 'lease fee'] as $column => $what) {
+        foreach (['rental_amount' => 'rent', 'deposit_amount' => 'deposit', 'lease_fee' => mb_strtolower(LeaseSetting::leaseFeeLabelFor((int) $lease->agency_id))] as $column => $what) {
             if (isset($leaseUpdates[$column]) && (float) $leaseUpdates[$column] < 0) {
                 throw new LeaseAgreementConfirmationRefused(LeaseAgreementConfirmationRefused::INVALID, "The {$what} in the agreement is negative.");
             }

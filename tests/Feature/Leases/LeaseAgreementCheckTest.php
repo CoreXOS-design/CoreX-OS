@@ -6,6 +6,7 @@ namespace Tests\Feature\Leases;
 
 use App\Models\Contact;
 use App\Models\Lease;
+use App\Models\LeaseSetting;
 use App\Models\LeaseTenant;
 use App\Services\Rentals\LeaseAgreementCheck;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -225,6 +226,20 @@ final class LeaseAgreementCheckTest extends TestCase
         $row = $this->row($this->verdict($mapped[0]), 'deposit');
         $this->assertSame('differs', $row['state']);
         $this->assertSame(15000.0, $row['agreement_value']);
+    }
+
+    public function test_the_lease_fee_row_carries_the_agencys_own_name_for_the_fee_and_the_agencys_label_on_the_map_still_wins(): void
+    {
+        [$lease, , $document] = $this->agreementOut(['lease_fee' => 1500], map: $this->map + ['lease_fee' => 'fee_f']);
+        $this->print($document, ['fee_f' => '1750.00']);
+
+        $row = $this->row($this->verdict($lease), 'lease_fee');
+        $this->assertSame('differs', $row['state']);
+        $this->assertSame(1750.0, $row['agreement_value']);
+        $this->assertSame('Lease fee', $row['label'], 'the default name');
+
+        LeaseSetting::create(['agency_id' => $lease->agency_id, 'expiry_notice_window_days' => 60, 'lease_fee_label' => 'Admin fee']);
+        $this->assertSame('Admin fee', $this->row($this->verdict($lease), 'lease_fee')['label']);
     }
 
     // ═══ a value that cannot be read ═══

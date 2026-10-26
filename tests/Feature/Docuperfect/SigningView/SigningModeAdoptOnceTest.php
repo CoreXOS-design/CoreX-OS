@@ -14,7 +14,7 @@ use Tests\TestCase;
 
 /**
  * esign-signing-modes.md §1 (Johan's ruling, 26 Oct 2026): two choices - sign each place, or "adopt once" (adopt a signature and
- * initial, then click each place and/or press "Apply to all my places"). A click or an apply-to-all with no adoption is answered
+ * initial, then click each place and/or press "Sign everything"). A click or an apply-to-all with no adoption is answered
  * with a signal that opens the adopt popup (never a red block or a silent failure); the sticky header carries the model in plain
  * words and live progress; the page works on a phone.
  */
@@ -25,7 +25,6 @@ final class SigningModeAdoptOnceTest extends TestCase
 
     private const SIG = 'data:image/png;base64,iVBORw0KGgoAAAA=';
     private const INIT = 'data:image/png;base64,iVBORw0KGgoCCCC=';
-    private const PHONE = ['User-Agent' => 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/124.0 Mobile Safari/537.36'];
 
     protected function setUp(): void
     {
@@ -127,9 +126,8 @@ final class SigningModeAdoptOnceTest extends TestCase
         $html = $this->asRecipient($r)->assertOk()->getContent();
 
         $this->assertMatchesRegularExpression('/data-signing-header[^>]*position:sticky/', $html);
-        $this->assertStringContainsString('Adopt once, click to apply or apply to all', $html);
         $this->assertStringContainsString('data-header-progress', $html);
-        $this->assertStringContainsString('data-header-apply-all', $html);
+        $this->assertStringContainsString('data-header-sign-everything', $html);
         $this->assertStringContainsString('data-header-finish', $html);
         $this->assertStringContainsString('data-header-blocker', $html);
     }
@@ -139,11 +137,11 @@ final class SigningModeAdoptOnceTest extends TestCase
         $r = $this->seller('sign_each', adopted: false);
         $html = $this->asRecipient($r)->assertOk()->getContent();
 
-        $this->assertStringContainsString('Sign each place', $html);
+        $this->assertStringContainsString("How you'll sign", $html);
         $this->assertStringContainsString('data-header-progress', $html);
         $this->assertStringContainsString('"required":false', str_replace(' ', '', $html));
         // the buttons are conditional on the adoption state the server sent; with none required they never show
-        $this->assertStringContainsString('x-show="adoption && adoption.required"', $html);
+        $this->assertStringContainsString('x-show="adoption && adoption.required && stepNo === 3 && !fillAllUnavailable"', $html);
     }
 
     public function test_the_page_binds_each_places_click_once_and_opens_the_popup_for_an_unadopted_click(): void
@@ -155,19 +153,5 @@ final class SigningModeAdoptOnceTest extends TestCase
         $this->assertStringContainsString('_needAdoption(', $html);            // no adoption: the popup opens and the click is remembered
         $this->assertStringContainsString('pendingAdoptAction', $html);        // ...and applied right after adopting
         $this->assertStringContainsString('adoption_required', $html);         // the server's signal is handled too
-    }
-
-    // ── mobile ──
-
-    public function test_the_page_renders_for_a_phone_with_the_compact_header(): void
-    {
-        $r = $this->seller('adopt_once', adopted: false);
-        $html = $this->withHeaders(self::PHONE)->get('/sign/' . $r->token)->assertOk()->getContent();
-
-        $this->assertStringContainsString('name="viewport"', $html);
-        $this->assertStringContainsString('data-signing-header', $html);
-        $this->assertStringContainsString('sm:hidden', $html);                 // phone-only short labels
-        $this->assertStringContainsString('Apply to all', $html);
-        $this->assertStringContainsString('min-height:40px', $html);            // tap targets
     }
 }

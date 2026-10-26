@@ -2,6 +2,7 @@
 
 namespace App\Services\Rentals;
 
+use App\Models\LeaseSetting;
 use App\Models\Docuperfect\Document;
 use App\Models\Docuperfect\SignatureTemplate;
 use App\Models\Lease;
@@ -93,7 +94,7 @@ class LeaseAgreementCheck
             $printed = $typedByAgent ? LeaseAgreementValuesReader::collapseText((string) $entered[$key]) : $read['printed'];
             $type = (string) ($def['type'] ?? 'text');
             $parsed = $typedByAgent ? $reader->parse((string) $printed, $type) : $read['parsed'];
-            $label = $entry['label'] ?: (string) ($def['label'] ?? Str::headline($key));
+            $label = $entry['label'] ?: ($key === 'lease_fee' ? LeaseSetting::leaseFeeLabelFor((int) $lease->agency_id) : (string) ($def['label'] ?? Str::headline($key)));
             $group = (string) ($def['group'] ?? 'agreement');
 
             if (($def['side'] ?? null) === 'contact') {

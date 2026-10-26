@@ -18,6 +18,7 @@ use App\Models\Docuperfect\Template;
 use App\Models\Lease;
 use App\Models\LeaseAgreementTerms;
 use App\Models\LeaseEvent;
+use App\Models\LeaseSetting;
 use App\Models\LeaseTenant;
 use App\Models\Property;
 use App\Models\RentalLeaseTemplate;
@@ -398,6 +399,98 @@ final class LeaseSigningLauncherTest extends TestCase
 
         $byField = $this->valuesByFieldName($flow, $flow->step_data['fill_review']['fieldValues']);
         $this->assertSame('R 1,500.00', $byField['lease_fee']);
+    }
+
+    // ── a lease edit while the agreement is prepared (leases.md "Lease fee": the agreement follows the lease) ──
+
+    public function test_changing_the_fee_and_deposit_on_a_prepared_lease_updates_the_prepared_agreement_and_keeps_what_the_agent_typed(): void
+    {
+        $fields = $this->documentFields();
+        $fields[] = ['id' => 'fld_fee', 'field_name' => 'lease_fee', 'tag_type' => 'input', 'type' => 'text'];
+        $fields[] = ['id' => 'fld_dep', 'field_name' => 'property_deposit_amount', 'tag_type' => 'input', 'type' => 'placeholder', 'source' => 'property'];
+        [$lease, $row] = $this->leaseWithAgreement([], ['lease_fee' => ['field' => 'lease_fee'], 'deposit' => ['field' => 'deposit_amount']], $fields);
+        $lease->update(['lease_fee' => 1500, 'deposit_amount' => 8500]);
+        $flow = app(LeaseSigningLauncher::class)->launch($lease->fresh(), $row, $this->agent);
+
+        // The agent had already typed something else into Fill & review.
+        $data = $flow->step_data;
+        $data['fill_review']['fieldValues']['typed_by_agent'] = 'keep me';
+        $flow->update(['step_data' => $data]);
+
+        $this->actingAs($this->agent)->put(route('corex.leases.update', $lease), ['deposit_amount' => '9000', 'lease_fee' => '1750'])
+            ->assertSessionHasNoErrors()->assertSessionHas('success', 'Lease updated. The prepared lease agreement now shows the new figure.');
+
+        $flow = $flow->fresh();
+        $values = $flow->step_data['fill_review']['fieldValues'];
+        $byField = $this->valuesByFieldName($flow, collect($values)->except('typed_by_agent')->all());
+        $this->assertSame('R 1,750.00', $byField['lease_fee']);
+        $this->assertSame('R 9,000.00', $byField['property_deposit_amount']);
+        $this->assertSame('keep me', $values['typed_by_agent'], 'only the changed figures are touched');
+        $this->assertSame('9000.00', $flow->step_data['details']['deposit']);
+    }
+
+    public function test_clearing_the_fee_on_a_prepared_lease_empties_its_box_in_the_agreement(): void
+    {
+        $fields = $this->documentFields();
+        $fields[] = ['id' => 'fld_fee', 'field_name' => 'lease_fee', 'tag_type' => 'input', 'type' => 'text'];
+        [$lease, $row] = $this->leaseWithAgreement([], ['lease_fee' => ['field' => 'lease_fee']], $fields);
+        $lease->update(['lease_fee' => 1500]);
+        $flow = app(LeaseSigningLauncher::class)->launch($lease->fresh(), $row, $this->agent);
+
+        $this->actingAs($this->agent)->put(route('corex.leases.update', $lease), ['lease_fee' => ''])->assertSessionHasNoErrors();
+
+        $this->assertNull($lease->fresh()->lease_fee);
+        $this->assertArrayNotHasKey('fld_fee', (array) ($flow->fresh()->step_data['fill_review']['fieldValues'] ?? []));
+    }
+
+    public function test_an_edit_that_changes_nothing_the_agreement_draws_leaves_the_prepared_agreement_alone(): void
+    {
+        $fields = $this->documentFields();
+        $fields[] = ['id' => 'fld_fee', 'field_name' => 'lease_fee', 'tag_type' => 'input', 'type' => 'text'];
+        [$lease, $row] = $this->leaseWithAgreement([], ['lease_fee' => ['field' => 'lease_fee']], $fields);
+        $lease->update(['lease_fee' => 1500]);
+        $flow = app(LeaseSigningLauncher::class)->launch($lease->fresh(), $row, $this->agent);
+        $before = $flow->fresh()->step_data;
+
+        $this->actingAs($this->agent)->put(route('corex.leases.update', $lease), ['lease_fee' => '1500.00'])
+            ->assertSessionHasNoErrors()->assertSessionHas('success', 'Lease updated.');
+
+        $this->assertSame($before, $flow->fresh()->step_data);
+    }
+
+    public function test_an_agreement_without_a_fee_line_is_not_given_one_when_the_fee_changes(): void
+    {
+        [$lease, $row] = $this->leaseWithAgreement([], [], $this->documentFields());
+        $flow = app(LeaseSigningLauncher::class)->launch($lease->fresh(), $row, $this->agent);
+
+        $this->actingAs($this->agent)->put(route('corex.leases.update', $lease), ['lease_fee' => '1750'])->assertSessionHasNoErrors();
+
+        $this->assertSame('1750.00', (string) $lease->fresh()->lease_fee);
+        $this->assertNotContains('R 1,750.00', array_values((array) ($flow->fresh()->step_data['fill_review']['fieldValues'] ?? [])));
+    }
+
+    public function test_once_the_agreement_is_out_for_signing_the_fee_cannot_be_changed_on_the_lease(): void
+    {
+        $fields = $this->documentFields();
+        $fields[] = ['id' => 'fld_fee', 'field_name' => 'lease_fee', 'tag_type' => 'input', 'type' => 'text'];
+        [$lease, $row] = $this->leaseWithAgreement([], ['lease_fee' => ['field' => 'lease_fee']], $fields);
+        $lease->update(['lease_fee' => 1500]);
+        app(LeaseSigningLauncher::class)->launch($lease->fresh(), $row, $this->agent);
+        $lease->forceFill(['signing_status' => Lease::SIGNING_OUT_FOR_SIGNING])->save();
+
+        $this->actingAs($this->agent)->put(route('corex.leases.update', $lease), ['lease_fee' => '1750'])->assertSessionHasErrors('lease');
+
+        $this->assertSame('1500.00', (string) $lease->fresh()->lease_fee, 'changed in the agreement, which CoreX then asks to confirm (leases.md §15.13)');
+    }
+
+    public function test_the_setup_check_names_the_fee_the_way_the_agency_does(): void
+    {
+        LeaseSetting::create(['agency_id' => $this->agency->id, 'expiry_notice_window_days' => 60, 'lease_fee_label' => 'Admin fee']);
+        [, $row] = $this->leaseWithAgreement([], ['lease_fee' => ['field' => 'no_such_fee_box'], 'deposit' => ['field' => 'deposit_amount']], $this->documentFields());
+
+        $status = app(LeaseAgreementTemplateGuard::class)->statusFor($row->fresh(), $this->agency->id);
+
+        $this->assertStringContainsString('“Admin fee” points at “no_such_fee_box”', implode(' | ', $status['warnings']));
     }
 
     public function test_a_seed_with_no_field_to_go_to_is_logged_not_silently_dropped(): void

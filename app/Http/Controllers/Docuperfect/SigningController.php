@@ -1825,7 +1825,7 @@ class SigningController extends Controller
 
         $service = app(\App\Services\Docuperfect\SignatureAdoptionService::class);
         if (! $service->required($signingRequest)) {
-            return response()->json(['ok' => false, 'error' => 'This document does not use an adopted signature.'], 409);
+            return response()->json(['ok' => false, 'error' => 'This document is signed by signing each spot yourself.'], 409);
         }
 
         try {
@@ -1964,8 +1964,12 @@ class SigningController extends Controller
     private function adoptionStateFor(SignatureRequest $signingRequest, bool $isWebTemplate): array
     {
         $service = app(\App\Services\Docuperfect\SignatureAdoptionService::class);
-        if (! $isWebTemplate || ! $service->required($signingRequest)) {
+        if (! $isWebTemplate) {
             return ['required' => false];
+        }
+        if (! $service->required($signingRequest)) {
+            // Sign each place: nothing to save first, but a pack still names its documents for the "Document 1 of 2" status line.
+            return ['required' => false, 'documents' => app(\App\Services\Docuperfect\SignaturePlacementService::class)->packDocuments($signingRequest)];
         }
 
         $mode = $service->modeOf($signingRequest);
@@ -2013,7 +2017,7 @@ class SigningController extends Controller
         // signature + initial (and agreed to the stored wording) before anything they place counts.
         $adoptionService = app(\App\Services\Docuperfect\SignatureAdoptionService::class);
         if ($adoptionService->required($signingRequest) && ! $adoptionService->current($signingRequest)) {
-            return response()->json(['ok' => false, 'error' => 'Please adopt your signature and initial before signing.'], 422);
+            return response()->json(['ok' => false, 'error' => 'Please add your signature and initials before signing.'], 422);
         }
 
         // Modes 2/3: every mark posted must be the signer's own adopted mark — an arbitrary image is refused. (A place the
@@ -2024,7 +2028,7 @@ class SigningController extends Controller
             $strangers = app(\App\Services\Docuperfect\SignaturePlacementService::class)
                 ->unadoptedMarks($signingRequest, array_merge((array) $request->input('signatures', []), (array) $request->input('initials', [])));
             if ($strangers !== []) {
-                return response()->json(['ok' => false, 'error' => 'Only the signature and initial you adopted can be placed on this document.', 'places' => $strangers], 422);
+                return response()->json(['ok' => false, 'error' => 'Only the signature and initials you saved can be put on this document.', 'places' => $strangers], 422);
             }
         }
 
