@@ -73,6 +73,9 @@ class NewPortalLeadAgentNotification extends Notification
                 'listing_portal_ref' => (string) ($this->lead->listing_portal_ref ?? ''),
                 'received_at'        => optional($this->lead->received_at)->toIso8601String() ?? '',
                 'deep_link'          => '/portal-leads/' . $this->lead->id,
+                // AT-508: the same open-this-screen words every CoreX push uses (deep_link above is kept for older builds).
+                'target'             => 'portal_lead',
+                'target_id'          => (string) $this->lead->id,
             ],
         ];
     }

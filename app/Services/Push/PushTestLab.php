@@ -39,7 +39,24 @@ class PushTestLab
         'rental_application.' => \App\Models\RentalApplication::class,
         'rental_inspection.due_reminder' => \App\Models\Lease::class,
         'rental_inspection.' => \App\Models\RentalInspection::class,
+        'agent.event_due' => \App\Models\CommandCenter\CalendarEvent::class,
+        'lead.portal_received' => \App\Models\PortalLead::class,
     ];
+
+    /**
+     * The two alerts that have carried their own push fields since before the shared ones (type + deep_link). A test must send them in
+     * THAT shape, or it would not exercise what the app really receives.
+     *
+     * @return array<string,string>
+     */
+    private function ownShapeFor(string $eventKey, string $recordId): array
+    {
+        return match ($eventKey) {
+            'agent.event_due' => ['type' => 'event_due_reminder', 'event_id' => $recordId, 'deep_link' => '/calendar/events/' . $recordId, 'icon' => 'calendar'],
+            'lead.portal_received' => ['type' => 'portal_lead', 'portal_lead_id' => $recordId, 'deep_link' => '/portal-leads/' . $recordId],
+            default => [],
+        };
+    }
 
     public function __construct(
         private PushNotificationService $push,
@@ -234,7 +251,7 @@ class PushTestLab
                 'data' => array_merge([
                     'event_key' => $type->key, 'pillar' => (string) $type->pillar, 'subject_type' => (string) $subject, 'subject_id' => $recordId,
                     'action_url' => '', 'severity' => 'info', 'notification_id' => $nid, 'test' => '1',
-                ], PushTarget::for($subject, $recordId)),
+                ], $this->ownShapeFor($type->key, $recordId), PushTarget::for($subject, $recordId)),
             ];
         }
 

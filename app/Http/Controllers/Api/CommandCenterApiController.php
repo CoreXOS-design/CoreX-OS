@@ -276,11 +276,65 @@ class CommandCenterApiController extends Controller
             'attendees.*.type'  => 'required_with:attendees|string|in:contact,agent',
             'attendees.*.role'  => 'nullable|string|in:attendee,buyer_contact,seller_contact,agent_contact',
             'deal_id'           => 'nullable|integer',
-        ]);
+        ] + $this->reminderRules($request));
 
-        $event = $creator->create($data, $request->user());
+        $event = $creator->create($data + $this->reminderFields($request, $data), $request->user());
 
         return response()->json($this->formatEvent($event->fresh()->load(['property', 'contact'])), 201);
+    }
+
+    /**
+     * AT-508 - the per-event reminder the app can set: `reminder_minutes_before` (one of the agency's lead options; null = follow my own
+     * default) and `reminder_channels` (popup = a notification on the phone and in CoreX, email). Same choices as the web event form.
+     *
+     * @return array<string, mixed>
+     */
+    private function reminderRules(Request $request): array
+    {
+        $options = $this->reminderLeadOptions($request);
+
+        return [
+            'reminder_minutes_before' => ['nullable', 'integer', \Illuminate\Validation\Rule::in($options)],
+            'reminder_channels'       => 'nullable|array',
+            'reminder_channels.*'     => 'string|in:popup,email',
+        ];
+    }
+
+    /**
+     * The creator / updater columns from the reminder fields the app sent. Only what was sent is returned, so an edit that does not
+     * mention reminders leaves them alone; `reminder_minutes_before: null` clears the event's own time (it then follows the person's default).
+     *
+     * @return array<string, mixed>
+     */
+    private function reminderFields(Request $request, array $data): array
+    {
+        $out = [];
+        if ($request->exists('reminder_minutes_before')) {
+            $out['reminder_offsets'] = isset($data['reminder_minutes_before']) ? [(int) $data['reminder_minutes_before']] : null;
+        }
+        if ($request->exists('reminder_channels')) {
+            $out['reminder_channels'] = ! empty($data['reminder_channels']) ? array_values(array_unique($data['reminder_channels'])) : null;
+        }
+
+        return $out;
+    }
+
+    /** @return int[] the minutes-before choices this agency offers (0 = at the time) */
+    private function reminderLeadOptions(Request $request): array
+    {
+        $user = $request->user();
+
+        return \App\Models\AgencyContactSettings::forAgencyReadOnly((int) ($user?->effectiveAgencyId() ?: $user?->agency_id ?: 0))->calendarReminderLeadOptions();
+    }
+
+    private static function leadLabel(int $minutes): string
+    {
+        return match (true) {
+            $minutes === 0 => 'At the time',
+            $minutes % 1440 === 0 => ($minutes / 1440) . ($minutes === 1440 ? ' day before' : ' days before'),
+            $minutes % 60 === 0 => ($minutes / 60) . ($minutes === 60 ? ' hour before' : ' hours before'),
+            default => $minutes . ' minutes before',
+        };
     }
 
     /**
@@ -330,6 +384,17 @@ class CommandCenterApiController extends Controller
             'categories'     => $categories,
             'classes'        => $classes,
             'priorities'     => ['low', 'normal', 'high', 'critical'],
+            // AT-508 - the reminder choices: how long before the appointment the agent is warned, and where. `my_default_minutes` is the
+            // person's own "Calendar event reminder" setting (one hour until they change it); an event with no time of its own uses it.
+            'reminder'       => [
+                'lead_options'       => array_map(fn ($m) => ['minutes' => (int) $m, 'label' => self::leadLabel((int) $m)], $this->reminderLeadOptions($request)),
+                'my_default_minutes' => (int) (\App\Models\CommandCenter\UserDashboardSetting::getEffective($request->user())->event_reminder_minutes_before ?? 60),
+                'channels'           => [
+                    ['key' => 'popup', 'label' => 'Notification (phone and CoreX)'],
+                    ['key' => 'email', 'label' => 'Email'],
+                ],
+                'default_channels'   => \App\Models\AgencyContactSettings::DEFAULT_EVENT_REMINDER_CHANNELS,
+            ],
             // Attendee-role picker options. Keys are the create validator's
             // attendee role enum MINUS agent_contact — that role is reserved
             // for agents, which the backend auto-assigns (attendees[].type =
@@ -370,13 +435,15 @@ class CommandCenterApiController extends Controller
             'category'      => 'nullable|string|max:50',
             'property_id'   => 'nullable|integer|exists:properties,id',
             'contact_id'    => 'nullable|integer|exists:contacts,id',
-        ]);
+            'send_reminder' => 'nullable|boolean',
+        ] + $this->reminderRules($request));
 
         $oldValues = $calendarEvent->only(['title', 'event_date', 'end_date', 'description', 'category', 'priority', 'status', 'property_id', 'contact_id']);
 
         $calendarEvent->update(collect($data)->only([
             'title', 'event_date', 'end_date', 'description', 'category', 'priority', 'status', 'property_id', 'contact_id',
-        ])->all());
+        ])->all() + $this->reminderFields($request, $data)
+            + ($request->exists('send_reminder') ? ['send_reminder' => $request->boolean('send_reminder')] : []));
 
         $newValues = $calendarEvent->fresh()->only(array_keys($oldValues));
         $changed   = array_filter($newValues, fn ($v, $k) => ($oldValues[$k] ?? null) != $v, ARRAY_FILTER_USE_BOTH);
@@ -862,6 +929,9 @@ class CommandCenterApiController extends Controller
             'priority'         => $e->priority,
             'status'           => $e->status,
             'send_reminder'    => $e->send_reminder,
+            // AT-508 - this event's OWN reminder choice (null = none set: it follows the person's default; see /command-center/calendar/options).
+            'reminder_minutes_before' => is_array($e->reminder_offsets) && $e->reminder_offsets !== [] ? (int) $e->reminder_offsets[0] : null,
+            'reminder_channels'       => is_array($e->reminder_channels) && $e->reminder_channels !== [] ? array_values($e->reminder_channels) : null,
             'resolution'       => $e->resolution,
             'property_id'      => $e->property_id,
             'property_address' => $e->property?->buildDisplayAddress() ?? null,

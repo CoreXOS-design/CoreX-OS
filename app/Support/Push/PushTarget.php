@@ -19,6 +19,8 @@ class PushTarget
         'LeaseBreach' => 'lease',
         'RentalInspection' => 'inspection',
         'RentalApplication' => 'application',
+        'CalendarEvent' => 'calendar_event',
+        'PortalLead' => 'portal_lead',
     ];
 
     /** @return array{target:string,target_id:string}|array{} */

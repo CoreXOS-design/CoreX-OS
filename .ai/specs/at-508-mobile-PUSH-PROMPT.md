@@ -47,3 +47,14 @@ Category: mandatory (cannot be switched off, never listed in preferences) — `d
 4. Repeat for a work order, a notice, an inspection, a lease, an application.
 5. Sign in as a tenant and as an owner, repeat with their categories; `inspection_ready` opens the inspection view.
 6. Switch an agent alert's Phone option off in the app; the lab shows it "off for real" for that person and a real alert no longer buzzes the phone.
+
+## 6. New leads and appointment reminders
+
+**New lead:** push `title` "New <portal> lead", `data.type = "portal_lead"`, `portal_lead_id`, `deep_link = /portal-leads/{id}`, and the shared `target: "portal_lead"`, `target_id`. Open the lead. It is alert type `lead.portal_received` (switchable per person in notification preferences like any other).
+
+**Appointment reminder ("Upcoming: <title>"):** `data.type = "event_due_reminder"`, `event_id`, `event_date`, `deep_link = /calendar/events/{id}`, and `target: "calendar_event"`, `target_id`. Open the event. Sent one hour before by default, to everyone on the event, once per occurrence.
+
+**Let the agent choose how long before (new):**
+- **Their own default:** the existing notification-preferences item `agent.event_due` ("Calendar event reminder", minutes, 5 to 10080, default 60). Until now the server ignored it; it now decides how long before every appointment that person is warned (unless the appointment has its own time). Make sure this item is reachable in the app's notification settings.
+- **Per appointment:** `GET /api/v1/command-center/calendar/options` returns `reminder: {lead_options:[{minutes,label}], my_default_minutes, channels:[{key,label}], default_channels}`. On the create and edit event screens add a "Remind me" picker built from `lead_options` (plus a "My default (<my_default_minutes> min)" choice) and a "Notification / Email" choice from `channels`, and an on/off switch. Send `reminder_minutes_before` (an offered number, or `null` for "my default"), `reminder_channels` (`["popup"]`, `["popup","email"]`, `["email"]`), and `send_reminder` (edit only). A number the agency does not offer answers 422. Read the current choice from the event: `reminder_minutes_before` / `reminder_channels` (null = none set, follows my default). Do not hard-code the options.
+- An edit that does not mention reminders leaves them unchanged, so send the reminder fields only when the agent touched them.

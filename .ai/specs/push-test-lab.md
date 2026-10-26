@@ -40,3 +40,26 @@ Not a setting, so no Setup Wizard step (NN #10a); not an API (web page, NN #7 N/
 ## 6. Tests
 
 `tests/Feature/Push/RentalPhoneAlertsAndTestLabTest.php`. `AuditP1AlertsAndQueueTest` updated: it asserted every contractor / owner / tenant alert type was "without push"; it now asserts push is on except `contractor_photo` and `go_ahead_sent`.
+
+## 7. New-lead alert and appointment reminders (Johan, 26 Oct 2026)
+
+**New-lead alert (already built, checked):** `lead.portal_received` ("New portal lead on your listing", group Leads) goes to the listing's agent, its second agent and the matched contact's agent (never agency-wide) for every portal lead source: Property24, Private Property, the agency website, shared-link re-engagement and the command-task observer. In-app + phone (+ email if the agent ticks it). Verified on Staging: 204 phone pushes and 250 in-app alerts in 30 days, no drops. It is in the Push Test Lab under Leads. The test now sends it in its real shape (`type: portal_lead`, `portal_lead_id`, `deep_link`) plus `target: portal_lead`, `target_id`.
+
+**Appointment reminders (already built, checked):** `command-center:reminders` runs every minute; `CalendarReminderService` warns every person on the event (owner + accepted agent attendees) once per occurrence. Default: one reminder **one hour before**, on the "popup" channel = a CoreX notification AND a phone push (email is a second, optional channel). The push now also carries `target: calendar_event`, `target_id` (the older `deep_link` is kept).
+
+**What was broken, now fixed:** the agent's own "Calendar event reminder" time (notification settings, `agent.event_due`, stored as `event_reminder_minutes_before`, default 60, 5 min to 7 days) was saved but nothing read it (one agent had set 120 min and still got an hour). And the app could not set a reminder time on an event (only the web form could).
+
+Reminder time for a person on an event, first match wins:
+1. the time set on that event itself (web form or the app);
+2. the person's own setting, once changed from the standard hour (in agency-controlled mode the agency's value);
+3. the agency's default for that kind of event (`calendar_event_class_settings.default_reminder_offsets`), else the system default of one hour.
+
+Each person is warned at their own time (two attendees can differ). A person who never changed theirs keeps the standard hour, or the agency's per-kind default if the agency set one.
+
+App contract (`/api/v1/command-center/calendar`):
+- `POST` and `PUT` accept `reminder_minutes_before` (must be one of the agency's lead options, default 0, 5, 10, 15, 30, 60, 120, 1440; else 422), `reminder_channels` (`popup`, `email`), and (PUT) `send_reminder`. `reminder_minutes_before: null` clears the event's own time (it follows the person's default); an edit that does not mention reminders leaves them alone.
+- The event payload carries `reminder_minutes_before` and `reminder_channels` (the event's OWN choice, null = none set); the event detail endpoint already returned the effective `reminder_offsets` / `reminder_channels`.
+- `GET /api/v1/command-center/calendar/options` gains `reminder: {lead_options:[{minutes,label}], my_default_minutes, channels:[{key,label}], default_channels}`.
+- The person's own default stays on `GET/PUT /api/v1/notification-preferences` (`agent.event_due`, threshold in minutes).
+
+Tests: `tests/Feature/CommandCenter/EventReminderLeadTimeTest.php`.

@@ -83,6 +83,9 @@ class EventDueReminderNotification extends Notification
                 'action_url'  => '/corex/command-center/calendar',
                 'deep_link'   => '/calendar/events/' . $this->event->id,
                 'icon'        => 'calendar',
+                // AT-508: the same open-this-screen words every CoreX push uses (deep_link above is kept for older builds).
+                'target'      => 'calendar_event',
+                'target_id'   => (string) $this->event->id,
             ],
         ];
     }

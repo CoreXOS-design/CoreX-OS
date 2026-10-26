@@ -216,7 +216,7 @@ final class RentalPhoneAlertsAndTestLabTest extends TestCase
     public function test_every_destination_the_app_may_open_is_listed(): void
     {
         $this->assertEqualsCanonicalizing(
-            ['fault', 'work_order', 'job_card', 'lease_notice', 'lease', 'inspection', 'application'],
+            ['fault', 'work_order', 'job_card', 'lease_notice', 'lease', 'inspection', 'application', 'calendar_event', 'portal_lead'],
             \App\Support\Push\PushTarget::destinations(),
         );
     }
