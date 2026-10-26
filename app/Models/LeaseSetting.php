@@ -42,6 +42,10 @@ class LeaseSetting extends Model
     // Consumed by PropertyController::applyDepositDefault().
     public const DEFAULT_DEPOSIT_MONTHS = 1.0;
 
+    // leases.md "Lease fee" (26 Oct 2026, Johan) - the agency's starting lease (letting/placement) fee for a new lease. 0 = not charged,
+    // so an agency that never sets it is never charged a fee it did not choose. Consumed by LeaseCaptureService.
+    public const DEFAULT_LEASE_FEE = 0.0;
+
     // .ai/specs/rental-renewals.md §2 — SA residential-lease convention, not a
     // legal minimum CoreX enforces; an agency-configurable sensible default.
     public const DEFAULT_TENANT_NOTICE_PERIOD_DAYS = 30;
@@ -120,6 +124,7 @@ class LeaseSetting extends Model
         'expiry_notice_window_days',
         'show_lease_type_field',
         'default_deposit_months',
+        'default_lease_fee',
         'tenant_notice_period_days',
         'cpa_early_cancel_business_days',
         'breach_remedy_business_days',
@@ -152,6 +157,7 @@ class LeaseSetting extends Model
         'expiry_notice_window_days' => 'integer',
         'show_lease_type_field' => 'boolean',
         'default_deposit_months' => 'decimal:2',
+        'default_lease_fee' => 'decimal:2',
         'tenant_notice_period_days' => 'integer',
         'cpa_early_cancel_business_days' => 'integer',
         'breach_remedy_business_days' => 'integer',
@@ -201,6 +207,18 @@ class LeaseSetting extends Model
         $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
 
         return $row?->default_deposit_months !== null ? (float) $row->default_deposit_months : self::DEFAULT_DEPOSIT_MONTHS;
+    }
+
+    /** The agency's starting lease fee for a new lease (leases.md "Lease fee"): its own setting, else 0 = not charged. */
+    public static function defaultLeaseFeeFor(?int $agencyId): float
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_LEASE_FEE;
+        }
+
+        $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
+
+        return $row?->default_lease_fee !== null ? (float) $row->default_lease_fee : self::DEFAULT_LEASE_FEE;
     }
 
     public static function tenantNoticePeriodDaysFor(?int $agencyId): int

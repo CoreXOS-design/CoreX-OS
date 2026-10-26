@@ -205,7 +205,7 @@ class LeaseCaptureService
      * the ones it does not "not on record" — a wet-ink first lease starts with none of them).
      *
      * @param array<int, array<string,mixed>> $fields from agreementFields()
-     * @return array{start_date: string, rental_amount: ?string, deposit_amount: ?string, lease_type: ?string, agreement: array<string,mixed>, on_record: array<string,bool>}
+     * @return array{start_date: string, rental_amount: ?string, deposit_amount: ?string, lease_fee: ?string, lease_type: ?string, agreement: array<string,mixed>, on_record: array<string,bool>}
      */
     public function renewalDefaults(Lease $previous, array $fields): array
     {
@@ -235,6 +235,7 @@ class LeaseCaptureService
             'start_date' => $newStart->toDateString(),
             'rental_amount' => $previous->rental_amount !== null ? (string) $previous->rental_amount : null,
             'deposit_amount' => $previous->deposit_amount !== null ? (string) $previous->deposit_amount : null,
+            'lease_fee' => $previous->lease_fee !== null ? (string) $previous->lease_fee : null,
             'lease_type' => $previous->lease_type,
             'agreement' => $values,
             'on_record' => $onRecord,
@@ -684,6 +685,8 @@ class LeaseCaptureService
             'status' => Lease::STATUS_DRAFT,
             'rental_amount' => $input['rental_amount'],
             'deposit_amount' => $input['deposit_amount'] ?? null,
+            // leases.md "Lease fee": what the agent posted (a cleared box = no fee on record); a caller that posts nothing gets the agency's default.
+            'lease_fee' => array_key_exists('lease_fee', $input) ? $input['lease_fee'] : LeaseSetting::defaultLeaseFeeFor((int) $property->agency_id),
             'start_date' => $input['start_date'],
             'end_date' => $input['end_date'] ?? null,
             'is_month_to_month' => (bool) ($input['is_month_to_month'] ?? false),
@@ -718,6 +721,8 @@ class LeaseCaptureService
             'end_date' => $input['end_date'] ?? null,
             'rental_amount' => $input['rental_amount'],
             'deposit_amount' => $input['deposit_amount'] ?? null,
+            // leases.md "Lease fee": a renewal that posts nothing carries the fee of the term it renews (LeaseRenewalService).
+            'lease_fee' => array_key_exists('lease_fee', $input) ? $input['lease_fee'] : $previous->lease_fee,
             'is_month_to_month' => (bool) ($input['is_month_to_month'] ?? false),
             'lease_type' => $input['lease_type'] ?? null,
             // leases.md §17 — both agents carry forward to the new term (changed on the capture screen if need be).

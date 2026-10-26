@@ -58,6 +58,11 @@ return [
             'label' => 'Deposit', 'type' => 'money', 'group' => 'lease',
             'side' => 'lease', 'column' => 'deposit_amount', 'comparison' => 'money', 'accept' => true,
         ],
+        // leases.md "Lease fee" (26 Oct 2026): the lease (letting/placement) fee - a real lease term beside rent and deposit.
+        'lease_fee' => [
+            'label' => 'Lease fee', 'type' => 'money', 'group' => 'lease',
+            'side' => 'lease', 'column' => 'lease_fee', 'comparison' => 'money', 'accept' => true,
+        ],
 
         // ── Parties (from the contact records; never acceptable from the document) ──
         'tenant_name' => [

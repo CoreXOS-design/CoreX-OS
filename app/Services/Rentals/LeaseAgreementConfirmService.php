@@ -165,7 +165,7 @@ class LeaseAgreementConfirmService
 
     /**
      * An accepted set of values must still make a valid lease (BUILD_STANDARD §4): an end date after the start,
-     * rent and deposit not negative, the earliest-notice date not before the start.
+     * rent, deposit and lease fee not negative, the earliest-notice date not before the start.
      *
      * @param  array<string,mixed>  $leaseUpdates
      * @param  array<string,mixed>  $termsUpdates
@@ -178,7 +178,7 @@ class LeaseAgreementConfirmService
         if ($start && $end && $end <= $start) {
             throw new LeaseAgreementConfirmationRefused(LeaseAgreementConfirmationRefused::INVALID, 'The dates in the agreement do not make a valid lease: the end date must be after the start date. Correct the agreement first.');
         }
-        foreach (['rental_amount' => 'rent', 'deposit_amount' => 'deposit'] as $column => $what) {
+        foreach (['rental_amount' => 'rent', 'deposit_amount' => 'deposit', 'lease_fee' => 'lease fee'] as $column => $what) {
             if (isset($leaseUpdates[$column]) && (float) $leaseUpdates[$column] < 0) {
                 throw new LeaseAgreementConfirmationRefused(LeaseAgreementConfirmationRefused::INVALID, "The {$what} in the agreement is negative.");
             }
