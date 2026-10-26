@@ -35,7 +35,7 @@
             <div><label class="ds-label block mb-1" for="fld-rr_name">Name</label><input class="ds-field w-full" id="fld-rr_name" data-field="rr_name" data-required="1" maxlength="255" value="{{ $rr['rr_name'] ?? '' }}"></div>
             <div><label class="ds-label block mb-1" for="fld-rr_capacity">Capacity</label><input class="ds-field w-full" id="fld-rr_capacity" data-field="rr_capacity" data-required="1" maxlength="255" value="{{ $rr['rr_capacity'] ?? '' }}"></div>
             <div><label class="ds-label block mb-1" for="fld-rr_place">Place</label><input class="ds-field w-full" id="fld-rr_place" data-field="rr_place" data-required="1" maxlength="255" value="{{ $rr['rr_place'] ?? '' }}"></div>
-            <div><label class="ds-label block mb-1" for="fld-rr_date">Date</label><input type="date" class="ds-field w-full" id="fld-rr_date" data-field="rr_date" data-required="1" value="{{ $rr['rr_date'] ?? '' }}"></div>
+            <div><label class="ds-label block mb-1" for="fld-rr_date">Date</label><input type="date" class="ds-field w-full" id="fld-rr_date" data-field="rr_date" data-required="1" value="{{ $rr['rr_date'] ?? now()->toDateString() }}" readonly tabindex="-1" style="background: var(--surface-muted, #f3f4f6);"><span class="text-xs" style="color: var(--text-muted);">Filled in with the day you countersign.</span></div>
         </div>
         <div>
             <div class="ds-label mb-1">Signature</div>

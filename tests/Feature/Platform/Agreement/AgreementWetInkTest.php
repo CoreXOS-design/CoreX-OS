@@ -179,7 +179,7 @@ class AgreementWetInkTest extends TestCase
 
         // missing fields are refused with a message per field
         $res = $this->actingAs($owner)->postJson(route('platform-esign.agreements.countersign.store', $doc->id), ['values' => ['rr_name' => 'Johan Reichel']])->assertStatus(422);
-        foreach (['rr_capacity', 'rr_place', 'rr_date', 'sigR'] as $k) {
+        foreach (['rr_capacity', 'rr_place', 'sigR'] as $k) { // rr_date is stamped by the server, never an input error
             $this->assertArrayHasKey($k, $res->json('errors'));
         }
         $this->assertSame('wetink_received', $doc->fresh()->status);

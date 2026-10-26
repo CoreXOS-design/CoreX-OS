@@ -68,14 +68,16 @@ class AgreementSingleEntryTest extends TestCase
     public function test_the_server_rejects_direct_recipient_input_in_the_mirrored_fields(): void
     {
         [$doc, $token] = $this->sent();
-        $rev = $this->save($token, self::BANK + ['address' => '1 Beach Rd', 'billing_cell' => '0825550123', 'sig_place' => 'Margate', 'sig_date' => '2026-10-06'])->json('rev');
+        $rev = $this->save($token, self::BANK + ['address' => '1 Beach Rd', 'billing_cell' => '0825550123', 'sig_place' => 'Margate', 'sig_date' => '2026-10-06'])->json('rev'); // the date is stamped by the server at signing, so the typed one is ignored
         $this->save($token, ['da_holder' => 'Hacker', 'da_bank' => 'Evil Bank', 'da_branch_code' => '000000', 'da_account' => '1111', 'da_type' => 'current',
             'm_place' => 'Nowhere', 'm_date' => '2000-01-01'], $rev)->assertOk();
         $d = $doc->fresh();
         foreach (['da_holder' => 'Caprivi Realty (Pty) Ltd', 'da_bank' => 'First National Bank', 'da_branch_code' => '250655', 'da_account' => '62123456789', 'da_type' => 'savings',
-            'm_place' => 'Margate', 'm_date' => '2026-10-06'] as $k => $v) {
+            'm_place' => 'Margate'] as $k => $v) {
             $this->assertSame($v, $d->form_data[$k], $k);
         }
+        $this->assertSame('', (string) ($d->form_data['sig_date'] ?? ''), 'Part A signing date is never typed');
+        $this->assertSame('', (string) ($d->form_data['m_date'] ?? ''), 'the mandate Date is never typed');
     }
 
     public function test_the_recipient_page_shows_them_read_only_with_tips_that_link_into_the_mandate(): void

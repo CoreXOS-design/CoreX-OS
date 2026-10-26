@@ -360,7 +360,7 @@ class AgreementFlowTest extends TestCase
         $this->actingAs($owner)->get(route('platform-esign.agreements.countersign', $doc->id))->assertOk()->assertSee('Countersign and seal');
 
         $res = $this->actingAs($owner)->postJson(route('platform-esign.agreements.countersign.store', $doc->id), ['values' => ['rr_name' => 'Johan Reichel'], 'initials' => 'JR', 'pages' => [1, 2]])->assertStatus(422);
-        foreach (['rr_capacity', 'rr_place', 'rr_date', 'sigR', 'pages'] as $k) {
+        foreach (['rr_capacity', 'rr_place', 'sigR', 'pages'] as $k) { // rr_date is stamped by the server, never an input error
             $this->assertArrayHasKey($k, $res->json('errors'), $k);
         }
 

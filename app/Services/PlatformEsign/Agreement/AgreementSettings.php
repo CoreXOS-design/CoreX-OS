@@ -18,6 +18,8 @@ class AgreementSettings
         'reminder_repeat_days' => ['platform_esign.agreement_reminder_repeat_days', 3, 1, 60, 'Then remind every (days)', 'Gap between further reminders if there is still no progress.'],
         'reminder_max' => ['platform_esign.agreement_reminder_max', 3, 0, 10, 'At most this many reminders (0 = none)', 'Reminders to the agency stop after this many, and the same limit applies to countersign reminders to you.'],
         'countersign_reminder_days' => ['platform_esign.agreement_countersign_reminder_days', 1, 1, 30, 'Remind me to countersign after (days)', 'When an agency has signed and is waiting for your countersignature, you are emailed after this many days, then again at the same interval.'],
+        'free_months' => ['platform_esign.agreement_free_months', 1, 1, 12, 'Free months at take-on (the take-on month counts as the first)', 'The first debit is on the 1st of the month this many months after the take-on month: 1 = the take-on month is free and billing starts the next month. Fixed onto each agreement when it is sent, so changing this never moves one already sent.'],
+        'collection_day' => ['platform_esign.agreement_collection_day', 1, 1, 28, 'Debit order collection day (day of the month)', 'The day of each month the debit order is collected, printed on the Netcash mandate. You can override it for one agreement on the send screen; it is fixed onto each agreement when it is sent.'],
     ];
 
     public static function get(string $field): int

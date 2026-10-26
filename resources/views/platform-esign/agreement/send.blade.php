@@ -52,14 +52,19 @@
         <div>
             <label class="ds-label block mb-1" for="take_on_month">Take-on month <span style="color: var(--ds-crimson);">*</span></label>
             <select id="take_on_month" name="take_on_month" required class="ds-field" style="min-width: 16rem;">
-                <option value="" disabled hidden @selected(old('take_on_month') === null || old('take_on_month') === '')>Choose the take-on month…</option>
+                <option value="" disabled hidden @selected(old('take_on_month', $defaultTakeOn) === null || old('take_on_month', $defaultTakeOn) === '')>Choose the take-on month…</option>
                 @foreach($takeOnOptions as $o)
-                    <option value="{{ $o['value'] }}" data-start="{{ $o['start'] }}" data-billing="{{ $o['billing'] }}" @selected(old('take_on_month') === $o['value'])>{{ $o['label'] }}</option>
+                    <option value="{{ $o['value'] }}" data-start="{{ $o['start'] }}" data-billing="{{ $o['billing'] }}" @selected(old('take_on_month', $defaultTakeOn) === $o['value'])>{{ $o['label'] }}</option>
                 @endforeach
             </select>
             @error('take_on_month')<p class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</p>@enderror
+            <div class="mt-3">
+                <label class="ds-label block mb-1" for="collection_day">Debit order day of the month</label>
+                <input id="collection_day" name="collection_day" type="number" min="1" max="28" value="{{ old('collection_day', $collectionDay) }}" class="ds-field w-28" inputmode="numeric">
+                @error('collection_day')<p class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</p>@enderror
+            </div>
             <p class="text-sm mt-2" style="color: var(--text-primary);" id="take-on-dates" aria-live="polite"></p>
-            <p class="text-xs mt-1" style="color: var(--text-muted);">The month the agency goes live is free. The agreement starts on the 1st of this month and billing (the first debit) starts on the 1st of the next month. The agency cannot change these dates.</p>
+            <p class="text-xs mt-1" style="color: var(--text-muted);">The take-on month (the month the agency goes live) is free by default. The agreement starts on the 1st of this month and billing (the first debit) starts on the 1st of the following month. These dates, and the debit order day, are printed on the mandate for the agency to read — the agency cannot change them, and nor can the date it signs, which is filled in on the day it signs. The standing defaults (free months, debit day) are platform settings on the Agreement wording page.</p></p>
         </div>
 
         <div>
@@ -132,8 +137,11 @@
 (function () {
     const sel = document.getElementById('take_on_month'), out = document.getElementById('take-on-dates');
     if (!sel || !out) return;
-    const show = () => { const o = sel.options[sel.selectedIndex]; out.innerHTML = (o && o.value) ? 'Take-on month <strong>' + o.text + '</strong> · billing starts <strong>' + o.dataset.billing + '</strong>' : ''; };
-    sel.addEventListener('change', show); show();
+    const day = document.getElementById('collection_day');
+    const ord = (n) => n + ([11, 12, 13].includes(n % 100) ? 'th' : ({1: 'st', 2: 'nd', 3: 'rd'}[n % 10] || 'th'));
+    const show = () => { const o = sel.options[sel.selectedIndex]; const d = parseInt(day && day.value, 10);
+        out.innerHTML = (o && o.value) ? 'Take-on month <strong>' + o.text + '</strong> · first debit <strong>' + o.dataset.billing + '</strong>' + (d >= 1 && d <= 28 ? ' · collected on the <strong>' + ord(d) + '</strong> of each month' : '') : ''; };
+    sel.addEventListener('change', show); if (day) day.addEventListener('input', show); show();
 })();
 </script>
 <script>

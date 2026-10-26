@@ -101,7 +101,7 @@
 
             <form method="POST" action="{{ route('platform-esign.wording.settings') }}" class="rounded-md p-5 space-y-3 text-sm" style="background: var(--surface); border: 1px solid var(--border);">
                 @csrf
-                <div class="ds-section-header">Link expiry and reminders</div>
+                <div class="ds-section-header">Link expiry, reminders and debit order timing</div>
                 @if($errors->has('settings'))<div class="rounded-md px-3 py-2 text-xs" style="background: var(--ds-crimson-bg, #fef2f2); color: var(--ds-crimson);">@foreach($errors->get('settings') as $m)@foreach((array) $m as $mm)<div>{{ $mm }}</div>@endforeach @endforeach</div>@endif
                 @foreach(\App\Services\PlatformEsign\Agreement\AgreementSettings::FIELDS as $key => [$k, $def, $min, $max, $label, $help])
                     <div>
@@ -112,7 +112,7 @@
                     </div>
                 @endforeach
                 <button class="corex-btn-primary">Save settings</button>
-                <p class="text-xs" style="color: var(--text-muted);">Applies to links and reminders from now on. Reminders are sent by the hourly scheduled job.</p>
+                <p class="text-xs" style="color: var(--text-muted);">Applies to links and reminders from now on, and to agreements sent from now on for the free months and the debit order day (an agreement already sent keeps the values it was sent with). Reminders are sent by the hourly scheduled job.</p>
             </form>
         </div>
     </div>

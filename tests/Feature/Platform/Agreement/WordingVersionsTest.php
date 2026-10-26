@@ -405,7 +405,7 @@ class WordingVersionsTest extends TestCase
     {
         $owner = $this->owner();
         app(AgreementContent::class)->ensureSeeded($owner->id);
-        $good = ['expiry_days' => 45, 'access_months' => 18, 'reminder_days' => 2, 'reminder_repeat_days' => 4, 'reminder_max' => 5, 'countersign_reminder_days' => 2];
+        $good = ['expiry_days' => 45, 'access_months' => 18, 'reminder_days' => 2, 'reminder_repeat_days' => 4, 'reminder_max' => 5, 'countersign_reminder_days' => 2, 'free_months' => 2, 'collection_day' => 5];
         $this->actingAs($owner)->post(route('platform-esign.wording.settings'), $good)->assertSessionHasNoErrors();
         $this->assertSame(45, \App\Services\PlatformEsign\Agreement\AgreementSettings::get('expiry_days'));
         $this->assertSame(45, AgreementService::expiryDays());

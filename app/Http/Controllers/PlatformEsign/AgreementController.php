@@ -52,7 +52,9 @@ class AgreementController extends Controller
             'agencies' => $agencies, 'agencyId' => $agencyId, 'prefill' => $prefill,
             'start' => $prefill[$agencyId] ?? ['name' => '', 'email' => '', 'cell' => ''],
             'version' => $version, 'expiryDays' => AgreementService::expiryDays(),
-            'takeOnOptions' => \App\Services\PlatformEsign\Agreement\AgreementTakeOn::options(),
+            // The take-on month defaults to the month of sending (normally the free month); the debit day to the platform setting. Both editable before sending.
+            'takeOnOptions' => \App\Services\PlatformEsign\Agreement\AgreementTakeOn::options(18, null, \App\Services\PlatformEsign\Agreement\AgreementTakeOn::freeze()),
+            'defaultTakeOn' => now()->format('Y-m'), 'collectionDay' => \App\Services\PlatformEsign\Agreement\AgreementSettings::get('collection_day'),
             // The discount preview's example monthly fee: the base fee of the tier pricing, the 3-to-5 band of the band pricing.
             'exampleFee' => (float) (\App\Services\PlatformEsign\Agreement\AgreementPricing::withDefaults((array) ($version->rates_json ?? []))[\App\Services\PlatformEsign\Agreement\AgreementPricing::isBands((array) ($version->rates_json ?? [])) ? 'band3' : 'agency_base']),
         ]);
@@ -67,6 +69,7 @@ class AgreementController extends Controller
             'variation_text' => 'nullable|string|max:500', 'variation_amount' => 'nullable|string|max:14',
             'variation_type' => 'nullable|in:amount,percent', 'variation_value' => 'nullable|string|max:14', 'variation_months' => 'nullable|string|max:6',
             'plan' => 'nullable|in:team,agency', 'quoted_fee' => 'nullable|string|max:14',
+            'collection_day' => 'nullable|integer|between:1,28',
             'take_on_month' => ['required', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/', function ($attribute, $value, $fail) {
                 if (!\App\Services\PlatformEsign\Agreement\AgreementTakeOn::valid((string) $value)) {
                     $fail('Choose a take-on month that is this month or later.');

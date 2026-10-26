@@ -23,6 +23,7 @@
 
     @if($countersign)
         <div class="topbar" style="position:static;border-radius:6px;">
+            @if($takeOnSummary = \App\Services\PlatformEsign\Agreement\AgreementTakeOn::summary((array) $doc->rr_data))<div class="stat" id="take-on-summary">{{ $takeOnSummary }}</div>@endif
             <div class="stat">Review everything the agency entered (read-only), then complete {{ \App\Services\PlatformEsign\Agreement\AgreementCompany::for($doc)->legalName() }}’s details, initial every page and sign.</div>
             <div class="sp"><span class="stat" id="pages-stat"></span><span class="stat" id="savestate"></span>
                 <button type="button" id="todo-btn" class="btn ghost sm">Outstanding (<span id="todo-count">0</span>)</button></div>
