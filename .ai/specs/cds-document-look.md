@@ -56,7 +56,8 @@ default look) and it would then be built as an agency setting + wizard step.
   stored. Switching such a template to "Match source document" still gives greyscale, and bold all-caps
   headings still become grey bands **when the builder renders from the stored import**; a template whose
   edited body was already saved (`tagged_html`) keeps its saved markup, so its centring/alignment appears only
-  after the Word file is re-imported. The builder says so under the setting.
+  after the Word file is re-imported. The builder says so under the setting. (26 Oct: **Re-import from Word** now exists —
+  see `cds-reimport-from-word.md` — so a template can be re-read from a corrected file in place, keeping its id, settings and bindings.)
 - Table cell alignment, borders, font size and paragraph indents are not read (not asked for).
 - Heading text is drawn from the heading's stored `text`; a heading that also holds an input field
   (the "bold label + @@@@" false-heading case) is a separate importer matter, not changed here.

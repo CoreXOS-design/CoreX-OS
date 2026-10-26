@@ -7018,6 +7018,8 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::post('/templates/{id}/archive', [\App\Http\Controllers\Docuperfect\TemplateController::class, 'archive'])->name('docuperfect.templates.archive');
     Route::post('/templates/{id}/restore', [\App\Http\Controllers\Docuperfect\TemplateController::class, 'restore'])->name('docuperfect.templates.restore');
     Route::post('/templates/{id}/copy', [\App\Http\Controllers\Docuperfect\TemplateController::class, 'copy'])->name('docuperfect.templates.copy');
+    // Re-import from Word: replace a CDS template's wording from a corrected .docx, keeping id, settings and bindings.
+    Route::post('/templates/{id}/reimport', [\App\Http\Controllers\Docuperfect\TemplateReimportController::class, 'store'])->whereNumber('id')->name('docuperfect.templates.reimport');
 
     // E-sign template packages (export / import between environments and agencies).
     // Owner-level only — owner_only AND the templates.transfer key (never granted to
@@ -7026,6 +7028,8 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
         $c = \App\Http\Controllers\Docuperfect\TemplateTransferController::class;
         Route::get('/templates/{id}/export', [$c, 'export'])->whereNumber('id')->name('docuperfect.templates.export');
         Route::post('/templates/export-selected', [$c, 'exportSelected'])->name('docuperfect.templates.exportSelected');
+        // Copy a finished template to another agency (same system, one click). Spec: .ai/specs/cds-reimport-from-word.md.
+        Route::post('/templates/{id}/copy-to-agency', [\App\Http\Controllers\Docuperfect\TemplateAgencyCopyController::class, 'store'])->whereNumber('id')->name('docuperfect.templates.copyToAgency');
         Route::prefix('template-transfer')->name('docuperfect.template-transfer.')->group(function () use ($c) {
             Route::get('/', [$c, 'index'])->name('index');
             Route::post('/upload', [$c, 'upload'])->name('upload');

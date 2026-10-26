@@ -193,15 +193,8 @@ class TemplateController extends Controller
                 'tags' => $template->editor_state['tags'] ?? null,
                 'mappings' => $template->editor_state['mappings'] ?? null,
                 'tagged_html' => $template->editor_state['tagged_html'] ?? null,
-                'settings' => [
-                    'is_esign' => $template->is_esign,
-                    'party_mode' => $template->party_mode,
-                    'allowed_delivery_modes' => $template->allowed_delivery_modes,
-                    'security_tier' => $template->security_tier,
-                    'category' => $template->category,
-                    'document_type_id' => $template->document_type_id,
-                    'document_look' => \App\Support\Docuperfect\DocumentLook::fromState($template->editor_state),
-                ],
+                // Every key the builder POSTs on save must be seeded — see CdsDraftSettings.
+                'settings' => \App\Support\Docuperfect\CdsDraftSettings::fromTemplate($template),
                 'source_template_id' => $template->id,
                 'status' => 'draft',
             ]);
@@ -607,6 +600,17 @@ class TemplateController extends Controller
         }
         unset($f);
 
+        // Re-import from Word: a binding carried over BY NAME from the old template wins over the
+        // auto-suggestion for that field (the builder already prefers cdsFields[i].binding).
+        // Only matters on the first open — once the builder has saved its own tags it reads those.
+        $reimportService = app(\App\Services\Docuperfect\CdsReimportService::class);
+        $pendingGeneration = $reimportService->pendingFor($draft);
+        foreach ((array) ($pendingGeneration->carried_bindings ?? []) as $idx => $binding) {
+            if (isset($fields[(int) $idx])) {
+                $fields[(int) $idx]['binding'] = $binding;
+            }
+        }
+
         // Load named fields grouped by source_type + contact_type
         $namedFields = NamedField::whereNull('deleted_at')
             ->orderBy('source_type')
@@ -688,7 +692,17 @@ class TemplateController extends Controller
             ? optional($switchableAgencies->firstWhere('id', $activeAgencyId) ?? Agency::find($activeAgencyId))->name
             : null;
 
+        $wordFiles = $draft->source_template_id
+            ? \App\Models\Docuperfect\TemplateGeneration::query()
+                ->where('template_id', $draft->source_template_id)
+                ->whereIn('status', [\App\Models\Docuperfect\TemplateGeneration::CURRENT, \App\Models\Docuperfect\TemplateGeneration::SUPERSEDED])
+                ->with('document')->orderByDesc('generation')->get()
+            : collect();
+
         return view('docuperfect.templates.cds-builder', [
+            'reimportReport' => $pendingGeneration?->report,
+            'reimportFileName' => $pendingGeneration?->original_filename,
+            'wordFiles' => $wordFiles,
             'draftId' => $draft->id,
             'cds' => $draft->cds_json,
             'html' => $html,
@@ -833,7 +847,12 @@ class TemplateController extends Controller
             if ($user->isOwnerRole()) {
                 $templateData['agency_id'] = $user->effectiveAgencyId();
             }
+            // Re-import from Word: keep what this save replaces. Snapshot first, apply once the
+            // update has landed (see CdsReimportService).
+            $reimportService = app(\App\Services\Docuperfect\CdsReimportService::class);
+            $reimportSnapshot = $reimportService->snapshot($template);
             $template->update($templateData);
+            $reimportService->apply($draft, $reimportSnapshot, $user);
         } else {
             // AT-390 — a CoreX account with no agency selected must not silently
             // strand a new template with agency_id NULL again (the exact defect
