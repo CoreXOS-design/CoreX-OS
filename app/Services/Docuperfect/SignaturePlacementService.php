@@ -214,6 +214,94 @@ class SignaturePlacementService
         }
     }
 
+    /** Most places one confirmation may fill — a ceiling on a tampered request, far above any real document. */
+    public const FILL_ALL_MAX_PLACES = 400;
+
+    /**
+     * esign-signing-modes.md §4 (Mode 3, Build step 5) — ONE confirmation fills every signature and initial place that is
+     * the signer's. One `fill_all_confirmed` audit row (who, when, how many, the hash of the place list) and one
+     * place generation per place (method stamped_auto, pointing at that confirmation) with its own `signature_placed` row.
+     *
+     * The mark stamped is always the signer's adopted one; the request only names places. Each key must be the signer's
+     * own party; the signature places can be no more than the document itself carries for this signer (the server counts
+     * them from the canonical document by the same ownership rule the ink is baked by). Page-break initials are laid out
+     * on the signer's screen, so their number cannot be counted here — they are bounded by the party check and the
+     * ceiling above, and what is baked onto the document is decided by ownership in the document, not by these keys.
+     * Condition initials, amendment initials and disclosure answers have their own endpoints and are never in this list.
+     *
+     * @param string[] $placeKeys
+     * @return array{event_id:int,count:int,placed:string[],already:string[]}
+     * @throws DomainException               not Mode 3 / not adopted / no web document
+     * @throws FillAllUnavailableException   the server cannot vouch for the list — sign each place instead
+     * @throws InvalidArgumentException      an empty, oversized or foreign list
+     */
+    public function fillAll(SignatureRequest $req, array $placeKeys, int $oneByOneRemaining, Request $http): array
+    {
+        [$document, $adoption] = $this->preflightRequest($req);
+        if ($this->adoptions->modeOf($req) !== \App\Models\Docuperfect\EsignSettings::MODE_ADOPT_AND_FILL_ALL) {
+            throw new DomainException('This document is signed by clicking each place.');
+        }
+
+        $keys = array_values(array_unique(array_map('strval', $placeKeys)));
+        if ($keys === [] || count($keys) > self::FILL_ALL_MAX_PLACES) {
+            throw new InvalidArgumentException('There are no places to fill.');
+        }
+        $signatureKeys = 0;
+        $initialKeys = 0;
+        foreach ($keys as $key) {
+            $parsed = $this->parseOwnKey($req, $key);
+            $parsed['kind'] === SignaturePlaceGeneration::KIND_INITIAL ? $initialKeys++ : $signatureKeys++;
+        }
+
+        if ($signatureKeys > $this->ownedSignaturePlaces($req, $document)) {
+            throw new FillAllUnavailableException('This document cannot be filled in automatically. Please click each place to sign it.');
+        }
+
+        sort($keys);
+
+        return DB::transaction(function () use ($req, $adoption, $keys, $signatureKeys, $initialKeys, $oneByOneRemaining, $http) {
+            $event = $this->audit($req, 'fill_all_confirmed', $http, [
+                'adoption_id' => $adoption->id,
+                'adoption_generation' => $adoption->generation,
+                'disclaimer_version' => $adoption->disclaimer_version,
+                'count_filled' => count($keys),
+                'count_signatures' => $signatureKeys,
+                'count_initials' => $initialKeys,
+                'left_for_one_by_one' => max(0, $oneByOneRemaining),
+                'place_list_hash' => hash('sha256', implode("\n", $keys)),
+            ]);
+
+            $placed = [];
+            $already = [];
+            foreach ($keys as $key) {
+                $generation = $this->place($req, $key, $http, [
+                    'method' => SignaturePlaceGeneration::METHOD_STAMPED_AUTO,
+                    'fill_all_event_id' => $event->id,
+                ]);
+                if ($generation) {
+                    $placed[] = $key;
+                } else {
+                    $already[] = $key;
+                }
+            }
+
+            return ['event_id' => (int) $event->id, 'count' => count($keys), 'placed' => $placed, 'already' => $already];
+        });
+    }
+
+    /** How many signature places the canonical document carries for this signer (0 when it cannot be told). */
+    private function ownedSignaturePlaces(SignatureRequest $req, Document $document): int
+    {
+        $data = is_array($document->web_template_data) ? $document->web_template_data : [];
+        $html = (string) ($data['canonical_html'] ?? '');
+        if (trim($html) === '') {
+            $html = app(CanonicalDocumentRenderer::class)->compose($req->template);
+        }
+        $sole = $req->template->requests()->where('party_role', $req->party_role)->count() === 1;
+
+        return $this->composer->countOwnedMarkers($html, $req, 'signature', $sole);
+    }
+
     /** What the document's JSON map held for this signer's places before now (the recorder's legacy-original recovery). @return array<string,mixed> */
     public function priorMarks(Document $document, SignatureRequest $req): array
     {
@@ -230,6 +318,14 @@ class SignaturePlacementService
      */
     private function preflight(SignatureRequest $req, string $placeKey, bool $requireAdoption = true): array
     {
+        [$document, $adoption] = $this->preflightRequest($req, $requireAdoption);
+
+        return [$document, $adoption, $this->parseOwnKey($req, $placeKey)];
+    }
+
+    /** @return array{0:Document,1:SignatureAdoption|null} */
+    private function preflightRequest(SignatureRequest $req, bool $requireAdoption = true): array
+    {
         if (! $this->adoptions->required($req)) {
             throw new DomainException('This document does not use an adopted signature.');
         }
@@ -239,18 +335,24 @@ class SignaturePlacementService
         }
         $document = $this->webDocument($req) ?? throw new DomainException('This document is signed by signing every place.');
 
+        return [$document, $adoption];
+    }
+
+    /** @return array{party:string,kind:string,index:int} */
+    private function parseOwnKey(SignatureRequest $req, string $placeKey): array
+    {
         $parsed = $this->parseKey($placeKey);
         if (! $parsed || ! in_array($parsed['party'], $this->composer->partyTokensFor((string) $req->party_role), true)) {
             throw new InvalidArgumentException('That is not one of your signature places.');
         }
 
-        return [$document, $adoption, $parsed];
+        return $parsed;
     }
 
     /** @param array<string,mixed> $metadata */
-    public function audit(SignatureRequest $req, string $action, Request $http, array $metadata): void
+    public function audit(SignatureRequest $req, string $action, Request $http, array $metadata): SignatureAuditLog
     {
-        SignatureAuditLog::create([
+        return SignatureAuditLog::create([
             'signature_template_id' => $req->signature_template_id,
             'signature_request_id' => $req->id,
             'action' => $action,

@@ -1871,6 +1871,41 @@ class SigningController extends Controller
         ]);
     }
 
+    /**
+     * esign-signing-modes.md (Mode 3, Build step 5) — one confirmation fills every signature and initial place that is
+     * the signer's. The server stamps only the signer's adopted mark, checks every key is the signer's own party and that
+     * the signature places do not exceed what the document carries for them; condition / amendment initials and disclosure
+     * answers are never part of it. A document the server cannot vouch for answers 409 `fill_all_unavailable` and the
+     * signer clicks each place instead.
+     */
+    public function placeAll(Request $request, $token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)->with('template.document')->firstOrFail();
+        if ($guard = $this->placementGuard($signingRequest, $token)) {
+            return $guard;
+        }
+
+        $data = $request->validate([
+            'place_keys' => 'required|array|min:1|max:' . \App\Services\Docuperfect\SignaturePlacementService::FILL_ALL_MAX_PLACES,
+            'place_keys.*' => 'required|string|max:60',
+            'one_by_one' => 'nullable|integer|min:0|max:10000',
+            'confirmed' => 'accepted',
+        ]);
+
+        try {
+            $result = app(\App\Services\Docuperfect\SignaturePlacementService::class)
+                ->fillAll($signingRequest, $data['place_keys'], (int) ($data['one_by_one'] ?? 0), $request);
+        } catch (\App\Services\Docuperfect\FillAllUnavailableException $e) {
+            return response()->json(['ok' => false, 'fill_all_unavailable' => true, 'error' => $e->getMessage()], 409);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['ok' => false, 'error' => $e->getMessage()], 422);
+        } catch (\DomainException $e) {
+            return response()->json(['ok' => false, 'error' => $e->getMessage()], 409);
+        }
+
+        return response()->json(['ok' => true] + $result);
+    }
+
     /** Take a stamped place back (superseded, not deleted); clicking it again writes the next generation. */
     public function removeMark(Request $request, $token)
     {

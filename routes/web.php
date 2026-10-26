@@ -7639,6 +7639,7 @@ Route::prefix('sign')->group(function () {
     Route::post('/{token}/remove-rejected', [\App\Http\Controllers\Docuperfect\SigningController::class, 'removeRejectedItem'])->name('signatures.external.removeRejected');
     Route::post('/{token}/adopt', [\App\Http\Controllers\Docuperfect\SigningController::class, 'adopt'])->name('signatures.external.adopt');
     Route::post('/{token}/place', [\App\Http\Controllers\Docuperfect\SigningController::class, 'placeMark'])->name('signatures.external.place');
+    Route::post('/{token}/place-all', [\App\Http\Controllers\Docuperfect\SigningController::class, 'placeAll'])->name('signatures.external.placeAll');
     Route::post('/{token}/place/remove', [\App\Http\Controllers\Docuperfect\SigningController::class, 'removeMark'])->name('signatures.external.place.remove');
     Route::post('/{token}/complete-web', [\App\Http\Controllers\Docuperfect\SigningController::class, 'completeWeb'])->name('signatures.external.completeWeb');
     Route::post('/{token}/complete', [\App\Http\Controllers\Docuperfect\SigningController::class, 'complete'])->name('signatures.external.complete');
