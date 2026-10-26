@@ -984,7 +984,7 @@
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);">Tenant information summary (one point per line)</label>
                 <textarea name="tenant_info_summary" rows="8" maxlength="4000" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" data-qa="tenant-info-summary-input">{{ old('tenant_info_summary', $applicationTerms['tenant_info_summary']) }}</textarea>
-                <p class="text-xs" style="color: var(--text-muted);">Shown to the applicant as a bullet list before they sign, for example what the application fee covers, how long a decision takes and what happens next. Empty = no summary.</p>
+                <p class="text-xs" style="color: var(--text-muted);">Shown to the applicant as a bullet list before they sign, for example what the application fee covers, how long a decision takes and what happens next. Start the first line with # to give the list its own heading (for example # Please read and keep this). Empty = no summary.</p>
             </div>
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);">Documents to accompany the application (one document per line)</label>

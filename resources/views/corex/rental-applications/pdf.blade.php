@@ -143,6 +143,9 @@
 @if($pdfTerms['bank']['reference'] !== '')
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Payment reference: <span class="corex-field-value">{{ $pdfTerms['bank']['reference'] }}</span></span></div>
 @endif
+@if($pdfTerms['bank']['note'] !== '')
+<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">{{ $pdfTerms['bank']['note'] }}</span></div>
+@endif
 @endif
 @if($pdfTerms['documents'] !== [])
 <div class="corex-h2">Documents to Accompany This Application</div>
@@ -151,7 +154,7 @@
 @endforeach
 @endif
 @if($pdfTerms['summary'] !== [])
-<div class="corex-h2">Tenant Information Summary</div>
+<div class="corex-h2">{{ $pdfTerms['summary_heading'] !== '' ? $pdfTerms['summary_heading'] : 'Tenant Information Summary' }}</div>
 @foreach($pdfTerms['summary'] as $line)
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">&bull; {{ $line }}</span></div>
 @endforeach

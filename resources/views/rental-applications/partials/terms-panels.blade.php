@@ -32,7 +32,7 @@
 <div class="space-y-3 {{ $mode === 'public' ? 'mb-4' : 'mt-3' }}" data-qa="application-terms">
     @if($terms['summary'] !== [])
     <div class="{{ $card }}" style="{{ $cardStyle }}" data-qa="terms-summary">
-        <h2 class="{{ $head }}" style="{{ $headStyle }}">Tenant information summary</h2>
+        <h2 class="{{ $head }}" style="{{ $headStyle }}">{{ $terms['summary_heading'] !== '' ? $terms['summary_heading'] : 'Tenant information summary' }}</h2>
         <ul class="list-disc list-inside text-xs space-y-1">
             @foreach($terms['summary'] as $line)<li>{{ $line }}</li>@endforeach
         </ul>
@@ -67,6 +67,9 @@
                 <dt class="{{ $dt }}" style="{{ $dtStyle }}">Payment reference</dt><dd class="font-medium">{{ $terms['bank']['reference'] }}</dd>
             @endif
         </dl>
+        @if($terms['bank']['note'] !== '')
+            <p class="text-xs mt-2">{{ $terms['bank']['note'] }}</p>
+        @endif
     </div>
     @endif
 </div>

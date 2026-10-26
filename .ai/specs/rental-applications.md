@@ -15084,6 +15084,7 @@ What the application tells a tenant to pay, where, and what to bring is the AGEN
 | Renewal fee (R) | `lease_settings.renewal_fee` | Settings -> Leases ("Amounts payable on the rental application") |
 | Rent payable before occupation (the agency's own sentence) | `lease_settings.rent_before_occupation_text` | same card |
 | Deposit banking details: account name, bank, branch code, account type, account number | `lease_settings.deposit_bank_*` | Settings -> Leases ("Deposit banking details"). Prints only when an account name or number is set |
+| Note on the deposit amount (free text, printed after the Deposit figure) and a note under the banking details (free text) | `lease_settings.deposit_note`, `lease_settings.deposit_bank_note` | Settings -> Leases (same cards); in the wizard |
 | Deposit payment reference rule: property address (default) / tenant name / lease reference | `lease_settings.deposit_reference_rule` | same card |
 
 **One builder, three surfaces.** `App\Services\Rentals\ApplicationTerms::for($agencyId, $monthlyRent, $applicants, $propertyAddress, $tenantName, $leaseReference)` returns `['amounts' => [[label, value]...], 'bank' => null|['rows' => [[label, value]...], 'reference' => string], 'summary' => [string...], 'documents' => [string...]]`. The online form, the agent review and the printed/PDF application all print from it, so they cannot disagree. Rows: application fee (with the total when there is a co-applicant, because each applicant pays their own), deposit (rent x deposit multiple, only when the rent is known), the first lease fee (only when above 0, under the agency's own label), renewal fee, the rent-before-occupation sentence. Money prints `R 1,234.00`.
@@ -15109,3 +15110,5 @@ A letting agency's own paper application asks for more than the first V8 form di
 **Deliberately not done:** the application fee is shown, not collected (no payment step); "documents to accompany" is a printed list, separate from the employment-type upload checklist; the tenant's schedule does not auto-fill the review ledger.
 
 Tests: `tests/Feature/RentalApplications/RentalApplicationFullerFormTest.php`.
+
+**Summary heading.** A first line of the tenant information summary that starts with `#` is printed as the list's own heading (the agency's wording); without one the heading is "Tenant information summary". `ApplicationTerms::for()` returns it as `summary_heading` and the bank block carries `note`. Tests: `ApplicationTermsSettingsTest`.

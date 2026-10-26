@@ -720,6 +720,8 @@ class AgencySetupWizardController extends Controller
                     'deposit_bank_account_type' => (string) (\App\Models\LeaseSetting::withoutGlobalScopes()->where('agency_id', $agency->id)->value('deposit_bank_account_type') ?? ''),
                     'deposit_bank_account_number' => (string) (\App\Models\LeaseSetting::withoutGlobalScopes()->where('agency_id', $agency->id)->value('deposit_bank_account_number') ?? ''),
                     'deposit_reference_rule' => LeaseSetting::depositReferenceRuleFor($agency->id),
+                    'deposit_note' => LeaseSetting::depositNoteFor($agency->id),
+                    'deposit_bank_note' => LeaseSetting::depositBankNoteFor($agency->id),
                     // .ai/specs/rental-renewals.md §2 — AT-444.
                     'tenant_notice_period_days' => LeaseSetting::tenantNoticePeriodDaysFor($agency->id),
                     'cpa_early_cancel_business_days' => LeaseSetting::cpaEarlyCancelBusinessDaysFor($agency->id),
