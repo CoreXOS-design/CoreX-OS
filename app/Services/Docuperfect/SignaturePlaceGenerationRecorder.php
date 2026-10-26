@@ -58,8 +58,10 @@ class SignaturePlaceGenerationRecorder
         $latest = SignaturePlaceGeneration::forPlace($document->id, $placeKey)
             ->orderByDesc('generation')->lockForUpdate()->first();
 
-        if ($latest && $latest->image_hash === $hash) {
-            return []; // the same mark re-posted: nothing new happened
+        // The same mark re-posted: nothing new happened. (A latest generation that was REMOVED — superseded with no
+        // successor — is not "there" any more, so the same mark placed again is a new generation.)
+        if ($latest && $latest->image_hash === $hash && $latest->superseded_at === null) {
+            return [];
         }
 
         $out = [];
@@ -101,7 +103,7 @@ class SignaturePlaceGenerationRecorder
         ]);
         $out[] = $new;
 
-        if ($latest) {
+        if ($latest && $latest->superseded_at === null) {
             $latest->update(['superseded_at' => now(), 'superseded_by_id' => $new->id]);
 
             SignatureAuditLog::create([
