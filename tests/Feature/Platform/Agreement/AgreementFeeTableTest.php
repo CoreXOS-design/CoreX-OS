@@ -207,7 +207,7 @@ class AgreementFeeTableTest extends TestCase
         $html = $this->get(route('platform-esign.agreement.show', $token))->assertOk()->getContent();
 
         // three read-only places: the plan ticks, section 1 "Number of branches", section 3 "Branches at start"
-        $this->assertSame(3 + 8, substr_count($html, 'class="auto-tip'), '3 pricing tips + 8 single-entry tips (section 5 x4, mandate address/contact/place/date)');
+        $this->assertSame(3 + 8 + 1, substr_count($html, 'class="auto-tip'), '3 pricing tips + 8 single-entry tips (section 5 x4, mandate address/contact/place/date) + the Part A date');
         $this->assertSame(3, substr_count($html, 'Fills in automatically — enter your number of agents and branches in the '));
         $this->assertSame(3, substr_count($html, '<a href="#fld-agents" data-goto="fld-agents">Monthly fee at start</a> section (section 3).'));
         $this->assertStringContainsString('id="fld-agents"', $html, 'the link target exists');
@@ -223,7 +223,8 @@ class AgreementFeeTableTest extends TestCase
         $doc = Document::findOrFail($doc->id);
         $ctx = $svc->context($doc);
         $renderer = app(\App\Services\PlatformEsign\Agreement\AgreementRenderer::class);
-        foreach (['wet', 'pdf', 'rr', 'preview', 'text', 'canon'] as $mode) {
+        // 'rr' (the countersign form) is deliberately absent: it carries exactly one tip, on the countersign date (AgreementTipsTest)
+        foreach (['wet', 'pdf', 'preview', 'text', 'canon'] as $mode) {
             foreach (array_keys(\App\Services\PlatformEsign\Agreement\AgreementContent::PARTS) as $part) {
                 $out = implode("\n", $renderer->blocks($doc->wording, $part, $mode, $ctx));
                 $this->assertStringNotContainsString('auto-tip', $out, "$mode/$part");

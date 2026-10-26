@@ -60,7 +60,7 @@ class PlatformEsignVerifyWording extends Command
         foreach (\App\Services\PlatformEsign\Agreement\AgreementRenderer::FOLLOW_TIPS as $key => $text) {
             $tips[$text] = 'the mandate ' . ($key === 'm_address' ? 'address' : 'contact number') . ' (starts from Part A, stays editable)';
         }
-        $where = ['da_holder' => 'section 5 (debit order authority) rows, mirrored from the mandate', 'm_place' => 'the mandate place, mirrored from section 6', 'm_date' => 'the mandate date, mirrored from section 6'];
+        $where = ['da_holder' => 'section 5 (debit order authority) rows, mirrored from the mandate', 'm_place' => 'the mandate place, mirrored from section 6', 'm_date' => 'the Part A date and the mandate date (stamped by the server on the day the agency signs)'];
         foreach (array_keys(\App\Services\PlatformEsign\Agreement\AgreementRenderer::MIRROR_TIPS) as $key) {
             if (\App\Services\PlatformEsign\Agreement\AgreementRenderer::MIRROR_TIPS[$key] !== null) {
                 $tips[\App\Services\PlatformEsign\Agreement\AgreementRenderer::mirrorTipText($key)] = $where[$key] ?? $where['da_holder'];

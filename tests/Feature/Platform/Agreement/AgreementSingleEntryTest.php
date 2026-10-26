@@ -96,13 +96,14 @@ class AgreementSingleEntryTest extends TestCase
         $this->assertSame(5, substr_count($html, 'data-mirror-of="m_'), 'the five section 5 inputs: holder, bank, branch code, account, type (shows the label)');
         $this->assertMatchesRegularExpression('/value="Caprivi Realty \(Pty\) Ltd" readonly tabindex="-1" data-derived="1" data-mirror-of="m_holder"/', $html);
         $this->assertMatchesRegularExpression('/value="Savings" readonly[^>]*data-mirror-of="m_account_type"/', $html);
-        foreach (['fld-m_holder', 'fld-m_bank', 'fld-m_account', 'fld-m_account_type-current', 'fld-sig_place', 'fld-sig_date'] as $id) {
+        foreach (['fld-m_holder', 'fld-m_bank', 'fld-m_account', 'fld-m_account_type-current', 'fld-sig_place'] as $id) { // (the dates are stamped, not read from a box: nothing links to fld-sig_date any more)
             $this->assertStringContainsString('data-goto="' . $id . '"', $html);
             $this->assertMatchesRegularExpression('/id="' . preg_quote($id, '/') . '"/', $html, "link target $id exists");
         }
         $this->assertStringContainsString('Filled in from your details above — change it here if the debit order needs a different address.', $html);
         $this->assertStringContainsString('Filled in from your details above — change it here if the debit order needs a different number.', $html);
-        $this->assertStringContainsString('from the <a href="#fld-sig_date" data-goto="fld-sig_date">date</a> in section 6.', $html);
+        $this->assertSame(2, substr_count($html, 'Filled in on the day you sign.'), 'the Part A date and the mandate Date say they are stamped on the day of signing'); // not "from the date in section 6"
+        $this->assertStringNotContainsString('in section 6.', str_replace('from the <a href="#fld-sig_place" data-goto="fld-sig_place">place</a> in section 6.', '', $html), 'no date tip points at section 6');
     }
 
     public function test_the_mandate_value_is_printed_in_section_five_on_the_review_wet_ink_and_sealed_renderings(): void
