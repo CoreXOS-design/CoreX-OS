@@ -338,6 +338,20 @@ hit puts a house on its neighbour. The old number-stripping needle builder was d
 
 **Clearing a bad stored pin.** A comp row or cache entry that already holds a neighbour's pin is cleared by nulling the
 row's latitude/longitude and deleting its `geocoding_cache` entry; the next presentation generate re-geocodes it.
+The clean-up is a command option, safe to run on live:
+
+```bash
+php artisan geocoding:backfill --clear-subject-borrowed-pins                  # DRY RUN: counts rows, reports, cached copies
+php artisan geocoding:backfill --clear-subject-borrowed-pins --agency=1       # dry run for one agency
+php artisan geocoding:backfill --clear-subject-borrowed-pins --apply          # clear
+```
+
+It selects comp rows (not `subject` rows) whose pin is exactly their own report's subject pin although both addresses
+carry a house number and the numbers differ (a row with no number is left alone: it cannot be told apart from the
+subject). It nulls the pin and deletes only the cached copy that is the borrowed answer (`source = market_report`, same
+coordinates); a genuine Google answer for the same address stays. It never geocodes, so it costs no Google calls and
+does not touch the daily cap — the rows re-pin on the next generate or backfill. Already-generated presentation
+versions keep the pin they were built with until regenerated. QA1, 27 Oct 2026: 39 rows.
 Tests: `ResolverNumberMatchTest` (same street + different number is not the subject's pin; it goes to Google and gets its
 own; same number still reuses; suburb leg; no-number both ways; 11 vs 111 / 11A).
 

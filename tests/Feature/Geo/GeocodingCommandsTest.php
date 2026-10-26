@@ -215,4 +215,118 @@ final class GeocodingCommandsTest extends TestCase
         $this->assertEqualsWithDelta(-25.9417, (float) $row->latitude, 0.0001);
         $this->assertSame('google', $row->geo_source);
     }
+
+    // ── geocoding:backfill --clear-subject-borrowed-pins ─────────────────
+
+    private const PIN_LAT = -25.9417300;
+    private const PIN_LNG = 28.1119200;
+
+    private function report(Agency $agency, int $userId, string $subject): int
+    {
+        return (int) DB::table('market_reports')->insertGetId([
+            'agency_id' => $agency->id, 'report_type_id' => null, 'uploaded_by_user_id' => $userId,
+            'file_path' => 'x.pdf', 'file_name' => 'x.pdf', 'file_hash' => hash('sha256', Str::random(12)),
+            'report_date' => now()->toDateString(), 'subject_address' => $subject, 'source_suburb' => 'Blue Valley Golf Estate',
+            'subject_latitude' => self::PIN_LAT, 'subject_longitude' => self::PIN_LNG,
+            'is_demo' => false, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    private function compRow(int $reportId, Agency $agency, string $address, ?float $lat, ?float $lng, string $type = 'comp'): int
+    {
+        return (int) DB::table('market_report_comp_rows')->insertGetId([
+            'market_report_id' => $reportId, 'agency_id' => $agency->id, 'row_index' => 0, 'row_type' => $type,
+            'address' => $address, 'suburb_normalised' => 'blue valley golf estate',
+            'latitude' => $lat, 'longitude' => $lng, 'is_demo' => false, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    private function pinOf(int $compRowId): ?float
+    {
+        $v = DB::table('market_report_comp_rows')->where('id', $compRowId)->value('latitude');
+
+        return $v === null ? null : (float) $v;
+    }
+
+    /** @return array{borrowed: int, borrowedTwo: int, subjectSelf: int, ownPin: int, noNumber: int, subjectRow: int, foreign: int} */
+    private function seedBorrowedScenario(): array
+    {
+        $rep = $this->report($this->caprivi, $this->caprivUser, '11 Manikie Street, Blue Valley Golf Estate 0187, Centurion');
+        $ids = [
+            'borrowed'    => $this->compRow($rep, $this->caprivi, '14 Manikie Street', self::PIN_LAT, self::PIN_LNG),
+            'borrowedTwo' => $this->compRow($rep, $this->caprivi, 'Claverhouse Close, 36 Manikie Street', self::PIN_LAT, self::PIN_LNG),
+            'subjectSelf' => $this->compRow($rep, $this->caprivi, '11 Manikie Street', self::PIN_LAT, self::PIN_LNG),
+            'ownPin'      => $this->compRow($rep, $this->caprivi, '20 Manikie Street', -25.9500000, 28.1200000),
+            'noNumber'    => $this->compRow($rep, $this->caprivi, 'Manikie Street', self::PIN_LAT, self::PIN_LNG),
+            'subjectRow'  => $this->compRow($rep, $this->caprivi, '3 Other Street', self::PIN_LAT, self::PIN_LNG, 'subject'),
+        ];
+        $otherRep = $this->report($this->other, $this->otherUser, '11 Manikie Street, Blue Valley Golf Estate');
+        $ids['foreign'] = $this->compRow($otherRep, $this->other, '15 Manikie Street', self::PIN_LAT, self::PIN_LNG);
+
+        // The cached copy of the borrowed answer, and a genuine Google answer for another row's address.
+        GeocodingCache::create([
+            'address_normalised' => \App\Support\Geocoding\AddressNormaliser::normalise('14 Manikie Street', 'blue valley golf estate', null),
+            'address_raw' => '14 Manikie Street', 'latitude' => self::PIN_LAT, 'longitude' => self::PIN_LNG,
+            'confidence' => 'exact', 'source' => 'market_report',
+        ]);
+        GeocodingCache::create([
+            'address_normalised' => \App\Support\Geocoding\AddressNormaliser::normalise('Claverhouse Close, 36 Manikie Street', 'blue valley golf estate', null),
+            'address_raw' => 'Claverhouse Close, 36 Manikie Street', 'latitude' => -25.9444444, 'longitude' => 28.1133333,
+            'confidence' => 'exact', 'source' => 'google',
+        ]);
+
+        return $ids;
+    }
+
+    public function test_clear_borrowed_pins_is_a_dry_run_by_default_and_changes_nothing(): void
+    {
+        $ids = $this->seedBorrowedScenario();
+        Http::fake();
+
+        $this->artisan('geocoding:backfill', ['--clear-subject-borrowed-pins' => true])
+            ->expectsOutputToContain('3 comp row(s) in 2 report(s)')
+            ->expectsOutputToContain('Dry run')
+            ->assertSuccessful();
+
+        Http::assertNothingSent();
+        foreach ($ids as $name => $id) {
+            if ($name !== 'ownPin') {
+                $this->assertEqualsWithDelta(self::PIN_LAT, $this->pinOf($id), 0.0000001, "$name untouched by a dry run");
+            }
+        }
+        $this->assertSame(2, GeocodingCache::count());
+    }
+
+    public function test_apply_clears_only_rows_whose_house_number_differs_and_their_borrowed_cache_copy(): void
+    {
+        $ids = $this->seedBorrowedScenario();
+        Http::fake();
+
+        $this->artisan('geocoding:backfill', ['--clear-subject-borrowed-pins' => true, '--apply' => true])
+            ->expectsOutputToContain('Cleared 3 comp-row pin(s) and deleted 1 cached copy(ies)')
+            ->assertSuccessful();
+
+        Http::assertNothingSent(); // nothing is geocoded: the rows re-pin on the next generate / backfill
+        $this->assertNull($this->pinOf($ids['borrowed']));
+        $this->assertNull($this->pinOf($ids['borrowedTwo']));
+        $this->assertNull($this->pinOf($ids['foreign']), 'another agency\'s borrowed row too when no --agency is given');
+        $this->assertEqualsWithDelta(self::PIN_LAT, $this->pinOf($ids['subjectSelf']), 0.0000001, 'same number = the subject itself');
+        $this->assertEqualsWithDelta(-25.95, $this->pinOf($ids['ownPin']), 0.0000001, 'its own pin is kept');
+        $this->assertEqualsWithDelta(self::PIN_LAT, $this->pinOf($ids['noNumber']), 0.0000001, 'cannot tell without a number: left alone');
+        $this->assertEqualsWithDelta(self::PIN_LAT, $this->pinOf($ids['subjectRow']), 0.0000001, 'the subject row is never touched');
+
+        // The borrowed cache copy is gone; the genuine Google answer for another address stays.
+        $this->assertSame(0, GeocodingCache::where('source', 'market_report')->count());
+        $this->assertSame(1, GeocodingCache::where('source', 'google')->count());
+    }
+
+    public function test_clear_borrowed_pins_can_be_limited_to_one_agency(): void
+    {
+        $ids = $this->seedBorrowedScenario();
+
+        $this->artisan('geocoding:backfill', ['--clear-subject-borrowed-pins' => true, '--apply' => true, '--agency' => $this->caprivi->id])->assertSuccessful();
+
+        $this->assertNull($this->pinOf($ids['borrowed']));
+        $this->assertEqualsWithDelta(self::PIN_LAT, $this->pinOf($ids['foreign']), 0.0000001, 'the other agency is not touched');
+    }
 }
