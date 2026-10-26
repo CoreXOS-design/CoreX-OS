@@ -98,6 +98,7 @@ class LeaseCaptureRequest extends FormRequest
             'capture_key' => ['nullable', 'string', 'max:100'],
             'rental_amount' => ['required', 'numeric', 'min:0', 'max:99999999.99'],
             'deposit_amount' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
+            'lease_fee' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
             'start_date' => ['required', 'date'],
             'end_date' => ['nullable', 'date', 'after:start_date'],
             'is_month_to_month' => ['nullable', 'boolean'],

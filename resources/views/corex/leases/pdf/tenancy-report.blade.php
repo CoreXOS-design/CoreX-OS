@@ -59,6 +59,7 @@
             <tr><td class="label">Landlord(s)</td><td>{{ $landlords->isEmpty() ? '—' : $landlords->map(fn ($c) => $c->full_name)->implode(', ') }}</td></tr>
             <tr><td class="label">Monthly rental</td><td>R{{ number_format((float) $lease->rental_amount, 2) }}</td></tr>
             <tr><td class="label">Deposit</td><td>{{ $lease->deposit_amount !== null ? 'R' . number_format((float) $lease->deposit_amount, 2) : '—' }}</td></tr>
+            <tr><td class="label">Lease fee</td><td>{{ $lease->lease_fee !== null ? 'R' . number_format((float) $lease->lease_fee, 2) : '—' }}</td></tr>
             <tr><td class="label">Term</td><td>{{ $lease->start_date?->format('Y-m-d') }} &ndash; {{ $lease->end_date?->format('Y-m-d') ?? ($lease->is_month_to_month ? 'Month-to-month' : '—') }}</td></tr>
         </table>
     </div>

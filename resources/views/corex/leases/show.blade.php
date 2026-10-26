@@ -639,6 +639,7 @@
             <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);">
                 <h2 class="text-sm font-semibold">Lease terms</h2>
                 <div><span style="color: var(--text-muted);">Deposit:</span> {{ $lease->deposit_amount !== null ? 'R' . number_format((float) $lease->deposit_amount, 2) : '—' }}</div>
+                <div data-qa="lease-fee-line"><span style="color: var(--text-muted);">Lease fee:</span> {{ $lease->lease_fee !== null ? 'R' . number_format((float) $lease->lease_fee, 2) : '—' }}</div>
                 @if($showLeaseType ?? false)
                     <div><span style="color: var(--text-muted);">Lease type:</span> {{ $lease->lease_type ?? '—' }}</div>
                 @endif
@@ -955,6 +956,10 @@
                     <div>
                         <label class="prop-label">Deposit (R)</label>
                         <input type="number" name="deposit_amount" step="0.01" min="0" value="{{ old('deposit_amount', $lease->deposit_amount) }}" @disabled($leaseLocked) class="prop-input">
+                    </div>
+                    <div>
+                        <label class="prop-label">Lease fee (R)</label>
+                        <input type="number" name="lease_fee" step="0.01" min="0" value="{{ old('lease_fee', $lease->lease_fee) }}" @disabled($leaseLocked) class="prop-input">
                     </div>
                     <div>
                         <label class="prop-label">End date</label>

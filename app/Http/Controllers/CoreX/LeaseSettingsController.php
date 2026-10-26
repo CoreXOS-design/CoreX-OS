@@ -29,6 +29,8 @@ class LeaseSettingsController extends Controller
             // configurable with a sensible default."
             'defaultDepositMonths' => LeaseSetting::defaultDepositMonthsFor($agencyId),
             'defaultDepositMonthsDefault' => LeaseSetting::DEFAULT_DEPOSIT_MONTHS,
+            // leases.md "Lease fee" (26 Oct 2026) - the starting lease fee for a new lease.
+            'defaultLeaseFee' => LeaseSetting::defaultLeaseFeeFor($agencyId),
             // .ai/specs/rental-renewals.md §2 — tenant notice period.
             'tenantNoticePeriodDays' => LeaseSetting::tenantNoticePeriodDaysFor($agencyId),
             'tenantNoticePeriodDaysDefault' => LeaseSetting::DEFAULT_TENANT_NOTICE_PERIOD_DAYS,
@@ -107,6 +109,8 @@ class LeaseSettingsController extends Controller
             // dedicated settings page (corex.settings.leases) always
             // renders and submits it, so the guard is a no-op there.
             'default_deposit_months' => ['nullable', 'numeric', 'min:0.1', 'max:12'],
+            // leases.md "Lease fee" (26 Oct 2026) - the starting lease fee for a new lease; same §6.1 has()-guard. Blank = 0 (not charged).
+            'default_lease_fee' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
             // .ai/specs/rental-renewals.md §2 — same §6.1 nullable/has()-guard
             // reasoning as default_deposit_months above: this method is also
             // an onboarding-wizard saver for the 'leases' step, which posts
@@ -166,6 +170,10 @@ class LeaseSettingsController extends Controller
         }
         if ($request->has('default_deposit_months')) {
             $data['default_deposit_months'] = $validated['default_deposit_months'];
+        }
+        if ($request->has('default_lease_fee')) {
+            $v = $validated['default_lease_fee'] ?? null;
+            $data['default_lease_fee'] = $v === null || $v === '' ? null : round((float) $v, 2); // blank = back to the default (0, not charged)
         }
         if ($request->has('tenant_notice_period_days')) {
             $data['tenant_notice_period_days'] = $validated['tenant_notice_period_days'];

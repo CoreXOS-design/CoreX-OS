@@ -386,6 +386,20 @@ final class LeaseSigningLauncherTest extends TestCase
         $this->assertSame('R 8,500.00', $byField['property_deposit_amount']);
     }
 
+    public function test_the_lease_fee_is_seeded_into_the_agreements_lease_fee_box(): void
+    {
+        // Mega's template (QA1, 26 Oct 2026) has a "Lease Fee" box the e-sign wizard names `lease_fee`; the agency maps the registry key to it.
+        $fields = $this->documentFields();
+        $fields[] = ['id' => 'fld_fee', 'field_name' => 'lease_fee', 'tag_type' => 'input', 'type' => 'text'];
+        [$lease, $row] = $this->leaseWithAgreement([], ['lease_fee' => ['field' => 'lease_fee']], $fields);
+        $lease->update(['lease_fee' => 1500]);
+
+        $flow = app(LeaseSigningLauncher::class)->launch($lease->fresh(), $row, $this->agent);
+
+        $byField = $this->valuesByFieldName($flow, $flow->step_data['fill_review']['fieldValues']);
+        $this->assertSame('R 1,500.00', $byField['lease_fee']);
+    }
+
     public function test_a_seed_with_no_field_to_go_to_is_logged_not_silently_dropped(): void
     {
         [$lease, $row] = $this->leaseWithAgreement([], ['adults' => ['field' => 'no_such_field']], $this->documentFields());

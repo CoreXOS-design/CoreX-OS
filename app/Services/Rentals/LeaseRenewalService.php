@@ -35,7 +35,7 @@ class LeaseRenewalService
      * manual-upload path once the document is attached; on e-sign
      * completion for the copy-forward/template paths, §6).
      *
-     * @param array{start_date:string,end_date?:?string,rental_amount:float,deposit_amount?:?float,is_month_to_month?:bool,lease_type?:?string} $terms
+     * @param array{start_date:string,end_date?:?string,rental_amount:float,deposit_amount?:?float,lease_fee?:?float,is_month_to_month?:bool,lease_type?:?string} $terms
      */
     public function createRenewalTerm(Lease $current, array $terms, User $user): Lease
     {
@@ -61,6 +61,8 @@ class LeaseRenewalService
                 'status' => Lease::STATUS_DRAFT,
                 'rental_amount' => $terms['rental_amount'],
                 'deposit_amount' => $terms['deposit_amount'] ?? $current->deposit_amount,
+                // leases.md "Lease fee" - carried from the term being renewed unless the caller states one (an explicit null = no fee on record).
+                'lease_fee' => array_key_exists('lease_fee', $terms) ? $terms['lease_fee'] : $current->lease_fee,
                 'start_date' => $terms['start_date'],
                 'end_date' => $terms['end_date'] ?? null,
                 'is_month_to_month' => (bool) ($terms['is_month_to_month'] ?? false),

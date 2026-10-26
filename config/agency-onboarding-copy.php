@@ -1070,6 +1070,11 @@ return [
              'label' => 'Default deposit, as a multiple of monthly rent',
              'explain' => 'When an agent ticks "Has deposit" on a property but leaves the deposit amount blank, CoreX fills in a starting figure — this many months of that property\'s own rent.',
              'affects' => 'The deposit amount a property starts with when one is required but not yet typed in. 1 month suits most South African tenancies — the figure is always shown as a starting point an agent can change, never locked in.'],
+            // leases.md "Lease fee" (26 Oct 2026, Johan). Saved by LeaseSettingsController::update() - nullable + has()-guarded there (§6.1).
+            ['key' => 'default_lease_fee', 'source' => 'leases', 'type' => 'number', 'default' => 0, 'min' => 0, 'max' => 99999999.99, 'step' => 0.01,
+             'label' => 'Default lease fee (R)',
+             'explain' => 'The lease (letting) fee a new lease starts with. The agent can change it on any lease, and it prints on your lease agreement when your agreement has a lease fee line linked to it.',
+             'affects' => 'The lease fee a new lease or renewal starts with, and what prints on the lease fee line of your lease agreement. 0 (the default) means no fee is charged.'],
             // rental-work-orders.md — the two remaining work-order settings
             // (Stage 4 shipped). Saved by RentalWorkOrderSettingsController::
             // update(), has()-guarded there (§6.1).

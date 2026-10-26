@@ -35,6 +35,8 @@
     $rentValue = old('rental_amount', $dflt['rental_amount'] ?? ($appDefaults['rental_amount'] ?? null));
     $depositValue = old('deposit_amount', $dflt['deposit_amount'] ?? ($appDefaults['deposit_amount'] ?? null));
     $depositTypedOrCarried = old('deposit_amount') !== null || ($dflt['deposit_amount'] ?? null) !== null;
+    // leases.md "Lease fee": what the agent just typed, else (renewal) the term being renewed, else the agency's starting fee.
+    $leaseFeeValue = old('lease_fee', $dflt['lease_fee'] ?? number_format((float) ($leaseFeeDefault ?? 0), 2, '.', ''));
     $startValue = old('start_date', $dflt['start_date'] ?? ($appDefaults['start_date'] ?? null));
     $endValue = old('end_date', $appDefaults['end_date'] ?? null);
     $leaseTypeValue = old('lease_type', $dflt['lease_type'] ?? null);
@@ -246,6 +248,11 @@
             <div class="col-span-2 sm:col-span-1">
                 <label class="prop-label">Deposit (R)</label>
                 <input type="number" name="deposit_amount" value="{{ $depositValue }}" step="0.01" min="0" x-ref="deposit" @input="depositTouched = true" class="prop-input">
+            </div>
+            <div class="col-span-2 sm:col-span-1">
+                <label class="prop-label">Lease fee (R)</label>
+                <input type="number" name="lease_fee" value="{{ $leaseFeeValue }}" step="0.01" min="0" data-qa="lease-fee-input" class="prop-input">
+                <p class="text-[11px] mt-0.5" style="color: var(--text-muted);">{{ $isRenew && ($dflt['lease_fee'] ?? null) !== null ? 'From the term being renewed.' : 'From your agency default. 0.00 means no fee.' }}</p>
             </div>
             <div class="col-span-2 sm:col-span-1">
                 <label class="prop-label">Start date</label>

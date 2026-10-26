@@ -271,6 +271,7 @@ class LeaseRenewalController extends Controller
             'end_date' => ['nullable', 'date', 'after:start_date'],
             'rental_amount' => ['required', 'numeric', 'min:0'],
             'deposit_amount' => ['nullable', 'numeric', 'min:0'],
+            'lease_fee' => ['nullable', 'numeric', 'min:0'],
             'is_month_to_month' => ['nullable', 'boolean'],
         ]);
     }
