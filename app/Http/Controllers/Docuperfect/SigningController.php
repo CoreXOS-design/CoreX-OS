@@ -3205,9 +3205,14 @@ class SigningController extends Controller
             // Signature images should be visible
             . '.web-sig-signed-img { display: block; max-height: 50px; }'
             . '.corex-page-initials .initial-placeholder { font-size: 8px; color: #666; }'
+            // The Word source's running page header / footer, repeated on every page (a document without one is untouched).
+            . ((str_contains($mergedHtml, 'corex-page-header') || str_contains($mergedHtml, 'corex-page-footer')) ? \App\Services\Docuperfect\CdsRendererService::PDF_PAGE_FRAME_CSS : '')
             . '</style>'
             . '</head><body>';
 
+        // The source's running header / footer are lifted to the top level of <body>, where dompdf repeats them per page.
+        [$pageFrame, $mergedHtml] = \App\Services\Docuperfect\CdsRendererService::hoistPageFrame($mergedHtml);
+        $html .= $pageFrame;
         $html .= $mergedHtml;
         $html .= '</body></html>';
 
@@ -3917,6 +3922,9 @@ CSS;
     private function getPdfCleanupCss(): string
     {
         return <<<'CSS'
+/* The source's page number cannot be counted from content in this PDF engine (counter(page) prints 0): the running
+   header and the document line repeat on every page, the number prints in the print-and-sign (dompdf) PDF. */
+.corex-page-footer .corex-page-right { display: none !important; }
 /* Hide interactive signing UI elements */
 .web-sig-prompt { display: none !important; }
 .init-prompt { display: none !important; }

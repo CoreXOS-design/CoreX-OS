@@ -299,7 +299,8 @@ class CdsReimportService
                 'original_filename' => $name,
                 'file_sha256' => $sha,
                 'uploaded_by' => $actor->id,
-                'report' => $carry['report'],
+                // The parser's own "what did not come across" line rides in the report, so the match report says it first.
+                'report' => $carry['report'] + ['parse_line' => $cds['parse_report']['line'] ?? null],
                 'carried_bindings' => $carry['bindings'],
             ]);
 

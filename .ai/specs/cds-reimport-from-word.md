@@ -151,3 +151,23 @@ TemplateReimportController.php`, `TemplateAgencyCopyController.php`, `TemplateCo
 `resources/views/docuperfect/templates/cds-builder.blade.php`; `routes/web.php`; migration `2026_12_02_100000_…`;
 tests `tests/Unit/CdsReimportMatchTest.php`, `tests/Feature/Docuperfect/CdsReimportFromWordTest.php`,
 `tests/Feature/Docuperfect/TemplateAgencyCopyTest.php`.
+
+## 10. Importer fidelity: nothing the Word file prints may be dropped silently (26 Oct 2026, QA1)
+
+Found by importing Mega's table-built 2026 lease: the first import read as a wall of text with the label column collapsed to a hairline. Johan's standard (26 Oct, after comparing the Word file with the prepared lease page by page): **the CoreX render in "Match source document" look must read like the Word file, page for page.** Bug classes fixed in the parser (`CdsParserService`) and the one renderer (`CdsRendererService`), so the builder preview, the signing page and both PDF routes draw the same thing:
+
+| # | Class | Parser stores | Renderer draws |
+|---|---|---|---|
+| 1 | A row that starts / ends columns in (`w:gridBefore` / `w:gridAfter`) | `row_grid` / `header_grid` beside the cells (`rows` still reads label, value, ...) | empty spacer cells, so every cell sits in its own grid column; a zero-height row states the column widths |
+| 2 | Hyperlink text (the e-mail line) | any run in `w:hyperlink`, `w:ins`, `w:smartTag`, `w:fldSimple`, `w:sdtContent` is read like a normal run | printed |
+| 3 | Paragraph and line breaks inside a cell | `rows` cell = lines joined by "\n"; `cell_paras` = per paragraph: runs (bold / italic / underline / picture), list number, indents, spacing, alignment | one block per paragraph, a blank paragraph is a blank line, `<br>` for a line break |
+| 4 | Numbered clauses (`w:numPr`) inside cells | the label Word prints: counters per list, level restart, `w:startOverride` ("1.2" is the first item of a list that restarts), bullets | number hangs in the margin (hanging indent), text wraps under itself |
+| 5 | Pictures (the logo) | `images` (data URI, once) + a reference and printed size in the paragraph's runs | `<img>` at the printed size, left in its cell; a merged-down cell (`w:vMerge`) is `rowspan` |
+| 6 | Boxes and bands | `src_borders`; per cell `borders` (t r b l, table + cell borders combined) and `band` (shaded) | `data-src-b*` / `data-src-band` attributes the "Match source document" look draws; a one-cell box is drawn as one row per paragraph so a page break can fall inside it |
+| 7 | Running page header / footer | `page_header`, `page_footer`, `page_footer_first`, `page_first_different`: text, alignment, italics, right-hand part, `{PAGE}`, rule | once at the top / bottom on screen; repeated on every page in both PDFs (print-and-sign: lifted to the top of `<body>`, fixed in the margin, page number by `counter(page)`; signed PDF: `@media print`, page number off - Chromium cannot count pages from content) |
+| 8 | Hard page breaks between boxes | `page_break` section | `corex-src-page-break` (page-break-after) |
+| 9 | Anything still not carried over | `parse_report`: characters in the file vs read, and counts of pictures, text boxes, tables inside cells, footnotes, symbols, content controls, header / footer text not carried | one line in the re-import match report, and a warning strip on a fresh import when anything was dropped |
+
+Limits, stated: numbered paragraphs in the BODY (outside tables) keep the existing numbering (no `startOverride`) and number independently of numbered cells; text inside a table inside a cell, text boxes and content controls are counted, not read; the Chromium PDF has no page number; dompdf cannot split one table row across pages (hence the one-row-per-paragraph boxes), and its paging still runs longer than Word's (Mega's lease: 24 pages against 19).
+**Not changed (decision for Johan):** CoreX still appends its own signature block after the document, and its agency letterhead block unless the template's `header_display` is `none` (Mega's templates are set to `none`: the Word header is the letterhead).
+Tests: `tests/Unit/CdsImporterFidelityTest.php` (one fixture test per class), `tests/Feature/Docuperfect/SigningView/SourcePageFramePdfTest.php` (both PDF routes), `CdsTableGeometryTest`, `CdsReimportFromWordTest`.
