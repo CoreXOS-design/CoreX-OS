@@ -8,31 +8,30 @@
     $hasSummary = \Illuminate\Support\Facades\Route::has('agent.daily.summary');
 @endphp
 <div x-show="sub.overview === 'myactivity'" x-cloak class="pg-pane pg-wide" data-testid="portal-my-activity">
-    <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
-        <h3 class="text-sm font-bold" style="color:var(--text-primary);">My Activity &mdash; {{ $monthLabel }}</h3>
+    <div class="mp-h">
+        <h3>My Activity &mdash; {{ $monthLabel }}</h3>
         <x-period-selector :months="$p['months']" :keep="['sub' => 'myactivity']" />
     </div>
 
-    <div class="grid grid-cols-2 gap-3 mb-4" style="max-width:520px;">
-        <div class="p-3 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);" data-testid="points-month">
+    <div class="mp-grid mp-g3" style="margin-bottom:8px;">
+        <div class="mp-card" data-testid="points-month">
             <x-points-split-total :split="$p['points']['monthSplit']" label="Points this month" />
-            <div class="text-[11px]" style="color:var(--text-muted);">{{ $p['points']['target'] > 0 ? 'target ' . number_format($p['points']['target'], 0) : 'no target set' }}</div>
+            <div class="mp-note">{{ $p['points']['target'] > 0 ? 'target ' . number_format($p['points']['target'], 0) : 'no target set' }}</div>
         </div>
-        <div class="p-3 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);" data-testid="points-today">
+        <div class="mp-card" data-testid="points-today">
             <x-points-split-total :split="$p['points']['todaySplit']" label="Points today" />
         </div>
+        <div class="mp-card" style="display:flex; flex-direction:column; justify-content:center; gap:6px;">
+            @if($canCapture)<a href="{{ route('agent.daily') }}" class="text-sm" style="color:var(--brand-icon); text-decoration:none; font-weight:500;">Capture today's activity &rarr;</a>@endif
+            @if($canCapture && $hasSummary)<a href="{{ route('agent.daily.summary') }}" class="text-sm" style="color:var(--brand-icon); text-decoration:none; font-weight:500;">My activity summary &rarr;</a>@endif
+        </div>
     </div>
 
-    <div class="ds-status-card mb-4" data-testid="activity-strip">
-        <h4 class="ds-section-header" style="margin-bottom:0.75rem;">The last 14 days (points)</h4>
+    <div class="mp-card" data-testid="activity-strip">
+        <div class="ds-section-header" style="margin:0 0 4px;">The last 14 days (points)</div>
         @if(array_sum($days) <= 0)
-            <p class="text-sm" style="color:var(--text-muted);">No activity points in the last 14 days.</p>
+            <p class="text-sm" style="color:var(--text-muted); margin:0 0 4px;">No activity points in the last 14 days.</p>
         @endif
-        <x-points-split-strip :days="$daysSplit" label="j" :height="60" />
-    </div>
-
-    <div class="flex flex-wrap gap-4 text-sm">
-        @if($canCapture)<a href="{{ route('agent.daily') }}" style="color:var(--brand-icon); text-decoration:none; font-weight:500;">Capture today's activity &rarr;</a>@endif
-        @if($canCapture && $hasSummary)<a href="{{ route('agent.daily.summary') }}" style="color:var(--brand-icon); text-decoration:none; font-weight:500;">My activity summary &rarr;</a>@endif
+        <x-points-split-strip :days="$daysSplit" label="j" :height="56" />
     </div>
 </div>
