@@ -135,7 +135,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       const vis = el => { if (!el) return false; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden'; };
       const h = [...document.querySelectorAll('h3')].find(x => vis(x) && /Your initials|Sign Here/.test(x.textContent));
       const b = [...document.querySelectorAll('button')].find(x => vis(x) && /Apply initials|Apply Signature/.test(x.textContent));
-      return { title: h ? h.textContent.trim() : null, apply: b ? b.textContent.trim() : null };
+      return { title: h ? h.textContent.trim() : null, apply: b ? b.textContent.trim().split('\n')[0].trim() : null };
     });
     const closeCapture = () => page.evaluate(() => { const d = Alpine.$data(document.querySelector('[x-ref="webDocContent"]').closest('[x-data]')); d.showWebSigCapture = false; d.adoptionStage = null; d.currentWebSigBlockId = null; d.pendingDisclosureAmend = null; });
     const expectInitialsDialog = async (what) => {
@@ -187,9 +187,22 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     // only appear once the last document has been reached.
     const visible = sel => page.evaluate(sel => { const e = document.querySelector(sel); return !!e && e.offsetParent !== null; }, sel);
     const statusNow = () => page.evaluate(() => (document.querySelector('[data-header-status]') || {}).innerText || '');
+    // Sign each place by hand: when Next opens the pad, check it says what is being captured, then type it and apply (a real hand-signing step).
+    const fillCapture = async () => {
+      const open = await page.evaluate(() => Alpine.$data(document.querySelector('[x-ref="webDocContent"]').closest('[x-data]')).showWebSigCapture);
+      if (!open) return false;
+      await sleep(700);
+      const want = await page.evaluate(() => Alpine.$data(document.querySelector('[x-ref="webDocContent"]').closest('[x-data]')).captureIsInitial());
+      const w = await dialogWords();
+      if (w.title !== (want ? 'Your initials' : 'Sign Here') || w.apply !== (want ? 'Apply initials' : 'Apply Signature')) failures.push('the pad opened by Next says "' + w.title + '" / "' + w.apply + '" for ' + (want ? 'initials' : 'a signature'));
+      await page.evaluate(() => { const d = Alpine.$data(document.querySelector('[x-ref="webDocContent"]').closest('[x-data]')); d.webSigMode = 'type'; d.webTypedSignature = 'TS'; });
+      await page.evaluate(() => { const b = [...document.querySelectorAll('button')].find(x => x.offsetParent !== null && /^Apply (initials|Signature)/.test(x.textContent.trim())); if (b) b.click(); });
+      await sleep(1600); return true;
+    };
     if (/Document \d+ of \d+/.test(await statusNow()) || mode === 'saved') {
       let sawLast = false, sawAny = false;
-      for (let i = 0; i < 14; i++) {
+      for (let i = 0; i < 24; i++) {
+        await fillCapture();
         const st = await statusNow();
         const m = st.match(/Document (\d+) of (\d+)/);
         if (m) { sawAny = true; if (m[1] === m[2]) sawLast = true; }
@@ -197,7 +210,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         if (sawAny && !sawLast && finishShown) failures.push('Finish was shown before the last document of the pack was reached: ' + st);
         if (!(await visible('[data-header-next]'))) break;
         await click('[data-header-next]'); await sleep(1300);
-        if (i === 13) failures.push('Next never finished walking the pack');
+        if (i === 23) failures.push('Next never finished walking the pack');
       }
       if (sawAny && !sawLast) failures.push('the pack never reached its last document');
       await snap('8b last document reached', 'lastdoc');
