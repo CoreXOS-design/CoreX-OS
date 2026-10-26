@@ -1101,6 +1101,9 @@ class AppServiceProvider extends ServiceProvider
             return app(\App\Services\AgencyApi\AgencyApiKeyResolver::class)->resolveFromRequest($request);
         });
 
+        // Recipient signing links - always anonymous, whatever staff session the browser also holds (RecipientLinkIsAnonymous).
+        \Illuminate\Support\Facades\Auth::viaRequest('recipient-link', fn () => null);
+
         // Rental portal / client app API throttle (audit 2026-10-19 D10) - the whole /api/v1/client* surface had no limit at all, photo uploads
         // included. One bucket per signed-in PERSON (a phone and a browser of one person share it), sized by the agency's own setting
         // (portal_api_per_minute, default 120); an unauthenticated caller falls back to its address. Runs after client.auth, so the user is known.
