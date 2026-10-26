@@ -1389,6 +1389,10 @@
          when the envelope was sent in an adoption mode and this signer signs by link. The capture modal below (z-50)
          sits above this panel (z-40) so the SAME component draws / types both marks. --}}
     @if(!empty($adoption['required']))
+    <style>
+        /* Click-to-stamp places: comfortable tap targets on a phone (>= 44px). */
+        .web-sig-interactive { min-height: 44px; }
+    </style>
     <template x-if="adoption && adoption.required">
         <div>
             <div x-show="showAdoption" x-cloak class="fixed inset-0 z-40 flex items-center justify-center p-4" style="background: rgba(15,23,42,0.55);">
@@ -1434,12 +1438,43 @@
             </div>
 
             {{-- Reminder strip while the step is closed and not yet done; a small link to change the adopted marks afterwards. --}}
-            <div x-show="!showAdoption" x-cloak class="rounded-xl px-4 py-3 text-sm flex items-center justify-between gap-3"
+            <div x-show="!showAdoption" x-cloak class="rounded-xl px-4 py-3 text-sm flex flex-wrap items-center justify-between gap-x-3"
                  :style="adoption.adopted ? 'background:#f1f5f9;border:1px solid #e2e8f0;color:#334155' : 'background:#fffbeb;border:1px solid #fcd34d;color:#92400e'">
                 <span x-text="adoption.adopted ? 'Your signature and initial are adopted.' : 'Adopt your signature and initial before you sign.'"></span>
-                <button type="button" @click="showAdoption = true" class="font-semibold underline" style="min-height:44px;"
-                        x-text="adoption.adopted ? 'Change' : 'Adopt now'"></button>
+                <span class="flex items-center gap-3">
+                    @if(($adoption['mode'] ?? null) === 'adopt_and_fill_all')
+                    <button type="button" x-show="_fillAllMode()" @click="openFillAll()" class="font-semibold rounded-lg px-3 text-white" style="min-height:44px; background:#0f172a;">Apply to all my places</button>
+                    @endif
+                    <button type="button" @click="showAdoption = true" class="font-semibold underline" style="min-height:44px;"
+                            x-text="adoption.adopted ? 'Change' : 'Adopt now'"></button>
+                </span>
             </div>
+
+            @if(($adoption['mode'] ?? null) === 'adopt_and_fill_all')
+            {{-- Fill all (Mode 3): the one confirmation. States exactly how many places will be filled and how many stay with the signer. --}}
+            <div x-show="showFillAll" x-cloak class="fixed inset-0 z-40 flex items-center justify-center p-4" style="background: rgba(15,23,42,0.55);">
+                <div class="w-full max-w-lg rounded-2xl bg-white shadow-xl border border-slate-200 p-5 space-y-4 max-h-[92vh] overflow-y-auto" role="dialog" aria-modal="true">
+                    <h2 class="text-base font-bold text-slate-900">Apply your signature and initial</h2>
+                    <p class="text-sm text-slate-800">
+                        Your signature and initial will be applied to
+                        <strong x-text="'all ' + fillAllN + ' place' + (fillAllN === 1 ? '' : 's')"></strong>
+                        on this document that <span x-text="fillAllN === 1 ? 'is' : 'are'"></span> yours.
+                    </p>
+                    <p class="text-sm text-slate-700" x-show="fillAllM > 0">
+                        <strong x-text="fillAllM"></strong>
+                        <span x-text="fillAllM === 1 ? 'place needs' : 'places need'"></span>
+                        you to act on <span x-text="fillAllM === 1 ? 'it' : 'them'"></span> one by one afterwards:
+                        conditions you must initial, changes you must accept and disclosure answers.
+                    </p>
+                    <div class="flex items-center justify-end gap-2">
+                        <button type="button" @click="showFillAll = false" class="text-sm text-slate-600 px-3" style="min-height:44px;">Cancel</button>
+                        <button type="button" @click="confirmFillAll()" :disabled="fillAllBusy"
+                                class="rounded-lg px-4 text-sm font-semibold text-white disabled:opacity-40" style="background:#0f172a; min-height:44px;"
+                                x-text="fillAllBusy ? 'Applying…' : ('Apply to ' + fillAllN + ' place' + (fillAllN === 1 ? '' : 's'))"></button>
+                    </div>
+                </div>
+            </div>
+            @endif
         </div>
     </template>
     @endif
@@ -1590,6 +1625,15 @@ function externalSign() {
         adoptionAgree: false,
         adoptionBusy: false,
         showAdoption: false,
+        stampedKeys: {},              // places stamped from the adopted mark this visit (key -> true); only these can be taken back
+        pendingPlaceKeys: [],         // clicks whose request did not get through; completeWeb records them (reconcile)
+        // Fill all (Mode 3): one confirmation stamps every place that is the signer's.
+        fillAllUnavailable: false,    // the server could not vouch for the list -> fall back to clicking each place
+        showFillAll: false,
+        fillAllKeys: [],
+        fillAllN: 0,
+        fillAllM: 0,
+        fillAllBusy: false,
         currentWebSigBlockId: null,
         pendingDisclosureAmend: null,   {{-- AT-303 Stage 2 — proposed disclosure-mark change awaiting the amender's initial --}}
         webSigMode: 'draw',
@@ -1812,6 +1856,7 @@ function externalSign() {
                         el.innerHTML = '<div class="web-sig-prompt"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg> Click to sign</div>';
 
                         el.addEventListener('click', () => {
+                            if (self._stampClick(sigKey, 'signature')) return;
                             if (el.getAttribute('data-signed') === 'true') return;
                             if (self._adoptionGuard()) return;
                             self.currentWebSigBlockId = sigKey;
@@ -2019,6 +2064,7 @@ function externalSign() {
                     }
 
                     el.addEventListener('click', () => {
+                        if (self._stampClick(initKey, 'initial')) return;
                         if (entry.signed) return;
                         if (self._adoptionGuard()) return;
                         self.currentWebSigBlockId = initKey;
@@ -3388,6 +3434,225 @@ function externalSign() {
 
         get canSubmitWeb() {
             return this.webConsented && this.webIncompleteCount === 0 && this._adoptionSatisfied();
+        },
+
+        // ── Click to stamp (Mode 2) ──
+        // True when a click on a place stamps the adopted mark instead of opening the capture pad.
+        _stampMode() {
+            if (!(this.adoption && this.adoption.required && this.adoption.adopted)) return false;
+            return this.adoption.mode === 'adopt_then_stamp'
+                || (this.adoption.mode === 'adopt_and_fill_all' && this.fillAllUnavailable);
+        },
+
+        // Mode 3 while the server is willing to fill all: a click on a place asks for the one confirmation.
+        _fillAllMode() {
+            return !!(this.adoption && this.adoption.required && this.adoption.adopted
+                && this.adoption.mode === 'adopt_and_fill_all' && !this.fillAllUnavailable);
+        },
+
+        // Handles a click on one of the signer's own places in an adoption mode. Returns true when it was handled
+        // here (stamped, or taken back), false to let the normal capture-pad flow run (default mode, or before adopting).
+        _stampClick(key, kind) {
+            if (this._fillAllMode()) {
+                if (this.stampedKeys[key]) {
+                    this._unstampPlace(key, kind);
+                } else {
+                    this.openFillAll();
+                }
+                return true;
+            }
+            if (!this._stampMode()) return false;
+            if (this.stampedKeys[key]) {
+                this._unstampPlace(key, kind);
+            } else {
+                this._stampPlace(key, kind);
+            }
+            return true;
+        },
+
+        // Every place on the page that is the signer's own and still empty: [{key, kind}] in document order.
+        _myOpenPlaces() {
+            const out = [];
+            const container = this.$refs.webDocContent || null;
+            if (container) {
+                container.querySelectorAll('.web-sig-interactive[data-sig-id]').forEach(el => {
+                    if (el.getAttribute('data-signed') !== 'true') out.push({ key: el.getAttribute('data-sig-id'), kind: 'signature', el });
+                });
+            }
+            (this.webInitialElements || []).forEach(e => {
+                if (e.isMine && !e.signed) out.push({ key: e.initKey, kind: 'initial', el: e.el });
+            });
+            out.sort((a, b) => (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1);
+            return out;
+        },
+
+        // Places that are never filled automatically: condition initials, change (amendment) initials, disclosure answers.
+        _oneByOneRemaining() {
+            let n = document.querySelectorAll('.cir-slot.cir-mine:not(.cir-filled)').length;
+            const container = this.$refs.webDocContent || null;
+            if (container) {
+                n += container.querySelectorAll('.btn-add-initial[data-condition-id]:not(.initial-filled)').length;
+            }
+            if (this._signerIsDisclosingParty() && this.totalDisclosureRows > 0) {
+                const gated = this._gatedDisclosureRowKeys || new Set();
+                const answered = Object.keys(this.webDisclosureAnswers).filter(k => this._isDisclosureAnswerKey(k) && gated.has(k)).length;
+                n += Math.max(0, this.totalDisclosureRows - answered);
+            }
+            return n;
+        },
+
+        openFillAll() {
+            if (this._adoptionGuard()) return;
+            const places = this._myOpenPlaces();
+            if (places.length === 0) {
+                this.showNotification('Every place that is yours is already filled.', 'info');
+                return;
+            }
+            this.fillAllKeys = places.map(p => p.key);
+            this.fillAllN = places.length;
+            this.fillAllM = this._oneByOneRemaining();
+            this.showFillAll = true;
+        },
+
+        async confirmFillAll() {
+            if (this.fillAllBusy || this.fillAllKeys.length === 0) return;
+            this.fillAllBusy = true;
+            try {
+                const resp = await fetch('/sign/' + this.token + '/place-all', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': this._csrf() },
+                    body: JSON.stringify({ place_keys: this.fillAllKeys, one_by_one: this.fillAllM, confirmed: true }),
+                });
+                const d = await resp.json().catch(() => ({}));
+                if (!resp.ok || !d.ok) {
+                    this.showFillAll = false;
+                    if (d.fill_all_unavailable) {
+                        // The server will not fill this document in one go: from here a click stamps one place.
+                        this.fillAllUnavailable = true;
+                    }
+                    this.showNotification(d.error || 'Could not fill your places.', 'error');
+                } else {
+                    this.fillAllKeys.forEach(key => {
+                        const kind = key.includes('-init-') ? 'initial' : 'signature';
+                        this._paintStamped(key, kind === 'initial' ? this.adoption.initialImage : this.adoption.signatureImage);
+                        this.stampedKeys[key] = true;
+                    });
+                    this.updateIncompleteCount();
+                    this.showFillAll = false;
+                    this.showNotification(d.count + ' place' + (d.count === 1 ? '' : 's') + ' filled.', 'success');
+                    this.$nextTick(() => { if (this.webIncompleteCount > 0) this.scrollToNextIncomplete(); });
+                }
+            } catch (e) {
+                this.showNotification('Network error — nothing was filled. Please try again.', 'error');
+            }
+            this.fillAllBusy = false;
+        },
+
+        _csrf() { return document.querySelector('meta[name="csrf-token"]').content; },
+
+        _postPlace(path, key) {
+            return fetch('/sign/' + this.token + path, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': this._csrf() },
+                body: JSON.stringify({ place_key: key }),
+            });
+        },
+
+        // Paints the adopted image into a place exactly as a drawn capture would (same markup the capture path writes).
+        _paintStamped(key, data) {
+            this.webSignatures[key] = data;
+            if (key.includes('-init-')) {
+                const entry = (this.webInitialElements || []).find(e => e.initKey === key);
+                if (!entry) return;
+                entry.signed = true;
+                entry.sigData = data;
+                entry.el.innerHTML = '<img src="' + data + '" class="corex-ink corex-ink--initial" style="height:38px;max-height:38px;width:auto;margin:auto;display:block;object-fit:contain;" alt="Initial">';
+                entry.el.classList.add('initial-signed');
+                entry.el.style.border = '2px solid #10b981';
+                entry.el.style.background = 'rgba(16,185,129,0.06)';
+                entry.el.style.cursor = 'pointer';
+                entry.el.title = 'Click to take this initial back';
+            } else {
+                const container = this.$refs.webDocContent || null;
+                const block = container ? container.querySelector('[data-sig-id="' + key + '"]') : null;
+                if (!block) return;
+                block.setAttribute('data-signed', 'true');
+                block.classList.add('web-sig-signed');
+                block.title = 'Click to take this signature back';
+                block.innerHTML = '<img src="' + data + '" class="web-sig-signed-img" alt="Signature">';
+            }
+        },
+
+        // Puts a place back to its unsigned look (the same prompt the page first drew there).
+        _paintUnstamped(key) {
+            delete this.webSignatures[key];
+            if (key.includes('-init-')) {
+                const entry = (this.webInitialElements || []).find(e => e.initKey === key);
+                if (!entry) return;
+                entry.signed = false;
+                entry.sigData = null;
+                entry.el.innerHTML = '<span class="init-prompt" style="font-size:9px;color:#b45309;font-weight:600;">Click to initial</span>';
+                entry.el.classList.remove('initial-signed');
+                entry.el.style.border = '2px dashed #d97706';
+                entry.el.style.background = 'rgba(251,191,36,0.06)';
+                entry.el.title = 'Click to initial';
+            } else {
+                const container = this.$refs.webDocContent || null;
+                const block = container ? container.querySelector('[data-sig-id="' + key + '"]') : null;
+                if (!block) return;
+                block.removeAttribute('data-signed');
+                block.classList.remove('web-sig-signed');
+                block.removeAttribute('title');
+                block.innerHTML = '<div class="web-sig-prompt"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg> Click to sign</div>';
+            }
+        },
+
+        async _stampPlace(key, kind) {
+            const data = kind === 'initial' ? this.adoption.initialImage : this.adoption.signatureImage;
+            if (!data) { this._adoptionGuard(); return; }
+            this._paintStamped(key, data);
+            this.stampedKeys[key] = true;
+            this.updateIncompleteCount();
+            try {
+                const resp = await this._postPlace('/place', key);
+                const d = await resp.json().catch(() => ({}));
+                if (!resp.ok || !d.ok) {
+                    // The server said no (not your place, link expired…): undo, say why.
+                    delete this.stampedKeys[key];
+                    this._paintUnstamped(key);
+                    this.updateIncompleteCount();
+                    this.showNotification(d.error || 'Could not place your mark here.', 'error');
+                    return;
+                }
+            } catch (e) {
+                // No connection: keep the mark on screen; completing the document records it.
+                if (!this.pendingPlaceKeys.includes(key)) this.pendingPlaceKeys.push(key);
+                this.showNotification('No connection — your mark is kept and will be saved when you finish.', 'warning');
+                return;
+            }
+            this.showNotification(kind === 'initial' ? 'Initial placed.' : 'Signature placed.', 'info');
+        },
+
+        async _unstampPlace(key, kind) {
+            if (!window.confirm('Take this ' + (kind === 'initial' ? 'initial' : 'signature') + ' back?')) return;
+            try {
+                const resp = await this._postPlace('/place/remove', key);
+                const d = await resp.json().catch(() => ({}));
+                if (!resp.ok || !d.ok) {
+                    this.showNotification(d.error || 'Could not take it back.', 'error');
+                    return;
+                }
+            } catch (e) {
+                // Never seen by the server (queued click) — nothing to undo there.
+                if (!this.pendingPlaceKeys.includes(key)) {
+                    this.showNotification('No connection — please try again.', 'warning');
+                    return;
+                }
+                this.pendingPlaceKeys = this.pendingPlaceKeys.filter(k => k !== key);
+            }
+            delete this.stampedKeys[key];
+            this._paintUnstamped(key);
+            this.updateIncompleteCount();
         },
 
         // ── Adoption helpers (Modes 2/3) ──
