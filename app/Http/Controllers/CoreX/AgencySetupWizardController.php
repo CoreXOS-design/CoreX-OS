@@ -632,6 +632,11 @@ class AgencySetupWizardController extends Controller
                     'other_agency_stock_consent_wording' => $agency->other_agency_stock_consent_wording,
                     default => $control['default'] ?? null,
                 },
+                // E-sign signing modes — the agency's current mode (sign_each when it never chose). Explicit per-key arm (spec §6.2).
+                'esign' => match ($key) {
+                    'signing_mode' => \App\Models\Docuperfect\EsignSettings::signingModeFor($agency->id),
+                    default => $control['default'] ?? null,
+                },
                 // Core Matches — which Buyer Pipeline statuses take a buyer off Core Matches.
                 // Explicit per-key match (spec §6.2): never fall through to an Agency column.
                 'core_matches' => match ($key) {
