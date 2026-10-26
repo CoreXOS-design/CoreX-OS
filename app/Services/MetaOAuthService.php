@@ -141,7 +141,19 @@ class MetaOAuthService
 
         $pages = json_decode($pagesResponse->getBody()->getContents(), true)['data'] ?? [];
 
+        // Business-managed Pages are omitted from /me/accounts even when ticked
+        // in the dialog (a user can hold some Pages directly and others only via
+        // a Business), so always merge in the explicitly granted Pages by id.
+        $have = array_column($pages, 'id');
+        foreach ($this->fetchGrantedPages($longToken) as $extra) {
+            if (!in_array($extra['id'], $have, true)) {
+                $pages[] = $extra;
+            }
+        }
+
         if (empty($pages)) {
+            $this->logEmptyPagesDiagnostics($longToken);
+
             throw new \RuntimeException('No Facebook Pages found for this account. You must be an Admin of a Page.');
         }
 
@@ -166,6 +178,85 @@ class MetaOAuthService
                 'picture'                    => $p['picture']['data']['url'] ?? null,
             ], $pages),
         ];
+    }
+
+    /**
+     * Pages the user ticked in the Facebook dialog, read from the token's
+     * granular scopes and fetched by id (returns the Page access token too).
+     */
+    private function fetchGrantedPages(string $userToken): array
+    {
+        try {
+            $debug = json_decode($this->http->get(self::GRAPH_BASE . '/debug_token', [
+                'query' => [
+                    'input_token'  => $userToken,
+                    'access_token' => config('services.meta.app_id') . '|' . config('services.meta.app_secret'),
+                ],
+            ])->getBody()->getContents(), true);
+
+            $ids = [];
+            foreach ($debug['data']['granular_scopes'] ?? [] as $g) {
+                if (($g['scope'] ?? '') === 'pages_show_list') {
+                    $ids = array_merge($ids, $g['target_ids'] ?? []);
+                }
+            }
+
+            Log::info('Meta OAuth: granted Page ids', [
+                'granular_scopes' => $debug['data']['granular_scopes'] ?? null,
+                'data_access_expires_at' => $debug['data']['data_access_expires_at'] ?? null,
+            ]);
+
+            $pages = [];
+            foreach (array_unique($ids) as $id) {
+                $resp = $this->http->get(self::GRAPH_BASE . '/' . $id, [
+                    'query' => [
+                        'access_token' => $userToken,
+                        'fields'       => 'id,name,access_token,instagram_business_account,picture',
+                    ],
+                ]);
+                $page = json_decode($resp->getBody()->getContents(), true);
+                Log::info('Meta OAuth: direct Page fetch', ['id' => $id, 'has_token' => !empty($page['access_token']), 'name' => $page['name'] ?? null]);
+                if (!empty($page['id']) && !empty($page['access_token'])) {
+                    $pages[] = $page;
+                }
+            }
+
+            return $pages;
+        } catch (\Throwable $e) {
+            Log::warning('Meta OAuth: direct Page fetch failed: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * /me/accounts came back empty. Record which permissions Facebook actually
+     * granted (and for which Pages) so the cause is visible in the log instead
+     * of guessed at: pages_show_list missing/declined, no Page ticked in the
+     * dialog, or the Page owned by a Business portfolio the user has no direct
+     * Page role on.
+     */
+    private function logEmptyPagesDiagnostics(string $userToken): void
+    {
+        try {
+            $perms = json_decode($this->http->get(self::GRAPH_BASE . '/me/permissions', [
+                'query' => ['access_token' => $userToken],
+            ])->getBody()->getContents(), true);
+
+            $debug = json_decode($this->http->get(self::GRAPH_BASE . '/debug_token', [
+                'query' => [
+                    'input_token'  => $userToken,
+                    'access_token' => config('services.meta.app_id') . '|' . config('services.meta.app_secret'),
+                ],
+            ])->getBody()->getContents(), true);
+
+            Log::warning('Meta OAuth: /me/accounts empty', [
+                'permissions'    => $perms['data'] ?? $perms,
+                'scopes'         => $debug['data']['scopes'] ?? null,
+                'granular_scopes' => $debug['data']['granular_scopes'] ?? null,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Meta OAuth: /me/accounts empty, diagnostics failed: ' . $e->getMessage());
+        }
     }
 
     /**
