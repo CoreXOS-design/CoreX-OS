@@ -86,6 +86,35 @@ class SourcePageBreaksAllRoutesTest extends TestCase
         File::deleteDirectory($dir);
     }
 
+    public function test_a_tall_imported_box_breaks_between_its_rows_on_the_signing_paginator(): void
+    {
+        if (! $this->chromiumAvailable()) {
+            $this->markTestSkipped('Chromium / node not available');
+        }
+        // One box of 70 clause rows (about two and a half sheets): one unsplittable table before, rows packed across sheets now.
+        $rows = [];
+        $meta = [];
+        for ($i = 1; $i <= 70; $i++) {
+            $rows[] = ['Clause ' . $i . ': the tenant shall keep the premises in a clean and neat condition and report any fault promptly to the landlord or the agency.'];
+            $meta[] = [['borders' => 'lr' . ($i === 1 ? 't' : '') . ($i === 70 ? 'b' : '')]];
+        }
+        $cds = ['sections' => [['type' => 'table', 'rows' => $rows, 'src_borders' => true, 'cell_meta' => $meta]]];
+        $dir = sys_get_temp_dir() . '/pgchk-' . uniqid();
+        File::makeDirectory($dir);
+        file_put_contents($dir . '/in.json', json_encode([
+            'partial' => view('docuperfect.signatures.partials.a4-page-styles')->render(),
+            'html' => (new CdsRendererService())->render($cds),
+            'shell' => $dir . '/paginated.html',
+        ]));
+        $run = Process::path(base_path())->timeout(120)->run(['node', 'scripts/paginate-check.mjs', $dir . '/in.json']);
+        $this->assertTrue($run->successful(), $run->errorOutput());
+        $r = json_decode(trim($run->output()), true);
+        File::deleteDirectory($dir);
+
+        $this->assertGreaterThanOrEqual(2, $r['pages'], 'a box taller than a sheet runs over several pages instead of one overflowing sheet');
+        $this->assertLessThanOrEqual(5, $r['pages']);
+    }
+
     public function test_a_document_with_its_own_signature_table_is_not_followed_by_the_generic_block(): void
     {
         $compile = function (string $mode): string {
