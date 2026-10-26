@@ -743,3 +743,5 @@ on a PUBLIC page — contradicting "never advertised". Those hunks stay OUT of t
 them); whether to remove them from QA1 as well is Johan's call (reported, not changed).
 
 Tests: `tests/Feature/Properties/OtherAgencyStockOwnStockTest.php`.
+
+**Per-property "Compliance Status" switch (26 Oct 2026, Johan, live).** `properties.compliance_status_hidden` (default 0). When 1 the property page header does not show the Compliance Status button. No screen sets it yet; it is changed only on Johan's instruction. Set for property 22246 (Caprivi) only.

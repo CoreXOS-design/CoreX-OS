@@ -353,8 +353,8 @@ final class AiTemplateBlocksAndStylesTest extends TestCase
     public function test_script_fonts_are_for_short_headlines_only(): void
     {
         $v = new AdLayoutValidator();
-        $el = fn (string $field, array $patch = []) => array_merge(['field' => $field, 'x' => 40, 'y' => 440, 'w' => 600, 'h' => 80, 'zIndex' => 5,
-            'fontFamily' => 'Great Vibes', 'fontSize' => 44, 'color' => '#ffffff', 'shadowOn' => true], $patch);
+        $el = fn (string $field, array $patch = []) => array_merge(['field' => $field, 'x' => 40, 'y' => 440, 'w' => 1100, 'h' => 80, 'zIndex' => 5,
+            'fontFamily' => 'Great Vibes', 'fontSize' => 40, 'color' => '#ffffff', 'shadowOn' => true], $patch);
 
         // Fine: a title, or a few words of custom text.
         $this->assertTrue($v->validate($this->option([$el('title')]), 'facebook')['ok']);
@@ -815,7 +815,7 @@ final class AiTemplateBlocksAndStylesTest extends TestCase
     {
         return ['name' => 'T', 'canvasBgMode' => 'solid', 'canvasBg' => '#0b1220', 'elements' => array_merge([
             ['field' => 'image_1', 'x' => 0, 'y' => 0, 'w' => 600, 'h' => 628, 'zIndex' => 1],
-            ['field' => 'title', 'x' => 640, 'y' => 40, 'w' => 500, 'h' => 50, 'zIndex' => 3, 'fontSize' => 30, 'color' => '#ffffff'],
+            ['field' => 'title', 'x' => 640, 'y' => 10, 'w' => 540, 'h' => 90, 'zIndex' => 3, 'fontSize' => 24, 'color' => '#ffffff'],
             ['field' => 'price', 'x' => 640, 'y' => 100, 'w' => 500, 'h' => 70, 'zIndex' => 3, 'fontSize' => 50, 'color' => '#ffffff'],
         ], $elements)];
     }
@@ -830,7 +830,7 @@ final class AiTemplateBlocksAndStylesTest extends TestCase
             ['field' => 'ribbon', 'x' => 1000, 'y' => 0, 'w' => 200, 'h' => 200, 'zIndex' => 6, 'text' => 'JUST LISTED', 'ribbonCorner' => 'tr', 'bgColor' => '#e63946', 'bgOpacity' => 1, 'color' => '#ffffff'],
             ['field' => 'qr', 'x' => 1040, 'y' => 380, 'w' => 130, 'h' => 130, 'zIndex' => 3, 'qrDark' => '#0b1220', 'qrLight' => '#ffffff'],
             ['field' => 'feature_pills', 'x' => 420, 'y' => 60, 'w' => 220, 'h' => 200, 'zIndex' => 3, 'pillCount' => 3, 'pillDirection' => 'column', 'pillGap' => 14, 'bgColor' => '#000000', 'bgOpacity' => 0.9, 'color' => '#ffffff', 'fontSize' => 18],
-            ['field' => 'title', 'x' => 680, 'y' => 60, 'w' => 300, 'h' => 80, 'zIndex' => 3, 'fontFamily' => 'Great Vibes', 'fontSize' => 44, 'color' => '#ffffff'],
+            ['field' => 'title', 'x' => 680, 'y' => 60, 'w' => 500, 'h' => 90, 'zIndex' => 3, 'fontFamily' => 'Great Vibes', 'fontSize' => 28, 'color' => '#ffffff'],
             ['field' => 'levy', 'x' => 680, 'y' => 160, 'w' => 300, 'h' => 40, 'zIndex' => 3, 'fontSize' => 20, 'color' => '#ffffff', 'showLabel' => false],
             ['field' => 'show_day', 'x' => 680, 'y' => 210, 'w' => 340, 'h' => 40, 'zIndex' => 3, 'fontSize' => 20, 'color' => '#ffffff', 'icon' => 'calendar'],
         ]];
