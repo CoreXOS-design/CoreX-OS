@@ -24,7 +24,8 @@ class ApplicationTerms
      * @param  string|null  $leaseReference  the payment reference when the rule is "the lease reference"
      * @return array{
      *     amounts: list<array{label: string, value: string}>,
-     *     bank: array{rows: list<array{label: string, value: string}>, reference: string}|null,
+     *     bank: array{rows: list<array{label: string, value: string}>, reference: string, note: string}|null,
+     *     summary_heading: string,
      *     summary: list<string>,
      *     documents: list<string>
      * }
@@ -40,7 +41,8 @@ class ApplicationTerms
         return [
             'amounts' => self::amounts($agencyId, $monthlyRent, max(1, $applicants)),
             'bank' => self::bank($agencyId, $propertyAddress, $tenantName, $leaseReference),
-            'summary' => self::lines(RentalApplicationQualifyingSetting::tenantInfoSummaryFor($agencyId)),
+            'summary_heading' => self::summaryHeading(RentalApplicationQualifyingSetting::tenantInfoSummaryFor($agencyId)),
+            'summary' => self::lines(self::withoutHeading(RentalApplicationQualifyingSetting::tenantInfoSummaryFor($agencyId))),
             'documents' => self::lines(RentalApplicationQualifyingSetting::documentsToAccompanyFor($agencyId)),
         ];
     }
@@ -69,7 +71,8 @@ class ApplicationTerms
             $months = LeaseSetting::defaultDepositMonthsFor($agencyId);
             $rows[] = [
                 'label' => 'Deposit',
-                'value' => self::money(round($monthlyRent * $months, 2)) . ' (' . rtrim(rtrim(number_format($months, 2, '.', ''), '0'), '.') . ' × monthly rent)',
+                'value' => self::money(round($monthlyRent * $months, 2)) . ' (' . rtrim(rtrim(number_format($months, 2, '.', ''), '0'), '.') . ' × monthly rent)'
+                    . (($note = LeaseSetting::depositNoteFor($agencyId)) !== '' ? ' - ' . $note : ''),
             ];
         }
 
@@ -91,7 +94,7 @@ class ApplicationTerms
         return $rows;
     }
 
-    /** @return array{rows: list<array{label: string, value: string}>, reference: string}|null */
+    /** @return array{rows: list<array{label: string, value: string}>, reference: string, note: string}|null */
     private static function bank(?int $agencyId, ?string $propertyAddress, ?string $tenantName, ?string $leaseReference): ?array
     {
         $details = LeaseSetting::depositBankDetailsFor($agencyId);
@@ -108,7 +111,21 @@ class ApplicationTerms
         return [
             'rows' => array_map(fn (array $r) => ['label' => $r['label'], 'value' => $r['value']], $details),
             'reference' => $reference,
+            'note' => LeaseSetting::depositBankNoteFor($agencyId),
         ];
+    }
+
+    /** A first line starting with # is the list's own heading ('' when there is none): the agency's wording, not ours. */
+    private static function summaryHeading(string $text): string
+    {
+        $first = trim((string) (preg_split('/\R/u', ltrim($text))[0] ?? ''));
+
+        return str_starts_with($first, '#') ? trim(ltrim($first, '# ')) : '';
+    }
+
+    private static function withoutHeading(string $text): string
+    {
+        return self::summaryHeading($text) !== '' ? (string) preg_replace('/^[^\r\n]*\R?/u', '', ltrim($text), 1) : $text;
     }
 
     /** @return list<string> one entry per non-blank line, trimmed, a leading bullet mark removed */

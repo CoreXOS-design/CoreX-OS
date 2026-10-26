@@ -38,6 +38,8 @@ class LeaseSettingsController extends Controller
             'rentOccupationText' => LeaseSetting::rentOccupationTextFor($agencyId),
             'depositBank' => collect(LeaseSetting::depositBankDetailsFor($agencyId) ?? [])->pluck('value', 'key')->all(),
             'depositReferenceRule' => LeaseSetting::depositReferenceRuleFor($agencyId),
+            'depositNote' => LeaseSetting::depositNoteFor($agencyId),
+            'depositBankNote' => LeaseSetting::depositBankNoteFor($agencyId),
             // .ai/specs/rental-renewals.md §2 — tenant notice period.
             'tenantNoticePeriodDays' => LeaseSetting::tenantNoticePeriodDaysFor($agencyId),
             'tenantNoticePeriodDaysDefault' => LeaseSetting::DEFAULT_TENANT_NOTICE_PERIOD_DAYS,
@@ -127,6 +129,8 @@ class LeaseSettingsController extends Controller
             'deposit_bank_account_type' => ['nullable', 'string', 'max:50'],
             'deposit_bank_account_number' => ['nullable', 'string', 'max:50'],
             'deposit_reference_rule' => ['nullable', 'string', 'in:' . implode(',', LeaseSetting::DEPOSIT_REFERENCE_RULES)],
+            'deposit_note' => ['nullable', 'string', 'max:1000'],
+            'deposit_bank_note' => ['nullable', 'string', 'max:1000'],
             // ... and what the agency calls it (blank = "Lease fee"); same has()-guard.
             'lease_fee_label' => ['nullable', 'string', 'max:60'],
             // .ai/specs/rental-renewals.md §2 — same §6.1 nullable/has()-guard
@@ -201,7 +205,7 @@ class LeaseSettingsController extends Controller
             $v = $validated['renewal_fee'] ?? null;
             $data['renewal_fee'] = $v === null || $v === '' ? null : round((float) $v, 2); // blank = not set
         }
-        foreach (['rent_before_occupation_text', 'deposit_bank_account_name', 'deposit_bank_name', 'deposit_bank_branch_code',
+        foreach (['rent_before_occupation_text', 'deposit_note', 'deposit_bank_note', 'deposit_bank_account_name', 'deposit_bank_name', 'deposit_bank_branch_code',
             'deposit_bank_account_type', 'deposit_bank_account_number'] as $field) {
             if ($request->has($field)) {
                 $data[$field] = trim((string) ($validated[$field] ?? '')) ?: null; // blank = not set
@@ -310,6 +314,8 @@ class LeaseSettingsController extends Controller
             'deposit_bank_account_type' => LeaseSetting::withoutGlobalScopes()->where('agency_id', $agencyId)->value('deposit_bank_account_type'),
             'deposit_bank_account_number' => LeaseSetting::withoutGlobalScopes()->where('agency_id', $agencyId)->value('deposit_bank_account_number'),
             'deposit_reference_rule' => LeaseSetting::withoutGlobalScopes()->where('agency_id', $agencyId)->value('deposit_reference_rule'),
+            'deposit_note' => LeaseSetting::depositNoteFor($agencyId) ?: null,
+            'deposit_bank_note' => LeaseSetting::depositBankNoteFor($agencyId) ?: null,
             // AT-489 - these two move when every lease's expiry notice goes out, so who changed them, and from what, is on record like the others.
             'expiry_notice_send_business_days' => LeaseSetting::expiryNoticeSendBusinessDaysFor($agencyId),
             'expiry_notice_alert_business_days' => LeaseSetting::expiryNoticeAlertBusinessDaysFor($agencyId),

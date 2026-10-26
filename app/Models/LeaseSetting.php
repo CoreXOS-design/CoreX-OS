@@ -141,6 +141,8 @@ class LeaseSetting extends Model
         'deposit_bank_account_type',
         'deposit_bank_account_number',
         'deposit_reference_rule',
+        'deposit_note',
+        'deposit_bank_note',
         'tenant_notice_period_days',
         'cpa_early_cancel_business_days',
         'breach_remedy_business_days',
@@ -597,6 +599,27 @@ class LeaseSetting extends Model
         $has = fn (string $col) => trim((string) ($row->{$col} ?? '')) !== '';
 
         return ($has('deposit_bank_account_number') || $has('deposit_bank_account_name')) ? $rows : null;
+    }
+
+    /** A free-text line printed with the Deposit row (how the deposit is set): '' = nothing. */
+    public static function depositNoteFor(?int $agencyId): string
+    {
+        return self::textSettingFor($agencyId, 'deposit_note');
+    }
+
+    /** A free-text line printed under the deposit banking details: '' = nothing. */
+    public static function depositBankNoteFor(?int $agencyId): string
+    {
+        return self::textSettingFor($agencyId, 'deposit_bank_note');
+    }
+
+    private static function textSettingFor(?int $agencyId, string $column): string
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return '';
+        }
+
+        return trim((string) self::withoutGlobalScopes()->where('agency_id', $agencyId)->value($column));
     }
 
     public static function depositReferenceRuleFor(?int $agencyId): string

@@ -139,6 +139,12 @@
                               class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">{{ old('rent_before_occupation_text', $rentOccupationText) }}</textarea>
                     <p class="text-xs mt-2" style="color: var(--text-muted);">For example "The first month's rent is payable before the tenant moves in." Printed as a line under Amounts payable. Empty = not shown.</p>
                 </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Note on the deposit amount (your wording)</label>
+                    <textarea name="deposit_note" rows="2" maxlength="1000" data-qa="deposit-note-input"
+                              class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">{{ old('deposit_note', $depositNote) }}</textarea>
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">For example "Rent x1.5 or x2, to be advised." Printed after the deposit figure under Amounts payable. Empty = not shown.</p>
+                </div>
             </div>
         </div>
 
@@ -156,6 +162,12 @@
                                    class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
                         </div>
                     @endforeach
+                    <div class="sm:col-span-2">
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Note under the banking details (your wording)</label>
+                        <textarea name="deposit_bank_note" rows="2" maxlength="1000" data-qa="deposit-bank-note-input"
+                                  class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">{{ old('deposit_bank_note', $depositBankNote) }}</textarea>
+                        <p class="text-xs mt-1" style="color: var(--text-muted);">For example when the rent is paid to the landlord instead. Printed under the banking details. Empty = not shown.</p>
+                    </div>
                     <div>
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Payment reference the tenant must use</label>
                         <select name="deposit_reference_rule" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" data-qa="deposit-reference-rule-input">

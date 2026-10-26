@@ -136,7 +136,7 @@ final class ApplicationTermsSettingsTest extends TestCase
         $this->assertNull(LeaseSetting::depositBankDetailsFor($other->id));
         $this->assertNull(RentalApplicationQualifyingSetting::applicationFeeFor($other->id));
         $this->assertSame('', RentalApplicationQualifyingSetting::documentsToAccompanyFor($other->id));
-        $this->assertSame(['amounts' => [], 'bank' => null, 'summary' => [], 'documents' => []], ApplicationTerms::for($other->id));
+        $this->assertSame(['amounts' => [], 'bank' => null, 'summary_heading' => '', 'summary' => [], 'documents' => []], ApplicationTerms::for($other->id));
     }
 
     public function test_the_settings_pages_render_the_new_controls(): void
@@ -159,8 +159,8 @@ final class ApplicationTermsSettingsTest extends TestCase
     {
         $agency = $this->agency('Blank Realty');
 
-        $this->assertSame(['amounts' => [], 'bank' => null, 'summary' => [], 'documents' => []], ApplicationTerms::for($agency->id));
-        $this->assertSame(['amounts' => [], 'bank' => null, 'summary' => [], 'documents' => []], ApplicationTerms::for(null, null, 2, 'X'));
+        $this->assertSame(['amounts' => [], 'bank' => null, 'summary_heading' => '', 'summary' => [], 'documents' => []], ApplicationTerms::for($agency->id));
+        $this->assertSame(['amounts' => [], 'bank' => null, 'summary_heading' => '', 'summary' => [], 'documents' => []], ApplicationTerms::for(null, null, 2, 'X'));
 
         // with a rent the deposit row shows from the neutral default multiple (1 month), nothing else
         $terms = ApplicationTerms::for($agency->id, 5500.0);
@@ -202,6 +202,41 @@ final class ApplicationTermsSettingsTest extends TestCase
         $one = ApplicationTerms::for($agency->id, null, 1);
         $this->assertSame('R 250.00', $one['amounts'][0]['value']);
         $this->assertNotContains('Deposit', array_column($one['amounts'], 'label'), 'no rent, no deposit row');
+    }
+
+    public function test_deposit_note_bank_note_and_summary_heading(): void
+    {
+        $agency = $this->agency('Notes Agency');
+        LeaseSetting::create([
+            'agency_id' => $agency->id, 'deposit_bank_account_number' => '1', 'deposit_note' => 'Rent x1.5 or x2, to be advised', 'deposit_bank_note' => 'Paid to the landlord from month two.',
+        ]);
+        RentalApplicationQualifyingSetting::create(['agency_id' => $agency->id, 'tenant_info_summary' => "# Please read and keep this\n- Point one\n- Point two"]);
+
+        $terms = ApplicationTerms::for($agency->id, 1000.0);
+
+        $this->assertSame('Please read and keep this', $terms['summary_heading']);
+        $this->assertSame(['Point one', 'Point two'], $terms['summary'], 'the heading line is not a bullet');
+        $this->assertSame('R 1,000.00 (1 × monthly rent) - Rent x1.5 or x2, to be advised', $terms['amounts'][0]['value']);
+        $this->assertSame('Paid to the landlord from month two.', $terms['bank']['note']);
+
+        $plain = $this->agency('Plain Agency');
+        RentalApplicationQualifyingSetting::create(['agency_id' => $plain->id, 'tenant_info_summary' => "- A\n- B"]);
+        $this->assertSame('', ApplicationTerms::for($plain->id)['summary_heading']);
+        $this->assertSame(['A', 'B'], ApplicationTerms::for($plain->id)['summary']);
+    }
+
+    public function test_the_deposit_notes_save_through_the_lease_settings_page_without_wiping_when_absent(): void
+    {
+        $agency = $this->agency('Saver Agency');
+        $admin = $this->admin($agency);
+        LeaseSetting::create(['agency_id' => $agency->id, 'deposit_note' => 'Keep me', 'deposit_bank_note' => 'And me']);
+
+        $this->actingAs($admin)->post(route('corex.settings.leases.update'), $this->leasePost(['renewal_fee' => '500']))->assertRedirect();
+        $this->assertSame('Keep me', LeaseSetting::depositNoteFor($agency->id));
+
+        $this->actingAs($admin)->post(route('corex.settings.leases.update'), $this->leasePost(['deposit_note' => 'New wording', 'deposit_bank_note' => '']))->assertRedirect();
+        $this->assertSame('New wording', LeaseSetting::depositNoteFor($agency->id));
+        $this->assertSame('', LeaseSetting::depositBankNoteFor($agency->id));
     }
 
     public function test_the_reference_rule_picks_the_tenant_name_or_the_lease_reference(): void
