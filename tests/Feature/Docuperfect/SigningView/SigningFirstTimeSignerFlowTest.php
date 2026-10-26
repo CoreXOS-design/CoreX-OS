@@ -259,4 +259,41 @@ final class SigningFirstTimeSignerFlowTest extends TestCase
         $this->assertStringContainsString("_setIfChanged('detailsToFill'", $html, 'an unchanged list is not re-assigned (it would re-render the left column every recount)');
         $this->assertStringContainsString("_setIfChanged('headerBlocker'", $html);
     }
+
+    // ── cold load: the page never waits on another company's server ──
+
+    #[DataProvider('modes')]
+    public function test_the_page_pulls_in_no_third_party_stylesheet_that_could_block_it(string $mode, bool $pack): void
+    {
+        $html = $this->asRecipient($this->seller($mode, $pack))->assertOk()->getContent();
+
+        // A render-blocking <link rel="stylesheet"> to another host holds the first paint AND the page scripts until that host answers
+        // (two Google Fonts links did: a 25s blank page on a slow cold load).
+        $this->assertDoesNotMatchRegularExpression('#<link[^>]+rel="stylesheet"[^>]*https?://(?!' . preg_quote(parse_url(config('app.url'), PHP_URL_HOST) ?: 'localhost', '#') . ')#i', $html);
+        $this->assertStringNotContainsString('fonts.googleapis.com', $html);
+        $this->assertStringContainsString('/css/esign-fonts.css', $html);
+    }
+
+    public function test_the_self_hosted_font_is_really_there_and_swaps_in(): void
+    {
+        $css = (string) file_get_contents(public_path('css/esign-fonts.css'));
+
+        $this->assertStringContainsString("font-family: 'Dancing Script'", $css);
+        $this->assertStringContainsString('font-display: swap', $css, 'text shows at once, the font swaps in when it arrives');
+        preg_match_all("#url\\('(/fonts/[^']+)'\\)#", $css, $m);
+        $this->assertNotEmpty($m[1]);
+        foreach ($m[1] as $url) {
+            $this->assertFileExists(public_path($url));
+            $this->assertSame('wOF2', substr((string) file_get_contents(public_path($url), false, null, 0, 4), 0, 4), $url . ' is a woff2 font');
+        }
+    }
+
+    public function test_the_page_starts_up_once_not_twice(): void
+    {
+        $html = $this->asRecipient($this->seller('adopt_once'))->assertOk()->getContent();
+
+        // Alpine calls init() itself and the root also says x-init="init()": the guard makes the second call a no-op.
+        $this->assertStringContainsString('if (this._inited) return;', $html);
+        $this->assertStringContainsString('this._inited = true;', $html);
+    }
 }

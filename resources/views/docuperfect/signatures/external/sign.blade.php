@@ -6,7 +6,8 @@
     <title>Sign Document — {{ \App\Support\Docuperfect\DocumentAgencyContext::pinnedAgency()?->name ?? $template->creator?->agency?->name ?? 'Agency' }}</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     @vite(['resources/css/app.css', 'resources/js/app.js', 'resources/js/esign-signature-pad.js'])
-    <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@400;700&display=swap" rel="stylesheet">
+    {{-- Self-hosted: a third-party font stylesheet blocks first paint AND the page scripts until that server answers. --}}
+    <link href="/css/esign-fonts.css" rel="stylesheet">
     @if(!empty($isWebTemplate))
     <link href="/css/corex-document.css" rel="stylesheet">
     @endif
@@ -1715,6 +1716,10 @@ function externalSign() {
         rejectReasonText: '',
 
         init() {
+            // Alpine calls init() itself AND the root says x-init="init()": without this the whole start-up (pagination, listeners,
+            // heartbeat) ran twice on every load.
+            if (this._inited) return;
+            this._inited = true;
             if (this.adoption && this.adoption.required) {
                 this.adoptionSig = this.adoption.signatureImage || null;
                 this.adoptionInit = this.adoption.initialImage || null;

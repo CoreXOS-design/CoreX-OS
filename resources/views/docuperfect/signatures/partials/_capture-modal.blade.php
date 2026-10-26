@@ -43,7 +43,7 @@
 @endphp
 
 {{-- Google Font for typed signatures (idempotent — browser dedupes) --}}
-<link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&display=swap" rel="stylesheet">
+<link href="/css/esign-fonts.css" rel="stylesheet">
 
 <div x-show="{{ $show }}" x-cloak x-transition.opacity
      class="fixed inset-0 z-50 flex items-center justify-center"
