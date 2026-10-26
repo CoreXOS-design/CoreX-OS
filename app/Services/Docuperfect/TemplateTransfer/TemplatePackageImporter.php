@@ -182,10 +182,12 @@ final class TemplatePackageImporter
      * @param list<array> $loaded               from load()
      * @param array<int,string> $choices        package index => new_version|new_copy (needed only on a name clash)
      * @param bool $allowMissingDocumentType    the user ticked "import without a document type"
+     * @param Template|null $copiedFrom         set by TemplateAgencyCopier: the audit row is then a 'copy' row
+     *                                          carrying the source agency and a "copied from template #n" note
      * @return list<Template> the NEW templates
      * @throws TemplateTransferException
      */
-    public function import(array $loaded, Agency $target, User $actor, array $choices, bool $allowMissingDocumentType): array
+    public function import(array $loaded, Agency $target, User $actor, array $choices, bool $allowMissingDocumentType, ?Template $copiedFrom = null): array
     {
         // Refuse everything up front if any package is blocked or needs a choice nobody made.
         $previews = $this->preview($loaded, $target);
@@ -239,10 +241,11 @@ final class TemplatePackageImporter
         foreach ($created as $i => $template) {
             $pkg = $loaded[$i];
             TemplateTransferLog::create([
-                'direction'          => 'import',
+                'direction'          => $copiedFrom ? 'copy' : 'import',
                 'outcome'            => 'success',
                 'actor_user_id'      => $actor->id,
                 'actor_name'         => $actor->name,
+                'source_agency_id'   => $copiedFrom?->agency_id,
                 'target_agency_id'   => $target->id,
                 'target_agency_name' => $target->name,
                 'template_name'      => $template->name,
@@ -251,7 +254,10 @@ final class TemplatePackageImporter
                 'format_version'     => TemplatePackage::VERSION,
                 'source_label'       => $pkg['manifest']['source_label'] ?? null,
                 'name_clash_choice'  => $previews[$i]['clash']['exists'] ? ($choices[$i] ?? null) : null,
-                'warnings'           => $previews[$i]['warnings'] ?: null,
+                'warnings'           => array_values(array_filter(array_merge(
+                    $copiedFrom ? ['Copied from template #' . $copiedFrom->id . ' "' . $copiedFrom->name . '" (agency ' . ($copiedFrom->agency_id ?? 'none') . ').'] : [],
+                    (array) $previews[$i]['warnings']
+                ))) ?: null,
             ]);
             event(new TemplatePackageImported((int) $template->id, (int) $target->id, $actor->id, $pkg['checksum']));
         }
