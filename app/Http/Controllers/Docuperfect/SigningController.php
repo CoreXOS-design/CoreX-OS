@@ -3620,6 +3620,17 @@ CSS;
    its bottom onto a near-blank next page (docs 455/454: 5 logical → 7 physical).
    Absolute-positioned it consumes no flow height, so the box the paginator
    measured (content + initials strip, no footer) IS the box that prints. */
+/* The Word source's own running header / footer, one per captured page (a4-page-styles _paginateWrapper): out of flow in the
+   page's top / bottom padding, its page-number token already filled. */
+.corex-a4-page .corex-page-header, .corex-a4-page .corex-page-footer {
+    position: absolute !important;
+    left: 18mm !important;
+    right: 18mm !important;
+    margin: 0 !important;
+}
+.corex-a4-page .corex-page-header { top: 8mm !important; }
+.corex-a4-page .corex-page-footer { bottom: 8mm !important; }
+.corex-page-number.is-set::before { content: none !important; }
 .corex-a4-page .page-number {
     position: absolute !important;
     bottom: 10mm !important;
@@ -3922,9 +3933,11 @@ CSS;
     private function getPdfCleanupCss(): string
     {
         return <<<'CSS'
-/* The source's page number cannot be counted from content in this PDF engine (counter(page) prints 0): the running
-   header and the document line repeat on every page, the number prints in the print-and-sign (dompdf) PDF. */
+/* The paginator (a4-page-styles) puts the source's header / footer on every captured page with the page number filled in;
+   the document-level fixed copies of the frame (for an un-paginated print) are not drawn on top of them. An un-paginated
+   print cannot count pages from content in this engine (counter(page) prints 0), so there the number part stays off. */
 .corex-page-footer .corex-page-right { display: none !important; }
+.corex-a4-page .corex-page-footer .corex-page-right { display: inline !important; }
 /* Hide interactive signing UI elements */
 .web-sig-prompt { display: none !important; }
 .init-prompt { display: none !important; }

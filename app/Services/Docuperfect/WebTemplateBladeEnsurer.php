@@ -62,6 +62,7 @@ class WebTemplateBladeEnsurer
             $tagged,
             $tags,
             \App\Support\Docuperfect\DocumentLook::fromState($editor),
+            \App\Support\Docuperfect\SignatureBlock::fromState($editor),
         );
 
         if ($bladeView !== (string) ($template->blade_view ?? '')) {

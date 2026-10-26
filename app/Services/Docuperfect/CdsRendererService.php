@@ -94,6 +94,8 @@ class CdsRendererService
         // A document with a different first page and no header of its own there (the Word title page): a blank
         // strip on page one covers the repeated header, so page one prints without it, as in the source.
         if ($kind === 'header' && ! empty($cds['page_first_different']) && empty($first['lines'])) {
+            // data-first-different: the e-sign paginator leaves the header off page one; the cover does the same on paper.
+            $html = preg_replace('/^<div class="corex-page-header/', '<div data-first-different="1" class="corex-page-header', $html, 1);
             $html .= '<div class="corex-page-header-cover" aria-hidden="true"></div>';
         }
 
