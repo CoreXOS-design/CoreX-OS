@@ -193,6 +193,7 @@ final class GeocodingBackfillCommand extends Command
 
         $cleared = 0;
         $cacheRows = 0;
+        $counted = [];
         foreach ($borrowed as $row) {
             $key = \App\Support\Geocoding\AddressNormaliser::normalise((string) $row->address, $row->suburb_normalised, null);
             $cacheQuery = \Illuminate\Support\Facades\DB::table('geocoding_cache')
@@ -201,7 +202,13 @@ final class GeocodingBackfillCommand extends Command
                 ->where('latitude', $row->subject_latitude)
                 ->where('longitude', $row->subject_longitude);
             if ($dry) {
-                $cacheRows += (clone $cacheQuery)->count();
+                // Several rows can share one cached answer (same address + suburb): count each entry once,
+                // so the preview matches what --apply deletes.
+                $id = $key . '|' . $row->subject_latitude . '|' . $row->subject_longitude;
+                if (!isset($counted[$id])) {
+                    $counted[$id] = true;
+                    $cacheRows += (clone $cacheQuery)->count();
+                }
 
                 continue;
             }

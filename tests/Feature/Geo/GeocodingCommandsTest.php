@@ -329,4 +329,27 @@ final class GeocodingCommandsTest extends TestCase
         $this->assertNull($this->pinOf($ids['borrowed']));
         $this->assertEqualsWithDelta(self::PIN_LAT, $this->pinOf($ids['foreign']), 0.0000001, 'the other agency is not touched');
     }
+
+    public function test_the_dry_run_counts_a_shared_cached_copy_once_so_it_matches_what_apply_deletes(): void
+    {
+        $rep = $this->report($this->caprivi, $this->caprivUser, '11 Manikie Street, Blue Valley Golf Estate');
+        // Three comp rows with the same address (the same house sold three times) share ONE cached answer.
+        foreach ([1, 2, 3] as $i) {
+            $this->compRow($rep, $this->caprivi, '14 Manikie Street', self::PIN_LAT, self::PIN_LNG);
+        }
+        GeocodingCache::create([
+            'address_normalised' => \App\Support\Geocoding\AddressNormaliser::normalise('14 Manikie Street', 'blue valley golf estate', null),
+            'address_raw' => '14 Manikie Street', 'latitude' => self::PIN_LAT, 'longitude' => self::PIN_LNG,
+            'confidence' => 'exact', 'source' => 'market_report',
+        ]);
+
+        $this->artisan('geocoding:backfill', ['--clear-subject-borrowed-pins' => true])
+            ->expectsOutputToContain('3 comp row(s) in 1 report(s)')
+            ->expectsOutputToContain('1 cached copy(ies) would be deleted')
+            ->assertSuccessful();
+
+        $this->artisan('geocoding:backfill', ['--clear-subject-borrowed-pins' => true, '--apply' => true])
+            ->expectsOutputToContain('Cleared 3 comp-row pin(s) and deleted 1 cached copy(ies)')
+            ->assertSuccessful();
+    }
 }
