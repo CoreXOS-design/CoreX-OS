@@ -1469,5 +1469,41 @@
       "NO_ITEM"
     ],
     "reason": "A photo attached to a captured task (Road to Sold v2 phase 2) - a file stream opened from the Photo link in the Captures list on the Road to Sold page, no sidebar link by design. Same family as the other evidence-file routes."
+  },
+  "worksheet.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "Retired as a menu item on purpose (agency-tracker-rehome.md step 5): the Worksheet is replaced by My Portal > Overview > Targets & Budget. The route name is kept as a 301 redirect to it, so every old link and bookmark still lands there; it never renders a page, so there is nothing to light."
+  },
+  "bm.listings": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "Retired as a menu item on purpose (agency-tracker-rehome.md step 9): Branch Listing Stock read the frozen Propcon import. The route name is kept as a 301 redirect to the Properties list for the manager's own branch (the Branch Performance tiles still link to the name); it never renders a page, so there is nothing to light."
+  },
+  "corex.compliance.rcr.index": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "Retired from the menu on purpose (agency-tracker-rehome.md step 9): RCR \u00b7 FIC 2026 is unused. Nothing is deleted - the submission pages stay registered for bookmarks and the deadline notifications, and open the Compliance group, but no menu item points at them."
+  },
+  "corex.compliance.rcr.show": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "Retired from the menu on purpose (agency-tracker-rehome.md step 9): RCR \u00b7 FIC 2026 is unused. Nothing is deleted - the submission pages stay registered for bookmarks and the deadline notifications, and open the Compliance group, but no menu item points at them."
+  },
+  "corex.compliance.rcr.export": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "Retired from the menu on purpose (agency-tracker-rehome.md step 9): RCR \u00b7 FIC 2026 is unused. Nothing is deleted - the submission pages stay registered for bookmarks and the deadline notifications, and open the Compliance group, but no menu item points at them."
+  },
+  "corex.compliance.rcr.question.show": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "Retired from the menu on purpose (agency-tracker-rehome.md step 9): RCR \u00b7 FIC 2026 is unused. Nothing is deleted - the submission pages stay registered for bookmarks and the deadline notifications, and open the Compliance group, but no menu item points at them."
   }
 }

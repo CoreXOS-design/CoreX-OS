@@ -436,7 +436,9 @@ final class MyPortalBlocksTest extends TestCase
         $this->tweak($row, ['avg_sale_price' => 2400000, 'commission_percent' => 6, 'paye_percent' => 25, 'agent_split_percent' => 70, 'correctly_priced_percent' => 50]);
         $this->actingAs($this->agent);
 
-        $worksheet = html_entity_decode($this->get(route('worksheet.index'))->assertOk()->getContent());
+        // /worksheet now 301s to My Portal (step 5), so the old page is rendered straight from its controller - it is kept, just unreachable.
+        \Illuminate\Support\Facades\View::share('errors', new \Illuminate\Support\ViewErrorBag());
+        $worksheet = html_entity_decode(app(\App\Http\Controllers\WorksheetController::class)->index()->render());
         $portal = $this->get(route('agent.portal', ['sub' => 'targets']))->assertOk()->getContent();
 
         preg_match('/Sales Needed \/ Month:<\/span>\s*<span class="ds-value">([\d,\.]+)</', $worksheet, $wSales);
