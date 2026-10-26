@@ -344,7 +344,7 @@
                 <button type="button" data-header-next x-show="primaryLabel" @click="nextAction()"
                         class="flex-1 sm:flex-none rounded-lg px-3 sm:px-5 text-xs sm:text-sm font-semibold" style="min-height:40px; min-width:6rem; background:#fff; color:#0b2a4a;"
                         x-text="primaryLabel"></button>
-                <button type="button" data-header-sign-everything x-show="adoption && adoption.required && stepNo === 3 && !fillAllUnavailable" x-cloak @click="openFillAll()"
+                <button type="button" data-header-sign-everything x-show="adoption && adoption.required && adoption.adopted && stepNo >= 2 && placesLeft && !fillAllUnavailable" x-cloak @click="openFillAll()"
                         class="flex-1 sm:flex-none rounded-lg px-3 sm:px-5 text-xs sm:text-sm font-semibold text-white" style="min-height:40px; min-width:6rem; border:1px solid rgba(255,255,255,0.55);">Sign everything</button>
                 <button type="button" data-header-finish x-show="showFinish" @click="completeWebSigning()" :disabled="completing || !canSubmitWeb" :title="finishTitle"
                         class="flex-1 sm:flex-none rounded-lg px-3 sm:px-5 text-xs sm:text-sm font-semibold text-white"
@@ -1645,6 +1645,7 @@ function externalSign() {
         viewedDocs: {},               // a pack: documents the signer has been taken to or touched (index -> true); document 1 counts from the start
         packFocusDoc: 0,              // a pack: the document the signer is on once nothing is left to sign in the ones already seen
         unviewedDoc: -1,              // a pack: index of the first document not yet seen; -1 when all are seen (or this is not a pack)
+        placesLeft: false,            // signature / initials places still to do on any document: "Sign everything" stays in the header while true (adopt-once agencies)
         showFinish: false,            // the ECTA tick and Finish: only once EVERY place on EVERY document is done (a pack: the last document reached too)
         showEctaText: false,
         _refreshing: false,
@@ -2525,6 +2526,7 @@ function externalSign() {
             this._setIfChanged('stepNo', !step1Done ? 1 : (!step2Done ? 2 : 3));
             // The ECTA tick and Finish appear only when every place on every document is done: nothing left to sign, no document
             // in a pack still unopened, no change waiting for initials. Until then Next is the one thing to press.
+            this._setIfChanged('placesLeft', work.work.length > 0);
             this._setIfChanged('showFinish', this.stepNo === 3 && unviewed === -1 && work.work.length === 0 && this.changeInitialsRemaining === 0);
 
             let status;

@@ -105,6 +105,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
           railProgress: txt('[data-rail-progress]'),
           consentVisible: vis(document.querySelector('[data-header-consent]')), finishVisible: vis(document.querySelector('[data-header-finish]')),
           actionsVisible: vis(document.querySelector('[data-header-actions]')),
+          unsignedSpots: [...document.querySelectorAll('.web-sig-interactive')].filter(e => e.getAttribute('data-signed') !== 'true').length,
+          adoptedNow: (() => { try { const d = Alpine.$data(document.querySelector('[x-ref="webDocContent"]').closest('[x-data]')); return !!(d.adoption && d.adoption.required && d.adoption.adopted); } catch (e) { return false; } })(),
           amendPanelVisible: vis(document.querySelector('[data-amend-panel]')), amendLinkVisible: vis(document.querySelector('[data-amend-link]')),
           bannedWords: banned, overflowX: document.documentElement.scrollWidth > window.innerWidth,
         };
@@ -117,6 +119,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       if (sn && s.railStep && !(width < 1100) && s.railStep !== sn[1]) failures.push(label + ': the status line is on step ' + sn[1] + ' but the rail lights step ' + s.railStep);
       // a popup is the one instruction: the header offers no Start / Next / Finish / blocker / tick under it
       if ((s.popupVisible || s.confirmVisible) && (s.actionsVisible || s.blocker || s.consentVisible)) failures.push(label + ': a popup is open over a header that still offers ' + JSON.stringify({ buttons: s.buttons, blocker: s.blocker }));
+      // Adopt once: "Sign everything" stays in the header from the first screen after saving until every place is done
+      if (s.adoptedNow && sn && sn[1] >= '2' && s.unsignedSpots > 0 && !s.popupVisible && !s.confirmVisible && !(s.buttons || []).includes('Sign everything')) failures.push(label + ': "Sign everything" is missing from the header while ' + s.unsignedSpots + ' place(s) are still to sign: ' + JSON.stringify(s.buttons));
       // "open Document N" is said once
       if (/Press Next to open/.test(s.status || '') && /open Document/.test(s.blocker || '')) failures.push(label + ': the status line and the line under it both say to open the next document');
       // the tick and Finish only when every place is done: nothing else is being asked at the same time

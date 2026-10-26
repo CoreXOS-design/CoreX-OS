@@ -141,7 +141,7 @@ final class SigningModeAdoptOnceTest extends TestCase
         $this->assertStringContainsString('data-header-progress', $html);
         $this->assertStringContainsString('"required":false', str_replace(' ', '', $html));
         // the buttons are conditional on the adoption state the server sent; with none required they never show
-        $this->assertStringContainsString('x-show="adoption && adoption.required && stepNo === 3 && !fillAllUnavailable"', $html);
+        $this->assertStringContainsString('x-show="adoption && adoption.required && adoption.adopted && stepNo >= 2 && placesLeft && !fillAllUnavailable"', $html);
     }
 
     public function test_the_page_binds_each_places_click_once_and_opens_the_popup_for_an_unadopted_click(): void

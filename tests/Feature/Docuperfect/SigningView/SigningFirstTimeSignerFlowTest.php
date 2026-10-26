@@ -139,7 +139,7 @@ final class SigningFirstTimeSignerFlowTest extends TestCase
         $this->assertStringContainsString('Add your signature and initials</h2>', $once, 'the popup is retitled');
         $this->assertStringContainsString('@click="confirmFillAll()"', $once);
         $this->assertStringContainsString('data-header-sign-everything', $once);
-        $this->assertStringContainsString('x-show="adoption && adoption.required && stepNo === 3 && !fillAllUnavailable"', $once, 'Sign everything only in step 3 of an adopt-once agency');
+        $this->assertStringContainsString('x-show="adoption && adoption.required && adoption.adopted && stepNo >= 2 && placesLeft && !fillAllUnavailable"', $once, 'Sign everything stays in the header of an adopt-once agency from step 2 until every place is done');
         $this->assertStringContainsString('Change my signature', $once);
         $this->assertStringContainsString('x-show="adoption && adoption.required && adoption.adopted"', $once, 'Change my signature only once one exists');
 
@@ -426,6 +426,19 @@ final class SigningFirstTimeSignerFlowTest extends TestCase
         // (d) the tick and Finish wait for every place on every document, and start hidden
         $this->assertStringContainsString('showFinish: false,', $html);
         $this->assertStringContainsString("this.stepNo === 3 && unviewed === -1 && work.work.length === 0 && this.changeInitialsRemaining === 0", $html);
+    }
+
+    public function test_sign_everything_stays_in_the_header_of_an_adopt_once_agency_until_every_place_is_done(): void
+    {
+        $once = html_entity_decode($this->asRecipient($this->seller('adopt_once', pack: true))->assertOk()->getContent(), ENT_QUOTES);
+        $each = html_entity_decode($this->asRecipient($this->seller('sign_each', pack: true))->assertOk()->getContent(), ENT_QUOTES);
+
+        // Not tied to step 3: a signer who clicks places straight after saving (still on "Check your details") keeps it.
+        $this->assertStringContainsString('adoption.adopted && stepNo >= 2 && placesLeft && !fillAllUnavailable', $once);
+        $this->assertStringNotContainsString('stepNo === 3 && !fillAllUnavailable', $once);
+        // It goes only when nothing is left to sign (the same test that shows the tick and Finish), or the server refused to fill in one go.
+        $this->assertStringContainsString("_setIfChanged('placesLeft', work.work.length > 0)", $once);
+        $this->assertStringContainsString('"required":false', str_replace(' ', '', $each), 'a sign-each agency never offers it (its adoption state is not required)');
     }
 
     // ── one finish control (Johan 26 Oct, defect 3) ──
