@@ -1841,6 +1841,75 @@ class SigningController extends Controller
     }
 
     /**
+     * esign-signing-modes.md (Mode 2, Build step 4) — the signer clicks a place and their adopted mark is stamped there.
+     * The image is always the signer's own adoption (the click only says WHERE); one append-only generation + one audit
+     * row per click, with the server's time. Same guards as adopt / completeWeb.
+     */
+    public function placeMark(Request $request, $token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)->with('template.document')->firstOrFail();
+        if ($guard = $this->placementGuard($signingRequest, $token)) {
+            return $guard;
+        }
+
+        $data = $request->validate(['place_key' => 'required|string|max:60']);
+
+        try {
+            $generation = app(\App\Services\Docuperfect\SignaturePlacementService::class)
+                ->place($signingRequest, $data['place_key'], $request);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['ok' => false, 'error' => $e->getMessage()], 422);
+        } catch (\DomainException $e) {
+            return response()->json(['ok' => false, 'error' => $e->getMessage()], 409);
+        }
+
+        return response()->json([
+            'ok' => true,
+            'place_key' => $data['place_key'],
+            'generation' => $generation?->generation,
+            'already_placed' => $generation === null,
+        ]);
+    }
+
+    /** Take a stamped place back (superseded, not deleted); clicking it again writes the next generation. */
+    public function removeMark(Request $request, $token)
+    {
+        $signingRequest = SignatureRequest::where('token', $token)->with('template.document')->firstOrFail();
+        if ($guard = $this->placementGuard($signingRequest, $token)) {
+            return $guard;
+        }
+
+        $data = $request->validate(['place_key' => 'required|string|max:60']);
+
+        try {
+            $removed = app(\App\Services\Docuperfect\SignaturePlacementService::class)
+                ->remove($signingRequest, $data['place_key'], $request);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['ok' => false, 'error' => $e->getMessage()], 422);
+        } catch (\DomainException $e) {
+            return response()->json(['ok' => false, 'error' => $e->getMessage()], 409);
+        }
+
+        return response()->json(['ok' => true, 'place_key' => $data['place_key'], 'removed' => $removed]);
+    }
+
+    /** Guards shared by the adoption-mode placement endpoints: expired link, identity gate, not-yet-their-turn. */
+    private function placementGuard(SignatureRequest $signingRequest, string $token)
+    {
+        if ($signingRequest->isSigningBlocked()) {
+            return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
+        }
+        if ($gate = $this->identityGateResponse($signingRequest, $token)) {
+            return $gate;
+        }
+        if ($signingRequest->status === SignatureRequest::STATUS_WAITING) {
+            return response()->json(['ok' => false, 'error' => 'It is not your turn to sign yet. Please wait for notification.'], 403);
+        }
+
+        return null;
+    }
+
+    /**
      * What the signing page needs to run the adoption step: whether it is required for this signer on this document,
      * the exact wording to show, and — if they have already adopted (a reload) — their adopted marks.
      * Only web/CDS documents have a place-by-place ceremony to adopt for; a PDF-marker document always signs every place.
@@ -1897,6 +1966,18 @@ class SigningController extends Controller
         $adoptionService = app(\App\Services\Docuperfect\SignatureAdoptionService::class);
         if ($adoptionService->required($signingRequest) && ! $adoptionService->current($signingRequest)) {
             return response()->json(['ok' => false, 'error' => 'Please adopt your signature and initial before signing.'], 422);
+        }
+
+        // Modes 2/3: every mark posted must be the signer's own adopted mark — an arbitrary image is refused. (A place the
+        // signer must act on deliberately — condition / amendment initials, disclosure answers — travels its own endpoint
+        // and is never a posted place stamp.)
+        $adoptionMode = $adoptionService->required($signingRequest);
+        if ($adoptionMode) {
+            $strangers = app(\App\Services\Docuperfect\SignaturePlacementService::class)
+                ->unadoptedMarks($signingRequest, array_merge((array) $request->input('signatures', []), (array) $request->input('initials', [])));
+            if ($strangers !== []) {
+                return response()->json(['ok' => false, 'error' => 'Only the signature and initial you adopted can be placed on this document.', 'places' => $strangers], 422);
+            }
         }
 
         // WET-INK HARD GATE — a party cannot complete their signing turn while any required party still owes
@@ -2201,8 +2282,14 @@ class SigningController extends Controller
                 (array) ($webData['signed_initials'][$signingRequest->canonicalPartyKey()] ?? []),
                 (array) ($webData['signatures'] ?? [])
             );
-            app(\App\Services\Docuperfect\SignaturePlaceGenerationRecorder::class)
-                ->record($document, $signingRequest, $postedPlaces, $priorPlaces, $request);
+            if ($adoptionMode) {
+                // A click whose request never arrived is recorded now; places already recorded by /place are untouched.
+                app(\App\Services\Docuperfect\SignaturePlacementService::class)
+                    ->reconcile($document, $signingRequest, $postedPlaces, $priorPlaces, $request);
+            } else {
+                app(\App\Services\Docuperfect\SignaturePlaceGenerationRecorder::class)
+                    ->record($document, $signingRequest, $postedPlaces, $priorPlaces, $request);
+            }
         }
 
         if (!empty($signatures)) {

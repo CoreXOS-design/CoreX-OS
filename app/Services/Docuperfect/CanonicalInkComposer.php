@@ -746,6 +746,51 @@ class CanonicalInkComposer
         }
     }
 
+    /**
+     * esign-signing-modes.md (Mode 3): how many signature / initial markers in this canonical document belong to
+     * $signer, by exactly the ownership rule bakeInk() paints by. Read-only — it never changes the HTML. Page-break
+     * initials are injected at pagination (client side) so they are not in this count; it is the server's own bound
+     * on how many signature places a signer can legitimately have.
+     */
+    public function countOwnedMarkers(string $canonicalHtml, SignatureRequest $signer, string $type, bool $signerIsSoleOfRole): int
+    {
+        if (trim($canonicalHtml) === '') {
+            return 0;
+        }
+
+        try {
+            $dom = new \DOMDocument();
+            @$dom->loadHTML('<?xml encoding="utf-8"?>' . $canonicalHtml, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD | LIBXML_NOERROR | LIBXML_NOWARNING);
+            $xpath = new \DOMXPath($dom);
+
+            $identity = strtolower($signer->attestationIdentity());
+            $role = strtolower((string) ($signer->party_role ?? ''));
+            $aliases = $this->aliasesFor($role);
+            $nameKey = $this->normalizeName((string) ($signer->signer_name ?? ''));
+            $requestId = $signer->exists ? (string) $signer->id : null;
+
+            $count = 0;
+            foreach ($xpath->query('//*[@data-marker-type="' . $this->xpathLiteral($type) . '"][@data-marker-party]') as $el) {
+                if ($el instanceof \DOMElement
+                    && $this->markerBelongsToSigner($el, $identity, $role, $nameKey, $aliases, $signerIsSoleOfRole, $requestId)) {
+                    $count++;
+                }
+            }
+
+            return $count;
+        } catch (\Throwable $e) {
+            Log::warning('CanonicalInkComposer::countOwnedMarkers failed', ['error' => $e->getMessage()]);
+
+            return 0;
+        }
+    }
+
+    /** The marker-party tokens that denote the same party as $role (public view of aliasesFor, for place-key checks). @return string[] */
+    public function partyTokensFor(string $role): array
+    {
+        return $this->aliasesFor(strtolower($role));
+    }
+
     /** Marker-party aliases that denote the same party as $role. */
     private function aliasesFor(string $role): array
     {
