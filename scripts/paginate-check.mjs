@@ -4,7 +4,7 @@
  * reports how it paginated, then prints the paginated DOM through the signed-PDF shell and counts the PDF's pages.
  * Used by tests/Feature/Docuperfect/SigningView/SourcePageBreaksAllRoutesTest.php (spec cds-reimport-from-word.md section 10).
  *
- * Input  (argv[2]): path to a JSON file {"partial": "<rendered a4-page-styles partial>", "html": "<document html>",
+ * Input  (argv[2]): path to a JSON file {"partial": "<rendered a4-page-styles partial>", "html": "<document html>", "raw": true when html already carries its own .corex-document-wrapper,
  *                   "shell": "<path to write the paginated DOM to>", "pdf": "<path to print the signed-PDF shell to>"}
  * Output (stdout) : JSON {pages, headers, footers, pageNumbers[], corexPageNumbers, initialsRows, firstPageHasHeader, pdfShellHtml}
  */
@@ -17,10 +17,11 @@ try {
     const page = await browser.newPage();
     await page.setViewport({width: 1000, height: 1200});
     await page.setContent('<!doctype html><html><head><meta charset="utf-8"></head><body>' + cfg.partial
-        + '<div id="c"><div class="corex-document-wrapper corex-look-source"><div class="corex-page">' + cfg.html + '</div></div></div></body></html>', {waitUntil: 'load'});
-    const result = await page.evaluate(() => {
-        paginateDocument(document.getElementById('c'), cfg_parties());
-        function cfg_parties() { return window.__parties || []; }
+        + (cfg.raw ? '<div id="c">' + cfg.html + '</div>' : '<div id="c"><div class="corex-document-wrapper corex-look-source"><div class="corex-page">' + cfg.html + '</div></div></div>')
+        + '</body></html>', {waitUntil: 'load'});
+    const result = await page.evaluate((cfgParties) => {
+        window.__parties = cfgParties;
+        paginateDocument(document.getElementById('c'), window.__parties);
         const pages = [...document.querySelectorAll('#c .corex-a4-page')];
         return {
             pages: pages.length,
@@ -33,7 +34,7 @@ try {
             breakMarkersLeft: document.querySelectorAll('#c .corex-src-page-break').length,
             paginatedHtml: document.getElementById('c').innerHTML,
         };
-    });
+    }, cfg.parties || []);
     fs.writeFileSync(cfg.shell, result.paginatedHtml);
     delete result.paginatedHtml;
     console.log(JSON.stringify(result));

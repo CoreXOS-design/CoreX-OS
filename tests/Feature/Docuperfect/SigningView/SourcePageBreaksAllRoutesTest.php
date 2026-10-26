@@ -76,7 +76,7 @@ class SourcePageBreaksAllRoutesTest extends TestCase
         $this->assertSame(3, $r['headers'], 'the source has no header on page one (different first page)');
         $this->assertFalse($r['firstPageHasHeader']);
         $this->assertSame(0, $r['corexPageNumbers'], "CoreX's own 'Page X of Y' is not added when the document has a footer");
-        $this->assertSame(0, $r['initialsRows'], "CoreX's initials strip is not added either");
+        $this->assertSame(0, $r['initialsRows'], 'no signing parties passed, so no strip');
 
         // The signed PDF: the paginated page through the real PDF shell, printed by Chromium.
         file_put_contents($dir . '/shell.html', app(SigningController::class)->wrapHtmlForPdf(file_get_contents($dir . '/paginated.html')));
@@ -84,6 +84,28 @@ class SourcePageBreaksAllRoutesTest extends TestCase
         $this->assertTrue($print->successful(), $print->errorOutput());
         $this->assertSame(4, (int) trim($print->output()), 'the signed PDF: four pages, like the signing screen and the print-and-sign PDF');
         File::deleteDirectory($dir);
+    }
+
+    public function test_the_documents_footer_numbers_the_pages_but_corexs_initials_strip_stays(): void
+    {
+        if (! $this->chromiumAvailable()) {
+            $this->markTestSkipped('Chromium / node not available');
+        }
+        $dir = sys_get_temp_dir() . '/pgchk-' . uniqid();
+        File::makeDirectory($dir);
+        file_put_contents($dir . '/in.json', json_encode([
+            'partial' => view('docuperfect.signatures.partials.a4-page-styles')->render(), 'html' => (new CdsRendererService())->render($this->fixture()),
+            'shell' => $dir . '/paginated.html',
+            'parties' => [['role' => 'landlord', 'label' => 'Landlord'], ['role' => 'tenant', 'label' => 'Tenant']],
+        ]));
+        $run = Process::path(base_path())->timeout(120)->run(['node', 'scripts/paginate-check.mjs', $dir . '/in.json']);
+        File::deleteDirectory($dir);
+        $this->assertTrue($run->successful(), $run->errorOutput());
+        $r = json_decode(trim($run->output()), true);
+
+        $this->assertSame(0, $r['corexPageNumbers'], "the document's own footer numbers the pages: no CoreX 'Page X of Y'");
+        $this->assertSame(['1', '2', '3', '4'], $r['pageNumbers']);
+        $this->assertSame(3, $r['initialsRows'], "an imported document's own initial places are plain lines (and the paginator removes in-document initial markers), so CoreX's per-page initials strip stays on every page but the last: nobody could initial the pages without it");
     }
 
     public function test_a_tall_imported_box_breaks_between_its_rows_on_the_signing_paginator(): void
