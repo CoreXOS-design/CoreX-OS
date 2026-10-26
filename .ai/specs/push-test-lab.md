@@ -26,7 +26,7 @@ New switchable category `inspection_ready` (audience both). Event `Rentals\Renta
 
 ## 5. Push Test Lab (System Developer menu)
 
-`/admin/push-test-lab` (`admin.push-test-lab.index`, POST `…send`). Owner-only, **no permission key by design** (a grantable key could push to any agency's phones); every action re-checks `isOwnerRole()`; send is throttled 20/min.
+`/corex/admin/push-test-lab` (`admin.push-test-lab.index`, POST `…send`). Owner-only, **no permission key by design** (a grantable key could push to any agency's phones); every action re-checks `isOwnerRole()`; send is throttled 20/min.
 
 - **Find a person:** one search box (name, cell number or email). Agents / staff by name, email, cell, phone (digits compared ignoring spaces, dashes, +). Tenants and owners (portal logins) through the contact the agency holds for them. Each hit shows how many phones are registered.
 - **Their phones:** platform, app version, last seen, registered, last 8 characters of the token. No phone = a plain-words reason and nothing is sent.
