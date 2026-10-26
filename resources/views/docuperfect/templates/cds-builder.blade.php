@@ -232,6 +232,7 @@
                             <input type="hidden" name="category" :value="templateCategory">
                             <input type="hidden" name="document_type_id" :value="templateDocumentTypeId">
                             <input type="hidden" name="document_look" :value="documentLook">
+                            <input type="hidden" name="signature_block" :value="signatureBlock">
                             <button type="submit"
                                     class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4 py-2 rounded-lg transition-colors font-semibold">
                                 Save Template &rarr;
@@ -258,6 +259,7 @@
                             <input type="hidden" name="category" :value="templateCategory">
                             <input type="hidden" name="document_type_id" :value="templateDocumentTypeId">
                             <input type="hidden" name="document_look" :value="documentLook">
+                            <input type="hidden" name="signature_block" :value="signatureBlock">
                             <button type="submit"
                                     class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4 py-2 rounded-lg transition-colors font-semibold">
                                 Save Template &rarr;
@@ -436,6 +438,19 @@
                             </select>
                             <p class="text-[10px] text-gray-400 pt-1">
                                 Match source document keeps the Word file's centred titles and alignment, draws section headings as a light-grey band and uses greyscale only. It shows in this preview, the signing view and the signed PDF. Alignment is read from the Word file when it is imported, so a template imported before this setting existed keeps its original alignment until it is re-imported.
+                            </p>
+                        </div>
+
+                        {{-- Signature block --}}
+                        <div>
+                            <label class="text-[10px] font-semibold text-gray-500 uppercase block mb-1">Signature block</label>
+                            <select x-model="signatureBlock" data-testid="signature-block-select"
+                                    class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 bg-white text-gray-700 focus:ring-teal-400 focus:border-teal-400">
+                                <option value="corex">CoreX standard</option>
+                                <option value="document">From document</option>
+                            </select>
+                            <p class="text-[10px] text-gray-400 pt-1">
+                                From document: the Word file's own signature table carries the signature and date places, so CoreX's Lessor / Lessee / Agent block is not added after it.
                             </p>
                         </div>
 
@@ -1122,6 +1137,9 @@ function cdsEditor() {
         templateDocumentTypeId: '',
         // Document look ('standard' | 'source') — see App\Support\Docuperfect\DocumentLook.
         documentLook: @json(\App\Support\Docuperfect\DocumentLook::fromState($savedSettings ?? [])),
+        // Signature block ('corex' | 'document') - see App\Support\Docuperfect\SignatureBlock. A draft that never chose one
+        // shows what a save would give it: "from document" when the document already carries signature places of its own.
+        signatureBlock: @json(isset($savedSettings['signature_block']) ? \App\Support\Docuperfect\SignatureBlock::normalise($savedSettings['signature_block']) : \App\Support\Docuperfect\SignatureBlock::resolve(null, $savedTaggedHtml ?? '')),
         settingsExpanded: false,
 
         get isSalesContext() {
@@ -1352,6 +1370,7 @@ function cdsEditor() {
                             category: this.templateCategory || null,
                             document_type_id: this.templateDocumentTypeId || null,
                             document_look: this.documentLook,
+                            signature_block: this.signatureBlock,
                         },
                     }),
                 });

@@ -17,6 +17,8 @@ final class CdsDraftSettings
     /** @return array<string,mixed> */
     public static function fromTemplate(Template $template): array
     {
+        $editor = is_array($template->editor_state) ? $template->editor_state : [];
+
         return [
             'is_esign' => $template->is_esign,
             'party_mode' => $template->party_mode,
@@ -26,6 +28,9 @@ final class CdsDraftSettings
             'category' => $template->category,
             'document_type_id' => $template->document_type_id,
             'document_look' => DocumentLook::fromState($template->editor_state),
-        ];
+        ]
+            // Carried only when the template has one: a template that never had the setting lets the next save choose its default
+            // ("from document" when the document brings its own signature places).
+            + (array_key_exists('signature_block', $editor) ? ['signature_block' => \App\Support\Docuperfect\SignatureBlock::fromState($editor)] : []);
     }
 }

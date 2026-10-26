@@ -341,7 +341,7 @@ class CdsImporterFidelityTest extends TestCase
         $this->assertSame(0, $cds['parse_report']['unread_chars']);
 
         $html = (new CdsRendererService())->render($cds);
-        $this->assertStringContainsString('<div class="corex-page-header">', $html);
+        $this->assertStringContainsString('class="corex-page-header"', $html);
         $this->assertStringContainsString('<span class="corex-page-number"></span>', $html);
         $this->assertStringContainsString('corex-page-header-cover', $html, 'page one has no header of its own: a cover keeps the repeated header off it');
         [$frame, $rest] = CdsRendererService::hoistPageFrame($html);

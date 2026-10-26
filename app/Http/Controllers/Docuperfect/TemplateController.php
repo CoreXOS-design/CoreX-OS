@@ -818,6 +818,11 @@ class TemplateController extends Controller
                 'document_look' => \App\Support\Docuperfect\DocumentLook::normalise(
                     $request->input('document_look', $draft->settings['document_look'] ?? null)
                 ),
+                // Signature block (Template Settings): "from document" when the Word file brings its own signature places.
+                'signature_block' => \App\Support\Docuperfect\SignatureBlock::resolve(
+                    $request->input('signature_block', $draft->settings['signature_block'] ?? null),
+                    $draft->tagged_html
+                ),
             ],
         ];
 
@@ -952,7 +957,8 @@ class TemplateController extends Controller
             $template->signing_parties,
             $draft->tagged_html,
             $draft->tags ?? [],
-            \App\Support\Docuperfect\DocumentLook::fromState($template->editor_state)
+            \App\Support\Docuperfect\DocumentLook::fromState($template->editor_state),
+            \App\Support\Docuperfect\SignatureBlock::fromState($template->editor_state)
         );
         $template->update(['blade_view' => $bladeView]);
 
@@ -1168,7 +1174,8 @@ class TemplateController extends Controller
         ?array $signingParties = null,
         ?string $taggedHtml = null,
         ?array $tags = null,
-        string $documentLook = \App\Support\Docuperfect\DocumentLook::STANDARD
+        string $documentLook = \App\Support\Docuperfect\DocumentLook::STANDARD,
+        string $signatureBlock = \App\Support\Docuperfect\SignatureBlock::COREX
     ): string {
         // Determine document body HTML
         if (!empty($taggedHtml)) {
@@ -1337,7 +1344,10 @@ BLADE;
 
         $partiesPhp = '["' . implode('", "', $displayParties) . '"]';
         $witnessPhp = $showWitness ? ', "show_witness" => true' : '';
-        $blade .= '@include("docuperfect.web-templates.components.signature-block", ["parties" => ' . $partiesPhp . $witnessPhp . '])' . "\n\n";
+        // "From document": the Word file's own signature table carries the signature places; CoreX's generic block is not appended.
+        if ($signatureBlock !== \App\Support\Docuperfect\SignatureBlock::DOCUMENT) {
+            $blade .= '@include("docuperfect.web-templates.components.signature-block", ["parties" => ' . $partiesPhp . $witnessPhp . '])' . "\n\n";
+        }
 
         $blade .= "</div>\n</div>\n\n";
         $blade .= "</body>\n</html>\n";
@@ -1699,7 +1709,8 @@ BLADE;
             $template->signing_parties,
             $taggedHtml,
             $editorState['tags'] ?? [],
-            \App\Support\Docuperfect\DocumentLook::fromState($editorState)
+            \App\Support\Docuperfect\DocumentLook::fromState($editorState),
+            \App\Support\Docuperfect\SignatureBlock::fromState($editorState)
         );
         $template->blade_view = $bladeView;
         $template->save();
