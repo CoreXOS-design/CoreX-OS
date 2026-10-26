@@ -438,6 +438,11 @@ function _paginateWrapper(wrapper, docIdx, parties) {
     });
     wrapper._srcFrame = frame;
     var hasFooter = !!frame.footer;
+    // The document's own footer carries the page number, so CoreX's "Page X of Y" is not added. CoreX's per-page INITIALS strip
+    // STAYS: paginateDocument() removes every in-document [data-marker-type="initial"] before packing (initials are the strip's
+    // page-break slots), and an imported document's own initial places are plain lines (initials-line), so without the strip
+    // nobody could initial the pages. (A footer-aware replacement for in-document initial places is a separate build.)
+    var dropStrip = false;
     if (children.length === 0) return;
 
     // An imported Word "box" is one table of many rows (its clauses). The packer below places TOP-LEVEL children, so a whole
@@ -494,7 +499,7 @@ function _paginateWrapper(wrapper, docIdx, parties) {
         wrapper.appendChild(box);
         // The real furniture element (same one the assembler appends) — reused
         // for every measurement on this page; reserved on non-last (non-sig) pages.
-        var strip = (parties.length && !hasFooter) ? _buildInitialsRow(parties, 'measure') : null;
+        var strip = (parties.length && !dropStrip) ? _buildInitialsRow(parties, 'measure') : null;
         var group = [];
 
         while (i < children.length) {
@@ -550,20 +555,18 @@ function _paginateWrapper(wrapper, docIdx, parties) {
             pageDiv.insertBefore(_frameClone(frame.header, p + 1), pageDiv.firstChild);
         }
         if (hasFooter) {
-            // The document has a footer of its own (with its own page number text): CoreX's "Page X of Y" and initials strip
-            // are not added - initials are the document's own places.
+            // The document has a footer of its own (with its own page number text): CoreX's "Page X of Y" is not added.
             pageDiv.appendChild(_frameClone(frame.footer, p + 1));
         } else {
             var pn = doc.createElement('div');
             pn.className = 'page-number';
             pn.textContent = 'Page ' + (p + 1) + ' of ' + total; // per-document
             pageDiv.appendChild(pn);
-
-            // §19.3 — initial slot on every page EXCEPT this document's last page.
-            // _buildInitialsRow encodes the key as docIdx-pageIdx-partyIdx.
-            if (p < total - 1 && parties.length > 0) {
-                pageDiv.appendChild(_buildInitialsRow(parties, docIdx + '-' + p));
-            }
+        }
+        // §19.3 — initial slot on every page EXCEPT this document's last page (kept unless the document has initial places of
+        // its own). _buildInitialsRow encodes the key as docIdx-pageIdx-partyIdx.
+        if (!dropStrip && p < total - 1 && parties.length > 0) {
+            pageDiv.appendChild(_buildInitialsRow(parties, docIdx + '-' + p));
         }
 
         wrapper.appendChild(pageDiv);
