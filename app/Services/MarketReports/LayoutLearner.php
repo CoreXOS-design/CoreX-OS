@@ -26,6 +26,9 @@ final class LayoutLearner
 
     private const PRICE_METRICS = ['median_price', 'average_price', 'median_price_12m'];
 
+    /** Descriptors a report commonly prints once per table rather than in every row (see rowFieldsAgree). */
+    private const DOCUMENT_LEVEL_FIELDS = ['property_type', 'suburb'];
+
     public function __construct(
         private readonly LearnedLayoutReader $reader,
         private readonly ReportReadSettings $settings,
@@ -58,6 +61,11 @@ final class LayoutLearner
             $t = $this->learnStatsTable($cellLines, $stats);
             if ($t !== null) {
                 $others[] = $t;
+            }
+            // Figures printed as chart labels, not in a table row: the metrics the table above did not cover.
+            $covered = $t === null ? [] : array_column($t['metrics'], 'metric');
+            foreach ($this->learnCharts($rawLines, $stats, $covered, (array) ($hints['header_phrases'] ?? [])) as $chart) {
+                $others[] = $chart;
             }
         }
         $scalars = $this->learnScalars($rawLines, $cellLines, $clean);
@@ -118,7 +126,7 @@ final class LayoutLearner
 
         $kinds = [];
         foreach ($best['tables'] as $t) {
-            $kinds[] = $t['type'] === 'stats' ? 'suburb_stats' : ($t['kind'] === 'listing' ? 'listings' : 'comps');
+            $kinds[] = in_array($t['type'], ['stats', 'chart'], true) ? 'suburb_stats' : ($t['kind'] === 'listing' ? 'listings' : 'comps');
         }
         if ($hasValuation) {
             $kinds[] = 'valuation';
@@ -322,7 +330,7 @@ final class LayoutLearner
                 continue;
             }
             $used[$best['li']] = true;
-            $matchedRows[] = ['li' => $best['li'], 'spans' => $best['hit']['spans']];
+            $matchedRows[] = ['li' => $best['li'], 'spans' => $best['hit']['spans'], 'comp' => $comp];
             $wrapped = $wrapped || $best['hit']['wrapped'];
         }
         $matched = count($matchedRows);
@@ -372,6 +380,8 @@ final class LayoutLearner
             $slots[] = $slot;
         }
         $skip = array_map(fn ($s) => [$s['from'], $s['to']], $slots);
+        $slotFields = array_flip(array_column($slots, 'field'));
+        $lead = isset($slotFields['address']) ? null : $this->learnLead($atomLines, $matchedRows);
 
         // 2. Typed columns: the typed values of every matched row, in order. The fullest row's sequence is the
         //    layout; each column's position is the average over the rows that share that sequence, and a column
@@ -391,18 +401,38 @@ final class LayoutLearner
             return null;
         }
 
+        // The same table is often printed at more than one scale (page 3's columns sit at other characters than page 4's).
+        // Rows are grouped by where their last value sits; each group of 2+ rows gives its own set of column positions.
+        $order = array_keys($group);
+        usort($order, fn ($x, $y) => end($group[$x][0])['c'] <=> end($group[$y][0])['c']);
+        $scales = [];
+        foreach ($order as $gi) {
+            $last = end($group[$gi][0])['c'];
+            $k = count($scales) - 1;
+            if ($k >= 0 && $last - $scales[$k]['first'] <= 0.15 * $scales[$k]['first']) {
+                $scales[$k]['rows'][] = $gi;
+            } else {
+                $scales[] = ['first' => $last, 'rows' => [$gi]];
+            }
+        }
+        $scales = array_values(array_filter($scales, fn ($s) => count($s['rows']) >= 2));
+
         $entries = [];
         $count = count($group[0][0]);
         for ($e = 0; $e < $count; $e++) {
             $entry = ['type' => $group[0][0][$e]['type'], 'c' => (int) round(array_sum(array_map(fn ($g) => $g[0][$e]['c'], $group)) / count($group))];
+            if (count($scales) > 1) {
+                $entry['cs'] = array_map(fn ($s) => (int) round(array_sum(array_map(fn ($gi) => $group[$gi][0][$e]['c'], $s['rows'])) / count($s['rows'])), $scales);
+            }
             $votes = [];
             $formats = [];
             foreach ($group as [$tokens, $spans, $atoms]) {
                 foreach ($spans as $field => $span) {
-                    if (in_array($field, LearnedLayoutReader::TEXT_FIELDS, true)) {
-                        continue;
+                    if (isset($slotFields[$field])) {
+                        continue;   // read from its text window
                     }
-                    // the span lies on this token when it covers the token's middle
+                    // The span lies on this token when it covers the token's middle. (A text value that is a single code,
+                    // such as a unit number "00000", is a typed column when no stable window could be found for it.)
                     $mid = $tokens[$e]['c'];
                     if ($span[0] <= $mid && $mid <= $span[1]) {
                         $votes[$field] = ($votes[$field] ?? 0) + 1;
@@ -441,10 +471,10 @@ final class LayoutLearner
 
             return $s;
         }, $slots);
-        $fields = count($slots) + count(array_filter($entries, fn ($e) => isset($e['field'])));
+        $fields = count($slots) + count(array_filter($entries, fn ($e) => isset($e['field']))) + ($lead === null ? 0 : 1);
         $textMapped = (bool) array_filter($slots, fn ($s) => in_array($s['field'], ['address', 'scheme_name'], true));
 
-        return [
+        $table = [
             'type'       => 'comps',
             'kind'       => $kind,
             'text_slots' => $slots,
@@ -452,6 +482,44 @@ final class LayoutLearner
             'min_fields' => max(2, intdiv($fields, 2)),
             'wrap'       => $wrapped && $textMapped,
         ];
+        if ($lead !== null) {
+            $table['lead'] = $lead;
+        }
+
+        return $table;
+    }
+
+    /**
+     * A table whose rows take two lines: the property (usually behind a row number) on the line above, its figures
+     * on the line below. Learned when, for at least 60% of the rows, the line above (less its row number) is exactly
+     * the AI's address.
+     *
+     * @param  array<int, array<int, array{0: string, 1: int, 2: int}>> $atomLines
+     * @param  array<int, array{li: int, spans: array<string, mixed>, comp: array<string, mixed>}> $matchedRows
+     * @return array{field: string, index: bool}|null
+     */
+    private function learnLead(array $atomLines, array $matchedRows): ?array
+    {
+        $dataLines = array_fill_keys(array_column($matchedRows, 'li'), true);
+        $rows = array_values(array_filter($matchedRows, fn ($r) => !empty($r['comp']['address'])));
+        if ($rows === []) {
+            return null;
+        }
+        $need = max(1, (int) ceil(0.6 * count($rows)));
+        foreach ([true, false] as $needIndex) {
+            $hit = 0;
+            foreach ($rows as $r) {
+                $text = LearnedLayoutReader::leadText($atomLines, $r['li'], $dataLines, $needIndex);
+                if ($text !== null && $this->words($text) === $this->words((string) $r['comp']['address'])) {
+                    $hit++;
+                }
+            }
+            if ($hit >= $need) {
+                return ['field' => 'address', 'index' => $needIndex];
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -621,6 +689,18 @@ final class LayoutLearner
         }
         $norm = fn (string $s) => (string) preg_replace('/[^\p{L}\p{N}]+/u', '', mb_strtolower($s));
 
+        // A descriptor the report prints once for the whole table ("Full Title" in a heading, the suburb in the page
+        // title) is not in any row's text, so no mapping of the rows can read it: it is graded only when the mapping
+        // reads it for at least one row. The fields that say WHICH property the row is (address, scheme) always count.
+        $reconHas = [];
+        foreach ($reconRows as $r) {
+            foreach (self::DOCUMENT_LEVEL_FIELDS as $field) {
+                if (isset($r[$field])) {
+                    $reconHas[$field] = true;
+                }
+            }
+        }
+
         $total = 0;
         $agree = 0;
         foreach ($clean['comps'] ?? [] as $c) {
@@ -636,6 +716,9 @@ final class LayoutLearner
             }
             foreach (self::COMP_FIELDS as $field) {
                 if (!isset($c[$field]) || $c[$field] === '') {
+                    continue;
+                }
+                if (in_array($field, self::DOCUMENT_LEVEL_FIELDS, true) && !isset($reconHas[$field])) {
                     continue;
                 }
                 $total++;
@@ -731,6 +814,103 @@ final class LayoutLearner
         return ['type' => 'stats', 'cells' => $cellsN, 'year_col' => $yearCol, 'metrics' => $metrics];
     }
 
+    /**
+     * Yearly figures printed as the data labels of a chart (see LearnedLayoutReader, "Charts"). For every row of years
+     * (an axis) the heading above it is the nearest line, before the axis and after the previous axis, whose whole text
+     * is one of the AI's header phrases; the labels between the two are the chart's. For each metric the AI read, the
+     * (kind of label, rank in the year's column) that reproduces its figures best across all charts is the series; it
+     * is kept only when it reproduces at least 60% of that metric's years — the self-test judges the rest.
+     *
+     * @param  array<int, string> $rawLines
+     * @param  array<int, array<string, mixed>> $stats  the AI's rows that carry a year
+     * @param  array<int, string> $skip  metrics another table already reads
+     * @param  array<int, mixed> $headerPhrases
+     * @return array<int, array<string, mixed>>
+     */
+    private function learnCharts(array $rawLines, array $stats, array $skip, array $headerPhrases): array
+    {
+        $phrases = [];
+        foreach ($headerPhrases as $p) {
+            if (is_string($p) && trim($p) !== '') {
+                $phrases[LearnedLayoutReader::headingKey($p)] = true;
+            }
+        }
+        $expected = [];   // metric => year => value
+        foreach ($stats as $s) {
+            if (!in_array($s['metric'], $skip, true)) {
+                $expected[(string) $s['metric']][(int) $s['year']] = $s['value'];
+            }
+        }
+        if ($phrases === [] || $expected === []) {
+            return [];
+        }
+
+        $axes = [];
+        foreach ($rawLines as $i => $line) {
+            if (LearnedLayoutReader::yearAxis($line) !== null) {
+                $axes[] = $i;
+            }
+        }
+        $charts = [];   // [heading, nth, columns]
+        $previous = -1;
+        foreach ($axes as $axis) {
+            $heading = null;
+            for ($j = $axis - 1; $j > $previous; $j--) {
+                if (isset($phrases[LearnedLayoutReader::headingKey($rawLines[$j])])) {
+                    $heading = $j;
+                    break;
+                }
+            }
+            $previous = $axis;
+            if ($heading === null) {
+                continue;
+            }
+            $key = LearnedLayoutReader::headingKey($rawLines[$heading]);
+            $nth = 0;
+            for ($j = 0; $j < $heading; $j++) {
+                $nth += LearnedLayoutReader::headingKey($rawLines[$j]) === $key ? 1 : 0;
+            }
+            $cols = LearnedLayoutReader::chartColumns($rawLines, $heading, $axis);
+            if ($cols !== []) {
+                $charts[] = ['heading' => trim($rawLines[$heading]), 'nth' => $nth, 'cols' => $cols];
+            }
+        }
+
+        $moneyMetrics = ['median_price', 'average_price', 'median_price_12m'];
+        $series = [];   // chart index => list of series
+        foreach ($expected as $metric => $byYear) {
+            $best = null;
+            foreach ($charts as $ci => $chart) {
+                foreach (['int', 'money_short', 'money', 'pct'] as $kind) {
+                    foreach ([0, 1, -1, -2] as $rank) {
+                        $hit = 0;
+                        foreach ($byYear as $year => $value) {
+                            $got = LearnedLayoutReader::pickRank($chart['cols'][$year][$kind] ?? [], $rank);
+                            $tolerance = in_array($metric, $moneyMetrics, true) ? 0.5 : 0.005;
+                            if ($got !== null && abs((float) $got - (float) $value) < $tolerance) {
+                                $hit++;
+                            }
+                        }
+                        $share = $hit / count($byYear);
+                        if ($share >= 0.6 && ($best === null || $share > $best['share'])) {
+                            $best = ['share' => $share, 'chart' => $ci, 'kind' => $kind, 'rank' => $rank];
+                        }
+                    }
+                }
+            }
+            if ($best !== null) {
+                $series[$best['chart']][] = ['metric' => $metric, 'kind' => $best['kind'], 'rank' => $best['rank']];
+            }
+        }
+
+        $out = [];
+        foreach ($series as $ci => $list) {
+            $out[] = ['type' => 'chart', 'heading' => $charts[$ci]['heading'], 'nth' => $charts[$ci]['nth'], 'series' => $list];
+        }
+
+        return $out;
+    }
+
     private function statMatches(string $metric, string $cell, mixed $expected): bool
     {
         if (in_array($metric, self::PRICE_METRICS, true)) {
@@ -761,6 +941,13 @@ final class LayoutLearner
             $label = $this->moneyLabel($rawLines, (int) $value);
             if ($label !== null) {
                 $out[] = ['field' => 'valuation.' . $k, 'label' => $label, 'type' => 'money'];
+
+                continue;
+            }
+            // No label in front of the amount: it may be printed under its own column heading.
+            $heading = $this->headingAbove($rawLines, (int) $value);
+            if ($heading !== null) {
+                $out[] = ['field' => 'valuation.' . $k, 'label' => $heading, 'type' => 'money', 'placement' => 'below'];
             }
         }
 
@@ -782,6 +969,41 @@ final class LayoutLearner
         }
 
         return $out;
+    }
+
+    /**
+     * The column heading printed above an amount ("Lower Boundary" over "R 4,530,000"): the text on the nearest
+     * non-empty line above whose columns overlap the amount's, used when nothing precedes the amount on its own line.
+     * The self-test proves the reader finds the same amount again from the heading.
+     *
+     * @param array<int, string> $rawLines
+     */
+    private function headingAbove(array $rawLines, int $value): ?string
+    {
+        foreach ($rawLines as $li => $line) {
+            foreach (LearnedLayoutReader::runs($line) as [$text, $from, $to]) {
+                if (!preg_match('/^R?\s?\d[\d ,]*$/', trim($text)) || LearnedLayoutReader::parseMoney($text) !== $value) {
+                    continue;
+                }
+                for ($j = $li - 1; $j >= max(0, $li - 3); $j--) {
+                    $above = LearnedLayoutReader::runs($rawLines[$j]);
+                    if ($above === []) {
+                        continue;
+                    }
+                    foreach ($above as [$label, $f, $t]) {
+                        $label = trim((string) preg_replace('/\s+/u', ' ', $label));
+                        if (min($t, $to) - max($f, $from) > 0 && !preg_match('/\d/', $label)
+                            && mb_strlen($label) <= 40 && mb_strlen((string) preg_replace('/[^\p{L}]+/u', '', $label)) >= 3) {
+                            return $label;
+                        }
+                    }
+
+                    break;   // only the first non-empty line above counts
+                }
+            }
+        }
+
+        return null;
     }
 
     /** @param array<int, string> $rawLines */

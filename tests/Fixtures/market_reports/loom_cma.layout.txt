@@ -1,0 +1,747 @@
+Comparative Market Analysis for: 11 Manikie Street
+                          Agent Name
+
+                          Agency Name
+
+                                000 000 0000
+
+                                agent@example.test
+
+
+
+
+           Property Details
+Property Overview
+    -                       -                        -                      -                     828 (m² / ha)
+
+
+
+Address
+11 Manikie Street
+
+Blue Valley Golf Estate 0187
+
+Centurion
+
+City of Tshwane
+
+Gauteng
+
+
+
+Details
+Property Description            ERF 1936 KOSMOSDAL         Deeds Extent                 828 (m² / ha)
+                                EXT 30
+                                                           Surveyor General Extent      820 (m² / ha)
+Property Type                   Full Title
+                                                           Estimated Floor Size         537 m²
+Property Key                    T0JR01270000193600000
+                                                           Building Footprint Size      408 m²
+Erf Number                      1936
+                                                           Building to Erf Ratio        0.5 %
+Unit Number                     00000
+                                                           Estimated Number of Floors   2
+Portion Number                  0
+                                                           Mapcode                      J5F.6W3
+Lat/Long                        -25.94173,28.11192
+                                                           Municipal Valuation          -
+
+                                                           Valuation Date               -
+
+
+
+
+                Powered by LOOM | 05 Aug 2026
+                                                         1/9
+Estimated Price Per m²
+Calculated Property Estimate                                Calculated Avg Area Estimate
+
+Estimated Property Price Per m²           R 1,489           Estimated Avg Area Price Per m²             R 8,742
+
+Estimated Property Building Size (m²)     537               Estimated Avg Area Building Size (m²)       490.56
+
+Estimated Property Sale Price             R 800,000         Estimated Avg Area Sale Price               R 4,288,715
+
+
+
+
+        Ownership
+Deeds Overview
+Title Deed Number       T31483/2007                     Transaction Amount       R 800,000
+
+Capture Date            11 Apr 2007                     Deeds Town               KOSMOSDAL EXT 30
+
+Registration Date       08 Mar 2007                     Deeds Office             PRETORIA
+
+Transaction Date        10 Nov 2006
+
+Current Owner
+                OWNER ONE                                          0000000000000               MARRIED IN
+-%
+                    -                                                  -
+
+                OWNER TWO                                          0000000000000               MARRIED IN
+-%
+                    -                                                  -
+
+Bond Information
+B39920/2007                       STANDARD BANK OF          08 Mar 2007                     R 800,000
+                                  SOUTH AFRICA L
+
+Transfer History
+Registration Date                       Transaction Date                        Transaction Amount
+
+08 Mar 2007                             10 Nov 2006                             R 800,000
+
+24 Mar 2005                             07 Jan 2005                             R 449,000
+
+23 Mar 2004                             09 Feb 2004                             R 390,000
+
+
+
+
+               Powered by LOOM | 05 Aug 2026
+                                                      2/9
+       Recent Sales and Registrations
+Average Sale Price: R 4,281,874
+
+
+
+
+                                              Property Address
+Building Extent Erf Extent Unit Number Erf Number Transaction Date Registration Date Selling Price
+ 1                                                8 Carlyke Street
+    659 m²        880 m²      00000        1824          18 Nov 2025 13 May 2026     R 4,200,000     -   -
+ 2                                            30 Needle Bush Place
+    545 m²       1103 m²      00000        5267          04 Feb 2020 08 Aug 2024     R 1,210,000     -   -
+ 3                                               14 Manikie Street
+       -          797 m²      00000        3302          10 Oct 2025 02 Dec 2025     R 4,500,000     -   -
+ 4                                               85 Carlyke Street
+    351 m²        657 m²      00000        5307          25 Feb 2025 26 Nov 2025     R 4,000,000     -   -
+ 5                                                 3 Selkirk Place
+       -          645 m²      00000        3316          05 Mar 2025 16 May 2025     R 6,300,000     -   -
+ 6                                             12 Edinburgh Street
+       -          880 m²      00000        1891          25 Oct 2024 28 May 2025     R 4,850,000     -   -
+ 7                                               92 Carlyke Street
+    409 m²        544 m²      00000        4402          14 Jun 2024 24 Oct 2024     R 4,650,000     -   -
+ 8                                             6 Mokotshong Place
+       -          593 m²      00000        5295          08 Jan 2024 22 May 2024     R 5,400,000     -   -
+ 9                                                11 Selkirk Place
+    289 m²        748 m²      00000        3322          28 Jan 2025 23 May 2025     R 5,100,000     -   -
+10                                               76 Carlyke Street
+    378 m²        544 m²      00000        4394          07 Feb 2024 03 Apr 2024     R 4,150,000     -   -
+11                                            25 Mokotshong Place
+       -          658 m²      00000        5290          28 Sep 2025 11 Dec 2025     R 5,200,000     -   -
+12                                               26 Carlyke Street
+    394 m²        880 m²      00000        1816          16 May 2024  25 Jul 2024    R 2,895,000     -   -
+13                                                1 Stirling Place
+    548 m²       1020 m²      00000        3350          28 Feb 2026 28 May 2026     R 5,900,000     -   -
+14                                             23 Edinburgh Street
+       -          880 m²      00000        1922          19 Jun 2025 04 Mar 2026     R 1,900,000     -   -
+
+
+           Powered by LOOM | 05 Aug 2026
+                                                    3/9
+    15                                                                                         22 Edinburgh Street
+                   465 m²                  880 m²               00000                      1886        15 Nov 2024                          06 Mar 2025                      R 3,900,000        -     -
+    16                                                                                         21 Dunoon Crescent
+                   390 m²                  503 m²               00000                      5248         14 Oct 2025                         12 Dec 2025                      R 3,000,000        -     -
+    17                                                                                          34 Carlyke Street
+                   480 m²                  880 m²               00000                      1812         23 Jul 2023                         06 Feb 2024                      R 3,900,000        -     -
+    18                                                                                       88 Castle Bay Crescent
+                   539 m²                  764 m²               00000                      4407         02 Jul 2025                         30 Sep 2025                      R 6,750,000        -     -
+    19                                                                                          36 Carlyke Street
+                   465 m²                  867 m²               00000                      1811         09 Oct 2023                         11 Jan 2024                      R 3,375,000        -     -
+    20                                                                                        5 Castle Bay Crescent
+                   703 m²                  1264 m²              00000                      3280        19 Feb 2026                          28 May 2026                      R 5,000,000        -     -
+    21                                                                                         31 Dunoon Crescent
+                   451 m²                  719 m²               00000                      5251         06 Oct 2025                         03 Dec 2025                      R 4,150,000        -     -
+    22                                                                                          40 Carlyke Street
+                       -                   920 m²               00000                      1809         10 Oct 2024                         10 Mar 2025                      R 1,700,000        -     -
+    23                                                                                         36 Edinburgh Street
+                   513 m²                  834 m²               00000                      1908         20 Oct 2025                         09 Mar 2026                      R 4,300,000        -     -
+    24                                                                                          5 Banchory Street
+                   571 m²                  880 m²               00000                      1772        06 Nov 2023                          17 Jul 2024                      R 2,816,865        -     -
+    25                                                                                       62 Castle Bay Crescent
+                   680 m²                  991 m²               00000                      4412        06 Nov 2024                          21 May 2025                      R 7,900,000        -     -
+
+
+
+                       Sales History in Area
+                                                                                               Full Title
+                  60                                                                                                                                                                            R5M
+
+
+                  50
+                                                                                                                                                                                                R4M
+
+
+
+
+                                                                                                                                                                                                      Average Sale Price
+Number of sales
+
+
+
+
+                  40
+                                                                                                                                                                                                R3M
+                                                                                                                                                  R 4.58 M
+
+
+
+
+                                                                                                                                                                  R 4.45 M
+                                                                                                                   R 4.5 M
+
+
+
+
+                                                                                                                                  R 4.5 M
+
+
+
+
+                  30
+                                                                                                                                                                                     R 4.25 M
+                                                                                                  R 4.02 M
+
+
+                                                                                                              55
+                                                                                R 3.69 M
+                                                                R 3.61 M
+                                                 R 3.6 M
+                                R 3.45 M
+
+
+
+
+                                                                                                                                                                                                R2M
+                                                                                             47
+                           44
+
+
+
+
+                                                           42
+
+
+
+
+                  20
+                                            40
+
+
+
+
+                                                                           39
+
+
+
+
+                                                                                                                             38
+
+
+
+
+                                                                                                                                                             34
+
+
+
+
+                                                                                                                                                                                25
+
+
+
+
+                                                                                                                                                                                                R1M
+                                                                                                                                             23
+
+
+
+
+                  10
+
+
+                   0                                                                                                                                                                            R0
+                            2017             2018          2019            2020               2021             2022          2023            2024            2025                2026
+
+                                                                                Number of Sales                    Average Sale Price
+
+
+
+
+                                Powered by LOOM | 05 Aug 2026
+                                                                                                             4/9
+                                                                                    Number of Sales                      Average Sale Price
+
+
+                                                                                                Sectional Title
+
+                  14
+                                                                                                                                                                                                R 2.5 M
+                  12
+
+
+
+
+                                                                                                                                                                                                          Average Sale Price
+Number of sales
+
+
+
+
+                                                                                                                                                                                                R2M
+                  10
+
+                   8                                                                                                                                                                            R 1.5 M
+
+
+
+
+                                                                                                                                                                            R 2.6 M
+                                                                     R 2.46 M
+
+
+
+
+                                                                                    R 2.43 M
+                                                   R 2.41 M
+                               R 2.36 M
+
+
+
+
+                                                                                                                                         R 2.31 M
+
+
+
+
+                                                                                                                                                          R 2.21 M
+                         14
+
+
+
+
+                                                               14
+
+
+
+
+                                                                                                                        R 2.13 M
+                   6
+
+
+
+
+                                                                                                                  12
+                                                                                                                                                                                                R1M
+
+
+
+
+                                                                                                       R 1.7 M
+                                                                                                  10
+                   4
+                                                                                                                                                                                                R 500 K
+                                             5
+
+
+
+
+                   2
+                                                                                4
+
+
+
+
+                                                                                                                                                      3
+                                                                                                                                     2
+
+
+
+
+                                                                                                                                                                       1
+                   0                                                                                                                                                                            R0
+                         2017                    2018           2019             2020              2021           2022                2023            2024              2025           2026
+
+                                                                                    Number of Sales                      Average Sale Price
+
+
+
+
+                        Average Quarterly Growth Rates
+
+                  14%
+
+                  12%
+
+                  10%
+Percentage
+
+
+
+
+                   8%
+
+                   6%
+
+                   4%
+
+                   2%
+
+                   0%
+
+
+                                          2002                2005              2008                2011                2014                   2017                  2020             2023      2026
+
+                                                                                                 Full Title            Sectional Title
+
+
+
+                                                                                                       Full Title
+                    Year                                    Q1                                    Q2                                  Q3                                Q4                      Total
+                  2001-2005                              10.04 %                               11.87 %                             11.52 %                           11.45 %                  11.22 %
+                  2006-2010                               3.2 %                                 3.14 %                              3.1 %                              3%                      3.11 %
+                  2011-2015                               2.58 %                                2.52 %                              2.52 %                            2.52 %                   2.54 %
+                  2016-2020                               1.8 %                                 1.78 %                              1.76 %                            1.68 %                   1.76 %
+                  2021-2025                               0.96 %                                0.84 %                              0.62 %                            0.7 %                    0.78 %
+                    2026                                  2.9 %                                  3%                                    -                                 -                     2.95 %
+
+
+
+
+                              Powered by LOOM | 05 Aug 2026
+                                                                                                                 5/9
+                                                    Sectional Title
+         Year                 Q1                     Q2                      Q3                    Q4                   Total
+       2001-2005            9.05 %                11.01 %                 11.01 %               10.97 %               10.51 %
+       2006-2010            5.46 %                  5.2 %                  4.94 %                4.66 %                5.07 %
+       2011-2015            3.08 %                 3.04 %                  3.02 %                2.98 %                3.03 %
+       2016-2020            1.88 %                  1.9 %                  1.72 %                1.66 %                1.79 %
+       2021-2025             1.1 %                 1.06 %                  1.06 %                1.04 %                1.06 %
+         2026                0.9 %                  0.7 %                     -                     -                   0.8 %
+
+
+
+           LOOM Estimation
+  Lower Boundary                                  LOOM Estimation                                  Upper Boundary
+
+  R 4,530,000                                     R 4,880,000                                      R 5,390,000
+
+         LOOM Estimate Confidence: Low                                    LOOM Estimate Date:      -
+
+
+                                                        Full Title
+           > R 9,000,000         12
+
+R 8,000,000 - R 9,000,000         18
+
+R 7,000,000 - R 8,000,000                    54
+
+R 6,000,000 - R 7,000,000                                       122
+
+R 5,000,000 - R 6,000,000                                                                                 245
+
+R 4,500,000 - R 5,000,000                                                                           226 (This property)
+
+R 4,000,000 - R 4,500,000                                                                                                 295
+
+R 3,500,000 - R 4,000,000                                                                                 246
+
+R 3,000,000 - R 3,500,000                                           127
+
+R 2,500,000 - R 3,000,000                    54
+
+           < R 2,500,000    4
+
+                                          Number of Properties in Valuation Range
+
+
+
+           Confirmed Sales Information
+           Current Confirmed Sales                                              Confirmed Transfers
+
+
+
+   Number of Sales in progress         Average Sales Price                Number of Transfers             Average Sales Price
+
+                23                        R 4,524,130                               7                           R 3,657,143
+
+
+
+
+                Powered by LOOM | 05 Aug 2026
+                                                              6/9
+        Suburb Trends
+                                                                                                         Median Price
+
+
+R4M
+
+
+R3M
+
+
+
+
+                                                                                                                                        R 4.45 M
+
+
+
+
+                                                                                                                                                                                                           R 4.45 M
+                                                                                                                                                                R 4.38 M
+
+
+
+
+                                                                                                                                                                                                                                 R 4.25 M
+                                                                                                                                                                                      R 4.3 M
+                                                                                                                  R4M
+                                       R 3.58 M
+
+
+
+
+                                                                 R 3.55 M
+
+
+
+
+                                                                                           R 3.56 M
+R2M
+             R 3.3 M
+
+
+
+
+                                                                                                                                                                                                                      R 2.6 M
+                                                                                                                                                    R 2.43 M
+
+
+
+
+                                                                                                                                                                                                R 2.45 M
+                                                  R 2.5 M
+
+
+
+
+                                                                            R 2.5 M
+                       R 2.36 M
+
+
+
+
+                                                                                                                                                                           R 2.31 M
+                                                                                                      R 2.28 M
+
+
+
+
+                                                                                                                         R 1.58 M
+R1M
+
+
+  R0
+                2017                      2018                       2019                      2020                   2021                 2022                     2023                 2024                  2025                  2026
+
+                                                                                                          Full Title                Sectional Title
+
+
+                                                                                      Number of Transfers
+60
+
+
+50
+
+
+40
+
+
+30
+                                                                                                                                      55
+                                                                                                                 47
+        44
+
+
+
+
+                                                            42
+
+
+
+
+20
+                                  40
+
+
+
+
+                                                                                      39
+
+
+
+
+                                                                                                                                                               38
+
+
+
+
+                                                                                                                                                                                                           34
+
+
+
+
+                                                                                                                                                                                                                                 25
+                                                                                                                                                                                      23
+
+
+
+
+10
+               14
+
+
+
+
+                                                                       14
+
+
+
+
+                                                                                                                                                   12
+                                                                                                                        10
+                                           5
+
+
+
+
+                                                                                                 4
+
+
+
+
+                                                                                                                                                                                                3
+                                                                                                                                                                           2
+
+
+
+
+ 0
+                                                                                                                                                                                                                      1
+
+
+
+
+         2017                      2018                      2019                      2020                       2021                  2022                   2023                    2024                  2025                   2026
+
+                                                                                                          Full Title                Sectional Title
+
+
+
+
+        Area Details
+Closest Education                                                                                                                   Closest Shopping
+Curro Sagewood                                                                                                                      Blue Hills Shopping Centre                                                                  0.64 km
+                                                                                              1.44 km
+Private - Combined
+                                                                                                                                    Engen Shop                                                                                  1.49 km
+Midrand Primary School
+                                                                                              1.60 km                               OK Express                                                                                  1.60 km
+Public - Primary
+
+Noordwyk Secondary School                                                                                                           Noordwyk Shopping Centre                                                                    1.65 km
+                                                                                              1.68 km
+Public - Secondary
+                                                                                                                                    Engen Quick Shop                                                                            1.66 km
+
+                                                                                                                                    Shell Select                                                                                2.15 km
+
+
+                   Powered by LOOM | 05 Aug 2026
+                                                                                                                         7/9
+Summerhill Nursery & Preparatory School                             Engen Quickshop                                  2.18 km
+                                                2.60 km
+Private - Primary
+                                                                    Engen Quick Shop                                 2.30 km
+Blue Hills College
+                                                2.61 km             Olievenhoutbosch Plaza                           2.46 km
+Private - Combined
+
+SPARK Carlswald                                                     Corporate Park Corner                            3.02 km
+                                                2.75 km
+Private - Primary
+
+Summerhill International College
+                                                2.87 km
+Private - Secondary
+
+Reddford House Blue Hills
+                                                3.21 km
+Private - Combined
+
+Philena Primary School
+                                                3.22 km
+Public - Primary
+
+Noordwyk Primary School
+                                                3.23 km
+Public - Primary
+
+
+
+
+Household Financial Index
+*Provides an assessed household income level based on property valuation and adjusted for number of earners,
+demographic ages, minimum wages, etc.on a SubPlace level
+
+                                                  Average Income Class
+
+Lowest Second Lowest Low Emerging Middle Emerging Middle Lower Middle Upper Middle Emerging Affluent Affluent
+
+                                            Highest Frequency Income Class
+
+Lowest Second Lowest Low Emerging Middle Emerging Middle Lower Middle Upper Middle Emerging Affluent Affluent
+
+Emerging Affluent is: R 1 394 794 to R 2 222 629
+
+
+Suburb Population
+            Time                         Population                         Density                        Category
+
+             Day                             5258                             1440                            High
+
+             Night                           5258                             1440                            High
+
+
+Crime Statistics
+*Provides crime statistics, based on police crime data, rolled out to a SubPlace level. Crime types include: burglary at non-
+residential premises, burglary at residential premises, theft of motor vehicle and motorcycle and theft out of or from motor
+vehicle
+
+Crime Index Category:           Very Low               Low               Moderate               High             Very High
+
+Low: 4.02 crimes per 1000 households (2.76 complexes, 2.76 estates)
+
+
+
+
+              Powered by LOOM | 05 Aug 2026
+                                                              8/9
+Disclaimer
+The Service Provider uses the services of third parties to provide the listing information. There may be a delay of
+7 (seven) days between date of actual listing and when the listing appears on the website. There may also be
+multiple listings, or similar listings among various property practitioners. In this regard the data in respect of the
+agent/agency that lists first will be used. The Service Provider has no control over this information and makes no
+representations or warranties of any nature as to its accuracy, appropriateness, or correctness. The user agrees
+that such information is provided "as is" and that the Service Provider and its online partners shall not be liable
+for any losses or damages that may arise from the user's reliance on it, howsoever these may arise.
+
+
+
+
+             Powered by LOOM | 05 Aug 2026
+                                                          9/9
+
