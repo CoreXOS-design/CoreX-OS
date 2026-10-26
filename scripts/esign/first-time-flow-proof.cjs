@@ -1,7 +1,9 @@
 // Walks the recipient signing page as a first-time signer would (esign-signing-modes.md §13) in a real Chromium and FAILS (exit 1) if
 //   - the page does not become idle within 2s of load (main thread answers, DOM stops changing, no recount loop), or
 //   - any native browser dialog (alert / confirm / prompt) opens at any point, or
-//   - a page error is thrown.
+//   - a page error is thrown, or
+//   - a COLD load (fresh browser profile, no cache) with every third-party host held for 20s does not paint and become
+//     interactive within 2s - the page must never wait on someone else's server (it used to: two render-blocking Google Fonts links).
 // usage: NODE_PATH=<app>/node_modules node first-time-flow-proof.cjs <base> <token> <out-prefix> <width> <saved|each> [headful]
 //   headful: run a visible Chromium (use xvfb-run on a server).
 const puppeteer = require('puppeteer');
@@ -11,6 +13,46 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 (async () => {
   const [base, token, out, widthArg, mode, headful] = process.argv.slice(2);
   const failures = [];
+
+  // ── Cold-profile load: fresh profile, cache off, every request to ANOTHER host held for 20s ──
+  async function coldLoadCheck() {
+    const prof = fs.mkdtempSync(path.join(os.tmpdir(), 'corex-cold-profile-'));
+    let br;
+    try {
+      br = await puppeteer.launch({ headless: headful ? false : 'new', userDataDir: prof, executablePath: '/usr/bin/chromium',
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--disk-cache-size=1', '--window-size=1920,1080'] });
+      const pg = await br.newPage();
+      await pg.setViewport({ width: 1920, height: 1080 });
+      const cdp = await pg.createCDPSession();
+      await cdp.send('Network.enable'); await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
+      const ownHost = new URL(base).host;
+      await pg.setRequestInterception(true);
+      const held = [];
+      pg.on('request', async r => {
+        const host = new URL(r.url()).host;
+        if (host && host !== ownHost && !r.url().startsWith('data:')) { held.push(host); await sleep(20000); try { await r.abort('failed'); } catch (e) {} } else { r.continue().catch(() => {}); }
+      });
+      pg.on('dialog', async d => { failures.push('cold load: native dialog opened: ' + d.type()); await d.dismiss(); });
+      await pg.evaluateOnNewDocument(() => {
+        window.__t = {};
+        new PerformanceObserver(l => l.getEntries().forEach(e => { if (e.name === 'first-contentful-paint') window.__t.fcp = Math.round(e.startTime); })).observe({ entryTypes: ['paint'] });
+        document.addEventListener('alpine:initialized', () => { window.__t.alpine = Math.round(performance.now()); });
+      });
+      pg.goto(base + '/sign/' + token, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+      let t = null;
+      for (let i = 0; i < 12; i++) { await sleep(250); t = await Promise.race([pg.evaluate(() => window.__t).catch(() => null), sleep(1500).then(() => null)]); if (t && t.fcp && t.alpine) break; }
+      console.log('cold load', JSON.stringify({ firstPaintMs: t && t.fcp, interactiveMs: t && t.alpine, thirdPartyHostsHeld: [...new Set(held)] }));
+      if (!t || !t.fcp || t.fcp > 2000) failures.push('cold load: first paint ' + (t && t.fcp ? t.fcp + 'ms' : 'never') + ' (must be within 2000ms with third parties held)');
+      if (!t || !t.alpine || t.alpine > 2000) failures.push('cold load: page interactive ' + (t && t.alpine ? t.alpine + 'ms' : 'never') + ' (must be within 2000ms with third parties held)');
+      const ok = await Promise.race([pg.evaluate(() => 1).then(() => true), sleep(2000).then(() => false)]);
+      if (!ok) failures.push('cold load: main thread not responding');
+    } finally {
+      try { if (br) await Promise.race([br.close(), new Promise(r => setTimeout(r, 5000))]); } catch (e) {}
+      try { const pr = br && br.process && br.process(); if (pr && !pr.killed) pr.kill('SIGKILL'); } catch (e) {}
+      try { fs.rmSync(prof, { recursive: true, force: true }); } catch (e) {}
+    }
+  }
+  await coldLoadCheck();
   const width = parseInt(widthArg, 10);
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'corex-ui-profile-'));
   let browser;
