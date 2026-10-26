@@ -228,6 +228,130 @@ final class LeaseFeeTest extends TestCase
         $this->assertSame('1750.00', (string) $lease->fresh()->lease_fee);
     }
 
+    // ── the lease page: the fee is editable where the figures are read ───────────────
+
+    public function test_the_lease_terms_card_has_a_change_link_to_the_edit_panel_that_holds_deposit_and_fee(): void
+    {
+        $lease = $this->activeLease(['lease_fee' => 1500]);
+
+        $html = $this->actingAs($this->admin)->get(route('corex.leases.show', $lease))->assertOk()->getContent();
+
+        $this->assertStringContainsString('data-qa="lease-terms-change"', $html);
+        $this->assertStringContainsString("getElementById('lease-edit-panel').classList.remove('hidden')", $html);
+        $this->assertMatchesRegularExpression('/name="deposit_amount"[^>]*>/', $html);
+        $this->assertMatchesRegularExpression('/name="lease_fee"[^>]*data-qa="lease-fee-edit-input"[^>]*class="prop-input"/', $html, 'same control class as the deposit box');
+        $this->assertDoesNotMatchRegularExpression('/name="lease_fee"[^>]*disabled/', $html, 'not locked: nothing is out for signing');
+    }
+
+    public function test_a_lease_with_no_fee_on_record_offers_the_agency_default_in_the_edit_box(): void
+    {
+        LeaseSetting::create(['agency_id' => $this->agency->id, 'expiry_notice_window_days' => 60, 'default_lease_fee' => 1500]);
+        $none = $this->activeLease();
+
+        $html = $this->actingAs($this->admin)->get(route('corex.leases.show', $none))->getContent();
+
+        $this->assertMatchesRegularExpression('/name="lease_fee"[^>]*value="1500\.00"/', $html);
+        $this->assertStringContainsString('showing your agency default', $html);
+    }
+
+    public function test_a_fee_agreed_for_this_lease_is_shown_not_the_agency_default(): void
+    {
+        LeaseSetting::create(['agency_id' => $this->agency->id, 'expiry_notice_window_days' => 60, 'default_lease_fee' => 1500]);
+        $lease = $this->activeLease(['lease_fee' => 1750]);
+
+        $html = $this->actingAs($this->admin)->get(route('corex.leases.show', $lease))->getContent();
+
+        $this->assertMatchesRegularExpression('/name="lease_fee"[^>]*value="1750\.00"/', $html);
+        $this->assertStringNotContainsString('showing your agency default', $html);
+    }
+
+    // ── what the agency calls the fee ────────────────────────────────────────────────
+
+    public function test_the_label_is_lease_fee_unless_the_agency_chose_its_own_name(): void
+    {
+        $this->assertSame('Lease fee', LeaseSetting::leaseFeeLabelFor(null));
+        $this->assertSame('Lease fee', LeaseSetting::leaseFeeLabelFor(999999));
+        $this->assertSame('Lease fee', LeaseSetting::leaseFeeLabelFor($this->agency->id), 'no settings row');
+
+        LeaseSetting::create(['agency_id' => $this->agency->id, 'expiry_notice_window_days' => 60, 'lease_fee_label' => '   ']);
+        $this->assertSame('Lease fee', LeaseSetting::leaseFeeLabelFor($this->agency->id), 'a blank name reads as the default');
+
+        LeaseSetting::where('agency_id', $this->agency->id)->update(['lease_fee_label' => 'Admin fee']);
+        $this->assertSame('Admin fee', LeaseSetting::leaseFeeLabelFor($this->agency->id));
+        $this->assertSame('Lease fee', LeaseSetting::leaseFeeLabelFor($this->rival->id), 'another agency is never renamed');
+    }
+
+    public function test_the_settings_page_saves_the_label_and_a_blank_goes_back_to_lease_fee(): void
+    {
+        $this->actingAs($this->admin)->post(route('corex.settings.leases.update'), ['expiry_notice_window_days' => 60, 'lease_fee_label' => '  Admin fee '])
+            ->assertSessionHasNoErrors();
+        $this->assertSame('Admin fee', LeaseSetting::leaseFeeLabelFor($this->agency->id));
+
+        $this->actingAs($this->admin)->get(route('corex.settings.leases.edit'))
+            ->assertOk()->assertSee('name="lease_fee_label"', false)->assertSee('value="Admin fee"', false)->assertSee('Admin fee default');
+
+        $this->actingAs($this->admin)->post(route('corex.settings.leases.update'), ['expiry_notice_window_days' => 60, 'lease_fee_label' => ''])->assertSessionHasNoErrors();
+        $this->assertSame('Lease fee', LeaseSetting::leaseFeeLabelFor($this->agency->id));
+    }
+
+    public function test_a_save_that_does_not_post_the_label_leaves_it_alone_and_a_too_long_one_is_refused(): void
+    {
+        LeaseSetting::create(['agency_id' => $this->agency->id, 'expiry_notice_window_days' => 60, 'lease_fee_label' => 'Admin fee']);
+
+        // The onboarding wizard posts only the controls the step renders (agency-onboarding-setup.md §6.1).
+        $this->actingAs($this->admin)->post(route('corex.settings.leases.update'), ['expiry_notice_window_days' => 45])->assertSessionHasNoErrors();
+        $this->assertSame('Admin fee', LeaseSetting::leaseFeeLabelFor($this->agency->id));
+
+        $this->actingAs($this->admin)->post(route('corex.settings.leases.update'), ['expiry_notice_window_days' => 45, 'lease_fee_label' => str_repeat('x', 61)])
+            ->assertSessionHasErrors('lease_fee_label');
+    }
+
+    public function test_the_label_is_a_setup_wizard_control_beside_the_default_amount(): void
+    {
+        $controls = collect(config('agency-onboarding-copy'))->flatMap(fn ($step) => is_array($step) ? ($step['controls'] ?? []) : [])->keyBy('key');
+
+        $this->assertTrue($controls->has('lease_fee_label'), 'the label reaches the Setup Wizard in the same change');
+        $this->assertSame('leases', $controls['lease_fee_label']['source']);
+        $this->assertSame('text', $controls['lease_fee_label']['type']);
+        $this->assertNotSame('', trim((string) $controls['lease_fee_label']['explain']));
+        $this->assertNotSame('', trim((string) $controls['lease_fee_label']['affects']));
+    }
+
+    public function test_the_lease_page_uses_the_agencys_own_name_for_the_fee_and_another_agency_still_sees_lease_fee(): void
+    {
+        // Both agencies' rows are made before anyone is signed in (a signed-in user stamps their own agency on what they create).
+        LeaseSetting::create(['agency_id' => $this->agency->id, 'expiry_notice_window_days' => 60, 'lease_fee_label' => 'Admin fee']);
+        $lease = $this->activeLease(['lease_fee' => 1500]);
+        $rivalBranch = Branch::create(['agency_id' => $this->rival->id, 'name' => 'Karoo']);
+        $rivalAdmin = User::factory()->create(['agency_id' => $this->rival->id, 'branch_id' => $rivalBranch->id, 'role' => 'admin', 'is_active' => true]);
+        $rivalProperty = Property::create([
+            'agency_id' => $this->rival->id, 'branch_id' => $rivalBranch->id, 'agent_id' => $rivalAdmin->id,
+            'title' => 'Karoo farm', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        $rivalLease = Lease::create([
+            'agency_id' => $this->rival->id, 'branch_id' => $rivalBranch->id, 'property_id' => $rivalProperty->id, 'status' => Lease::STATUS_ACTIVE,
+            'rental_amount' => 7000, 'lease_fee' => 800, 'start_date' => '2025-11-01', 'end_date' => '2026-10-31', 'source' => 'manual', 'created_by_user_id' => $rivalAdmin->id,
+        ]);
+
+        $html = $this->actingAs($this->admin)->get(route('corex.leases.show', $lease))->assertOk()->getContent();
+
+        $this->assertStringContainsString('Admin fee:</span> R1,500.00', $html);
+        $this->assertStringContainsString('Admin fee (R)', $html, 'the edit box carries the same name');
+        $this->assertStringNotContainsString('Lease fee', $html);
+
+        $this->assertStringContainsString('Lease fee:</span> R800.00', $this->actingAs($rivalAdmin)->get(route('corex.leases.show', $rivalLease))->getContent());
+    }
+
+    public function test_the_new_lease_screen_uses_the_agencys_name_for_the_fee(): void
+    {
+        LeaseSetting::create(['agency_id' => $this->agency->id, 'expiry_notice_window_days' => 60, 'lease_fee_label' => 'Admin fee']);
+
+        $html = $this->actingAs($this->admin)->get(route('corex.leases.create'))->assertOk()->getContent();
+
+        $this->assertStringContainsString('Admin fee (R)', $html);
+        $this->assertStringNotContainsString('Lease fee (R)', $html);
+    }
+
     // ── the value the agreement prints ───────────────────────────────────────────────
 
     public function test_the_fee_is_a_registry_field_any_agency_can_map(): void

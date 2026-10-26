@@ -287,6 +287,19 @@ final class RentalLeaseTemplateTest extends TestCase
         self::assertNull($row->fresh()->field_map, 'opening the screen saves nothing');
     }
 
+    public function test_the_mapping_screen_heads_the_fee_line_with_the_agencys_own_name_for_the_fee(): void
+    {
+        $row = $this->row($this->makeTemplate($this->agency->id, ['fields_json' => $this->fieldNames(['monthly_rental', 'lease_fee'])]));
+
+        $this->actingAs($this->user)->get(route('corex.rental-lease-templates.edit', $row))
+            ->assertOk()->assertSee('for="map-lease_fee">Lease fee</label>', false);
+
+        \App\Models\LeaseSetting::create(['agency_id' => $this->agency->id, 'expiry_notice_window_days' => 60, 'lease_fee_label' => 'Admin fee']);
+
+        $this->actingAs($this->user)->get(route('corex.rental-lease-templates.edit', $row))
+            ->assertOk()->assertSee('for="map-lease_fee">Admin fee</label>', false);
+    }
+
     public function test_the_field_map_and_edit_screens_of_another_agencys_row_are_a_404(): void
     {
         $other = Agency::create(['name' => 'Other Agency', 'slug' => 'oth-' . uniqid()]);

@@ -740,6 +740,9 @@ class LeaseController extends Controller
             'leaseTypes' => PropertySettingItem::group('lease_type')->where('active', true)->get(),
             // Johan, 2026-09-22 — agency-configurable, hidden by default.
             'showLeaseType' => \App\Models\LeaseSetting::showLeaseTypeFieldFor($lease->agency_id),
+            // leases.md "Lease fee": what this agency calls the fee (Lease fee / Admin fee / ...).
+            'leaseFeeLabel' => \App\Models\LeaseSetting::leaseFeeLabelFor((int) $lease->agency_id),
+            'leaseFeeDefault' => \App\Models\LeaseSetting::defaultLeaseFeeFor((int) $lease->agency_id),
             'lifecycle' => $hubService->lifecycle($lease),
             'nextStep' => $hubService->nextStep($lease, $user),
             // leases.md §15.13 (Build L3a) — the hub's "Agreement" card; null for a lease with no agreement.
@@ -1102,10 +1105,19 @@ class LeaseController extends Controller
             }
         }
 
+        // leases.md "Lease fee": which of the figures the agreement draws is actually changing (compared as numbers, so 5500 = 5500.00).
+        $sameMoney = fn ($before, $after) => ($before === null) === ($after === null) && ($before === null || round((float) $before, 2) === round((float) $after, 2));
+        $newDeposit = array_key_exists('deposit_amount', $validated) ? $validated['deposit_amount'] : $lease->deposit_amount;
+        $newFee = array_key_exists('lease_fee', $validated) ? $validated['lease_fee'] : $lease->lease_fee;
+        $changedForAgreement = array_keys(array_filter([
+            'deposit' => ! $sameMoney($lease->deposit_amount, $newDeposit), // registry keys, as the agency's field map names them
+            'lease_fee' => ! $sameMoney($lease->lease_fee, $newFee),
+        ]));
+
         $lease->update([
-            'deposit_amount' => array_key_exists('deposit_amount', $validated) ? $validated['deposit_amount'] : $lease->deposit_amount,
+            'deposit_amount' => $newDeposit,
             // leases.md "Lease fee": a field that was not posted keeps the lease's value (same has()-guard as the rest of this edit).
-            'lease_fee' => array_key_exists('lease_fee', $validated) ? $validated['lease_fee'] : $lease->lease_fee,
+            'lease_fee' => $newFee,
             'end_date' => $endDate,
             'is_month_to_month' => $monthToMonth,
             'lease_type' => $validated['lease_type'] ?? $lease->lease_type,
@@ -1117,7 +1129,13 @@ class LeaseController extends Controller
             'owner_wallet_ref' => array_key_exists('owner_wallet_ref', $validated) ? $validated['owner_wallet_ref'] : $lease->owner_wallet_ref,
         ]);
 
-        return redirect()->route('corex.leases.show', $lease)->with('success', 'Lease updated.');
+        // A prepared (checked, not yet sent) agreement is brought in step with the figure that just changed - nothing is typed twice.
+        $agreementRefreshed = $changedForAgreement !== []
+            && app(LeaseSigningLauncher::class)->reseedPreparedValues($lease->fresh(), $changedForAgreement);
+
+        return redirect()->route('corex.leases.show', $lease)->with('success', $agreementRefreshed
+            ? 'Lease updated. The prepared lease agreement now shows the new figure.'
+            : 'Lease updated.');
     }
 
     /**
