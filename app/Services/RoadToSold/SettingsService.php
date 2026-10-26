@@ -350,6 +350,12 @@ class SettingsService
         return (int) $this->scalar('capture_back_date_hours');
     }
 
+    /** Do captured tasks wait for a manager's approval before they count (spec 10.4 review queue)? Off by default: they count at once. */
+    public function captureNeedsReview(): bool
+    {
+        return (bool) $this->scalar('capture_needs_review');
+    }
+
     /** green at/above the green line, red below the red line, amber between. */
     public function statusForPct(float $pct): string
     {

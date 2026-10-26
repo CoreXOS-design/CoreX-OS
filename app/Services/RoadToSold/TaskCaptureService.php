@@ -115,7 +115,7 @@ class TaskCaptureService
                 $stored[] = Storage::disk('local')->putFile("rts-evidence/{$agencyId}/{$agent->id}", $photo);
             }
 
-            return DB::transaction(function () use ($actor, $agent, $agencyId, $task, $track, $token, $occurredAt, $properties, $contacts, $note, $stored, $input) {
+            return DB::transaction(function () use ($actor, $agent, $agencyId, $settings, $task, $track, $token, $occurredAt, $properties, $contacts, $note, $stored, $input) {
                 $records = [];
                 $trackedIds = [];
                 $created = 0;
@@ -149,6 +149,7 @@ class TaskCaptureService
                     'kind'          => $kind,
                     'occurred_at'   => $occurredAt,
                     'source'        => RtsTaskCompletion::SOURCE_CAPTURED,
+                    'state'         => $this->heldForReview($agent, $settings) ? RtsTaskCompletion::STATE_PROVISIONAL : RtsTaskCompletion::STATE_CONFIRMED,
                     'quantity'      => $quantity,
                     'token'         => $token,
                     'records'       => $records,
@@ -176,6 +177,15 @@ class TaskCaptureService
             }
             throw $e;
         }
+    }
+
+    /**
+     * Does this capture wait for a manager? Only when the agency asks for review, and never for someone who is themselves allowed to
+     * review (a manager's own work would wait for a reviewer that may not exist, and nobody reviews their own work - TaskReviewService).
+     */
+    private function heldForReview(User $agent, SettingsService $settings): bool
+    {
+        return $settings->captureNeedsReview() && ! $agent->hasPermission('road_to_sold.review_completions');
     }
 
     // ── Archive, restore, change the note ─────────────────────────────────

@@ -20,7 +20,7 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
  *
  *   search   task name, note
  *   sort     when (newest first - the default), task, points
- *   filters  task, step, state, how it was made, archived or not, date range
+ *   filters  task, step, state, how it was made, who did it, archived or not, date range
  *   page     25 a page
  */
 class CompletionListService
@@ -43,6 +43,14 @@ class CompletionListService
         RtsTaskCompletion::STATE_CONFIRMED   => 'Confirmed',
         RtsTaskCompletion::STATE_REVOKED     => 'Revoked',
         RtsTaskCompletion::STATE_OVERRIDDEN  => 'Changed by a manager',
+        RtsTaskCompletion::STATE_RETURNED    => 'Sent back',
+    ];
+
+    /** Who did the work (the review screen's "done by" split; the totals always add up because every row has exactly one kind). */
+    public const DONE_BY = [
+        RtsTaskCompletion::KIND_AGENT     => 'The agent',
+        RtsTaskCompletion::KIND_ASSISTANT => 'An assistant',
+        RtsTaskCompletion::KIND_SYSTEM    => 'CoreX (automatic)',
     ];
 
     public function __construct(private readonly TaskCompletionService $engine)
@@ -55,7 +63,7 @@ class CompletionListService
     public function page(User $viewer, ?int $agentId, array $f, string $track): LengthAwarePaginator
     {
         $status = in_array($f['status'] ?? 'active', array_keys(self::STATUSES), true) ? $f['status'] : 'active';
-        $sort   = array_key_exists($f['sort'] ?? 'when', self::SORTS) ? ($f['sort'] ?? 'when') : 'when';
+        $sort   = array_key_exists($f['sort'] ?? 'when', self::SORTS + ['agent' => 'Agent']) ? ($f['sort'] ?? 'when') : 'when';
         $dir    = ($f['dir'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
 
         // One agent, or - with no agent named - every agent inside the viewer's breadth (the team view). Breadth itself is applied by visibleTo().
@@ -85,6 +93,9 @@ class CompletionListService
         if (array_key_exists($f['source'] ?? '', self::SOURCES)) {
             $q->where('rts_task_completions.source', $f['source']);
         }
+        if (array_key_exists($f['by'] ?? '', self::DONE_BY)) {
+            $q->where('rts_task_completions.recorded_by_kind', $f['by']);
+        }
         if ($from = $this->day($f['from'] ?? null)) {
             $q->where('rts_task_completions.occurred_at', '>=', $from->startOfDay()->format('Y-m-d H:i:s'));
         }
@@ -95,13 +106,18 @@ class CompletionListService
             $like = '%' . addcslashes($term, '%_\\') . '%';
             $taskIds = RtsTask::query()->withoutGlobalScope(AgencyScope::class)->withTrashed()
                 ->where('agency_id', $viewer->effectiveAgencyId())->where('label', 'like', $like)->select('id');
-            $q->where(fn ($w) => $w->whereIn('rts_task_completions.task_id', $taskIds)->orWhere('rts_task_completions.evidence_note', 'like', $like));
+            // The team view also finds a completion by the agent's name; one agent's own list has nothing to match it on.
+            $agentIds = $agentId ? null : User::query()->withoutGlobalScopes()
+                ->where('agency_id', $viewer->effectiveAgencyId())->where('name', 'like', $like)->select('id');
+            $q->where(fn ($w) => $w->whereIn('rts_task_completions.task_id', $taskIds)->orWhere('rts_task_completions.evidence_note', 'like', $like)
+                ->when($agentIds, fn ($ww) => $ww->orWhereIn('rts_task_completions.user_id', $agentIds)));
         }
 
         match ($sort) {
             'task'   => $q->orderBy(RtsTask::query()->withoutGlobalScope(AgencyScope::class)->withTrashed()->select('label')
                 ->whereColumn('rts_tasks.id', 'rts_task_completions.task_id')->limit(1), $dir),
             'points' => $q->orderBy('rts_task_completions.points_awarded', $dir),
+            'agent'  => $q->orderBy(User::query()->withoutGlobalScopes()->select('name')->whereColumn('users.id', 'rts_task_completions.user_id')->limit(1), $dir),
             default  => $q->orderBy('rts_task_completions.occurred_at', $dir),
         };
         $q->orderByDesc('rts_task_completions.id');

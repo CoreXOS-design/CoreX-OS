@@ -6507,7 +6507,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 Route::put('/{completion}', [$c, 'update'])->whereNumber('completion')->name('update');
                 Route::delete('/{completion}', [$c, 'archive'])->whereNumber('completion')->name('archive');
                 Route::post('/{completion}/restore', [$c, 'restore'])->whereNumber('completion')->name('restore');
+                Route::post('/{completion}/resubmit', [$c, 'resubmit'])->whereNumber('completion')->name('resubmit');
                 Route::get('/{completion}/photos/{n}', [$c, 'photo'])->whereNumber('completion')->whereNumber('n')->name('photo');
+            });
+            // The manager's review of captured tasks (v2 phase 6). Permission road_to_sold.review_completions; breadth = road_to_sold.view
+            // (branch manager = branch, admin = agency) applied in the query; an id outside it is a 404.
+            Route::prefix('review')->middleware('permission:road_to_sold.review_completions')->name('review.')->group(function () {
+                $c = \App\Http\Controllers\RoadToSold\ReviewController::class;
+                Route::get('/', [$c, 'index'])->name('index');
+                Route::get('/{completion}', [$c, 'show'])->whereNumber('completion')->name('show');
+                Route::post('/{completion}/approve', [$c, 'approve'])->whereNumber('completion')->name('approve');
+                Route::post('/{completion}/send-back', [$c, 'sendBack'])->whereNumber('completion')->name('send-back');
             });
             Route::get('/drilldown', [\App\Http\Controllers\RoadToSold\ReportController::class, 'drilldown'])->name('drilldown');
             Route::get('/report', [\App\Http\Controllers\RoadToSold\ReportController::class, 'index'])->name('report');

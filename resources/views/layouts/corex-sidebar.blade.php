@@ -1014,6 +1014,16 @@
                 @endpermission
                 @endfeature
 
+                {{-- AT-454 v2 phase 6 - the manager's review of captured tasks (approve or send back). Managers and admins only (the permission);
+                     the agency's Road to Sold switch hides it like the page it belongs to. --}}
+                @feature('road-to-sold')
+                @permission('road_to_sold.review_completions')
+                @if(\Illuminate\Support\Facades\Route::has('road-to-sold.review.index'))
+                <a href="{{ route('road-to-sold.review.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.review.*') ? 'active' : '' }}">Review captures</a>
+                @endif
+                @endpermission
+                @endfeature
+
                 {{-- AT-454 - Budgets & Targets: the agency's planning numbers (monthly budgets, requirements and targets), NOT part of the Road to Sold
                      call list, so they are reachable with the Road to Sold switch OFF (Johan, 23 Oct 2026; the routes and the permission are already
                      ungated). Permission-gated only - no @feature wrap - and exempted by route in SidebarFeatureCoverage::CORE_ROUTES. Same keys as the

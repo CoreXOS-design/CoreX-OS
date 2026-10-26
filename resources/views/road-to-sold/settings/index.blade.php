@@ -279,6 +279,14 @@
                         <span class="text-xs ml-2" style="color:var(--text-muted);">hours (standard: {{ $defaults['capture_back_date_hours'] }})</span>
                     </div>
                 </div>
+                <label class="flex items-start gap-3 text-sm" style="color:var(--text-primary);">
+                    <input type="hidden" name="capture_needs_review" value="0">
+                    <input type="checkbox" name="capture_needs_review" value="1" class="mt-1" @checked(old('capture_needs_review', $settings->captureNeedsReview()))>
+                    <span>
+                        <span class="font-semibold">Captured tasks wait for a manager's approval</span><br>
+                        <span style="color:var(--text-muted);">On: a captured task counts once a manager approves it. Off: it counts as soon as it is saved. Managers can send any captured task back either way.</span>
+                    </span>
+                </label>
             </div>
         </div>
 

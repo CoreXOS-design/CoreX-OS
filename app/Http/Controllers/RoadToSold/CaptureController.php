@@ -7,6 +7,7 @@ use App\Models\RoadToSold\RtsTaskCompletion;
 use App\Models\User;
 use App\Services\RoadToSold\TaskCaptureService;
 use App\Services\RoadToSold\TaskCompletionService;
+use App\Services\RoadToSold\TaskReviewService;
 use App\Services\RoadToSold\Track;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -25,6 +26,7 @@ class CaptureController extends Controller
     public function __construct(
         private readonly TaskCaptureService $capture,
         private readonly TaskCompletionService $completions,
+        private readonly TaskReviewService $review,
     ) {
     }
 
@@ -65,6 +67,14 @@ class CaptureController extends Controller
         $this->capture->restore($row);
 
         return back()->with('status', 'Restored. It counts toward your targets again.');
+    }
+
+    /** The agent answers a task a manager sent back: it returns to the manager's queue. Own list only. */
+    public function resubmit(Request $request, int $completion): RedirectResponse
+    {
+        $this->review->resubmit($request->user(), $completion);
+
+        return back()->with('status', 'Sent to your manager again.');
     }
 
     /** One photo of a capture's evidence, only to someone who may see the capture. */

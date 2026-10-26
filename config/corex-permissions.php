@@ -628,6 +628,7 @@ return [
         // Module 'targets' (always available), not 'road_to_sold': this key also opens Budgets and the monthly targets, which a rentals-only
         // agency - Road to Sold off - must still reach (Johan, 23 Oct 2026). A permission module owned by a feature goes dark with it.
         ['key' => 'road_to_sold.manage_targets',   'label' => 'Set agents\' weekday targets',  'section' => 'road-to-sold',     'type' => 'action',  'module' => 'targets',          'sort_order' => 13],
+        ['key' => 'road_to_sold.review_completions', 'label' => 'Review captured tasks (approve or send back)', 'section' => 'road-to-sold', 'type' => 'action', 'module' => 'road_to_sold', 'sort_order' => 15],
         ['key' => 'road_to_sold.manage_recipe',    'label' => 'Manage the recipe (steps, tasks, levels)', 'section' => 'road-to-sold', 'type' => 'action', 'module' => 'road_to_sold', 'sort_order' => 14],
 
         // ── Core Matches ──
@@ -1287,7 +1288,7 @@ return [
                 'contacts.delete', 'contacts.whatsapp', 'contacts.email', 'contacts.export',
                 'contacts.reassign_agent', // AT-118 hardening — managers reassign contact agents
                 // AT-454 — Road to Sold: branch managers see their branch and assign areas / set targets for it.
-                'access_road_to_sold', 'road_to_sold.view', 'road_to_sold.manage_areas', 'road_to_sold.manage_targets',
+                'access_road_to_sold', 'road_to_sold.view', 'road_to_sold.manage_areas', 'road_to_sold.manage_targets', 'road_to_sold.review_completions',
                 'access_core_matches',
                 'core_matches.view', 'core_matches.create', 'core_matches.delete', 'core_matches.manage', 'core_matches.convert_to_deal',
                 'buyer_notes.view', // who may read notes on a buyer — own/branch/agency via scope_defaults + Role Manager

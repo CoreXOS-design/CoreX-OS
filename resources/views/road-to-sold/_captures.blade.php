@@ -86,6 +86,7 @@
                     {{ $sources[$c->source] ?? $c->source }}
                     @if($c->recorded_by_kind === 'assistant')<div style="color: var(--text-muted);">by {{ $c->recordedBy?->name }}</div>@endif
                     @if($c->state !== 'confirmed')<div style="color: var(--text-muted);">{{ $states[$c->state] ?? $c->state }}</div>@endif
+                    @if($c->state === 'returned' && $c->review_comment)<div style="color: var(--text-muted);">"{{ $c->review_comment }}"</div>@endif
                 </td>
                 <td class="px-3 py-2 text-right">
                     @if($mine)
@@ -93,6 +94,9 @@
                             @if($archived)
                                 <form method="POST" action="{{ route('road-to-sold.captures.restore', $c->id) }}">@csrf<button type="submit" class="corex-btn-outline corex-btn-xs">Restore</button></form>
                             @else
+                                @if($c->state === 'returned' && ($viewingOwn ?? false))
+                                    <form method="POST" action="{{ route('road-to-sold.captures.resubmit', $c->id) }}">@csrf<button type="submit" class="corex-btn-primary corex-btn-xs">Send again</button></form>
+                                @endif
                                 <button type="button" class="corex-btn-outline corex-btn-xs" @click="editing = {{ $c->id }}">Edit note</button>
                                 <form method="POST" action="{{ route('road-to-sold.captures.archive', $c->id) }}">@csrf @method('DELETE')<button type="submit" class="corex-btn-outline corex-btn-xs">Archive</button></form>
                             @endif

@@ -148,9 +148,11 @@ class TaskCompletionService
         $recordedBy = $recordedBy instanceof User ? $recordedBy : $user;
         $kind       = $context['kind'] ?? ((int) $recordedBy->id === (int) $user->id ? RtsTaskCompletion::KIND_AGENT : RtsTaskCompletion::KIND_ASSISTANT);
         $points     = $this->pointsFor($agencyId, $user, $task, $level, $levelTask);
+        // Confirmed unless the caller holds it back for a manager (a captured task in an agency that asks for review).
+        $state      = ($context['state'] ?? null) === RtsTaskCompletion::STATE_PROVISIONAL ? RtsTaskCompletion::STATE_PROVISIONAL : RtsTaskCompletion::STATE_CONFIRMED;
 
         try {
-            return DB::transaction(function () use ($agencyId, $user, $recordedBy, $kind, $task, $level, $occurredAt, $periodUnit, $periodStart, $localDay, $quantity, $points, $subjectType, $subjectId, $eventId, $key, $context) {
+            return DB::transaction(function () use ($agencyId, $user, $recordedBy, $kind, $state, $task, $level, $occurredAt, $periodUnit, $periodStart, $localDay, $quantity, $points, $subjectType, $subjectId, $eventId, $key, $context) {
                 $completion = RtsTaskCompletion::withoutAgencyStamping(fn () => RtsTaskCompletion::create([
                     'agency_id'           => $agencyId,
                     'branch_id'           => $user->branch_id,
@@ -168,7 +170,7 @@ class TaskCompletionService
                     'period'              => substr($localDay, 0, 7),
                     'quantity'            => $quantity,
                     'points_awarded'      => round($points * $quantity, 2),
-                    'state'               => RtsTaskCompletion::STATE_CONFIRMED,
+                    'state'               => $state,
                     'source'              => $context['source'] ?? RtsTaskCompletion::SOURCE_AUTO_EVENT,
                     'subject_type'        => $subjectType,
                     'subject_id'          => $subjectId,
@@ -176,7 +178,7 @@ class TaskCompletionService
                     'idempotency_key'     => $key,
                     'evidence_note'       => $context['evidence_note'] ?? null,
                     'evidence'            => $context['evidence'] ?? null,
-                    'confirmed_at'        => now(),
+                    'confirmed_at'        => $state === RtsTaskCompletion::STATE_CONFIRMED ? now() : null,
                 ]));
 
                 $records = $context['records'] ?? [];
