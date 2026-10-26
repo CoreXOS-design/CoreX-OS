@@ -280,6 +280,14 @@ final class MicSnapshotHydrator
             'n_deals_added'              => $dealsAdded,
             'n_deals_dedup_skipped'      => $dealsDeduped,
             'excluded_by_type'           => $this->excludedByTypeCount,
+            // Why the pool ended up the size it did — the review screen turns this into its one-line reason
+            // when nothing was hydrated: candidates the report/area gave, how many passed the title-type gate,
+            // how many the price/distance gates left, how many were finally selected.
+            'pool_diagnostics'           => [
+                'n_candidates' => (int) ($poolResult['diagnostics']['n_candidates'] ?? count($candidates)),
+                'n_after_type' => $poolResult['diagnostics']['n_after_type'] ?? null,
+                'n_selected'   => count($poolResult['selected'] ?? []),
+            ],
         ];
     }
 
@@ -684,75 +692,69 @@ final class MicSnapshotHydrator
         $titleType = $cfg['title_type'] ?? null;
 
         return $rows->filter(function ($row) use ($subjectReportIds, $suburbNorm, $lat, $lng, $radius, $scope, $titleType) {
+            // Where does this row sit? Same-subject report, same suburb, or inside the radius. A row that sits
+            // nowhere near the subject is dropped here, BEFORE the title-type gate, so the "excluded by title
+            // type" count below only ever counts sales that really were nearby (it used to count every comp
+            // row in the agency's pool: "798 found nearby" was the whole database, not the neighbourhood).
+            $subjectReportHit = !empty($subjectReportIds)
+                && in_array((int) $row->market_report_id, $subjectReportIds, true);
+
+            $inScope = $subjectReportHit;
+            // Branch 2: suburb match (when row has a suburb).
+            // Uses SuburbMatcher to bridge subject "Uvongo Beach" ⇄ comp
+            // "uvongo" naming. Pre-helper the directional str_contains
+            // dropped 59-of-59 in-window candidates on the local Uvongo
+            // Beach probe.
+            if (!$inScope && $suburbNorm !== '' && !empty($row->suburb_normalised)
+                && SuburbMatcher::matches($row->suburb_normalised, $suburbNorm)) {
+                $inScope = true;
+            }
+            // Branch 3: Haversine — only meaningful when scope is radius_all AND both sides have geo.
+            if (!$inScope && $scope === 'radius_all'
+                && $lat !== null && $lng !== null
+                && $row->latitude !== null && $row->longitude !== null) {
+                $d = HaversineDistance::distanceMetres($lat, $lng, (float) $row->latitude, (float) $row->longitude);
+                if ($d <= $radius) {
+                    $inScope = true;
+                }
+            }
+            if (!$inScope) {
+                return false;
+            }
+
             // Build 1 — title_type discipline. When the subject's category
             // resolves to a title_type, drop comps whose property_type
             // classifies into a different title_type. A null title_type
             // (subject category missing or unconfigured) skips the filter
             // — already logged upstream as [PRES-WARN]. Same-subject reports
             // are exempt because they were already vetted by the analyst.
-            if ($titleType !== null) {
-                $subjectReportHit = !empty($subjectReportIds)
-                    && in_array((int) $row->market_report_id, $subjectReportIds, true);
-
+            if ($titleType !== null && !$subjectReportHit) {
                 // Build 8d — trusted-internal-source exemption. Deal-
                 // sourced rows (HFC's own registered transactions) get
                 // the same trust posture as analyst-vetted same-subject
                 // comps, so they aren't dropped on NULL property_type.
-                // Today deals bypass this filter entirely (they skip
-                // collectMatchedRows and write directly to
-                // PresentationSoldComp); the exemption is defensive
-                // against future refactors that unify the filter over
-                // a merged pool.
                 $trustedInternal = false;
                 if (isset($row->raw_row_json) && is_string($row->raw_row_json) && $row->raw_row_json !== '') {
                     $decoded = json_decode($row->raw_row_json, true);
                     $trustedInternal = is_array($decoded) && !empty($decoded['trusted_internal_source']);
                 }
 
-                if (!$subjectReportHit && !$trustedInternal) {
+                if (!$trustedInternal) {
                     // SS-SECTIONAL-GATE-FIX — classify the comp with the
                     // SAME signal-aware derivation the candidate build uses
-                    // at L120 (deriveCompTitleType), NOT the bare
-                    // fromPropertyType. CMA-Info sectional comp rows are
-                    // stamped property_type='Residence' (the PDF "usage"
-                    // word), which the bare classifier buckets as full_title
-                    // — silently dropping every vicinity sectional sale
-                    // against a sectional subject even though the row carries
-                    // scheme_name/section_number. deriveCompTitleType reads
-                    // those signals first and only falls back to
-                    // fromPropertyType (→ null on blank) when no signal is
-                    // present.
+                    // (deriveCompTitleType), NOT the bare fromPropertyType.
                     $compTitleType = $this->deriveCompTitleType($row);
 
-                    // AT-405 (Johan, 2026-09-10) — an UNDETERMINABLE title
-                    // type must stop meaning "discard". The 2026-08-25 fix
-                    // (TitleTypeClassifier::fromPropertyType()) correctly
-                    // made "Residence"/"Residential" resolve to null instead
-                    // of guessing full_title — that classifier is untouched,
-                    // it is right to be honest about the ambiguity. The bug
-                    // is here: this filter then coerced that honest null into
-                    // TITLE_OTHER, which can never equal a real subject
-                    // title_type, so every comp whose ONLY signal is that one
-                    // ambiguous word was silently dropped regardless of the
-                    // subject's own type — proven on live-testing property
-                    // 6061 (20 otherwise-eligible Trafalgar comps, all
-                    // rejected here, none via a genuine sectional signal).
-                    //
-                    // Scoped narrowly to the specific ambiguous words the
-                    // classifier's own docblock names as the source of the
-                    // null (Property_Type::fromPropertyType()'s "Residence"/
-                    // "Residential" case) — NOT to every null. A null caused
-                    // by a genuinely different asset class ("Commercial",
-                    // "Industrial", "Business" — also null per that same
-                    // classifier, but for an unrelated reason: wrong asset
-                    // class, not ambiguous tenure) must keep being rejected;
-                    // widening this to "any null passes" would admit
-                    // commercial stock into a residential subject's comp
-                    // pool, a regression this fix must not introduce.
-                    $isAmbiguousResidentialWord = $compTitleType === null
-                        && in_array(strtolower(trim((string) ($row->property_type ?? ''))), ['residence', 'residential'], true);
+                    // A comp whose title type is UNKNOWN is never excluded for it (Johan, 26 Oct: a missing title
+                    // type must stop meaning "discard"; AT-405 first fixed this for the two ambiguous words
+                    // "Residence"/"Residential"). Unknown = the row says nothing about its title type at all: no
+                    // scheme/section signal and no property type. It is kept, and flagged "title type unknown" on
+                    // the review list so the agent can judge it. A property type that names a different asset
+                    // class ("Commercial", "Industrial", "Business") is not unknown: it is a known wrong class and
+                    // is still rejected, so commercial stock never enters a residential pool.
+                    $titleTypeUnknown = $compTitleType === null && $this->titleTypeIsUnknown($row);
 
-                    if (!$isAmbiguousResidentialWord) {
+                    if (!$titleTypeUnknown) {
                         $compTitleType ??= \App\Services\TitleTypeClassifier::TITLE_OTHER;
                         if ($compTitleType !== $titleType) {
                             $this->excludedByTypeCount++;
@@ -762,31 +764,7 @@ final class MicSnapshotHydrator
                 }
             }
 
-            // Branch 1: same-subject — every comp from a market report that
-            // analysed this exact property is in scope by definition.
-            if (!empty($subjectReportIds) && in_array((int) $row->market_report_id, $subjectReportIds, true)) {
-                return true;
-            }
-
-            // Branch 2: suburb match (when row has a suburb).
-            // Uses SuburbMatcher to bridge subject "Uvongo Beach" ⇄ comp
-            // "uvongo" naming. Pre-helper the directional str_contains
-            // dropped 59-of-59 in-window candidates on the local Uvongo
-            // Beach probe.
-            if ($suburbNorm !== '' && !empty($row->suburb_normalised)
-                && SuburbMatcher::matches($row->suburb_normalised, $suburbNorm)) {
-                return true;
-            }
-
-            // Branch 3: Haversine — only meaningful when scope is radius_all AND both sides have geo.
-            if ($scope === 'radius_all'
-                && $lat !== null && $lng !== null
-                && $row->latitude !== null && $row->longitude !== null) {
-                $d = HaversineDistance::distanceMetres($lat, $lng, (float) $row->latitude, (float) $row->longitude);
-                if ($d <= $radius) return true;
-            }
-
-            return false;
+            return true;
         })->values();
     }
 
@@ -838,6 +816,30 @@ final class MicSnapshotHydrator
             $row->scheme_name ?? null,
             $row->section_number ?? null,
         );
+    }
+
+    /**
+     * True when a comp row says nothing about its title type: no real scheme/section signal (deriveCompTitleType
+     * already found none) and either no property type or one of the ambiguous residential words
+     * ("Residence"/"Residential") that cannot tell freehold from sectional. A named asset class that is not
+     * residential tenure ("Commercial", "Industrial", "Business", "Farm") is NOT unknown.
+     */
+    private function titleTypeIsUnknown(object $row): bool
+    {
+        $pt = strtolower(trim((string) ($row->property_type ?? '')));
+
+        return $pt === '' || in_array($pt, ['residence', 'residential'], true);
+    }
+
+    /** 'report' when the comp row took its property type from the report at import (see CanonicalReadMapper). */
+    private function sourceTitleTypeSource(object $row): ?string
+    {
+        if (!isset($row->raw_row_json) || !is_string($row->raw_row_json) || $row->raw_row_json === '') {
+            return null;
+        }
+        $decoded = json_decode($row->raw_row_json, true);
+
+        return is_array($decoded) && is_string($decoded['title_type_source'] ?? null) ? $decoded['title_type_source'] : null;
     }
 
     /**
@@ -978,6 +980,11 @@ final class MicSnapshotHydrator
             // silently broke comp plotting on the review map.
             'latitude'            => $lat,
             'longitude'           => $lng,
+            // Title type as the pool saw it. title_type_unknown = the row says nothing about it (kept anyway,
+            // shown "title type unknown" on the review list); title_type_source = report when the row took the
+            // report's own type at import.
+            'title_type_unknown'  => $this->deriveCompTitleType($row) === null && $this->titleTypeIsUnknown($row),
+            'title_type_source'   => $this->sourceTitleTypeSource($row),
         ];
         return json_encode($payload, JSON_THROW_ON_ERROR);
     }

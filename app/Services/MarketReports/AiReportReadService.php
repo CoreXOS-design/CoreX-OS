@@ -398,7 +398,7 @@ Rules — follow them exactly:
 - "comps": one entry per row of a sales table (kind "comp" for a concluded sale with a sale_price; kind "listing" for a property currently for sale with a list_price). Copy the address, scheme name and section number exactly as printed.
 - "suburb_stats": one entry per printed figure in a suburb/area statistics table. metric must be one of: median_price, average_price, sales_count, annual_change_pct (these four need the "year" the figure is for), median_price_12m, total_sales_12m (no year).
 - "valuation": the printed lower / middle / upper / average value range of a valuation summary, if there is one.
-- "subject": the subject property the report was prepared for, if there is one.
+- "subject": the subject property the report was prepared for, if there is one. Give its property_type exactly as printed (for example "Full Title" or "Sectional Title"); a comps row that has no type column of its own takes this type.
 - "suburb"/"town": the area the report is about, if printed.
 - "layout": help us recognise this publisher's layout next time without reading it again. publisher_signature = the publisher's name exactly as printed in the header/footer (not the client's name). column_headings = the column headings of the tables, exactly as printed. header_phrases = fixed section headings or fixed wording that would be identical in EVERY report from this publisher. NEVER put an address, a person's name, a price, a date or a number in "layout".
 - "confidence": your honest 0 to 1 confidence that the data above is a complete and correct reading of the document. If the document is not a property market report at all, return confidence 0 and empty lists.
@@ -415,7 +415,7 @@ PROMPT;
             'suburb'       => 'string|null',
             'town'         => 'string|null',
             'subject'      => [
-                'address' => 'string|null', 'scheme_name' => 'string|null', 'section_number' => 'string|null',
+                'address' => 'string|null', 'scheme_name' => 'string|null', 'section_number' => 'string|null', 'property_type' => 'string|null',
                 'extent_m2' => 'int|null', 'latitude' => 'number|null', 'longitude' => 'number|null', 'radius_metres' => 'int|null',
             ],
             'valuation'    => ['lower' => 'int|null', 'middle' => 'int|null', 'upper' => 'int|null', 'average' => 'int|null', 'average_r_per_m2' => 'int|null'],

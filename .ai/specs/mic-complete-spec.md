@@ -1120,6 +1120,20 @@ The system values protect the platform's AI bill and the trustworthiness of dete
 
 **Tests.** `tests/Feature/MarketReports/ReportYearlyFiguresTest.php` (every producer writes the year — mapper for AI + learned layout, known-format parser; the audit is told the year; no-year and cannot-tell are never mismatches; a real same-year mismatch is still flagged; re-run replaces open findings only; the report and discrepancies screens show the year).
 
+#### 8.9.3 Comparable rows carry a title type; a filler is not a sectional signal (26 Oct 2026, QA1, LOOM CMA / Blue Valley Golf Estate)
+
+**The fault (Staging presentation version 540, Hlogi's live case).** LOOM report on a Full Title subject: "25 comps parsed · 0 sold + 0 active hydrated · 0 of 0 mapped" and "798 comparable sales found nearby but excluded". The title type was NOT missing from the rows (the AI read stored "Full Title" on each). The report prints `Unit Number 00000` for every freehold property and the comps table has a Unit Number column; that filler was stored as `section_number`, `TitleTypeClassifier::categoryForComp()` reads any section number as "sectional unit", so all 25 became sectional and `CompPoolBuilder` (type gate) threw them out of a Full Title presentation. Only the LOOM reads (reports 437/438/439) carry `00000`. The learned-layout read (439) had no property type at all: the layout reads the table, not the "Property Type: Full Title" printed once in the subject block.
+
+**Rules.**
+- A scheme name / section number is a sectional signal only when it is real: `TitleTypeClassifier::isPlaceholderSignal()` treats blank, all zeros, dashes and n/a-style words as no signal. Every caller of `categoryForComp` (hydrator, pool builder candidates, render-layer hard filter) gets this.
+- Importer choke point `CanonicalReadMapper::sanitise()` (AI read, learned layout, and any reader that goes through it): a filler section number is stored empty; the subject's `property_type` is kept (AI schema field `subject.property_type`; the layout learner learns a label for it like the other subject texts); a comp row with no `property_type` takes the subject's, else the single type all named rows agree on (`inheritTitleType()`); two types or none = nothing inherited. An inherited row carries `title_type_source = report` in its `raw_row_json`. Known-format parsers state their own types and are unchanged.
+- A comp with NO title type (no real scheme/section signal and a blank or "Residence"/"Residential" property type) is never excluded for it: `MicSnapshotHydrator::collectMatchedRows()` keeps it and the hydrated comp carries `title_type_unknown = true`; the review list shows "· title type unknown" and no cross-title "!" warning. A named other asset class ("Commercial", "Industrial") is a known wrong class and is still rejected; a genuinely sectional comp is still rejected from a Full Title pool.
+- `excluded_by_type` now counts only sales that sat in scope (same-subject report, same suburb, or inside the radius). It used to count every comp row in the agency's pool ("798 found nearby" was the whole database).
+- The hydrator saves `pool_diagnostics` (candidates, after the type gate, selected) into `hydration_summary_json`. When comps were read but none hydrated, the review banner shows `PresentationImportSummaryService::emptyReason()`: one line saying why (title type / price and distance / outside the area or date window / not regenerated yet) with an "Open the report" link to the report screen.
+- Back-fill for rows already stored: `php artisan market-reports:backfill-comp-title-types [--agency=] [--report=] [--dry-run]` clears filler section numbers and gives blank-type rows the type their report's other rows agree on. Idempotent (only rows that need a change are touched). A report with no type anywhere (the learned-layout read 439) is listed as nothing-to-inherit: its comps show "title type unknown" and are kept. Existing presentations pick the change up on Regenerate.
+
+**Tests.** `tests/Feature/Presentation/CompTitleTypeInheritanceTest.php`.
+
 ---
 
 ## 9. WhatsApp Action Flow
