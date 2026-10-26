@@ -85,7 +85,8 @@
                     <p class="text-xs mt-2" style="color: var(--text-muted);">
                         Default is {{ number_format((float) $defaultDepositMonthsDefault, 1) }} month(s) of rent. Used to fill in a property's
                         deposit amount when an agent ticks "Has deposit" but leaves the amount blank —
-                        always shown as a starting figure the agent can change, never locked in.
+                        always shown as a starting figure the agent can change, never locked in. It is also the deposit shown to an
+                        applicant under "Amounts payable" on the rental application. The agent can change the deposit amount on each lease.
                     </p>
                 </div>
             </div>
@@ -115,6 +116,54 @@
                         The fee a new lease starts with. 0.00 means no fee is charged. It is always a starting figure
                         the agent can change on the lease, and it prints on your lease agreement when your agreement has a fee line linked to it.
                     </p>
+                </div>
+            </div>
+        </div>
+
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;" data-qa="application-amounts-card">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Amounts payable on the rental application</h3>
+            </div>
+            <div class="p-5 space-y-3">
+                <p class="text-xs" style="color: var(--text-muted);">The rental application prints an "Amounts payable" section from your deposit multiple and {{ mb_strtolower($leaseFeeLabel) }} above, the application fee on the Rental applications settings page, and these. Leave a box empty and that line is not shown.</p>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Renewal fee (R)</label>
+                    <input type="number" name="renewal_fee" step="0.01" min="0" max="99999999.99" data-qa="renewal-fee-input"
+                           value="{{ old('renewal_fee', $renewalFee !== null ? number_format((float) $renewalFee, 2, '.', '') : '') }}"
+                           class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">The fee charged when a lease is renewed. Shown to the applicant for information.</p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Rent payable before occupation (your wording)</label>
+                    <textarea name="rent_before_occupation_text" rows="2" maxlength="1000" data-qa="rent-before-occupation-input"
+                              class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">{{ old('rent_before_occupation_text', $rentOccupationText) }}</textarea>
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">For example "The first month's rent is payable before the tenant moves in." Printed as a line under Amounts payable. Empty = not shown.</p>
+                </div>
+            </div>
+        </div>
+
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;" data-qa="deposit-bank-card">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Deposit banking details</h3>
+            </div>
+            <div class="p-5 space-y-3">
+                <p class="text-xs" style="color: var(--text-muted);">Where a tenant pays the deposit. Printed on the rental application under "Deposit banking details". It prints only when an account name or number is filled in.</p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    @foreach(['deposit_bank_account_name' => ['Account name', 191], 'deposit_bank_name' => ['Bank', 100], 'deposit_bank_branch_code' => ['Branch code', 50], 'deposit_bank_account_type' => ['Account type (for example savings or cheque)', 50], 'deposit_bank_account_number' => ['Account number', 50]] as $field => [$fieldLabel, $max])
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">{{ $fieldLabel }}</label>
+                            <input type="text" name="{{ $field }}" maxlength="{{ $max }}" value="{{ old($field, $depositBank[$field] ?? '') }}" data-qa="{{ str_replace('_', '-', $field) }}-input"
+                                   class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                        </div>
+                    @endforeach
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Payment reference the tenant must use</label>
+                        <select name="deposit_reference_rule" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" data-qa="deposit-reference-rule-input">
+                            @foreach(['property_address' => 'The property address', 'tenant_name' => 'The tenant\'s name', 'lease_reference' => 'The lease reference'] as $value => $text)
+                                <option value="{{ $value }}" @selected(old('deposit_reference_rule', $depositReferenceRule) === $value)>{{ $text }}</option>
+                            @endforeach
+                        </select>
+                    </div>
                 </div>
             </div>
         </div>

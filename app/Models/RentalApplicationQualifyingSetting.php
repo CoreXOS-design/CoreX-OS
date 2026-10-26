@@ -378,6 +378,7 @@ class RentalApplicationQualifyingSetting extends Model
         'hidden_field_keys', 'field_label_overrides', 'field_help_text_overrides', 'field_order',
         'credit_bureau_name',
         'tenanted_label',
+        'application_fee', 'tenant_info_summary', 'documents_to_accompany',
     ];
 
     protected $casts = [
@@ -387,6 +388,7 @@ class RentalApplicationQualifyingSetting extends Model
         'prefill_lease_from_application' => 'boolean',
         'allow_withdraw_after_approval' => 'boolean',
         'max_rent_percent_of_gross_income' => 'decimal:2',
+        'application_fee' => 'decimal:2',
         'reopen_link_expiry_days' => 'integer',
         'lock_property_after_submission' => 'boolean',
         'tag_contact_as_tenant_on_approval' => 'boolean',
@@ -1219,5 +1221,37 @@ class RentalApplicationQualifyingSetting extends Model
         $raw = trim(self::invitePolicySentenceFor($agencyId));
 
         return $raw === '' ? '' : trim(str_replace('{agency}', (string) ($agencyName ?: 'We'), $raw));
+    }
+
+    /** The application fee charged per applicant (application terms): null = not set, nothing is printed. */
+    public static function applicationFeeFor(?int $agencyId): ?float
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return null;
+        }
+        $v = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('application_fee');
+
+        return $v !== null && (float) $v > 0 ? (float) $v : null;
+    }
+
+    /** The "Tenant information summary" text, one bullet per line, exactly as the agency typed it ('' = none). */
+    public static function tenantInfoSummaryFor(?int $agencyId): string
+    {
+        return self::termsTextFor($agencyId, 'tenant_info_summary');
+    }
+
+    /** The "Documents to accompany your application" list, one document per line ('' = none). Not the upload checklist. */
+    public static function documentsToAccompanyFor(?int $agencyId): string
+    {
+        return self::termsTextFor($agencyId, 'documents_to_accompany');
+    }
+
+    private static function termsTextFor(?int $agencyId, string $column): string
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return '';
+        }
+
+        return trim((string) static::withoutGlobalScopes()->where('agency_id', $agencyId)->value($column));
     }
 }

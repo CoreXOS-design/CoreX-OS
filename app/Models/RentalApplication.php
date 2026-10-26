@@ -218,6 +218,7 @@ class RentalApplication extends Model
      */
     public const SUBMISSION_FIELD_GROUP_EMPLOYED = [
         'employer_name', 'employer_position', 'employer_address', 'employer_tel', 'occupation_date',
+        'years_employed', 'pay_date',
     ];
 
     public const SUBMISSION_FIELD_GROUP_RENTING = [
@@ -225,7 +226,60 @@ class RentalApplication extends Model
         'current_rental_from', 'current_rental_to', 'current_rental_due_day',
     ];
 
-    public const SUBMISSION_FIELD_GROUP_MARRIED = ['spouse_name', 'spouse_id'];
+    public const SUBMISSION_FIELD_GROUP_MARRIED = ['spouse_name', 'spouse_id', 'marriage_regime'];
+
+    /**
+     * Fuller application (26 Oct 2026) - the four repeating blocks. Each is ONE JSON column on the row and ONE entry in
+     * the field registry (so an agency can hide, relabel, order or make it compulsory like any other field); normalised by
+     * normaliseBlocks() on every write path (public submit + autosave, agent edit) so a form's blank rows never reach storage.
+     */
+    public const BLOCK_KEYS = ['co_applicant', 'co_occupants', 'pets', 'affordability'];
+
+    public const JUDGMENT_ANSWERS = ['yes', 'no'];
+
+    /** Plain wording for "how married" - the list is the common South African choices; stored as the label. */
+    public const MARRIAGE_REGIMES = [
+        'In community of property',
+        'Out of community of property, with accrual',
+        'Out of community of property, without accrual',
+        'Customary marriage',
+        'Civil union',
+        'Not applicable',
+    ];
+
+    /** The co-applicant / spouse block asks what the main applicant is asked: key => [label, kind]. */
+    public const CO_APPLICANT_FIELDS = [
+        'full_name' => ['Full names and surname', 'text'],
+        'id_number' => ['ID number', 'text'],
+        'address' => ['Current residential address', 'text'],
+        'income_tax_no' => ['Income tax number', 'text'],
+        'email' => ['E-mail address', 'email'],
+        'cell' => ['Cell number', 'text'],
+        'marital_status' => ['Marital status', 'text'],
+        'marriage_regime' => ['How married', 'regime'],
+        'employer_name' => ['Employer', 'text'],
+        'employer_tel' => ['Work telephone', 'text'],
+        'employer_position' => ['Occupation', 'text'],
+        'monthly_salary' => ['Income after tax (per month)', 'money'],
+        'years_employed' => ['Years employed', 'text'],
+        'pay_date' => ['Pay day', 'text'],
+        'bank_name' => ['Bank', 'text'],
+        'bank_account_no' => ['Account number', 'text'],
+        'judgments' => ['Any judgments against you?', 'yesno'],
+        'judgments_details' => ['If yes, please specify', 'text'],
+        'car_make' => ['Car make', 'text'],
+        'car_colour' => ['Car colour', 'text'],
+        'car_year' => ['Car year', 'text'],
+        'car_reg' => ['Car registration', 'text'],
+    ];
+
+    /** The tenant's own schedule: what comes in and what goes out each month (the review screen totals the same two groups). */
+    public const AFFORDABILITY_INCOME_LINES = ['Salary / wages (after tax)', 'Other income'];
+
+    public const AFFORDABILITY_EXPENSE_LINES = [
+        'Bond / current rent', 'Groceries', 'Transport / fuel', 'Insurance', 'Cell phone / internet', 'School fees / childcare',
+        'Loans / credit cards / accounts', 'Other',
+    ];
 
     public const CURRENT_LIVING_SITUATION_LABELS = [
         'renting' => 'Currently renting',
@@ -427,7 +481,151 @@ class RentalApplication extends Model
             'special_conditions' => ['nullable', 'string', 'max:2000'],
             'adults' => ['nullable', 'integer', 'min:0', 'max:50'],
             'children' => ['nullable', 'integer', 'min:0', 'max:50'],
+            // Fuller application (26 Oct 2026).
+            'income_tax_no' => ['nullable', 'string', 'max:50'],
+            'marriage_regime' => ['nullable', 'string', 'max:80'],
+            'years_employed' => ['nullable', 'string', 'max:30'],
+            'pay_date' => ['nullable', 'string', 'max:40'],
+            'previous_landlord_name' => ['nullable', 'string', 'max:255'],
+            'previous_landlord_tel' => ['nullable', 'string', 'max:50'],
+            'bank_name' => ['nullable', 'string', 'max:100'],
+            'bank_account_no' => ['nullable', 'string', 'max:50'],
+            'judgments' => ['nullable', 'string', 'in:' . implode(',', self::JUDGMENT_ANSWERS)],
+            'judgments_details' => ['nullable', 'string', 'max:2000'],
+            'car_make' => ['nullable', 'string', 'max:100'],
+            'car_colour' => ['nullable', 'string', 'max:50'],
+            'car_year' => ['nullable', 'string', 'max:10'],
+            'car_reg' => ['nullable', 'string', 'max:30'],
+            // The four repeating blocks - top-level array rules only (no wildcard keys: the autosave path reads
+            // `$request->only(array_keys($rules))`); the SHAPE is checked by blockShapeRule() and cleaned by normaliseBlocks().
+            'co_applicant' => ['nullable', 'array', self::blockShapeRule('co_applicant')],
+            'co_occupants' => ['nullable', 'array', 'max:20', self::blockShapeRule('co_occupants')],
+            'pets' => ['nullable', 'array', 'max:20', self::blockShapeRule('pets')],
+            'affordability' => ['nullable', 'array', self::blockShapeRule('affordability')],
         ];
+    }
+
+    /**
+     * What a cleaned block looks like, and the one place a block's shape is judged - a value that is not a plain
+     * string (or a plain number for an affordability amount) is a malformed post, rejected rather than stored.
+     */
+    private static function blockShapeRule(string $block): \Closure
+    {
+        return function (string $attribute, mixed $value, \Closure $fail) use ($block): void {
+            if (! is_array($value)) {
+                return;
+            }
+            $cells = match ($block) {
+                'co_applicant' => [$value],
+                'co_occupants', 'pets' => $value,
+                default => array_merge((array) ($value['income'] ?? []), (array) ($value['expenses'] ?? [])),
+            };
+            foreach ($cells as $row) {
+                if (! is_array($row)) {
+                    $fail('That part of the form was not understood.');
+
+                    return;
+                }
+                foreach ($row as $cell) {
+                    if (! is_scalar($cell) && $cell !== null) {
+                        $fail('That part of the form was not understood.');
+
+                        return;
+                    }
+                }
+            }
+        };
+    }
+
+    /**
+     * Clean the four blocks in a payload that CARRIES them (an absent key is left alone - a partial autosave must not
+     * wipe anything): trim every cell, drop rows with nothing in them, cap lengths, keep only known keys, and turn a
+     * block with nothing left into null. Amounts accept "R 1 200,50" the way sanitizeNumericInput() does.
+     *
+     * @param array<string,mixed> $fields
+     * @return array<string,mixed>
+     */
+    public static function normaliseBlocks(array $fields): array
+    {
+        $clean = static fn ($v, int $max = 255): ?string => ! is_scalar($v) || ($t = trim((string) $v)) === '' ? null : mb_substr($t, 0, $max); // a nested/malformed cell is dropped, never stringified
+        $money = static function ($v): ?string {
+            if (! is_scalar($v)) {
+                return null;
+            }
+            $t = preg_replace('/[^0-9.,\-]/', '', (string) $v);
+            $t = str_replace(',', '.', (string) $t);
+            if ($t === '' || ! is_numeric($t)) {
+                return null;
+            }
+
+            return number_format(max(0.0, (float) $t), 2, '.', '');
+        };
+
+        if (array_key_exists('co_applicant', $fields)) {
+            $row = [];
+            foreach (array_keys(self::CO_APPLICANT_FIELDS) as $key) {
+                $value = (array) $fields['co_applicant'];
+                $cell = self::CO_APPLICANT_FIELDS[$key][1] === 'money' ? $money($value[$key] ?? null) : $clean($value[$key] ?? null, $key === 'judgments_details' ? 2000 : 255);
+                if ($key === 'judgments' && $cell !== null && ! in_array($cell, self::JUDGMENT_ANSWERS, true)) {
+                    $cell = null;
+                }
+                if ($cell !== null) {
+                    $row[$key] = $cell;
+                }
+            }
+            $fields['co_applicant'] = $row === [] ? null : $row;
+        }
+
+        if (array_key_exists('co_occupants', $fields)) {
+            $rows = [];
+            foreach (array_values((array) $fields['co_occupants']) as $r) {
+                $r = (array) $r;
+                $row = array_filter(['name' => $clean($r['name'] ?? null), 'relationship' => $clean($r['relationship'] ?? null, 100), 'age' => $clean($r['age'] ?? null, 10)], fn ($v) => $v !== null);
+                if ($row !== []) {
+                    $rows[] = $row;
+                }
+            }
+            $fields['co_occupants'] = $rows === [] ? null : array_slice($rows, 0, 20);
+        }
+
+        if (array_key_exists('pets', $fields)) {
+            $rows = [];
+            foreach (array_values((array) $fields['pets']) as $r) {
+                $r = (array) $r;
+                $row = array_filter(['type' => $clean($r['type'] ?? null, 100), 'breed' => $clean($r['breed'] ?? null, 100), 'size' => $clean($r['size'] ?? null, 50)], fn ($v) => $v !== null);
+                if ($row !== []) {
+                    $rows[] = $row;
+                }
+            }
+            $fields['pets'] = $rows === [] ? null : array_slice($rows, 0, 20);
+        }
+
+        if (array_key_exists('affordability', $fields)) {
+            $out = [];
+            foreach (['income', 'expenses'] as $group) {
+                $lines = [];
+                foreach (array_values((array) (((array) $fields['affordability'])[$group] ?? [])) as $r) {
+                    $r = (array) $r;
+                    $label = $clean($r['label'] ?? null, 120);
+                    $amount = $money($r['amount'] ?? null);
+                    if ($label !== null && $amount !== null) {
+                        $lines[] = ['label' => $label, 'amount' => $amount];
+                    }
+                }
+                if ($lines !== []) {
+                    $out[$group] = array_slice($lines, 0, 30);
+                }
+            }
+            $fields['affordability'] = $out === [] ? null : $out;
+        }
+
+        return $fields;
+    }
+
+    /** Sum of one affordability group, as a float (0.0 when empty). */
+    public function affordabilityTotal(string $group): float
+    {
+        return (float) collect(($this->affordability ?? [])[$group] ?? [])->sum(fn ($l) => (float) ($l['amount'] ?? 0));
     }
 
     /**
@@ -530,6 +728,25 @@ class RentalApplication extends Model
             'special_conditions' => 'Special conditions',
             'adults' => 'Number of adults',
             'children' => 'Number of children',
+            // Fuller application (26 Oct 2026) - every label below is the wording printed on the form.
+            'income_tax_no' => 'Income tax number',
+            'marriage_regime' => 'How married',
+            'years_employed' => 'Years employed',
+            'pay_date' => 'Pay day',
+            'previous_landlord_name' => 'Previous landlord name',
+            'previous_landlord_tel' => 'Previous landlord telephone',
+            'bank_name' => 'Bank',
+            'bank_account_no' => 'Bank account number',
+            'judgments' => 'Any judgments against you?',
+            'judgments_details' => 'Judgments - please specify',
+            'car_make' => 'Car make',
+            'car_colour' => 'Car colour',
+            'car_year' => 'Car year',
+            'car_reg' => 'Car registration',
+            'co_applicant' => 'Co-applicant / spouse details',
+            'co_occupants' => 'Other people who will live in the property',
+            'pets' => 'Pets',
+            'affordability' => 'Monthly income and expenses',
             'declaration_signature' => 'Declaration signature',
             'tpn_consent_signature' => self::creditBureauConsentLabel(
                 \App\Models\RentalApplicationQualifyingSetting::creditBureauNameFor($agencyId)
@@ -595,8 +812,13 @@ class RentalApplication extends Model
         ],
         'Employment' => [
             'employment_type', 'employer_name', 'employer_position', 'employer_tel',
-            'monthly_salary', 'employer_address',
+            'monthly_salary', 'employer_address', 'years_employed', 'pay_date',
         ],
+        'Rental history, banking and vehicle' => [
+            'previous_landlord_name', 'previous_landlord_tel', 'income_tax_no', 'marriage_regime', 'bank_name', 'bank_account_no',
+            'judgments', 'judgments_details', 'car_make', 'car_colour', 'car_year', 'car_reg',
+        ],
+        'Co-applicant, household and finances' => ['co_applicant', 'co_occupants', 'pets', 'affordability'],
         'Lease Requirement' => [
             'occupation_date', 'rental_term_months', 'adults', 'children', 'special_conditions',
         ],
@@ -1012,6 +1234,9 @@ class RentalApplication extends Model
         'employer_name', 'employer_position', 'employer_address', 'employer_tel',
         'monthly_salary', 'employment_type',
         'occupation_date', 'rental_terms', 'rental_term_months', 'special_conditions', 'adults', 'children',
+        'income_tax_no', 'marriage_regime', 'years_employed', 'pay_date', 'previous_landlord_name', 'previous_landlord_tel',
+        'bank_name', 'bank_account_no', 'judgments', 'judgments_details', 'car_make', 'car_colour', 'car_year', 'car_reg',
+        'co_applicant', 'co_occupants', 'pets', 'affordability',
         'field_config_snapshot', 'custom_field_values',
     ];
 
@@ -1041,6 +1266,10 @@ class RentalApplication extends Model
         'children' => 'integer',
         'field_config_snapshot' => 'array',
         'custom_field_values' => 'array',
+        'co_applicant' => 'array',
+        'co_occupants' => 'array',
+        'pets' => 'array',
+        'affordability' => 'array',
     ];
 
     /**

@@ -982,6 +982,7 @@ class RentalApplicationController extends Controller
         }
 
         $request->merge(RentalApplication::sanitizeNumericInput($request->only(RentalApplication::NUMERIC_FIELDS)));
+        $request->merge(RentalApplication::normaliseBlocks($request->only(RentalApplication::BLOCK_KEYS)));
 
         // .ai/specs/rental-application-field-config.md §7, piece (c)(3) —
         // custom fields on the agent's own editable capture form, same
