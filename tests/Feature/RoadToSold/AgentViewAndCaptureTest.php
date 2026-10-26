@@ -284,6 +284,40 @@ final class AgentViewAndCaptureTest extends TestCase
         $this->assertNull($svc->resolve($progress, [], $list, false)['action'], 'someone looking at an agent sees the item but has no button');
     }
 
+    public function test_do_this_next_never_says_done_while_a_tile_on_the_page_says_behind(): void
+    {
+        $svc = new NextActionService();
+        $none = ['open' => 0, 'first' => null];
+        $tile = fn (string $key, string $label, string $status, int $actual, ?float $should) => ['key' => $key, 'label' => $label, 'actual' => $actual, 'should_be' => $should, 'pct' => $should ? (int) round($actual / $should * 100) : null, 'status' => $status];
+
+        // An agency that has not started the recipe has no tasks; the summary bar still has the agent's own call target.
+        $bar = ['steps' => [$tile('calls_made', 'Calls made', 'red', 0, 90.0), $tile('conversations', 'Conversations', 'none', 0, null)]];
+        $a = $svc->resolve(['tasks' => []], [], $none, true, $bar);
+        $this->assertSame('task', $a['kind']);
+        $this->assertSame('Calls made', $a['title']);
+        $this->assertSame('0 so far this month, 90 should be done by today', $a['detail']);
+        $this->assertNull($a['action']);
+
+        // Red is named before amber, whatever the order of the tiles.
+        $mixed = ['steps' => [$tile('conversations', 'Conversations', 'amber', 8, 10.0), $tile('calls_made', 'Calls made', 'red', 1, 90.0)]];
+        $this->assertSame('Calls made', $svc->resolve(['tasks' => []], [], $none, true, $mixed)['title']);
+
+        // On track, ahead and "no target" tiles say nothing is due.
+        $fine = ['steps' => [$tile('calls_made', 'Calls made', 'green', 90, 90.0), $tile('listings_live', 'Listings live', 'none', 2, null)]];
+        $this->assertSame('done', $svc->resolve(['tasks' => []], [], $none, true, $fine)['kind']);
+        $this->assertSame('done', $svc->resolve(['tasks' => []], [], $none, true)['kind'], 'no bar given = the old behaviour');
+
+        // The call-result task is unfinished and the list has nothing to call: say so (no button; the list is how it is done).
+        $calls = ['task_id' => 3, 'label' => 'Record a result for each call', 'is_custom' => false, 'event_key' => \App\Events\RoadToSold\RoadToSoldOutcomeRecorded::class, 'target' => 10, 'actual' => 6, 'unit_label' => 'day', 'period_end' => Carbon::parse('2026-10-26')];
+        $b = $svc->resolve(['tasks' => [$calls]], [], $none, true, $fine);
+        $this->assertSame('task', $b['kind']);
+        $this->assertSame('Record a result for each call', $b['title']);
+        $this->assertSame('4 to go today', $b['detail']);
+        $this->assertNull($b['action']);
+        // ... and while the list still has something open the list wins, as before.
+        $this->assertSame('call', $svc->resolve(['tasks' => [$calls]], [], ['open' => 2, 'first' => ['tracked_property_id' => 7, 'list_item_id' => 9, 'address' => '12 Marine Drive']], true, $fine)['kind']);
+    }
+
     // ── A capture makes real records ──────────────────────────────────────
 
     public function test_a_property_capture_goes_through_match_or_create_and_lands_on_the_agents_list(): void

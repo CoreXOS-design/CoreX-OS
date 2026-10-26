@@ -102,7 +102,8 @@ class RoadToSoldController extends Controller
         ])->values()->all();
 
         $progress = $agentUser ? $this->progress->forAgent($agentUser, $track) : ['started' => false, 'level' => null, 'tasks' => [], 'steps' => [], 'met' => 0, 'counted' => 0, 'points' => 0.0, 'points_label' => ''];
-        $nextAction = $this->nextAction->resolve($progress, $feeds, $this->todaysOpen($viewer, $agentId, $date, $track, $isCaptures, $listFilters, $data), $viewingOwn);
+        $bar = $agentUser ? $this->bar->forAgent($agentUser, $date, $track) : ['month' => $date->format('F Y'), 'steps' => []];
+        $nextAction = $this->nextAction->resolve($progress, $feeds, $this->todaysOpen($viewer, $agentId, $date, $track, $isCaptures, $listFilters, $data), $viewingOwn, $bar);
         $captureTasks = $viewingOwn && $agentUser ? $this->capture->capturableTasks($agentUser, $track) : collect();
         $captures = null;
         $teamTotals = [];
@@ -136,7 +137,7 @@ class RoadToSoldController extends Controller
             'captureFilters' => $captureFilters,
             'captureChoices' => $captureChoices,
             'canManageRecipe' => $viewer->hasPermission('road_to_sold.manage_recipe'),
-            'bar'            => $agentUser ? $this->bar->forAgent($agentUser, $date, $track) : ['month' => $date->format('F Y'), 'steps' => []],
+            'bar'            => $bar,
             'drilldownBase'  => route('road-to-sold.drilldown', [
                 'agent_id' => $agentId, 'period' => 'custom',
                 'start' => $date->copy()->startOfMonth()->toDateString(), 'end' => $date->toDateString(),
