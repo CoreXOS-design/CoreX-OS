@@ -26,9 +26,13 @@
         els(key).forEach(function (e) {
             if (isPad(e)) { $('input[type=hidden]', e).value = v || ''; e._redraw && e._redraw(); }
             else if (e.type === 'radio') { e.checked = (e.value === v); }
-            else { e.value = v; }
+            else { e.value = v; if (e.matches && e.matches('textarea[data-autosize]')) { autosize(e); } }
         });
     }
+    // Text boxes that hold lines (the mandate address) grow with what is in them — no fixed height, so the next row is pushed down, not covered.
+    function autosize(t) { t.style.height = 'auto'; t.style.height = (t.scrollHeight + 2) + 'px'; }
+    $$('textarea[data-autosize]').forEach(autosize);
+    document.addEventListener('input', function (e) { if (e.target.matches && e.target.matches('textarea[data-autosize]')) { autosize(e.target); } });
     function label(key) { var e = els(key)[0]; return (C.labels && C.labels[key]) || (e && e.getAttribute('aria-label')) || key; }
 
     // ── live pricing (mirrors AgreementPricing::derive; the server recomputes) ─────
@@ -135,9 +139,7 @@
             if (initial && cur !== '' && cur !== s) { touched[t] = true; }
             if (!touched[t] && s !== '' && cur !== s) { setVal(t, s); if (t !== 'branches_start') { pending[t] = s; } }
         });
-        // The server's date (Africa/Johannesburg) — never the browser clock/timezone, so the printed date always agrees with the signing time.
-        var today = C.today || (function () { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); })();
-        ['sig_date', 'm_date'].forEach(function (k) { if (els(k).length && !val(k)) { setVal(k, today); pending[k] = today; } });
+        // The signing date (sig_date / m_date) is stamped by the server when the agency signs — the page only shows it, it never writes it.
         if (els('m_day').length && !val('m_day')) { setVal('m_day', '1'); pending.m_day = '1'; }
     }
 

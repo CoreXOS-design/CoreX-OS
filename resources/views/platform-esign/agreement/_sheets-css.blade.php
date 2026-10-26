@@ -51,7 +51,8 @@
     .agr .opt input:disabled:checked + .tick { background:#7dd3fc; border-color:#0369a1; box-shadow: inset 0 0 0 3px #f3f4f6; }
     .agr .opt:has(input:disabled) { cursor:not-allowed; }
     .agr p.mf .mf-v .fld { height: 34px; }
-    .agr p.mf .mf-v textarea.fld { height: 40px; min-height: 40px; padding-top: 4px; line-height: 14px; }
+    /* A text row never has a fixed height: the box grows with what is typed (any number of address lines) and pushes the next row down. */
+    .agr p.mf .mf-v textarea.fld { height: auto; min-height: 40px; field-sizing: content; overflow: hidden; resize: none; padding-top: 4px; line-height: 14px; }
     .agr p.mf .mf-t { display:inline-block; width: 24%; vertical-align: middle; white-space: normal; }
     .agr p.mf .mf-t .auto-tip { margin-left:.4rem; font-size:.72rem; line-height:1.25; max-width:none; }
     .agr .tip-end { display:block; }

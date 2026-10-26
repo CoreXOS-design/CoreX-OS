@@ -96,6 +96,11 @@ class AgreementService
         if ($takeOn !== '' && !AgreementTakeOn::valid($takeOn)) {
             throw new \DomainException('Choose a take-on month that is this month or later.');
         }
+        // The debit order day: the platform setting unless the owner overrides it for this one agreement (spec §11.19).
+        $dayRaw = trim((string) ($d['collection_day'] ?? ''));
+        if ($dayRaw !== '' && (!preg_match('/^\d{1,2}$/', $dayRaw) || (int) $dayRaw < 1 || (int) $dayRaw > 28)) {
+            throw new \DomainException('The debit order day must be a day of the month from 1 to 28.');
+        }
         $bands = AgreementPricing::isBands((array) $version->rates_json);
         // Optional owner-only override for a negotiated case: the recipient then sees that plan fixed whatever the number of agents.
         // Tier pricing only — band pricing has no plan to fix.
@@ -110,7 +115,8 @@ class AgreementService
         }
         $rr = array_filter(['variation_text' => $varText] + $discount + ['plan_forced' => $forcedPlan, 'quoted_fee' => $quoted, 'take_on_month' => $takeOn, 'single_entry' => '1'], fn ($v) => $v !== '');
         if ($takeOn !== '') {
-            $values = $values + AgreementTakeOn::values($takeOn);
+            $rr += AgreementTakeOn::freeze($dayRaw === '' ? null : (int) $dayRaw); // frozen onto this agreement: a later settings change never moves it
+            $values = $values + AgreementTakeOn::values($takeOn, $rr);
         }
 
         $doc = DB::transaction(function () use ($version, $tpl, $agency, $name, $email, $d, $values, $rr, $sender, $userId, $forcedPlan, $takeOn, $discount, $quoted) {
@@ -134,7 +140,7 @@ class AgreementService
 
             $this->esign->log($doc, 'created', 'Subscription Agreement ' . $version->label() . ' prepared for ' . $name, null, $userId);
             if ($takeOn !== '') {
-                $t = AgreementTakeOn::derive($takeOn);
+                $t = AgreementTakeOn::derive($takeOn, $rr);
                 $this->esign->log($doc, 'take_on_set', 'Take-on month ' . AgreementTakeOn::label($takeOn) . ' set by ' . $sender->name . ' — agreement starts ' . Carbon::parse($t['start_date'])->format('j F Y') . ', billing starts ' . Carbon::parse($t['billing_start'])->format('j F Y'), null, $userId);
             }
             if ($discount) {
@@ -281,7 +287,7 @@ class AgreementService
         if (!preg_match('/^\d{4}-\d{2}$/', $m)) {
             return $values;
         }
-        $values = array_merge($values, AgreementTakeOn::values($m), ['m_day' => AgreementTakeOn::COLLECTION_DAY]);
+        $values = array_merge($values, AgreementTakeOn::values($m, $rr));
         $values['m_amount'] = $calc['plan'] === '' ? '' : rtrim(rtrim(number_format((float) $calc['total'], 2, '.', ''), '0'), '.');
 
         return $values;
@@ -336,8 +342,11 @@ class AgreementService
     /** Keys the recipient's request may never write: the derived ones, plus the take-on dates when RR set a take-on month. @return string[] */
     private function lockedKeys(array $rr): array
     {
-        return array_merge(self::DERIVED_KEYS, !empty($rr['take_on_month']) ? array_keys(AgreementTakeOn::FIELDS) : [], !empty($rr['single_entry']) ? array_keys(AgreementFields::MIRRORS) : []);
+        return array_merge(self::DERIVED_KEYS, self::SIGNING_DATE_KEYS, !empty($rr['take_on_month']) ? array_keys(AgreementTakeOn::FIELDS) : [], !empty($rr['single_entry']) ? array_keys(AgreementFields::MIRRORS) : []);
     }
+
+    /** The signing date (Part A) and the mandate Date: stamped by the server on the day the agency signs — never typed, never taken from the request. */
+    public const SIGNING_DATE_KEYS = ['sig_date', 'm_date'];
 
     /** Recipient keys the entries decide — never taken from the recipient's request. */
     public const DERIVED_KEYS = ['plan', 'extra_branches', 'branches_start'];
@@ -402,7 +411,7 @@ class AgreementService
             'awaiting_countersign' => 'You have signed this agreement. ' . AgreementCompany::for($doc)->legalName() . ' will countersign it and email you the signed copy.',
             'wetink_received' => 'We have received your hand-signed copy. ' . AgreementCompany::for($doc)->legalName() . ' will countersign it and email you the signed copy. You can replace the copy below until then.',
             // Still open for the agency, but the start month RR set has since passed: nothing signed now could be collected as written.
-            default => AgreementTakeOn::lapsed(((array) $doc->rr_data)['take_on_month'] ?? null) ? $this->takeOnLapsedAgencyMessage($doc) : null,
+            default => AgreementTakeOn::lapsed(((array) $doc->rr_data)['take_on_month'] ?? null, null, (array) $doc->rr_data) ? $this->takeOnLapsedAgencyMessage($doc) : null,
         };
     }
 
@@ -417,13 +426,13 @@ class AgreementService
     public function takeOnLapse(Document $doc): ?array
     {
         $m = (string) (((array) $doc->rr_data)['take_on_month'] ?? '');
-        if ($doc->trashed() || in_array($doc->status, ['completed', 'voided', 'declined'], true) || !AgreementTakeOn::lapsed($m)) {
+        if ($doc->trashed() || in_array($doc->status, ['completed', 'voided', 'declined'], true) || !AgreementTakeOn::lapsed($m, null, (array) $doc->rr_data)) {
             return null;
         }
 
         return [
             'month' => $m, 'label' => AgreementTakeOn::label($m),
-            'billing' => Carbon::parse(AgreementTakeOn::derive($m)['billing_start'])->format('j F Y'),
+            'billing' => Carbon::parse(AgreementTakeOn::derive($m, (array) $doc->rr_data)['billing_start'])->format('j F Y'),
             'can_reset' => in_array($doc->status, ['sent', 'in_progress', 'expired'], true),
         ];
     }
@@ -468,10 +477,10 @@ class AgreementService
             $old = (string) $rr['take_on_month'];
             $rr['take_on_month'] = $month;
             $locked->rr_data = $rr;
-            $locked->form_data = array_merge((array) $locked->form_data, AgreementTakeOn::values($month), ['m_day' => AgreementTakeOn::COLLECTION_DAY]);
+            $locked->form_data = array_merge((array) $locked->form_data, AgreementTakeOn::values($month, $rr));
             $locked->form_rev = (int) $locked->form_rev + 1; // an open agency page then picks the new dates up instead of overwriting them
             $locked->save();
-            $d = AgreementTakeOn::derive($month);
+            $d = AgreementTakeOn::derive($month, $rr);
             $by = User::withoutGlobalScopes()->where('id', $userId)->value('name') ?: 'the owner';
             $this->esign->log($locked, 'take_on_set', 'Take-on month changed from ' . AgreementTakeOn::label($old) . ' to ' . AgreementTakeOn::label($month) . ' by ' . $by . ' — agreement starts ' . Carbon::parse($d['start_date'])->format('j F Y') . ', billing starts ' . Carbon::parse($d['billing_start'])->format('j F Y'), null, $userId);
         });
@@ -605,6 +614,8 @@ class AgreementService
             $incoming = array_diff_key(AgreementFields::clean($values, 'r'), array_flip($this->lockedKeys((array) $locked->rr_data)));
             $data = $this->settle((array) $locked->form_data, array_merge((array) $locked->form_data, $incoming), (array) $locked->rr_data, $rates);
             $data = $this->withFollow($data, (array) $locked->rr_data); // the signed record holds the effective address / contact number
+            $signedOn = now()->toDateString(); // the date the agency signs, set here and nowhere else (the app clock, Africa/Johannesburg) — the form only shows it
+            $data = array_merge($data, array_fill_keys(self::SIGNING_DATE_KEYS, $signedOn));
             $errors = AgreementFields::validateRecipient($data, $rates, !empty($locked->rr_data['single_entry']) ? array_keys(AgreementFields::MIRRORS) : []);
 
             $idNumber = trim((string) ($input['id_number'] ?? '')) ?: (string) $sg->id_number;
@@ -625,7 +636,7 @@ class AgreementService
                 $errors['pages'] = 'Initial every page — ' . $done . ' of ' . $total . ' done.';
             }
             if ($errors) {
-                $locked->form_data = $data;
+                $locked->form_data = array_diff_key($data, array_flip(self::SIGNING_DATE_KEYS)); // an unsigned form holds no signing date
                 $locked->form_rev = (int) $locked->form_rev + 1; // the stored entries changed: a second tab holding the old revision must conflict, not overwrite
                 $locked->save();
 
@@ -676,12 +687,12 @@ class AgreementService
             if ($locked->status !== 'awaiting_countersign') {
                 throw new \DomainException('This agreement is not waiting for a countersignature on the electronic copy.');
             }
-            if (AgreementTakeOn::lapsed(((array) $locked->rr_data)['take_on_month'] ?? null)) {
+            if (AgreementTakeOn::lapsed(((array) $locked->rr_data)['take_on_month'] ?? null, null, (array) $locked->rr_data)) {
                 throw new \DomainException($this->takeOnLapsedOwnerMessage($locked));
             }
             // RR can only write RR-side fields, and never the variation fields (set at send, spec §11.7).
-            $clean = array_diff_key(AgreementFields::clean($rrInput, 'rr'), array_flip(['variation_text', 'variation_amount']));
-            $rr = array_merge((array) $locked->rr_data, $clean);
+            $clean = array_diff_key(AgreementFields::clean($rrInput, 'rr'), array_flip(['variation_text', 'variation_amount', 'rr_date']));
+            $rr = array_merge((array) $locked->rr_data, $clean, ['rr_date' => now()->toDateString()]); // the countersign date is the day RR countersigns — never typed
             foreach (['rr_name' => 'Name', 'rr_capacity' => 'Capacity', 'rr_place' => 'Place', 'rr_date' => 'Date', 'sigR' => 'Signature'] as $k => $label) {
                 if (trim((string) ($rr[$k] ?? '')) === '') {
                     $errors[$k] = $label . ' is required.';
@@ -883,11 +894,11 @@ class AgreementService
             if ($locked->status !== 'wetink_received' || !$locked->wetinkFiles()->whereNull('superseded_at')->exists()) {
                 throw new \DomainException('This agreement is not waiting for a countersignature on a hand-signed copy.');
             }
-            if (AgreementTakeOn::lapsed(((array) $locked->rr_data)['take_on_month'] ?? null)) {
+            if (AgreementTakeOn::lapsed(((array) $locked->rr_data)['take_on_month'] ?? null, null, (array) $locked->rr_data)) {
                 throw new \DomainException($this->takeOnLapsedOwnerMessage($locked));
             }
-            $clean = array_diff_key(AgreementFields::clean($rrInput, 'rr'), array_flip(['variation_text', 'variation_amount']));
-            $rr = array_merge((array) $locked->rr_data, $clean);
+            $clean = array_diff_key(AgreementFields::clean($rrInput, 'rr'), array_flip(['variation_text', 'variation_amount', 'rr_date']));
+            $rr = array_merge((array) $locked->rr_data, $clean, ['rr_date' => now()->toDateString()]); // the countersign date is the day RR countersigns — never typed
             foreach (['rr_name' => 'Name', 'rr_capacity' => 'Capacity', 'rr_place' => 'Place', 'rr_date' => 'Date', 'sigR' => 'Signature'] as $k => $label) {
                 if (trim((string) ($rr[$k] ?? '')) === '') {
                     $errors[$k] = $label . ' is required.';

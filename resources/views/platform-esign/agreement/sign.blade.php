@@ -14,6 +14,7 @@
 <div class="topbar">
     <div class="brand">CoreX <span>OS</span></div>
     <div class="stat">Subscription Agreement</div>
+    @if($takeOnSummary = \App\Services\PlatformEsign\Agreement\AgreementTakeOn::summary((array) $doc->rr_data))<div class="stat" id="take-on-summary">{{ $takeOnSummary }}</div>@endif
     <div class="sp">
         <span class="stat" id="pages-stat"></span>
         <span class="stat" id="savestate">All changes saved</span>

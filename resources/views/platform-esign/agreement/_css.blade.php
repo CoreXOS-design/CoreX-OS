@@ -35,7 +35,7 @@
     .agr .sigtable td p.sr-signature .sr-l { vertical-align: top; }
     .agr .sigtable td p.sr-signature .sigimg, .agr .sigtable td p.sr-signature .sigline, .agr .sigtable td p.sr-signature .blank.sigline, .agr .sigtable td p.sr-signature .sigpad { display:inline-block; vertical-align: top; width: 72%; max-width:none; box-sizing:border-box; height: {{ !empty($pdf) ? '34pt' : '132px' }}; line-height: normal; min-width:0; border-bottom: 1px solid #475569; }
     .agr .sigtable td p.sr-signature .sigimg { object-fit: contain; }
-    .agr p.mf { margin: 0 0 {{ !empty($pdf) ? '5pt' : '4px' }}; {{ !empty($pdf) ? '' : 'height: 48px; white-space: nowrap;' }} line-height: {{ !empty($pdf) ? '12pt' : '24px' }}; }
+    .agr p.mf { margin: 0 0 {{ !empty($pdf) ? '5pt' : '4px' }}; {{ !empty($pdf) ? '' : 'min-height: 48px; height: auto; white-space: normal;' }} line-height: {{ !empty($pdf) ? '12pt' : '24px' }}; }
     .agr p.mf .mf-l { display:inline-block; width: {{ !empty($pdf) ? '34%' : '24%' }}; vertical-align: {{ !empty($pdf) ? 'top' : 'middle' }}; white-space: normal; line-height: {{ !empty($pdf) ? '12pt' : '18px' }}; }
     .agr p.mf .mf-v { display:inline-block; width: {{ !empty($pdf) ? '62%' : '50%' }}; vertical-align: {{ !empty($pdf) ? 'top' : 'middle' }}; white-space: normal; line-height: {{ !empty($pdf) ? '12pt' : '20px' }}; }
     .agr p.mf .mf-v .fld { width:100%; box-sizing:border-box; }

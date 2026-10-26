@@ -8,7 +8,7 @@
                 @csrf
                 <label class="text-sm" for="take-on-reset-{{ $doc->id }}">Set a new take-on month</label>
                 <select id="take-on-reset-{{ $doc->id }}" name="take_on_month" class="ds-field" required>
-                    @foreach(\App\Services\PlatformEsign\Agreement\AgreementTakeOn::options(12) as $o)
+                    @foreach(\App\Services\PlatformEsign\Agreement\AgreementTakeOn::options(12, null, (array) $doc->rr_data) as $o)
                         <option value="{{ $o['value'] }}">{{ $o['label'] }} — starts {{ $o['start'] }}, billing from {{ $o['billing'] }}</option>
                     @endforeach
                 </select>
