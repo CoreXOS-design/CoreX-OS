@@ -305,7 +305,7 @@ class ParseMarketReportJob implements ShouldQueue
                 try {
                     $matcher->matchOrCreate(
                         agencyId: (int) $report->agency_id,
-                        facts: $address,
+                        facts: $this->matcherFacts($address),
                         source: [
                             'type' => 'cmainfo',
                             'ref'  => 'report:' . $report->id,
@@ -502,6 +502,26 @@ class ParseMarketReportJob implements ShouldQueue
      * worker. Returns false when it is not a real queue run, or it has waited long enough (the report is then
      * shown as not read, with the plain "busy" reason).
      */
+    /**
+     * Reports describe a sale as sale_price / sale_date; the property matcher only writes last_known_sold_price /
+     * last_known_sold_date and silently drops any key it does not know. Without this rename every imported sale
+     * created its tracked property with no sold price or date. One place, for every parser and the AI read.
+     *
+     * @param array<string, mixed> $facts
+     * @return array<string, mixed>
+     */
+    private function matcherFacts(array $facts): array
+    {
+        foreach (['sale_price' => 'last_known_sold_price', 'sale_date' => 'last_known_sold_date'] as $from => $to) {
+            if (array_key_exists($from, $facts)) {
+                $facts[$to] ??= $facts[$from];
+                unset($facts[$from]);
+            }
+        }
+
+        return $facts;
+    }
+
     private function putBackBecauseBusy(): bool
     {
         if ($this->job === null || $this->job instanceof \Illuminate\Queue\Jobs\SyncJob || $this->attempts() >= self::MAX_BUSY_RELEASES) {

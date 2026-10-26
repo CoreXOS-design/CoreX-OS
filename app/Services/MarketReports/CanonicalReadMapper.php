@@ -279,6 +279,15 @@ final class CanonicalReadMapper
             'sale_price'    => $c['sale_price'] ?? null,
             'sale_date'     => $c['sale_date'] ?? null,
         ];
+        // The plot size printed against a sale belongs to the property: a full title's is its erf, a sectional
+        // unit's is its own section extent. A type the report does not state either way is left unwritten.
+        $extent = $c['extent_m2'] ?? null;
+        $type   = (string) ($c['property_type'] ?? '');
+        if ($extent !== null && preg_match('/sectional/i', $type)) {
+            $bits['section_extent_m2'] = $extent;
+        } elseif ($extent !== null && preg_match('/full\s*title|freehold/i', $type)) {
+            $bits['erf_size_m2'] = $extent;
+        }
         try {
             $read = (new AddressParser())->parse([
                 'street_number' => null,

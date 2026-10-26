@@ -1105,6 +1105,8 @@ The system values protect the platform's AI bill and the trustworthiness of dete
 
 **Tests.** `tests/Feature/MarketReports/ReportChartLayoutTest.php` (LOOM learn + every figure back; second report read by the layout with no AI call; an invented publisher's charts and headed estimate; figures the text does not carry are never saved), `ReportLifecycleTest::test_bulk_import_without_an_agency_says_what_to_do_instead_of_a_bare_403`. Fixtures `loom_cma.layout.txt` / `loom_cma.read.json` are the real report's text and the AI's real answer with the people removed.
 
+**Imported sales now reach their tracked property (26 Oct 2026, live — Caprivi LOOM audit).** Every report parser and the AI read hand the property matcher `sale_price` / `sale_date`, but the matcher only writes `last_known_sold_price` / `last_known_sold_date` and drops unknown keys, so no imported sale ever carried its price or date onto its tracked property (3 of 328 report-created properties had one). `ParseMarketReportJob::matcherFacts()` renames the two keys once for every parser; the AI-read mapper also passes the sale's plot size (`erf_size_m2` for a full title, `section_extent_m2` for a sectional unit, nothing when the type is not stated). The matcher no longer lets an older (or undated) imported sale replace a newer sale already on the property; deeds capture still wins outright. The 25 Caprivi properties (report 444) were back-filled through the matcher. Tests: `tests/Feature/MarketReports/ReportSaleCarriedToPropertyTest.php` (written; not run on the live host, which has no tests-only database).
+
 ---
 
 ## 9. WhatsApp Action Flow

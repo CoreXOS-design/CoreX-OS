@@ -1688,6 +1688,22 @@ final class TrackedPropertyMatchOrCreateService
         // what was actually persisted. .ai/specs/deeds-capture.md §6 Part A/B.
         $diff = [];
         $fieldChanges = [];
+
+        // "Newer source wins" is about when we heard it, not when the sale happened: a report listing a 2020 sale
+        // must not replace a 2025 sale already on the property. An existing sale is only replaced by one that is
+        // dated and not older; an undated incoming sale never replaces a dated one. (Filling an empty one is
+        // unaffected, and deeds capture still wins outright.)
+        $keepExistingSale = false;
+        if (!$alwaysWins && $tp->last_known_sold_date !== null) {
+            try {
+                $incomingSaleDate = $sanitised['last_known_sold_date'] ?? null;
+                $keepExistingSale = $incomingSaleDate === null
+                    || \Illuminate\Support\Carbon::parse($incomingSaleDate)->lt(\Illuminate\Support\Carbon::parse($tp->last_known_sold_date));
+            } catch (\Throwable) {
+                $keepExistingSale = true; // a date we cannot read is not evidence of a newer sale
+            }
+        }
+
         foreach ($sanitised as $key => $newVal) {
             $rawExisting = $tp->{$key} ?? null;
             // Normalise the STORED value the same way an incoming capture is
@@ -1742,6 +1758,9 @@ final class TrackedPropertyMatchOrCreateService
             // (Johan, 2026-08-19) a SOURCE_ALWAYS_WINS source like deeds_capture,
             // which wins on every field it actually captured, not just this list.
             $sourceWinsHere = $alwaysWins || in_array($key, self::NEWER_WINS_FIELDS, true);
+            if ($keepExistingSale && in_array($key, ['last_known_sold_price', 'last_known_sold_date'], true)) {
+                continue;
+            }
             if ($sourceWinsHere && !$this->sameCapturedValue($existing, $newVal)) {
                 $diff[$key] = $newVal;
                 $fieldChanges[] = ['field' => $key, 'previous' => $existing, 'new' => $newVal, 'change_type' => 'replaced'];
