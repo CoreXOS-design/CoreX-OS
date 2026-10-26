@@ -226,3 +226,8 @@ All four call the same web action as the office screen and sit behind `rental_in
 Move-out: the server already starts, lists (`type=out`), schedules (`/due`) and records a move-out (`type: "out"`) identically to a move-in; the missing "Move-out" section is the app's (see the mobile prompt). Tenant/owner viewing of sent move-in / move-out inspections and photos is the existing `GET /client/rentals/{landlord/}inspections/{id}` (§ "Client view of the move-in / move-out inspection"); the app had not yet opened it.
 
 Tests: `tests/Feature/Api/MobileInspectionPhotosAndInventoryLinesTest.php`.
+
+
+## Phone notifications for agents, the new inspection_ready alert and the Push Test Lab (Johan, 26 Oct 2026)
+
+See `.ai/specs/push-test-lab.md`. Summary: every rentals alert an agent has to act on now reaches the agent's phone (`supports_push` was 0 on all 40); pushes carry `target` + `target_id` so the app opens the right screen; tenants and owners get a switchable `inspection_ready` push when an inspection report is readable in their app; System Developer -> Push Test Lab sends a test to any person's phone.

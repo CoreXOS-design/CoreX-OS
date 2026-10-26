@@ -4,12 +4,14 @@ namespace App\Listeners\Rentals;
 
 use App\Events\Rentals\LeaseNoticeReviewed;
 use App\Events\Rentals\RentalAppointmentSet;
+use App\Events\Rentals\RentalInspectionReportReady;
 use App\Events\Rentals\RentalOwnerDecisionNeeded;
 use App\Events\Rentals\RentalTenantFaultStatusChanged;
 use App\Events\Rentals\RentalWorkReportedDone;
 use App\Models\Contact;
 use App\Models\Lease;
 use App\Models\RentalFaultReport;
+use App\Models\RentalInspection;
 use App\Models\RentalWorkOrder;
 use App\Services\Rentals\RentalAuthorisationService;
 use App\Services\Rentals\RentalClientPushService;
@@ -125,6 +127,25 @@ class SendRentalClientPush
             } else {
                 $this->push->sendToContacts($giver, 'notice_outcome', 'Your notice was not accepted', $address, "{$fact}|giver", $data + ['audience' => $byTenant ? 'tenant' : 'owner'], $lease->agency_id);
             }
+        });
+    }
+
+    /** A completed inspection's report is open to its parties: the tenant and the owner of the lease are told once per inspection (switchable). */
+    public function inspectionReportReady(RentalInspectionReportReady $e): void
+    {
+        $this->safely(function () use ($e) {
+            $i = $e->inspection;
+            $lease = $i->lease_id ? Lease::withoutGlobalScopes()->find($i->lease_id) : null;
+            if (! $lease) {
+                return;
+            }
+            $title = ucfirst(RentalInspection::typeName($i->type)) . ' report is ready';
+            $body = $lease->property?->buildDisplayAddress() ?: '';
+            $data = ['subject_type' => 'inspection', 'subject_id' => (string) $i->id];
+            $fact = "inspection:{$i->id}";
+
+            $this->push->sendToContacts($lease->tenantContacts(), 'inspection_ready', $title, $body, "{$fact}|tenant", $data + ['audience' => 'tenant'], $lease->agency_id);
+            $this->push->sendToContacts($lease->landlordContacts(), 'inspection_ready', $title, $body, "{$fact}|owner", $data + ['audience' => 'owner'], $lease->agency_id);
         });
     }
 

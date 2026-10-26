@@ -51,6 +51,13 @@ class RentalInspectionCopiesService
 
         $this->distribution->fileToProperty($inspection, $pdfBytes, $filename);
 
+        // AT-508: the report is now open to its parties in their app - tell their phones (a push that fails never undoes the filing).
+        try {
+            \App\Events\Rentals\RentalInspectionReportReady::dispatch($inspection, $triggeredBy?->id);
+        } catch (\Throwable $e) {
+            Log::warning('Inspection report ready: phone alert could not be raised', ['inspection_id' => $inspection->id, 'error' => $e->getMessage()]);
+        }
+
         if ($autoOnly && ! \App\Models\RentalInspectionSetting::autoSendReportEnabledFor($inspection->agency_id)) {
             return [];
         }

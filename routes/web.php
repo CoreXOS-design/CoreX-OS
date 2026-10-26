@@ -5360,6 +5360,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::put('/settings',                        [$c, 'updateSettings'])->name('settings.update');
     });
 
+    // AT-508 — Push Test Lab (System Developer): send a test phone notification to one person and see every notification the app
+    // receives. owner_only and DELIBERATELY no permission key (a grantable key could let an agency admin push to any agency's phones).
+    // Spec: .ai/specs/push-test-lab.md.
+    Route::middleware('owner_only')->prefix('admin/push-test-lab')->name('admin.push-test-lab.')->group(function () {
+        Route::get('/',      [\App\Http\Controllers\Admin\PushTestLabController::class, 'index'])->name('index');
+        Route::post('/send', [\App\Http\Controllers\Admin\PushTestLabController::class, 'send'])->middleware('throttle:20,1')->name('send');
+    });
+
     // AT-URGENT-2026-09-09 — the outbound-mail kill switch's capture log.
     // View + count + per-message .eml export only, owner_only (same
     // boundary as the toggle itself on settings.email-setup.mail-intercept).

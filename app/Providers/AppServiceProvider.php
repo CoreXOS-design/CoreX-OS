@@ -341,6 +341,7 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(\App\Events\Rentals\RentalAppointmentSet::class, [\App\Listeners\Rentals\SendRentalClientPush::class, 'appointmentSet']);
         Event::listen(\App\Events\Rentals\RentalWorkReportedDone::class, [\App\Listeners\Rentals\SendRentalClientPush::class, 'workReportedDone']);
         Event::listen(\App\Events\Rentals\LeaseNoticeReviewed::class, [\App\Listeners\Rentals\SendRentalClientPush::class, 'noticeReviewed']);
+        Event::listen(\App\Events\Rentals\RentalInspectionReportReady::class, [\App\Listeners\Rentals\SendRentalClientPush::class, 'inspectionReportReady']);
         // §17.16 (Build 2) — the owner's final statement when a work order closes, whichever route closed it.
         Event::listen(\App\Events\Rentals\RentalWorkOrderClosed::class, \App\Listeners\Rentals\SendOwnerFinalStatement::class);
         // LEASE-AGREEMENT BEGIN (leases.md §15.15 — Build L1, live from Build L3b): SignatureService announces these five
