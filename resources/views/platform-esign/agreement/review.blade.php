@@ -30,6 +30,7 @@
         </div>
         <div id="todo" class="todo" hidden role="dialog" style="top:120px;"><div style="display:flex;justify-content:space-between;margin-bottom:.4rem;"><strong>What is still outstanding</strong><button type="button" id="todo-close" class="mini">×</button></div><div id="todo-list"></div></div>
     @else
+        @if($takeOnSummary = \App\Services\PlatformEsign\Agreement\AgreementTakeOn::summary((array) $doc->rr_data))<div class="rounded-md px-4 py-2 text-sm font-semibold" id="take-on-summary" style="position: sticky; top: 0; z-index: 20; background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">{{ $takeOnSummary }}</div>@endif
         <div class="rounded-md px-4 py-3 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);">Read-only view of what has been entered so far. Account numbers are masked — click one to reveal it (the reveal is recorded in the audit trail).</div>
     @endif
 
