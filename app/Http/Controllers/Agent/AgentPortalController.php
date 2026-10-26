@@ -251,14 +251,19 @@ class AgentPortalController extends Controller
         // Agency Tracker re-home step 2: Targets & Budget, Where am I vs where I should be, My Activity.
         // An assistant has no earnings or targets of their own (AT-267 section 10): nothing is computed for them.
         $myPortal = $isAssistant ? null : $this->myPortalBlocks($user);
+        // My performance (rehome ruling F): the agent's OWN audited figures - the very calls behind Dashboard > My Performance
+        // (command-center.reporting.agent), always for the signed-in user's id and nobody else's. Not for an assistant.
+        $myPerformance = $isAssistant ? null : $this->myPerformanceBlock($user);
         $overviewSub = $isAssistant ? 'compliance'
             : (! $myPortal ? 'earnings'
-                : (in_array(request('sub'), ['whereami', 'targets', 'myactivity'], true) ? request('sub') : 'whereami'));
+                : (in_array(request('sub'), ['whereami', 'targets', 'myactivity'], true)
+                    || (request('sub') === 'performance' && $myPerformance) ? request('sub') : 'whereami'));
 
         return view('agent.portal', compact(
             'user',
             'isAssistant',
             'myPortal',
+            'myPerformance',
             'overviewSub',
             'navFavourites',
             'navFavouriteMax',
@@ -302,6 +307,28 @@ class AgentPortalController extends Controller
      * display choices only, limited to the lenses the user's deal data scope allows.
      * Failure-isolated: if the numbers cannot be built the rest of the portal still loads.
      */
+    /** Ranges the My performance sub-tab offers - the same four as the full report's chips. */
+    public const PERFORMANCE_RANGES = [7 => '7d', 30 => '30d', 90 => '90d', 365 => 'Year'];
+
+    /**
+     * @return array{days:int, metrics:array, funnel:array, insights:array}|null  null when the performance pages are switched off
+     */
+    private function myPerformanceBlock(User $user): ?array
+    {
+        if (! feature('performance-dashboards') || ! \Illuminate\Support\Facades\Route::has('command-center.reporting.agent')) {
+            return null;
+        }
+        $days = array_key_exists((int) request('days'), self::PERFORMANCE_RANGES) ? (int) request('days') : 30;
+        $service = app(\App\Services\ReportingService::class);
+
+        return [
+            'days' => $days,
+            'metrics' => $service->getAgentMetrics($user->id, $days),
+            'funnel' => $service->getConversionFunnel(['user_id' => $user->id], $days),
+            'insights' => $service->getAgentInsights($user->id, $days),
+        ];
+    }
+
     private function myPortalBlocks(User $user): ?array
     {
         try {
