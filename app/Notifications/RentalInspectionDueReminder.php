@@ -63,6 +63,12 @@ class RentalInspectionDueReminder extends Notification
         ];
     }
 
+    /** The agent's phone (AT-508): the gateway pushes this when the type supports push and the agent's own switches allow it. */
+    public function toFcmPayload(): array
+    {
+        return \App\Support\Push\PushTarget::payload('Inspection reminder', $this->message(), 'rental_inspection.due_reminder', \App\Models\Lease::class, $this->leaseId, $this->id);
+    }
+
     public function toMail(object $notifiable): MailMessage
     {
         return (new MailMessage)

@@ -36,11 +36,11 @@ final class MobileRentalsP1Test extends TestCase
     public function test_each_side_lists_only_the_switchable_notifications_and_mandatory_ones_cannot_be_switched_off(): void
     {
         $tenant = $this->asClient($this->tenantLogin)->getJson(self::CLIENT . '/push-preferences')->assertOk()->json('switchable');
-        $this->assertSame(['fault_status'], array_column($tenant, 'key'));
+        $this->assertSame(['fault_status', 'inspection_ready'], array_column($tenant, 'key'));
         $this->assertTrue($tenant[0]['enabled'], 'on until the agency or the person says otherwise');
 
         $owner = $this->asClient($this->ownerLogin)->getJson(self::CLIENT . '/landlord/push-preferences')->assertOk()->json('switchable');
-        $this->assertSame(['work_order_update'], array_column($owner, 'key'));
+        $this->assertSame(['work_order_update', 'inspection_ready'], array_column($owner, 'key'));
 
         // the mandatory ones: refused, and nothing is stored
         foreach (['decision_needed', 'appointment', 'notice_outcome', 'work_finished', 'work_check_requested'] as $key) {

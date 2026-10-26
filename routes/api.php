@@ -759,6 +759,8 @@ Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(f
                 ->middleware('permission:rental_inspections.create')->name('v1.mobile.rental-inspections.observations.store');
             Route::post('/{inspection}/observations/{observation}/photos', [$c, 'storePhoto'])->whereNumber(['inspection', 'observation'])
                 ->middleware('permission:rental_inspections.create')->name('v1.mobile.rental-inspections.observations.photos.store');
+            Route::post('/{inspection}/photos', [$c, 'storeTaggedPhoto'])->whereNumber('inspection')
+                ->middleware('permission:rental_inspections.create')->name('v1.mobile.rental-inspections.photos.store');
             Route::post('/{inspection}/rooms/{room}/notes', [$c, 'storeRoomNote'])->whereNumber(['inspection', 'room'])
                 ->middleware('permission:rental_inspections.create')->name('v1.mobile.rental-inspections.rooms.notes.store');
             Route::post('/{inspection}/overall-notes', [$c, 'updateOverallNotes'])->whereNumber('inspection')
@@ -779,6 +781,13 @@ Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(f
             Route::get('/{inventory}', [$c, 'show'])->whereNumber('inventory')->middleware('permission:rental_inventories.view')->name('v1.mobile.rental-inventories.show');
             Route::post('/{inventory}/photos', [$c, 'storePhoto'])->whereNumber('inventory')
                 ->middleware('permission:rental_inventories.create')->name('v1.mobile.rental-inventories.photos.store');
+            // typing: add / change / remove a line (what the item is, how many, its condition, which room)
+            Route::post('/{inventory}/lines', [$c, 'storeLine'])->whereNumber('inventory')
+                ->middleware('permission:rental_inventories.create')->name('v1.mobile.rental-inventories.lines.store');
+            Route::put('/{inventory}/lines/{line}', [$c, 'updateLine'])->whereNumber(['inventory', 'line'])
+                ->middleware('permission:rental_inventories.create')->name('v1.mobile.rental-inventories.lines.update');
+            Route::post('/{inventory}/lines/{line}/retire', [$c, 'retireLine'])->whereNumber(['inventory', 'line'])
+                ->middleware('permission:rental_inventories.create')->name('v1.mobile.rental-inventories.lines.retire');
         });
         // AT-508 P5/P6 END
 

@@ -47,6 +47,9 @@ class CalendarReminderService
      */
     private const GRACE_MINUTES = 2;
 
+    /** The untouched "Calendar event reminder" setting (UserDashboardSetting::defaults()): one hour. */
+    public const STANDARD_LEAD_MINUTES = 60;
+
     /** Snooze duration for the popup toast. */
     public const SNOOZE_MINUTES = 10;
 
@@ -121,21 +124,8 @@ class CalendarReminderService
         string $occKey,
         Carbon $now,
     ): int {
-        $offsets  = $configEvent->effectiveReminderOffsets();
         $channels = $configEvent->effectiveReminderChannels();
-        if (empty($offsets) || empty($channels)) {
-            return 0;
-        }
-
-        // Which offsets are due right now: fireAt = start - offset; due when
-        // fireAt <= now <= start + grace. Never remind meaningfully after start
-        // (grace only absorbs tick jitter so a 0-offset isn't missed).
-        $dueOffsets = array_filter($offsets, function (int $offset) use ($start, $now) {
-            $fireAt = $start->copy()->subMinutes($offset);
-            return $now->greaterThanOrEqualTo($fireAt)
-                && $now->lessThanOrEqualTo($start->copy()->addMinutes(self::GRACE_MINUTES));
-        });
-        if (empty($dueOffsets)) {
+        if (empty($configEvent->effectiveReminderOffsets()) || empty($channels)) {
             return 0;
         }
 
@@ -146,6 +136,18 @@ class CalendarReminderService
 
         $sent = 0;
         foreach ($recipients as $user) {
+            // Which offsets are due right now FOR THIS PERSON: fireAt = start - offset; due when
+            // fireAt <= now <= start + grace. Never remind meaningfully after start
+            // (grace only absorbs tick jitter so a 0-offset isn't missed).
+            $dueOffsets = array_filter($this->offsetsFor($configEvent, $user), function (int $offset) use ($start, $now) {
+                $fireAt = $start->copy()->subMinutes($offset);
+                return $now->greaterThanOrEqualTo($fireAt)
+                    && $now->lessThanOrEqualTo($start->copy()->addMinutes(self::GRACE_MINUTES));
+            });
+            if (empty($dueOffsets)) {
+                continue;
+            }
+
             $userChannels = $this->channelsForUser($user, $channels);
             foreach ($dueOffsets as $offset) {
                 foreach ($userChannels as $channel) {
@@ -157,6 +159,39 @@ class CalendarReminderService
         }
 
         return $sent;
+    }
+
+    /**
+     * How long before the event THIS person is warned (Johan, 26 Oct 2026: "an hour before ... customizable in the app").
+     *
+     *   1. a reminder time set on the event itself (the web form, or the app's event screen) - it is that appointment's own choice;
+     *   2. the person's own "Calendar event reminder" time from their notification settings, once they have changed it from the
+     *      standard hour (the setting existed and was saved but nothing ever read it);
+     *   3. the agency's default for that kind of event, else the system default (one hour).
+     *
+     * @return int[] minutes before the start
+     */
+    private function offsetsFor(CalendarEvent $event, User $user): array
+    {
+        $own = $event->effectiveReminderOffsets();
+        if (! empty($event->reminder_offsets)) {
+            return $own;
+        }
+        $mine = $this->personalLeadMinutes($user);
+
+        return $mine !== null ? [$mine] : $own;
+    }
+
+    /** The person's own reminder time in minutes, or null while it is still the standard hour (then the agency / system default applies). */
+    public function personalLeadMinutes(User $user): ?int
+    {
+        try {
+            $minutes = (int) (UserDashboardSetting::getEffective($user)->event_reminder_minutes_before ?? 0);
+        } catch (\Throwable $e) {
+            return null;
+        }
+
+        return $minutes >= 1 && $minutes <= 43200 && $minutes !== self::STANDARD_LEAD_MINUTES ? $minutes : null;
     }
 
     /**
@@ -308,6 +343,14 @@ class CalendarReminderService
             }
         } catch (\Throwable $e) {
             // ignore — option-list bound already applied
+        }
+
+        // …and any person's own reminder time (their notification setting), so a 2-day-ahead warning is never clipped.
+        try {
+            $max = max($max, (int) UserDashboardSetting::query()->max('event_reminder_minutes_before'),
+                (int) \App\Models\CommandCenter\AgencyDashboardSetting::query()->withoutGlobalScopes()->max('event_reminder_minutes_before'));
+        } catch (\Throwable $e) {
+            // ignore — the option bound already applied
         }
 
         return max(1, min(43200, $max));
