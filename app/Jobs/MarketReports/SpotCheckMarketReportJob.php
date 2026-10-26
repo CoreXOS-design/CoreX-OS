@@ -109,7 +109,9 @@ class SpotCheckMarketReportJob implements ShouldQueue
                 continue;
             }
             try {
-                $verdict = $this->verifyDataPoint($point, $report, $rawText, $layoutText, $gateway);
+                $verdict = $this->labelSitsOverItsYear($point, $layoutText)
+                    ? ['agrees' => true, 'cannot_tell' => false, 'audit_value' => $point->metric_value_numeric, 'severity' => 'low', 'type' => 'value_mismatch']
+                    : $this->verifyDataPoint($point, $report, $rawText, $layoutText, $gateway);
                 if ($verdict['cannot_tell']) {
                     $cannotAudit[] = ['data_point_id' => $point->id, 'metric_key' => $point->metric_key, 'reason' => 'the report text does not tie this figure to its year'];
                     continue;
@@ -218,40 +220,25 @@ class SpotCheckMarketReportJob implements ShouldQueue
     }
 
     /**
-     * What the auditor reads for one figure. A yearly figure gets the layout text of the page(s) that print it (a chart's data
-     * label sits over its year's column there); everything else, and a yearly figure found on no page, keeps the first 8 000
-     * plain characters.
+     * What the auditor reads for one figure. A yearly figure gets the layout text of the page(s) that print it and its year
+     * (a chart's data label sits over its year's column there); everything else, and a yearly figure found on no page, keeps
+     * the first 8 000 plain characters.
      */
     private function evidenceFor(MarketDataPoint $point, string $rawText, string $layoutText): string
     {
         $head = mb_substr($rawText, 0, 8000);
-        if ($point->periodYear() === null || $layoutText === '' || $point->metric_value_numeric === null) {
+        $year = $point->periodYear();
+        if ($year === null || $layoutText === '' || $point->metric_value_numeric === null) {
             return $head;
         }
-        $value = (float) $point->metric_value_numeric;
-        $year = (int) $point->periodYear();
-        $isPrice = str_contains((string) $point->metric_key, 'price');
-        if ($isPrice) {
-            $patterns = [
-                '/' . preg_quote(number_format($value, 0, '.', ','), '/') . '(?!\d)/',
-                '/' . str_replace(' ', '[\\s\\x{00A0}]', preg_quote(number_format($value, 0, '.', ' '), '/')) . '(?!\d)/u',
-            ];
-            if ($value >= 100_000) {
-                $millions = rtrim(rtrim(number_format($value / 1_000_000, 2, '.', ''), '0'), '.');
-                $patterns[] = '/(?<![\d.])' . preg_quote($millions, '/') . '\\s*M\\b/i';
-            }
-        } else {
-            // a count or a percentage is only ever a chart label when it stands alone on its line ("23" inside a date is not)
-            $plain = rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.');
-            $patterns = ['/^\\s*' . preg_quote($plain, '/') . '\\s*%?\\s*$/m'];
-        }
+        $patterns = $this->labelPatterns($point);
         $hits = [];
         foreach (explode("\f", $layoutText) as $page) {
             if (preg_match('/(?<!\d)' . $year . '(?!\d)/', $page) !== 1) {
                 continue;   // the figure's own year is printed on the page that draws it
             }
-            foreach ($patterns as $pattern) {
-                if (preg_match($pattern, $page) === 1) {
+            foreach (explode("\n", $page) as $line) {
+                if ($this->labelsIn($line, $patterns) !== []) {
                     $hits[] = rtrim($page);
                     break;
                 }
@@ -259,6 +246,117 @@ class SpotCheckMarketReportJob implements ShouldQueue
         }
 
         return $hits === [] ? $head : mb_substr(implode("\n\f\n", array_slice($hits, 0, 2)), 0, 12000);
+    }
+
+    /**
+     * True when the figure is printed on a page directly over its own year: a chart prints each data label above the
+     * year it belongs to, so the label's column against the next row of years below it settles which year it is for.
+     * Nothing is asked of the AI for a figure settled here.
+     */
+    private function labelSitsOverItsYear(MarketDataPoint $point, string $layoutText): bool
+    {
+        $year = $point->periodYear();
+        if ($year === null || $layoutText === '' || $point->metric_value_numeric === null) {
+            return false;
+        }
+        $patterns = $this->labelPatterns($point);
+        foreach (explode("\f", $layoutText) as $page) {
+            $lines = explode("\n", $page);
+            $yearRows = [];   // line index => [year => centre column]
+            foreach ($lines as $i => $line) {
+                if (preg_match_all('/(?<!\d)(20\d\d)(?!\d)/', $line, $m, PREG_OFFSET_CAPTURE) >= 5) {
+                    $row = [];
+                    foreach ($m[1] as [$text, $offset]) {
+                        $row[(int) $text] = mb_strlen(substr($line, 0, $offset)) + 2;
+                    }
+                    $years = array_keys($row);
+                    $ascending = $years;
+                    sort($ascending);
+                    if (count($row) >= 5 && $years === $ascending) {
+                        $yearRows[$i] = $row;
+                    }
+                }
+            }
+            if ($yearRows === []) {
+                continue;
+            }
+            foreach ($lines as $i => $line) {
+                $axis = null;
+                foreach ($yearRows as $rowIndex => $row) {
+                    if ($rowIndex > $i) {
+                        $axis = $row;
+                        break;
+                    }
+                }
+                if ($axis === null || !isset($axis[$year])) {
+                    continue;
+                }
+                foreach ($this->labelsIn($line, $patterns) as $centre) {
+                    $nearest = null;
+                    $best = PHP_INT_MAX;
+                    foreach ($axis as $y => $yc) {
+                        $d = abs($centre - $yc);
+                        if ($d < $best) {
+                            $best = $d;
+                            $nearest = $y;
+                        } elseif ($d === $best) {
+                            $nearest = null;   // equally near two years: not settled
+                        }
+                    }
+                    if ($nearest === $year) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The ways a figure is printed as a chart label: a price as "R 4.58 M" or in full; a count or percentage only when it
+     * stands alone on its line ("23" inside a date is not a label). Each pattern captures the label in group 1.
+     *
+     * @return list<string>
+     */
+    private function labelPatterns(MarketDataPoint $point): array
+    {
+        $value = (float) $point->metric_value_numeric;
+        if (str_contains((string) $point->metric_key, 'price')) {
+            $patterns = [
+                '/(' . preg_quote(number_format($value, 0, '.', ','), '/') . ')(?!\d)/',
+                '/(' . str_replace(' ', '[\\s\\x{00A0}]', preg_quote(number_format($value, 0, '.', ' '), '/')) . ')(?!\d)/u',
+            ];
+            if ($value >= 100_000) {
+                $millions = rtrim(rtrim(number_format($value / 1_000_000, 2, '.', ''), '0'), '.');
+                $patterns[] = '/(?<![\d.])((?:R\s?)?' . preg_quote($millions, '/') . '\s*M)\b/i';
+            }
+
+            return $patterns;
+        }
+        $plain = rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.');
+
+        return ['/^\s*(' . preg_quote($plain, '/') . '\s*%?)\s*$/'];
+    }
+
+    /**
+     * Centre columns of every label on a line that prints the figure.
+     *
+     * @param list<string> $patterns
+     * @return list<int>
+     */
+    private function labelsIn(string $line, array $patterns): array
+    {
+        $centres = [];
+        foreach ($patterns as $pattern) {
+            if (preg_match_all($pattern, $line, $m, PREG_OFFSET_CAPTURE) > 0) {
+                foreach ($m[1] as [$text, $offset]) {
+                    $centres[] = mb_strlen(substr($line, 0, $offset)) + intdiv(mb_strlen($text), 2);
+                }
+            }
+        }
+
+        return $centres;
     }
 
     /** True when the auditor's own figure is the one we hold (prices within 2%, anything else exact). */

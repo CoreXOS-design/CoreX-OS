@@ -33,6 +33,7 @@ final class ReportYearlyFiguresTest extends TestCase
 
     private int $agencyId;
     private int $userId;
+    private ?string $nextFile = null;
 
     protected function setUp(): void
     {
@@ -147,27 +148,59 @@ final class ReportYearlyFiguresTest extends TestCase
         $this->assertSame(MarketReport::SPOT_PASSED, $report->fresh()->spot_check_status);
     }
 
-    public function test_a_yearly_figure_is_audited_on_the_page_that_prints_it_not_the_first_8000_characters(): void
+    public function test_a_chart_label_over_its_own_year_is_settled_from_the_page_without_asking_the_ai(): void
+    {
+        $this->withLoomPdfText(function () {
+            $report = $this->report();
+            $this->point($report, 'suburb_average_price_year', 4_580_000, '2024-12-31');   // "R 4.58 M" is printed over 2024
+            $this->point($report, 'suburb_median_price_year', 4_000_000, '2021-12-31');    // "R4M" over 2021 (and as an axis label)
+            $this->point($report, 'suburb_sales_count_year', 23, '2024-12-31');            // "23" over 2024
+            Http::fake(['https://api.anthropic.com/*' => $this->auditAnswer(['agrees' => false, 'cannot_tell' => false, 'audit_value' => 'R 1 M', 'severity' => 'high', 'notes' => 'x'])]);
+
+            SpotCheckMarketReportJob::dispatchSync($report->id);
+
+            Http::assertNothingSent();
+            $this->assertSame(MarketReport::SPOT_PASSED, $report->fresh()->spot_check_status);
+            $this->assertSame(3, $report->fresh()->spot_check_results['points_checked']);
+        });
+    }
+
+    public function test_a_figure_printed_over_a_different_year_is_not_settled_and_goes_to_the_ai_with_the_page(): void
     {
         $layout = (string) file_get_contents(base_path('tests/Fixtures/market_reports/loom_cma.layout.txt'));
         $this->assertStringNotContainsString('R 4.58 M', mb_substr($layout, 0, 8000), 'precondition: the chart label is beyond the old excerpt');
+        $this->withLoomPdfText(function () {
+            $report = $this->report();
+            $this->point($report, 'suburb_average_price_year', 4_580_000, '2018-12-31');   // that label is over 2024, not 2018
+            Http::fake(['https://api.anthropic.com/*' => $this->auditAnswer(['agrees' => false, 'cannot_tell' => false, 'audit_value' => 'R 3.6 M', 'severity' => 'medium', 'notes' => '2018 is 3.6 M'])]);
+
+            SpotCheckMarketReportJob::dispatchSync($report->id);
+
+            Http::assertSent(fn ($request) => str_contains(json_encode($request->data()), 'period_year'));
+            $this->assertSame(MarketReport::SPOT_FLAGGED, $report->fresh()->spot_check_status);
+        });
+    }
+
+    /** Runs $body with a stored stand-in file whose layout text is the LOOM fixture. */
+    private function withLoomPdfText(callable $body): void
+    {
+        $layout = (string) file_get_contents(base_path('tests/Fixtures/market_reports/loom_cma.layout.txt'));
         $this->mock(TextExtractionService::class, fn ($m) => $m->shouldReceive('extractText')->andReturn($layout));
+        $this->withStoredFile(fn (string $relative) => $body());
+    }
+
+    private function withStoredFile(callable $body): void
+    {
         $relative = 'market-reports/test/' . $this->agencyId . '/' . Str::random(12) . '.pdf';
         $absolute = \Illuminate\Support\Facades\Storage::disk('local')->path($relative);
         @mkdir(dirname($absolute), 0777, true);
         file_put_contents($absolute, 'not a real pdf');
-
+        $this->nextFile = $relative;
         try {
-            $report = $this->report();
-            $report->update(['file_path' => $relative]);
-            $this->point($report, 'suburb_average_price_year', 4_580_000, '2024-12-31');
-            Http::fake(['https://api.anthropic.com/*' => $this->auditAnswer(['agrees' => true, 'cannot_tell' => false, 'audit_value' => 4580000, 'severity' => 'low', 'notes' => 'ok'])]);
-
-            SpotCheckMarketReportJob::dispatchSync($report->id);
-
-            Http::assertSent(fn ($request) => str_contains(json_encode($request->data()), 'R 4.58 M'));
+            $body($relative);
         } finally {
             @unlink($absolute);
+            $this->nextFile = null;
         }
     }
 
@@ -308,7 +341,7 @@ final class ReportYearlyFiguresTest extends TestCase
     {
         return MarketReport::create([
             'agency_id' => $this->agencyId, 'uploaded_by_user_id' => $this->userId, 'report_type_id' => null,
-            'file_path' => 'market-reports/test-' . Str::random(8) . '.pdf', 'file_name' => 'Yearly ' . Str::random(6) . '.pdf',
+            'file_path' => $this->nextFile ?? 'market-reports/test-' . Str::random(8) . '.pdf', 'file_name' => 'Yearly ' . Str::random(6) . '.pdf',
             'file_hash' => hash('sha256', Str::random(64)), 'report_date' => now()->toDateString(),
             'parse_status' => MarketReport::PARSE_PARSED, 'spot_check_status' => MarketReport::SPOT_PENDING, 'data_points_count' => 1,
         ]);
