@@ -878,6 +878,11 @@ class TemplateController extends Controller
             // platform-wide flag.
             $templateData['is_global'] = false;
             $templateData['agency_id'] = $user->effectiveAgencyId();
+            // A Word file that carries its own letterhead (a logo picture or a running page header) IS the letterhead:
+            // a new template starts with the agency block off ("none"); the setting stays the person's to change.
+            if (! empty($draft->cds_json['images']) || ! empty($draft->cds_json['page_header']['lines'])) {
+                $templateData['header_display'] = 'none';
+            }
             $template = Template::create($templateData);
         }
 
