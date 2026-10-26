@@ -60,19 +60,15 @@
     };
 @endphp
 
-@section('content')
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
 @include('corex.rental-job-cards._screen-style')
-<div class="p-4 md:p-6 max-w-7xl mx-auto space-y-3 cx-equal-btns" data-jc-screen>
-    @if($errors->any())
-        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
-            @foreach ($errors->all() as $error)<div>{{ $error }}</div>@endforeach
-        </div>
-    @endif
-
-    {{-- A. header --}}
+<div class="rx-page w-full space-y-3 cx-equal-btns" data-jc-screen>
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
     <div class="flex flex-wrap items-start justify-between gap-2">
         <div class="min-w-0">
-            <h1 class="text-lg font-semibold">{{ $jobCard->title }}</h1>
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $jobCard->title }}</h1>
             <div class="flex flex-wrap items-center gap-2">
                 <span class="ds-badge {{ $statusBadgeClass }}" title="{{ ucfirst(str_replace('_', ' ', $jobCard->status)) }}" data-stage-label>{{ $stage['label'] }}</span>
                 @if($jobCard->worker_signed_off_at)
@@ -100,6 +96,16 @@
             <a href="{{ route('corex.rental-job-cards.index') }}" class="corex-btn-outline text-xs">&larr; All job cards</a>
         </div>
     </div>
+    </div>
+    @if($errors->any())
+        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
+            @foreach ($errors->all() as $error)<div>{{ $error }}</div>@endforeach
+        </div>
+    @endif
+
+    {{-- A. header --}}
+
+
 
     <x-rental-context-bar :property="$displayProperty" :lease="$jobCard->lease" current="work_orders" />
     @include('partials.paused-by-owner-banner', ['pauseSubject' => $jobCard])

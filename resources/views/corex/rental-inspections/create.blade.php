@@ -16,11 +16,19 @@
     Lease Hub gets scheduling for free, no change needed there.
 --}}
 
-@section('content')
-<div class="p-6 max-w-2xl mx-auto space-y-4">
-    <h1 class="text-lg font-semibold">Start or Schedule an Inspection</h1>
+@section('corex-content')
+<div class="w-full space-y-5">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Start or Schedule an Inspection</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Start recording now, or book it for a later date and notify everyone.</p>
+            </div>
+        </div>
+    </div>
 
-    <form method="POST" action="{{ route('corex.rental-inspections.store') }}" class="space-y-4 rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+    <form method="POST" action="{{ route('corex.rental-inspections.store') }}" class="max-w-2xl space-y-4 rounded-md px-5 pb-5 pt-1" style="background: var(--surface); border: 1px solid var(--border);">
         @csrf
         {{-- §45.7 (Build I-5) — set when this form was opened from "Book from this date" on a loaded interim date; the
              server re-checks it (same agency/lease/type, still planned) before linking — never trusted as posted. --}}
@@ -33,7 +41,7 @@
         @endif
 
         @if ($errors->any())
-            <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
+            <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-red, #dc2626) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-red, #dc2626) 30%, transparent); color: var(--text-primary);">
                 <ul>
                     @foreach ($errors->all() as $error)
                         <li>{{ $error }}</li>
@@ -43,8 +51,8 @@
         @endif
 
         <div>
-            <label class="text-xs font-medium">Property</label>
-            <select name="property_id" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+            <label class="prop-label">Property</label>
+            <select name="property_id" required class="prop-select">
                 <option value="">Select a property…</option>
                 @foreach($properties as $p)
                     <option value="{{ $p->id }}" @selected(old('property_id', $selectedPropertyId) == $p->id)>{{ $p->buildDisplayAddress() }}</option>
@@ -56,7 +64,7 @@
         </div>
 
         <div>
-            <label class="text-xs font-medium">Type</label>
+            <label class="prop-label">Type</label>
             @php
                 // AT-444 follow-up 2 (2026-10-05) — the Lease Hub's next-step
                 // links (both "Start in-inspection" and the new "Start
@@ -66,7 +74,7 @@
                 // of the link clicked. old() still wins on a failed resubmit.
                 $preselectedType = old('type', request()->query('type'));
             @endphp
-            <select name="type" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+            <select name="type" required class="prop-select">
                 {{-- §49 — the one list of all four types, with the meaning beside each (RentalInspection::TYPE_PICKER). --}}
                 @foreach(\App\Models\RentalInspection::typePickerOptions() as $opt)
                     <option value="{{ $opt['value'] }}" @selected($preselectedType === $opt['value'])>{{ $opt['text'] }}</option>
@@ -74,8 +82,8 @@
             </select>
         </div>
 
-        <div class="pt-2" style="border-top: 1px solid var(--border);">
-            <p class="text-xs font-medium mb-2">Schedule for later (optional)</p>
+        <div class="pt-4" style="border-top: 1px solid var(--border);">
+            <p class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Schedule for later (optional)</p>
             <p class="text-xs mb-3" style="color: var(--text-muted);">
                 Leave the date blank and click "Start Now" below to begin recording immediately — exactly as before.
                 Fill in a date and click "Schedule" to book it for later instead; the tenant, landlord and inspector
@@ -83,20 +91,20 @@
             </p>
             <div class="grid grid-cols-2 gap-3">
                 <div>
-                    <label class="text-xs font-medium">Date</label>
-                    <input type="date" name="scheduled_for" value="{{ old('scheduled_for', request()->query('scheduled_for')) }}" @unless(request()->query('planned_date_id')) min="{{ now()->toDateString() }}" @endunless class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                    <label class="prop-label">Date</label>
+                    <input type="date" name="scheduled_for" value="{{ old('scheduled_for', request()->query('scheduled_for')) }}" @unless(request()->query('planned_date_id')) min="{{ now()->toDateString() }}" @endunless class="prop-input">
                 </div>
                 <div>
-                    <label class="text-xs font-medium">Time</label>
-                    <input type="time" name="scheduled_time" value="{{ old('scheduled_time') }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                    <label class="prop-label">Time</label>
+                    <input type="time" name="scheduled_time" value="{{ old('scheduled_time') }}" class="prop-input">
                 </div>
                 <div>
-                    <label class="text-xs font-medium">Duration (minutes)</label>
-                    <input type="number" name="scheduled_duration_minutes" value="{{ old('scheduled_duration_minutes', 60) }}" min="5" max="1440" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                    <label class="prop-label">Duration (minutes)</label>
+                    <input type="number" name="scheduled_duration_minutes" value="{{ old('scheduled_duration_minutes', 60) }}" min="5" max="1440" class="prop-input">
                 </div>
                 <div>
-                    <label class="text-xs font-medium">Inspector</label>
-                    <select name="inspector_user_id" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                    <label class="prop-label">Inspector</label>
+                    <select name="inspector_user_id" class="prop-select">
                         @foreach($inspectors as $inspectorOption)
                             <option value="{{ $inspectorOption->id }}" @selected(old('inspector_user_id', $defaultInspectorId) == $inspectorOption->id)>{{ $inspectorOption->name }}</option>
                         @endforeach
@@ -104,8 +112,8 @@
                 </div>
             </div>
             <div class="mt-3">
-                <label class="text-xs font-medium">Note</label>
-                <textarea name="schedule_note" rows="2" maxlength="1000" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('schedule_note') }}</textarea>
+                <label class="prop-label">Note</label>
+                <textarea name="schedule_note" rows="2" maxlength="1000" class="prop-textarea">{{ old('schedule_note') }}</textarea>
             </div>
             <p class="text-xs mt-2" style="color: var(--text-muted);">
                 This agency's usual notice period is {{ $minimumNoticeDays }} day{{ $minimumNoticeDays === 1 ? '' : 's' }} — booking inside that is still allowed, just flagged.

@@ -27,7 +27,8 @@
     sits at the bottom of the page.
 --}}
 
-@section('content')
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
 @php
     $stateLabel = collect($conditionStates)->pluck('label', 'key');
     $pct = fn ($v) => (int) round($v * 100);
@@ -64,7 +65,15 @@
     $failed = in_array($scan->status, ['failed', 'version_mismatch'], true);
     $refused = session('scan_refused', []);
 @endphp
-<div class="p-6 max-w-3xl mx-auto space-y-4">
+{{-- The sticky scan header sits flush at the top and runs edge to edge like the standard page header (same negative
+     margins that cancel <main>'s padding, same inner gutter); the review content below keeps its narrow reading width. --}}
+<style>
+  /* top: sticky positions against the inside of <main>'s padding, so it needs the same negative offset to stay flush */
+  .scan-page > #scan-header{margin:-1rem -1rem 0;padding:.875rem 1.5rem !important;top:-1rem !important}
+  @media (min-width:1024px){.scan-page > #scan-header{margin:-1.5rem -1.5rem 0;top:-1.5rem !important}}
+  .scan-page > :not(#scan-header){max-width:48rem}
+</style>
+<div class="rx-page scan-page w-full space-y-4">
     {{-- §64 - the upload was made on another inspection; its own form code says this one, so it was filed and read here. --}}
     @if(session('scan_routed'))
         @php $routed = session('scan_routed'); @endphp
@@ -91,7 +100,7 @@
         @endif
         <div class="flex items-center justify-between gap-2 flex-wrap">
             <div>
-                <h1 class="text-lg font-semibold">Review scan — {{ $scan->original_filename }}</h1>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Review scan — {{ $scan->original_filename }}</h1>
                 <span class="text-xs" style="color: var(--text-muted);">
                     {{ $inspection->property?->buildDisplayAddress() ?? 'Unknown property' }}
                     · uploaded by {{ $scan->uploadedBy?->name }} on {{ $scan->created_at?->format('Y-m-d H:i') }}

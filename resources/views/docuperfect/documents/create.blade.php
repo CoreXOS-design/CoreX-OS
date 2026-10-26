@@ -1,17 +1,23 @@
 @extends('layouts.corex')
 
-@section('content')
-<div class="max-w-xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
+@include('docuperfect.partials._dp-page-styles')
+<div class="rx-page dp-page w-full space-y-5">
 
-    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4">
-        <div class="flex items-center justify-between">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h2 class="text-xl font-bold text-white leading-tight">Create Document</h2>
-                <div class="text-sm text-white/60 mt-1">Template: {{ $template->name }}</div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Create Document</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Template: {{ $template->name }}</p>
             </div>
-            <a href="{{ route('docuperfect.create') }}" class="text-sm text-white/70 hover:text-white">Back</a>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('docuperfect.create') }}" class="corex-btn-outline text-xs shrink-0 inline-flex items-center gap-1.5"><svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>Back</a>
+            </div>
         </div>
     </div>
+    <div class="max-w-xl space-y-5">
 
     <form method="POST" action="{{ route('docuperfect.documents.store', $template->id) }}" class="ds-status-card p-6 space-y-4">
         @csrf
@@ -37,5 +43,6 @@
         </div>
     </form>
 
+</div>
 </div>
 @endsection

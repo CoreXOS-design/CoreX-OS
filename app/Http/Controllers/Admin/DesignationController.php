@@ -14,15 +14,6 @@ class DesignationController extends Controller
         abort_unless(auth()->user()?->hasPermission('manage_designations'), 403);
     }
 
-    public function index()
-    {
-        $this->ensureAccess();
-
-        $designations = Designation::orderBy('sort_order')->orderBy('name')->get();
-
-        return view('admin.designations.index', compact('designations'));
-    }
-
     public function store(Request $request)
     {
         $this->ensureAccess();

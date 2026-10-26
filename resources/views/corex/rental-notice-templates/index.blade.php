@@ -13,8 +13,6 @@
     $arrow = fn (string $col) => $sort === $col ? ($dir === 'asc' ? ' ↑' : ' ↓') : '';
 @endphp
 <div class="w-full space-y-5">
-    @include('corex.notices._tabs', ['active' => 'templates'])
-    @include('corex.notices._lease-picker')
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -29,6 +27,8 @@
             </div>
         </div>
     </div>
+    @include('corex.notices._tabs', ['active' => 'templates'])
+    @include('corex.notices._lease-picker')
 
     @if(session('success'))
         <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">{{ session('success') }}</div>

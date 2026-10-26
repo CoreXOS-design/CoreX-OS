@@ -12,8 +12,6 @@
     $arrow = fn (string $col) => $sort === $col ? ($dir === 'asc' ? ' ↑' : ' ↓') : '';
 @endphp
 <div class="w-full space-y-5">
-    @include('corex.notices._tabs', ['active' => 'breaches'])
-    @include('corex.notices._lease-picker')
 
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
@@ -34,6 +32,8 @@
             </div>
         </div>
     </div>
+    @include('corex.notices._tabs', ['active' => 'breaches'])
+    @include('corex.notices._lease-picker')
 
     {{-- rental-notices.md §7b - status tiles, the rentals command centre's pattern: click to filter, click again to clear. The number on a tile is the
          number of rows the list shows when it is clicked (same query, same own / branch / agency scope, with the search and filters below). --}}

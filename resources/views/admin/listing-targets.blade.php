@@ -17,7 +17,7 @@
                     <button class="corex-btn-primary text-sm">View</button>
                 </form>
 
-                <a href="{{ route('admin.dashboard', ['period' => $period]) }}" class="corex-btn-outline text-sm">&larr; Dashboard</a>
+                <a href="{{ route('corex.dashboard') }}" class="corex-btn-outline text-sm">&larr; Dashboard</a>
             </div>
         </div>
     </div>

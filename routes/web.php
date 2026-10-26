@@ -4,8 +4,6 @@ use Illuminate\Support\Facades\Route;
 
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\WorksheetController;
-use App\Http\Controllers\AdminDashboardController;
-use App\Http\Controllers\CompanySummaryController;
 use App\Http\Controllers\Admin\ListingTargetController;
 use App\Http\Controllers\Admin\ViewAsController;
 use App\Http\Controllers\Admin\BranchAssignmentController;
@@ -732,13 +730,12 @@ Route::middleware('auth')->group(function () {
     Route::get('/worksheet', [WorksheetController::class, 'index'])->middleware('permission:view_worksheet')->name('worksheet.index');
     Route::post('/worksheet', [WorksheetController::class, 'store'])->middleware('permission:view_worksheet')->name('worksheet.store');
 
-    Route::get('/company-summary', [CompanySummaryController::class, 'index'])->middleware('permission:view_dashboard')->name('company.summary');
+    // Company Summary retired (Andre 2026-10-26) — old links land on the main Dashboard, never 404.
+    Route::get('/company-summary', fn () => redirect()->route('corex.dashboard'))->name('company.summary');
 
-    Route::get('/admin/dashboard', [AdminDashboardController::class, 'index'])
-        ->middleware('permission:export_reports')->name('admin.dashboard');
-
-    Route::post('/admin/dashboard/expenses', [AdminDashboardController::class, 'saveExpenses'])
-        ->middleware('permission:export_reports')->name('admin.expenses.save');
+    // Admin Dashboard (incl. ?view=cashflow + its expenses save) retired (Andre 2026-10-26) — old links land on
+    // the main Dashboard, never 404.
+    Route::get('/admin/dashboard', fn () => redirect()->route('corex.dashboard'))->name('admin.dashboard');
 
     Route::get('/admin/branch-assignments', [BranchAssignmentController::class, 'index'])
         ->middleware('permission:access_branch_assignments')->name('admin.branch-assignments');
@@ -1936,7 +1933,8 @@ Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::cla
     Route::post('/bm/performance', [\App\Http\Controllers\BM\PerformanceController::class, 'save'])->middleware('permission:manage_targets')->name('bm.performance.save');
 
     Route::get('/bm/agent/{userId}/performance', [\App\Http\Controllers\BM\AgentPerformanceController::class, 'show'])->middleware('permission:view_performance')->name('bm.agent.performance');
-    Route::get('/admin/agent/{userId}/performance', [\App\Http\Controllers\Admin\AgentPerformanceController::class, 'show'])->middleware('permission:view_performance')->name('admin.agent.performance');
+    // Admin agent drill-down retired (Andre 2026-10-26) — old links land on the Performance report, never 404.
+    Route::get('/admin/agent/{userId}/performance', fn () => redirect()->route('admin.performance'))->middleware('permission:view_performance')->name('admin.agent.performance');
 
     // Agent Daily Activity (agent menu link)
       // Agent Daily Activity (locked to agents only)
@@ -2072,7 +2070,9 @@ Route::middleware(['auth', 'permission:manage_p24'])->group(function () {
 
 // Admin: Designations (dropdown list management)
 Route::middleware(['auth','verified','permission:manage_designations'])->group(function () {
-    Route::get('/admin/designations', [\App\Http\Controllers\Admin\DesignationController::class, 'index'])
+    // Designations page retired (Andre 2026-10-26) — designations are managed in Settings → User Settings, which
+    // still saves through the POST routes below.
+    Route::get('/admin/designations', fn () => redirect()->route('corex.settings', ['s' => 'user']))
         ->name('admin.designations.index');
     Route::post('/admin/designations', [\App\Http\Controllers\Admin\DesignationController::class, 'store'])
         ->name('admin.designations.store');
@@ -3510,6 +3510,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Conductor's ruling, AT-442 follow-up — own narrow saver, same discipline.
     Route::post('/settings/rental-work-orders/show-costs-on-printed-job-card', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'updateShowCostsOnPrintedJobCard'])
         ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.show-costs-on-printed-job-card');
+    // AT-509 — .ai/specs/property-compliance-gate-settings.md §7.1. Compliance Switches: the agency's own
+    // on/off for each property marketing-compliance check, with the disclaimer and permanent history.
+    Route::prefix('settings/compliance-switches')->middleware('permission:compliance_switches.manage')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\ComplianceSwitchesController::class, 'edit'])->name('corex.settings.compliance-switches.edit');
+        Route::post('/', [\App\Http\Controllers\CoreX\ComplianceSwitchesController::class, 'update'])->name('corex.settings.compliance-switches.update');
+    });
     // AT-445 — .ai/specs/rental-portal-access.md §7. Tenant/landlord/contractor portal on/off switches.
     Route::prefix('settings/rental-portal')->middleware('permission:rental_portal.manage_settings')->group(function () {
         Route::get('/', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'edit'])->name('corex.settings.rental-portal.edit');
@@ -5302,6 +5308,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // demo-agency members see.
         Route::get('/demo-sidebar', [\App\Http\Controllers\Admin\DevSettingsController::class, 'demoSidebar'])->name('demo-sidebar');
         Route::put('/demo-sidebar', [\App\Http\Controllers\Admin\DevSettingsController::class, 'updateDemoSidebar'])->name('demo-sidebar.update');
+        // AT-509 — .ai/specs/property-compliance-gate-settings.md §7.3. Every agency's Compliance Switches and
+        // their permanent history. Cross-agency and read-only; owner_only, no grantable key.
+        Route::get('/compliance-switches', [\App\Http\Controllers\Admin\ComplianceSwitchesAuditController::class, 'index'])->name('compliance-switches');
+        Route::get('/compliance-switches/history', [\App\Http\Controllers\Admin\ComplianceSwitchesAuditController::class, 'history'])->name('compliance-switches.history');
+        Route::get('/compliance-switches/history/export', [\App\Http\Controllers\Admin\ComplianceSwitchesAuditController::class, 'export'])->name('compliance-switches.history.export');
     });
 
     // AT-456 Part C — Article Library (system-dev section, Dev Settings → Article Library). owner_only and

@@ -1,20 +1,24 @@
 @extends('layouts.corex')
 
-@section('content')
-<div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
+<div class="rx-page w-full space-y-5">
 
-    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4">
-        <h2 class="text-xl font-bold text-white leading-tight">Rental Permissions</h2>
-        <div class="text-sm text-white/60">Control which users can capture rentals.</div>
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div>
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Permissions</h1>
+            <p class="text-xs" style="color: var(--text-muted);">Control which users can capture rentals.</p>
+        </div>
     </div>
 
     <form method="POST" action="{{ route('rentals.permissions.update') }}">
         @csrf
 
-        <div class="rounded-2xl border overflow-hidden" style="background:var(--surface); border-color:var(--border)">
+        <div class="max-w-4xl rounded-md border overflow-hidden" style="background:var(--surface); border-color:var(--border)">
             <div class="px-4 py-3 border-b flex items-center justify-between" style="border-color:var(--border)">
-                <h3 class="ds-section-header">User Permissions</h3>
-                <button type="submit" class="corex-btn-primary text-sm">Save Permissions</button>
+                <h3 class="text-sm font-semibold" style="color: var(--text-primary);">User permissions</h3>
+                <button type="submit" class="corex-btn-primary text-xs">Save Permissions</button>
             </div>
 
             <div class="overflow-x-auto">

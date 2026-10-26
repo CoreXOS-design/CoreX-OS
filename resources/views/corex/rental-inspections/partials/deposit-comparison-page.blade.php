@@ -27,9 +27,10 @@
     $queryWith = fn (array $over) => array_filter(array_merge(request()->only(['q', 'room', 'difference', 'classification', 'differences_only', 'sort']), $over), fn ($v) => $v !== null && $v !== '' && $v !== false);
 @endphp
 
-@section('content')
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
 @php $recordAmounts = \App\Models\RentalInspectionSetting::recordDeductionAmountsFor($inspection->agency_id); @endphp
-<div class="p-6 max-w-6xl mx-auto space-y-4"
+<div class="rx-page w-full space-y-4"
      x-data="{
         viewer: {{ Js::from($comparison['viewer']) }},
         vOpen: false, vKey: null, vIdx: 0,
@@ -41,17 +42,11 @@
         prev() { if (this.vIdx > 0) this.vIdx--; },
      }"
      @keydown.window.escape="closeViewer()" @keydown.window.arrow-right="vOpen && next()" @keydown.window.arrow-left="vOpen && prev()">
-
-    @if(session('success'))
-        <div class="text-xs p-2 rounded" data-qa="mo-flash" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
-    @endif
-    @if($errors->any())
-        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); color: var(--ds-crimson);">{{ $errors->first() }}</div>
-    @endif
-
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
     <div class="flex items-center justify-between gap-3 flex-wrap">
         <div>
-            <h1 class="text-lg font-semibold">{{ $inspection->property?->buildDisplayAddress() ?? 'Unknown property' }}</h1>
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $inspection->property?->buildDisplayAddress() ?? 'Unknown property' }}</h1>
             <span class="text-xs" style="color: var(--text-muted);">Move-out comparison — {{ $inspection->lease?->tenantNames() ?? 'Unknown tenant' }}</span>
         </div>
         <div class="flex items-center gap-2">
@@ -61,6 +56,18 @@
             <a href="{{ route('corex.rental-inspections.show', $inspection) }}" class="corex-btn-outline text-xs">&larr; Out-inspection</a>
         </div>
     </div>
+    </div>
+    <div class="max-w-6xl space-y-5">
+
+    @if(session('success'))
+        <div class="text-xs p-2 rounded" data-qa="mo-flash" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
+    @endif
+    @if($errors->any())
+        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); color: var(--ds-crimson);">{{ $errors->first() }}</div>
+    @endif
+
+
+
 
     @unless($inInspection)
         <div class="rounded-md p-4 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);">
@@ -155,7 +162,7 @@
     <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ open: true }" data-qa="mo-room-{{ $room['key'] }}">
         <button type="button" @click="open = !open" class="w-full flex items-center justify-between px-4 py-2.5 text-left">
             <span class="text-sm font-semibold">{{ $room['label'] }}
-                <span class="text-xs font-normal" style="color: var(--text-muted);">· {{ count($room['rows']) }} item{{ count($room['rows']) === 1 ? '' : 's' }}@if($room['marked']) · <strong style="color:#b45309;">{{ $room['marked'] }} to look at</strong>@endif</span>
+                <span class="text-xs font-normal" style="color: var(--text-muted);">· {{ count($room['rows']) }} item{{ count($room['rows']) === 1 ? '' : 's' }}@if($room['marked']) · <strong style="color: var(--ds-amber, #b45309);">{{ $room['marked'] }} to look at</strong>@endif</span>
             </span>
             <span class="text-xs" style="color: var(--text-muted);" x-text="open ? 'Hide' : 'Show'"></span>
         </button>
@@ -309,5 +316,6 @@
             </template>
         </div>
     </div>
+</div>
 </div>
 @endsection

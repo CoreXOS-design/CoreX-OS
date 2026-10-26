@@ -53,7 +53,8 @@
     $invoiceCount = $workOrder->invoices()->count();
 @endphp
 
-@section('content')
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
 <style>
     .wo-strip { display: flex; list-style: none; margin: 0; padding: 12px 8px 10px; overflow-x: auto; gap: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
     .wo-step { flex: 1 0 auto; min-width: 104px; position: relative; text-align: center; padding: 0 6px; font-size: 12px; line-height: 1.25; }
@@ -111,7 +112,22 @@
         .wo-next .corex-btn-primary, .wo-next .corex-btn-outline { width: 100%; }
     }
 </style>
-<div class="p-4 md:p-6 max-w-7xl mx-auto space-y-3 cx-equal-btns" data-wo-screen>
+<div class="rx-page w-full space-y-3 cx-equal-btns" data-wo-screen>
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+        <div>
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $workOrder->title }}</h1>
+            <span class="ds-badge {{ $statusBadgeClass }}" title="{{ $workOrder->statusLabel() }}" data-stage-badge>{{ ($screen['goAheadSent'] && $workOrder->status === \App\Models\RentalWorkOrder::STATUS_ORDERED && ! $workOrder->isOwnerContractor()) ? 'Go-ahead sent' : $workOrder->stageLabel('agent') }}</span>
+            <span class="text-xs" style="color: var(--text-muted);">{{ $workOrder->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $workOrder->property?->trashed() ? ' (archived)' : '' }}{{ $workOrder->trashed() ? ' - this work order is archived' : '' }}</span>
+        </div>
+        @include('partials.header-actions-style')
+        <div class="flex flex-wrap items-center gap-2" data-header-actions>
+            <a href="{{ route('corex.rental-work-orders.pdf', $workOrder) }}" target="_blank" class="corex-btn-outline text-xs">Download PDF</a>
+            <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-btn-outline text-xs">&larr; All work orders</a>
+        </div>
+    </div>
+    </div>
     {{-- (success and warning messages are the layout's toasts - J8: not repeated here as a second banner) --}}
     @if($errors->any())
         <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
@@ -122,18 +138,8 @@
     @include('partials.paused-by-owner-banner', ['pauseSubject' => $workOrder])
 
     {{-- A. header --}}
-    <div class="flex flex-wrap items-center justify-between gap-2">
-        <div>
-            <h1 class="text-lg font-semibold">{{ $workOrder->title }}</h1>
-            <span class="ds-badge {{ $statusBadgeClass }}" title="{{ $workOrder->statusLabel() }}" data-stage-badge>{{ ($screen['goAheadSent'] && $workOrder->status === \App\Models\RentalWorkOrder::STATUS_ORDERED && ! $workOrder->isOwnerContractor()) ? 'Go-ahead sent' : $workOrder->stageLabel('agent') }}</span>
-            <span class="text-xs" style="color: var(--text-muted);">{{ $workOrder->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $workOrder->property?->trashed() ? ' (archived)' : '' }}{{ $workOrder->trashed() ? ' - this work order is archived' : '' }}</span>
-        </div>
-        @include('partials.header-actions-style')
-        <div class="flex flex-wrap items-center gap-2" data-header-actions>
-            <a href="{{ route('corex.rental-work-orders.pdf', $workOrder) }}" target="_blank" class="corex-btn-outline text-xs">Download PDF</a>
-            <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-btn-outline text-xs">&larr; All work orders</a>
-        </div>
-    </div>
+
+
 
     {{-- AT-439 Part 3, item 2 - the shared rental context bar. --}}
     <x-rental-context-bar :property="$workOrder->property" :lease="$workOrder->lease" current="work_orders" />

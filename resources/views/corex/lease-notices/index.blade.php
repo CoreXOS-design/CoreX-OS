@@ -19,7 +19,6 @@
     };
 @endphp
 <div class="w-full space-y-5">
-    @include('corex.notices._tabs', ['active' => 'received'])
 
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
@@ -34,6 +33,7 @@
             </div>
         </div>
     </div>
+    @include('corex.notices._tabs', ['active' => 'received'])
     @include('corex.notices._lease-picker')
 
     <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">

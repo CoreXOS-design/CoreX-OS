@@ -117,7 +117,7 @@
         'bm.worksheet.market*', 'bm.tv-messages*', 'bm.agent.performance*',
         'admin.performance', 'admin.agent.performance*', 'admin.branch.performance*',
         'admin.listings.*',
-        'admin.deals*', 'admin.daily*', 'admin.targets*', 'admin.worksheet-market*',
+        'admin.daily*', 'admin.targets*', 'admin.worksheet-market*',
         'admin.tv-messages*', 'admin.activity-mappings.*', 'admin.daily-activities.setup*',
         'admin.minion.*',
         // Both links live in the Agency Tracker panel, so their routes must open it.
@@ -151,7 +151,8 @@
     } elseif (request()->routeIs('admin.demo-access.*', 'admin.demo-connection.*', 'admin.webinars.*')) {
         // System Developer → Web Access (Andre 2026-10-14): Demo Access / Demo Connection + Webinars.
         $activeGroup = 'web-access';
-    } elseif (request()->routeIs('docuperfect.sales*', 'revenue-share.*', 'training.*', 'training-help.*', 'command-center.admin.duplicate-cleanup*')) {
+    } elseif (request()->routeIs('docuperfect.sales*', 'revenue-share.*', 'training.*', 'training-help.*', 'command-center.admin.duplicate-cleanup*', 'admin.deals*')) {
+        // Deal Register (DR1) at /admin/deals moved into Hidden (Andre 2026-10-26); DR2 is now "Deal Register".
         // Duplicate Cleanup moved into Hidden (Andre 2026-10-14). Listed here, BEFORE the
         // broad command-center.* matcher, so its page opens Hidden rather than Dashboard.
         // 'training.*' covers the whole LMS — the agent-facing courses AND Training
@@ -1417,11 +1418,8 @@
                 <a href="{{ route('bm.my.dashboard') }}" class="corex-nav-subitem {{ request()->routeIs('bm.my.dashboard') ? 'active' : '' }}">My Agent Dashboard</a>
                 @endpermission
                 @permission('view_deals')
-                @permission('create_deals')
-                <a href="{{ route('admin.deals') }}" class="corex-nav-subitem {{ request()->routeIs('admin.deals*') ? 'active' : '' }}">Deal Register</a>
-                @endpermission
                 @if(\Illuminate\Support\Facades\Route::has('deals-dr2.index'))
-                <a href="{{ route('deals-dr2.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-dr2.*') ? 'active' : '' }}">Deal Register (DR2)</a>
+                <a href="{{ route('deals-dr2.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-dr2.*') ? 'active' : '' }}">Deal Register</a>
                 @endif
                 @endpermission
                 {{-- Branch Manager section ends here (matches the section's own opening
@@ -1593,11 +1591,8 @@
                 @endif
                 @endpermission
                 @permission('view_deals')
-                @permission('create_deals')
-                <a href="{{ route('admin.deals') }}" class="corex-nav-subitem {{ request()->routeIs('admin.deals*') ? 'active' : '' }}">Deal Register</a>
-                @endpermission
                 @if(\Illuminate\Support\Facades\Route::has('deals-dr2.index'))
-                <a href="{{ route('deals-dr2.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-dr2.*') ? 'active' : '' }}">Deal Register (DR2)</a>
+                <a href="{{ route('deals-dr2.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-dr2.*') ? 'active' : '' }}">Deal Register</a>
                 @endif
                 @endpermission
                 @permission('view_listings')
@@ -3062,6 +3057,13 @@
                 </a>
                 @endif
                 @endfeature
+
+                {{-- Deal Register (DR1) — the legacy /admin/deals register, moved here from Agency Tracker (Andre 2026-10-26). Route unchanged. --}}
+                @permission('view_deals')
+                @permission('create_deals')
+                <a href="{{ route('admin.deals') }}" class="corex-nav-subitem {{ request()->routeIs('admin.deals*') ? 'active' : '' }}">Deal Register (DR1)</a>
+                @endpermission
+                @endpermission
 
                 {{-- Duplicate Cleanup — moved here from the System Developer root (Andre 2026-10-14). Route unchanged. --}}
                 <a href="{{ route('command-center.admin.duplicate-cleanup') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.admin.duplicate-cleanup*') ? 'active' : '' }}">Duplicate Cleanup</a>
