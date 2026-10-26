@@ -186,6 +186,15 @@ class AgreementMandateDatesAndLayoutTest extends TestCase
         $this->assertStringContainsString('Starts December 2026 · first debit 1 January 2027 · collected on the 1st of each month', $html);
     }
 
+    public function test_the_owners_read_only_review_shows_the_same_summary(): void
+    {
+        Carbon::setTestNow('2026-12-10 09:00:00');
+        $owner = $this->owner();
+        $doc = $this->send($owner, ['take_on_month' => '2026-12']);
+        $this->actingAs($owner)->get(route('platform-esign.agreements.review', $doc->id))->assertOk()
+            ->assertSee('Starts December 2026 · first debit 1 January 2027 · collected on the 1st of each month');
+    }
+
     public function test_free_months_and_collection_day_are_platform_settings_with_defaults_one_and_one(): void
     {
         $this->assertSame(1, AgreementSettings::get('free_months'));
