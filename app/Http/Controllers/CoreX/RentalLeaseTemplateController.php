@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\CoreX;
 
+use App\Models\LeaseSetting;
 use App\Http\Controllers\Controller;
 use App\Models\Docuperfect\Template;
 use App\Models\RentalLeaseTemplate;
@@ -182,7 +183,7 @@ class RentalLeaseTemplateController extends Controller
             'status' => $rentalLeaseTemplate->category === RentalLeaseTemplate::CATEGORY_RESIDENTIAL
                 ? $guard->statusFor($rentalLeaseTemplate, $agencyId)
                 : null,
-            'mapLines' => $this->mapLines(),
+            'mapLines' => $this->mapLines($agencyId),
             'templateFieldNames' => $names,
             'savedMap' => app(LeaseAgreementValuesReader::class)->normaliseMap((array) ($rentalLeaseTemplate->field_map ?? [])),
             'monthToMonth' => ! empty($rentalLeaseTemplate->field_map['_meta']['month_to_month']),
@@ -243,7 +244,7 @@ class RentalLeaseTemplateController extends Controller
 
         $map = [];
         $errors = [];
-        foreach ($this->mapLines() as $key => $line) {
+        foreach ($this->mapLines($agencyId) as $key => $line) {
             $posted = $request->input("map.$key", []);
             $field = trim((string) ($posted['field'] ?? ''));
             if ($field === '') {
@@ -335,10 +336,14 @@ class RentalLeaseTemplateController extends Controller
      *
      * @return array<string, array{base: string, label: string, group: string}>
      */
-    private function mapLines(): array
+    private function mapLines(int $agencyId = 0): array
     {
         $lines = [];
         foreach ((array) config('lease-agreement-fields.fields', []) as $key => $def) {
+            // leases.md "Lease fee": the agency's own name for the fee heads its mapping line.
+            if ($key === 'lease_fee') {
+                $def['label'] = LeaseSetting::leaseFeeLabelFor($agencyId);
+            }
             $lines[$key] = ['base' => $key, 'label' => (string) $def['label'], 'group' => (string) $def['group']];
             if (! empty($def['indexed'])) {
                 for ($i = 1; $i <= self::INDEXED_LINES; $i++) {

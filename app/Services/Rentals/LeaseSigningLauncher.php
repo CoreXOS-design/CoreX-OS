@@ -168,6 +168,78 @@ class LeaseSigningLauncher
         ]);
     }
 
+    /**
+     * leases.md "Lease fee" - the agent changed the deposit or the lease fee on a lease whose agreement is PREPARED (checked, not yet
+     * sent): put the new figure into that agreement's Fill & review in the same words the first preparation used, so the agreement the
+     * agent signs says what the lease now says. Only the named document keys are touched - anything else the agent typed in Fill & review
+     * stays. A cleared figure empties its box. Once the agreement is out for signing the lease is locked (leases.md §15.13) and this never
+     * runs. Returns whether the prepared agreement was updated; never throws - a lease edit must not fail because of the e-sign side.
+     *
+     * @param array<int,string> $documentKeys registry keys that changed, e.g. ['deposit', 'lease_fee']
+     */
+    public function reseedPreparedValues(Lease $lease, array $documentKeys): bool
+    {
+        try {
+            if ($lease->signing_status !== Lease::SIGNING_PREPARED || ! $lease->signing_flow_id || ! $lease->agreement_template_id) {
+                return false;
+            }
+            $flow = Flow::query()->find($lease->signing_flow_id);
+            $agreement = RentalLeaseTemplate::withoutGlobalScopes()
+                ->where('agency_id', $lease->agency_id)
+                ->where('docuperfect_template_id', $lease->agreement_template_id)
+                ->with('template')
+                ->first();
+            if (! $flow || ! $agreement) {
+                return false;
+            }
+
+            $lease->loadMissing(['property', 'tenants.contact']);
+            $map = app(LeaseAgreementValuesReader::class)->normaliseMap((array) ($agreement->field_map ?? []));
+            $seeds = $this->seedsFor($lease, $agreement, []);
+            $stepData = (array) $flow->step_data;
+            $fields = (array) ($stepData['fields'] ?? []);
+            $resolver = app(LeaseWizardFieldResolver::class);
+            $values = (array) ($stepData['fill_review']['fieldValues'] ?? []);
+            $touched = false;
+
+            foreach ($documentKeys as $key) {
+                if (! isset($map[$key])) {
+                    continue; // this agreement does not draw that figure
+                }
+                $fieldName = (string) $map[$key]['field'];
+                $field = $resolver->find($fields, $fieldName);
+                if ($field === null) {
+                    continue;
+                }
+                $id = (string) $field['id'];
+                if (isset($seeds[$fieldName]) && $seeds[$fieldName] !== '') {
+                    $values[$id] = $seeds[$fieldName];
+                } else {
+                    unset($values[$id]);
+                }
+                $touched = true;
+            }
+
+            if (in_array('deposit', $documentKeys, true)) {
+                $stepData['details']['deposit'] = (string) $lease->deposit_amount;
+                $touched = true;
+            }
+            if (! $touched) {
+                return false;
+            }
+
+            $stepData['fill_review']['fieldValues'] = $values;
+            $flow->step_data = $stepData;
+            $flow->save();
+
+            return true;
+        } catch (\Throwable $e) {
+            Log::warning('Lease agreement: could not refresh the prepared agreement after a lease edit', ['lease_id' => $lease->id, 'error' => $e->getMessage()]);
+
+            return false;
+        }
+    }
+
     // ── The gate ──────────────────────────────────────────────────────────────────────────────
 
     /**

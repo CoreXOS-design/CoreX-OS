@@ -93,17 +93,27 @@
 
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
-                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Lease fee default</h3>
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">{{ $leaseFeeLabel }} default</h3>
             </div>
             <div class="p-5 space-y-3">
                 <div>
-                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Default lease fee (R)</label>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">What you call this fee</label>
+                    <input type="text" name="lease_fee_label" value="{{ old('lease_fee_label', $leaseFeeLabel === $leaseFeeLabelDefault ? '' : $leaseFeeLabel) }}"
+                           maxlength="60" placeholder="{{ $leaseFeeLabelDefault }}" data-qa="lease-fee-label-input"
+                           class="w-full max-w-[260px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        For example "Admin fee" or "Letting fee". It is the name your agents see for this fee on the lease screen, the new-lease and renewal screens and the
+                        lease agreement set-up. Blank means "{{ $leaseFeeLabelDefault }}". It does not change the words printed inside your own lease document.
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Default {{ mb_strtolower($leaseFeeLabel) === 'lease fee' ? 'lease fee' : $leaseFeeLabel }} (R)</label>
                     <input type="number" name="default_lease_fee" value="{{ old('default_lease_fee', number_format((float) $defaultLeaseFee, 2, '.', '')) }}"
                            step="0.01" min="0" max="99999999.99"
                            class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
                     <p class="text-xs mt-2" style="color: var(--text-muted);">
-                        The lease (letting) fee a new lease starts with. 0.00 means no fee is charged. It is always a starting figure
-                        the agent can change on the lease, and it prints on your lease agreement when your agreement has a lease fee line linked to it.
+                        The fee a new lease starts with. 0.00 means no fee is charged. It is always a starting figure
+                        the agent can change on the lease, and it prints on your lease agreement when your agreement has a fee line linked to it.
                     </p>
                 </div>
             </div>

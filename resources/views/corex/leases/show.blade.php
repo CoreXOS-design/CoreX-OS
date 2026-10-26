@@ -637,9 +637,16 @@
              escalation history, inventory, tenant and landlord portal access. --}}
         <div class="lease-panel space-y-3">
             <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);">
-                <h2 class="text-sm font-semibold">Lease terms</h2>
+                <div class="flex items-center justify-between">
+                    <h2 class="text-sm font-semibold">Lease terms</h2>
+                    {{-- Opens the SAME edit panel the header "Edit" button opens (rent is shown there, deposit and the fee are edited there) - one place to change a figure, now reachable from where the figures are read. --}}
+                    @permission('leases.create')
+                        <button type="button" class="text-xs underline" style="color: var(--brand-icon, #0ea5e9);" data-qa="lease-terms-change"
+                                onclick="document.getElementById('lease-edit-panel').classList.remove('hidden')">Change</button>
+                    @endpermission
+                </div>
                 <div><span style="color: var(--text-muted);">Deposit:</span> {{ $lease->deposit_amount !== null ? 'R' . number_format((float) $lease->deposit_amount, 2) : '—' }}</div>
-                <div data-qa="lease-fee-line"><span style="color: var(--text-muted);">Lease fee:</span> {{ $lease->lease_fee !== null ? 'R' . number_format((float) $lease->lease_fee, 2) : '—' }}</div>
+                <div data-qa="lease-fee-line"><span style="color: var(--text-muted);">{{ $leaseFeeLabel }}:</span> {{ $lease->lease_fee !== null ? 'R' . number_format((float) $lease->lease_fee, 2) : '—' }}</div>
                 @if($showLeaseType ?? false)
                     <div><span style="color: var(--text-muted);">Lease type:</span> {{ $lease->lease_type ?? '—' }}</div>
                 @endif
@@ -958,8 +965,11 @@
                         <input type="number" name="deposit_amount" step="0.01" min="0" value="{{ old('deposit_amount', $lease->deposit_amount) }}" @disabled($leaseLocked) class="prop-input">
                     </div>
                     <div>
-                        <label class="prop-label">Lease fee (R)</label>
-                        <input type="number" name="lease_fee" step="0.01" min="0" value="{{ old('lease_fee', $lease->lease_fee) }}" @disabled($leaseLocked) class="prop-input">
+                        <label class="prop-label">{{ $leaseFeeLabel }} (R)</label>
+                        <input type="number" name="lease_fee" step="0.01" min="0" value="{{ old('lease_fee', $lease->lease_fee ?? number_format((float) ($leaseFeeDefault ?? 0), 2, '.', '')) }}" @disabled($leaseLocked) data-qa="lease-fee-edit-input" class="prop-input">
+                        @if($lease->lease_fee === null)
+                            <p class="text-[11px] mt-0.5" style="color: var(--text-muted);">No {{ mb_strtolower($leaseFeeLabel) }} is on record for this lease - showing your agency default. Save to record it.</p>
+                        @endif
                     </div>
                     <div>
                         <label class="prop-label">End date</label>

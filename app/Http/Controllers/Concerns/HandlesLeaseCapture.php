@@ -115,6 +115,7 @@ trait HandlesLeaseCapture
             'depositMonths' => LeaseSetting::defaultDepositMonthsFor($agencyId),
             // leases.md "Lease fee" - the agency's starting fee; a renewal starts from the term being renewed (renewalBase).
             'leaseFeeDefault' => LeaseSetting::defaultLeaseFeeFor($agencyId),
+            'leaseFeeLabel' => LeaseSetting::leaseFeeLabelFor($agencyId),
             'renewalBase' => $base,
             'captureKey' => (string) old('capture_key', (string) Str::uuid()),
         ];
