@@ -25,12 +25,16 @@ class MobileVisibilityController extends Controller
     {
         /** @var User $user */
         $user = $request->user();
+        $rentals = $this->rentalScreens($user);
 
         return response()->json([
             'contacts'   => $this->moduleVisibility($user, 'contacts'),
             'properties' => $this->moduleVisibility($user, 'properties'),
             // AT-508: which rental screens this person may show, and how wide their records reach (own | branch | all)
-            'rentals'    => $this->rentalScreens($user),
+            'rentals'    => $rentals,
+            // One yes/no for the whole Rentals area: the agency has Rentals switched on AND this person may open at least one rental screen.
+            // false = show no Rentals anywhere in the app (tab, home tiles, contact/property rental sections).
+            'rentals_enabled' => collect($rentals)->contains(fn (array $screen) => $screen['can_view']),
         ]);
     }
 
@@ -50,9 +54,13 @@ class MobileVisibilityController extends Controller
             'inventories'   => ['rental_inventories', 'rental_inventories.view', 'rental_inventories.create'],
         ];
 
+        // hasPermission() does not look at the agency's feature switches, so an agency with Rentals off would still be told its agents may see
+        // rental screens. The web menu and the permission middleware do check the switch; the app must hear the same answer.
+        $features = app(\App\Services\Features\AgencyFeatureService::class);
+
         $out = [];
         foreach ($screens as $screen => [$module, $view, $act]) {
-            $canView = $user->hasPermission($view);
+            $canView = ! $features->permissionBlockedByFeature($view) && $user->hasPermission($view);
             $out[$screen] = [
                 'can_view' => $canView,
                 'can_act'  => $canView && $user->hasPermission($act),
