@@ -440,7 +440,7 @@ anything** — throws `OtherAgencyStockAlreadyAgencyStockException` when that pr
   8-second error box) with an **Open it in CoreX** link, and disables the Import button. The server text is shown as text, never HTML.
 - **Unchanged:** a property still in Other Agency Stock status updates in place on a re-import (re-lock + new consent), exactly as
   before (§4, §8a). If the status is moved back to Other Agency Stock, re-import works again.
-- Not changed: an **archived** (soft-deleted) Other Agency Stock property is still found by the dedup lookup and still updates in place.
+- Superseded for archived rows by §5g (an archived property is restored, not refused and not left archived).
 - Tests: `OtherAgencyStockReimportAndPitchLinksTest`.
 
 ### 5f. The rest of Property24's features in CoreX (Johan, 2026-10-08: "all P24 features should be in CoreX")
@@ -482,6 +482,27 @@ if they should be searchable — plus a decision on whether they are locked adve
 
 **Tests.** `OtherAgencyStockFeatureMapperTest` (mapping per saved page, unmappable values reported, wording variants, import through the
 real endpoint incl. the new columns and the lock), node harness (the rows all travel). Extension 3.9.2.
+
+### 5g. An archived property is not "in CoreX" — a re-import restores it (Johan, 2026-10-26)
+
+**Standing rule (Johan): the Chrome extension is published in the Web Store — NO extension code changes for a CoreX-side bug. The
+fix is entirely server-side and must return only response shapes the released extension (3.11.0, `public/chrome-extension/portal-capture`)
+already handles.** Check `background.js`/`popup.js` before changing any extension-facing response.
+
+- **What happened:** a P24 import was archived (soft delete) after its status had moved to `draft`. Re-importing hit §5e's refusal (the
+  dedup lookup finds trashed rows on purpose) and the popup said "already on CoreX as agency stock" with no way forward.
+- **Rule:** the import endpoint is the only duplicate gate for this flow (the P24 flow has no separate pre-check call; the CMA/deeds
+  pre-check is a different flow and reads live rows only). In `OtherAgencyStockImportService::import()` a trashed property is **restored,
+  then refreshed from the new import on the same row** (history kept; never a second row), whatever its status — the §5e refusal applies
+  to a LIVE property only. A trashed `property_external_sources` link is restored with it. Status goes back to Other Agency Stock, the
+  content lock is re-applied and a fresh consent is stored, as for any re-import (§8a). `PropertyPullController::pullFromPortal` already
+  restored by `external_id` (agency-scoped); it now writes the same history line.
+- **History:** one Property History row `restored_by_reimport` — "Restored by re-import from P24 listing <ref>" — on both paths.
+- **Response shape unchanged on purpose:** `{success, property_id, url, images_count}`. The released popup shows no message on success,
+  so no `message` field is added; the 409 `already_agency_stock` for a live agency-stock property is untouched (popup already renders it).
+- **Scope:** every lookup is keyed by the importing user's agency; another agency's archived row is never matched or touched.
+- Tests: `OtherAgencyStockReimportAndPitchLinksTest` (§4 block: archived-draft restored on the same row, archived-OAS restored,
+  archived link found not duplicated, live agency stock still refused, other agency's archived row untouched).
 
 ## 6. Visibility — a role setting, no hardcoding
 

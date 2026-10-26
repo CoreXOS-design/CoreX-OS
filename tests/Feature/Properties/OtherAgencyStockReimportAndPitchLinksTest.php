@@ -305,4 +305,85 @@ class OtherAgencyStockReimportAndPitchLinksTest extends TestCase
         $this->assertSame('42', $fresh->street_number, 'the internal edit saved');
         $this->assertEquals($sj, $fresh->spaces_json, 'the locked column is exactly as it was');
     }
+
+    // ── 4. Archived is not "in CoreX" (spec §5f) ─────────────────────────────────
+
+    public function test_an_archived_imported_property_is_restored_and_refreshed_by_a_reimport_on_the_same_row(): void
+    {
+        $p = $this->importedProperty();
+        // Archived the way the Properties screen does it (soft delete), after it had moved on to draft.
+        $this->actingAs($this->manager);
+        $p->update(['status' => 'draft']);
+        $p->fresh()->delete();
+        $this->assertSoftDeleted('properties', ['id' => $p->id]);
+
+        $r = $this->import(array_merge($this->payload(), ['price' => 2222000]))->assertOk();
+
+        $this->assertSame($p->id, $r->json('property_id'), 'the same row, never a second one');
+        $this->assertSame(['success', 'property_id', 'url', 'images_count'], array_keys($r->json()), 'the response shape the released extension already reads');
+        $fresh = Property::withoutGlobalScopes()->findOrFail($p->id);
+        $this->assertNull($fresh->deleted_at, 'restored');
+        $this->assertSame(Property::STATUS_OTHER_AGENCY_STOCK, $fresh->status);
+        $this->assertEquals(2222000, $fresh->price, 'refreshed with the new import');
+        $this->assertSame(1, Property::withoutGlobalScopes()->withTrashed()->where('agency_id', $this->agency->id)->count());
+        $this->assertSame(1, PropertyExternalSource::withoutGlobalScopes()->withTrashed()->count());
+
+        $log = \App\Models\PropertyAuditLog::withoutGlobalScopes()->where('property_id', $p->id)->where('event_type', 'restored_by_reimport')->first();
+        $this->assertNotNull($log, 'the history says it was restored by re-import');
+        $this->assertStringContainsString('Restored by re-import', $log->human_summary);
+    }
+
+    public function test_an_archived_property_still_in_other_agency_stock_status_also_comes_back(): void
+    {
+        $p = $this->importedProperty();
+        $p->delete();
+
+        $r = $this->import($this->payload())->assertOk();
+
+        $this->assertSame($p->id, $r->json('property_id'));
+        $this->assertNull(Property::withoutGlobalScopes()->findOrFail($p->id)->deleted_at);
+    }
+
+    public function test_an_archived_import_whose_portal_link_was_archived_too_is_found_not_duplicated(): void
+    {
+        $p = $this->importedProperty();
+        PropertyExternalSource::withoutGlobalScopes()->where('property_id', $p->id)->get()->each->delete();
+        $p->delete();
+
+        $r = $this->import($this->payload())->assertOk();
+
+        $this->assertSame($p->id, $r->json('property_id'));
+        $this->assertSame(1, PropertyExternalSource::withoutGlobalScopes()->withTrashed()->count());
+        $this->assertSame(1, PropertyExternalSource::withoutGlobalScopes()->count(), 'the link is live again');
+    }
+
+    public function test_a_live_property_that_is_now_agency_stock_is_still_refused(): void
+    {
+        $p = $this->importedProperty();
+        $this->actingAs($this->manager);
+        $p->update(['status' => 'draft']);
+
+        $this->import($this->payload())->assertStatus(409)->assertJsonPath('code', 'already_agency_stock');
+        $this->assertNull(Property::withoutGlobalScopes()->findOrFail($p->id)->deleted_at);
+    }
+
+    public function test_another_agencys_archived_property_is_left_untouched(): void
+    {
+        $p = $this->importedProperty();
+        $p->delete();
+
+        // Build the second agency with nobody signed in (the tenancy traits stamp the signed-in user's agency on create).
+        $this->flushSession();
+        app('auth')->forgetGuards();
+        $other = Agency::create(['name' => 'Other', 'slug' => 'other-' . uniqid()]);
+        $otherBranch = Branch::create(['agency_id' => $other->id, 'name' => 'Main']);
+        $otherAgent = User::factory()->create(['agency_id' => $other->id, 'branch_id' => $otherBranch->id, 'role' => 'agent']);
+        $this->assertSame($other->id, (int) $otherAgent->effectiveAgencyId(), 'precondition: the second user really resolves to the other agency');
+        \Laravel\Sanctum\Sanctum::actingAs($otherAgent);
+        $r = $this->postJson('/api/v1/other-agency-stock/import', $this->payload());
+
+        $r->assertOk();
+        $this->assertNotSame($p->id, $r->json('property_id'), 'the other agency gets its own row');
+        $this->assertNotNull(Property::withoutGlobalScopes()->withTrashed()->findOrFail($p->id)->deleted_at, 'ours stays archived');
+    }
 }
