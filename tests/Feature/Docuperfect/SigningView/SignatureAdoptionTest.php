@@ -54,13 +54,16 @@ final class SignatureAdoptionTest extends TestCase
     {
         $this->assertSame(
             'By signing here you agree this is your signature and initial and that it will be applied wherever you click to sign or initial on this document.',
-            $this->service()->wordingFor('adopt_then_stamp')['text']
+            $this->service()->wordingFor('adopt_once')['text']
         );
+        // The "Apply to all my places" confirmation carries the other sentence Johan approved on 23 Oct, unchanged.
         $this->assertSame(
             'By signing here you agree this is your signature and initial and that it will be applied to every signature and initial place on this document that is yours, without you clicking each one.',
-            $this->service()->wordingFor('adopt_and_fill_all')['text']
+            config('esign-adoption.apply_all_notice')
         );
-        $this->assertSame(1, $this->service()->wordingFor('adopt_then_stamp')['version']);
+        $this->assertSame(1, $this->service()->wordingFor('adopt_once')['version']);
+        // an adoption recorded before the ruling under a retired mode still resolves to the same wording
+        $this->assertSame($this->service()->wordingFor('adopt_once')['text'], $this->service()->wordingFor('adopt_then_stamp')['text']);
     }
 
     public function test_only_an_adoption_mode_envelope_needs_or_accepts_an_adoption(): void
@@ -80,11 +83,11 @@ final class SignatureAdoptionTest extends TestCase
         $row = $this->service()->adopt($r, self::SIG_A, self::INIT_A, $this->http());
 
         $this->assertSame(1, $row->generation);
-        $this->assertSame('adopt_then_stamp', $row->mode);
+        $this->assertSame('adopt_once', $row->mode);
         $this->assertSame(self::SIG_A, $row->signature_image);
         $this->assertSame(self::INIT_A, $row->initial_image);
         $this->assertSame(1, $row->disclaimer_version);
-        $this->assertSame($this->service()->wordingFor('adopt_then_stamp')['text'], $row->disclaimer_text);
+        $this->assertSame($this->service()->wordingFor('adopt_once')['text'], $row->disclaimer_text);
         $this->assertSame('10.9.8.7', $row->ip_address);
         $this->assertSame('adopt-test', $row->user_agent);
         $this->assertNotNull($row->adopted_at);

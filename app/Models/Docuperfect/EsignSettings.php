@@ -27,10 +27,24 @@ class EsignSettings extends Model
     ];
 
     // .ai/specs/esign-signing-modes.md — how this agency's signers sign. Fixed per envelope when it is created.
+    // Johan, 26 Oct 2026: two choices. "Adopt once" = adopt a signature + initial once, then click each place to apply
+    // AND/OR press "Apply to all my places" on the same document.
     public const MODE_SIGN_EACH = 'sign_each';
-    public const MODE_ADOPT_THEN_STAMP = 'adopt_then_stamp';
-    public const MODE_ADOPT_AND_FILL_ALL = 'adopt_and_fill_all';
-    public const SIGNING_MODES = [self::MODE_SIGN_EACH, self::MODE_ADOPT_THEN_STAMP, self::MODE_ADOPT_AND_FILL_ALL];
+    public const MODE_ADOPT_ONCE = 'adopt_once';
+    public const SIGNING_MODES = [self::MODE_SIGN_EACH, self::MODE_ADOPT_ONCE];
+
+    // The two adoption modes that existed before the ruling. Rows and envelopes may still carry them; both mean adopt_once.
+    public const LEGACY_ADOPT_MODES = ['adopt_then_stamp', 'adopt_and_fill_all'];
+
+    /** Map any stored value (including the two retired adoption modes) onto one of SIGNING_MODES; anything unknown is sign_each. */
+    public static function normaliseMode(?string $mode): string
+    {
+        if ($mode === self::MODE_ADOPT_ONCE || in_array($mode, self::LEGACY_ADOPT_MODES, true)) {
+            return self::MODE_ADOPT_ONCE;
+        }
+
+        return self::MODE_SIGN_EACH;
+    }
 
     protected $casts = [
         'async_completion_enabled' => 'boolean',
@@ -78,7 +92,7 @@ class EsignSettings extends Model
 
         $mode = static::query()->where('agency_id', $agencyId)->value('signing_mode');
 
-        return in_array($mode, self::SIGNING_MODES, true) ? $mode : self::MODE_SIGN_EACH;
+        return self::normaliseMode(is_string($mode) ? $mode : null);
     }
 
     /**

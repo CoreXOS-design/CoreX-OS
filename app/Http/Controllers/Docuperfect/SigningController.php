@@ -1857,6 +1857,8 @@ class SigningController extends Controller
         try {
             $generation = app(\App\Services\Docuperfect\SignaturePlacementService::class)
                 ->place($signingRequest, $data['place_key'], $request);
+        } catch (\App\Services\Docuperfect\AdoptionRequiredException $e) {
+            return response()->json(['ok' => false, 'adoption_required' => true, 'error' => $e->getMessage()], 422);
         } catch (\InvalidArgumentException $e) {
             return response()->json(['ok' => false, 'error' => $e->getMessage()], 422);
         } catch (\DomainException $e) {
@@ -1902,6 +1904,8 @@ class SigningController extends Controller
                 ->fillAll($signingRequest, $data['place_keys'], (int) ($data['one_by_one'] ?? 0), $request, (array) ($data['by_document'] ?? []));
         } catch (\App\Services\Docuperfect\FillAllUnavailableException $e) {
             return response()->json(['ok' => false, 'fill_all_unavailable' => true, 'error' => $e->getMessage()], 409);
+        } catch (\App\Services\Docuperfect\AdoptionRequiredException $e) {
+            return response()->json(['ok' => false, 'adoption_required' => true, 'error' => $e->getMessage()], 422);
         } catch (\InvalidArgumentException $e) {
             return response()->json(['ok' => false, 'error' => $e->getMessage()], 422);
         } catch (\DomainException $e) {
@@ -1972,6 +1976,7 @@ class SigningController extends Controller
             'required' => true,
             'mode' => $mode,
             'wording' => $wording['text'],
+            'applyAllNotice' => (string) config('esign-adoption.apply_all_notice', ''),
             'version' => $wording['version'],
             'adopted' => $current !== null,
             'signatureImage' => $current?->signature_image,

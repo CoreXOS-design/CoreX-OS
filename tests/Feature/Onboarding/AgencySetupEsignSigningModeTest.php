@@ -60,25 +60,25 @@ final class AgencySetupEsignSigningModeTest extends TestCase
         [$karoo, $admin] = $this->agencyWithAdmin('Karoo Lettings');
         [$cape] = $this->agencyWithAdmin('Cape Rentals');
 
-        $fields = array_replace($this->browserFormFields($admin, 'compliance'), ['signing_mode' => 'adopt_then_stamp']);
+        $fields = array_replace($this->browserFormFields($admin, 'compliance'), ['signing_mode' => 'adopt_once']);
         $this->save($admin, $fields)->assertRedirect()->assertSessionHasNoErrors();
 
-        $this->assertSame('adopt_then_stamp', EsignSettings::signingModeFor($karoo->id));
+        $this->assertSame('adopt_once', EsignSettings::signingModeFor($karoo->id));
         $this->assertSame('sign_each', EsignSettings::signingModeFor($cape->id), 'another agency is untouched');
         $html = $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'compliance']))->assertOk()->getContent();
-        $this->assertMatchesRegularExpression('/<option value="adopt_then_stamp"[^>]*selected/', $html, 'reopening shows the saved choice');
+        $this->assertMatchesRegularExpression('/<option value="adopt_once"[^>]*selected/', $html, 'reopening shows the saved choice');
     }
 
     public function test_a_step_post_that_never_carried_the_field_leaves_the_setting_alone(): void
     {
         [$agency, $admin] = $this->agencyWithAdmin('Karoo Lettings');
-        EsignSettings::updateOrCreate(['agency_id' => $agency->id], ['signing_mode' => 'adopt_and_fill_all']);
+        EsignSettings::updateOrCreate(['agency_id' => $agency->id], ['signing_mode' => 'adopt_once']);
 
         $fields = $this->browserFormFields($admin, 'compliance');
         unset($fields['signing_mode']);
         $this->save($admin, $fields)->assertRedirect();
 
-        $this->assertSame('adopt_and_fill_all', EsignSettings::signingModeFor($agency->id));
+        $this->assertSame('adopt_once', EsignSettings::signingModeFor($agency->id));
     }
 
     public function test_an_unknown_mode_is_refused_and_nothing_is_saved(): void

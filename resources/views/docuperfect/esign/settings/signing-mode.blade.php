@@ -5,19 +5,14 @@
 @php
     $cards = [
         'sign_each' => [
-            'title' => 'Sign every place',
+            'title' => 'Sign and initial each place',
             'text' => 'The signer opens the document and signs or initials each place on it, one by one, exactly as placed on the document.',
             'affects' => 'Nothing changes. This is how e-sign has always worked.',
         ],
-        'adopt_then_stamp' => [
-            'title' => 'Adopt once, then click to stamp',
-            'text' => 'When the signer opens the document they draw or type their signature and initial once and agree that it is theirs. After that, each signature and initial place is a single click that places it.',
-            'affects' => 'Signers no longer draw at every place; each click is still recorded separately, with its time.',
-        ],
-        'adopt_and_fill_all' => [
-            'title' => 'Adopt once and fill everything',
-            'text' => 'The signer adopts their signature and initial once, then confirms once, and CoreX places them on every signature and initial place that is theirs. Places that need the person to act one at a time — condition and amendment initials, and disclosure answers — are still done individually.',
-            'affects' => 'Fastest for signers. Before anything is placed, they are told how many places will be filled, and their agreement is stored with the signing.',
+        'adopt_once' => [
+            'title' => 'Adopt once',
+            'text' => 'When the signer opens the document they draw or type their signature and initial once and agree that it is theirs. After that they can click each signature and initial place to apply it, and/or press "Apply to all my places" to fill every place that is theirs in one go.',
+            'affects' => 'Signers no longer draw at every place. Each place that is filled is still recorded separately, with its time, and before "Apply to all" they are told how many places will be filled. Places that need the person to act one at a time - condition and amendment initials, and disclosure answers - are always done individually.',
         ],
     ];
 @endphp
