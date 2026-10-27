@@ -53,6 +53,7 @@
                 'branches'    => 'Branches',
                 'other-agency-stock' => 'Other Agency Stock',
                 'desk'        => 'CoreX Desk',
+                'compliance'  => ($canManageBoard ?? false) ? 'Compliance' : null,
                 'website'     => $websiteActive ? 'Website' : null,
                 'performance' => 'Performance',
             ]) as $key => $label)
@@ -1539,6 +1540,10 @@
             </div>
         </div>
 
+        @if($canManageBoard ?? false)
+        @include('admin.company-settings._compliance-tab')
+        @endif
+
         {{-- ============================================================
              WEBSITE TAB — public website settings (Agency Public API §3.7)
              Only rendered when the agency has a live website (active API key);
@@ -1901,7 +1906,7 @@ function companySettingsPage(initialId) {
         // back()/withFragment() always landed on Company regardless of which
         // tab the admin was actually on, since this page never read the hash
         // at all (unlike admin/agencies/create-edit.blade.php's same pattern).
-        activeTab: ['company', 'branding', 'branches', 'other-agency-stock', 'desk', 'website', 'performance']
+        activeTab: ['company', 'branding', 'branches', 'other-agency-stock', 'desk', 'compliance', 'website', 'performance']
             .includes((window.location.hash || '').replace('#', ''))
             ? (window.location.hash || '').replace('#', '')
             : 'company',

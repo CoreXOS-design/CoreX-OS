@@ -96,6 +96,24 @@ class CompliancePdf
         ])->render();
     }
 
+    /**
+     * The board approval letter (resolution + one signature line per member) as print HTML. $sigImages maps a
+     * signature id to a data URI of its drawn image; typed signatures need none.
+     *
+     * @param array<int,string> $sigImages
+     */
+    public function boardLetterHtml(\App\Models\Compliance\RmcpBoardLetter $letter, Agency $agency, array $sigImages = []): string
+    {
+        $letter->loadMissing('signatures', 'version');
+
+        return view('compliance.rmcp-board.letter', [
+            'letter'    => $letter,
+            'sigImages' => $sigImages,
+            'logo'      => $this->logoDataUri($agency),
+            'accent'    => $this->accent($agency),
+        ])->render();
+    }
+
     /** A PDF download response — or null when the bytes are missing, so the caller can show a real message. */
     public function download(?string $bytes, string $filename)
     {

@@ -56,6 +56,10 @@
         </div>
         @endif
 
+        @if($board)
+            @include('compliance.rmcp._board-panel')
+        @endif
+
         <div class="flex gap-6">
             {{-- Left sidebar: Table of contents --}}
             <div class="hidden lg:block flex-shrink-0" style="width:240px;">

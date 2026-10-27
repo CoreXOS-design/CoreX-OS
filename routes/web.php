@@ -1374,6 +1374,17 @@ Route::prefix('deals-v2/secure-doc')->group(function () {
     Route::get('/{token}/download', [\App\Http\Controllers\DealV2\SecureDocumentController::class, 'download'])->name('deals-v2.secure-doc.download');
 });
 
+// RMCP board approval letter - PUBLIC emailed-link side (.ai/specs/compliance.md). No auth: the 40-character token is the
+// credential and a six-digit code to the member's own address must be entered before the letter is shown. Same pattern as
+// the secure-doc links above; verify is throttled because it is a brute-forceable check.
+Route::prefix('rmcp-board-approval/{token}')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Compliance\RmcpBoardSigningController::class, 'show'])->name('rmcp-board.show');
+    Route::post('/code', [\App\Http\Controllers\Compliance\RmcpBoardSigningController::class, 'requestCode'])->middleware('throttle:10,1')->name('rmcp-board.code');
+    Route::post('/verify', [\App\Http\Controllers\Compliance\RmcpBoardSigningController::class, 'verify'])->middleware('throttle:5,1')->name('rmcp-board.verify');
+    Route::post('/sign', [\App\Http\Controllers\Compliance\RmcpBoardSigningController::class, 'sign'])->middleware('throttle:10,1')->name('rmcp-board.sign');
+    Route::get('/pdf', [\App\Http\Controllers\Compliance\RmcpBoardSigningController::class, 'pdf'])->name('rmcp-board.pdf');
+});
+
 // WS8 (§12) — PUBLIC per-user iCal deal feed (no auth: calendar apps poll the raw
 // tokenised URL). Read-only; the token resolves the user + their permitted scope.
 Route::get('/deals-v2/ical/{token}.ics', [\App\Http\Controllers\DealV2\DealIcalController::class, 'feed'])->name('deals-v2.ical');
@@ -2979,6 +2990,23 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->name('approve')->middleware('permission:approve_rmcp');
         Route::get('/{version}/pdf', [\App\Http\Controllers\Compliance\RmcpController::class, 'downloadPdf'])
             ->name('pdf')->middleware('permission:access_rmcp');
+
+        // RMCP board approval letter (.ai/specs/compliance.md). Send / resend / cancel / re-create the PDF: manage_rmcp_board_approval
+        // (checked in the controller, which also scopes by agency). In-app signing is for the board member on the open line.
+        Route::post('/{version}/board-approval/send', [\App\Http\Controllers\Compliance\RmcpBoardApprovalController::class, 'send'])
+            ->name('board.send')->middleware('permission:manage_rmcp_board_approval');
+        Route::post('/{version}/board-approval/signatures/{signature}/resend', [\App\Http\Controllers\Compliance\RmcpBoardApprovalController::class, 'resend'])
+            ->name('board.resend')->middleware('permission:manage_rmcp_board_approval');
+        Route::post('/{version}/board-approval/letters/{letter}/cancel', [\App\Http\Controllers\Compliance\RmcpBoardApprovalController::class, 'cancel'])
+            ->name('board.cancel')->middleware('permission:manage_rmcp_board_approval');
+        Route::post('/{version}/board-approval/letters/{letter}/pdf', [\App\Http\Controllers\Compliance\RmcpBoardApprovalController::class, 'regeneratePdf'])
+            ->name('board.pdf.create')->middleware('permission:manage_rmcp_board_approval');
+        Route::get('/{version}/board-approval/letters/{letter}/pdf', [\App\Http\Controllers\Compliance\RmcpBoardApprovalController::class, 'downloadPdf'])
+            ->name('board.pdf');
+        Route::get('/{version}/board-approval/sign', [\App\Http\Controllers\Compliance\RmcpBoardApprovalController::class, 'signForm'])
+            ->name('board.sign');
+        Route::post('/{version}/board-approval/sign', [\App\Http\Controllers\Compliance\RmcpBoardApprovalController::class, 'signSubmit'])
+            ->middleware('throttle:10,1')->name('board.sign.submit');
     });
 
     // ── Policy Acknowledgement Framework (AT-29) ──
@@ -5789,6 +5817,19 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         [\App\Http\Controllers\Admin\CompanySettingsController::class, 'index'])
         ->middleware('permission:manage_performance_settings')
         ->name('admin.company-settings');
+    // Board / senior management list (RMCP board approval letter) - Company Settings > Compliance tab.
+    Route::post('/admin/company-settings/{agency}/board-members',
+        [\App\Http\Controllers\Admin\AgencyBoardMemberController::class, 'store'])
+        ->middleware('permission:manage_rmcp_board_approval')->name('admin.company-settings.board-members.store');
+    Route::put('/admin/company-settings/{agency}/board-members/{member}',
+        [\App\Http\Controllers\Admin\AgencyBoardMemberController::class, 'update'])
+        ->middleware('permission:manage_rmcp_board_approval')->whereNumber('member')->name('admin.company-settings.board-members.update');
+    Route::delete('/admin/company-settings/{agency}/board-members/{member}',
+        [\App\Http\Controllers\Admin\AgencyBoardMemberController::class, 'destroy'])
+        ->middleware('permission:manage_rmcp_board_approval')->whereNumber('member')->name('admin.company-settings.board-members.destroy');
+    Route::post('/admin/company-settings/{agency}/board-members/{member}/restore',
+        [\App\Http\Controllers\Admin\AgencyBoardMemberController::class, 'restore'])
+        ->middleware('permission:manage_rmcp_board_approval')->whereNumber('member')->name('admin.company-settings.board-members.restore');
     Route::put('/admin/company-settings/{agency}',
         [\App\Http\Controllers\Admin\CompanySettingsController::class, 'update'])
         ->middleware('permission:manage_performance_settings')

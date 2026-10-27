@@ -24,6 +24,32 @@
                 By approving, you confirm you have reviewed this RMCP and accept board-level responsibility per section 42 of the FIC Act and Revised Guidance Note 7A (September 2025).
             </div>
 
+            {{-- Way 1: the letter the board signed in CoreX. --}}
+            @if($boardLetter)
+            <form method="POST" action="{{ route('compliance.rmcp.approve', $version) }}" class="space-y-4 rounded-md p-6 mb-6" style="background: var(--surface); border: 1px solid var(--border);">
+                @csrf
+                <input type="hidden" name="use_board_letter" value="1">
+                <p class="text-sm font-semibold" style="color: var(--text-primary);">The board has signed the approval letter.</p>
+                <p class="text-xs" style="color: var(--text-secondary);">
+                    Signed by {{ $boardFacts['names'] }} on {{ $boardFacts['date'] }}. The RMCP takes effect on {{ $boardLetter->effective_from->format('d F Y') }}@if($boardLetter->next_review_due) and is reviewed again by {{ $boardLetter->next_review_due->format('d F Y') }}@endif.
+                    <a href="{{ route('compliance.rmcp.board.pdf', [$version, $boardLetter]) }}" class="underline">Open the signed letter</a>.
+                </p>
+                <div>
+                    <label class="block text-sm font-semibold mb-1" style="color: var(--text-secondary);">Approval Notes</label>
+                    <textarea name="approval_notes" rows="2" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"></textarea>
+                </div>
+                <button type="submit" class="corex-btn-primary">Approve RMCP with the signed board letter</button>
+            </form>
+            <p class="text-xs mb-3" style="color: var(--text-muted);">Or approve with a signed PDF you upload yourself:</p>
+            @else
+            <div class="mb-6 px-4 py-3 text-sm rounded-md" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                <strong>Easiest way:</strong> have the board sign the approval letter in CoreX.
+                {{ $boardProblem }}
+                <a href="{{ route('compliance.rmcp.show', $version) }}#board-approval" class="underline">Open the Board approval panel</a>.
+                Or upload a signed PDF below.
+            </div>
+            @endif
+
             <form method="POST" action="{{ route('compliance.rmcp.approve', $version) }}" enctype="multipart/form-data" class="space-y-5 rounded-md p-6" style="background: var(--surface); border: 1px solid var(--border);">
                 @csrf
 
@@ -40,7 +66,7 @@
                     <input type="file" name="board_approval_document" accept=".pdf" required
                            class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <p class="text-xs mt-1" style="color: var(--text-muted);">Upload signed board resolution or approval document. Max 10MB.</p>
-                    @error('board_approval_document') <p class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</p> @enderror
+                    @error('board_approval_document') <p class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }} <a href="{{ route('compliance.rmcp.show', $version) }}#board-approval" class="underline">Open the Board approval panel</a>.</p> @enderror
                 </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">

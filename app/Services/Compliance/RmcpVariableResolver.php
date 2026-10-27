@@ -36,6 +36,7 @@ class RmcpVariableResolver
         'rmcp.version_number',
         'rmcp.approved_on',
         'rmcp.approved_by_name',
+        'rmcp.approved_by_title',
         'rmcp.effective_from',
         'rmcp.next_review_due',
     ];
@@ -78,6 +79,20 @@ class RmcpVariableResolver
             $variables['rmcp.version_number']   = (string) $version->version_number;
             $variables['rmcp.approved_on']      = $version->approved_at ? $version->approved_at->format('d F Y') : '';
             $variables['rmcp.approved_by_name'] = $version->approved_at ? (string) ($version->approver?->name ?? '') : '';
+            $variables['rmcp.approved_by_title'] = $version->approved_at ? (string) $version->approver_title : '';
+
+            // Signed by the board in CoreX: the Approval block names the people who signed, their titles and the date they signed.
+            // An approved version reads the letter it was approved with; a draft reads the signed letter that is ready for Approve.
+            $letter = $version->board_letter_id
+                ? \App\Models\Compliance\RmcpBoardLetter::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)->find($version->board_letter_id)
+                : ($version->status === 'draft' ? app(RmcpBoardApprovalService::class)->usableLetter($version) : null);
+            if ($letter) {
+                $facts = app(RmcpBoardApprovalService::class)->approvalFacts($letter);
+                $variables['rmcp.approved_by_name']  = $facts['names'];
+                $variables['rmcp.approved_by_title'] = $facts['titles'];
+                $variables['rmcp.approved_on']       = $facts['date'];
+            }
+
             $variables['rmcp.effective_from']   = $version->effective_from ? $version->effective_from->format('d F Y') : '';
             $variables['rmcp.next_review_due']  = $version->next_review_due ? $version->next_review_due->format('d F Y') : '';
         }
@@ -159,7 +174,7 @@ class RmcpVariableResolver
      */
     private function offices(Agency $agency): array
     {
-        return Branch::withoutGlobalScopes()
+        return Branch::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
             ->where('agency_id', $agency->id)
             ->whereNull('deleted_at')
             ->whereNotNull('address')
