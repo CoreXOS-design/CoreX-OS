@@ -522,7 +522,7 @@ function chooseOption(tab, el, selector) {
     sel.size = Math.min(8, Math.max(2, el.options.length));
     sel.style.cssText = 'position:fixed;z-index:20;min-width:10rem;left:' + (iframe.getBoundingClientRect().left + rect.left * sc) + 'px;top:' + (iframe.getBoundingClientRect().top + (rect.bottom * sc)) + 'px;';
     Array.from(el.options).forEach((o) => { const op = document.createElement('option'); op.value = o.value; op.textContent = o.textContent; sel.appendChild(op); });
-    const close = () => sel.remove();
+    const close = () => { if (sel.isConnected) sel.remove(); };   // change closes it, and the blur that follows must not try again
     sel.addEventListener('change', () => { sendAction(tab, { type: 'select', s: selector, v: sel.value }); close(); });
     sel.addEventListener('blur', close);
     $('cdc-live').appendChild(sel);   // inside the viewer, so it shows in full screen too

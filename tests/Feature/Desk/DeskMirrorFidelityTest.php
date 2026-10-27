@@ -233,5 +233,11 @@ final class DeskMirrorFidelityTest extends TestCase
             'the size is set before the scale is applied'
         );
     }
+
+    public function test_the_dropdown_list_closes_once_not_twice(): void
+    {
+        // change closes the list and the blur that follows used to throw "node is no longer a child"
+        $this->assertStringContainsString('const close = () => { if (sel.isConnected) sel.remove(); };', $this->js('console.js'));
+    }
 }
 
