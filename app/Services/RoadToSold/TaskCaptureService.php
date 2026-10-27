@@ -98,7 +98,7 @@ class TaskCaptureService
 
         $settings = SettingsService::forAgency($agencyId, $track);
         $tz = AppDate::agencyTimezone(Agency::query()->withoutGlobalScopes()->find($agencyId));
-        $occurredAt = $this->occurredAt($input['occurred_at'] ?? null, $tz, $settings->captureBackDateHours());
+        $occurredAt = $this->occurredAt($input['occurred_at'] ?? null, $tz, $settings->captureBackDateWorkingDays(), $settings->holidayCountry());
         $properties = $this->propertyRows($input['properties'] ?? [], $task);
         $contacts   = $this->contactRows($input['contacts'] ?? [], $task);
         $photos     = array_values(array_filter((array) ($input['photos'] ?? []), fn ($f) => $f instanceof UploadedFile));
@@ -230,7 +230,7 @@ class TaskCaptureService
     // ── Input ─────────────────────────────────────────────────────────────
 
     /** @return Carbon the moment, ready to store */
-    private function occurredAt(mixed $value, string $tz, int $backHours): Carbon
+    private function occurredAt(mixed $value, string $tz, int $backWorkingDays, string $holidayCountry): Carbon
     {
         if ($value === null || trim((string) $value) === '') {
             return now();
@@ -243,8 +243,12 @@ class TaskCaptureService
         if ($at->gt(now()->addMinutes(5))) {
             throw ValidationException::withMessages(['occurred_at' => 'That time is in the future. Pick when it really happened.']);
         }
-        if ($at->lt(now()->subHours($backHours))) {
-            throw ValidationException::withMessages(['occurred_at' => "A capture can be back-dated by up to {$backHours} hours. Pick a later time."]);
+        // Working days, not hours: weekends and the agency's public holidays are skipped (spec 21.1).
+        $earliest = WorkdayService::make()->backDateLimit(now($tz), $backWorkingDays, $holidayCountry);
+        if ($at->lt($earliest)) {
+            $days = $backWorkingDays === 1 ? '1 working day' : "{$backWorkingDays} working days";
+
+            throw ValidationException::withMessages(['occurred_at' => "A capture can be back-dated by up to {$days} (weekends and public holidays do not count). Pick a later day."]);
         }
 
         return $at;

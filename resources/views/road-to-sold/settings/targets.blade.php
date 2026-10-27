@@ -73,6 +73,10 @@
             @endif
         </div>
 
+        @if($mo['split'])
+            @include('road-to-sold.settings._split', ['split' => $mo['split']])
+        @endif
+
         {{-- Agency default --}}
         <div class="rounded-md p-4" style="background:var(--surface); border:2px solid var(--brand-icon, #0ea5e9);">
             <h3 class="text-sm font-bold mb-1" style="color:var(--text-primary);">Agency default monthly targets</h3>
@@ -230,12 +234,12 @@
     {{-- The daily call targets belong to the Road to Sold call list: shown only while that feature is on (Johan, 23 Oct 2026 - Budgets and monthly targets stay without it). --}}
     @if($weekdayOn)
     <div>
-        <h2 class="text-base font-bold" style="color:var(--text-primary);">Daily call targets</h2>
+        <h2 class="text-base font-bold" style="color:var(--text-primary);">Calls per agent per day</h2>
     </div>
 
     {{-- Agency default --}}
     <div class="rounded-md p-4" style="background:var(--surface); border:2px solid var(--brand-icon, #0ea5e9);">
-        <h3 class="text-sm font-bold mb-1" style="color:var(--text-primary);">Agency default week</h3>
+        <h3 class="text-sm font-bold mb-1" style="color:var(--text-primary);">Agency default: calls per agent per day</h3>
         <form method="POST" action="{{ route($rb . 'targets.default') }}" class="flex flex-wrap items-end gap-3">
             @csrf @method('PUT')
             @foreach($keep as $k => $v)<input type="hidden" name="{{ $k }}" value="{{ $v }}">@endforeach
@@ -308,7 +312,7 @@
                 <tr class="text-left text-xs uppercase tracking-wide" style="background:var(--surface-2); border-bottom:1px solid var(--border); color:var(--text-muted);">
                     <th class="px-4 py-2">Agent</th>
                     @foreach($weekdays as $label)<th class="px-2 py-2 text-center">{{ $label }}</th>@endforeach
-                    <th class="px-3 py-2 text-center">Week</th>
+                    <th class="px-3 py-2 text-center" title="Calls per agent in a normal week">Calls / week</th>
                     <th class="px-3 py-2 text-center" title="What the agent should have done by today / the whole month, after taking off public holidays and approved leave">{{ now()->format('F') }}</th>
                     <th class="px-4 py-2"></th>
                 </tr>

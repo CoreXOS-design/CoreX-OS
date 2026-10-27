@@ -416,8 +416,9 @@ final class BudgetsAndTargetsMoveTest extends TestCase
         $get = fn ($u, array $q = []) => $this->actingAs($u)->get(route('road-to-sold.settings.budgets.index', ['period' => '2026-10'] + $q));
         $get($this->admin)->assertOk()->assertSee('Retha Kelly')->assertSee('Shawn Du Bois')->assertSee('What the agency needs');
         $get($this->manager)->assertOk()->assertSee('Retha Kelly')->assertDontSee('Shawn Du Bois');
-        $get($this->admin, ['q' => 'shawn'])->assertOk()->assertSee('Shawn Du Bois')->assertDontSee('Retha Kelly');
-        $get($this->admin, ['show' => 'set'])->assertOk()->assertSee('Retha Kelly')->assertDontSee('Shawn Du Bois');
+        // the split panel above the list always names every agent (it is not filtered), so the LIST is checked by its own row markup
+        $get($this->admin, ['q' => 'shawn'])->assertOk()->assertSee('>Shawn Du Bois</div>', false)->assertDontSee('>Retha Kelly</div>', false);
+        $get($this->admin, ['show' => 'set'])->assertOk()->assertSee('>Retha Kelly</div>', false)->assertDontSee('>Shawn Du Bois</div>', false);
         $get($this->admin, ['show' => 'notset'])->assertOk()->assertSee('Shawn Du Bois');
         $get($this->admin, ['show' => 'archived'])->assertOk();
         $get($this->admin, ['sort' => 'total', 'branch_id' => $this->north->id])->assertOk();

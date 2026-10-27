@@ -274,7 +274,8 @@ class SettingsService
     /** Rows in the first window read while scanning the pool; each further window doubles until the day is full or the pool ends. */
     public function scanPageSize(): int
     {
-        return (int) $this->scalar('scan_page_size');
+        // A config value, not an agency setting (spec 21.6).
+        return max(10, (int) config('road-to-sold.scan_page_size', RtsSetting::SCAN_PAGE_SIZE));
     }
 
     public function hotPocketWeightBuyers(): int
@@ -344,10 +345,10 @@ class SettingsService
         return (int) $this->scalar('summary_ahead_from_pct');
     }
 
-    /** How many hours back a captured task may be dated (spec 10.5 "Backdated completion"). */
-    public function captureBackDateHours(): int
+    /** How many WORKING days back a captured task may be dated (spec 10.5 "Backdated completion", 21.1): weekends and public holidays do not count. */
+    public function captureBackDateWorkingDays(): int
     {
-        return (int) $this->scalar('capture_back_date_hours');
+        return max(1, (int) $this->scalar('capture_back_date_working_days'));
     }
 
     /** Do captured tasks wait for a manager's approval before they count (spec 10.4 review queue)? Off by default: they count at once. */

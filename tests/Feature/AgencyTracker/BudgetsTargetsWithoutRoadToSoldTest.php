@@ -69,7 +69,7 @@ final class BudgetsTargetsWithoutRoadToSoldTest extends TestCase
             ->assertOk()->assertSee('Retha Kelly');
 
         $this->actingAs($this->admin)->get(route('road-to-sold.settings.targets.index'))
-            ->assertOk()->assertSee('Monthly targets')->assertSee('Retha Kelly')->assertDontSee('Daily call targets');
+            ->assertOk()->assertSee('Monthly targets')->assertSee('Retha Kelly')->assertDontSee('Calls per agent per day');
     }
 
     public function test_with_road_to_sold_off_a_monthly_target_saves(): void
@@ -105,7 +105,7 @@ final class BudgetsTargetsWithoutRoadToSoldTest extends TestCase
         $this->roadToSold(true);
 
         $this->actingAs($this->admin)->get(route('road-to-sold.settings.targets.index'))
-            ->assertOk()->assertSee('Monthly targets')->assertSee('Daily call targets');
+            ->assertOk()->assertSee('Monthly targets')->assertSee('Calls per agent per day');
         $this->actingAs($this->admin)->get(route('road-to-sold.settings.index'))->assertOk();
 
         $keys = collect(\App\Http\Controllers\RoadToSold\SettingsController::tabsFor($this->admin, 'general'))->pluck('key')->all();

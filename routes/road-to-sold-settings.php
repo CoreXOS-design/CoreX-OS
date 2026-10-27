@@ -50,6 +50,7 @@ return function () {
         Route::delete('/monthly/agents/{user}', [$c, 'archiveMonthly'])->whereNumber('user')->name('monthly.archive');
         Route::post('/monthly/agents/{user}/restore', [$c, 'restoreMonthly'])->whereNumber('user')->name('monthly.restore');
         Route::put('/monthly/default', [$c, 'updateMonthlyDefault'])->name('monthly.default');
+        Route::put('/monthly/split', [$c, 'splitMonthly'])->name('monthly.split');
         Route::post('/monthly/apply-default', [$c, 'applyMonthlyDefault'])->name('monthly.apply-default');
     });
 
@@ -58,6 +59,7 @@ return function () {
         $c = \App\Http\Controllers\RoadToSold\BudgetsController::class;
         Route::get('/', [$c, 'index'])->name('index');
         Route::put('/agency', [$c, 'saveAgency'])->name('agency');
+        Route::put('/split', [$c, 'split'])->name('split');
         Route::put('/branches/{branch}', [$c, 'saveBranch'])->whereNumber('branch')->name('branch');
         Route::put('/agents/{user}', [$c, 'saveAgent'])->whereNumber('user')->name('agent');
         Route::delete('/agents/{user}', [$c, 'archiveAgent'])->whereNumber('user')->name('agent.archive');

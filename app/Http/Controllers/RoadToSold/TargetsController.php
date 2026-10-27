@@ -11,6 +11,7 @@ use App\View\Components\PeriodSelector;
 use App\Models\User;
 use App\Services\PermissionService;
 use App\Services\RoadToSold\SettingsService;
+use App\Services\RoadToSold\SplitAllocator;
 use App\Services\RoadToSold\Support\Routing;
 use App\Services\RoadToSold\TargetService;
 use App\Services\RoadToSold\VisibleAgents;
@@ -310,7 +311,165 @@ class TargetsController extends Controller
             'filters' => compact('q', 'show', 'sort') + ['branchId' => $branchId],
             'emptyFiltered' => $page->total() === 0 && ($q !== '' || $branchId > 0 || $show !== 'all'),
             'max' => ['count' => RtsSetting::MAX_MONTHLY_COUNT, 'value' => RtsSetting::MAX_MONTHLY_VALUE],
+            'split' => $this->monthlySplit($viewer, $agents, $period, $live),
         ];
+    }
+
+    /** The four monthly measures, as the split panel and the save name them. */
+    private const SPLIT_LABELS = ['points' => 'Points', 'deals' => 'Deals', 'listings' => 'Listings', 'value' => 'Sales value (rand)'];
+
+    /**
+     * The "type the total, split it by percentage" panel for the monthly targets (spec 21.3). The totals start from what the agents you
+     * can see already have for the month; the percentages from how those totals are spread (an even split when nothing is set). The
+     * split writes each agent's four numbers for the month. Agents with no branch cannot be part of a branch split and are left out.
+     *
+     * @param  Collection<int,User>                        $agents
+     * @param  Collection<int,\App\Models\Target>          $live  this month's target rows keyed by agent id
+     * @return array<string,mixed>|null
+     */
+    private function monthlySplit(User $viewer, Collection $agents, string $period, Collection $live): ?array
+    {
+        if (! $this->canWrite($viewer)) {
+            return null;
+        }
+        $byBranch = $this->agentsByBranch($agents);
+        if ($byBranch === []) {
+            return null;
+        }
+        $scope = PermissionService::getDataScope($viewer, 'road_to_sold');
+        $field = ['points' => 'points_target', 'deals' => 'deals_target', 'listings' => 'listings_target', 'value' => 'value_target'];
+        $of = fn (int $uid, string $m) => (float) ($live->get($uid)->{$field[$m]} ?? 0);
+
+        $measures = [];
+        foreach (TargetService::SPLIT_MEASURES as $m => $decimals) {
+            $measures[] = ['key' => $m, 'label' => self::SPLIT_LABELS[$m], 'decimals' => $decimals, 'money' => $m === 'value'];
+        }
+        $branchNames = \App\Models\Branch::query()->whereIn('id', array_keys($byBranch))->pluck('name', 'id');
+
+        $branchRows = [];
+        $totals = array_fill_keys(array_keys(TargetService::SPLIT_MEASURES), 0.0);
+        $branchWeight = [];
+        foreach ($byBranch as $bid => $ids) {
+            $weight = 0.0;
+            foreach ($ids as $uid) {
+                foreach (TargetService::SPLIT_MEASURES as $m => $_) {
+                    $totals[$m] += $of($uid, $m);
+                }
+                $weight += $of($uid, 'points') ?: ($of($uid, 'deals') ?: ($of($uid, 'listings') ?: $of($uid, 'value')));
+            }
+            $branchWeight[$bid] = $weight;
+            $agentPct = SplitAllocator::percentsOf(array_combine($ids, array_map(fn ($uid) => $of($uid, 'points') ?: ($of($uid, 'deals') ?: ($of($uid, 'listings') ?: $of($uid, 'value'))), $ids)));
+            $branchRows[$bid] = ['id' => (int) $bid, 'name' => (string) ($branchNames[$bid] ?? 'Branch'), 'pct' => 0.0,
+                'agents' => array_map(fn ($uid) => ['id' => (int) $uid, 'name' => (string) $agents[$uid]->name, 'pct' => (float) $agentPct[$uid]], $ids)];
+        }
+        $branchPct = SplitAllocator::percentsOf($branchWeight);
+        foreach ($branchRows as $bid => &$row) {
+            $row['pct'] = (float) $branchPct[$bid];
+        }
+        unset($row);
+
+        $totalsRounded = [];
+        foreach ($totals as $m => $v) {
+            $totalsRounded[$m] = $m === 'value' ? round($v, 2) : (int) round($v);
+        }
+        $common = ['id' => 'targets-split', 'action' => route(Routing::base() . 'targets.monthly.split'), 'period' => $period, 'measures' => $measures, 'canWrite' => true, 'totalEditable' => true];
+        if ($scope === 'all') {
+            return $common + ['mode' => 'agency', 'branchId' => null, 'totalLabel' => 'What the agency\'s targets add up to for ' . $this->monthLabel($period),
+                'totals' => $totalsRounded, 'branches' => array_values($branchRows)];
+        }
+        $mine = (int) $viewer->effectiveBranchId();
+        if (! isset($branchRows[$mine])) {
+            return null;
+        }
+        $mineTotals = array_fill_keys(array_keys(TargetService::SPLIT_MEASURES), 0.0);
+        foreach ($byBranch[$mine] as $uid) {
+            foreach (TargetService::SPLIT_MEASURES as $m => $_) {
+                $mineTotals[$m] += $of($uid, $m);
+            }
+        }
+        $branchRows[$mine]['pct'] = 100.0;
+
+        return $common + ['mode' => 'branch', 'branchId' => $mine, 'totalLabel' => 'What ' . $branchRows[$mine]['name'] . '\'s targets add up to for ' . $this->monthLabel($period),
+            'totals' => array_map(fn ($v, $m) => $m === 'value' ? round($v, 2) : (int) round($v), $mineTotals, array_keys($mineTotals)), 'branches' => [$branchRows[$mine]]];
+    }
+
+    /**
+     * The agents each branch's share is split between: the ones the viewer can see, grouped by branch, in name order.
+     *
+     * @param  Collection<int,User> $agents
+     * @return array<int,int[]> branch id => agent ids
+     */
+    private function agentsByBranch(Collection $agents): array
+    {
+        $out = [];
+        foreach ($agents->sortBy(fn (User $u) => mb_strtolower((string) $u->name))->values() as $u) {
+            if ((int) $u->branch_id > 0) {
+                $out[(int) $u->branch_id][] = (int) $u->id;
+            }
+        }
+        ksort($out);
+
+        return $out;
+    }
+
+    /**
+     * Save the monthly-target split in one go: the totals, the branches' shares and each branch's agents. Every level must add up to
+     * 100% or nothing is saved. Writes each agent's four numbers for the month.
+     */
+    public function splitMonthly(Request $request): RedirectResponse
+    {
+        $viewer = $request->user();
+        $this->assertCanWrite($viewer);
+        $period = $this->monthOrFail($request);
+        $level = $request->input('level') === 'branch' ? 'branch' : 'agency';
+
+        $request->replace($this->stripSeparators($request, ['total.value']));
+        $data = $request->validate([
+            'level'          => ['required', 'in:agency,branch'],
+            'branch_id'      => ['nullable', 'integer'],
+            'total'          => ['required', 'array'],
+            'total.points'   => ['required', 'integer', 'min:0', 'max:' . RtsSetting::MAX_MONTHLY_COUNT],
+            'total.deals'    => ['required', 'integer', 'min:0', 'max:' . RtsSetting::MAX_MONTHLY_COUNT],
+            'total.listings' => ['required', 'integer', 'min:0', 'max:' . RtsSetting::MAX_MONTHLY_COUNT],
+            'total.value'    => ['required', 'numeric', 'min:0', 'max:' . RtsSetting::MAX_MONTHLY_VALUE],
+            'branches'       => ['nullable', 'array'],
+            'branches.*'     => ['numeric', 'min:0', 'max:100'],
+            'agents'         => ['nullable', 'array'],
+            'agents.*'       => ['array'],
+            'agents.*.*'     => ['numeric', 'min:0', 'max:100'],
+        ], [
+            'total.*.required' => 'Targets split: enter every total (0 if none).',
+            'total.*.integer'  => 'Targets split: points, deals and listings are whole numbers from 0 up.',
+            'total.*.numeric'  => 'Targets split: the sales value is an amount in rand from 0 up.',
+            'total.*.min'      => 'Targets split: a total cannot be below 0.',
+            'total.*.max'      => 'Targets split: that total is too large.',
+            'branches.*.*'     => 'Each branch percentage must be a number from 0 to 100.',
+            'agents.*.*.*'     => 'Each agent percentage must be a number from 0 to 100.',
+        ]);
+
+        $agents = VisibleAgents::for($viewer);
+        $byBranch = $this->agentsByBranch($agents);
+        $branchId = null;
+        if ($level === 'agency') {
+            abort_unless(PermissionService::getDataScope($viewer, 'road_to_sold') === 'all', 403, 'Only someone who manages Road to Sold for the whole agency can split the agency\'s targets.');
+        } else {
+            $branchId = (int) ($data['branch_id'] ?? 0);
+            abort_unless($branchId > 0 && isset($byBranch[$branchId]) && (PermissionService::getDataScope($viewer, 'road_to_sold') === 'all' || $branchId === (int) $viewer->effectiveBranchId()), 404);
+            $byBranch = [$branchId => $byBranch[$branchId]];
+        }
+
+        $agentPercents = [];
+        foreach ((array) ($data['agents'] ?? []) as $bid => $list) {
+            $agentPercents[(int) $bid] = array_combine(array_map('intval', array_keys($list)), array_values($list));
+        }
+        $branchPercents = [];
+        foreach ((array) ($data['branches'] ?? []) as $bid => $v) {
+            $branchPercents[(int) $bid] = $v;
+        }
+
+        $this->targets->saveSplit($viewer, $period, $branchId, $data['total'], $branchPercents, $agentPercents, $byBranch);
+
+        return $this->backMonthly($request, $period)->with('success', 'The targets for ' . $this->monthLabel($period) . ' are split and saved for every agent.');
     }
 
     /**

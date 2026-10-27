@@ -36,7 +36,7 @@ final class BuilderSettings
         public readonly int $priceDropLookbackDays = RtsSetting::SCALAR_DEFAULTS['price_drop_lookback_days'],
         public readonly int $stuckStockLookbackDays = RtsSetting::SCALAR_DEFAULTS['stuck_stock_lookback_days'],
         public readonly int $addToDayMax = RtsSetting::SCALAR_DEFAULTS['add_to_day_max'],
-        public readonly int $scanPageSize = RtsSetting::SCALAR_DEFAULTS['scan_page_size'],
+        public readonly int $scanPageSize = RtsSetting::SCAN_PAGE_SIZE,
         public readonly int $hotPocketWeightBuyers = RtsSetting::SCALAR_DEFAULTS['hot_pocket_weight_buyers'],
         public readonly int $hotPocketWeightLeads = RtsSetting::SCALAR_DEFAULTS['hot_pocket_weight_leads'],
         public readonly int $hotPocketWeightSales = RtsSetting::SCALAR_DEFAULTS['hot_pocket_weight_sales'],

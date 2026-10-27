@@ -48,9 +48,9 @@ class RtsSetting extends Model
         'summary_steps', 'summary_green_from_pct', 'summary_red_below_pct',
         'default_weekday_targets', 'default_monthly_targets', 'updated_by_user_id',
         'refresh_portals', 'buyer_match_tiers', 'active_buyer_states', 'on_market_statuses',
-        'add_to_day_max', 'scan_page_size', 'min_area_properties',
+        'add_to_day_max', 'min_area_properties',
         'hot_pocket_weight_buyers', 'hot_pocket_weight_leads', 'hot_pocket_weight_sales',
-        'summary_ahead_from_pct', 'capture_back_date_hours', 'capture_needs_review',
+        'summary_ahead_from_pct', 'capture_back_date_working_days', 'capture_needs_review',
         'levels_signoff_required', 'level_periods_required',
         'flag_min_sample', 'flag_below_pct', 'flag_window_days', 'suggest_window_weeks', 'suggest_growth_pct',
     ];
@@ -81,13 +81,12 @@ class RtsSetting extends Model
         'active_buyer_states'          => 'array',
         'on_market_statuses'           => 'array',
         'add_to_day_max'               => 'integer',
-        'scan_page_size'               => 'integer',
         'min_area_properties'          => 'integer',
         'hot_pocket_weight_buyers'     => 'integer',
         'hot_pocket_weight_leads'      => 'integer',
         'hot_pocket_weight_sales'      => 'integer',
         'summary_ahead_from_pct'       => 'integer',
-        'capture_back_date_hours'      => 'integer',
+        'capture_back_date_working_days' => 'integer',
         'capture_needs_review'         => 'boolean',
         'levels_signoff_required'      => 'boolean',
         'level_periods_required'       => 'integer',
@@ -98,6 +97,9 @@ class RtsSetting extends Model
         'suggest_growth_pct'           => 'integer',
     ];
 
+    /** How many Market Intelligence properties the call list reads in one window. Not an agency setting: config/road-to-sold.php can override it. */
+    public const SCAN_PAGE_SIZE = 200;
+
     /** Scalar defaults — the single source of truth (migration defaults mirror these). */
     public const SCALAR_DEFAULTS = [
         'lock_agents_to_areas'         => false,
@@ -105,7 +107,6 @@ class RtsSetting extends Model
         'area_refresh_warn_days'       => 7,
         'public_holiday_country'       => 'ZA',
         'add_to_day_max'               => 100,
-        'scan_page_size'               => 200,
         'min_area_properties'          => 1,
         'hot_pocket_weight_buyers'     => 1,
         'hot_pocket_weight_leads'      => 1,
@@ -125,7 +126,7 @@ class RtsSetting extends Model
         'summary_green_from_pct'       => 90,
         'summary_red_below_pct'        => 70,
         'summary_ahead_from_pct'       => 105,
-        'capture_back_date_hours'      => 48,
+        'capture_back_date_working_days' => 5,
         'capture_needs_review'         => false,
         'levels_signoff_required'      => true,
         'level_periods_required'       => 4,

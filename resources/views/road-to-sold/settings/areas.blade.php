@@ -178,9 +178,13 @@
                 @if($picker['results']->isEmpty())
                     <p class="text-sm" style="color:var(--text-muted);">No suburbs match.</p>
                 @else
-                    <form method="POST" action="{{ route($rb . 'areas.sync', $picker['agent']->id) }}">
+                    <form method="POST" action="{{ route($rb . 'areas.sync', $picker['agent']->id) }}" data-rts-suburb-picker>
                         @csrf
                         <input type="hidden" name="view" value="agents">
+                        <div class="flex items-center gap-2 mb-2">
+                            <button type="button" class="corex-btn-outline" data-tick-all>Tick all</button>
+                            <button type="button" class="corex-btn-outline" data-untick-all>Untick all</button>
+                        </div>
                         <div class="grid grid-cols-1 sm:grid-cols-3 gap-1 max-h-72 overflow-y-auto p-2" style="border:1px solid var(--border);">
                             @foreach($picker['results'] as $r)
                                 <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);">
@@ -339,4 +343,17 @@
     @endif
     @endif
 </div>
+
+<script>
+{{-- Tick all / Untick all: every suburb checkbox the list is showing for this agent (the ones that match the search). --}}
+document.querySelectorAll('[data-rts-suburb-picker]').forEach(function (form) {
+    function setAll(on) {
+        form.querySelectorAll('input[type=checkbox][name="add[]"]').forEach(function (box) { box.checked = on; });
+    }
+    var all = form.querySelector('[data-tick-all]');
+    var none = form.querySelector('[data-untick-all]');
+    if (all) { all.addEventListener('click', function () { setAll(true); }); }
+    if (none) { none.addEventListener('click', function () { setAll(false); }); }
+});
+</script>
 @endsection
