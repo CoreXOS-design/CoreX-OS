@@ -131,6 +131,7 @@ class TrainingVideoController extends Controller
                 'pending_upload_id'     => $uploadId,
                 'original_size_bytes'   => $meta['size'],
                 'processing_started_at' => now(),
+                'progress_percent'      => null,
                 'created_by'            => Auth::id(),
                 'updated_by'            => Auth::id(),
             ]);
@@ -179,6 +180,7 @@ class TrainingVideoController extends Controller
                 'pending_upload_id'     => $uploadId,
                 'failure_reason'        => null,
                 'processing_started_at' => now(),
+                'progress_percent'      => null,
             ];
             if (! $video->file_name) {
                 $data['status'] = TrainingVideo::STATUS_PROCESSING;
@@ -216,6 +218,7 @@ class TrainingVideoController extends Controller
             'status'                => $video->file_name ? TrainingVideo::STATUS_READY : TrainingVideo::STATUS_PROCESSING,
             'failure_reason'        => null,
             'processing_started_at' => now(),
+            'progress_percent'      => null,
             'updated_by'            => Auth::id(),
         ])->save();
         CompressTrainingVideoJob::dispatch($video->id);

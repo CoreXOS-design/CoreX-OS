@@ -60,6 +60,28 @@ class TrainingVideoUploadController extends Controller
         return response()->json($this->uploads->complete($request->user(), $upload));
     }
 
+    /**
+     * GET /api/v1/admin/training-video-uploads/progress — how far each video still being shrunk has got.
+     * Polled by the Training Videos list so the owner can watch it (spec §8.11).
+     */
+    public function progress(Request $request): JsonResponse
+    {
+        $this->assertOwner($request);
+
+        $rows = \App\Models\TrainingVideo::withTrashed()
+            ->where('source', \App\Models\TrainingVideo::SOURCE_UPLOAD)
+            ->whereNotNull('pending_upload_id')
+            ->where('status', '!=', \App\Models\TrainingVideo::STATUS_FAILED)
+            ->get()
+            ->map(fn ($v) => [
+                'id'      => $v->id,
+                'percent' => $v->progress_percent,
+                'eta'     => $v->etaSeconds(),
+            ]);
+
+        return response()->json(['videos' => $rows->values(), 'active' => $rows->count()]);
+    }
+
     private function assertOwner(Request $request): void
     {
         abort_unless($request->user()?->isOwnerRole(), 403, 'This area is restricted to System Owners.');

@@ -44,6 +44,7 @@ class TrainingVideo extends Model
         'width',
         'height',
         'processing_started_at',
+        'progress_percent',
         'pending_upload_id',
         'created_by',
         'updated_by',
@@ -99,6 +100,21 @@ class TrainingVideo extends Model
             && $this->status === self::STATUS_PROCESSING
             && $this->processing_started_at !== null
             && $this->processing_started_at->lte(now()->subMinutes((int) config('training-videos.stuck_after_minutes')));
+    }
+
+    /**
+     * Seconds left in the shrink, estimated from how long the percent done took (the job resets
+     * processing_started_at when the shrink actually begins). NULL until there is enough to go on
+     * (under 3% or not started) so the screen never shows a wild guess.
+     */
+    public function etaSeconds(): ?int
+    {
+        if ($this->progress_percent === null || $this->progress_percent < 3 || $this->progress_percent >= 100 || ! $this->processing_started_at) {
+            return null;
+        }
+        $elapsed = max(1, now()->diffInSeconds($this->processing_started_at, true));
+
+        return (int) round($elapsed / $this->progress_percent * (100 - $this->progress_percent));
     }
 
     /** A new file is being swapped in while the old one keeps playing (U9). */

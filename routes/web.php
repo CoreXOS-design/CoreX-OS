@@ -394,6 +394,7 @@ Route::middleware('auth')->group(function () {
     // (non-negotiable #7). Owner-only: owner_only here, re-checked in the controller. .ai/specs/training-videos.md §8.5
     Route::prefix('api/v1/admin/training-video-uploads')->middleware(['owner_only', 'throttle:staff-api'])
         ->name('api.v1.training-video-uploads.')->group(function () {
+            Route::get('/progress', [\App\Http\Controllers\Api\V1\TrainingVideoUploadController::class, 'progress'])->name('progress');
             Route::post('/', [\App\Http\Controllers\Api\V1\TrainingVideoUploadController::class, 'start'])->name('start');
             Route::post('/{upload}/chunks', [\App\Http\Controllers\Api\V1\TrainingVideoUploadController::class, 'chunk'])->name('chunk');
             Route::post('/{upload}/complete', [\App\Http\Controllers\Api\V1\TrainingVideoUploadController::class, 'complete'])->name('complete');

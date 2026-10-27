@@ -188,8 +188,19 @@
                                                     <span>{{ $video->sizeSummary() }}@if ($video->durationLabel()) · {{ $video->durationLabel() }}@endif</span>
                                                 @endif
                                             </div>
-                                            @if ($video->isReplacing())
-                                                <div class="text-xs mt-1" style="color: var(--ds-amber);">New file being shrunk — the current one keeps playing.</div>
+                                            @if (($video->status === 'processing' && ! $video->file_name) || $video->isReplacing())
+                                                {{-- Live shrink progress. Spec §8.11 --}}
+                                                <div class="mt-2 max-w-sm" data-tv-progress="{{ $video->id }}">
+                                                    <div class="w-full rounded-full overflow-hidden" style="height: 8px; background: var(--surface-2); border: 1px solid var(--border);">
+                                                        <div data-tv-bar class="h-full" style="width: {{ (int) $video->progress_percent }}%; background: var(--corex-accent); transition: width .5s;"></div>
+                                                    </div>
+                                                    <div data-tv-label class="text-xs mt-1" style="color: var(--text-muted);">
+                                                        {{ $video->progress_percent === null ? 'Waiting in line…' : 'Shrinking… ' . $video->progress_percent . '%' }}
+                                                    </div>
+                                                    <div class="text-xs" style="color: var(--text-muted);">
+                                                        {{ $video->isReplacing() ? 'The current video keeps playing until the new one is ready.' : 'It goes live on the public page the moment this reaches 100%.' }}
+                                                    </div>
+                                                </div>
                                             @endif
                                             @if ($video->failure_reason && ($video->status === 'failed' || $video->replacementFailed()))
                                                 <div class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $video->failure_reason }}</div>
@@ -250,4 +261,42 @@
     @endif
 
 </div>
+
+<script>
+// Live progress for videos still being shrunk (spec §8.11). Polls every 5 s while any are in flight;
+// when one finishes the list reloads so it shows Ready.
+(function () {
+    var boxes = document.querySelectorAll('[data-tv-progress]');
+    if (!boxes.length) return;
+    var url = @js(route('api.v1.training-video-uploads.progress'));
+    function fmt(sec) {
+        if (sec === null || sec === undefined) return '';
+        if (sec < 60) return ' · under a minute left';
+        var m = Math.round(sec / 60);
+        return ' · about ' + (m < 60 ? m + ' min' : Math.floor(m / 60) + ' h ' + (m % 60) + ' min') + ' left';
+    }
+    function tick() {
+        fetch(url, {headers: {'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest'}, credentials: 'same-origin'})
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) {
+                if (!d) return;
+                var live = {};
+                d.videos.forEach(function (v) { live[v.id] = v; });
+                var finished = false;
+                boxes.forEach(function (box) {
+                    var v = live[box.getAttribute('data-tv-progress')];
+                    if (!v) { finished = true; return; }
+                    var p = v.percent;
+                    box.querySelector('[data-tv-bar]').style.width = (p || 0) + '%';
+                    box.querySelector('[data-tv-label]').textContent =
+                        p === null ? 'Waiting in line…' : 'Shrinking… ' + p + '%' + fmt(v.eta);
+                });
+                if (finished) { window.location.reload(); }
+            })
+            .catch(function () {});
+    }
+    setInterval(tick, 5000);
+    tick();
+})();
+</script>
 @endsection

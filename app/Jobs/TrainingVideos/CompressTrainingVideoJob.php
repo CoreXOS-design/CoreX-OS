@@ -66,7 +66,19 @@ class CompressTrainingVideoJob implements ShouldQueue
         try {
             $probe = $compressor->probe($source);
             File::ensureDirectoryExists(dirname($mp4));
-            $compressor->compress($source, $mp4, $jpg, $probe);
+
+            // The shrink starts now: restart the clock (so the time-left estimate ignores time spent
+            // waiting in the queue) and show 0% instead of "waiting".
+            $video->forceFill(['processing_started_at' => now(), 'progress_percent' => 0])->save();
+
+            $lastWrite = 0;
+            $compressor->compress($source, $mp4, $jpg, $probe, function (int $percent) use ($video, &$lastWrite) {
+                if (microtime(true) - $lastWrite < 2) {
+                    return;   // at most one write every 2 seconds
+                }
+                $lastWrite = microtime(true);
+                TrainingVideo::withTrashed()->whereKey($video->id)->update(['progress_percent' => $percent]);
+            });
 
             $oldName = $video->file_name;
             $video->forceFill([
@@ -80,6 +92,7 @@ class CompressTrainingVideoJob implements ShouldQueue
                 'height'                => $probe['height'],
                 'pending_upload_id'     => null,
                 'processing_started_at' => null,
+                'progress_percent'      => null,
             ])->save();
 
             // Archived while it was being shrunk: the new copy belongs in private storage.
@@ -120,6 +133,7 @@ class CompressTrainingVideoJob implements ShouldQueue
             'status'                => $video->file_name ? TrainingVideo::STATUS_READY : TrainingVideo::STATUS_FAILED,
             'failure_reason'        => mb_substr($reason, 0, 255),
             'processing_started_at' => null,
+            'progress_percent'      => null,
         ])->save();
     }
 

@@ -2034,7 +2034,9 @@ class Property extends Model
         // complex_name) instead of returning everything matching either word. A
         // single token degrades to the original OR-across-fields behaviour. This is
         // the ONE canonical property search — every picker calls it (fix-the-class).
-        $tokens = preg_split('/\s+/', trim($term), -1, PREG_SPLIT_NO_EMPTY);
+        // Commas are how addresses are written ("Unit 10, San Savino, Tucker Avenue") but never part of
+        // a stored value, so they are separators — left in, "10," would be searched as a literal.
+        $tokens = preg_split('/[\s,]+/', trim($term), -1, PREG_SPLIT_NO_EMPTY);
         if (empty($tokens)) {
             return $query;
         }
