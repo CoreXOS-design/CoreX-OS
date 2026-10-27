@@ -114,6 +114,7 @@ function onEvents(events) {
     // a few seconds behind or ahead would be mirrored late (or in a burst). A live mirror wants "as it arrives": stamp the batch with
     // the moment it arrived here (order inside the batch is kept - equal stamps keep their sequence).
     const arrived = Date.now();
+    (window.__deskLog = window.__deskLog || []).push([arrived, events.map((e) => e.type + ':' + (e.data && e.data.source !== undefined ? e.data.source : ''))]); // TEMP debug
     for (const ev of events) {
         ev.timestamp = arrived;
         if (ev.type === EVENT_META && ev.data && ev.data.href) {
@@ -133,6 +134,7 @@ function startReplayer() {
     root.innerHTML = '';
     const replayer = new Replayer(cur.events, { root, liveMode: true, mouseTail: false, showWarning: false, showDebug: false, skipInactive: false });
     cur.replayer = replayer;
+    window.__deskReplayer = replayer; // TEMP debug
     $('cdc-wait').hidden = true;
     replayer.startLive();
     fit();
