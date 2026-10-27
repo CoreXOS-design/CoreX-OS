@@ -39,6 +39,11 @@ return [
     'control_idle_minutes_max' => 60,
     'control_actions_per_report' => 50,
 
+    // Rate limits (AppServiceProvider: desk-state / desk-live). Each counts per signed-in user AND per route, so one busy route can never use up another's
+    // allowance (spec section 14a): state-changing calls (ask, Allow, take back, join, end) and the chatty ones (pointer, actions, heartbeat, polls).
+    'state_per_minute' => (int) env('DESK_STATE_PER_MINUTE', 60),
+    'live_per_minute' => (int) env('DESK_LIVE_PER_MINUTE', 600),
+
     // Selector / note limits for a highlight.
     'selector_max' => 500,
     'note_max' => 200,

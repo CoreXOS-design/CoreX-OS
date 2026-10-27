@@ -1136,6 +1136,19 @@ class AppServiceProvider extends ServiceProvider
             return \Illuminate\Cache\RateLimiting\Limit::perMinute(\App\Models\RentalPortalSetting::DEFAULT_PORTAL_API_PER_MINUTE)->by('ip:' . $request->ip());
         });
 
+        // CoreX Desk (27 Oct 2026): its OWN limiters, one counter per signed-in user PER ROUTE. The plain `throttle:30,1` string keys on the user alone, so every
+        // route carrying one shared a single counter - and a support person who is also an agent (or any busy minute of pointer / heartbeat / poll traffic)
+        // used it up, after which the agent's Allow answered 429 and the console sat on "Requested" for good (seen live on QA1, session 74, 15:22).
+        // `desk-state` = the calls that change what is happening (ask, Allow, take back, join, end); `desk-live` = the chatty ones (pointer, actions, heartbeat, polls).
+        \Illuminate\Support\Facades\RateLimiter::for('desk-state', function (\Illuminate\Http\Request $request) {
+            return \Illuminate\Cache\RateLimiting\Limit::perMinute(max(30, (int) config('desk.state_per_minute', 60)))
+                ->by('desk-state:' . ($request->user()?->getAuthIdentifier() ?? $request->ip()) . ':' . ($request->route()?->getName() ?? $request->path()));
+        });
+        \Illuminate\Support\Facades\RateLimiter::for('desk-live', function (\Illuminate\Http\Request $request) {
+            return \Illuminate\Cache\RateLimiting\Limit::perMinute(max(120, (int) config('desk.live_per_minute', 600)))
+                ->by('desk-live:' . ($request->user()?->getAuthIdentifier() ?? $request->ip()) . ':' . ($request->route()?->getName() ?? $request->path()));
+        });
+
         // Staff mobile API throttle (audit 2026-10-19 D10): generous - a phone syncing a property or a contact list is chatty - but finite, per
         // signed-in staff user. Platform config (config/api.php), not an agency setting: it protects the platform, not one agency's rules.
         \Illuminate\Support\Facades\RateLimiter::for('staff-api', function (\Illuminate\Http\Request $request) {

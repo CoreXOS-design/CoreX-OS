@@ -527,3 +527,21 @@ drag-and-drop, right-click and file pickers are not replayed; cross-origin ifram
 control request on a tab shown only as "CoreX page" while the agent is mid-navigation may need a second click. There is no per-agency switch
 to forbid take-over entirely — an agency that does not want it simply never grants `desk.control` (owner roles always have it, and the agent
 must still Allow).
+
+
+### 14a. Take-over must not be lost to a busy minute (27 Oct 2026, live on QA1)
+
+**What happened.** Support asked, the agent's bar showed the question, the agent pressed Allow — and the console stayed on *Requested* for good. The agent's
+`POST …/control/respond` had answered **429**: every route carrying a plain `throttle:30,1` shares ONE counter per signed-in user, so a minute of pointer calls,
+polls and heartbeats (and a support person who is also the agent) used it up. The agent's page then treated the failure as "the request lapsed" and quietly
+dropped the question; nothing told the console, because the server's state had never changed.
+
+**Rules now.**
+- **Own limiters.** Desk routes use `throttle:desk-state` (ask, Allow, take back, join, attach, end: 60 / min) and `throttle:desk-live` (pointer, actions,
+  heartbeat, polls, highlights: 600 / min). Each counts **per signed-in user and per route name**, so no route can use up another's allowance. Config:
+  `desk.state_per_minute`, `desk.live_per_minute`.
+- **The answer is never lost silently.** The agent's page retries Allow / Decline (3 tries, 1 s then 2 s apart) on 429, a dropped connection or a 5xx; if it still
+  cannot be sent, the question stays on screen reading "… could not send your answer - press Allow again". Only a genuine lapse (the request already ended) ends it.
+- **The console reconciles with the server every 2 s** (`reconcile()`): it reads `GET /corex/desk/sessions` (whose rows carry `control: {state, tab}`) and falls into
+  line — *In control* if the agent allowed it, back to *Viewing* if the request ended or control was ended, closed if the session is no longer open. A missed
+  websocket event (dropped connection, Reverb restart) therefore heals within 2 s instead of leaving the console waiting.

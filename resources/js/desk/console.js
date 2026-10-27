@@ -171,11 +171,36 @@ function attach(session) {
     $('cdc-agency').textContent = session.agency_name || '';
     $('cdc-page').textContent = session.page || '—';
     cur.tick = setInterval(tickElapsed, 1000);
+    cur.poll = setInterval(reconcile, 2000);   // belt and braces: events can be missed (a dropped connection, a restart) - the server's word is read every 2 s
     tickElapsed();
     renderTabs();
     showSelected();
     paintControl();
     refreshList();
+}
+
+/**
+ * Every 2 s: ask the server where this session stands and fall into line with it. The websocket tells us the moment something happens, but a missed
+ * event (a dropped connection, a restart, a throttled call on the agent's side) must not leave the console waiting on "Requested" for good.
+ */
+async function reconcile() {
+    if (!cur || cur.reconciling) return;
+    const id = cur.session.id;
+    cur.reconciling = true;
+    try {
+        const r = await api('GET', con.urls.list);
+        if (!r.ok || !cur || cur.session.id !== id) return;
+        const row = (r.json.sessions || []).find((s) => s.id === id);
+        if (!row) { ended('expired'); return; }   // no longer open on the server
+        const c = row.control || { state: 'none', tab: null };
+        const before = cur.control;
+        if (c.state !== before.state || (c.state !== 'none' && (c.tab || null) !== (before.tab || null))) {
+            const note = c.state === 'granted' ? 'The agent allowed control.' : (c.state === 'none' ? (before.state === 'requested' ? 'The request ended.' : 'Control ended.') : '');
+            setControl(c.state, c.tab, note);
+        }
+    } finally {
+        if (cur) cur.reconciling = false;
+    }
 }
 
 function askResync(key) {
@@ -185,6 +210,7 @@ function askResync(key) {
 function detach(callServer) {
     if (!cur) return;
     clearInterval(cur.tick);
+    clearInterval(cur.poll);
     clearInterval(cur.retry);
     clearTimeout(cur.typeTimer);
     clearInterval(cur.focusTimer);
