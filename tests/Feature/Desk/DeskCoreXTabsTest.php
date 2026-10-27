@@ -260,6 +260,7 @@ final class DeskCoreXTabsTest extends DeskTestCase
         $this->assertStringContainsString("/tabs', { method: 'POST'", $partial);
         $this->assertStringContainsString('navigator.locks.request', $partial);
         $this->assertStringContainsString('window.CorexDeskTabKey(!!wantMain)', $index);
+        $this->assertStringContainsString('async function api(method, url, body)', $index, 'the loader still has its own api() (it was lost once in a refactor and Get help showed no code)');
         $this->assertStringContainsString("localStorage.getItem(KEY)", $index, 'the session is the user\'s: what a tab remembers is shared by all of them');
         // the console files a tab's early picture, switches to a newly opened CoreX tab and goes back to the first when one closes
         $this->assertStringContainsString("if (fresh && isCoreXTab(e) && e.tab !== MAIN) { selectTab(e.tab);", $console);
