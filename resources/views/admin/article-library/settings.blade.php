@@ -37,6 +37,32 @@
             <span class="block text-xs mt-1" style="color:var(--text-muted);">1 to {{ $maxLimit }}. This caps the AI spend of a single run (roughly R0.20–R0.40 per article).</span>
         </label>
 
+        <fieldset class="space-y-3 pt-4" style="border-top:1px solid var(--border);">
+            <legend class="text-sm font-semibold" style="color:var(--text-primary);">Original wording</legend>
+            <p class="text-xs" style="color:var(--text-muted);">Every brief is checked against the news text it was written from. One that repeats the source's own sentences is rewritten once, and if it still does, it is thrown away and the item is skipped. Names, figures and short phrases are fine; whole sentences are not.</p>
+
+            <label class="block">
+                <span class="block text-sm font-semibold mb-1" style="color:var(--text-primary);">Most wording allowed in common with the source (%)</span>
+                <input type="number" name="originality_max_overlap_pct" min="0" max="100" step="1" value="{{ old('originality_max_overlap_pct', round($originality['max_overlap'] * 100, 2)) }}"
+                       class="w-28 rounded-md px-3 py-2 text-sm" style="{{ $input }}">
+                <span class="block text-xs mt-1" style="color:var(--text-muted);">What this changes: the share of the brief that may be the same six-word stretches as the source. Above this, the brief is rewritten or skipped.</span>
+            </label>
+
+            <label class="block">
+                <span class="block text-sm font-semibold mb-1" style="color:var(--text-primary);">Longest stretch copied word-for-word (words)</span>
+                <input type="number" name="originality_max_run_words" min="{{ \App\Services\Articles\ArticleLibraryService::ORIG_RUN_MIN }}" max="{{ \App\Services\Articles\ArticleLibraryService::ORIG_RUN_MAX }}" value="{{ old('originality_max_run_words', $originality['max_run_words']) }}"
+                       class="w-28 rounded-md px-3 py-2 text-sm" style="{{ $input }}">
+                <span class="block text-xs mt-1" style="color:var(--text-muted);">What this changes: a brief that repeats this many words in a row from the source fails, however little else it shares.</span>
+            </label>
+
+            <label class="block">
+                <span class="block text-sm font-semibold mb-1" style="color:var(--text-primary);">Rewrite attempts before an item is skipped</span>
+                <input type="number" name="originality_retries" min="0" max="{{ \App\Services\Articles\ArticleLibraryService::ORIG_RETRIES_MAX }}" value="{{ old('originality_retries', $originality['retries']) }}"
+                       class="w-28 rounded-md px-3 py-2 text-sm" style="{{ $input }}">
+                <span class="block text-xs mt-1" style="color:var(--text-muted);">What this changes: how many extra times the AI is asked to rewrite a brief that copied the source. Each costs about the same as a brief. 0 means skip straight away.</span>
+            </label>
+        </fieldset>
+
         <div><button type="submit" class="corex-btn-primary">Save settings</button></div>
     </form>
 </div>

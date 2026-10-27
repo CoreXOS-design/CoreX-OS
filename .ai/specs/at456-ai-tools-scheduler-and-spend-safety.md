@@ -525,6 +525,24 @@ Automated proof: `tests/Feature/Tools/ArticleLibraryTest.php`.
 - **Agency tab:** `tools.ad-manager.articles` (third pill). Sort is one dropdown (Newest first · Oldest first · Title A–Z/Z–A · Source A–Z/Z–A). "Use this" needs `edit_own_profile` as well (the permission that manages own articles) so nobody gets a draft they cannot open; it copies title, summary, brief + the credit line ("Source: <name> — read the original: <link>") into an unpublished `AgentArticle`, sets the connecting link to the original, and sends the user to My Portal → Profile → Articles. If the user already has a (non-deleted) copy they are taken to it instead; a user who deleted their copy may use it again.
 - **Not in scope / not built:** "Make a social post" (Phase 2, needs Part D); fetching full third-party pages (v1 rule); a separate audit trail for article-library settings changes.
 
+### C.8 Original-wording guard (AT-509, Johan 2026-10-27) - as built
+
+**Why.** The pipeline asked the AI for original wording but never checked it got it; one bad answer could put a publisher's sentences into an agency's draft under its own name.
+
+**Check** (`ArticleLibraryService::originalityScore($brief, $material)`, pure PHP, no AI call). `material` = title + feed summary + `content:encoded` - the same text the AI is given (the article page is still never fetched). Both texts are lowercased with punctuation stripped. Returns `overlap` (share of the brief's 6-word runs that also occur in the material, 0-1), `longest_run` (most consecutive words copied verbatim) and `sample` (first copied stretch). **Fails when `overlap` > 0.15 OR `longest_run` >= 12.** Names, figures and short phrases pass; whole sentences do not.
+
+**Flow** (inside `writeBrief()`, before anything is stored): score -> fail -> ONE retry with the extra line "Your previous attempt repeated these words from the material: '...sample...'. Rewrite entirely in your own words." -> re-score -> second fail = the brief is **not stored**, a `reason: originality` warning is logged (same exit as a `{"skip": true}` answer), and the item is remembered against a fingerprint of its feed text, so it is **not retried on later runs unless the feed text changes**. The run result and Run now message count these ("N skipped (the brief copied the source wording)"). Both attempts are paid for and charged to the platform bucket as before; the stored `cost_zar` is the sum.
+
+**Audit.** `library_articles.originality_overlap` (decimal 5,4) and `originality_longest_run` (smallint), both nullable, stored on every accepted brief. Owner Articles tab (`/admin/article-library/articles`) has an **Originality** column ("Overlap 4% - 7 words", sortable; a dash where never scored). Agencies never see it.
+
+**Settings** (platform level, Settings tab next to the schedule; no per-agency setting - the library is one platform shelf). Defaults in `config/article_library.php`; the owner's values are DevSettings `article_library_originality_max_overlap` (stored as a fraction, edited as %), `..._max_run_words` (3-100), `..._retries` (0-3). A save that does not carry these fields leaves them untouched.
+
+**Existing rows.** `php artisan article-library:rescore` (run once on live after deploy) scores every `library_articles` row against its stored `article_pool` text (title + snippet - `content:encoded` is not stored, so this is a little more lenient than the write-time check), stores the scores, and **hides** any ready row that fails (reversible: Unhide). Rows with no stored source text are left alone and listed. No AI is called.
+
+**Deliberately NOT in the Agency Onboarding Setup Wizard** (CLAUDE.md #10a): these are platform-owner controls for one shared library, not anything an agency configures (same reason as AI Spend Safety).
+
+**Files.** `app/Services/Articles/ArticleLibraryService.php`, `app/Console/Commands/RescoreArticleLibrary.php`, `app/Http/Controllers/Admin/ArticleLibraryController.php`, `app/Models/LibraryArticle.php`, `config/article_library.php`, migration `2026_12_10_100000_at509_add_originality_columns_to_library_articles.php`, owner `articles` and `settings` views. **Tests:** `tests/Feature/Articles/ArticleOriginalityTest.php`.
+
 ---
 
 ## D. Post Scheduler (Ad Manager → Scheduled Posts)

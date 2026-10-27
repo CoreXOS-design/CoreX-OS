@@ -38,7 +38,7 @@ class ArticleLibraryController extends Controller
     private const RUN_BUDGET_SECONDS = 200;
 
     private const SOURCE_SORTS  = ['name', 'last_run', 'status', 'articles'];
-    private const ARTICLE_SORTS = ['date', 'title', 'source', 'status', 'used', 'cost'];
+    private const ARTICLE_SORTS = ['date', 'title', 'source', 'status', 'used', 'cost', 'originality'];
 
     public function __construct(private readonly ArticleLibraryService $library)
     {
@@ -220,6 +220,7 @@ class ArticleLibraryController extends Controller
             'status' => $query->orderBy('status', $dir),
             'used'   => $query->orderBy('used_count', $dir),
             'cost'   => $query->orderBy('cost_zar', $dir),
+            'originality' => $query->orderBy('originality_overlap', $dir),
             default  => $query->orderByRaw("$dateSql $dir"),
         };
         $query->orderBy('library_articles.id', 'desc');
@@ -260,6 +261,7 @@ class ArticleLibraryController extends Controller
             'settings'  => $this->library->settings(),
             'schedules' => ArticleLibraryService::SCHEDULES,
             'maxLimit'  => ArticleLibraryService::MAX_PER_RUN_LIMIT,
+            'originality' => $this->library->originalitySettings(),
         ]);
     }
 
@@ -270,6 +272,10 @@ class ArticleLibraryController extends Controller
         $data = $request->validate([
             'schedule'    => ['required', Rule::in(array_keys(ArticleLibraryService::SCHEDULES))],
             'max_per_run' => ['required', 'integer', 'min:1', 'max:' . ArticleLibraryService::MAX_PER_RUN_LIMIT],
+            // AT-509 original-wording limits. `sometimes`: a post that does not carry them leaves the saved values alone.
+            'originality_max_overlap_pct' => ['sometimes', 'required', 'numeric', 'min:0', 'max:100'],
+            'originality_max_run_words'   => ['sometimes', 'required', 'integer', 'min:' . ArticleLibraryService::ORIG_RUN_MIN, 'max:' . ArticleLibraryService::ORIG_RUN_MAX],
+            'originality_retries'         => ['sometimes', 'required', 'integer', 'min:0', 'max:' . ArticleLibraryService::ORIG_RETRIES_MAX],
         ], [
             'schedule.required'    => 'Choose how often the library should refresh.',
             'schedule.in'          => 'Choose how often the library should refresh.',
@@ -277,10 +283,22 @@ class ArticleLibraryController extends Controller
             'max_per_run.integer'  => 'Enter a whole number from 1 to ' . ArticleLibraryService::MAX_PER_RUN_LIMIT . '.',
             'max_per_run.min'      => 'Enter a whole number from 1 to ' . ArticleLibraryService::MAX_PER_RUN_LIMIT . '.',
             'max_per_run.max'      => 'Enter a whole number from 1 to ' . ArticleLibraryService::MAX_PER_RUN_LIMIT . '.',
+            'originality_max_overlap_pct.*' => 'Enter a percentage from 0 to 100.',
+            'originality_max_run_words.*'   => 'Enter a whole number from ' . ArticleLibraryService::ORIG_RUN_MIN . ' to ' . ArticleLibraryService::ORIG_RUN_MAX . '.',
+            'originality_retries.*'         => 'Enter a whole number from 0 to ' . ArticleLibraryService::ORIG_RETRIES_MAX . '.',
         ]);
 
         DevSetting::set(ArticleLibraryService::KEY_SCHEDULE, $data['schedule']);
         DevSetting::set(ArticleLibraryService::KEY_MAX_PER_RUN, (string) (int) $data['max_per_run']);
+        if (isset($data['originality_max_overlap_pct'])) {
+            DevSetting::set(ArticleLibraryService::KEY_ORIG_MAX_OVERLAP, (string) round((float) $data['originality_max_overlap_pct'] / 100, 4));
+        }
+        if (isset($data['originality_max_run_words'])) {
+            DevSetting::set(ArticleLibraryService::KEY_ORIG_MAX_RUN_WORDS, (string) (int) $data['originality_max_run_words']);
+        }
+        if (isset($data['originality_retries'])) {
+            DevSetting::set(ArticleLibraryService::KEY_ORIG_RETRIES, (string) (int) $data['originality_retries']);
+        }
 
         return back()->with('success', 'Article Library settings saved.');
     }

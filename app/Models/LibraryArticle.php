@@ -30,6 +30,7 @@ class LibraryArticle extends Model
     protected $fillable = [
         'source_id', 'source_name', 'source_url', 'source_url_hash', 'title', 'excerpt', 'body',
         'tags_json', 'source_published_at', 'status', 'generated_at', 'cost_zar',
+        'originality_overlap', 'originality_longest_run',
     ];
 
     protected $casts = [
@@ -37,6 +38,7 @@ class LibraryArticle extends Model
         'source_published_at' => 'datetime',
         'generated_at'        => 'datetime',
         'cost_zar'            => 'decimal:4',
+        'originality_overlap' => 'decimal:4',
     ];
 
     private const TAGS_CACHE_KEY = 'article-library:visible-tags';
