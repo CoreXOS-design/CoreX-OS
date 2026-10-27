@@ -177,7 +177,7 @@
                 </div>
                 <ul class="divide-y" id="rts-selections" style="border-color:var(--border);">
                     @foreach($settings->selections() as $i => $sel)
-                        <li class="flex items-center gap-3 px-5 py-3 text-sm" data-rts-row style="color:var(--text-primary);">
+                        <li class="flex items-center gap-3 px-5 py-2 text-sm" data-rts-row style="color:var(--text-primary);">
                             <input type="hidden" data-name="key" name="selections[{{ $i }}][key]" value="{{ $sel['key'] }}">
                             <input type="hidden" data-name="enabled-off" name="selections[{{ $i }}][enabled]" value="0">
                             <label class="flex items-center gap-2 flex-1">
@@ -192,7 +192,7 @@
                         </li>
                     @endforeach
                 </ul>
-                <div class="flex items-center gap-3 px-5 py-3 text-sm" style="border-top:1px solid var(--border); color:var(--text-primary);">
+                <div class="flex items-center gap-3 px-5 py-2 text-sm" style="border-top:1px solid var(--border); color:var(--text-primary);">
                     <span class="font-semibold flex-1">Agency standards</span>
                     <a href="{{ route($rb . 'index', ['view' => 'standards', 'section' => 'calllist']) }}" class="corex-btn-outline" data-qa="view-standards">View</a>
                 </div>

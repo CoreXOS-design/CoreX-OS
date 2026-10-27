@@ -56,8 +56,8 @@
                     <tr x-show="row.type === 'branch' || row.show" :style="row.type === 'agent' ? 'background:var(--surface-2);' : 'border-top:1px solid var(--border);'"
                         :data-branch-row="row.type === 'branch' ? row.ref.id : null" :data-agent-row="row.type === 'agent' ? row.ref.id : null">
                         <td class="px-3 py-2" :class="row.type === 'agent' && mode === 'agency' ? 'pl-10 text-xs' : 'font-semibold'">
-                            <button type="button" class="mr-2 text-xs font-normal" style="color:var(--text-muted);" x-show="row.type === 'branch' && row.ref.agents.length > 0" @click="row.ref.open = ! row.ref.open" :aria-expanded="row.ref.open">
-                                <span x-text="row.ref.open ? '▾' : '▸'"></span> <span x-text="row.ref.agents.length + (row.ref.agents.length === 1 ? ' agent' : ' agents')"></span>
+                            <button type="button" class="mr-2 text-xs font-normal" style="color:var(--text-muted);" x-show="row.type === 'branch' && agentCount(row) > 0" @click="row.ref.open = ! row.ref.open" :aria-expanded="row.ref.open">
+                                <span x-text="row.ref.open ? '▾' : '▸'"></span> <span x-text="agentCount(row) + (agentCount(row) === 1 ? ' agent' : ' agents')"></span>
                             </button>
                             <span x-text="row.ref.name"></span>
                         </td>
@@ -143,10 +143,11 @@ function rtsSplit(cfg) {
             });
             return out;
         },
+        agentCount: function (row) { return row.type === 'branch' ? row.ref.agents.length : 0; },
         show: function (m, v) {
-            v = Number(v) || 0;
-            var s = v.toFixed(m.decimals).replace(/\B(?=(\d{3})+(?!\d))/g, function (x, i, str) { return str.indexOf('.') >= 0 && i > str.indexOf('.') ? '' : ' '; });
-            return (m.money ? 'R ' : '') + s;
+            var parts = (Number(v) || 0).toFixed(m.decimals).split('.');
+            parts[0] = parts[0].replace(/\B(?=(\d{3})+$)/g, ' ');
+            return (m.money ? 'R ' : '') + parts.join('.');
         },
         get problems() {
             var out = [], self = this;

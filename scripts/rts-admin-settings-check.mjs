@@ -23,6 +23,9 @@ const cookie = { name: cookieOut.match(/COOKIE_NAME=(.+)/)[1].trim(), value: coo
 const browser = await puppeteer.launch({ executablePath: '/usr/bin/chromium', headless: true, args: ['--no-sandbox', '--disable-gpu'] });
 const page = await browser.newPage();
 await page.setViewport({ width: 1440, height: 900 });
+const pageErrors = [];
+page.on('pageerror', (e) => pageErrors.push(e.message));
+page.on('console', (m) => { if (/Alpine Expression Error/.test(m.text())) pageErrors.push(m.text().split('\n')[0]); });
 await page.setCookie({ ...cookie, domain: new URL(BASE).hostname, path: '/', httpOnly: true, secure: true });
 await page.goto(BASE + '/corex/my-portal', { waitUntil: 'domcontentloaded' });
 if (AGENCY) {
@@ -84,6 +87,12 @@ const splitCheck = async (path, label) => {
     return { ranges: root.querySelectorAll('input[type=range]').length, rows: root.querySelectorAll('tbody tr').length, ok: d ? d.canSave : null, status: d ? d.status : null };
   });
   ok(`${label}: slider and % box per branch`, info.ranges > 0, `${info.ranges} sliders, ${info.rows} rows, ${info.status}`);
+  const amounts = await page.evaluate(() => ({
+    first: document.querySelector('[data-split] tbody tr [data-x]')?.textContent ?? [...document.querySelectorAll('[data-split] tbody tr')].find((r) => r.style.display !== 'none')?.lastElementChild?.textContent.trim(),
+    total: document.querySelector('[data-split-total]').lastElementChild.textContent.trim(),
+    typed: [...document.querySelectorAll('[data-split] input[data-total]')].pop().value,
+  }));
+  ok(`${label}: live amounts are shown and the branches' total equals the typed total`, !!amounts.first && amounts.first.length > 0 && Number(amounts.total.replace(/[^0-9.]/g, '')) === Number(amounts.typed), `first row "${amounts.first}", branches add up to "${amounts.total}", typed ${amounts.typed}`);
   // break the tally on the first multi-branch row: save must switch off; fix it: back on
   const res = await page.evaluate(() => {
     const root = document.querySelector('[data-split]'); const d = window.Alpine.$data(root);
@@ -105,6 +114,7 @@ await splitCheck('/road-to-sold/settings/targets#monthly', 'Targets');
 await go('/road-to-sold/settings/targets');
 ok('Targets reads "Calls per agent per day"', /Calls per agent per day/.test(await page.evaluate(() => document.body.innerText)));
 
+ok('no script errors on any screen', pageErrors.length === 0, [...new Set(pageErrors)].slice(0, 3).join(' | '));
 await browser.close();
 const failed = results.filter((r) => !r.pass);
 console.log(`\n${results.length - failed.length}/${results.length} checks passed; screenshots in ${OUT}`);
