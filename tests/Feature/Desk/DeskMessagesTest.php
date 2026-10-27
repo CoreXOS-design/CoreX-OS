@@ -199,7 +199,7 @@ final class DeskMessagesTest extends DeskTestCase
         $this->assertStringContainsString('const midCut = (str, max)', $console, 'long addresses are cut in the middle, and only when needed');
         $this->assertStringContainsString("b.title = p.title + ' — ' + p.where;", $console, 'the full value on hover');
         $this->assertStringContainsString("n.textContent = 'new'", $console);
-        $this->assertStringContainsString('r.tab.isNew = false;   // clicked', $console, 'the badge goes when the tab is clicked, not when the console switches to it by itself');
+        $this->assertStringContainsString('tab.isNew = false;   // clicked', $console, 'the badge goes when the tab is clicked, not when the console switches to it by itself');
         // CoreX's <title> is the app name on every page, so a tab is named by its page heading (first h1), and the console falls back to the path until that arrives
         $this->assertStringContainsString("querySelectorAll('h1')", $this->js('agent.js'));
         $this->assertStringContainsString("registerTab('update')", $this->js('agent.js'));
