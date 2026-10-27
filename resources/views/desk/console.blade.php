@@ -18,15 +18,19 @@
     #cdc-live.cdc-controlling #cdc-pane { box-shadow: inset 0 0 0 3px #f59e0b; }
 
     /* ── One thin floating toolbar: slides away after 3 s, comes back when the mouse goes to the top edge ───────── */
-    #cdc-bar { position: absolute; top: 8px; left: 50%; transform: translate(-50%, 0); max-width: calc(100vw - 16px); z-index: 5;
-        display: flex; align-items: center; gap: .35rem .9rem; flex-wrap: wrap; padding: .3rem .6rem; border-radius: .5rem; font-size: .75rem;
+    #cdc-bar { position: absolute; top: 6px; left: 50%; transform: translate(-50%, 0); max-width: calc(100vw - 12px); z-index: 5;
+        display: flex; align-items: center; gap: .3rem .75rem; flex-wrap: wrap; padding: .2rem .5rem; border-radius: .5rem; font-size: .72rem; white-space: nowrap;
         background: var(--surface, #fff); color: var(--text-primary, #111827); border: 1px solid var(--border, #e5e7eb); box-shadow: 0 6px 22px rgba(0, 0, 0, .35);
         transition: transform .18s ease, opacity .18s ease; }
+    @media (min-width: 1240px) { #cdc-bar { flex-wrap: nowrap; } }   /* one row wherever there is room */
+    #cdc-bar #cdc-support { display: inline-block; max-width: 15rem; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+    #cdc-bar #cdc-page { display: inline-block; max-width: 9rem; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
     #cdc-bar.cdc-away { transform: translate(-50%, calc(-100% - 12px)); opacity: 0; pointer-events: none; }
     #cdc-bar .cdc-k { color: var(--text-muted, #6b7280); }
     #cdc-bar strong { color: var(--text-primary, #111827); }
     #cdc-bar .cdc-grp { display: flex; align-items: center; gap: .35rem; }
-    #cdc-bar .corex-btn-primary, #cdc-bar .corex-btn-outline { padding-top: .2rem; padding-bottom: .2rem; font-size: .75rem; }
+    #cdc-bar .corex-btn-primary, #cdc-bar .corex-btn-outline { padding: .15rem .55rem; font-size: .72rem; line-height: 1.2; }
+    #cdc-bar .list-header-filter { padding-top: .15rem; padding-bottom: .15rem; font-size: .72rem; }
     .cdc-chip { display: inline-flex; align-items: center; padding: 0 .55rem; height: 1.25rem; border-radius: 9999px; font-size: .7rem; font-weight: 700; }
     #cdc-toast { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 6; max-width: 80vw; padding: .4rem .8rem; border-radius: .5rem;
         font-size: .8rem; background: rgba(17, 24, 39, .92); color: #f9fafb; box-shadow: 0 6px 22px rgba(0, 0, 0, .4); }
@@ -75,7 +79,7 @@
     <div id="cdc-bar">
         <div><span class="cdc-k">Agent</span> <strong id="cdc-agent"></strong><span id="cdc-agency" hidden></span></div>
         <div style="min-width:0;"><span class="cdc-k">Support</span> <strong id="cdc-support"></strong></div>
-        <div style="min-width:0;"><span class="cdc-k">Page</span> <strong id="cdc-page" style="overflow-wrap:anywhere;"></strong></div>
+        <div style="min-width:0;"><span class="cdc-k">Page</span> <strong id="cdc-page"></strong></div>
         <div><span class="cdc-k">Elapsed</span> <strong id="cdc-elapsed">0:00</strong></div>
         <span id="cdc-control-status" class="cdc-chip">Viewing</span>
         <div class="cdc-grp">
@@ -83,7 +87,7 @@
         </div>
         <div class="cdc-grp">
             <button type="button" id="cdc-hl" class="corex-btn-outline" aria-pressed="true" title="Click the window to point something out to the agent">Highlight</button>
-            <input id="cdc-note" type="text" maxlength="{{ (int) config('desk.note_max', 200) }}" placeholder="Note" class="list-header-filter" style="width:9rem;">
+            <input id="cdc-note" type="text" maxlength="{{ (int) config('desk.note_max', 200) }}" placeholder="Note" class="list-header-filter" style="width:7rem;">
             <button type="button" id="cdc-clear" class="corex-btn-outline">Clear</button>
         </div>
         {{-- Phase 3: one button per shared Chrome tab (title + site) when the agent has shared any --}}
