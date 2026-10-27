@@ -135,6 +135,7 @@ export async function endSession() {
  * <h1> (Properties, Contacts, an address...) - and the <title> only when there is none.
  */
 function pageName() {
+    if (/^\/corex\/?$/.test(location.pathname)) return 'Home';   // (the home page's heading is a greeting)
     const h = Array.from(document.querySelectorAll('h1')).find((e) => !e.closest('[id^="corex-desk"]') && e.textContent.trim());
     const t = h ? h.textContent.replace(/\s+/g, ' ').trim() : '';
     return (t || document.title || '').slice(0, 120);
