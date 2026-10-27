@@ -35,6 +35,8 @@ class DeskSessionEvent extends Model
     public const CONTROL_REVOKED = 'control_revoked';
     public const CONTROL_ENDED = 'control_ended';
     public const CONTROL_ACTION = 'control_action';
+    // A line typed in the session message strip, by support or by the agent (who, text, tab).
+    public const MESSAGE = 'message';
     // Control followed the agent's replayed click into a new CoreX tab (spec section 4f).
     public const CONTROL_MOVED = 'control_moved';
 

@@ -32,6 +32,7 @@
         'csrf' => csrf_token(),
         'userId' => $__deskUser->id,
         'timing' => (bool) config('desk.timing_overlay'),
+        'messageMax' => (int) config('desk.message_max', 300),
         'heartbeatSeconds' => (int) config('desk.heartbeat_seconds', 30),
         'reverb' => $__deskEnabled ? [
             'key' => $__deskReverbKey,
@@ -117,11 +118,22 @@
 @endif
 @if($__deskCanRequest)
 <style>
-    #corex-desk-bar { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; gap: .75rem; padding: .25rem .75rem; background: #b91c1c; color: #fff; font-size: .75rem; font-weight: 600; line-height: 1.25rem; }
+    #corex-desk-bar { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .15rem .75rem; padding: .25rem .75rem; background: #b91c1c; color: #fff; font-size: .75rem; font-weight: 600; line-height: 1.25rem; }
     #corex-desk-bar[hidden], #corex-desk-modal[hidden], #corex-desk-pointer[hidden] { display: none; }
     #corex-desk-bar button { background: rgba(255,255,255,.18); color: #fff; border: 1px solid rgba(255,255,255,.55); border-radius: .25rem; padding: 0 .6rem; font-size: .7rem; font-weight: 700; cursor: pointer; }
     #corex-desk-bar button:hover { background: rgba(255,255,255,.3); }
     #corex-desk-bar button[hidden] { display: none; }
+    /* The message strip (spec section 4h): what support wrote, last three lines, and a one-line reply */
+    #corex-desk-bar #cd-thread { flex: 1 1 100%; max-width: 46rem; margin: 0 auto; padding: .1rem 0 .2rem; font-weight: 500; }
+    #corex-desk-bar #cd-thread[hidden] { display: none; }
+    #corex-desk-bar .cd-th-line { overflow-wrap: anywhere; text-align: left; }
+    #corex-desk-bar .cd-th-line b { color: #fde68a; }
+    #corex-desk-bar .cd-th-line.cd-th-me b { color: #bbf7d0; }
+    #corex-desk-bar .cd-th-reply { display: flex; gap: .4rem; align-items: center; margin-top: .2rem; }
+    #corex-desk-bar #cd-reply-in { flex: 1 1 auto; min-width: 0; height: 1.5rem; padding: 0 .5rem; border-radius: .25rem; border: 1px solid rgba(255,255,255,.55); background: rgba(255,255,255,.95); color: #111827; font-size: .75rem; font-weight: 500; }
+    #corex-desk-bar #cd-thread-more { border: 0; background: none; text-decoration: underline; padding: 0; }
+    #corex-desk-bar.cd-flash { animation: cd-flash 1.6s ease-out 1; }
+    @keyframes cd-flash { 0% { background: #f59e0b; } 100% { background: #b91c1c; } }
     #corex-desk-bar[data-mode="ask"] { background: #9a3412; }
     #corex-desk-bar[data-mode="ask"] button[data-desk-allow] { background: #fff; color: #9a3412; border-color: #fff; }
     #corex-desk-bar[data-mode="control"] { background: #7f1d1d; box-shadow: inset 0 -3px 0 #fbbf24; }
@@ -156,6 +168,14 @@
     <button type="button" data-desk-decline hidden>Decline</button>
     <button type="button" data-desk-takeback hidden>Take back control</button>
     <button type="button" data-desk-end>End session</button>
+    <div id="cd-thread" hidden>
+        <div id="cd-thread-lines" aria-live="polite"></div>
+        <div class="cd-th-reply">
+            <input id="cd-reply-in" type="text" maxlength="{{ (int) config('desk.message_max', 300) }}" placeholder="Reply to CoreX support - Enter sends" autocomplete="off">
+            <button type="button" data-desk-reply>Reply</button>
+            <button type="button" id="cd-thread-more" hidden></button>
+        </div>
+    </div>
 </div>
 
 <div id="corex-desk-modal" class="rr-block" role="dialog" aria-modal="true" aria-labelledby="cd-title" data-state="creating" hidden>

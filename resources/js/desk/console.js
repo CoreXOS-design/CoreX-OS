@@ -103,8 +103,13 @@ function attach(session) {
     const name = 'desk.session.' + session.id;
     const channel = getEcho().private(name);
     cur = { session, channel, name, tabs: new Map(), selected: MAIN, tabsSince: Date.now(), started: Date.parse(session.joined_at || session.started_at), pointerOn: false, lastPointer: 0, control: { state: (session.control && session.control.state) || 'none', tab: session.control && session.control.tab }, focusSel: null, typed: null, hl: !(session.control && session.control.state === 'granted') };
+    cur.known = new Set([MAIN, ...(session.tabs || []).map((t) => t.tab)]);   // (a tab not in here when it announces itself is a NEW one)
+    cur.order = new Map();
+    cur.thread = []; cur.threadIds = new Set(); cur.threadAll = false;
     cur.tabs.set(MAIN, newTab(MAIN, 'CoreX page', ''));
     (session.tabs || []).forEach((t) => addTab(t, true));
+    (session.messages || []).forEach((m) => addLine(m));
+    $('cdc-msg-to').textContent = session.agent_name || 'the agent';
     timing.reset(con.timing, { api, url: (id) => con.urls.sessions + '/' + id });
     if (con.timing) [300, 700, 1200, 2000].forEach((ms) => setTimeout(() => cur && timing.probe(cur), ms));
 
@@ -124,13 +129,19 @@ function attach(session) {
             if (!cur) return;
             const before = cur.tabs.get(e.tab);
             const fresh = !before || !before.announced;
+            const brandNew = !cur.known.has(e.tab);
+            cur.known.add(e.tab);
             addTab(e, true);
+            if (brandNew && cur.tabs.get(e.tab)) { cur.tabs.get(e.tab).isNew = true; renderTabs(); }
             // A CoreX tab the agent has just opened: show it at once (selecting asks it for its picture).
             if (fresh && isCoreXTab(e) && e.tab !== MAIN) { selectTab(e.tab); say('A new CoreX tab opened: ' + (cur.tabs.get(e.tab) || {}).label); } else if (!before || !before.replayer) askResync(e.tab);
         })
         .listen('.desk.tab_updated', (e) => updateTab(e))
         .listen('.desk.tab_left', (e) => removeTab(e.tab))
         .listen('.desk.timing', (e) => timing.serverEvent(e))
+        // A line of the message strip: the other side's whisper is first; the server's copy (and our own, echoed) is dropped by its id.
+        .listenForWhisper('message', (m) => onMessage(m))
+        .listen('.desk.message', (m) => onMessage(m))
         .listenForWhisper('tpong', (p) => timing.pong(p))
         .listenForWhisper('viewport', (v) => {
             // The agent's window size changed (resize, zoom) or was re-announced: lay the mirror out at it and refit.
@@ -191,6 +202,7 @@ function attach(session) {
     renderTabs();
     showSelected();
     paintControl();
+    renderThread();
     refreshList();
 }
 
@@ -238,6 +250,9 @@ function detach(callServer) {
     cur.tabs.forEach((t) => { if (t.ro) t.ro.disconnect(); });
     $('cdc-replay').innerHTML = '';
     $('cdc-tabs').innerHTML = '';
+    $('cdc-thread').hidden = true;
+    $('cdc-msg-in').value = '';
+    tabSig = '';
     $('cdc-timing').hidden = true;
     cur = null;
     dropEcho();
@@ -267,22 +282,25 @@ function tickElapsed() {
 // ── Tabs (every CoreX tab of the agent + the extension's shared Chrome tabs) ────────────────────
 
 const isCoreXTab = (t) => t.host === 'CoreX' || t.tab === MAIN || /^c[a-z0-9]{3,10}$/.test(t.tab || '');
-/** "Properties · /corex/properties" for a CoreX tab, "title · host" for a shared Chrome tab. */
-const labelFor = (t) => {
-    const title = (t.title && t.title.trim()) ? t.title.trim().replace(/\s*[-–|]\s*CoreX.*$/i, '') || t.title.trim() : '';
-    if (isCoreXTab(t)) return (title || 'CoreX page') + (t.path ? ' · ' + t.path : '');
-    return (title || t.host) + ' · ' + t.host;
+/** What a tab is called: its page title, and where it is - "Properties" and "qatesting1.corexos.co.za/corex/properties" for a CoreX tab, "Title" and "host" for a shared Chrome tab. */
+const partsFor = (t) => {
+    const raw = (t.title && t.title.trim()) ? t.title.trim() : '';
+    const title = raw ? (raw.replace(/\s*[-–|]\s*CoreX.*$/i, '') || raw) : '';
+    if (isCoreXTab(t)) return { title: title || 'CoreX page', where: location.host + (t.path || '') };
+    return { title: title || t.host, where: (t.host || '') + (t.path || '') };
 };
+const labelFor = (t) => { const p = partsFor(t); return p.title + ' — ' + p.where; };
 
 /** announced: the server has told us about this tab (a tab that only sent a picture so far is a placeholder). */
 function addTab(t, announced) {
     if (!cur || !t || !t.tab) return;
     const known = cur.tabs.get(t.tab);
     if (known) {
-        if (announced) { known.announced = true; known.label = labelFor(t); known.host = t.host || known.host; renderTabs(); }
+        if (announced) { known.announced = true; known.parts = partsFor(t); known.label = labelFor(t); known.host = t.host || known.host; renderTabs(); }
         return;
     }
     const tab = newTab(t.tab, labelFor(t), t.host);
+    tab.parts = partsFor(t);
     tab.announced = !!announced;
     cur.tabs.set(t.tab, tab);
     // The only tab went away (it was loading its next page) and came back: it is the one on show again.
@@ -294,6 +312,7 @@ function updateTab(t) {
     const tab = cur && cur.tabs.get(t.tab);
     if (!tab) { addTab(t, true); return; }
     tab.announced = true;
+    tab.parts = partsFor(t);
     tab.label = labelFor(t);
     tab.host = t.host;
     renderTabs();
@@ -325,7 +344,10 @@ function reconcileTabs(rows) {
     rows.forEach((t) => {
         const known = cur.tabs.get(t.tab);
         if (!known || !known.announced) {
+            const brandNew = !known && !cur.known.has(t.tab);
+            cur.known.add(t.tab);
             addTab(t, true);
+            if (brandNew && cur.tabs.get(t.tab)) cur.tabs.get(t.tab).isNew = true;
             if (!known || !known.replayer) askResync(t.tab);
             if (!known && isCoreXTab(t) && (Date.now() - (cur.tabsSince || 0)) > 3000) selectTab(t.tab);
         }
@@ -334,19 +356,49 @@ function reconcileTabs(rows) {
     if (rows.length) cur.tabs.forEach((t, key) => { if (!live.has(key) && !(key === MAIN && !rows.some((r) => isCoreXTab(r)))) removeTab(key); });
 }
 
+/** Cut the middle out of a long address ("qatesting1.corexos.co.za/…/properties/21203") - only when it will not fit. */
+const midCut = (str, max) => {
+    if (str.length <= max) return str;
+    const keep = Math.max(8, max - 1);
+    const head = Math.ceil(keep * 0.55), tail = keep - head;
+    return str.slice(0, head) + '…' + str.slice(str.length - tail);
+};
+
+let tabSig = '';
 function renderTabs() {
     const bar = $('cdc-tabs');
     if (!cur) return;
-    bar.innerHTML = '';
     bar.hidden = cur.tabs.size < 2;
-    cur.tabs.forEach((tab) => {
+    // Order = the order the agent opened them (a tab that goes away while it loads its next page keeps its place).
+    cur.tabs.forEach((tab, key) => { if (!cur.order.has(key)) cur.order.set(key, cur.order.size); });
+    const list = Array.from(cur.tabs.values()).sort((a, b) => cur.order.get(a.key) - cur.order.get(b.key));
+    // Room for each button: its share of a row (three to a row at the most); the address is shortened in the middle only if it must be.
+    const room = Math.max(160, (bar.clientWidth || window.innerWidth) / Math.min(list.length, 3) - 24);
+    const rows = list.map((tab) => {
+        const p = tab.parts || { title: tab.label, where: '' };
+        const chars = Math.floor((room - 40 - (tab.isNew ? 56 : 0)) / 6.8);
+        return { tab, title: p.title, where: midCut(p.where, Math.max(16, chars - p.title.length - 3)), full: p.title + ' — ' + p.where };
+    });
+    const sig = rows.map((r) => [r.tab.key, r.title, r.where, r.tab.key === cur.selected ? 1 : 0, r.tab.isNew ? 1 : 0].join('|')).join('\n');
+    if (sig === tabSig) return;   // (nothing changed: leave the buttons alone, so a pulsing one is not restarted)
+    tabSig = sig;
+    bar.innerHTML = '';
+    rows.forEach((r) => {
         const b = document.createElement('button');
         b.type = 'button';
-        b.className = tab.key === cur.selected ? 'corex-btn-primary' : 'corex-btn-outline';
-        b.textContent = tab.label;
-        b.title = tab.label;
-        b.dataset.tab = tab.key;
-        b.addEventListener('click', () => selectTab(tab.key));
+        b.className = 'cdc-tabbtn' + (r.tab.key === cur.selected ? ' cdc-active' : '') + (r.tab.isNew ? ' cdc-new' : '');
+        b.setAttribute('role', 'tab');
+        b.setAttribute('aria-selected', r.tab.key === cur.selected ? 'true' : 'false');
+        b.title = r.full;
+        b.dataset.tab = r.tab.key;
+        const t = document.createElement('span'); t.className = 'cdc-tt'; t.textContent = r.title;
+        const w = document.createElement('span'); w.className = 'cdc-tw'; w.textContent = '— ' + r.where;
+        b.appendChild(t); b.appendChild(w);
+        if (r.tab.isNew) { const n = document.createElement('span'); n.className = 'cdc-newbadge'; n.textContent = 'new'; b.appendChild(n); }
+        b.addEventListener('click', () => {
+            r.tab.isNew = false;   // clicked: no longer new
+            if (cur.selected === r.tab.key) renderTabs(); else selectTab(r.tab.key);
+        });
         bar.appendChild(b);
     });
 }
@@ -433,6 +485,7 @@ function startReplayer(tab) {
  */
 function layoutPane() {
     if ($('cdc-live').hidden) return;
+    renderTabs();   // (the buttons shorten their addresses to the room there is)
     fit();
 }
 
@@ -537,8 +590,7 @@ function hookReplayInput(tab) {
         if (controlling() && !ev.shiftKey && !cur.hl) { controlClick(tab, el, exactSelector(el), r); return; }
         if (!cur.hl && !ev.shiftKey) return;   // viewing only, Highlight off: a click does nothing
         const selector = selectorFor(el);
-        const note = $('cdc-note').value.trim();
-        api('POST', con.urls.sessions + '/' + cur.session.id + '/highlight', { selector, note: note || null, ...tabParam(tab) }).then((res) => {
+        api('POST', con.urls.sessions + '/' + cur.session.id + '/highlight', { selector, ...tabParam(tab) }).then((res) => {
             // The toast names what was pointed at in words (never a selector).
             say(res.ok ? 'Highlighted: ' + visibleLabel(el) : 'Could not send the highlight.', !res.ok);
         });
@@ -768,6 +820,68 @@ export function visibleLabel(el) {
     if (l) return l;
     return { a: 'a link', button: 'a button', input: 'a field', select: 'a dropdown', textarea: 'a text box', img: 'a picture', svg: 'an icon' }[tag] || 'that spot';
 }
+
+// ── The message strip (spec section 4h) ─────────────────────────────────────────
+
+const THREAD_MAX = 30;
+const uid = () => (Date.now().toString(36) + Math.random().toString(36).slice(2, 6)).slice(0, 14);
+
+/** Add a line to the thread (once - the whisper, the server's copy and our own echo all carry the same id). Returns the line, or null if it was already there. */
+function addLine(m) {
+    if (!cur || !m || typeof m.text !== 'string' || !m.text.trim() || !m.id || cur.threadIds.has(m.id)) return null;
+    const line = { id: String(m.id), from: m.from === 'agent' ? 'agent' : 'support', name: String(m.name || '').slice(0, 120), text: m.text.slice(0, con.messageMax || 300), tab: m.tab || MAIN, at: m.at || Date.now() };
+    cur.threadIds.add(line.id);
+    cur.thread.push(line);
+    if (cur.thread.length > THREAD_MAX) cur.threadIds.delete(cur.thread.shift().id);
+    return line;
+}
+
+function onMessage(m) {
+    const line = addLine(m);
+    if (!line) return;
+    renderThread();
+    if (line.from === 'agent') say('Reply from ' + (line.name || (cur.session.agent_name || 'the agent')) + ': ' + line.text);
+}
+
+function renderThread() {
+    if (!cur) return;
+    const box = $('cdc-thread');
+    box.hidden = cur.thread.length === 0;
+    const shown = cur.threadAll ? cur.thread : cur.thread.slice(-3);
+    const lines = $('cdc-th-lines');
+    lines.innerHTML = '';
+    shown.forEach((l) => {
+        const d = document.createElement('div');
+        d.className = 'cdc-th-line' + (l.from === 'agent' ? ' cdc-from-agent' : '');
+        const b = document.createElement('b');
+        b.textContent = (l.from === 'support' && l.name === con.me ? 'You' : (l.name || (l.from === 'agent' ? (cur.session.agent_name || 'Agent') : 'Support'))) + ': ';
+        d.appendChild(b);
+        d.appendChild(document.createTextNode(l.text));
+        lines.appendChild(d);
+    });
+    const more = $('cdc-th-more');
+    more.hidden = cur.thread.length <= 3;
+    more.textContent = cur.threadAll ? 'Show fewer' : 'Show all ' + cur.thread.length;
+    lines.scrollTop = lines.scrollHeight;
+}
+
+/** Send the line in the box to the agent: whispered at once, and recorded (audited) by the server, which also sends its own copy as a safety net. */
+function sendMessage() {
+    if (!cur) return;
+    const input = $('cdc-msg-in');
+    const text = input.value.replace(/\s+/g, ' ').trim().slice(0, con.messageMax || 300);
+    if (!text) return;
+    const m = { id: uid(), from: 'support', name: con.me || 'Support', text, tab: cur.selected || MAIN, at: Date.now() };
+    input.value = '';
+    onMessage(m);
+    try { cur.channel.whisper('message', m); } catch (e) { /* not subscribed yet - the server's copy follows */ }
+    const id = cur.session.id;
+    api('POST', con.urls.sessions + '/' + id + '/message', { text, tab: m.tab, id: m.id }).then((r) => {
+        if (!r.ok && cur && cur.session.id === id) say(r.json.message || 'The message could not be recorded - it may not have reached the agent.', true);
+    });
+}
+$('cdc-msg-form').addEventListener('submit', (e) => { e.preventDefault(); sendMessage(); });
+$('cdc-th-more').addEventListener('click', () => { if (cur) { cur.threadAll = !cur.threadAll; renderThread(); } });
 
 // ── Live sessions list ───────────────────────────────────────────────────────────
 

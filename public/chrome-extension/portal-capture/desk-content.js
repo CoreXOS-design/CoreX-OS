@@ -33,6 +33,8 @@
       case 'desk.pointer_hide': hidePointer(); return false;
       case 'desk.highlight': showHighlight(msg.selector, msg.note); return false;
       case 'desk.highlight_clear': clearHighlight(); return false;
+      case 'desk.message': addLine(msg.m, true); return false;
+      case 'desk.thread': (msg.lines || []).forEach(function (l) { addLine(l, false); }); return false;
       case 'desk.control_ask': controlAsk(msg.support); return false;
       case 'desk.control_on': if (msg.resumed) S.ctl.state = 'asking'; controlOn(msg.idle); return false;
       case 'desk.control_off': controlOff(msg.why); return false;
@@ -117,11 +119,16 @@
       '.ring{position:fixed;pointer-events:none;border-radius:8px;outline:3px solid #0ea5e9;outline-offset:3px;box-shadow:0 0 0 9999px rgba(3,6,12,.35)}' +
       '.note{position:fixed;pointer-events:none;max-width:280px;padding:10px 12px;border-radius:12px;background:#fff;color:#111827;border:1px solid rgba(0,0,0,.1);box-shadow:0 18px 50px rgba(0,0,0,.35);font:13px/1.45 system-ui,sans-serif}' +
       '.note b{display:block;margin-bottom:2px;font-size:14px}' +
+      '.th{position:fixed;top:26px;left:50%;transform:translateX(-50%);width:min(46rem,96vw);box-sizing:border-box;padding:6px 12px 8px;background:rgba(127,29,29,.97);color:#fff;border-radius:0 0 8px 8px;box-shadow:0 6px 18px rgba(0,0,0,.35);font:500 12px/1.4 system-ui,sans-serif}' +
+      '.th .l{overflow-wrap:anywhere}.th .l b{color:#fde68a}.th .l.me b{color:#bbf7d0}' +
+      '.th .rp{display:flex;gap:6px;align-items:center;margin-top:5px}.th input{all:unset;box-sizing:border-box;flex:1 1 auto;min-width:0;height:22px;padding:0 8px;border-radius:4px;border:1px solid rgba(255,255,255,.55);background:rgba(255,255,255,.95);color:#111827;font:500 12px/22px system-ui,sans-serif}' +
+      '.th button{all:unset;cursor:pointer;padding:0 10px;border:1px solid rgba(255,255,255,.6);border-radius:4px;background:rgba(255,255,255,.18);font:700 11px/20px system-ui,sans-serif}.th button.more{border:0;background:none;text-decoration:underline;padding:0}' +
       '[hidden]{display:none!important}' +
       '</style>' +
       '<div class="bar" id="bar"><span>CoreX Desk — ' + name + ' <span id="what">is viewing this window</span></span>' +
       '<button type="button" id="allow" hidden>Allow</button><button type="button" id="decline" hidden>Decline</button><button type="button" id="takeback" hidden>Take back control</button>' +
       '<button type="button" id="stop">Stop sharing</button></div>' +
+      '<div class="th" id="th" hidden><div id="thl"></div><div class="rp"><input id="rin" type="text" maxlength="300" placeholder="Reply to CoreX support - Enter sends" autocomplete="off"><button type="button" id="rbtn">Reply</button><button type="button" class="more" id="rmore" hidden></button></div></div>' +
       '<div class="ptr" hidden><svg width="18" height="18" viewBox="0 0 24 24" fill="#b91c1c" stroke="#fff" stroke-width="1.5" style="position:absolute;left:0;top:0"><path d="M4 3l16 7-7 2-2 7z"/></svg><span>Support</span></div>' +
       '<div class="ring" hidden></div>' +
       '<div class="note" hidden><b id="who">CoreX support</b><span></span></div>';
@@ -132,12 +139,48 @@
     sh.getElementById('stop').addEventListener('click', function () {
       try { chrome.runtime.sendMessage({ type: 'desk.stopMe' }, function () { void chrome.runtime.lastError; }); } catch (e) { /* ignore */ }
     });
+    var rin = sh.getElementById('rin');
+    var doReply = function () { var t = rin.value.replace(/\s+/g, ' ').trim(); if (!t) return; rin.value = ''; send({ type: 'desk.reply', text: t }); };
+    sh.getElementById('rbtn').addEventListener('click', doReply);
+    // (the page's own keyboard shortcuts must not see what is typed here)
+    ['keydown', 'keyup', 'keypress'].forEach(function (n) { rin.addEventListener(n, function (e) { e.stopPropagation(); if (n === 'keydown' && e.key === 'Enter') { e.preventDefault(); doReply(); } }); });
+    sh.getElementById('rmore').addEventListener('click', function () { S.threadAll = !S.threadAll; paintThread(); });
     S.root = host;
     S.sh = sh;
     S.ui = { bar: sh.querySelector('.bar'), ptr: sh.querySelector('.ptr'), ring: sh.querySelector('.ring'), note: sh.querySelector('.note'), noteText: sh.querySelector('.note span') };
     document.documentElement.appendChild(host);
     window.addEventListener('scroll', place, true);
     window.addEventListener('resize', place, true);
+  }
+
+  // ── The message strip (spec section 4h): the last three lines on the red bar, a reply box, and the line on the highlight card ──────
+
+  function paintThread() {
+    var box = S.sh && S.sh.getElementById('th');
+    if (!box) return;
+    box.hidden = !S.thread || !S.thread.length;
+    var shown = S.threadAll ? S.thread : S.thread.slice(-3);
+    var host = S.sh.getElementById('thl');
+    host.textContent = '';
+    shown.forEach(function (l) {
+      var d = document.createElement('div'); d.className = 'l' + (l.from === 'agent' ? ' me' : '');
+      var b = document.createElement('b'); b.textContent = (l.from === 'agent' ? 'You' : (l.name || S.support || 'CoreX support')) + ': ';
+      d.appendChild(b); d.appendChild(document.createTextNode(l.text)); host.appendChild(d);
+    });
+    var more = S.sh.getElementById('rmore');
+    more.hidden = S.thread.length <= 3;
+    more.textContent = S.threadAll ? 'Show fewer' : 'Show all ' + S.thread.length;
+  }
+
+  function addLine(l, live) {
+    if (!l || !S.sh) return;
+    S.thread = S.thread || [];
+    if (S.thread.some(function (x) { return x.id === l.id; })) return;
+    S.thread.push(l);
+    if (S.thread.length > 30) S.thread.shift();
+    paintThread();
+    // A highlight showing here carries support's line too, on its card.
+    if (live && l.from === 'support' && S.hl && (l.tab === S.key) && S.ui.note) { S.hl.note = l.text; S.ui.noteText.textContent = l.text; var wb = S.sh.getElementById('who'); if (wb) wb.textContent = S.support || 'CoreX support'; S.ui.note.hidden = false; place(); }
   }
 
   // ── Take-over (phase 2, spec section 14): the agent decides here, on this page ─────────────────
@@ -217,6 +260,7 @@
     try { el = document.querySelector(selector); } catch (e) { return; }   // an invalid selector is ignored, never evaluated
     if (!el) return;
     el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    if (!note && S.thread) { var rc = S.thread.filter(function (l) { return l.from === 'support' && l.tab === S.key && Date.now() - l.at < 60000; }).pop(); if (rc) note = rc.text; }   // the line support just wrote rides on the card
     S.hl = { el: el, note: note || '' };
     S.ui.ring.hidden = false;
     if (note) { S.ui.noteText.textContent = note; var wb = S.sh.getElementById('who'); if (wb) wb.textContent = S.support || 'CoreX support'; S.ui.note.hidden = false; }

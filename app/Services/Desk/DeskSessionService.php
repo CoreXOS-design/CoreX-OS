@@ -517,6 +517,43 @@ class DeskSessionService
         DeskBroadcast::dispatch($session->id, 'desk.highlight_cleared', ['tab' => $tab, 'reason' => $reason]);
     }
 
+    /**
+     * One line in the session message strip, from support to the agent or back (spec section 4h). The text travels browser to browser as a whisper for
+     * speed; this call is the audit row and the safety net - it records the line and broadcasts it, and each side drops the copy it already has (by id).
+     *
+     * @return array{id: string, from: string, name: string, text: string, tab: string, at: int}
+     */
+    public function message(DeskSession $session, User $sender, string $from, string $text, ?string $tab = null, ?string $id = null): array
+    {
+        $session = $session->fresh();
+        if (! $session || ! $session->isLive()) {
+            throw new DeskNotLiveException('That Desk session is not live.');
+        }
+        $text = trim((string) preg_replace('/\s+/u', ' ', strip_tags($text)));
+        $text = mb_substr($text, 0, (int) config('desk.message_max', 300));
+        if ($text === '') {
+            throw new \InvalidArgumentException('A message needs some words.');
+        }
+        $from = $from === 'agent' ? 'agent' : 'support';
+        $name = $from === 'support' ? $this->displayFor($session, $sender) : (string) $sender->name;
+        $id = is_string($id) && preg_match('/^[a-z0-9]{6,24}$/', $id) ? $id : strtolower(\Illuminate\Support\Str::random(10));
+        $tab = $this->cleanTabKey($tab);
+        $row = ['id' => $id, 'from' => $from, 'name' => $name, 'text' => $text, 'tab' => $tab];
+        $this->record($session, DeskSessionEvent::MESSAGE, $row, $sender);
+        $row['at'] = (int) round(microtime(true) * 1000);
+        DeskBroadcast::dispatch($session->id, 'desk.message', $row);
+
+        return $row;
+    }
+
+    /** The last few lines of the message strip, oldest first - what a console or a tab that has just joined shows as the thread so far. */
+    public function recentMessages(DeskSession $session, int $limit = 10): array
+    {
+        return DeskSessionEvent::query()->where('desk_session_id', $session->id)->where('type', DeskSessionEvent::MESSAGE)
+            ->orderByDesc('id')->limit($limit)->get(['payload', 'created_at'])->reverse()
+            ->map(fn ($e) => (array) $e->payload + ['at' => (int) $e->created_at->getTimestamp() * 1000])->values()->all();
+    }
+
     /** Timing overlay only (config desk.timing_overlay): a server-stamped event so the console can show the server-to-console leg. */
     public function timingProbe(DeskSession $session): int
     {

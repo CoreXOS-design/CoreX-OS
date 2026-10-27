@@ -24,6 +24,7 @@ importScripts('desk-lib.js');
     pending: [],         // chunks waiting for the channel
     control: { state: 'none', tab: null }, idleSeconds: 300,
     hb: null, retry: 0, reconnect: null, titleTimers: new Map(), stopped: true,
+    thread: [], seen: new Set(),   // the message strip: the last lines (support's and the agent's), each handled once by its id
   };
 
   // ── CoreX API (Bearer token) ────────────────────────────────────────────────────
@@ -125,6 +126,9 @@ importScripts('desk-lib.js');
       var t4 = tabIdFor(m.data && m.data.tab); if (t4 !== null) toTab(t4, { type: 'desk.highlight_clear' });
     } else if (ev === 'desk.pointer_state') {
       var t5 = tabIdFor(m.data && m.data.tab); if (t5 !== null && m.data && !m.data.on) toTab(t5, { type: 'desk.pointer_hide' });
+    } else if (ev === 'client-message' || ev === 'desk.message') {
+      // The message strip: support's whisper is first, the server's copy (and the echo of our own reply) is dropped by its id. Every shared tab shows it.
+      onMessage(m.data);
     } else if (ev === 'client-action') {
       // Take-over (protocol 1.2): an action for one of our tabs. The page replays it only if the agent has pressed Allow THERE.
       var ta = tabIdFor(m.data && m.data.t); if (ta !== null) toTab(ta, { type: 'desk.action', a: m.data });
@@ -141,6 +145,28 @@ importScripts('desk-lib.js');
     } else if (ev === 'desk.ended') {
       stopAll('session ended');
     }
+  }
+
+  /** A line of the message strip: keep it (last 30), and show it on every shared tab's red bar. */
+  function onMessage(msg) {
+    if (!msg || typeof msg.text !== 'string' || !msg.text.trim() || !msg.id || D.seen.has(msg.id)) return null;
+    var line = { id: String(msg.id), from: msg.from === 'agent' ? 'agent' : 'support', name: String(msg.name || '').slice(0, 120), text: msg.text.slice(0, 300), tab: msg.tab || 'main', at: msg.at || Date.now() };
+    D.seen.add(line.id);
+    D.thread.push(line);
+    if (D.thread.length > 30) D.seen.delete(D.thread.shift().id);
+    D.tabs.forEach(function (info, tabId) { toTab(tabId, { type: 'desk.message', m: line }); });
+    return line;
+  }
+
+  /** The agent's reply from a shared tab's red bar: whispered at once, recorded (audited) by CoreX. */
+  function reply(tabId, text) {
+    var info = D.tabs.get(tabId), st = D.status;
+    text = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+    if (!info || !st || !st.session || !text) return;
+    var m = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), from: 'agent', name: '', text: text, tab: info.key, at: Date.now() };
+    onMessage(m);
+    send({ event: 'client-message', channel: D.channel, data: m });
+    api('POST', '/api/v1/desk/ext/sessions/' + st.session.id + '/message', { text: text, tab: info.key, id: m.id });
   }
 
   /** A whisper/event names a tab by key ("x123"); only tabs this browser is sharing answer. Absent / "main" = the CoreX page, not ours. */
@@ -179,6 +205,7 @@ importScripts('desk-lib.js');
   async function inject(tabId, supportName) {
     await chrome.scripting.executeScript({ target: { tabId: tabId }, files: ['desk-lib.js', 'vendor/rrweb-record.min.js', 'desk-exec.js', 'desk-content.js'] });
     toTab(tabId, { type: 'desk.start', key: Lib.tabKey(tabId), support: supportName || 'CoreX support' });
+    if (D.thread.length) toTab(tabId, { type: 'desk.thread', lines: D.thread });
     // A full page load discards the page's consent state: hand it back (a request still open, or a take-over in progress).
     var key = Lib.tabKey(tabId);
     if (D.control.tab === key && D.control.state === 'requested') toTab(tabId, { type: 'desk.control_ask', support: supportName });
@@ -321,6 +348,7 @@ importScripts('desk-lib.js');
     if (msg.type === 'desk.viewport' && sender.tab) { send({ event: 'client-viewport', channel: D.channel, data: { t: Lib.tabKey(sender.tab.id), w: msg.w, h: msg.h, dpr: msg.dpr } }); return false; }
     if (msg.type === 'desk.actionResult' && sender.tab) { send({ event: 'client-action_result', channel: D.channel, data: { t: Lib.tabKey(sender.tab.id), id: msg.id, ok: false, reason: msg.reason } }); return false; }
     if (msg.type === 'desk.controlActions' && sender.tab) { controlCall(sender.tab.id, 'actions', { tab: Lib.tabKey(sender.tab.id), actions: msg.actions }).then(respond); return true; }
+    if (msg.type === 'desk.reply' && sender.tab) { reply(sender.tab.id, msg.text); return false; }
     if (msg.type === 'desk.stopMe' && sender.tab) { stopTab(sender.tab.id, false).then(function () { respond({ ok: true }); }); return true; }
 
     if (msg.type === 'desk.status') {

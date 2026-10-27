@@ -92,13 +92,42 @@ function setBarMode(mode, name, note) {
     document.documentElement.classList.add('corex-desk-live');
 }
 
+// The thread on the red bar: the last three lines of it, or all of them (up to 30) after "Show all"; a reply box under it.
+let threadLines = [], threadAll = false;
+function paintThread(fresh) {
+    const box = $('cd-thread');
+    if (!box) return;
+    box.hidden = threadLines.length === 0;
+    const shown = threadAll ? threadLines : threadLines.slice(-3);
+    const lines = $('cd-thread-lines');
+    lines.innerHTML = '';
+    shown.forEach((l) => {
+        const d = document.createElement('div');
+        d.className = 'cd-th-line' + (l.from === 'agent' ? ' cd-th-me' : '');
+        const b = document.createElement('b');
+        b.textContent = (l.from === 'agent' ? 'You' : (l.name || 'CoreX support')) + ': ';
+        d.appendChild(b);
+        d.appendChild(document.createTextNode(l.text));
+        lines.appendChild(d);
+    });
+    const more = $('cd-thread-more');
+    more.hidden = threadLines.length <= 3;
+    more.textContent = threadAll ? 'Show fewer' : 'Show all ' + threadLines.length;
+    const last = threadLines[threadLines.length - 1];
+    $('cd-reply-in').placeholder = 'Reply to ' + ((last && last.from === 'support' && last.name) || 'CoreX support') + ' - Enter sends';
+    if (fresh) { const bar = $('corex-desk-bar'); bar.classList.remove('cd-flash'); void bar.offsetWidth; bar.classList.add('cd-flash'); }
+}
+
 const ui = {
+    thread(lines, fresh) { threadLines = lines.slice(); paintThread(!!fresh); },
     controlAsk(name, note) { setBarMode('ask', name, note); },
     controlOn(name) { setBarMode('control', name); },
     controlOff() { setBarMode('view'); },
     joined(name) { hideModal(); showBar(name); },
     ended(by) {
         store(null);
+        threadLines = []; threadAll = false;
+        const th = $('cd-thread'); if (th) th.hidden = true;
         hideBar();
         const p = $('corex-desk-pointer');
         if (p) p.hidden = true;
@@ -161,7 +190,13 @@ async function cancel() {
 }
 
 async function control(fn, arg) {
-    try { await (await import('./agent.js'))[fn](arg); } catch (e) { /* nothing open */ }
+    try { return await (await import('./agent.js'))[fn](arg); } catch (e) { /* nothing open */ }
+}
+
+function sendReply() {
+    const input = $('cd-reply-in');
+    if (!input || !input.value.trim()) return;
+    control('sendMessage', input.value).then((sent) => { if (sent !== false) input.value = ''; });
 }
 
 async function endFromBar() {
@@ -177,7 +212,10 @@ function boot() {
         else if (e.target.closest('[data-desk-allow]')) { control('controlRespond', true); }
         else if (e.target.closest('[data-desk-decline]')) { control('controlRespond', false); }
         else if (e.target.closest('[data-desk-takeback]')) { control('controlRevoke'); }
+        else if (e.target.closest('[data-desk-reply]')) { sendReply(); }
+        else if (e.target.closest('#cd-thread-more')) { threadAll = !threadAll; paintThread(false); }
     });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target && e.target.id === 'cd-reply-in') { e.preventDefault(); sendReply(); } });
 
     // A session the server has open for this user (spec section 4f): EVERY CoreX tab joins it - the one that asked for the code, a page change in it,
     // and any tab opened afterwards (a button that opens a new tab). The code is shown once, in the tab that asked.

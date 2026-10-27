@@ -29,7 +29,7 @@ class DeskConsoleController extends Controller
 
         return view('desk.console', [
             'sessions' => $this->visibleSessions($request)->open()->with('agent', 'agency', 'supportUser')->latest('id')->get(),
-            'consoleConfig' => ['canControl' => (bool) $request->user()->hasPermission('desk.control'), 'me' => \App\Support\Desk\DeskSupporterLabel::for($request->user()), 'timing' => (bool) config('desk.timing_overlay'), 'urls' => [
+            'consoleConfig' => ['canControl' => (bool) $request->user()->hasPermission('desk.control'), 'me' => \App\Support\Desk\DeskSupporterLabel::for($request->user()), 'timing' => (bool) config('desk.timing_overlay'), 'messageMax' => (int) config('desk.message_max', 300), 'urls' => [
                 'join' => route('corex.desk.join'),
                 'list' => route('corex.desk.sessions'),
                 'sessions' => url('corex/desk/sessions'),
@@ -67,7 +67,7 @@ class DeskConsoleController extends Controller
             return response()->json(['message' => 'That code was not found, or it has expired. Ask the agent for a new one.'], 422);
         }
 
-        return response()->json(['session' => $session->load('agent', 'agency', 'supportUser')->toClientArray() + ['tabs' => array_values($this->desk->openTabs($session))]]);
+        return response()->json(['session' => $session->load('agent', 'agency', 'supportUser')->toClientArray() + ['tabs' => array_values($this->desk->openTabs($session)), 'messages' => $this->desk->recentMessages($session)]]);
     }
 
     /** POST /corex/desk/sessions/{id}/attach - open a live session of your scope again, or join it as a second support person. */
@@ -79,7 +79,7 @@ class DeskConsoleController extends Controller
             return response()->json(['message' => 'That session is not open any more.'], 404);
         }
 
-        return response()->json(['session' => $attached->load('agent', 'agency', 'supportUser')->toClientArray() + ['tabs' => array_values($this->desk->openTabs($attached))]]);
+        return response()->json(['session' => $attached->load('agent', 'agency', 'supportUser')->toClientArray() + ['tabs' => array_values($this->desk->openTabs($attached)), 'messages' => $this->desk->recentMessages($attached)]]);
     }
 
     /** POST /corex/desk/sessions/{id}/highlight {selector, note} */
@@ -101,6 +101,21 @@ class DeskConsoleController extends Controller
         $this->desk->clearHighlight($this->mine($request, $id), $request->user(), $request->input('tab'));
 
         return response()->json(['ok' => true]);
+    }
+
+    /** POST /corex/desk/sessions/{id}/message {text, tab, id} - a line from support to the agent (audited; the text also travels as a whisper). */
+    public function message(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate(['text' => ['required', 'string', 'max:2000'], 'tab' => ['nullable', 'string', 'max:12'], 'id' => ['nullable', 'string', 'max:24']]);
+        try {
+            $row = $this->desk->message($this->mine($request, $id), $request->user(), 'support', $data['text'], $data['tab'] ?? null, $data['id'] ?? null);
+        } catch (\App\Services\Desk\DeskNotLiveException) {
+            return response()->json(['message' => 'That Desk session is not live.'], 409);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['ok' => true, 'message' => $row]);
     }
 
     /** POST /corex/desk/sessions/{id}/pointer {on} - audited on/off only; the moves themselves travel on the channel. */

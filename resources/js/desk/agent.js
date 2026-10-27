@@ -48,7 +48,7 @@ export function start(ctx) {
 
     st = { cfg, session, api, ui, tab, echo, channel, channelName, timers: [], buffer: [], flushing: false, subscribed: false, live: false, registered: false,
         ctl: { state: 'none', asked: false, exec: null, reporter: null, idle: null }, stopRecord: null, recording: false, hl: null, ended: false, pointerTimer: null,
-        haveListener: false, pendingResync: false, lastSnap: 0 };
+        haveListener: false, pendingResync: false, lastSnap: 0, thread: [], threadIds: new Set() };
 
     channel
         .listen('.desk.joined', (e) => { if (e.support_name) st.session.support_name = e.support_name; st.live = true; ui.joined(e.support_name); beginRecording(); registerTab('join'); })
@@ -71,6 +71,9 @@ export function start(ctx) {
             else if (forMe(e.tab)) { st.ctl.asked = true; beginControl(e.idle_seconds); }
         })
         .listenForWhisper('action', (a) => { if (forMe(a && a.t)) runAction(a); })
+        // The message strip (spec section 4h): support's whisper is first; the server's copy (and the echo of our own reply) is dropped by its id.
+        .listenForWhisper('message', (m) => onMessage(m))
+        .listen('.desk.message', (m) => onMessage(m))
         .listenForWhisper('tping', (p) => { if (st.cfg.timing && p) { try { st.channel.whisper('tpong', { id: p.id, c: p.c, a: Date.now(), t: st.tab }); } catch (e) { /* not subscribed */ } } })
         .subscribed(() => {
             if (!st) return;
@@ -146,6 +149,8 @@ function joined(r) {
         if (r.status === 409) finish('ended');   // the session is not live any more
         return;
     }
+    // The thread so far (a tab that has just opened or changed page).
+    if (Array.isArray(r.json.messages) && r.json.messages.length) { r.json.messages.forEach((m) => addLine(m)); st.ui.thread(st.thread, false); }
     // Control may already have moved here (the event can arrive before this answer, or not at all): the server's word settles it.
     const c = r.json.session && r.json.session.control;
     if (c && c.state === 'granted' && forMe(c.tab) && st.ctl.state !== 'granted') { st.ctl.asked = true; beginControl(st.cfg.controlIdleSeconds); }
@@ -391,6 +396,44 @@ function runAction(a) {
     else { try { st.channel.whisper('action_result', { t: st.tab, id: a.id, ok: false, reason: res.reason }); } catch (e) { /* not subscribed */ } }
 }
 
+// ── The message strip (spec section 4h) ─────────────────────────────────────────
+
+const THREAD_MAX = 30;
+const uid = () => (Date.now().toString(36) + Math.random().toString(36).slice(2, 6)).slice(0, 14);
+
+/** Add a line to the thread once (the whisper, the server's copy and the echo of our own reply all carry the same id). */
+function addLine(m) {
+    if (!st || !m || typeof m.text !== 'string' || !m.text.trim() || !m.id || st.threadIds.has(m.id)) return null;
+    const max = st.cfg.messageMax || 300;
+    const line = { id: String(m.id), from: m.from === 'agent' ? 'agent' : 'support', name: String(m.name || '').slice(0, 120), text: m.text.slice(0, max), tab: m.tab || 'main', at: m.at || Date.now() };
+    st.threadIds.add(line.id);
+    st.thread.push(line);
+    if (st.thread.length > THREAD_MAX) st.threadIds.delete(st.thread.shift().id);
+    return line;
+}
+
+function onMessage(m) {
+    const line = addLine(m);
+    if (!line) return;
+    st.ui.thread(st.thread, line.from === 'support');
+    // A highlight showing on this tab carries the line too, on its card.
+    if (line.from === 'support' && st.hl && forMe(line.tab)) setHighlightNote(line.text);
+}
+
+/** The agent's reply from the red bar: whispered at once, recorded (audited) by the server. */
+export function sendMessage(text) {
+    if (!st) return false;
+    text = String(text || '').replace(/\s+/g, ' ').trim().slice(0, st.cfg.messageMax || 300);
+    if (!text) return false;
+    const m = { id: uid(), from: 'agent', name: st.session.agent_name || '', text, tab: st.tab, at: Date.now() };
+    onMessage(m);
+    try { st.channel.whisper('message', m); } catch (e) { /* not subscribed yet - the server's copy follows */ }
+    st.api('POST', st.cfg.urls.sessions + '/' + st.session.id + '/message', { text, tab: st.tab, id: m.id }).then((r) => {
+        if (!r.ok) console.warn('[corex-desk] reply not recorded', r.status);
+    });
+    return true;
+}
+
 // ── Support's pointer ────────────────────────────────────────────────────────────
 
 function pointerEl() { return document.getElementById('corex-desk-pointer'); }
@@ -420,6 +463,15 @@ function hidePointer() {
 
 const esc = (t) => String(t).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
 
+/** The card beside the ring: made on first use, then just re-worded. */
+function setHighlightNote(text) {
+    const h = st && st.hl;
+    if (!h || !text) return;
+    let n = h.ring.querySelector('.cd-hl-note');
+    if (!n) { n = document.createElement('div'); n.className = 'cd-hl-note'; h.ring.appendChild(n); }
+    n.textContent = String(text);
+}
+
 function showHighlight(selector, note) {
     clearHighlight();
     let target = null;
@@ -431,12 +483,14 @@ function showHighlight(selector, note) {
     ring.className = 'cd-hl';
     ring.setAttribute('aria-hidden', 'true');
     const name = String(st.session.support_name || 'CoreX support');
-    ring.innerHTML = '<span class="cd-hl-label"></span>' + (note ? '<div class="cd-hl-note"></div>' : '');
+    ring.innerHTML = '<span class="cd-hl-label"></span>';
     ring.querySelector('.cd-hl-label').textContent = name;
-    if (note) ring.querySelector('.cd-hl-note').textContent = String(note);
     document.body.appendChild(ring);
     const h = { target, ring, raf: 0, last: '' };
     st.hl = h;
+    // The card carries what support just wrote (the message strip), unless the highlight came with a note of its own.
+    const recent = st.thread.filter((l) => l.from === 'support' && forMe(l.tab) && Date.now() - l.at < 60000).pop();
+    if (note || recent) setHighlightNote(note || recent.text);
     // The ring follows the element while the page scrolls or resizes (the smooth scroll above is still running when it first appears).
     const place = () => {
         if (!st || st.hl !== h) return;

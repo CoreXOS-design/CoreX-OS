@@ -23,7 +23,7 @@
     #cdc-bar { position: relative; flex: 0 0 auto; z-index: 5; width: 100%;
         display: flex; align-items: center; gap: .3rem .75rem; flex-wrap: wrap; padding: .25rem .6rem; font-size: .72rem; white-space: nowrap;
         background: var(--surface, #fff); color: var(--text-primary, #111827); border-bottom: 1px solid var(--border, #e5e7eb); box-shadow: 0 2px 10px rgba(0, 0, 0, .25); }
-    @media (min-width: 1240px) { #cdc-bar { flex-wrap: nowrap; } }   /* one row wherever there is room */
+    @media (min-width: 1640px) { #cdc-bar { flex-wrap: nowrap; } }   /* one row wherever there is room */
     #cdc-bar #cdc-support { display: inline-block; max-width: 15rem; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
     #cdc-bar #cdc-page { display: inline-block; max-width: 9rem; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
     #cdc-bar .cdc-k { color: var(--text-muted, #6b7280); }
@@ -35,8 +35,30 @@
     #cdc-toast { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 6; max-width: 80vw; padding: .4rem .8rem; border-radius: .5rem;
         font-size: .8rem; background: rgba(17, 24, 39, .92); color: #f9fafb; box-shadow: 0 6px 22px rgba(0, 0, 0, .4); }
     #cdc-toast.cdc-bad { background: #b91c1c; }
-    #cdc-tabs { flex-wrap: wrap; min-width: 0; }
-    #cdc-tabs button { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* ── The tab bar: its own row under the toolbar, one clearly separated button per tab of the agent (spec section 4d / 4h) ───────── */
+    #cdc-tabs { position: relative; z-index: 4; flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: stretch; gap: .45rem; padding: .4rem .6rem;
+        background: var(--surface-2, #f3f4f6); border-bottom: 1px solid var(--border, #e5e7eb); }
+    #cdc-tabs .cdc-tabbtn { display: inline-flex; align-items: center; gap: .45rem; min-width: 0; max-width: 100%; padding: .4rem .9rem; font-size: .8rem; line-height: 1.2; white-space: nowrap;
+        border: 1.5px solid var(--border, #d1d5db); border-radius: .5rem; background: var(--surface, #fff); color: var(--text-primary, #111827); cursor: pointer; }
+    #cdc-tabs .cdc-tabbtn:hover { border-color: var(--brand-icon, #0ea5e9); }
+    #cdc-tabs .cdc-tabbtn .cdc-tt { font-weight: 700; }
+    #cdc-tabs .cdc-tabbtn .cdc-tw { color: var(--text-muted, #6b7280); }
+    #cdc-tabs .cdc-tabbtn.cdc-active { background: var(--brand-icon, #0ea5e9); border-color: var(--brand-icon, #0ea5e9); color: #fff; }
+    #cdc-tabs .cdc-tabbtn.cdc-active .cdc-tw { color: rgba(255, 255, 255, .85); }
+    #cdc-tabs .cdc-newbadge { padding: 0 .45rem; border-radius: 9999px; background: #f59e0b; color: #1f2937; font-size: .65rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+    #cdc-tabs .cdc-tabbtn.cdc-new { animation: cdc-pulse 1.4s ease-in-out infinite; }
+    @keyframes cdc-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, .75); } 50% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); } }
+    @media (prefers-reduced-motion: reduce) { #cdc-tabs .cdc-tabbtn.cdc-new { animation: none; box-shadow: 0 0 0 3px rgba(245, 158, 11, .6); } }
+    /* ── The message strip: one line to the agent, and the last few lines of the thread over the corner of the picture ───────── */
+    #cdc-bar #cdc-msg-in { width: 15rem; }
+    #cdc-thread { position: absolute; right: 10px; bottom: 10px; z-index: 6; width: min(26rem, 60%); max-height: 50%; display: flex; flex-direction: column; overflow: hidden;
+        border-radius: .5rem; background: rgba(17, 24, 39, .93); color: #f9fafb; box-shadow: 0 6px 22px rgba(0, 0, 0, .4); font-size: .78rem; }
+    #cdc-thread .cdc-th-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; padding: .25rem .6rem; background: rgba(255, 255, 255, .08); font-weight: 700; font-size: .7rem; }
+    #cdc-thread .cdc-th-head button { background: none; border: 0; color: #93c5fd; font-size: .7rem; font-weight: 700; cursor: pointer; padding: 0; }
+    #cdc-thread .cdc-th-lines { overflow-y: auto; padding: .3rem .6rem .45rem; }
+    #cdc-thread .cdc-th-line { margin: .15rem 0; overflow-wrap: anywhere; }
+    #cdc-thread .cdc-th-line b { color: #fcd34d; }
+    #cdc-thread .cdc-th-line.cdc-from-agent b { color: #86efac; }
     /* Timing panel (only when desk.timing_overlay is on) */
     #cdc-timing { position: absolute; left: 8px; bottom: 8px; z-index: 7; max-width: min(46rem, 96vw); max-height: 60%; overflow: auto; padding: .4rem .55rem; border-radius: .4rem;
         background: rgba(11, 15, 20, .88); color: #d1fae5; font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre; pointer-events: none; }
@@ -87,21 +109,30 @@
         </div>
         <div class="cdc-grp">
             <button type="button" id="cdc-hl" class="corex-btn-outline" aria-pressed="true" title="Click the window to point something out to the agent">Highlight</button>
-            <input id="cdc-note" type="text" maxlength="{{ (int) config('desk.note_max', 200) }}" placeholder="Note" class="list-header-filter" style="width:7rem;">
             <button type="button" id="cdc-clear" class="corex-btn-outline">Clear</button>
         </div>
-        {{-- One button per tab: each CoreX tab the agent has open (title + page) and any Chrome tab they share. Shown when there is more than one. --}}
-        <div id="cdc-tabs" hidden class="cdc-grp" role="tablist" aria-label="Shared tabs"></div>
+        {{-- A line to the agent: it appears on their red bar (and on the highlight card if one is showing). Enter sends. --}}
+        <form id="cdc-msg-form" class="cdc-grp" autocomplete="off">
+            <label for="cdc-msg-in" class="cdc-k">Message to <strong id="cdc-msg-to">the agent</strong></label>
+            <input id="cdc-msg-in" type="text" maxlength="{{ (int) config('desk.message_max', 300) }}" placeholder="Shows on their red bar - Enter sends" class="list-header-filter">
+            <button type="submit" id="cdc-msg-send" class="corex-btn-primary">Send</button>
+        </form>
         <div class="cdc-grp" style="margin-left:auto;">
             <button type="button" id="cdc-full" class="corex-btn-outline" title="Full screen">Full screen</button>
             <button type="button" id="cdc-back" class="corex-btn-outline" title="Leave the window and keep the session open">Back</button>
             <button type="button" id="cdc-end" class="corex-btn-outline">End session</button>
         </div>
     </div>
+    {{-- One button per tab, in the order the agent opened them: each CoreX tab (title - address) and any Chrome tab they share. Shown when there is more than one. --}}
+    <div id="cdc-tabs" hidden role="tablist" aria-label="The agent's tabs"></div>
     <div id="cdc-pane">
         <div id="cdc-replay"></div>
         <p id="cdc-wait">Waiting for the agent's window…</p>
         <pre id="cdc-timing" hidden></pre>
+        <div id="cdc-thread" hidden>
+            <div class="cdc-th-head"><span>Messages</span><button type="button" id="cdc-th-more"></button></div>
+            <div class="cdc-th-lines" id="cdc-th-lines"></div>
+        </div>
     </div>
     <div id="cdc-toast" hidden role="status"></div>
 </div>

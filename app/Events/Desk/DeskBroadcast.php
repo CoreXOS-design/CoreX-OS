@@ -14,6 +14,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  *
  *   desk.joined {support_name, joined_at}   desk.highlight {selector, note}   desk.highlight_cleared {}
  *   desk.pointer_state {on}                 desk.ended {by}
+ *   desk.message {id, from, name, text, tab, at}
  */
 class DeskBroadcast implements ShouldBroadcastNow
 {
