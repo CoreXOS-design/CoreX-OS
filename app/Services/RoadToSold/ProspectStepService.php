@@ -98,8 +98,9 @@ final class ProspectStepService
             : $r('corex.tracked-properties.show', $tp);
 
         return match ($step) {
-            'find_owner'   => $r('seller-outreach.entry.from-tracked-property', $tp),
-            'pitch'        => $owner ? $r('seller-outreach.composer.show', $owner, $property ? ['property_id' => $property] : []) : $r('seller-outreach.entry.from-tracked-property', $tp),
+            // the pitch path (22.10, PitchPathService): owner known -> the composer on that contact and the property (made from the MIC address
+            // first when there is none); nobody -> Find owner. One answer for both buttons, so a row never dead-ends.
+            'find_owner', 'pitch' => $r('road-to-sold.prospects.pitch-path', $p->id),
             'evaluation', 'viewing' => $r('command-center.calendar', [], $property ? ['property_id' => $property] : []),
             'presentation' => $r('presentations.create', [], $property ? ['property_id' => $property] : []),
             'mandate', 'offer' => $r('docuperfect.esign.create', [], $property ? ['property_id' => $property] : []),

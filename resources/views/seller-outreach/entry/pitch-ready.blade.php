@@ -24,7 +24,7 @@
                 $numbers = collect($seller['phones'] ?? [])->pluck('value')
                     ->merge(collect($seller['emails'] ?? [])->pluck('value'))->filter()->take(3)->implode(' · ');
             @endphp
-            <a href="{{ route('seller-outreach.composer.show', ['contact' => $seller['contact_id'], 'property_id' => $property->id]) }}"
+            <a href="{{ route('seller-outreach.composer.show', ['contact' => $seller['contact_id'], 'property_id' => $property->id] + ($carry ?? [])) }}"
                class="flex items-center justify-between gap-3 rounded-md px-4 py-3 no-underline"
                style="border-bottom:1px solid var(--border);">
                 <div class="min-w-0">

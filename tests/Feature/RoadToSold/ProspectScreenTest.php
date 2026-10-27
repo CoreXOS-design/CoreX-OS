@@ -207,11 +207,13 @@ final class ProspectScreenTest extends TestCase
         $owner = (int) \DB::table('tracked_properties')->where('id', $p->tracked_property_id)->value('owner_contact_id');
 
         $go = fn (string $step) => $this->actingAs($this->agent)->get(route('road-to-sold.prospects.step', [$p->id, $step]));
-        $loc = $go('pitch')->assertRedirect()->headers->get('Location');
-        $this->assertStringContainsString("/corex/contacts/{$owner}/outreach/compose", $loc);
-        $this->assertStringContainsString('embed=1', $loc);
-        $this->assertStringContainsString('rts_prospect=' . $p->id, $loc);
-        $this->assertStringContainsString('/corex/tracked-properties/' . $p->tracked_property_id . '/outreach/compose', $go('find_owner')->headers->get('Location'));
+        // find owner and pitch are ONE answer, the pitch path (lane D): the composer when the owner is known, otherwise Find owner
+        foreach (['pitch', 'find_owner'] as $s) {
+            $loc = $go($s)->assertRedirect()->headers->get('Location');
+            $this->assertStringContainsString("/road-to-sold/prospects/{$p->id}/pitch-path", $loc);
+            $this->assertStringContainsString('embed=1', $loc);
+            $this->assertStringContainsString('rts_prospect=' . $p->id, $loc);
+        }
         $this->assertStringContainsString('/presentations/create', $go('presentation')->headers->get('Location'));
         $this->assertStringContainsString('/deals-dr2/create', $go('deal')->headers->get('Location'));
         $this->assertStringContainsString('/corex/core-matches', $go('core_match')->headers->get('Location'));

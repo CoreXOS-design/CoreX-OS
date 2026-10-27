@@ -136,6 +136,17 @@ class OutcomeService
 
             $eventId = null;
             if ($wantsValuation) {
+                // The parties (R10): every owner CoreX knows for the property, as attendees of the appointment - not only the event's
+                // contact field - and each linked to the property as its seller so the appointment, the property and the owners agree.
+                $parties = $this->partiesOf($tp, $contact, $agencyId);
+                $propertyRow = $propertyId ? \App\Models\Property::query()->withoutGlobalScopes()->whereNull('deleted_at')->find($propertyId) : null;
+                foreach ($propertyRow ? $parties : [] as $partyId) {
+                    try {
+                        PitchPathService::linkSellerIfNone($partyId, $propertyRow);
+                    } catch (Throwable $e) {
+                        // an owner set behind an open deal cannot move; the appointment still names them
+                    }
+                }
                 $event = $this->calendar->create([
                     'title'       => 'Evaluation: ' . ($tp->displayAddress() ?: 'property'),
                     'category'    => 'property_evaluation',
@@ -143,6 +154,7 @@ class OutcomeService
                     'description' => 'Booked from Road to Sold' . ($note !== '' ? ': ' . $note : ''),
                     'property_id' => $propertyId,
                     'contact_id'  => $contact?->id,
+                    'attendees'   => array_map(fn (int $id) => ['id' => $id, 'type' => 'contact', 'role' => 'seller_contact'], $parties),
                 ], $actor);
                 $eventId = $event->id;
             }
@@ -231,6 +243,26 @@ class OutcomeService
      *
      * @return array{0:string,1:?Carbon,2:?string}
      */
+    /**
+     * The people to put on an evaluation appointment: the tracked property's owner contact first, then any other owner CoreX has a contact
+     * for. Same agency only; no duplicates. Empty when nobody is known (the appointment still carries the property).
+     *
+     * @return int[]
+     */
+    private function partiesOf(TrackedProperty $tp, ?Contact $primary, int $agencyId): array
+    {
+        $ids = $primary ? [(int) $primary->id] : [];
+        $others = DB::table('tracked_property_owners')->where('tracked_property_id', $tp->id)->whereNotNull('contact_id')
+            ->orderByDesc('is_primary')->pluck('contact_id')->map(fn ($v) => (int) $v)->all();
+        $ids = array_values(array_unique(array_merge($ids, $others)));
+        if ($ids === []) {
+            return [];
+        }
+
+        return Contact::query()->withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->whereIn('id', $ids)
+            ->pluck('id')->map(fn ($v) => (int) $v)->sortBy(fn ($id) => array_search($id, $ids, true))->values()->all();
+    }
+
     private function resolveNextAction(Def $def, array $input, TrackedProperty $tp, bool $wantsValuation, ?Carbon $appointmentAt = null): array
     {
         if ($wantsValuation) {
