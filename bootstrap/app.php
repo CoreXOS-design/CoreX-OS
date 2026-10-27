@@ -197,6 +197,11 @@ return Application::configure(basePath: dirname(__DIR__))
 
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // Any email that fails to leave CoreX is logged and the operator is alerted (still reported normally).
+        $exceptions->report(function (\Symfony\Component\Mailer\Exception\TransportExceptionInterface $e) {
+            \App\Services\Mail\MailFailureAlerter::report($e);
+        });
+
         // Agency Admin Rule: convert LastAdminException into a friendly redirect/JSON error.
         $exceptions->render(function (\App\Exceptions\LastAdminException $e, $request) {
             if ($request->expectsJson()) {

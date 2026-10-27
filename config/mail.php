@@ -35,6 +35,9 @@ return [
     |
     */
 
+    // Platform operator inbox told whenever an email fails to send (App\Services\Mail\MailFailureAlerter).
+    'failure_alert_to' => env('MAIL_FAILURE_ALERT_TO', 'andre@corexos.co.za'),
+
     'mailers' => [
 
         'smtp' => [

@@ -161,6 +161,8 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        \Illuminate\Support\Facades\Event::listen(\Illuminate\Mail\Events\MessageSending::class, [\App\Services\Mail\MailFailureAlerter::class, 'remember']);
+
         // AT-454 - Road to Sold settings are memoised for seconds only, and dropped at the start of every
         // queued job and artisan command, so the nightly build (one long process) never works from a stale copy.
         \Illuminate\Support\Facades\Event::listen(\Illuminate\Queue\Events\JobProcessing::class, fn () => \App\Services\RoadToSold\SettingsService::forget());
