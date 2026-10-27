@@ -63,6 +63,7 @@
 <script>
 (function () {
     var cfg = window.CorexDesk, TAB = 'corex.desk.tab', REPLAY = 'corex.desk.replay', memo = null, T = window.CorexDeskT = { script: Math.round(performance.now()) };
+    var VALID = /^(main|c[a-z0-9]{3,10})$/;
     function lock(k) {
         return new Promise(function (res) {
             if (!navigator.locks || !navigator.locks.request) { res(true); return; }
@@ -70,12 +71,23 @@
         });
     }
     function rnd() { return 'c' + Math.random().toString(36).slice(2, 8).replace(/[^a-z0-9]/g, 'x').padEnd(5, 'x'); }
-    window.CorexDeskTabKey = function (wantMain) {
+    // The key to announce right now, without waiting for anything: this tab's own key if it already has one - except in a brand-new tab (no history, not a
+    // reload), whose storage may be a COPY of the opener's - else a new one.
+    function quickKey() {
+        var k = null; try { k = sessionStorage.getItem(TAB); } catch (e) {}
+        var nav = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+        var brandNew = history.length <= 1 && !(nav && nav.type && nav.type !== 'navigate');
+        if (!k || !VALID.test(k) || brandNew) { k = rnd(); try { sessionStorage.setItem(TAB, k); } catch (e) {} }
+        return k;
+    }
+    // The key this tab really keeps: claimed with a Web Lock held as long as the page lives (so two tabs never share one - a duplicated tab copies the storage
+    // and the history). Settles within a moment; nothing time-critical waits for it. The tab that asks for the code (wantMain) takes "main" if it is free.
+    window.CorexDeskTabKey = function (wantMain, first) {
         if (memo) return memo;
         memo = (async function () {
-            var k = null;
-            try { k = sessionStorage.getItem(TAB); } catch (e) {}
-            if (k && !/^(main|c[a-z0-9]{3,10})$/.test(k)) k = null;
+            var k = first || null;
+            if (!k) { try { k = sessionStorage.getItem(TAB); } catch (e) {} }
+            if (k && !VALID.test(k)) k = null;
             if (k) { var ok = await lock(k); if (!ok) { await new Promise(function (r) { setTimeout(r, 150); }); ok = await lock(k); } if (!ok) k = null; }
             if (!k && wantMain && await lock('main')) k = 'main';
             while (!k) { var c = rnd(); if (await lock(c)) k = c; }
@@ -85,18 +97,22 @@
         })();
         return memo;
     };
+    function post(key) {
+        var body = { action: 'join', tab: key, path: location.pathname, title: document.title || '' };
+        try { var rec = JSON.parse(localStorage.getItem(REPLAY) || 'null'); if (rec && rec.tab && rec.tab !== key && Date.now() - rec.t < 10000) body.from = rec.tab; } catch (e) {}
+        T.post = Math.round(performance.now());
+        return fetch(cfg.urls.sessions + '/' + cur.id + '/tabs', { method: 'POST', credentials: 'same-origin', keepalive: true,
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': cfg.csrf, 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify(body) })
+            .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, json: j }; }, function () { return { ok: r.ok, status: r.status, json: {} }; }); })
+            .catch(function () { return { ok: false, status: 0, json: {} }; });
+    }
     var cur = cfg.current;
     if (cur && cur.status === 'live') {
         var saved = null; try { saved = JSON.parse(localStorage.getItem('corex.desk.session') || 'null'); } catch (e) {}
-        window.CorexDeskEarlyJoin = window.CorexDeskTabKey(!!(saved && saved.id === cur.id && saved.tab === 'main')).then(function (key) {
-            var body = { action: 'join', tab: key, path: location.pathname, title: document.title || '' };
-            try { var rec = JSON.parse(localStorage.getItem(REPLAY) || 'null'); if (rec && rec.tab && rec.tab !== key && Date.now() - rec.t < 10000) body.from = rec.tab; } catch (e) {}
-            T.post = Math.round(performance.now());
-            return fetch(cfg.urls.sessions + '/' + cur.id + '/tabs', { method: 'POST', credentials: 'same-origin', keepalive: true,
-                headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': cfg.csrf, 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify(body) })
-                .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, json: j }; }, function () { return { ok: r.ok, status: r.status, json: {} }; }); })
-                .catch(function () { return { ok: false, status: 0, json: {} }; });
-        });
+        var quick = quickKey();
+        window.CorexDeskEarlyJoin = post(quick);
+        // (the key the page keeps - normally the one just announced; if another page turns out to hold it, a new one is announced as well)
+        window.CorexDeskTabKey(!!(saved && saved.id === cur.id && saved.tab === 'main' && quick === 'main'), quick).then(function (key) { if (key !== quick) window.CorexDeskEarlyJoin = post(key); });
     }
 })();
 </script>
