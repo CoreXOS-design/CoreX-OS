@@ -237,19 +237,6 @@
         @endif
     </form>
 
-    @if($listView && $counts['any'] > 0 && $canAddToDay && $date->isToday() && count($addChoices))
-        <div class="flex items-center justify-end text-xs">
-            <form method="POST" action="{{ route('road-to-sold.add-to-day') }}" class="flex items-center gap-2">
-                @csrf
-                @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
-                <select name="selection" aria-label="Selection to add from" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}">
-                    @foreach($addChoices as $k => $l)<option value="{{ $k }}">{{ $l }}</option>@endforeach
-                </select>
-                <input type="number" name="count" min="1" max="{{ $addMax ?? 100 }}" value="5" aria-label="How many to add" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }} width: 5rem;">
-                <button type="submit" class="corex-btn-outline corex-btn-xs">Add to my day</button>
-            </form>
-        </div>
-    @endif
 
     @if($isCaptures)
         @include('road-to-sold._captures')
@@ -274,11 +261,11 @@
                 @php $lo = $r['last_outcome']; @endphp
                 <tr style="border-top: 1px solid var(--border);">
                     <td class="px-3 py-2 font-semibold" style="color: var(--text-primary); min-width: 14rem;" data-qa="intake-why">
-                        @if(($r['origin'] ?? null) === 'follow_up')<span class="rts-chip">Follow-up</span> @endif{{ $r['why'] ?: '-' }}
+                        <div class="rts-clamp2" title="{{ $r['why'] }}">@if(($r['origin'] ?? null) === 'follow_up')<span class="rts-chip">Follow-up</span> @endif{{ $r['why'] ?: '-' }}</div>
                     </td>
                     <td class="px-3 py-2" style="color: var(--text-primary);">
-                        <div class="font-semibold">{{ $r['street'] !== '' ? $r['street'] : $r['address'] }}</div>
-                        @if($r['street'] !== '' && $r['suburb'])<div style="color: var(--text-muted);">{{ $r['suburb'] }}</div>@endif
+                        <div class="font-semibold rts-nw" title="{{ $r['address'] }}">{{ $r['street'] !== '' ? $r['street'] : $r['address'] }}</div>
+                        @if($r['street'] !== '' && $r['suburb'])<div class="rts-nw" style="color: var(--text-muted);">{{ $r['suburb'] }}</div>@endif
                     </td>
                     <td class="px-3 py-2 text-right whitespace-nowrap" style="color: var(--text-primary);">{{ $money($r['price']) ?: '-' }}</td>
                     <td class="px-3 py-2 text-right" style="color: var(--text-primary);">{{ $r['dom'] !== null ? $r['dom'] : '-' }}</td>

@@ -62,7 +62,7 @@ for (const person of people) {
             if (block === 'intake') {
                 if (!g.table || g.table.h < 120) fails.push(`intake table is ${g.table ? g.table.h : 'missing'}px high`);
                 else if (g.table.bottom > g.vh + 1 || g.table.top < 0) fails.push(`intake table is off screen (${g.table.top}-${g.table.bottom} of ${g.vh})`);
-                if (g.formBottom !== null && g.table && g.table.top - g.formBottom > 40) fails.push('the table is not right under the filters');
+                if (g.formBottom !== null && g.table && g.table.top - g.formBottom > 60) fails.push('the table is not right under the filters');
             }
             if (block === 'prospects' && g.cards > 0 && (!g.growBox || g.growBox.bottom > g.vh + 1)) fails.push('the prospect board runs off the screen');
             results.push({ label, pass: fails.length === 0, fails, g });

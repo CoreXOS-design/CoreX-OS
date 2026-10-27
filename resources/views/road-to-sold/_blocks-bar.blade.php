@@ -21,14 +21,21 @@
     .rts-block-body > *, .rts-col > * { flex-shrink: 0; }
     .rts-block-body > .rts-grow, .rts-col > .rts-grow { flex: 1 1 0; min-height: 6rem; overflow: auto; }
     .rts-col { display: flex; flex-direction: column; gap: .75rem; flex: 1 1 0; min-height: 0; }
+    .rts-clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.25; }
+    .rts-nw { white-space: nowrap; max-width: 15rem; overflow: hidden; text-overflow: ellipsis; }
+    .rts-top .rts-long { display: none; }
+    .rts-top > :first-child { flex-basis: 17rem; }
+    .rts-top .grid { grid-auto-flow: column !important; grid-template-columns: none !important; grid-auto-columns: minmax(6.5rem, 1fr); }
+    .rts-block-body form select, .rts-block-body form input[type=text], .rts-block-body form input[type=date] { padding-top: .3rem !important; padding-bottom: .3rem !important; }
+    .rts-block-body > form { gap: .5rem !important; }
     .rts-grow thead th { position: sticky; top: 0; z-index: 1; background: var(--surface); }
     .rts-grow table td { padding-top: .35rem; padding-bottom: .35rem; }
     /* what to do next + where the month stands share one row */
     .rts-top { display: flex; gap: .75rem; align-items: stretch; }
-    .rts-top > :first-child { flex: 0 1 22rem; min-width: 0; }
+    .rts-top > :first-child { flex: 0 1 17rem; min-width: 0; }
     .rts-top > :last-child { flex: 1 1 0; min-width: 0; }
     .rts-top > :only-child { flex: 1 1 0; }
-    .rts-top .grid { grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)) !important; gap: .5rem !important; grid-auto-rows: auto !important; }
+    .rts-top .grid { gap: .5rem !important; grid-auto-rows: auto !important; }
     .rts-top .grid > button { padding: .35rem .6rem !important; }
     .rts-top .grid .text-lg { font-size: 1rem; line-height: 1.25rem; }
     .rts-tabs a { padding: .45rem .9rem; border-radius: 6px; font-size: .8125rem; font-weight: 600; border: 1px solid var(--border); background: var(--surface); color: var(--text-primary); white-space: nowrap; }
@@ -49,6 +56,17 @@
     @foreach($tabs as $key => [$label, $badge])
         <a href="{{ route('road-to-sold.index', $tabParams($key)) }}" role="tab" aria-selected="{{ $block === $key ? 'true' : 'false' }}" class="{{ $block === $key ? 'is-on' : '' }}" data-block="{{ $key }}">{{ $label }}@if($badge !== null)<small>{{ $badge }}</small>@endif</a>
     @endforeach
+    @if($block === 'intake' && $listView && $counts['any'] > 0 && $canAddToDay && $date->isToday() && count($addChoices))
+        <form method="POST" action="{{ route('road-to-sold.add-to-day') }}" class="flex items-center gap-1 ml-auto text-xs" data-qa="add-to-day">
+                @csrf
+                @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
+                <select name="selection" aria-label="Selection to add from" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}">
+                    @foreach($addChoices as $k => $l)<option value="{{ $k }}">{{ $l }}</option>@endforeach
+                </select>
+                <input type="number" name="count" min="1" max="{{ $addMax ?? 100 }}" value="5" aria-label="How many to add" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }} width: 5rem;">
+                <button type="submit" class="corex-btn-outline corex-btn-xs">Add to my day</button>
+            </form>
+    @endif
     @unless($viewingOwn)
         <span class="text-xs ml-2" style="color: var(--text-muted);" data-qa="read-only">Looking at {{ $agentName }} - read only</span>
     @endunless
