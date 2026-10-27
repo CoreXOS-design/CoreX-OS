@@ -252,6 +252,7 @@ class Agency extends Model
         'is_demo',
         'require_external_access_authorization',
         'desk_enabled', // CoreX Desk (.ai/specs/corex-desk.md section 6) - default ON
+        'desk_control_idle_minutes', // CoreX Desk phase 2 - how long an unused take-over lasts (default 5)
         'timezone', // audit 2026-10-20 (L7) - the agency's own timezone (IANA name); null = the application's
         'portal_show_agency_commission_totals',
         'dashboard_settings_mode',
@@ -473,6 +474,7 @@ class Agency extends Model
         'privacy_policy_published_at' => 'datetime',
         'require_external_access_authorization' => 'boolean',
         'desk_enabled' => 'boolean',
+        'desk_control_idle_minutes' => 'integer',
         'portal_show_agency_commission_totals' => 'boolean',
         'split_branches_enabled' => 'boolean',
         'other_agency_stock_visible_roles' => 'array',

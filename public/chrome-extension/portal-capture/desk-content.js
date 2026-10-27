@@ -16,7 +16,7 @@
 
   var Lib = window.CoreXDeskLib;
   var rr = window.rrwebRecord && window.rrwebRecord.record;
-  var S = window.__corexDeskExt = { key: null, stop: null, buf: [], timer: null, host: null, root: null, ui: {}, hl: null, ptrTimer: null, raf: 0 };
+  var S = window.__corexDeskExt = { ctl: { state: 'none', exec: null, reporter: null, idle: null }, support: 'CoreX support', key: null, stop: null, buf: [], timer: null, host: null, root: null, ui: {}, hl: null, ptrTimer: null, raf: 0 };
   if (!Lib || !rr) { delete window.__corexDeskExt; return; }
 
   var ALL_TYPES = { color: true, date: true, 'datetime-local': true, email: true, month: true, number: true, range: true, search: true, tel: true, text: true, time: true, url: true, week: true, textarea: true, select: true, password: true };
@@ -33,6 +33,10 @@
       case 'desk.pointer_hide': hidePointer(); return false;
       case 'desk.highlight': showHighlight(msg.selector, msg.note); return false;
       case 'desk.highlight_clear': clearHighlight(); return false;
+      case 'desk.control_ask': controlAsk(msg.support); return false;
+      case 'desk.control_on': if (msg.resumed) S.ctl.state = 'asking'; controlOn(msg.idle); return false;
+      case 'desk.control_off': controlOff(msg.why); return false;
+      case 'desk.action': runAction(msg.a); return false;
       case 'desk.stop': stop(); return false;
       default: return false;
     }
@@ -70,6 +74,8 @@
 
   function stop() {
     if (S.stop) { try { S.stop(); } catch (e) { /* ignore */ } }
+    if (S.ctl.reporter) S.ctl.reporter.flush();
+    if (S.ctl.idle) S.ctl.idle.stop();
     clearTimeout(S.timer); cancelAnimationFrame(S.raf); clearTimeout(S.ptrTimer);
     if (S.root && S.root.parentNode) S.root.parentNode.removeChild(S.root);
     window.removeEventListener('scroll', place, true);
@@ -89,6 +95,7 @@
     sh.innerHTML =
       '<style>' +
       '.bar{position:fixed;top:0;left:0;right:0;height:26px;display:flex;align-items:center;justify-content:center;gap:12px;background:#b91c1c;color:#fff;font:600 12px/26px system-ui,sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.3)}' +
+      '.bar[data-mode="ask"]{background:#9a3412}.bar[data-mode="control"]{background:#7f1d1d;box-shadow:inset 0 -3px 0 #fbbf24}' +
       '.bar button{all:unset;cursor:pointer;padding:0 10px;border:1px solid rgba(255,255,255,.6);border-radius:4px;background:rgba(255,255,255,.18);font:700 11px/20px system-ui,sans-serif}' +
       '.bar button:hover{background:rgba(255,255,255,.3)}' +
       '.ptr{position:fixed;pointer-events:none;transform:translate(-2px,-2px)}' +
@@ -98,18 +105,77 @@
       '.note b{display:block;margin-bottom:2px;font-size:14px}' +
       '[hidden]{display:none!important}' +
       '</style>' +
-      '<div class="bar"><span>CoreX Desk — ' + name + ' is viewing this window</span><button type="button" id="stop">Stop sharing</button></div>' +
+      '<div class="bar" id="bar"><span>CoreX Desk — ' + name + ' <span id="what">is viewing this window</span></span>' +
+      '<button type="button" id="allow" hidden>Allow</button><button type="button" id="decline" hidden>Decline</button><button type="button" id="takeback" hidden>Take back control</button>' +
+      '<button type="button" id="stop">Stop sharing</button></div>' +
       '<div class="ptr" hidden><svg width="18" height="18" viewBox="0 0 24 24" fill="#b91c1c" stroke="#fff" stroke-width="1.5" style="position:absolute;left:0;top:0"><path d="M4 3l16 7-7 2-2 7z"/></svg><span>Support</span></div>' +
       '<div class="ring" hidden></div>' +
       '<div class="note" hidden><b>CoreX support</b><span></span></div>';
+    S.support = name;
+    sh.getElementById('allow').addEventListener('click', function () { send({ type: 'desk.controlRespond', allow: true }); });
+    sh.getElementById('decline').addEventListener('click', function () { send({ type: 'desk.controlRespond', allow: false }); controlOff('declined'); });
+    sh.getElementById('takeback').addEventListener('click', function () { controlOff('agent'); send({ type: 'desk.controlRevoke', reason: 'agent' }); });
     sh.getElementById('stop').addEventListener('click', function () {
       try { chrome.runtime.sendMessage({ type: 'desk.stopMe' }, function () { void chrome.runtime.lastError; }); } catch (e) { /* ignore */ }
     });
     S.root = host;
+    S.sh = sh;
     S.ui = { bar: sh.querySelector('.bar'), ptr: sh.querySelector('.ptr'), ring: sh.querySelector('.ring'), note: sh.querySelector('.note'), noteText: sh.querySelector('.note span') };
     document.documentElement.appendChild(host);
     window.addEventListener('scroll', place, true);
     window.addEventListener('resize', place, true);
+  }
+
+  // ── Take-over (phase 2, spec section 14): the agent decides here, on this page ─────────────────
+
+  function send(msg) {
+    try { chrome.runtime.sendMessage(msg, function () { void chrome.runtime.lastError; }); } catch (e) { /* extension reloaded */ }
+  }
+
+  function setBar(mode) {
+    if (!S.ui.bar) return;
+    S.ui.bar.setAttribute('data-mode', mode);
+    S.sh.getElementById('what').textContent = { view: 'is viewing this window', ask: 'wants to take control of this window', control: 'is in control of this window' }[mode];
+    S.sh.getElementById('allow').hidden = mode !== 'ask';
+    S.sh.getElementById('decline').hidden = mode !== 'ask';
+    S.sh.getElementById('takeback').hidden = mode !== 'control';
+    S.sh.getElementById('stop').hidden = mode === 'ask';
+  }
+
+  /** Support asked. Nothing moves until the agent presses Allow in the bar. */
+  function controlAsk() {
+    if (!S.ui.bar || S.ctl.state === 'granted') return;
+    S.ctl.state = 'asking';
+    setBar('ask');
+  }
+
+  /** The server confirmed the agent's Allow (or this page was reloaded mid-control): start replaying support's actions. */
+  function controlOn(idleSeconds) {
+    if (!S.ui.bar || !window.CoreXDeskExec) return;
+    if (S.ctl.state !== 'asking' && S.ctl.state !== 'granted') return;   // only an Allow given here starts control
+    var E = window.CoreXDeskExec;
+    S.ctl.state = 'granted';
+    S.ctl.exec = E.create({ doc: document, win: window, isBlocked: Lib.isSensitiveField });
+    S.ctl.reporter = E.createReporter(function (actions) { send({ type: 'desk.controlActions', actions: actions }); }, 1500);
+    if (S.ctl.idle) S.ctl.idle.stop();
+    S.ctl.idle = E.createIdleTimer(Math.max(60, idleSeconds || 300), function () { controlOff('idle'); send({ type: 'desk.controlRevoke', reason: 'idle' }); });
+    S.ctl.idle.start();
+    setBar('control');
+  }
+
+  function controlOff() {
+    if (S.ctl.reporter) S.ctl.reporter.flush();
+    if (S.ctl.idle) S.ctl.idle.stop();
+    S.ctl = { state: 'none', exec: null, reporter: null, idle: null };
+    if (S.ui.bar) setBar('view');
+  }
+
+  /** One action whispered by support, forwarded by the service worker. Replayed only while control is granted on THIS tab. */
+  function runAction(a) {
+    if (S.ctl.state !== 'granted' || !S.ctl.exec) return;
+    var res = S.ctl.exec.run(a);
+    S.ctl.reporter.add(res.report);
+    if (res.ok) S.ctl.idle.touch();
   }
 
   // ── Pointer ─────────────────────────────────────────────────────────────────────

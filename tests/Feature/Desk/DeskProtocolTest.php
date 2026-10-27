@@ -67,6 +67,36 @@ final class DeskProtocolTest extends DeskTestCase
         $this->assertSame(['by' => 'support'], $byName['desk.ended']->broadcastWith());
     }
 
+    public function test_the_take_over_events_have_the_documented_payloads_on_the_private_channel(): void
+    {
+        $agent = $this->agentIn($this->agencyA);
+        $support = $this->owner();
+        [$session, $code] = $this->desk->start($agent);
+        $this->desk->join($support, $code);
+        $this->desk->requestControl($session->fresh(), $support, 'main');
+        $this->desk->respondControl($session->fresh(), $agent, true);
+        $this->desk->revokeControl($session->fresh(), $agent);
+        $this->desk->requestControl($session->fresh(), $support, 'main');
+        $this->desk->respondControl($session->fresh(), $agent, false);
+        $this->desk->requestControl($session->fresh(), $support, 'main');
+        $this->desk->respondControl($session->fresh(), $agent, true);
+        $this->desk->endControlBySupport($session->fresh(), $support);
+
+        $byName = collect($this->sent())->keyBy('name');
+        $expected = [
+            'desk.control_requested' => ['tab', 'support_name'],
+            'desk.control_granted' => ['tab', 'idle_seconds'],
+            'desk.control_declined' => ['tab', 'reason'],
+            'desk.control_revoked' => ['tab'],
+            'desk.control_ended' => ['tab', 'by', 'reason'],
+        ];
+        foreach ($expected as $name => $keys) {
+            $this->assertTrue($byName->has($name), "{$name} was sent");
+            $this->assertSame($keys, array_keys($byName[$name]->broadcastWith()), "{$name} payload keys");
+            $this->assertSame('private-desk.session.' . $session->id, $byName[$name]->broadcastOn()[0]->name);
+        }
+    }
+
     public function test_no_event_carries_anything_from_the_agents_screen_or_the_code(): void
     {
         $agent = $this->agentIn($this->agencyA);
@@ -98,7 +128,8 @@ final class DeskProtocolTest extends DeskTestCase
         $spec = (string) file_get_contents(base_path('.ai/specs/corex-desk.md'));
 
         foreach (['desk.joined', 'desk.highlight', 'desk.highlight_cleared', 'desk.pointer_state', 'desk.ended',
-            'client-frame', 'client-resync', 'client-pointer', 'private-desk.session.{id}', 'protocol version', 'gzip', 'data-desk-mask'] as $term) {
+            'client-frame', 'client-resync', 'client-pointer', 'private-desk.session.{id}', 'protocol version', 'gzip', 'data-desk-mask',
+            'client-action', 'desk.control_requested', 'desk.control_granted', 'desk.control_declined', 'desk.control_revoked', 'desk.control_ended', 'control_action'] as $term) {
             $this->assertStringContainsString($term, $spec, "the protocol section must mention {$term}");
         }
     }
@@ -120,6 +151,19 @@ final class DeskProtocolTest extends DeskTestCase
         // Both ends use the shared chunk size / codec.
         $frames = (string) file_get_contents(resource_path('js/desk/frames.js'));
         $this->assertStringContainsString('export const CHUNK = 7000', $frames);
+
+        // Take-over: support whispers actions, the agent's clients replay them and listen for the same consent events.
+        $this->assertStringContainsString("whisper('action'", $console);
+        foreach (["'.desk.control_requested'", "'.desk.control_granted'", "'.desk.control_declined'", "'.desk.control_revoked'", "'.desk.control_ended'", "listenForWhisper('action'"] as $needle) {
+            $this->assertStringContainsString($needle, $agent, "agent.js must use {$needle}");
+        }
+        foreach (["'.desk.control_requested'", "'.desk.control_granted'", "'.desk.control_declined'", "'.desk.control_revoked'", "'.desk.control_ended'"] as $needle) {
+            $this->assertStringContainsString($needle, $console, "console.js must use {$needle}");
+        }
+        $ext = (string) file_get_contents(public_path('chrome-extension/portal-capture/desk-ext.js'));
+        foreach (["'client-action'", "'desk.control_requested'", "'desk.control_granted'", '/control/'] as $needle) {
+            $this->assertStringContainsString(trim($needle, "'"), $ext, "desk-ext.js must use {$needle}");
+        }
     }
 
     public function test_masking_contract_the_agent_client_masks_passwords_and_desk_mask_fields_and_blocks_its_own_ui(): void

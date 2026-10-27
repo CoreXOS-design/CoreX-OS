@@ -1464,6 +1464,14 @@
                             </span>
                         </span>
                     </label>
+                    <div>
+                        <label for="desk_control_idle_minutes" class="block text-sm font-semibold" style="color:var(--text-primary);">Take-over: end it after this many idle minutes</label>
+                        <span class="block text-xs mt-1 leading-relaxed" style="color:var(--text-secondary);">
+                            CoreX support can ask an agent to let them take control of the agent's window. The agent must press <em>Allow</em> every time and can take control back at any moment. If support does nothing for this long, control ends by itself.
+                        </span>
+                        <input id="desk_control_idle_minutes" type="number" name="desk_control_idle_minutes" min="{{ (int) config('desk.control_idle_minutes_min', 1) }}" max="{{ (int) config('desk.control_idle_minutes_max', 60) }}" step="1"
+                               value="{{ (int) ($agency->desk_control_idle_minutes ?: config('desk.control_idle_minutes_default', 5)) }}" class="mt-2 text-sm rounded-md px-2 py-1" style="width:6rem; border:1px solid var(--border); background:var(--surface); color:var(--text-primary);"> minutes
+                    </div>
                     <div class="flex items-center justify-between gap-3 pt-2" style="border-top:1px solid var(--border);">
                         <div class="text-xs" style="color:var(--text-muted);">
                             Currently:

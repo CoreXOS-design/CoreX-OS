@@ -31,6 +31,14 @@ return [
         'loom.com',
     ],
 
+    // Phase 2 (take-over): a request the agent does not answer lapses after this many seconds; a granted control that is not used
+    // for the agency's idle limit (agencies.desk_control_idle_minutes, default below, 1-60) ends by itself.
+    'control_request_seconds' => (int) env('DESK_CONTROL_REQUEST_SECONDS', 60),
+    'control_idle_minutes_default' => 5,
+    'control_idle_minutes_min' => 1,
+    'control_idle_minutes_max' => 60,
+    'control_actions_per_report' => 50,
+
     // Selector / note limits for a highlight.
     'selector_max' => 500,
     'note_max' => 200,

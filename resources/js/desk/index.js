@@ -71,7 +71,25 @@ function hideBar() {
     document.documentElement.classList.remove('corex-desk-live');
 }
 
+/** The red bar speaks in one voice: viewing (default), asking ("wants to take control" - Allow / Decline), in control (Take back control). */
+function setBarMode(mode, name) {
+    const bar = $('corex-desk-bar');
+    if (!bar) return;
+    if (name) $('cd-bar-name').textContent = name;
+    bar.hidden = false;
+    bar.dataset.mode = mode;
+    $('cd-bar-what').textContent = { view: 'is viewing this window', ask: 'wants to take control of this window', control: 'is in control of this window' }[mode];
+    bar.querySelector('[data-desk-allow]').hidden = mode !== 'ask';
+    bar.querySelector('[data-desk-decline]').hidden = mode !== 'ask';
+    bar.querySelector('[data-desk-takeback]').hidden = mode !== 'control';
+    bar.querySelector('[data-desk-end]').hidden = mode === 'ask';
+    document.documentElement.classList.add('corex-desk-live');
+}
+
 const ui = {
+    controlAsk(name) { setBarMode('ask', name); },
+    controlOn(name) { setBarMode('control', name); },
+    controlOff() { setBarMode('view'); },
     joined(name) { hideModal(); showBar(name); },
     ended(by) {
         store(null);
@@ -130,6 +148,10 @@ async function cancel() {
     try { (await import('./agent.js')).endSession(); } catch (e) { /* nothing open */ }
 }
 
+async function control(fn, arg) {
+    try { await (await import('./agent.js'))[fn](arg); } catch (e) { /* nothing open */ }
+}
+
 async function endFromBar() {
     try { await (await import('./agent.js')).endSession(); } catch (e) { /* ignore */ }
 }
@@ -140,6 +162,9 @@ function boot() {
         else if (e.target.closest('[data-desk-close]')) { hideModal(); }
         else if (e.target.closest('[data-desk-cancel]')) { cancel(); }
         else if (e.target.closest('[data-desk-end]')) { endFromBar(); }
+        else if (e.target.closest('[data-desk-allow]')) { control('controlRespond', true); }
+        else if (e.target.closest('[data-desk-decline]')) { control('controlRespond', false); }
+        else if (e.target.closest('[data-desk-takeback]')) { control('controlRevoke'); }
     });
 
     // A session already open in THIS tab (a page change): pick it up again. A session open in some other tab is not ours to share.

@@ -296,6 +296,10 @@ class DeskSessionService
 
         if ($action === 'leave') {
             if (isset($open[$key])) {
+                if ($session->control_state !== DeskSession::CONTROL_NONE && $session->control_tab === $key) {
+                    $this->closeControl($session, 'system', 'tab', $agent);   // the tab being controlled is gone
+                    $session = $session->fresh();
+                }
                 $this->record($session, DeskSessionEvent::TAB_LEAVE, ['tab' => $key, 'host' => $open[$key]['host'], 'title' => $open[$key]['title']], $agent);
                 DeskBroadcast::dispatch($session->id, 'desk.tab_left', ['tab' => $key]);
                 unset($open[$key]);
@@ -359,6 +363,195 @@ class DeskSessionService
         return mb_substr($t, 0, 120);
     }
 
+    // ── Take-over (phase 2): support asks, the agent allows or declines, the agent's own browser replays the actions ──────
+
+    /** The agency's idle limit for an unused take-over, in minutes (1-60; default 5). */
+    public function controlIdleMinutes(?int $agencyId): int
+    {
+        $min = (int) config('desk.control_idle_minutes_min', 1);
+        $max = (int) config('desk.control_idle_minutes_max', 60);
+        $v = $agencyId ? Agency::withoutGlobalScopes()->whereKey($agencyId)->value('desk_control_idle_minutes') : null;
+
+        return max($min, min($max, (int) ($v ?: config('desk.control_idle_minutes_default', 5))));
+    }
+
+    /** host + title of a tab for the audit trail ("main" is the CoreX page itself). */
+    private function tabInfo(DeskSession $session, string $tab): array
+    {
+        if ($tab === 'main') {
+            return ['tab' => 'main', 'host' => 'CoreX', 'title' => 'CoreX page'];
+        }
+        $open = $this->openTabs($session);
+
+        return $open[$tab] ?? ['tab' => $tab, 'host' => '', 'title' => ''];
+    }
+
+    /**
+     * Support asks for control of one tab. Only the support user who joined, only while live, only one control at a time, and an
+     * extension tab must still be shared. Nothing moves until the agent allows.
+     */
+    public function requestControl(DeskSession $session, User $support, string $tab): DeskSession
+    {
+        $session = $session->fresh();
+        if (! $session || ! $session->isLive() || (int) $session->support_user_id !== (int) $support->id) {
+            throw new DeskControlException('You are not in a live session.', 409);
+        }
+        if (! $support->hasPermission('desk.control')) {
+            throw new DeskControlException('You do not have permission to take control.', 403);
+        }
+        if (($session->control_state ?: DeskSession::CONTROL_NONE) !== DeskSession::CONTROL_NONE) {
+            throw new DeskControlException('Control has already been asked for or is in use.', 409);
+        }
+        $tab = $this->cleanTabKey($tab);
+        if ($tab !== 'main' && ! isset($this->openTabs($session)[$tab])) {
+            throw new DeskControlException('That tab is no longer shared.', 409);
+        }
+
+        $session->forceFill([
+            'control_state' => DeskSession::CONTROL_REQUESTED, 'control_tab' => $tab,
+            'control_requested_at' => now(), 'control_granted_at' => null, 'control_last_action_at' => null,
+        ])->save();
+        $this->record($session, DeskSessionEvent::CONTROL_REQUESTED, $this->tabInfo($session, $tab), $support);
+        DeskBroadcast::dispatch($session->id, 'desk.control_requested', ['tab' => $tab, 'support_name' => $support->name]);
+
+        return $session->fresh();
+    }
+
+    /** The agent's answer to a request (Allow / Decline). Only the agent; only while a request is open. */
+    public function respondControl(DeskSession $session, User $agent, bool $allow): DeskSession
+    {
+        $session = $session->fresh();
+        if (! $session || ! $session->isLive() || (int) $session->user_id !== (int) $agent->id) {
+            throw new DeskControlException('That Desk session is not live.', 409);
+        }
+        if ($session->control_state !== DeskSession::CONTROL_REQUESTED) {
+            throw new DeskControlException('Nobody is asking for control.', 409);
+        }
+        $tab = (string) $session->control_tab;
+        $info = $this->tabInfo($session, $tab);
+
+        if ($allow) {
+            $session->forceFill(['control_state' => DeskSession::CONTROL_GRANTED, 'control_granted_at' => now(), 'control_last_action_at' => now()])->save();
+            $this->record($session, DeskSessionEvent::CONTROL_GRANTED, $info, $agent);
+            DeskBroadcast::dispatch($session->id, 'desk.control_granted', ['tab' => $tab, 'idle_seconds' => $this->controlIdleMinutes($session->agency_id ? (int) $session->agency_id : null) * 60]);
+        } else {
+            $session->forceFill(['control_state' => DeskSession::CONTROL_NONE, 'control_tab' => null, 'control_requested_at' => null])->save();
+            $this->record($session, DeskSessionEvent::CONTROL_DECLINED, $info + ['reason' => 'declined'], $agent);
+            DeskBroadcast::dispatch($session->id, 'desk.control_declined', ['tab' => $tab, 'reason' => 'declined']);
+        }
+
+        return $session->fresh();
+    }
+
+    /**
+     * The agent takes control back at any time ("agent"), or the agent's own browser reports its idle clock ran out ("idle").
+     * A request still waiting is simply declined.
+     */
+    public function revokeControl(DeskSession $session, User $agent, string $reason = 'agent'): DeskSession
+    {
+        $session = $session->fresh();
+        if (! $session || (int) $session->user_id !== (int) $agent->id) {
+            throw new DeskControlException('That Desk session is not yours.', 403);
+        }
+        $state = $session->control_state ?: DeskSession::CONTROL_NONE;
+        if ($state === DeskSession::CONTROL_REQUESTED) {
+            return $this->respondControl($session, $agent, false);
+        }
+        if ($state === DeskSession::CONTROL_GRANTED) {
+            $this->closeControl($session, $reason === 'idle' ? 'system' : 'agent', $reason === 'idle' ? 'idle' : 'agent', $agent);
+        }
+
+        return $session->fresh();
+    }
+
+    /** Support hands control back (or cancels a request nobody has answered yet). */
+    public function endControlBySupport(DeskSession $session, User $support): DeskSession
+    {
+        $session = $session->fresh();
+        if (! $session || (int) $session->support_user_id !== (int) $support->id) {
+            throw new DeskControlException('You are not in that session.', 409);
+        }
+        if (($session->control_state ?: DeskSession::CONTROL_NONE) !== DeskSession::CONTROL_NONE) {
+            $this->closeControl($session, 'support', 'support', $support);
+        }
+
+        return $session->fresh();
+    }
+
+    /**
+     * What the agent's own browser replayed for support (clicks, typing, keys, scrolling, choices). Reported by the AGENT'S browser - the
+     * record of what actually ran, including what it refused - and only while control is granted for that tab. Typed text is never in
+     * it: just the action, the element (selector + a short label) and whether it ran. Consecutive keystrokes arrive pre-counted (n).
+     *
+     * @param  array<int, array<string, mixed>>  $actions
+     */
+    public function recordControlActions(DeskSession $session, User $agent, string $tab, array $actions): int
+    {
+        $session = $session->fresh();
+        if (! $session || ! $session->isLive() || (int) $session->user_id !== (int) $agent->id
+            || $session->control_state !== DeskSession::CONTROL_GRANTED || $session->control_tab !== $this->cleanTabKey($tab)) {
+            throw new DeskControlException('Nobody has control of that tab.', 409);
+        }
+
+        $info = $this->tabInfo($session, $session->control_tab);
+        $support = $session->support_user_id ? User::withoutGlobalScopes()->find($session->support_user_id) : null;
+        $kinds = ['click', 'dblclick', 'type', 'key', 'scroll', 'select', 'focus'];
+        $max = (int) config('desk.control_actions_per_report', 50);
+        $written = 0;
+        $anyRan = false;
+
+        foreach (array_slice($actions, 0, $max) as $a) {
+            $kind = is_array($a) ? (string) ($a['type'] ?? '') : '';
+            if (! in_array($kind, $kinds, true)) {
+                continue;
+            }
+            $ok = (bool) ($a['ok'] ?? false);
+            $anyRan = $anyRan || $ok;
+            $this->record($session, DeskSessionEvent::CONTROL_ACTION, [
+                'tab' => $info['tab'], 'host' => $info['host'], 'title' => $info['title'],
+                'action' => $kind,
+                'selector' => mb_substr((string) ($a['selector'] ?? ''), 0, (int) config('desk.selector_max', 500)),
+                'label' => $this->cleanTitle(mb_substr((string) ($a['label'] ?? ''), 0, 80)),
+                'ok' => $ok,
+                'reason' => $ok ? null : mb_substr(preg_replace('/[^a-z_ ]/i', '', (string) ($a['reason'] ?? 'refused')), 0, 40),
+                'n' => max(1, min(1000, (int) ($a['n'] ?? 1))),
+            ], $support);
+            $written++;
+        }
+        if ($anyRan) {
+            $session->forceFill(['control_last_action_at' => now()])->save();   // the idle clock
+        }
+
+        return $written;
+    }
+
+    /** One place that ends a request or a control: records control_ended / control_declined, clears the state, tells both sides. */
+    private function closeControl(DeskSession $session, string $by, string $reason, ?User $actor = null): void
+    {
+        $state = $session->control_state ?: DeskSession::CONTROL_NONE;
+        if ($state === DeskSession::CONTROL_NONE) {
+            return;
+        }
+        $tab = (string) $session->control_tab;
+        $info = $this->tabInfo($session, $tab);
+        $session->forceFill(['control_state' => DeskSession::CONTROL_NONE, 'control_tab' => null, 'control_requested_at' => null, 'control_granted_at' => null, 'control_last_action_at' => null])->save();
+
+        if ($state === DeskSession::CONTROL_REQUESTED) {
+            $this->record($session, DeskSessionEvent::CONTROL_DECLINED, $info + ['reason' => $reason], $actor);
+            DeskBroadcast::dispatch($session->id, 'desk.control_declined', ['tab' => $tab, 'reason' => $reason]);
+
+            return;
+        }
+        if ($by === 'agent') {
+            $this->record($session, DeskSessionEvent::CONTROL_REVOKED, $info, $actor);
+            DeskBroadcast::dispatch($session->id, 'desk.control_revoked', ['tab' => $tab]);
+
+            return;
+        }
+        $this->record($session, DeskSessionEvent::CONTROL_ENDED, $info + ['by' => $by, 'reason' => $reason], $actor);
+        DeskBroadcast::dispatch($session->id, 'desk.control_ended', ['tab' => $tab, 'by' => $by, 'reason' => $reason]);
+    }
+
     // ── Ending ──────────────────────────────────────────────────────────────────────
 
     /** End a session (idempotent). $by is one of DeskSession::ENDED_BY_*. */
@@ -367,6 +560,12 @@ class DeskSessionService
         $session = $session->fresh() ?? $session;
         if (! $session->isOpen()) {
             return $session;
+        }
+
+        // Ending the session always ends control (spec section 14) - recorded before the session's own end.
+        if (($session->control_state ?: DeskSession::CONTROL_NONE) !== DeskSession::CONTROL_NONE) {
+            $this->closeControl($session, 'system', 'session', $actor);
+            $session = $session->fresh();
         }
 
         $session->forceFill([
@@ -416,6 +615,22 @@ class DeskSessionService
         foreach ($quiet as $session) {
             $this->end($session, DeskSession::ENDED_BY_TIMEOUT);
             $closed++;
+        }
+
+        // Take-over: a request nobody answered lapses; a granted control nobody uses ends (the agency's idle limit).
+        $pending = DeskSession::withoutGlobalScopes()->open()->where('control_state', '!=', DeskSession::CONTROL_NONE)->get();
+        foreach ($pending as $session) {
+            if ($session->control_state === DeskSession::CONTROL_REQUESTED
+                && $session->control_requested_at && $session->control_requested_at->lt(now()->subSeconds((int) config('desk.control_request_seconds', 60)))) {
+                $this->closeControl($session, 'system', 'no_answer');
+                $closed++;
+            } elseif ($session->control_state === DeskSession::CONTROL_GRANTED) {
+                $last = $session->control_last_action_at ?? $session->control_granted_at;
+                if ($last && $last->lt(now()->subMinutes($this->controlIdleMinutes($session->agency_id ? (int) $session->agency_id : null)))) {
+                    $this->closeControl($session, 'system', 'idle');
+                    $closed++;
+                }
+            }
         }
 
         return $closed;

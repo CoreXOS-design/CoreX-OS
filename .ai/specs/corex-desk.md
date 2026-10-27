@@ -50,7 +50,7 @@ Johan: a permanent audit so claims can be proven or dismissed.
 - `desk_sessions` — one row per session: agency, agent, support user, status, code (hashed through `OtpService`), started /
   joined / ended times, who ended it, last page (path only — never a query string).
 - `desk_session_events` — append-only trail per session: `created`, `joined`, `page` (path), `highlight` (selector + note),
-  `highlight_cleared`, `pointer_on` / `pointer_off`, `ended`; `control_*` reserved for phase 2.
+  `highlight_cleared`, `pointer_on` / `pointer_off`, `ended`; phase 3: `tab_join` / `tab_update` / `tab_leave`; phase 2: `control_requested` / `control_granted` / `control_declined` / `control_revoked` / `control_ended` and one `control_action` per thing replayed (section 14).
 - Both tables soft delete; nothing is ever hard-deleted.
 - The screen content itself is **never stored** — it travels browser to browser over the live channel only.
 - Agency admins see their own agency's sessions under **Compliance › Reports & Logs › Desk sessions**. The CoreX owner
@@ -151,7 +151,7 @@ exists or the console is open (`agent.js`). The console has its own entry (`cons
 - **Assets:** the replayed page is rebuilt in an iframe inside the console, so images and fonts load with the support user's own
   session; the stylesheets travel inlined in the snapshot.
 
-### 7.6 Protocol reference (protocol version 1.1 — the phase-3 extension uses it with one additive field, `t`/`tab`)
+### 7.6 Protocol reference (protocol version 1.2 — 1.1 added the tab key for the extension, 1.2 adds take-over)
 
 **Channel.** `private-desk.session.{id}` on the Reverb/Pusher protocol. Auth: `POST /broadcasting/auth` (session cookie + CSRF);
 allowed for the session's agent, and for the support user who joined it while it is `live`. An ended session admits nobody.
@@ -188,6 +188,22 @@ allowed for the session's agent, and for the support user who joined it while it
   tab bar from them (the join answer also lists the tabs already open).
 - New audit event types: `tab_join`, `tab_update` (the tab moved to a *different site*; a mere title change is broadcast, not audited),
   `tab_leave` — each with `{tab, host, title}`; highlight / clear / pointer audit rows now carry `tab`.
+
+**Protocol 1.2 (phase 2, take-over) — additive again.**
+- Server events: `desk.control_requested {tab, support_name}`, `desk.control_granted {tab, idle_seconds}`, `desk.control_declined {tab, reason}`
+  (`declined` / `no_answer`), `desk.control_revoked {tab}` (the agent took it back), `desk.control_ended {tab, by, reason}`
+  (`support` / `idle` / `session` / `tab`). A client reacts only to its own tab; control state also rides on every session answer
+  (`control: {state: none|requested|granted, tab}`) so a page change restores it.
+- Whisper `client-action` (support → agent, never stored, never through the server): `{t, id, type, s?, x?, y?, v?, k?, sh?, dx?, dy?, n?}` where
+  `type` ∈ `click`, `dblclick`, `type` (v = the text), `key` (k ∈ Enter, Tab, Escape, Backspace, Delete, arrows, Home, End), `scroll`
+  (s = scroller selector or empty for the page; dx, dy in the agent's pixels), `select` (v = option value), `focus`. `s` is a selector the
+  console resolved on its mirror; a click may also carry `x`, `y` (ratios) as a fallback.
+- HTTP, agent side (CoreX page: `/api/v1/desk/sessions/{id}/control/…`, extension: `/api/v1/desk/ext/sessions/{id}/control/…`):
+  `respond {allow}`, `revoke {reason?: agent|idle}`, `actions {tab, actions: [{type, selector, label, ok, reason, n}]}` — the agent's own
+  browser reports what it ran and what it refused; typed text is never in a report. Support side: `/corex/desk/sessions/{id}/control/request {tab}`,
+  `/control/end`.
+- **Consent rule for every client:** nothing is replayed until the *agent's own* Allow has been pressed on that very page and the server's
+  `desk.control_granted` has come back; a `client-action` arriving in any other state is ignored.
 
 **Rules every recorder must follow.**
 1. Record only the sharing tab, only while the session is `live`; stop on `desk.ended`.
@@ -238,13 +254,14 @@ Infra (QA1 only): `corex-qa1-reverb.service`, nginx `location /app` in the `qate
 
 ## 11. Phases
 
-- **Phase 2** (not now): take-over with Allow / Stop.
+- **Phase 2** (built 27 Oct 2026 — see section 14): take-over, always with the agent's Allow.
 - **Phase 3** (built 27 Oct 2026 — see section 13): the Chrome extension mirrors the agent's other tabs through the same protocol.
 
 ## 12. Navigation links (added as built)
 
 - **Get help** — top bar of every CoreX page (sidebar top row, left of the Ellie icon; in both layouts, My Portal included).
 - **Desk console** — `/corex/desk` (route `corex.desk.console`) — Settings menu › *CoreX Desk*, for users with `desk.support`.
+- **Take over** — console › *Request control* (needs `desk.control`); the agent answers in the red bar (CoreX page) or the bar on the shared tab.
 - **Extension** — the CoreX Chrome extension popup › *CoreX Desk* card (phase 3, section 13).
 - **Desk sessions** — Compliance › Reports & Logs › *Desk sessions* tab (routes `compliance.desk-sessions.index` / `.show`).
 - **Agency switch** — Company Settings › *CoreX Desk* tab, and the Setup Wizard's last step (*Access & finish*); both post to `corex.settings.desk`.
@@ -315,3 +332,61 @@ unpacked folder. 4. Reverb must be reachable from agents' networks wherever the 
 **Not built / reported.** The CoreX Get-help screen does not mention the extension (a one-line hint would help discoverability).
 Support cannot ask an agent to share a tab; the agent starts it. Clipboard, file and download access are not part of Desk. The stale
 duplicate `chrome-extension/portal-capture/` (no `public/`) was left alone, as the packaging script already reports.
+
+## 14. Phase 2 — take-over (built 27 Oct 2026, QA1)
+
+**Rulings (Johan):** take-over yes, with the agent's explicit consent; full audit yes.
+
+**What the agent sees.** Support presses **Request control** in the console. The agent's red bar changes (CoreX page, or the bar on a
+shared extension tab) to: *"CoreX Desk — {name} wants to take control of this window"* with **Allow** and **Decline** — nothing moves until
+Allow. While support is in control it reads *"{name} is in control of this window"* with **Take back control** (always there) and **End
+session**. Ending the session always ends control. A request nobody answers lapses after 60 seconds; control nobody uses ends after the
+agency's **idle limit** (Settings › CoreX Desk, default 5 minutes, 1–60; also in the Setup Wizard's last step). A page change does not drop
+control: the new page picks the state up from the session.
+
+**What support can do.** On the selected tab while in control (an amber frame shows it): **click**, **double-click**, **type** (click a text
+field first), **special keys** (Enter, Tab, Escape, Backspace, Delete, arrows, Home, End), **paste** text, **scroll** (wheel over the mirror), and
+**choose from a dropdown** (the console lists its options). **Shift+click** still highlights instead of clicking; the pointer and highlight
+keep working throughout. One control at a time, one tab at a time.
+
+**Private fields.** The agent's browser decides, not the console. A field the recorder masks is never clicked into, typed into or changed:
+passwords and `[data-desk-mask]` on the CoreX page; on third-party tabs also anything that looks like a card, ID, passport, bank, tax,
+PIN or one-time-code field. The attempt is reported as blocked ("a private field"). The console also tells support "that field is private —
+ask the agent to fill it in" and never reads a field back — the mirror shows stars. Desk's own UI (`.rr-block`, `#corex-desk-…`) is untouchable,
+so support can never press Allow or Take back control for the agent.
+
+**Executor.** `public/chrome-extension/portal-capture/desk-exec.js` — one source, loaded by the CoreX page as a plain script (its URL carries the
+file's modified time) and injected into shared tabs by the extension. It resolves the selector, refuses what it must (private field, Desk UI, hidden,
+disabled, wrong kind of control), then replays the action in the page (a real click sequence; text inserted at the caret the way typing does, so
+frameworks see it; a key as key events plus its normal effect; scroll by pixels; a dropdown by value with input + change events). It returns only
+`{ok, reason}` and a report line. A reporter merges consecutive keystrokes/scrolls into one line with a count and sends batches; an idle timer
+ends control locally and tells the server.
+
+**Audit** (`desk_session_events`, shown in plain words on the session's page — `App\Support\Desk\DeskAuditText`): `control_requested`
+(support), `control_granted` / `control_declined` (agent; or the system for `no_answer`), `control_revoked` (agent), `control_ended` (support /
+idle / session / tab closed), each with the tab (CoreX page, or host + title). Every replayed action is a `control_action` row — who (support),
+what (clicked / typed into / pressed keys in / scrolled / chose an option in), which element (selector + a short label such as the button text or
+field name), how many (keystrokes), and whether it ran or was blocked — **never a typed value**. The report comes from the *agent's browser*
+(so it is a record of what actually ran, including refusals), the actor on the row is the support user.
+
+**State** (`desk_sessions`): `control_state` (none → requested → granted → none), `control_tab`, `control_requested_at`, `control_granted_at`,
+`control_last_action_at` (the idle clock; only an action that ran counts). Setting: `agencies.desk_control_idle_minutes`.
+
+**Settings and Role Manager.** New key **`desk.control`** — "Take control of an agent's window (with their OK)": owner roles via `*`, **excluded from the
+admin default** exactly like `desk.support` (an agency grants it in Role Manager; they still need `desk.support` to run the console, and the agent still
+has to Allow every time). The console shows **Request control** only to holders. Navigation: no new page — Request control lives in the console toolbar.
+Wizard (Setup Guide › Access & finish) and Company Settings › CoreX Desk carry the idle limit (non-negotiable 10a).
+
+**Get help screen.** One line: *"Need to show a tab from another website too? Open the CoreX Chrome extension on that tab and choose Share this tab."*
+
+**Files.** Server: migration `2026_12_11_100000_add_desk_control_columns`, `DeskSessionService` (requestControl / respondControl / revokeControl /
+endControlBySupport / recordControlActions / closeControl + idle expiry in expireStale), `DeskControlException`, controllers (`DeskSessionController`,
+`DeskExtensionController`, `DeskConsoleController`), routes (`web.php`, `api.php`), `desk.control` in `corex-permissions.php`, `SettingsController::updateDesk`,
+`DeskAuditText`. Browser: `agent.js`, `index.js`, `console.js`, `desk-client.blade.php`. Extension: `desk-exec.js`, `desk-content.js`, `desk-ext.js`.
+Tests: `DeskControlTest`, `DeskProtocolTest`, `tests/desk-exec.test.cjs`.
+
+**Not built / reported.** Support cannot upload/download files or use the clipboard beyond pasting text into a field the agent has allowed;
+drag-and-drop, right-click and file pickers are not replayed; cross-origin iframes cannot be controlled (they are not recorded either); a
+control request on a tab shown only as "CoreX page" while the agent is mid-navigation may need a second click. There is no per-agency switch
+to forbid take-over entirely — an agency that does not want it simply never grants `desk.control` (owner roles always have it, and the agent
+must still Allow).
