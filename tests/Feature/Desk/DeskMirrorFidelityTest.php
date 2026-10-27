@@ -146,7 +146,8 @@ final class DeskMirrorFidelityTest extends TestCase
         // One thin toolbar: slides away after 3 s and comes back at the top edge.
         $this->assertStringContainsString('}, 3000);', $console);
         $this->assertStringContainsString('cdc-away', $console);
-        $this->assertStringContainsString('<div id="cdc-hot"></div>', $view);
+        $this->assertStringNotContainsString('cdc-hot', $view, 'no strip over the top of the picture: the top of the agent\'s window must stay clickable');
+        $this->assertStringContainsString('ev.clientY <= 8', $console);
         // Everything the ruling lists is in it, in one place.
         foreach (['id="cdc-agent"', 'id="cdc-support"', 'id="cdc-page"', 'id="cdc-elapsed"', 'id="cdc-control-status"', 'id="cdc-control"', 'id="cdc-hl"', 'id="cdc-note"', 'id="cdc-tabs"', 'id="cdc-full"', 'id="cdc-end"'] as $id) {
             $this->assertStringContainsString($id, $view, "the toolbar has {$id}");

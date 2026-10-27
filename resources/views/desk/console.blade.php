@@ -27,7 +27,6 @@
     #cdc-bar strong { color: var(--text-primary, #111827); }
     #cdc-bar .cdc-grp { display: flex; align-items: center; gap: .35rem; }
     #cdc-bar .corex-btn-primary, #cdc-bar .corex-btn-outline { padding-top: .2rem; padding-bottom: .2rem; font-size: .75rem; }
-    #cdc-hot { position: absolute; top: 0; left: 0; right: 0; height: 36px; z-index: 4; }
     .cdc-chip { display: inline-flex; align-items: center; padding: 0 .55rem; height: 1.25rem; border-radius: 9999px; font-size: .7rem; font-weight: 700; }
     #cdc-toast { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); z-index: 6; max-width: 80vw; padding: .4rem .8rem; border-radius: .5rem;
         font-size: .8rem; background: rgba(17, 24, 39, .92); color: #f9fafb; box-shadow: 0 6px 22px rgba(0, 0, 0, .4); }
@@ -73,7 +72,6 @@
         <div id="cdc-replay"></div>
         <p id="cdc-wait">Waiting for the agent's window…</p>
     </div>
-    <div id="cdc-hot"></div>
     <div id="cdc-bar">
         <div><span class="cdc-k">Agent</span> <strong id="cdc-agent"></strong><span id="cdc-agency" hidden></span></div>
         <div style="min-width:0;"><span class="cdc-k">Support</span> <strong id="cdc-support"></strong></div>
