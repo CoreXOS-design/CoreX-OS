@@ -28,7 +28,7 @@ class SoldStockBackfill extends Command
         $dry    = (bool) $this->option('dry-run');
         $agency = $this->option('agency') !== null ? (int) $this->option('agency') : null;
         $c = ['sold_properties' => 0, 'created' => 0, 'already_present' => 0, 'deals_checked' => 0, 'deal_snapshots' => 0,
-              'website_switched_off' => 0, 'portal_jobs_dispatched' => 0, 'portal_listings_still_to_take_down' => 0, 'skipped' => 0];
+              'website_switched_off' => 0, 'reprospected_still_on_website_switched_off' => 0, 'portal_jobs_dispatched' => 0, 'portal_listings_still_to_take_down' => 0, 'skipped' => 0];
 
         $props = Property::withoutGlobalScope(AgencyScope::class)
             ->whereRaw("LOWER(TRIM(status)) = 'sold'")
@@ -47,6 +47,20 @@ class SoldStockBackfill extends Command
                 $this->takeOffForSaleFeeds($property->fresh(), (bool) $this->option('portals'), $c);
             }
         });
+
+        // The bug's victims: a re-prospected / not-selling property whose website switch is still on. The feed guard already
+        // keeps them out; this tidies the switch itself (database only, no external call).
+        if (! $dry) {
+            Property::withoutGlobalScope(AgencyScope::class)
+                ->whereRaw("LOWER(TRIM(status)) IN ('prospecting', 'not_selling')")
+                ->when($agency, fn ($q) => $q->where('agency_id', $agency))
+                ->whereIn('id', PropertyWebsiteSyndication::withoutGlobalScope(AgencyScope::class)->where('enabled', true)->select('property_id'))
+                ->pluck('id')->each(function ($id) use (&$c) {
+                    PropertyWebsiteSyndication::withoutGlobalScope(AgencyScope::class)->where('property_id', $id)->where('enabled', true)
+                        ->update(['enabled' => false, 'status' => PropertyWebsiteSyndication::STATUS_DEACTIVATED]);
+                    $c['reprospected_still_on_website_switched_off']++;
+                });
+        }
 
         // Registered DR2 deals whose property has no snapshot yet.
         Deal::withoutGlobalScope(AgencyScope::class)->where('accepted_status', 'R')
