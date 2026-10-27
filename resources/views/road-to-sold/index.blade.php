@@ -323,6 +323,21 @@
                                 No list for {{ $date->isToday() ? 'today' : $date->format('j M') }}.
                             @endif
                         </div>
+                        {{-- Why it is empty and the one thing to do about it (spec 10.5): only when the day has no rows at all. --}}
+                        @if(! $filtered && $filters['view'] === 'today' && (int) $counts['any'] === 0 && ! empty($emptyState))
+                            <div class="mt-2 text-xs" style="color: var(--text-muted);" data-empty-reason="{{ $emptyState['code'] }}">{{ $emptyState['line'] }}</div>
+                            @php $act = $emptyState['action'] ?? null; @endphp
+                            @if(($act['kind'] ?? null) === 'link')
+                                <a href="{{ $act['url'] }}" class="corex-btn-primary corex-btn-xs mt-4 inline-flex">{{ $act['label'] }}</a>
+                            @elseif(($act['kind'] ?? null) === 'build')
+                                <form method="POST" action="{{ route('road-to-sold.build-list') }}" class="mt-4">
+                                    @csrf
+                                    <input type="hidden" name="agent" value="{{ $act['agent'] }}">
+                                    @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
+                                    <button type="submit" class="corex-btn-primary corex-btn-xs">{{ $act['label'] }}</button>
+                                </form>
+                            @endif
+                        @endif
                     </td>
                 </tr>
             @endforelse
