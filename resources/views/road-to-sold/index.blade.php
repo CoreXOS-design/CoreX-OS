@@ -119,14 +119,16 @@
 
     {{-- What to do next and where the month stands stay in view on every block (the team view is about everyone, so not there). --}}
     @unless($isTeam)
-        @include('road-to-sold._recipe', ['part' => 'next'])
+        <div class="rts-top">
+            @include('road-to-sold._recipe', ['part' => 'next'])
 
-        @include('road-to-sold._summary-bar')
+            @include('road-to-sold._summary-bar')
+        </div>
     @endunless
 
     @include('road-to-sold._blocks-bar')
 
-    <div class="rts-block-body">
+    <div class="rts-block-body {{ $block === 'progress' ? '' : 'is-fit' }}">
     @if($block === 'progress')
     @unless($isTeam)
         @include('road-to-sold._recipe', ['part' => 'tasks'])
@@ -252,8 +254,8 @@
     @if($isCaptures)
         @include('road-to-sold._captures')
     @else
-    {{-- The list --}}
-    <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
+    {{-- The list: fills the block under the filters; only IT scrolls (inside itself) when there are more rows than fit --}}
+    <div class="rounded-md rts-grow" style="background: var(--surface); border: 1px solid var(--border);" data-qa="intake-table">
         <table class="w-full text-xs ds-table">
             <thead>
                 <tr style="color: var(--text-muted);">
@@ -382,26 +384,27 @@
         ];
     @endphp
     @if(! empty($feeds))
-    <div class="grid gap-4" style="grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));">
+    {{-- The three other-work panels as a compact strip of counters under the table; click one to open its list (it floats over the page, it never pushes the table). --}}
+    <div class="relative flex items-center gap-2 flex-wrap text-xs" x-data="{ open: null }" @click.outside="open = null" @keydown.escape.window="open = null" data-qa="feeds-strip">
+        <span class="font-bold uppercase tracking-widest" style="color: var(--text-muted);">Other work</span>
         @foreach($feedBlocks as $fb)
             @php $feed = $feeds[$fb['key']] ?? ['count' => 0, 'items' => []]; @endphp
-            <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
-                <div class="flex items-center justify-between px-4 py-3" style="border-bottom: 1px solid var(--border);">
-                    <h2 class="text-xs font-bold uppercase tracking-widest" style="color: var(--text-muted);">{{ $fb['title'] }}</h2>
-                    <span class="text-xs font-semibold" style="color: var(--text-primary);">{{ $feed['count'] }}</span>
+            <div class="relative">
+                <button type="button" class="corex-btn-outline corex-btn-xs" :aria-expanded="open === '{{ $fb['key'] }}'" @click="open = open === '{{ $fb['key'] }}' ? null : '{{ $fb['key'] }}'" data-feed="{{ $fb['key'] }}">{{ $fb['title'] }} <strong>{{ $feed['count'] }}</strong></button>
+                <div x-show="open === '{{ $fb['key'] }}'" x-cloak class="absolute left-0 rounded-md overflow-auto" style="bottom: 100%; margin-bottom: .25rem; width: 22rem; max-height: 16rem; z-index: 30; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 6px 18px rgba(0,0,0,.18);">
+                    @forelse($feed['items'] as $it)
+                        <div class="px-4 py-2" style="border-top: 1px solid var(--border);">
+                            @if($it['url'])<a href="{{ $it['url'] }}" class="font-semibold" style="color: var(--text-primary);">{{ $it['title'] }}</a>
+                            @else<span class="font-semibold" style="color: var(--text-primary);">{{ $it['title'] }}</span>@endif
+                            <div style="color: var(--text-muted);">{{ $it['sub'] }}</div>
+                        </div>
+                    @empty
+                        <div class="px-4 py-6 text-center" style="color: var(--text-muted);">{{ $fb['empty'] }}</div>
+                    @endforelse
+                    @if($fb['all'] && $feed['count'] > count($feed['items']))
+                        <div class="px-4 py-2" style="border-top: 1px solid var(--border);"><a href="{{ $fb['all'] }}" style="color: var(--text-primary);">See all {{ $feed['count'] }}</a></div>
+                    @endif
                 </div>
-                @forelse($feed['items'] as $it)
-                    <div class="px-4 py-2 text-xs" style="border-top: 1px solid var(--border);">
-                        @if($it['url'])<a href="{{ $it['url'] }}" class="font-semibold" style="color: var(--text-primary);">{{ $it['title'] }}</a>
-                        @else<span class="font-semibold" style="color: var(--text-primary);">{{ $it['title'] }}</span>@endif
-                        <div style="color: var(--text-muted);">{{ $it['sub'] }}</div>
-                    </div>
-                @empty
-                    <div class="px-4 py-6 text-xs text-center" style="color: var(--text-muted);">{{ $fb['empty'] }}</div>
-                @endforelse
-                @if($fb['all'] && $feed['count'] > count($feed['items']))
-                    <div class="px-4 py-2 text-xs" style="border-top: 1px solid var(--border);"><a href="{{ $fb['all'] }}" style="color: var(--text-primary);">See all {{ $feed['count'] }}</a></div>
-                @endif
             </div>
         @endforeach
     </div>

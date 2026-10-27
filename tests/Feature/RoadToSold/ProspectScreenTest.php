@@ -108,7 +108,8 @@ final class ProspectScreenTest extends TestCase
         $html = $this->page($this->agent, ['block' => 'prospects'])->assertOk()->getContent();
         $this->assertStringContainsString('data-qa="prospect-board"', $html);
         $this->assertStringContainsString('Get stock', $html);
-        $this->assertStringContainsString('Sell stock', $html);
+        $this->assertStringNotContainsString('<section aria-label="Sell stock"', $html, 'a group with no prospects is not drawn');
+        $this->assertStringContainsString('<section aria-label="Get stock"', $html);
         $this->assertStringContainsString('5 Alpha Road', $html);
         $this->assertStringContainsString('Next:</span> Call again', $html);
         $this->assertStringContainsString('Overdue - was due Sat 10 Oct', $html);

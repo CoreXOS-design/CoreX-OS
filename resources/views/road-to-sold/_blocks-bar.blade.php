@@ -16,6 +16,21 @@
 <style>
     .rts-fit { display: flex; flex-direction: column; gap: .75rem; height: 100%; min-height: 0; }
     .rts-block-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: .75rem; }
+    .rts-block-body.is-fit { overflow: hidden; }
+    /* a flex child with overflow set shrinks to NOTHING when its siblings need the room - that hid the intake table (27 Oct); nothing shrinks except the one list that is meant to */
+    .rts-block-body > *, .rts-col > * { flex-shrink: 0; }
+    .rts-block-body > .rts-grow, .rts-col > .rts-grow { flex: 1 1 0; min-height: 6rem; overflow: auto; }
+    .rts-col { display: flex; flex-direction: column; gap: .75rem; flex: 1 1 0; min-height: 0; }
+    .rts-grow thead th { position: sticky; top: 0; z-index: 1; background: var(--surface); }
+    .rts-grow table td { padding-top: .35rem; padding-bottom: .35rem; }
+    /* what to do next + where the month stands share one row */
+    .rts-top { display: flex; gap: .75rem; align-items: stretch; }
+    .rts-top > :first-child { flex: 0 1 22rem; min-width: 0; }
+    .rts-top > :last-child { flex: 1 1 0; min-width: 0; }
+    .rts-top > :only-child { flex: 1 1 0; }
+    .rts-top .grid { grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)) !important; gap: .5rem !important; grid-auto-rows: auto !important; }
+    .rts-top .grid > button { padding: .35rem .6rem !important; }
+    .rts-top .grid .text-lg { font-size: 1rem; line-height: 1.25rem; }
     .rts-tabs a { padding: .45rem .9rem; border-radius: 6px; font-size: .8125rem; font-weight: 600; border: 1px solid var(--border); background: var(--surface); color: var(--text-primary); white-space: nowrap; }
     .rts-tabs a.is-on { background: var(--brand-icon, #0ea5e9); border-color: var(--brand-icon, #0ea5e9); color: #fff; }
     .rts-tabs a small { font-weight: 500; margin-left: .35rem; opacity: .85; }
@@ -24,8 +39,10 @@
     .rts-due-today { color: var(--ds-amber, #d97706); font-weight: 700; }
     .rts-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: .6rem .75rem; }
     .rts-card.is-overdue { border-left: 4px solid var(--ds-crimson, #dc2626); }
-    .rts-board { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem; align-items: start; }
-    @media (max-width: 900px) { .rts-board { grid-template-columns: minmax(0, 1fr); } }
+    .rts-board { display: grid; gap: .75rem; align-items: start; }
+    .rts-cards { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); }
+    .rts-card { padding: .4rem .6rem; }
+    @media (max-width: 900px) { .rts-board { grid-template-columns: minmax(0, 1fr) !important; } }
 </style>
 
 <div class="flex items-center gap-2 flex-wrap rts-tabs" role="tablist" data-qa="rts-blocks">
