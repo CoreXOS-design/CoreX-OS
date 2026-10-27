@@ -207,6 +207,13 @@
             $cmpLabel   = $cmpLive ? 'LIVE' : ($cmpReady ? 'READY' : 'BLOCKED');
             $cmpPillBg  = $cmpLive ? '#10b981' : ($cmpReady ? 'rgba(0,212,170,.18)' : 'rgba(245,158,11,.18)');
             $cmpPillFg  = $cmpLive ? '#ffffff' : ($cmpReady ? '#047857' : '#b45309');
+            // Other Agency Stock is shared, never marketed by us: the compliance gates do not apply to it, so the header badge says so
+            // instead of BLOCKED (the Compliance Status button itself stays). statusFor() is untouched.
+            if ($property->isOtherAgencyStock()) {
+                $cmpLabel  = 'N/A';
+                $cmpPillBg = 'var(--surface-2, #f0f2f8)';
+                $cmpPillFg = 'var(--text-muted, #6b7280)';
+            }
         }
 
         // Layer 3 — syndication approval (.ai/specs/syndication-approval-gate.md §6.4).

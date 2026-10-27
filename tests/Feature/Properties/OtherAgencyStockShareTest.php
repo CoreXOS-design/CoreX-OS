@@ -53,6 +53,18 @@ class OtherAgencyStockShareTest extends TestCase
         $this->assertStringNotContainsString('Marketing blocked', $html);
         $this->assertDoesNotMatchRegularExpression('/<button\b[^>]*data-oas-action="live_preview"[^>]*\bdisabled\b/s', $html);
 
+        // The header badge beside the Compliance Status button is not BLOCKED (the button itself stays), while an ordinary listing
+        // that cannot be marketed still reads BLOCKED.
+        $this->assertStringContainsString('Compliance Status', $html);
+        $this->assertMatchesRegularExpression('/Compliance Status\s*<span[^>]*>\s*N\/A\s*<\/span>/', $html);
+        $this->assertDoesNotMatchRegularExpression('/Compliance Status\s*<span[^>]*>\s*BLOCKED\s*<\/span>/', $html);
+        $normal = Property::withoutGlobalScope(AgencyScope::class)->create([
+            'agency_id' => $agency->id, 'agent_id' => $agent->id, 'branch_id' => $branch->id, 'external_id' => (string) Str::uuid(),
+            'title' => 'Ordinary listing', 'suburb' => 'Uvongo', 'property_type' => 'house', 'status' => 'active', 'price' => 1500000,
+        ]);
+        $normalHtml = $this->actingAs($agent)->get(route('corex.properties.show', $normal))->assertOk()->getContent();
+        $this->assertMatchesRegularExpression('/Compliance Status\s*<span[^>]*>\s*BLOCKED\s*<\/span>/', $normalHtml);
+
         // Syndication and the rest stay shut.
         foreach (['syndication', 'ad_builder', 'market_property', 'pitch_seller', 'duplicate'] as $key) {
             $this->assertMatchesRegularExpression('/<button\b[^>]*data-oas-action="' . $key . '"[^>]*\bdisabled\b|<button\b[^>]*\bdisabled\b[^>]*data-oas-action="' . $key . '"/s', $html, "{$key} must stay disabled");
