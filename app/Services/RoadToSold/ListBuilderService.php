@@ -104,10 +104,13 @@ class ListBuilderService
     /**
      * The agent's list for the day, built (or topped up) if it is short of the target.
      *
+     * $limitNew caps the NEW properties this call may add (the nightly build deals stock out in rounds of one so every agent gets a fair share,
+     * road-to-sold.md 22.6); null = fill to the day's target.
+     *
      * @return Collection<int,RtsListItem> ordered by position; empty on a non-working day, for an agent
      *                                     with no agency, or when nothing is eligible
      */
-    public function buildFor(User $user, CarbonInterface|string $date, string $track = RtsListItem::TRACK_SALES): Collection
+    public function buildFor(User $user, CarbonInterface|string $date, string $track = RtsListItem::TRACK_SALES, ?int $limitNew = null): Collection
     {
         $this->assertTrack($track);
         $user = $this->listOwner($user);
@@ -119,8 +122,8 @@ class ListBuilderService
 
         $lock = Cache::lock("rts-build:{$agencyId}:{$user->id}:{$track}:{$day->toDateString()}", 120);
 
-        return $lock->block(15, function () use ($user, $agencyId, $day, $track) {
-            $this->topUp($user, $agencyId, $day, $track);
+        return $lock->block(15, function () use ($user, $agencyId, $day, $track, $limitNew) {
+            $this->topUp($user, $agencyId, $day, $track, $limitNew);
 
             return $this->listFor($user, $day, $track);
         });
@@ -134,7 +137,7 @@ class ListBuilderService
         return RtsListItem::query()->forDay($user, $date, $track)->orderBy('position')->orderBy('id')->get();
     }
 
-    private function topUp(User $user, int $agencyId, Carbon $day, string $track): void
+    private function topUp(User $user, int $agencyId, Carbon $day, string $track, ?int $limitNew = null): void
     {
         if (! $this->calendar->isWorkday($user, $day, $track)) {
             return;
@@ -147,7 +150,7 @@ class ListBuilderService
         // when the pool is simply short today.
         $marker = "rts-built:{$agencyId}:{$user->id}:{$track}:{$day->toDateString()}";
         $exists = RtsListItem::query()->forDay($user, $day, $track)->exists();
-        if ($exists && Cache::has($marker)) {
+        if ($limitNew === null && $exists && Cache::has($marker)) {
             return;
         }
 
@@ -159,7 +162,7 @@ class ListBuilderService
 
         // 2. new properties, selection by selection, in the agency's order
         $counted = $this->countedToward($user, $day, $track);
-        $remaining = $target - $counted;
+        $remaining = min($target, $limitNew ?? $target) - $counted;
         if ($remaining > 0) {
             foreach ($settings->enabledSelectionKeys as $key) {
                 if ($remaining <= 0) {
@@ -189,7 +192,9 @@ class ListBuilderService
             }
         }
 
-        Cache::put($marker, 1, now()->addMinutes(10));
+        if ($limitNew === null || $limitNew >= $target) {
+            Cache::put($marker, 1, now()->addMinutes(10));
+        }
     }
 
     /** The pseudo-selection key stored on a row that came from the agent's own captured work. */

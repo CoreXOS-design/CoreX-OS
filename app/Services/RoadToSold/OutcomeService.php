@@ -125,6 +125,15 @@ class OutcomeService
                 ? Contact::query()->withoutGlobalScope(ContactScope::class)->where('agency_id', $agencyId)->find($tp->owner_contact_id)
                 : null;
 
+            // R10 (road-to-sold.md 22.11): an evaluation booked from a call attaches the PROPERTY. A prospect that is still only a tracked
+            // property gets its property row here (the existing promote-to-stock path), with the owner linked, so the calendar entry carries
+            // the property and the parties.
+            $propertyId = $input['property_id'] ?? ($tp->promoted_to_property_id ?: null);
+            if ($wantsValuation && ! $propertyId) {
+                $propertyId = app(ProspectPropertyService::class)->ensureProperty($tp, $actor)?->id;
+                $input['property_id'] = $propertyId;
+            }
+
             $eventId = null;
             if ($wantsValuation) {
                 $event = $this->calendar->create([
@@ -132,7 +141,7 @@ class OutcomeService
                     'category'    => 'property_evaluation',
                     'event_date'  => $appointmentAt->format('Y-m-d H:i:s'),
                     'description' => 'Booked from Road to Sold' . ($note !== '' ? ': ' . $note : ''),
-                    'property_id' => $input['property_id'] ?? ($tp->promoted_to_property_id ?: null),
+                    'property_id' => $propertyId,
                     'contact_id'  => $contact?->id,
                 ], $actor);
                 $eventId = $event->id;
@@ -151,7 +160,7 @@ class OutcomeService
                 // the assistant who made the call for the agent (null = the agent did): the outcome is the agent's, the call was theirs
                 'recorded_by_user_id'    => (int) $actor->id !== $agentId ? (int) $actor->id : null,
                 'tracked_property_id'    => $tp->id,
-                'property_id'            => $input['property_id'] ?? ($tp->promoted_to_property_id ?: null),
+                'property_id'            => $propertyId,
                 'prospecting_listing_id' => $input['prospecting_listing_id'] ?? null,
                 'list_item_id'           => $input['list_item_id'] ?? null,
                 'contact_id'             => $contact?->id,
@@ -180,7 +189,7 @@ class OutcomeService
             // The prospect: take the property (or adopt it), then let the outcome set its next action, due date, stage and any park.
             $prospect = $prospects->place($actor, (int) $tp->id, $track, [
                 'prospecting_listing_id' => $input['prospecting_listing_id'] ?? null,
-                'property_id' => $input['property_id'] ?? ($tp->promoted_to_property_id ?: null),
+                'property_id' => $propertyId,
                 'stage' => $def->isConversation() ? ProspectStages::CONTACTED : ProspectStages::FOUND, 'actor' => $actor,
             ]);
             if ($prospect) {

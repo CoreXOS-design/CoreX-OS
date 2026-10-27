@@ -145,7 +145,7 @@ final class ReportTest extends TestCase
         $v = fn (string $k) => $row['cells'][$k]['value'];
 
         $this->assertSame(app(WorkdayService::class)->targetFor($this->anna, '2026-10-12') > 0, $v('target') > 0);
-        $this->assertSame(4, $v('worked'), '3 auto + 1 follow-up toward the target');
+        $this->assertSame(3, $v('worked'), '3 auto toward the target; the follow-up is counted apart (road-to-sold.md 22.3)');
         $this->assertSame(4, $v('attempts'));
         $this->assertSame(3, $v('conversations'));
         $this->assertSame(4, $v('outcome:no_answer'));
@@ -159,7 +159,7 @@ final class ReportTest extends TestCase
         $this->assertSame(9, $built['totals']['cells']['attempts']['value'], 'Anna 4 + Bheki 5');
         $this->assertSame(3, $built['totals']['cells']['conversations']['value']);
         $this->assertSame(5, $this->figuresFor($this->bheki)['row']['cells']['attempts']['value']);
-        $this->assertSame(5, $built['totals']['cells']['worked']['value']);
+        $this->assertSame(4, $built['totals']['cells']['worked']['value']);
     }
 
     public function test_an_outcome_archived_after_use_keeps_its_column_and_the_agency_order_leads(): void

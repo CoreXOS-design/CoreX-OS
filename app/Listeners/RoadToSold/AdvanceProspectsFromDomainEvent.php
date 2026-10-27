@@ -292,6 +292,13 @@ class AdvanceProspectsFromDomainEvent
             return null;
         }
 
+        // A story that is over (registered, do not contact) is not restarted by a late event - the second agent on a deal must not re-take
+        // the property the first agent's registration has just closed. A RELEASED property is free and may be taken.
+        $existing = $this->prospects->find($agencyId, $trackedId, 'sales');
+        if ($existing && $existing->closed_at !== null) {
+            return null;
+        }
+
         return $this->prospects->place($agent, $trackedId, 'sales', [
             'property_id' => $propertyId, 'selection' => 'event', 'stage' => S::FOUND,
         ]);
