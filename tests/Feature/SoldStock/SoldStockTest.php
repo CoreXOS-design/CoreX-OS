@@ -299,7 +299,10 @@ class SoldStockTest extends TestCase
         $p = $this->property();
         $this->syndicate($p);
         // A property that was Sold before this feature existed: status written without the observer.
-        Property::withoutGlobalScopes()->whereKey($p->id)->update(['status' => 'sold']);
+        Property::withoutGlobalScopes()->whereKey($p->id)->update(['status' => 'sold', 'updated_at' => '2026-03-01 10:00:00']);
+        // A re-prospected property whose website switch was never turned off - the bug's victim.
+        $victim = $this->property(Property::STATUS_PROSPECTING);
+        $this->syndicate($victim);
         $this->assertSame(0, SoldStock::withoutGlobalScope(AgencyScope::class)->count());
 
         $this->artisan('sold-stock:backfill', ['--agency' => $this->agency->id, '--dry-run' => true])->assertSuccessful();
@@ -307,6 +310,9 @@ class SoldStockTest extends TestCase
 
         $this->artisan('sold-stock:backfill', ['--agency' => $this->agency->id])->assertSuccessful();
         $this->assertSame(1, SoldStock::withoutGlobalScope(AgencyScope::class)->count());
+        $this->assertSame('2026-03-01', SoldStock::withoutGlobalScope(AgencyScope::class)->where('property_id', $p->id)->first()->sale_date->toDateString(),
+            'a historic sale with no deal / sold record is dated from when it became Sold, never today');
+        $this->assertSame(0, PropertyWebsiteSyndication::withoutGlobalScope(AgencyScope::class)->where('property_id', $victim->id)->where('enabled', true)->count());
         // Default run: the website goes off in the database, NO portal job leaves (a copy of live data holds real credentials).
         Queue::assertNotPushed(\App\Jobs\Syndication\DesyndicatePropertyFromPortalsJob::class);
         $this->assertSame(0, PropertyWebsiteSyndication::withoutGlobalScope(AgencyScope::class)->where('property_id', $p->id)->where('enabled', true)->count());
