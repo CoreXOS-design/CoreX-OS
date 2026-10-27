@@ -110,17 +110,23 @@ function attach(session) {
 
     channel
         .listenForWhisper('frame', (chunk) => {
-            const tab = cur && cur.tabs.get(chunk && chunk.t ? chunk.t : MAIN);
-            if (!tab) return;   // a tab we have not been told about (yet): its tab_joined event creates it, the resync below asks again
+            if (!cur) return;
+            const key = chunk && chunk.t ? chunk.t : MAIN;
+            // A CoreX tab's first picture can arrive before the server's word that the tab exists (they travel by different routes): file it under a placeholder
+            // that tab_joined then names. Anything else we have not been told about is dropped (the resync it triggers asks again).
+            if (!cur.tabs.has(key) && /^c[a-z0-9]{3,10}$/.test(key)) addTab({ tab: key, host: 'CoreX', title: '', path: '' }, false);
+            const tab = cur.tabs.get(key);
+            if (!tab) return;
             if (!tab.reassembler) tab.reassembler = new Reassembler((events, info) => onEvents(tab, events, info));
             tab.reassembler.push(chunk);
         })
         .listen('.desk.tab_joined', (e) => {
             if (!cur) return;
-            const fresh = !cur.tabs.has(e.tab);
-            addTab(e);
+            const before = cur.tabs.get(e.tab);
+            const fresh = !before || !before.announced;
+            addTab(e, true);
             // A CoreX tab the agent has just opened: show it at once (selecting asks it for its picture).
-            if (fresh && isCoreXTab(e)) { selectTab(e.tab); say('A new CoreX tab opened: ' + (cur.tabs.get(e.tab) || {}).label); } else askResync(e.tab);
+            if (fresh && isCoreXTab(e) && e.tab !== MAIN) { selectTab(e.tab); say('A new CoreX tab opened: ' + (cur.tabs.get(e.tab) || {}).label); } else if (!before || !before.replayer) askResync(e.tab);
         })
         .listen('.desk.tab_updated', (e) => updateTab(e))
         .listen('.desk.tab_left', (e) => removeTab(e.tab))
@@ -177,8 +183,10 @@ function attach(session) {
     $('cdc-agency').textContent = session.agency_name || '';
     $('cdc-page').textContent = session.page || '—';
     cur.tick = setInterval(tickElapsed, 1000);
-    cur.poll = setInterval(reconcile, 2000);
-    if (con.timing) { cur.timingTick = setInterval(() => timing.probe(cur), 5000); timing.paint(); }   // belt and braces: events can be missed (a dropped connection, a restart) - the server's word is read every 2 s
+    // Belt and braces: events can be missed (a dropped connection, a restart), so the server's word is read every second (one cheap query; it also settles
+    // a closed CoreX tab within the server's short grace).
+    cur.poll = setInterval(() => reconcile(), 1000);
+    if (con.timing) { cur.timingTick = setInterval(() => timing.probe(cur), 5000); timing.paint(); }
     tickElapsed();
     renderTabs();
     showSelected();
@@ -187,7 +195,7 @@ function attach(session) {
 }
 
 /**
- * Every 2 s: ask the server where this session stands and fall into line with it. The websocket tells us the moment something happens, but a missed
+ * Every second: ask the server where this session stands and fall into line with it. The websocket tells us the moment something happens, but a missed
  * event (a dropped connection, a restart, a throttled call on the agent's side) must not leave the console waiting on "Requested" for good.
  */
 async function reconcile(clockOnly) {
@@ -268,17 +276,24 @@ const labelFor = (t) => {
     return (title || t.host) + ' · ' + t.host;
 };
 
-function addTab(t, quiet) {
+/** announced: the server has told us about this tab (a tab that only sent a picture so far is a placeholder). */
+function addTab(t, announced) {
     if (!cur || !t || !t.tab) return;
     const known = cur.tabs.get(t.tab);
-    if (known) { if (t.title !== undefined || t.path !== undefined) { known.label = labelFor(t); known.host = t.host || known.host; renderTabs(); } return; }
-    cur.tabs.set(t.tab, newTab(t.tab, labelFor(t), t.host));
+    if (known) {
+        if (announced) { known.announced = true; known.label = labelFor(t); known.host = t.host || known.host; renderTabs(); }
+        return;
+    }
+    const tab = newTab(t.tab, labelFor(t), t.host);
+    tab.announced = !!announced;
+    cur.tabs.set(t.tab, tab);
     renderTabs();
 }
 
 function updateTab(t) {
     const tab = cur && cur.tabs.get(t.tab);
-    if (!tab) { addTab(t); return; }
+    if (!tab) { addTab(t, true); return; }
+    tab.announced = true;
     tab.label = labelFor(t);
     tab.host = t.host;
     renderTabs();
@@ -303,14 +318,16 @@ function removeTab(key) {
     say(key === MAIN || /^c/.test(key) ? 'A CoreX tab was closed.' : 'A shared tab was closed or stopped by the agent.');
 }
 
-/** The 2 s poll's view of the tabs: add one the event for which was missed, drop one that is gone. */
+/** The poll's view of the tabs: add one the event for which was missed, drop one that is gone. */
 function reconcileTabs(rows) {
     if (!cur || !Array.isArray(rows)) return;
     const live = new Set(rows.map((t) => t.tab));
     rows.forEach((t) => {
-        if (!cur.tabs.has(t.tab)) {
-            addTab(t); askResync(t.tab);
-            if (isCoreXTab(t) && (Date.now() - (cur.tabsSince || 0)) > 3000) selectTab(t.tab);
+        const known = cur.tabs.get(t.tab);
+        if (!known || !known.announced) {
+            addTab(t, true);
+            if (!known || !known.replayer) askResync(t.tab);
+            if (!known && isCoreXTab(t) && (Date.now() - (cur.tabsSince || 0)) > 3000) selectTab(t.tab);
         }
     });
     // (MAIN is kept when the agent's page predates tab registration - it never appears in the list at all)

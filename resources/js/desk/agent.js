@@ -74,7 +74,7 @@ export function start(ctx) {
             st.subscribed = true;
             emitViewport();
             if (st.buffer.length) scheduleFlush();
-            if (st.live) registerTab('join');
+            if (st.live && !st.registered) registerTab('join');
         })
         .error(() => ui.error('Could not open the live connection. Check your internet connection and try again.'));
 
@@ -102,8 +102,10 @@ export function start(ctx) {
 
     if (session.status === 'live') {
         st.live = true;
+        st.listenerKnown = true;   // support is already in the session (this is a page change, or a tab opened later): its console is listening, so the first picture goes out at once
         ui.joined(session.support_name);
         beginRecording();
+        registerTab('join');
         // A page change must not drop a take-over (or a pending request): pick it up again from the session.
         const c = session.control || {};
         if (forMe(c.tab) && c.state === 'requested') askControl(session.support_name);
@@ -122,7 +124,8 @@ export async function endSession() {
 
 /** This tab joins (or re-announces itself to) the session: support's tab bar lists it by title and path. */
 async function registerTab(action) {
-    if (!st || !st.live || !st.subscribed) return;
+    // (needs the session to be live, not the live connection: the HTTP call goes out at once and the console learns of this tab a round trip sooner)
+    if (!st || !st.live) return;
     if (action === 'join' && st.registered === 'inflight') return;
     st.registered = 'inflight';
     const body = { action, tab: st.tab, path: location.pathname, title: document.title || '' };
@@ -196,9 +199,10 @@ async function beginRecording() {
     if (!st || st.ended) return;
     st.record = record;
     resetSlim();
-    // Nobody is listening until support's console has subscribed and asked for a picture (its "resync"): a snapshot sent before that goes nowhere. So the
-    // recorder starts, but its first snapshot is only kept if the console already asked; otherwise it waits for the ask. (If no ask comes, send one anyway.)
-    st.haveListener = st.pendingResync;
+    // On the FIRST join nobody is listening until support's console has subscribed and asked for a picture (its "resync"): a snapshot sent before that goes
+    // nowhere. So the recorder starts, but its first snapshot is only kept if the console already asked (or support was already here - a page change or a
+    // newly opened tab); otherwise it waits for the ask. (If no ask comes, send one anyway.)
+    st.haveListener = st.pendingResync || !!st.listenerKnown;
     st.pendingResync = false;
     st.stopRecord = record({
         emit: (event) => { if (!st || !st.haveListener) return; const e = slimEvent(event); if (e) { st.buffer.push(e); scheduleFlush(); } },

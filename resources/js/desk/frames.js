@@ -5,8 +5,8 @@
 // (Reverb accepts client messages up to config/reverb.php max_message_size - 1 MB - so a snapshot goes in a few big whispers instead of two dozen small
 // ones; still small enough that a pointer move never waits long behind one.)
 export const CHUNK = 32000;
-// Below this a batch is sent as it is: gzip costs a header and a CompressionStream round trip, and saves nothing on a handful of events.
-const GZIP_MIN = 1200;
+// Below this a batch is sent as it is: gzip costs a header and a CompressionStream round trip, and saves nothing on a pointer move or a keystroke.
+const GZIP_MIN = 300;
 
 let batchSeq = 0;
 
