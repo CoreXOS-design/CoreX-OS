@@ -1556,6 +1556,43 @@ class SettingsController extends Controller
     }
 
     /**
+     * CoreX Desk on/off for this agency (spec .ai/specs/corex-desk.md section 6). Shared by Company Settings and the Setup Wizard's
+     * access step - the wizard posts only its own subset of fields, so the write is guarded by has() and an absent field changes nothing.
+     * Switching it off closes any session the agency's agents have open right now.
+     */
+    public function updateDesk(Request $request)
+    {
+        $user = auth()->user();
+        abort_unless($user?->hasPermission('access_settings') || $user?->hasPermission('manage_performance_settings'), 403);
+
+        $agency = Agency::findOrFail($user->effectiveAgencyId());
+
+        if ($request->has('desk_enabled')) {
+            $newValue = $request->boolean('desk_enabled');
+            $oldValue = (bool) $agency->desk_enabled;
+            if ($oldValue !== $newValue) {
+                $agency->update(['desk_enabled' => $newValue]);
+                \Illuminate\Support\Facades\Log::info('agency_desk_enabled_toggled', ['agency_id' => $agency->id, 'old' => $oldValue, 'new' => $newValue, 'by' => $user->id]);
+                if (! $newValue) {
+                    $desk = app(\App\Services\Desk\DeskSessionService::class);
+                    \App\Models\DeskSession::withoutGlobalScopes()->open()->where('agency_id', $agency->id)->get()
+                        ->each(fn ($s) => $desk->end($s, \App\Models\DeskSession::ENDED_BY_DISABLED, $user));
+                }
+            }
+        }
+
+        // Company Settings tab (return_fragment=desk) or, from the Setup Wizard, wherever the wizard sends the user next.
+        $back = $request->input('return_fragment') === 'desk'
+            ? redirect()->to(route('admin.company-settings') . '#desk')
+            : redirect()->route('corex.settings');
+
+        return $back
+            ->with('success', $agency->fresh()->desk_enabled
+                ? 'CoreX Desk is ON. Your agents can press Get help to share their CoreX window with CoreX support.'
+                : 'CoreX Desk is OFF. Get help now shows the CoreX support phone number.');
+    }
+
+    /**
      * Save whistleblower compliance reporting settings.
      */
     public function saveWhistleblowSettings(Request $request)

@@ -28,9 +28,9 @@
                         @endforeach
                     </select></div>
                 <div><label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Branch Code</label>
-                    <input type="text" name="branch_code" value="{{ old('branch_code', $banking->branch_code ?? '') }}" maxlength="10" class="w-full px-3 py-2 text-sm rounded-md focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"></div>
+                    <input type="text" name="branch_code" data-desk-mask value="{{ old('branch_code', $banking->branch_code ?? '') }}" maxlength="10" class="w-full px-3 py-2 text-sm rounded-md focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"></div>
                 <div><label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Account Number</label>
-                    <input type="text" name="account_number" value="{{ old('account_number', $banking->account_number ?? '') }}" maxlength="30" class="w-full px-3 py-2 text-sm rounded-md focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"></div>
+                    <input type="text" name="account_number" data-desk-mask value="{{ old('account_number', $banking->account_number ?? '') }}" maxlength="30" class="w-full px-3 py-2 text-sm rounded-md focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"></div>
                 <div><label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Account Type</label>
                     <div class="flex gap-4 mt-1">
                         @foreach(['cheque'=>'Cheque','savings'=>'Savings','transmission'=>'Transmission'] as $v => $l)

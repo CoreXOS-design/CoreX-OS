@@ -1,0 +1,134 @@
+<?php
+
+namespace App\Http\Controllers\CoreX;
+
+use App\Http\Controllers\Controller;
+use App\Models\DeskSession;
+use App\Services\Desk\DeskRateLimitedException;
+use App\Services\Desk\DeskSessionService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\View\View;
+
+/**
+ * CoreX Desk - the SUPPORT console (spec .ai/specs/corex-desk.md section 4). Route group gated by permission:desk.support.
+ * Owner roles reach every agency; anyone else only their own agency's sessions (DeskSessionService::canSupport) - a session
+ * outside that scope is a 404, the same answer as no session.
+ */
+class DeskConsoleController extends Controller
+{
+    public function __construct(private DeskSessionService $desk)
+    {
+    }
+
+    /** GET /corex/desk - the console page: join box, live view, live sessions. */
+    public function index(Request $request): View
+    {
+        $this->desk->expireStale();
+
+        return view('desk.console', [
+            'sessions' => $this->visibleSessions($request)->open()->with('agent', 'agency', 'supportUser')->latest('id')->get(),
+            'consoleConfig' => ['urls' => [
+                'join' => route('corex.desk.join'),
+                'list' => route('corex.desk.sessions'),
+                'sessions' => url('corex/desk/sessions'),
+            ]],
+        ]);
+    }
+
+    /** GET /corex/desk/sessions - the live (waiting + live) sessions the user may see, as JSON for the console list. */
+    public function sessions(Request $request): JsonResponse
+    {
+        $this->desk->expireStale();
+        $rows = $this->visibleSessions($request)->open()->with('agent', 'agency', 'supportUser')->latest('id')->get()
+            ->map(fn (DeskSession $s) => $s->toClientArray())->values();
+
+        return response()->json(['sessions' => $rows]);
+    }
+
+    /** POST /corex/desk/join {code} */
+    public function join(Request $request): JsonResponse
+    {
+        $data = $request->validate(['code' => ['required', 'string', 'max:12']]);
+
+        try {
+            $session = $this->desk->join($request->user(), $data['code']);
+        } catch (DeskRateLimitedException $e) {
+            return response()->json(['message' => 'Too many wrong codes. Try again in ' . ceil($e->retryAfter / 60) . ' minute(s).'], 429);
+        }
+        if (! $session) {
+            return response()->json(['message' => 'That code was not found, or it has expired. Ask the agent for a new one.'], 422);
+        }
+
+        return response()->json(['session' => $session->load('agent', 'agency', 'supportUser')->toClientArray()]);
+    }
+
+    /** POST /corex/desk/sessions/{id}/highlight {selector, note} */
+    public function highlight(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate([
+            'selector' => ['required', 'string', 'max:' . (int) config('desk.selector_max', 500)],
+            'note' => ['nullable', 'string', 'max:' . (int) config('desk.note_max', 200)],
+        ]);
+        $this->desk->highlight($this->mine($request, $id), $request->user(), $data['selector'], $data['note'] ?? null);
+
+        return response()->json(['ok' => true]);
+    }
+
+    /** POST /corex/desk/sessions/{id}/highlight/clear */
+    public function clearHighlight(Request $request, int $id): JsonResponse
+    {
+        $this->desk->clearHighlight($this->mine($request, $id), $request->user());
+
+        return response()->json(['ok' => true]);
+    }
+
+    /** POST /corex/desk/sessions/{id}/pointer {on} - audited on/off only; the moves themselves travel on the channel. */
+    public function pointer(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate(['on' => ['required', 'boolean']]);
+        $this->desk->pointer($this->mine($request, $id), $request->user(), (bool) $data['on']);
+
+        return response()->json(['ok' => true]);
+    }
+
+    /** POST /corex/desk/sessions/{id}/end */
+    public function end(Request $request, int $id): JsonResponse
+    {
+        $session = $this->desk->end($this->scoped($request, $id), DeskSession::ENDED_BY_SUPPORT, $request->user());
+
+        return response()->json(['status' => $session->status]);
+    }
+
+    /** A LIVE session this support user has joined (highlight / pointer need the joined user, not any support user). */
+    private function mine(Request $request, int $id): DeskSession
+    {
+        $session = $this->scoped($request, $id);
+        abort_unless($session->isLive() && (int) $session->support_user_id === (int) $request->user()->id, 404);
+
+        return $session;
+    }
+
+    private function scoped(Request $request, int $id): DeskSession
+    {
+        $session = DeskSession::withoutGlobalScopes()->findOrFail($id);
+        abort_unless($this->desk->canSupport($request->user(), $session), 404);
+
+        return $session;
+    }
+
+    /** Sessions in this user's scope: every agency for an owner role, otherwise their own agency only. */
+    public static function scopeQuery($query, $user)
+    {
+        if ($user->isOwnerRole()) {
+            return $query;
+        }
+
+        return $query->where('agency_id', $user->effectiveAgencyId() ?: 0);
+    }
+
+    private function visibleSessions(Request $request)
+    {
+        return self::scopeQuery(DeskSession::withoutGlobalScopes(), $request->user());
+    }
+}

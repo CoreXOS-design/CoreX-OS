@@ -52,6 +52,7 @@
                 'branding'    => 'Branding',
                 'branches'    => 'Branches',
                 'other-agency-stock' => 'Other Agency Stock',
+                'desk'        => 'CoreX Desk',
                 'website'     => $websiteActive ? 'Website' : null,
                 'performance' => 'Performance',
             ]) as $key => $label)
@@ -1439,6 +1440,41 @@
         </div>
 
         {{-- ============================================================
+             COREX DESK TAB — agency on/off for "Get help" (.ai/specs/corex-desk.md section 6). Same saver as the
+             Setup Wizard's access step (SettingsController::updateDesk).
+             ============================================================ --}}
+        <div x-show="activeTab === 'desk'" x-cloak class="space-y-6">
+            <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+                <h3 class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">CoreX Desk</h3>
+                <form method="POST" action="{{ route('corex.settings.desk') }}"
+                      x-data="{ on: {{ ($agency->desk_enabled ?? true) ? 'true' : 'false' }} }"
+                      class="p-4 rounded-md space-y-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                    @csrf
+                    <input type="hidden" name="return_fragment" value="desk">
+                    <input type="hidden" name="desk_enabled" value="0">
+                    <label class="flex items-start gap-3 cursor-pointer">
+                        <input type="checkbox" name="desk_enabled" value="1" x-model="on" class="mt-1 h-4 w-4 rounded">
+                        <span class="flex-1">
+                            <span class="block text-sm font-semibold" style="color:var(--text-primary);">Let my agents press Get help to share their CoreX window with CoreX support</span>
+                            <span class="block text-xs mt-1 leading-relaxed" style="color:var(--text-secondary);">
+                                <strong>ON</strong> (default): an agent presses <em>Get help</em>, reads a 6-digit code to CoreX support (usually on a phone call), and support sees that one CoreX window live and can point at and highlight things. The agent does the clicking. Support never sees other tabs, files or the desktop, and nothing from the screen is stored.<br>
+                                <strong>OFF</strong>: <em>Get help</em> only shows the CoreX support phone number.<br>
+                                Every session is listed under Compliance &rsaquo; Reports &amp; Logs &rsaquo; Desk sessions.
+                            </span>
+                        </span>
+                    </label>
+                    <div class="flex items-center justify-between gap-3 pt-2" style="border-top:1px solid var(--border);">
+                        <div class="text-xs" style="color:var(--text-muted);">
+                            Currently:
+                            <span class="font-semibold" :style="on ? 'color:var(--ds-green, #059669);' : 'color:var(--ds-amber, #f59e0b);'" x-text="on ? 'ON' : 'OFF'"></span>
+                        </div>
+                        <button type="submit" class="corex-btn-primary text-sm">Save</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {{-- ============================================================
              OTHER AGENCY STOCK TAB — who can see stock imported from other agencies, and the
              consent wording shown at import (.ai/specs/other-agency-stock.md §6/§3a). Its own tab so
              an admin can find it by name; it used to sit at the bottom of Branches. Same saver as
@@ -1857,7 +1893,7 @@ function companySettingsPage(initialId) {
         // back()/withFragment() always landed on Company regardless of which
         // tab the admin was actually on, since this page never read the hash
         // at all (unlike admin/agencies/create-edit.blade.php's same pattern).
-        activeTab: ['company', 'branding', 'branches', 'other-agency-stock', 'website', 'performance']
+        activeTab: ['company', 'branding', 'branches', 'other-agency-stock', 'desk', 'website', 'performance']
             .includes((window.location.hash || '').replace('#', ''))
             ? (window.location.hash || '').replace('#', '')
             : 'company',

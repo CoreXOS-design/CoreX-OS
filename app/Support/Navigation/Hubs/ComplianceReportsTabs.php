@@ -26,6 +26,9 @@ final class ComplianceReportsTabs extends TabHub
                 'feature' => $f, 'permissions' => ['access_compliance', 'compliance.whistleblow.view']],
             'communications-log' => ['label' => 'Communications Log', 'route' => 'compliance.communications.index', 'old' => 'Communications Log',
                 'feature' => $f, 'permissions' => ['access_compliance', 'access_communication_archive']],
+            // CoreX Desk (.ai/specs/corex-desk.md section 5): the permanent audit of in-app support screen-share sessions.
+            'desk-sessions' => ['label' => 'Desk sessions', 'route' => 'compliance.desk-sessions.index', 'match' => ['compliance.desk-sessions.*'], 'old' => 'Desk sessions',
+                'feature' => $f, 'permissions' => ['access_compliance', 'manage_users']],
         ];
     }
 

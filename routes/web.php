@@ -514,6 +514,15 @@ Route::middleware('auth')->group(function () {
             return response()->json(['token' => csrf_token()]);
         })->name('csrf-token');
 
+        // CoreX Desk - the AGENT's side (spec .ai/specs/corex-desk.md section 7.2). Own session only; gated by desk.request_help.
+        Route::prefix('desk/sessions')->name('desk.sessions.')->middleware('permission:desk.request_help')->group(function () {
+            Route::post('/', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'store'])->middleware('throttle:20,1')->name('store');
+            Route::get('/current', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'current'])->middleware('throttle:120,1')->name('current');
+            Route::post('/{id}/heartbeat', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'heartbeat'])->whereNumber('id')->middleware('throttle:60,1')->name('heartbeat');
+            Route::post('/{id}/leaving', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'leaving'])->whereNumber('id')->middleware('throttle:60,1')->name('leaving');
+            Route::post('/{id}/end', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'end'])->whereNumber('id')->middleware('throttle:30,1')->name('end');
+        });
+
         // P24 importer gallery-completeness reconciliation — owner-only. The
         // acceptance bar for the parallel importer is "zero galleries
         // permanently short", and this is how the owner verifies it per agency
@@ -2324,6 +2333,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/alerts/{id}/read', [\App\Http\Controllers\CoreX\AlertInboxController::class, 'markRead'])->whereUuid('id')->name('corex.alerts.read');
     Route::post('/alerts/read-all', [\App\Http\Controllers\CoreX\AlertInboxController::class, 'markAllRead'])->name('corex.alerts.read-all');
 
+    // CoreX Desk - the SUPPORT console (spec .ai/specs/corex-desk.md section 4). Owner roles reach every agency; anyone else their own.
+    Route::prefix('desk')->name('corex.desk.')->middleware('permission:desk.support')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'index'])->name('console');
+        Route::get('/sessions', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'sessions'])->middleware('throttle:120,1')->name('sessions');
+        Route::post('/join', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'join'])->middleware('throttle:30,1')->name('join');
+        Route::post('/sessions/{id}/highlight', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'highlight'])->whereNumber('id')->middleware('throttle:120,1')->name('highlight');
+        Route::post('/sessions/{id}/highlight/clear', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'clearHighlight'])->whereNumber('id')->middleware('throttle:120,1')->name('highlight.clear');
+        Route::post('/sessions/{id}/pointer', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'pointer'])->whereNumber('id')->middleware('throttle:120,1')->name('pointer');
+        Route::post('/sessions/{id}/end', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'end'])->whereNumber('id')->middleware('throttle:30,1')->name('end');
+    });
+
     // AT-451 — "all alerts switched off": the warning bar's two buttons act on the LOGGED-IN user only (no id in the URL);
     // the agency list and its per-user actions need manage_users and resolve the user inside the viewer's scoped query.
     Route::post('/alerts/bar/turn-on', [\App\Http\Controllers\CoreX\AlertSwitchController::class, 'barTurnOn'])->name('corex.alerts.bar.turn-on');
@@ -3111,6 +3131,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // (`access_communication_archive`). Stays filed under Compliance per the re-cut IA.
     Route::middleware(['permission:access_communication_archive', 'agency.required'])->prefix('compliance/communications')->name('compliance.communications.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\CommunicationsLogController::class, 'index'])->name('index');
+    });
+
+    // ── CoreX Desk sessions - the permanent audit (Compliance > Reports & Logs > Desk sessions). Own agency only; owner roles see all.
+    // Spec .ai/specs/corex-desk.md section 5 and 9.
+    Route::middleware(['permission:access_compliance', 'permission:manage_users', 'agency.required'])->prefix('compliance/desk-sessions')->name('compliance.desk-sessions.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Compliance\DeskSessionsController::class, 'index'])->name('index');
+        Route::get('/{id}', [\App\Http\Controllers\Compliance\DeskSessionsController::class, 'show'])->whereNumber('id')->name('show');
     });
 
     // ── Communication Archive (AT-33) — email/WhatsApp evidence archive viewer.
@@ -5083,6 +5110,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         return redirect('/corex/settings?tab=user');
     })->middleware('permission:access_settings')->name('corex.settings.compliance-officers');
 
+    // CoreX Desk on/off for the agency (also the Setup Wizard's access-step saver). Spec .ai/specs/corex-desk.md section 6.
+    Route::post('/settings/desk', [CoreXSettingsController::class, 'updateDesk'])->middleware('permission:access_settings,manage_performance_settings')->name('corex.settings.desk');
     // ── Prospecting Setup (per-agency configuration of towns / property types / bedroom segments / price bands) ──
     // Spec: .ai/specs/prospecting-setup-spec.md Section 6.
     Route::prefix('settings/prospecting')

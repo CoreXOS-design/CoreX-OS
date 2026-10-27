@@ -71,8 +71,11 @@ Johan: a permanent audit so claims can be proven or dismissed.
 ### 7.1 Transport — Laravel Reverb (WebSocket)
 
 - No WebSocket existed before (`BROADCAST_CONNECTION=log`; toasts poll). Added `laravel/reverb`, `laravel-echo`, `pusher-js`.
-- Reverb listens on `127.0.0.1:8085` (8080 is taken on this box). nginx `location /app` on the QA1 vhost proxies the WebSocket
-  (`Upgrade` / `Connection` headers); the server-side broadcast API (`/apps`) is only ever called on localhost, never exposed.
+- Reverb listens on `127.0.0.1:8085` (8080 is taken on this box). nginx `location /app/` on the QA1 vhost proxies the WebSocket
+  (`Upgrade` / `Connection` headers; the trailing slash is deliberate — a bare `/app` would also swallow any CoreX URL that starts
+  with `/app`); the server-side broadcast API (`/apps`) is only ever called on localhost, never exposed.
+- Where Reverb is not configured (no `REVERB_APP_KEY` / `REVERB_PUBLIC_HOST` — e.g. a box that has not been set up yet), Desk
+  degrades by itself: Get help shows the phone-support message and no session can start.
 - QA1 runs it as a systemd unit `corex-qa1-reverb.service` — mirrors the existing `corex-qa1-queue.service` pattern (QA1's
   workers are systemd, not supervisor).
 - The browser gets the Reverb key/host/port from the page (a small JSON block rendered by the Desk partial), not from
@@ -170,6 +173,7 @@ Infra (QA1 only): `corex-qa1-reverb.service`, nginx `location /app` in the `qate
 
 ## 12. Navigation links (added as built)
 
-- **Get help** — top bar of every CoreX page (sidebar top row, left of the Ellie icon).
-- **Desk console** — `/corex/desk` (route `corex.desk.console`) — sidebar entry under the Compliance / admin tools for users with `desk.support`.
-- **Desk sessions** — Compliance › Reports & Logs › *Desk sessions* tab (route `compliance.desk-sessions.index`).
+- **Get help** — top bar of every CoreX page (sidebar top row, left of the Ellie icon; in both layouts, My Portal included).
+- **Desk console** — `/corex/desk` (route `corex.desk.console`) — Settings menu › *CoreX Desk*, for users with `desk.support`.
+- **Desk sessions** — Compliance › Reports & Logs › *Desk sessions* tab (routes `compliance.desk-sessions.index` / `.show`).
+- **Agency switch** — Company Settings › *CoreX Desk* tab, and the Setup Wizard's last step (*Access & finish*); both post to `corex.settings.desk`.

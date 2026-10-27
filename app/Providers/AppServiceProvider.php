@@ -359,6 +359,8 @@ class AppServiceProvider extends ServiceProvider
         // LEASE-AGREEMENT END
         // AT-118 — a session-scoped communications access grant dies at logout.
         Event::listen(Logout::class, \App\Listeners\Communications\RevokeCommsGrantsOnLogout::class);
+        // CoreX Desk - signing out ends the user's open screen-share sessions (spec .ai/specs/corex-desk.md section 3).
+        Event::listen(Logout::class, \App\Listeners\Desk\EndDeskSessionsOnLogout::class);
 
         // ─────────────────────────────────────────────────────────────────────────────
         // AT-261 — listeners that ONLY auto-discovery was registering.
