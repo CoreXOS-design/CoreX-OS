@@ -7,7 +7,7 @@
 @section('corex-content')
 <style>
     /* The corex-btn-* classes set display:inline-flex, which would beat the hidden attribute - keep hidden hidden. */
-    #cdc-root [hidden], #cdc-live [hidden] { display: none !important; }
+    #cdc-root [hidden], #cdc-live [hidden], #cdc-live[hidden] { display: none !important; }
 
     /* ── Viewer: a pinned toolbar on top, the agent's window below it filling the rest of the browser window; letterbox only where the aspect differs ─────────── */
     #cdc-live { position: fixed; inset: 0; z-index: 2000000; background: #0b0f14; overflow: hidden; display: flex; flex-direction: column; }

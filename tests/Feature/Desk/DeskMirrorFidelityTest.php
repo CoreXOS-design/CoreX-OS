@@ -156,6 +156,7 @@ final class DeskMirrorFidelityTest extends TestCase
         $this->assertStringNotContainsString('cdc-hot', $view);
         $this->assertStringContainsString('#cdc-live { position: fixed; inset: 0; z-index: 2000000; background: #0b0f14; overflow: hidden; display: flex; flex-direction: column; }', $view);
         $this->assertStringContainsString('#cdc-bar { position: relative; flex: 0 0 auto;', $view);
+        $this->assertStringContainsString('#cdc-live[hidden] { display: none !important; }', $view, 'a flex viewer must still be hidden by the hidden attribute (it sat over the whole page, blocking every click)');
         $this->assertLessThan(strpos($view, 'id="cdc-pane"'), strpos($view, 'id="cdc-bar"'), 'the toolbar comes first, the picture below it');
         $this->assertStringContainsString("new ResizeObserver(() => layoutPane()).observe(\$('cdc-pane'))", $console, 'the picture refits whenever the room below the toolbar changes');
         // Everything the ruling lists is in it, in one place.
