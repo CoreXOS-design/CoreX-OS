@@ -226,6 +226,11 @@ return [
              'explain' => 'Private Property lets a sole mandate go exclusive to PP for a chosen number of days, during which no other portal may carry the listing. This is the ceiling an agent can choose from — nothing is ever exclusive unless an agent explicitly opts in on that listing. Private Property\'s own hard limit is 92 days.',
              'affects' => 'The maximum number of days offered on the exclusivity opt-in when an agent ticks it on a sole mandate sale listing.'],
 
+            ['key' => 'sold_portal_show_days', 'source' => 'perf', 'type' => 'number', 'default' => 14, 'min' => 0, 'max' => 365,
+             'label' => 'Keep showing on portals as Sold for (days)',
+             'explain' => 'When a property sells it can stay on Property24 marked Sold for a while - it shows buyers you get results. This is how many days after the sale date it stays up before CoreX takes it down. Your own website\'s Sold showcase keeps every sale regardless.',
+             'affects' => 'How long a sold listing stays on the portals. 0 takes it down the day it sells; nothing about your Sold stock list or website Sold feed changes.'],
+
             // Syndication Approval — the third layer after compliance.
             // .ai/specs/syndication-approval-gate.md §9. The two controls are a
             // PAIR: the switch cannot be saved on with an empty roster, and the

@@ -549,3 +549,24 @@ These are deferred *by design with an upgrade path*, not "good enough for now" c
 7. **Which agent fields are "public"** — confirm with compliance what's safe to expose (FFC number? direct cell?). **Current shape (built):** `id`, `name`, `designation`, `email`, `phone`, `cell`, `photo_url`. FFC number stays hidden. `designation` added 2026-06-06 so websites can render the agent's title on the team card.
 8. **Webhook retry ceiling + dead-letter** — how many attempts before we surface a "your endpoint is down" alert in the Agencies UI?
 9. Do we want a **sandbox key type** (`cx_test_…`) for the web devs to build against before go-live, mirroring the PP `pp_sandbox` flag?
+
+---
+
+## 14. Addendum (27 Oct 2026, AT-512) - Sold showcase moved to `GET /api/v1/website/sold`
+
+Full spec: `.ai/specs/sold-stock.md`. Summary for the website developer:
+
+* **`GET /listings` and `/listings/{idOrRef}` now carry on-market stock only** (Active / For sale / To let and the other
+  non-off-market statuses). `sold`, `prospecting`, `not_selling`, `withdrawn`, `draft`, `transferred`, `let_out`,
+  `rented`, `archived`, `unavailable`, `expired`, `cancelled` and Other Agency Stock are refused at the query layer no matter
+  what the website switch says. Section 6.5.3 / the old "sold is showcased by default" note no longer applies.
+* **`GET /api/v1/website/sold`** - same auth (`auth:agency-api`, `website.live`), scope `listings:read`, same rate limit.
+  Reads the agency's frozen sales (`sold_stock`), so a later status change on the property (re-prospecting, a new listing
+  cycle) can never remove a sale from the Sold showcase or turn it back into a For Sale advert.
+  Query: `per_page` (1-50), `page`, `suburb`, `since`, `until` (sale date), `within_days`, `sort`
+  (`-sale_date` default | `sale_date` | `-sale_price` | `sale_price`).
+  Item: `id`, `property_id`, `cycle`, `title`, `description`, `features[]`, `property_type`, `listing_type`, `address`
+  (suburb + city only - the street is not published), `suburb`, `city`, `beds`, `baths`, `size_m2`, `asking_price`,
+  `sale_price`, `sold_at` (date), `days_on_market`, `images[]` (absolute URLs), `agents[]` (public agent shape).
+* **Webhooks:** a sale leaving the for-sale feed fires `listing.removed` for the property; refresh `/sold` then.
+* **Action for the site:** read the Sold showcase / sold map from `/sold` instead of `/listings?status=sold`.
