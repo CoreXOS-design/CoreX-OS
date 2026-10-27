@@ -62,7 +62,7 @@
      changes; a tab opened from another can inherit a COPY of that storage, so the key is also claimed with a Web Lock held for as long as the page lives. --}}
 <script>
 (function () {
-    var cfg = window.CorexDesk, TAB = 'corex.desk.tab', REPLAY = 'corex.desk.replay', memo = null;
+    var cfg = window.CorexDesk, TAB = 'corex.desk.tab', REPLAY = 'corex.desk.replay', memo = null, T = window.CorexDeskT = { script: Math.round(performance.now()) };
     function lock(k) {
         return new Promise(function (res) {
             if (!navigator.locks || !navigator.locks.request) { res(true); return; }
@@ -80,6 +80,7 @@
             if (!k && wantMain && await lock('main')) k = 'main';
             while (!k) { var c = rnd(); if (await lock(c)) k = c; }
             try { sessionStorage.setItem(TAB, k); } catch (e) {}
+            T.key = Math.round(performance.now());
             return k;
         })();
         return memo;
@@ -90,6 +91,7 @@
         window.CorexDeskEarlyJoin = window.CorexDeskTabKey(!!(saved && saved.id === cur.id && saved.tab === 'main')).then(function (key) {
             var body = { action: 'join', tab: key, path: location.pathname, title: document.title || '' };
             try { var rec = JSON.parse(localStorage.getItem(REPLAY) || 'null'); if (rec && rec.tab && rec.tab !== key && Date.now() - rec.t < 10000) body.from = rec.tab; } catch (e) {}
+            T.post = Math.round(performance.now());
             return fetch(cfg.urls.sessions + '/' + cur.id + '/tabs', { method: 'POST', credentials: 'same-origin', keepalive: true,
                 headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': cfg.csrf, 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify(body) })
                 .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, json: j }; }, function () { return { ok: r.ok, status: r.status, json: {} }; }); })
