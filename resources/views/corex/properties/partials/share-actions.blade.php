@@ -43,6 +43,9 @@
     $canShare = $shareUser
         && $shareUser->hasPermission('properties.share')
         && (($fromCoreMatches ?? false)
+            // Other Agency Stock exists to be shared with a buyer (Johan, 27 Oct 2026; spec other-agency-stock.md 5c point 4),
+            // whatever the agency's compliance switches say: its own page draws Share too, not only Core Matches.
+            || $property->isOtherAgencyStock()
             || in_array(strtolower((string) ($property->status ?? '')), $shareableStatuses, true));
 @endphp
 

@@ -187,8 +187,8 @@ class OtherAgencyStockActionRulesTest extends TestCase
                 '/<button\b[^>]*data-oas-action="' . $key . '"[^>]*\bdisabled\b/s', $html, "{$key} must stay usable on Other Agency Stock"
             );
         }
-        // Share is not drawn on the property page for OAS (share-actions.blade.php shows it from Core
-        // Matches only, by design) — but the rule is declared: taking a buyer to it is what OAS is for.
+        // Share IS drawn on the property page for OAS since 27 Oct 2026 (spec 5c point 4; OtherAgencyStockShareTest) and the rule
+        // is declared: taking a buyer to it is what OAS is for.
         $this->assertSame(Rules::ALLOWED, Rules::mode('share_listing'));
     }
 
