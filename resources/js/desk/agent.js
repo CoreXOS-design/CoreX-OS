@@ -36,7 +36,7 @@ export function start(ctx) {
     st = { cfg, session, api, ui, echo, channel, channelName, timers: [], buffer: [], flushing: false, subscribed: false, ctl: { state: 'none', asked: false, exec: null, reporter: null, idle: null }, stopRecord: null, recording: false, drv: null, ended: false, pointerTimer: null };
 
     channel
-        .listen('.desk.joined', (e) => { ui.joined(e.support_name); beginRecording(); })
+        .listen('.desk.joined', (e) => { if (e.support_name) st.session.support_name = e.support_name; ui.joined(e.support_name); beginRecording(); })
         .listen('.desk.ended', (e) => finish(e.by))
         // Protocol 1.1: events and whispers may name a tab (an extension tab, "x<id>"). This client is the CoreX page, "main": it only
         // reacts to its own.
