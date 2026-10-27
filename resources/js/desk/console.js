@@ -1,8 +1,12 @@
-// CoreX Desk - the SUPPORT console (spec .ai/specs/corex-desk.md section 4). Own Vite entry, loaded only by desk/console.blade.php.
+// CoreX Desk - the SUPPORT console (spec .ai/specs/corex-desk.md sections 4 and 13). Own Vite entry, loaded only by desk/console.blade.php.
 //
 // Join by code -> subscribe to the session's private channel -> ask the agent's tab for a fresh full snapshot (client-resync) ->
 // rebuild the agent's page with rrweb's live-mode Replayer. The mouse over the replayed page is whispered to the agent as a
 // labelled cursor; a click resolves the element to a selector and asks the server (audited) to have the agent outline it.
+//
+// Phase 3 (protocol 1.1): the session can hold several TABS - the agent's CoreX page ("main") plus any Chrome tabs the CoreX
+// extension shares ("x<chrome tab id>"). Each tab has its own Replayer; a tab bar switches between them. Every whisper and
+// highlight names the tab it is for; a frame with no `t` is the CoreX page.
 import { Replayer } from 'rrweb';
 import 'rrweb/dist/style.css';
 import { getEcho, dropEcho } from './echo.js';
@@ -14,8 +18,9 @@ const $ = (id) => document.getElementById(id);
 
 const EVENT_META = 4;
 const EVENT_FULL = 2;
+const MAIN = 'main';
 
-let cur = null; // { session, channel, name, replayer, events, started, tick, scale }
+let cur = null; // { session, channel, name, tabs: Map(key -> tab), selected, started, tick, retry, pointerOn, lastPointer }
 
 async function api(method, url, body) {
     try {
@@ -50,32 +55,53 @@ async function join(code) {
     attach(r.json.session);
 }
 
+function newTab(key, label, host) {
+    const root = document.createElement('div');
+    root.className = 'cdc-tab';
+    root.hidden = true;
+    $('cdc-replay').appendChild(root);
+    return { key, label, host: host || '', root, replayer: null, events: [], reassembler: null };
+}
+
 function attach(session) {
     if (cur) detach(false);
     const name = 'desk.session.' + session.id;
     const channel = getEcho().private(name);
-    cur = { session, channel, name, replayer: null, events: [], started: Date.parse(session.joined_at || session.started_at), pointerOn: false, lastPointer: 0 };
+    cur = { session, channel, name, tabs: new Map(), selected: MAIN, started: Date.parse(session.joined_at || session.started_at), pointerOn: false, lastPointer: 0 };
+    cur.tabs.set(MAIN, newTab(MAIN, 'CoreX page', ''));
+    (session.tabs || []).forEach((t) => addExtTab(t));
 
-    const reassembler = new Reassembler((events) => onEvents(events));
     channel
-        .listenForWhisper('frame', (chunk) => reassembler.push(chunk))
+        .listenForWhisper('frame', (chunk) => {
+            const tab = cur && cur.tabs.get(chunk && chunk.t ? chunk.t : MAIN);
+            if (!tab) return;   // a tab we have not been told about (yet): its tab_joined event creates it, the resync below asks again
+            if (!tab.reassembler) tab.reassembler = new Reassembler((events) => onEvents(tab, events));
+            tab.reassembler.push(chunk);
+        })
+        .listen('.desk.tab_joined', (e) => { addExtTab(e); askResync(e.tab); })
+        .listen('.desk.tab_updated', (e) => updateExtTab(e))
+        .listen('.desk.tab_left', (e) => removeExtTab(e.tab))
         .listen('.desk.ended', (e) => ended(e.by))
         .error(() => say('Could not open the live connection.', true));
 
-    // Subscribed: the agent's tab may already have sent its first snapshot before we listened - ask for a fresh one.
-    const ask = () => channel.whisper('resync', {});
-    channel.subscribed(ask);
-    cur.retry = setInterval(() => { if (cur && !cur.replayer) ask(); }, 3000); // until the first snapshot arrives
+    // Subscribed: a tab may already have sent its first snapshot before we listened - ask every tab for a fresh one.
+    channel.subscribed(() => cur && cur.tabs.forEach((t) => askResync(t.key)));
+    cur.retry = setInterval(() => { if (cur) cur.tabs.forEach((t) => { if (!t.replayer) askResync(t.key); }); }, 3000); // until a tab's first snapshot arrives
 
     $('cdc-join').hidden = true;
     $('cdc-live').hidden = false;
     $('cdc-agent').textContent = session.agent_name || '';
     $('cdc-agency').textContent = session.agency_name || '';
     $('cdc-page').textContent = session.page || '—';
-    $('cdc-wait').hidden = false;
     cur.tick = setInterval(tickElapsed, 1000);
     tickElapsed();
+    renderTabs();
+    showSelected();
     refreshList();
+}
+
+function askResync(key) {
+    if (cur) cur.channel.whisper('resync', { t: key });
 }
 
 function detach(callServer) {
@@ -83,8 +109,8 @@ function detach(callServer) {
     clearInterval(cur.tick);
     clearInterval(cur.retry);
     if (callServer) api('POST', con.urls.sessions + '/' + cur.session.id + '/end');
-    const root = $('cdc-replay');
-    root.innerHTML = '';
+    $('cdc-replay').innerHTML = '';
+    $('cdc-tabs').innerHTML = '';
     cur = null;
     dropEcho();
 }
@@ -105,55 +131,118 @@ function tickElapsed() {
     $('cdc-elapsed').textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 }
 
+// ── Tabs (the CoreX page + the extension's shared Chrome tabs) ───────────────────
+
+const labelFor = (t) => (t.title && t.title.trim() ? t.title.trim() : t.host) + ' · ' + t.host;
+
+function addExtTab(t) {
+    if (!cur || !t || !t.tab || cur.tabs.has(t.tab)) return;
+    cur.tabs.set(t.tab, newTab(t.tab, labelFor(t), t.host));
+    renderTabs();
+}
+
+function updateExtTab(t) {
+    const tab = cur && cur.tabs.get(t.tab);
+    if (!tab) { addExtTab(t); return; }
+    tab.label = labelFor(t);
+    tab.host = t.host;
+    renderTabs();
+}
+
+function removeExtTab(key) {
+    const tab = cur && cur.tabs.get(key);
+    if (!tab) return;
+    tab.root.remove();
+    cur.tabs.delete(key);
+    if (cur.selected === key) { cur.selected = MAIN; showSelected(); }
+    renderTabs();
+    say('A shared tab was closed or stopped by the agent.');
+}
+
+function renderTabs() {
+    const bar = $('cdc-tabs');
+    if (!cur) return;
+    bar.innerHTML = '';
+    bar.hidden = cur.tabs.size < 2;
+    cur.tabs.forEach((tab) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'ds-btn' + (tab.key === cur.selected ? ' is-selected' : '');
+        b.style.cssText = 'max-width:22rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' + (tab.key === cur.selected ? 'border-color:var(--brand-icon,#0ea5e9);font-weight:700;' : '');
+        b.textContent = tab.label;
+        b.title = tab.label;
+        b.addEventListener('click', () => selectTab(tab.key));
+        bar.appendChild(b);
+    });
+}
+
+function selectTab(key) {
+    if (!cur || !cur.tabs.has(key) || cur.selected === key) return;
+    cur.selected = key;
+    cur.pointerOn = false;
+    renderTabs();
+    showSelected();
+    askResync(key); // a fresh picture the moment you switch
+}
+
+function showSelected() {
+    if (!cur) return;
+    cur.tabs.forEach((t) => { t.root.hidden = t.key !== cur.selected; });
+    const tab = cur.tabs.get(cur.selected);
+    $('cdc-wait').hidden = !!(tab && tab.replayer);
+    $('cdc-replay').style.height = tab && tab.replayer ? $('cdc-replay').style.height : '';
+    if (tab && tab.replayer) fit();
+}
+
 // ── Rebuilding the agent's page ──────────────────────────────────────────────────
 
-function onEvents(events) {
-    if (!cur) return;
+function onEvents(tab, events) {
+    if (!cur || cur.tabs.get(tab.key) !== tab) return;
     // The Replayer schedules a live event for the moment its timestamp comes round on THIS computer's clock, so an agent whose clock is
     // a few seconds behind or ahead would be mirrored late (or in a burst). A live mirror wants "as it arrives": stamp the batch with
     // the moment it arrived here (order inside the batch is kept - equal stamps keep their sequence).
     const arrived = Date.now();
     for (const ev of events) {
         ev.timestamp = arrived;
-        if (ev.type === EVENT_META && ev.data && ev.data.href) {
-            try { $('cdc-page').textContent = new URL(ev.data.href).pathname; } catch (e) { /* ignore */ }
+        if (ev.type === EVENT_META && ev.data && ev.data.href && cur.selected === tab.key) {
+            try {
+                const u = new URL(ev.data.href);
+                $('cdc-page').textContent = tab.key === MAIN ? u.pathname : u.host + u.pathname;
+            } catch (e) { /* ignore */ }
         }
-        if (!cur.replayer) {
-            cur.events.push(ev);
-            if (cur.events.some((e) => e.type === EVENT_META) && cur.events.some((e) => e.type === EVENT_FULL)) startReplayer();
+        if (!tab.replayer) {
+            tab.events.push(ev);
+            if (tab.events.some((e) => e.type === EVENT_META) && tab.events.some((e) => e.type === EVENT_FULL)) startReplayer(tab);
         } else {
-            cur.replayer.addEvent(ev);
+            tab.replayer.addEvent(ev);
         }
     }
 }
 
-function startReplayer() {
-    const root = $('cdc-replay');
-    root.innerHTML = '';
+function startReplayer(tab) {
+    tab.root.innerHTML = '';
     // useVirtualDom:false - the virtual DOM is a fast-forward optimisation; in live mode a mutation applied "sync" (an event stamped just
     // before the replayer started) switches it on and later mutations then wait in it for a flush that never comes.
-    const replayer = new Replayer(cur.events, { root, liveMode: true, mouseTail: false, showWarning: false, showDebug: false, skipInactive: false, useVirtualDom: false });
-    cur.replayer = replayer;
-    $('cdc-wait').hidden = true;
+    const replayer = new Replayer(tab.events, { root: tab.root, liveMode: true, mouseTail: false, showWarning: false, showDebug: false, skipInactive: false, useVirtualDom: false });
+    tab.replayer = replayer;
     replayer.startLive();
-    fit();
-    replayer.on('resize', fit);
-    hookReplayInput(replayer);
-    clearInterval(cur.retry);
+    hookReplayInput(tab);
+    replayer.on('resize', () => { if (cur && cur.selected === tab.key) fit(); });
+    showSelected();
 }
 
-/** Scale the replayed page down to fit the console's pane (the agent's window is usually bigger). */
+/** Scale the selected tab's replayed page down to fit the console's pane (the agent's window is usually bigger). */
 function fit() {
-    if (!cur || !cur.replayer) return;
+    const tab = cur && cur.tabs.get(cur.selected);
+    if (!tab || !tab.replayer) return;
     const pane = $('cdc-replay');
-    const wrapper = cur.replayer.wrapper;
+    const wrapper = tab.replayer.wrapper;
     // The replayed page's own size (the agent's window) is on the iframe's width/height attributes, set from the Meta event.
-    const iframe = cur.replayer.iframe;
+    const iframe = tab.replayer.iframe;
     const w = parseFloat(iframe.getAttribute('width')) || wrapper.offsetWidth;
     const h = parseFloat(iframe.getAttribute('height')) || wrapper.offsetHeight;
     if (!w || !h) return;
     const scale = Math.min(1, pane.clientWidth / w);
-    cur.scale = scale;
     wrapper.style.transformOrigin = 'top left';
     wrapper.style.transform = 'scale(' + scale + ')';
     pane.style.height = Math.round(h * scale) + 'px';
@@ -162,38 +251,39 @@ window.addEventListener('resize', fit);
 
 // ── Pointer and highlight ────────────────────────────────────────────────────────
 
-function hookReplayInput(replayer) {
-    const iframe = replayer.iframe;
-    const rect = () => iframe.getBoundingClientRect();
+const tabParam = (tab) => (tab.key === MAIN ? {} : { tab: tab.key });
+
+function hookReplayInput(tab) {
+    const iframe = tab.replayer.iframe;
     const ratio = (ev) => {
-        const r = rect();
+        const r = iframe.getBoundingClientRect();
         return { x: (ev.clientX - r.left) / r.width, y: (ev.clientY - r.top) / r.height };
     };
     // Mouse events land on the wrapper (the iframe itself does not deliver them to us while replaying).
-    const target = replayer.wrapper;
+    const target = tab.replayer.wrapper;
     target.style.pointerEvents = 'auto';
     iframe.style.pointerEvents = 'none';
     target.style.cursor = 'crosshair';
 
     target.addEventListener('mousemove', (ev) => {
-        if (!cur) return;
+        if (!cur || cur.selected !== tab.key) return;
         const now = Date.now();
         if (now - cur.lastPointer < 40) return;
         cur.lastPointer = now;
         if (!cur.pointerOn) {
             cur.pointerOn = true;
-            api('POST', con.urls.sessions + '/' + cur.session.id + '/pointer', { on: true });
+            api('POST', con.urls.sessions + '/' + cur.session.id + '/pointer', { on: true, ...tabParam(tab) });
         }
-        cur.channel.whisper('pointer', ratio(ev));
+        cur.channel.whisper('pointer', { t: tab.key, ...ratio(ev) });
     });
     target.addEventListener('mouseleave', () => {
-        if (cur && cur.pointerOn) {
+        if (cur && cur.pointerOn && cur.selected === tab.key) {
             cur.pointerOn = false;
-            api('POST', con.urls.sessions + '/' + cur.session.id + '/pointer', { on: false });
+            api('POST', con.urls.sessions + '/' + cur.session.id + '/pointer', { on: false, ...tabParam(tab) });
         }
     });
     target.addEventListener('click', (ev) => {
-        if (!cur) return;
+        if (!cur || cur.selected !== tab.key) return;
         const r = ratio(ev);
         const doc = iframe.contentDocument;
         if (!doc) return;
@@ -201,7 +291,7 @@ function hookReplayInput(replayer) {
         const selector = el ? selectorFor(el) : null;
         if (!selector) return;
         const note = $('cdc-note').value.trim();
-        api('POST', con.urls.sessions + '/' + cur.session.id + '/highlight', { selector, note: note || null }).then((res) => {
+        api('POST', con.urls.sessions + '/' + cur.session.id + '/highlight', { selector, note: note || null, ...tabParam(tab) }).then((res) => {
             say(res.ok ? 'Highlighted: ' + selector : 'Could not send the highlight.', !res.ok);
         });
     });
@@ -254,7 +344,7 @@ $('cdc-form').addEventListener('submit', (e) => {
     join(code);
 });
 $('cdc-clear').addEventListener('click', () => {
-    if (cur) api('POST', con.urls.sessions + '/' + cur.session.id + '/highlight/clear');
+    if (cur) api('POST', con.urls.sessions + '/' + cur.session.id + '/highlight/clear', cur.selected === MAIN ? {} : { tab: cur.selected });
 });
 $('cdc-end').addEventListener('click', () => {
     if (!cur) return;

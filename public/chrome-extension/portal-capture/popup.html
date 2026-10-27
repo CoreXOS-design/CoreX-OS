@@ -14,7 +14,7 @@
         <img class="brand-logo" src="icons/icon-48.png" alt="" width="28" height="28">
         <div>
           <h1>CoreX</h1>
-          <span class="version" id="extVersion">v3.11.0</span>
+          <span class="version" id="extVersion">v3.12.0</span>
         </div>
       </div>
       <div class="header-actions">
@@ -24,6 +24,14 @@
         </button>
         <button class="settings-btn" id="settingsToggle" title="Settings">Settings</button>
       </div>
+    </div>
+
+    <!-- CoreX Desk: share this tab with CoreX support (only while a Desk session is open) -->
+    <div class="desk-card" id="deskCard" hidden style="margin:10px 12px 0;padding:10px 12px;border:1px solid var(--border,#e5e7eb);border-radius:8px;">
+      <div style="font-weight:700;font-size:12px;">CoreX Desk</div>
+      <div id="deskMsg" style="font-size:12px;margin:4px 0 8px;color:var(--text-secondary,#4b5563);"></div>
+      <button class="btn btn-primary" id="deskShare" hidden>Share this tab with CoreX support</button>
+      <button class="btn btn-secondary" id="deskStop" hidden>Stop sharing this tab</button>
     </div>
 
     <!-- State: Not on a portal page -->
@@ -243,6 +251,7 @@
     </div>
   </div>
 
+  <script src="popup-desk.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

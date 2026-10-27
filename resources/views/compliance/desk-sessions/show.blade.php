@@ -6,6 +6,7 @@
     $label = [
         'created' => 'Code issued', 'joined' => 'Support joined', 'page' => 'Moved to page', 'highlight' => 'Support highlighted',
         'highlight_cleared' => 'Highlight cleared', 'pointer_on' => 'Support pointer on', 'pointer_off' => 'Support pointer off', 'ended' => 'Session ended',
+        'tab_join' => 'Browser tab shared', 'tab_update' => 'Shared tab moved to another site', 'tab_leave' => 'Browser tab no longer shared',
     ];
     $endedLabel = ['agent' => 'the agent', 'support' => 'support', 'logout' => 'the agent signing out', 'timeout' => 'the connection being lost', 'expired' => 'nobody joining in time', 'disabled' => 'Desk being switched off', 'replaced' => 'a new session being started'];
     $secs = $session->durationSeconds();
@@ -43,7 +44,8 @@
                     <td class="px-4 py-3 text-xs" style="color:var(--text-primary);">{{ $label[$e->type] ?? $e->type }}</td>
                     <td class="px-4 py-3 text-xs" style="color:var(--text-secondary);">
                         @if($e->type === 'page'){{ $e->payload['page'] ?? '' }}
-                        @elseif($e->type === 'highlight'){{ $e->payload['selector'] ?? '' }}@if(! empty($e->payload['note'])) — “{{ $e->payload['note'] }}”@endif
+                        @elseif($e->type === 'highlight'){{ $e->payload['selector'] ?? '' }}@if(! empty($e->payload['note'])) — “{{ $e->payload['note'] }}” @endif @if(! empty($e->payload['tab']) && $e->payload['tab'] !== 'main') (in a shared browser tab)@endif
+                        @elseif(in_array($e->type, ['tab_join', 'tab_update', 'tab_leave'], true)){{ $e->payload['host'] ?? '' }}@if(! empty($e->payload['title'])) — {{ $e->payload['title'] }}@endif
                         @elseif($e->type === 'ended')by {{ $endedLabel[$e->payload['by'] ?? ''] ?? ($e->payload['by'] ?? '') }}
                         @endif
                     </td>

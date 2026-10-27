@@ -19,6 +19,18 @@ return [
     'join_max_failures' => (int) env('DESK_JOIN_MAX_FAILURES', 8),
     'join_window_seconds' => (int) env('DESK_JOIN_WINDOW_SECONDS', 600),
 
+    // Phase 3 - the sites whose Chrome tabs the CoreX extension may share into a Desk session (a host matches itself and its subdomains).
+    // The agency's own website (agencies.website_url) is added per agency. Anything else is refused by the server, whatever the extension sends.
+    'extension_hosts' => [
+        'cmainfo.co.za',
+        'thevirtualagent.co.za',
+        'property24.com',
+        'privateproperty.co.za',
+        'lightstone.co.za',
+        'lightstoneproperty.co.za',
+        'loom.com',
+    ],
+
     // Selector / note limits for a highlight.
     'selector_max' => 500,
     'note_max' => 200,

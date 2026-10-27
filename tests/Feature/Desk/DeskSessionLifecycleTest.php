@@ -229,7 +229,7 @@ final class DeskSessionLifecycleTest extends DeskTestCase
 
         $types = $session->events()->pluck('type')->all();
         $this->assertSame(['created', 'joined', 'highlight', 'highlight_cleared', 'pointer_on', 'pointer_off'], $types);
-        $this->assertEquals(['selector' => '[data-tour="save"]', 'note' => 'Press here'], $session->events()->where('type', 'highlight')->first()->payload);
+        $this->assertEquals(['selector' => '[data-tour="save"]', 'note' => 'Press here', 'tab' => 'main'], $session->events()->where('type', 'highlight')->first()->payload);
         Event::assertDispatched(DeskBroadcast::class, fn ($e) => $e->name === 'desk.highlight' && $e->payload['selector'] === '[data-tour="save"]');
         Event::assertDispatched(DeskBroadcast::class, fn ($e) => $e->name === 'desk.pointer_state' && $e->payload['on'] === true);
         $this->assertSame($support->id, (int) $session->events()->where('type', 'highlight')->first()->actor_user_id);

@@ -34,6 +34,8 @@
             </div>
         </div>
         <p class="text-xs" style="color:var(--text-muted); margin:0;">Move your mouse over the window below to point (the agent sees a “Support” cursor). Click anything to highlight it on their screen. The agent does the clicking.</p>
+        {{-- Phase 3: when the agent has also shared Chrome tabs through the CoreX extension, one button per tab (title + site). --}}
+        <div id="cdc-tabs" hidden class="flex flex-wrap gap-2" role="tablist" aria-label="Shared tabs"></div>
         <p id="cdc-wait" class="text-sm" style="color:var(--text-muted); margin:0;">Waiting for the agent's window…</p>
         <div style="overflow:auto; background:var(--surface-2); border:1px solid var(--border); border-radius:.375rem;">
             <div id="cdc-replay"></div>

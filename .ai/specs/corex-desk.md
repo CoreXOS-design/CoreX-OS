@@ -151,7 +151,7 @@ exists or the console is open (`agent.js`). The console has its own entry (`cons
 - **Assets:** the replayed page is rebuilt in an iframe inside the console, so images and fonts load with the support user's own
   session; the stylesheets travel inlined in the snapshot.
 
-### 7.6 Protocol reference (protocol version 1 — the phase-3 extension uses this unchanged)
+### 7.6 Protocol reference (protocol version 1.1 — the phase-3 extension uses it with one additive field, `t`/`tab`)
 
 **Channel.** `private-desk.session.{id}` on the Reverb/Pusher protocol. Auth: `POST /broadcasting/auth` (session cookie + CSRF);
 allowed for the session's agent, and for the support user who joined it while it is `live`. An ended session admits nobody.
@@ -178,6 +178,16 @@ allowed for the session's agent, and for the support user who joined it while it
 `POST /{id}/heartbeat {page}` every 30 s and on each page load (answers `{status, ended_by}` — a dead session is noticed here);
 `POST /{id}/leaving` (beacon on `pagehide`); `POST /{id}/end`. Support (`/corex/desk`): `POST /join {code}`,
 `POST /sessions/{id}/highlight {selector, note}`, `/highlight/clear`, `/pointer {on}`, `/end`; `GET /sessions` (live list).
+
+**Protocol 1.1 (phase 3) — additive only; a 1.0 client keeps working.** A session can now hold several *tabs*: the agent's CoreX page
+(`main`) and any Chrome tabs the CoreX extension shares (`x<chrome tab id>`, e.g. `x412`).
+- `client-frame` chunks, `client-resync` and `client-pointer` carry an optional **`t`** (the tab key). No `t` = `main`.
+- `desk.highlight`, `desk.highlight_cleared` and `desk.pointer_state` carry **`tab`** (`main` unless an extension tab is addressed; an
+  unknown key falls back to `main`). A client reacts only to its own tab; the CoreX page ignores any other.
+- New server events: `desk.tab_joined {tab, host, title}`, `desk.tab_updated {tab, host, title}`, `desk.tab_left {tab}` — the console keeps its
+  tab bar from them (the join answer also lists the tabs already open).
+- New audit event types: `tab_join`, `tab_update` (the tab moved to a *different site*; a mere title change is broadcast, not audited),
+  `tab_leave` — each with `{tab, host, title}`; highlight / clear / pointer audit rows now carry `tab`.
 
 **Rules every recorder must follow.**
 1. Record only the sharing tab, only while the session is `live`; stop on `desk.ended`.
@@ -229,13 +239,79 @@ Infra (QA1 only): `corex-qa1-reverb.service`, nginx `location /app` in the `qate
 ## 11. Phases
 
 - **Phase 2** (not now): take-over with Allow / Stop.
-- **Phase 3** (next release, Chrome extension): the same recorder inside the extension content script for allowed sites
-  (CMA Info, Virtual Agent, Property24, Private Property, agency websites, Lightstone, Loom); the agent picks which tab to
-  share. The protocol in 7.2 is designed so the extension reuses it unchanged.
+- **Phase 3** (built 27 Oct 2026 — see section 13): the Chrome extension mirrors the agent's other tabs through the same protocol.
 
 ## 12. Navigation links (added as built)
 
 - **Get help** — top bar of every CoreX page (sidebar top row, left of the Ellie icon; in both layouts, My Portal included).
 - **Desk console** — `/corex/desk` (route `corex.desk.console`) — Settings menu › *CoreX Desk*, for users with `desk.support`.
+- **Extension** — the CoreX Chrome extension popup › *CoreX Desk* card (phase 3, section 13).
 - **Desk sessions** — Compliance › Reports & Logs › *Desk sessions* tab (routes `compliance.desk-sessions.index` / `.show`).
 - **Agency switch** — Company Settings › *CoreX Desk* tab, and the Setup Wizard's last step (*Access & finish*); both post to `corex.settings.desk`.
+
+## 13. Phase 3 — extension tabs (built 27 Oct 2026, QA1)
+
+**Why.** An agent on a site CoreX does not own (CMA Info, Lightstone, Property24, Private Property, The Virtual Agent, Loom, the
+agency's own website) needs help that used to take AnyDesk. Now the agent presses **Get help** in CoreX as usual, then shares *that
+tab* from the CoreX extension; support sees it in the same console, next to the CoreX page.
+
+**What the agent does.** (1) CoreX › Get help › reads the code; support joins. (2) On the other site: CoreX extension icon › the
+**CoreX Desk** card › **Share this tab with CoreX support**. The card only appears while a session is open; it says "support has not
+joined yet" until then, "this site cannot be shared" off the allowed list, and offers **Stop sharing this tab** once shared. The
+shared tab shows a red bar — "CoreX Desk — {support name} is viewing this window" with **Stop sharing** — drawn in a closed shadow
+root the site cannot restyle and the recording cannot contain. Nothing is read from a tab until the agent shares it.
+
+**What support sees.** The console gets a **tab bar** (one button per tab: page title · site; the CoreX page is "CoreX page").
+Switching asks that tab for a fresh snapshot. The pointer, highlight and note go to the selected tab; the agent sees a labelled
+"Support" cursor, and a blue ring + note bubble in the Guided Tour's Spot Help look (dimmed page that stays clickable).
+
+**Allowed sites (server-enforced).** `config/desk.php` `extension_hosts` — `cmainfo.co.za`, `thevirtualagent.co.za`,
+`property24.com`, `privateproperty.co.za`, `lightstone.co.za`, `lightstoneproperty.co.za`, `loom.com` (each matches itself and its
+subdomains, never a look-alike) — plus the agency's own `website_url` host. The server refuses a tab join for any other host with
+422 whatever the extension sends; the extension also hides the button. To add a site: add it to the list (no extension release).
+
+**Settings and permissions — nothing new.** `agencies.desk_enabled` gates everything (off = no session, no card). The extension API
+needs `desk.request_help`; the console needs `desk.support`. No new Role Manager key, no new setting, nothing for the Setup Wizard.
+
+**Masking on third-party sites.** Same pipeline as the CoreX page (7.5), stricter default: passwords, `[data-desk-mask]`, and any
+input whose name / id / autocomplete / placeholder / aria-label / label text looks like a card, ID, passport, bank account, branch
+code, tax number, PIN or one-time code (`desk-lib.js` `isSensitiveField`) are starred out in the agent's browser before anything is
+sent. Displayed *text* is not masked: support sees what the agent sees on screen (say so when explaining Desk to an agency).
+Known limits: cross-origin iframes inside a tab are not recorded; images/CSS that need the agent's own login do not load for
+support (the replay runs under support's session); stylesheets from the page's own origin travel inlined.
+
+**Audit.** `tab_join` / `tab_leave` (host + title, never a URL path or query string) and `tab_update` when a shared tab moves to
+another site; shown on the session's page under Compliance › Reports & Logs › Desk sessions as "Browser tab shared / moved to another
+site / no longer shared". A tab that navigates off the allowed list stops being shared (and is audited as leaving).
+
+**How it works.**
+- Auth: the extension's existing Sanctum bearer token (`chrome.storage.local` `apiToken`). New routes under `auth:sanctum`
+  (`routes/api.php`, `DeskExtensionController`): `GET /api/v1/desk/ext/session` (open session, Reverb details, allowed hosts, open
+  tabs), `POST /api/v1/desk/ext/broadcasting-auth` (the private-channel handshake — **Desk channels only**, a token can never authorise any
+  other channel), `POST /api/v1/desk/ext/sessions/{id}/heartbeat`, `POST /api/v1/desk/ext/sessions/{id}/tabs {action: join|update|leave,
+  tab, url, title}` (only while the session is live; only the token's own session).
+- Service worker (`desk-ext.js`, pulled in by `background.js`): one websocket to Reverb speaking the Pusher protocol directly (no
+  library), channel `private-desk.session.{id}`; injects `vendor/rrweb-record.min.js` (+ `desk-lib.js`, `desk-content.js`) into a shared tab
+  with `chrome.scripting`, chunks and whispers its events (`desk-lib.js` `encodeBatch`, same wire format as `frames.js`), routes
+  `client-resync` / `client-pointer` / `desk.highlight` to the right tab, re-injects after a full page load, heartbeats every 30 s, stops
+  every tab on `desk.ended`, reconnects with back-off, and survives a worker restart (`chrome.storage.session`).
+- Console (`console.js`): one Replayer per tab, a tab bar, `t` / `tab` on everything it sends.
+- Reverb must accept the extension's websocket origin (`chrome-extension://…`): QA1 sets `REVERB_ALLOWED_ORIGINS=*`. Origin is not the
+  security boundary — nothing flows without a channel authorisation (session cookie + CSRF, or the agent's own token).
+
+**Files.** Extension (`public/chrome-extension/portal-capture/`): `manifest.json` (3.12.0, `optional_host_permissions: ["https://*/*"]`),
+`background.js` (one `importScripts`), `desk-lib.js`, `desk-ext.js`, `desk-content.js`, `popup-desk.js`, `popup.html` (the card),
+`vendor/rrweb-record.min.js` (+ licence note), `tests/desk-lib.test.cjs`. Server: `DeskExtensionController`, `DeskSessionService` (tab events, allowed hosts),
+`DeskSessionEvent` (types), `DeskBroadcast` payloads, `config/desk.php`, `routes/api.php`, audit show view. Browser JS: `console.js`, `agent.js`.
+
+**Release steps (Chrome Web Store).** 1. `scripts/build-extension-zip.sh` (validates the manifest and every referenced file; version is
+3.12.0). 2. Store listing: the new permission is `optional_host_permissions` (https://*/*) — no always-on access is added; update the
+permission justification and privacy text (`public/legal/extension-privacy`, `.ai/specs/chrome-web-store-listing.md`): *"When you press Share this
+tab, the tab's content is shown live to the CoreX support person you are on a call with; nothing is stored; inputs that look like
+passwords, cards, IDs or bank details are hidden before sending."* 3. Submit; review takes days — until then agents can load the
+unpacked folder. 4. Reverb must be reachable from agents' networks wherever the extension runs (nginx `/app/` + `REVERB_ALLOWED_ORIGINS`).
+5. On a box without Reverb the card simply never appears (the API answers `enabled: false`).
+
+**Not built / reported.** The CoreX Get-help screen does not mention the extension (a one-line hint would help discoverability).
+Support cannot ask an agent to share a tab; the agent starts it. Clipboard, file and download access are not part of Desk. The stale
+duplicate `chrome-extension/portal-capture/` (no `public/`) was left alone, as the packaging script already reports.

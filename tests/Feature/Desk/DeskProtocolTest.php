@@ -48,9 +48,9 @@ final class DeskProtocolTest extends DeskTestCase
 
         $expected = [
             'desk.joined' => ['support_name', 'joined_at'],
-            'desk.highlight' => ['selector', 'note'],
-            'desk.highlight_cleared' => [],
-            'desk.pointer_state' => ['on'],
+            'desk.highlight' => ['selector', 'note', 'tab'],
+            'desk.highlight_cleared' => ['tab'],
+            'desk.pointer_state' => ['on', 'tab'],
             'desk.ended' => ['by'],
         ];
         foreach ($expected as $name => $keys) {
@@ -62,8 +62,8 @@ final class DeskProtocolTest extends DeskTestCase
             $this->assertInstanceOf(PrivateChannel::class, $channels[0]);
             $this->assertSame('private-desk.session.' . $session->id, $channels[0]->name, "{$name} channel");
         }
-        $this->assertSame(['selector' => '[data-tour="x"]', 'note' => 'Note'], $byName['desk.highlight']->broadcastWith());
-        $this->assertSame(['on' => true], $byName['desk.pointer_state']->broadcastWith());
+        $this->assertSame(['selector' => '[data-tour="x"]', 'note' => 'Note', 'tab' => 'main'], $byName['desk.highlight']->broadcastWith(), 'no tab named = the CoreX page');
+        $this->assertSame(['on' => true, 'tab' => 'main'], $byName['desk.pointer_state']->broadcastWith());
         $this->assertSame(['by' => 'support'], $byName['desk.ended']->broadcastWith());
     }
 
