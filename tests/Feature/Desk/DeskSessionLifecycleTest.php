@@ -63,7 +63,7 @@ final class DeskSessionLifecycleTest extends DeskTestCase
         $this->assertNotNull($joined->joined_at);
         $this->assertSame(['created', 'joined'], $session->events()->pluck('type')->all());
         Event::assertDispatched(DeskBroadcast::class, fn ($e) => $e->name === 'desk.joined'
-            && $e->sessionId === $session->id && $e->payload['support_name'] === $support->name);
+            && $e->sessionId === $session->id && $e->payload['support_name'] === \App\Support\Desk\DeskSupporterLabel::for($support));
 
         $this->assertNull($this->desk->join($this->owner(), $code), 'a used code does not work twice');
     }

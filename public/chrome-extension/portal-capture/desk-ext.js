@@ -118,7 +118,7 @@ importScripts('desk-lib.js');
     } else if (ev === 'client-resync') {
       var t1 = tabIdFor(m.data && m.data.t); if (t1 !== null) toTab(t1, { type: 'desk.resync' });
     } else if (ev === 'client-pointer') {
-      var t2 = tabIdFor(m.data && m.data.t); if (t2 !== null) toTab(t2, { type: 'desk.pointer', x: m.data.x, y: m.data.y });
+      var t2 = tabIdFor(m.data && m.data.t); if (t2 !== null) toTab(t2, { type: 'desk.pointer', x: m.data.x, y: m.data.y, who: m.data.who });
     } else if (ev === 'desk.highlight') {
       var t3 = tabIdFor(m.data && m.data.tab); if (t3 !== null) toTab(t3, { type: 'desk.highlight', selector: m.data.selector, note: m.data.note });
     } else if (ev === 'desk.highlight_cleared') {

@@ -98,7 +98,6 @@ final class ComplianceMenuTabsTest extends TestCase
             ComplianceReportsTabs::class => [
                 'reporting' => fn (User $u) => $p($u, 'compliance.whistleblow.view'),
                 'communications-log' => fn (User $u) => $p($u, 'access_communication_archive'),
-                'desk-sessions' => fn (User $u) => $p($u, 'manage_users'), // CoreX Desk audit (an agency admin; spec corex-desk.md)
             ],
         ];
     }
@@ -142,7 +141,7 @@ final class ComplianceMenuTabsTest extends TestCase
                 }
             }
         }
-        $this->assertSame(5 * 12, $checked);
+        $this->assertSame(5 * 11, $checked);
     }
 
     public function test_the_menu_has_five_items_and_every_tab_screen_opens_with_its_tab_marked(): void
@@ -172,7 +171,7 @@ final class ComplianceMenuTabsTest extends TestCase
                 $opened++;
             }
         }
-        $this->assertSame(11, $opened, 'every tab an agency admin sees (Agent Compliance is System-Owner-only)');
+        $this->assertSame(10, $opened, 'every tab an agency admin sees (Agent Compliance is System-Owner-only)');
     }
 
     public function test_the_counts_move_onto_their_tabs_and_the_menu_item(): void

@@ -9,6 +9,7 @@ use App\Models\DeskSessionEvent;
 use App\Models\Otp;
 use App\Models\User;
 use App\Services\Otp\OtpService;
+use App\Support\Desk\DeskSupporterLabel;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 
@@ -199,14 +200,16 @@ class DeskSessionService
         }
 
         RateLimiter::clear($key);
+        $display = DeskSupporterLabel::for($support);   // frozen now: the audit stays true if a title changes later
         $session->forceFill([
             'status' => DeskSession::LIVE,
             'support_user_id' => $support->id,
+            'support_display' => $display,
             'joined_at' => now(),
         ])->save();
-        $this->record($session, DeskSessionEvent::JOINED, ['support_name' => $support->name], $support);
+        $this->record($session, DeskSessionEvent::JOINED, ['support_name' => $display], $support);
         DeskBroadcast::dispatch($session->id, 'desk.joined', [
-            'support_name' => $support->name,
+            'support_name' => $display,
             'joined_at' => $session->joined_at->toIso8601String(),
         ]);
 
@@ -230,7 +233,8 @@ class DeskSessionService
             $ids = array_values(array_unique(array_merge(array_map('intval', (array) $session->support_user_ids), [(int) $support->id])));
             $session->forceFill(['support_user_ids' => $ids])->save();
         }
-        $this->record($session, DeskSessionEvent::JOINED, ['support_name' => $support->name, 'again' => $again, 'additional' => ! $again && (int) $session->support_user_id !== (int) $support->id], $support);
+        $display = $this->displayFor($session, $support);
+        $this->record($session, DeskSessionEvent::JOINED, ['support_name' => $display, 'again' => $again, 'additional' => ! $again && (int) $session->support_user_id !== (int) $support->id], $support);
 
         return $session->fresh();
     }
@@ -434,7 +438,7 @@ class DeskSessionService
             'control_requested_at' => now(), 'control_granted_at' => null, 'control_last_action_at' => null,
         ])->save();
         $this->record($session, DeskSessionEvent::CONTROL_REQUESTED, $this->tabInfo($session, $tab), $support);
-        DeskBroadcast::dispatch($session->id, 'desk.control_requested', ['tab' => $tab, 'support_name' => $support->name]);
+        DeskBroadcast::dispatch($session->id, 'desk.control_requested', ['tab' => $tab, 'support_name' => $this->displayFor($session, $support)]);
 
         return $session->fresh();
     }
@@ -546,6 +550,22 @@ class DeskSessionService
         }
 
         return $written;
+    }
+
+    /**
+     * How this support person is shown for this session: the string frozen at join time (the first supporter on the session, or what they were
+     * on their own `joined` row), else computed now for someone who has not joined yet.
+     */
+    public function displayFor(DeskSession $session, User $support): string
+    {
+        if ((int) $session->support_user_id === (int) $support->id && $session->support_display) {
+            return $session->support_display;
+        }
+        $row = DeskSessionEvent::query()->where('desk_session_id', $session->id)->where('type', DeskSessionEvent::JOINED)->where('actor_user_id', $support->id)
+            ->orderByDesc('id')->first(['payload']);
+        $stored = $row ? ($row->payload['support_name'] ?? null) : null;
+
+        return $stored ?: DeskSupporterLabel::for($support);
     }
 
     /** One place that ends a request or a control: records control_ended / control_declined, clears the state, tells both sides. */

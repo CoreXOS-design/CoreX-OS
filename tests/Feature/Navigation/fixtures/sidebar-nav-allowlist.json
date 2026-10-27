@@ -1523,5 +1523,13 @@
       "NO_ITEM"
     ],
     "reason": "Retired from the menu on purpose (agency-tracker-rehome.md step 9): RCR \u00b7 FIC 2026 is unused. Nothing is deleted - the submission pages stay registered for bookmarks and the deadline notifications, and open the Compliance group, but no menu item points at them."
-  }
+  },
+    "corex.desk.sessions": {
+        "flags": ["NO_ITEM"],
+        "reason": "CoreX Desk (spec corex-desk.md section 4b): the JSON feed behind the console's \"Sessions open now\" list - polled by the console page (Admin > Desk > Desk console), never a page of its own, so it has no menu item."
+    },
+    "admin.company-settings": {
+        "flags": ["MULTI_MATCH", "WRONG_GROUP"],
+        "reason": "Deliberate second entry: Johan's ruling (27 Oct 2026) puts \"Desk settings\" in Admin > Desk as a link into Company Settings > CoreX Desk (#desk), in addition to Company Settings itself under Admin > Company. Same page, two menu homes, on purpose."
+    }
 }

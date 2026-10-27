@@ -65,7 +65,7 @@ final class DeskExtensionApiTest extends DeskTestCase
 
         $session = $this->liveSession($agent);
         $res = $this->as($agent)->getJson('/api/v1/desk/ext/session')->assertOk();
-        $res->assertJsonPath('session.id', $session->id)->assertJsonPath('session.status', 'live')->assertJsonPath('session.support_name', DeskSession::find($session->id)->supportUser->name);
+        $res->assertJsonPath('session.id', $session->id)->assertJsonPath('session.status', 'live')->assertJsonPath('session.support_name', \App\Support\Desk\DeskSupporterLabel::for(DeskSession::find($session->id)->supportUser));
         $this->assertArrayNotHasKey('code', $res->json('session'));
     }
 

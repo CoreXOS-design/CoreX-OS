@@ -29,7 +29,7 @@ class DeskConsoleController extends Controller
 
         return view('desk.console', [
             'sessions' => $this->visibleSessions($request)->open()->with('agent', 'agency', 'supportUser')->latest('id')->get(),
-            'consoleConfig' => ['canControl' => (bool) $request->user()->hasPermission('desk.control'), 'urls' => [
+            'consoleConfig' => ['canControl' => (bool) $request->user()->hasPermission('desk.control'), 'me' => \App\Support\Desk\DeskSupporterLabel::for($request->user()), 'urls' => [
                 'join' => route('corex.desk.join'),
                 'list' => route('corex.desk.sessions'),
                 'sessions' => url('corex/desk/sessions'),

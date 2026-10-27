@@ -38,7 +38,7 @@ class DeskSession extends Model
     protected $fillable = [
         'agency_id', 'user_id', 'support_user_id', 'status', 'otp_id', 'code_expires_at', 'started_at', 'joined_at', 'ended_at',
         'ended_by', 'ended_by_user_id', 'page_url_last', 'last_heartbeat_at', 'leaving_at', 'ip_address', 'user_agent',
-        'support_user_ids', 'control_support_user_id', 'control_state', 'control_tab', 'control_requested_at', 'control_granted_at', 'control_last_action_at',
+        'support_user_ids', 'support_display', 'control_support_user_id', 'control_state', 'control_tab', 'control_requested_at', 'control_granted_at', 'control_last_action_at',
     ];
 
     protected $casts = [
@@ -120,7 +120,8 @@ class DeskSession extends Model
             'status' => $this->status,
             'agent_name' => $this->agent?->name,
             'agency_name' => $this->agency?->name,
-            'support_name' => $this->supportUser?->name,
+            // The support person as the agent sees them: "Name — Organisation, Designation" (frozen at join time).
+            'support_name' => $this->support_display ?: $this->supportUser?->name,
             'page' => $this->page_url_last,
             'started_at' => $this->started_at?->toIso8601String(),
             'joined_at' => $this->joined_at?->toIso8601String(),

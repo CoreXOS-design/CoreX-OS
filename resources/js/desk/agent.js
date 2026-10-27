@@ -18,7 +18,7 @@ const forMain = (tab) => !tab || tab === 'main';
 /** Every input type rrweb can mask. maskInputFn below decides which ones really are (password + [data-desk-mask]). */
 const ALL_INPUT_TYPES = {
     color: true, date: true, 'datetime-local': true, email: true, month: true, number: true, range: true, search: true,
-    tel: true, text: true, time: true, url: true, week: true, textarea: true, select: true, password: true,
+    tel: true, text: true, time: true, url: true, week: true, textarea: true, password: true,   // (not select: rrweb then drops option.selected and the mirror shows the wrong choice)
 };
 
 function maskInput(text, el) {
@@ -254,6 +254,8 @@ function movePointer(p) {
     const el = pointerEl();
     if (!el || !p || typeof p.x !== 'number' || typeof p.y !== 'number') return;
     el.hidden = false;
+    const who = el.querySelector('span');
+    if (who) who.textContent = String((p && p.who) || (st && st.session.support_name) || 'Support').slice(0, 90);
     el.style.left = Math.round(Math.min(1, Math.max(0, p.x)) * window.innerWidth) + 'px';
     el.style.top = Math.round(Math.min(1, Math.max(0, p.y)) * window.innerHeight) + 'px';
     if (st) {
@@ -316,7 +318,7 @@ async function showHighlight(selector, note) {
     st.drv.highlight({
         element: target,
         popover: note
-            ? { title: 'CoreX support', description: note.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])), side: 'bottom' }
+            ? { title: String(st.session.support_name || 'CoreX support'), description: note.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])), side: 'bottom' }
             : undefined,
     });
 }
