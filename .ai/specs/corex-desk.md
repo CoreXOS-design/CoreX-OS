@@ -179,11 +179,11 @@ pointer error ≤ 3 px on a 5×5 grid, latencies, and the same after the agent's
 |---|---|---|
 | bytes sent when support joins | **503 KB** — three full snapshots of 167 KB each | **59 KB** — one snapshot, in two whispers |
 | one full snapshot, raw / on the wire | 906 KB / 165 KB | 384 KB / 59 KB |
-| join → first picture | 1.8 s | 1.6 s (the page's own load dominates; on a slow link the bytes above are what is saved) |
-| a change on the agent's page → in the mirror | 98 ms | 47 ms |
-| a keystroke → in the mirror | 82 ms | 33 ms |
+| join → first picture | 1.8 s | 1.5 s (the page's own load dominates; on a slow link the bytes above are what is saved) |
+| a change on the agent's page → in the mirror | 98 ms | 46 ms |
+| a keystroke → in the mirror | 82 ms | 35 ms |
 | support's pointer → agent's screen | 25 ms | 28 ms (unchanged: 25 moves a second) |
-| a 2 s storm of 600 attribute changes + 60 new nodes: messages / bytes | 30 / 22.8 KB | 31 / 24.4 KB (that run now also carries nothing the mirror cannot show) |
+| a 2 s storm of 600 attribute changes + 60 new nodes: messages / bytes | 30 / 22.8 KB | 31 / 22.0 KB (that run now also carries nothing the mirror cannot show) |
 
 *What was ours and is now cut* (all in `resources/js/desk/`):
 1. **One snapshot, not three.** On join the agent used to send a snapshot when its recorder started (before the console had even subscribed — it went nowhere),
@@ -247,10 +247,15 @@ not see. Now **every CoreX tab the agent has — the one that asked for the code
 - **Audit.** `tab_join`, `tab_update`, `tab_leave`, `control_moved` rows (CoreX tabs read "CoreX tab - title (path)").
 
 Proof (`newtab-proof.mjs`, two real Chromiums on QA1, both `target="_blank"` link and `window.open` button): the agent clicks a CoreX button that opens a new
-tab → the console lists it and switches to it (**about 0.3–0.5 s after the new page's HTML arrives; 1.3–2 s from the click** — the property page's own server answer
-is ~0.9 s of that) and shows its picture once the page has loaded (~3 s from the click); the red bar is in both tabs, no second code; Request control → Allow in
-the new tab → In control in ~0.4 s → a click in the viewer replays in the new tab; closing the new tab returns the console to the first within ~2–3 s; the audit
-trail holds `tab_join` and `tab_leave`.
+tab → the console lists it and switches to it **about 0.3–0.5 s after the new page's HTML arrives**: **0.8 s from the click** for an ordinary page (contacts), 1.4–2.4 s
+for the heavy property page (its own server answer is 0.9–2 s of that, depending on how busy QA1 is) — and shows its picture once the page has loaded (1.7–1.9 s from
+the click for contacts, 3–3.8 s for the property page); the red bar is in both tabs, no second code; Request control → Allow in the new tab → In control in ~0.4 s → a
+click in the viewer replays in the new tab; closing the new tab returns the console to the first within ~2–3 s; the audit trail holds `tab_join` and `tab_leave`.
+`follow-proof.mjs`: in control, support clicks (through the viewer) a button that opens a new tab → the console switches to it still In control with the amber frame
+in ~0.9 s, the new tab's bar says support is in control (no second Allow), the first tab goes back to Viewing, and the next click replays in the new tab.
+**Regression found and fixed by the old click-grid proof:** a tab that navigates sends "leaving" (old page) and "joined" (new page) at the same instant, two PHP
+workers could handle them in either order and the tab was dropped from the console; now each only records its own time and a tab is left only if its latest leave is
+newer than its latest join (order-proof), and a heartbeat that finds its tab missing from the server's list joins again.
 
 ### 4g. The highlight (27 Oct 2026)
 
