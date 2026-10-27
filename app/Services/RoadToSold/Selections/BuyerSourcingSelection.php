@@ -75,6 +75,34 @@ final class BuyerSourcingSelection extends MicPoolSelection
         $q->orderByDesc('bm.buyers')->orderByDesc('bm.best');
     }
 
+    /** "3 of your buyers match: Piet, Sanet, Jo" / "Agency has 2 buyers (Piet · agent Anna, Sanet · agent Jo)" - the buyers behind the count. */
+    protected function explain(object $row, SelectionContext $ctx): array
+    {
+        $mine = $this->key === self::MINE;
+        $ids = $ctx->identityIds ?: [$ctx->user->id];
+        $q = \Illuminate\Support\Facades\DB::table('prospecting_buyer_matches as pbm')
+            ->join('contacts as c', 'c.id', '=', 'pbm.contact_id')
+            ->leftJoin('users as u', 'u.id', '=', 'c.agent_id')
+            ->where('pbm.agency_id', $ctx->agencyId)->where('pbm.prospecting_listing_id', (int) $row->listing_id)
+            ->whereNull('pbm.dismissed_at')->whereIn('pbm.tier', $ctx->settings->buyerMatchTiers)
+            ->whereNull('c.deleted_at')->where('c.is_buyer', 1)->whereIn('c.buyer_state', $ctx->settings->buyerActiveStates)
+            ->when($mine, fn ($w) => $w->where(fn ($x) => $x->whereIn('c.agent_id', $ids)->orWhereIn('c.second_agent_id', $ids)))
+            ->selectRaw('c.id, c.first_name, c.last_name, u.name as agent_name, MAX(pbm.score) as score')
+            ->groupBy('c.id', 'c.first_name', 'c.last_name', 'u.name')
+            ->orderByDesc('score')->orderBy('c.id')->limit(12);
+        $buyers = $q->get()->map(fn ($b) => ['id' => (int) $b->id, 'name' => trim($b->first_name . ' ' . $b->last_name), 'agent' => $b->agent_name, 'score' => (int) $b->score])->all();
+        if ($buyers === []) {
+            return ['line' => $this->reason($row, $ctx), 'facts' => null];
+        }
+        $out = $mine ? \App\Services\RoadToSold\Reasons\ReasonLine::myBuyers($buyers) : \App\Services\RoadToSold\Reasons\ReasonLine::agencyBuyers($buyers);
+        // the count the ranking used can include buyers beyond the twelve read here
+        if ((int) $row->buyers > count($buyers)) {
+            $out['facts']['count'] = (int) $row->buyers;
+        }
+
+        return $out;
+    }
+
     protected function reason(object $row, SelectionContext $ctx): string
     {
         $n = (int) $row->buyers;

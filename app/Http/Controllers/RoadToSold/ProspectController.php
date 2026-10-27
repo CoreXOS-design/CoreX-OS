@@ -124,6 +124,29 @@ class ProspectController extends Controller
         return back()->with('status', 'Saved: ' . ProspectStages::label($data['stage']) . '.');
     }
 
+    /**
+     * Give the property back to the pool (spec 22.6). Needs the release key, the prospect inside the viewer's breadth (404 outside), and a
+     * reason - which is kept on the prospect's history together with who gave it back. Not limited to the viewer's own list: a manager releases
+     * an agent's property.
+     */
+    public function release(Request $request, int $prospect): RedirectResponse
+    {
+        $viewer = $request->user();
+        abort_unless($viewer->hasPermission('road_to_sold.release_prospects'), 403, 'You may not give a property back.');
+        $p = $this->find($request, $prospect, false);
+        $data = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:255']], [
+            'reason.required' => 'Say why you are giving it back.',
+            'reason.min'      => 'Say a little more about why you are giving it back.',
+            'reason.max'      => 'Keep the reason under 255 characters.',
+        ]);
+        if ($p->closed_at !== null || $p->released_at !== null) {
+            return back()->with('rts_error', 'That property is not held by an agent any more.');
+        }
+        $this->prospects->release($p, $viewer, trim($data['reason']));
+
+        return back()->with('status', 'Given back. The property can be offered to another agent again.');
+    }
+
     /** A prospect's story, in a pop-up (chrome-less when framed). A manager may read it: scoping is the query. */
     public function history(Request $request, int $prospect)
     {

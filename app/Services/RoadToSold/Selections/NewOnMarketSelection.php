@@ -44,6 +44,13 @@ final class NewOnMarketSelection extends MicPoolSelection
         $q->orderByDesc('on_market_since');
     }
 
+    protected function explain(object $row, SelectionContext $ctx): array
+    {
+        $days = (int) Carbon::parse($row->on_market_since)->startOfDay()->diffInDays(Carbon::instance($ctx->date)->startOfDay());
+
+        return \App\Services\RoadToSold\Reasons\ReasonLine::newOnMarket($days, (bool) $row->listed_date, $row->portal_source === 'pp' ? 'Private Property' : 'Property24');
+    }
+
     protected function reason(object $row, SelectionContext $ctx): string
     {
         $days = (int) Carbon::parse($row->on_market_since)->startOfDay()->diffInDays(Carbon::instance($ctx->date)->startOfDay());

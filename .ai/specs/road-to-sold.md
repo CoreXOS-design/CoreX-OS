@@ -2145,3 +2145,27 @@ Three lanes build from this section in parallel; the conductor assigns people. *
 - **Steps whose screen does not take the property / contact in its address yet** (presentation create, e-sign create, deal create, calendar, core matches, viewing packs) open the screen as it is and rely on the agent choosing; each prefill is a one-line change in `ProspectStepService::urlFor` when the screen reads it. Find owner and Pitch are pre-filled by lane D's pitch path. The calendar "Book evaluation" from a call is still the outcome pop-up (R10 is lane A's).
 - **Close always reloads** the page (simple and correct; no partial refresh of one card).
 - Not verified here: how each existing screen behaves inside the frame beyond chrome removal (a screen with its own full-page assumptions may need a pass) - listed for Johan's walk.
+
+### 22.21 Build log - lane A follow-on: reason lines and release (AT-454, QA1, 27 Oct 2026)
+
+**Reason lines (R4, 22.5) - built.** `app/Services/RoadToSold/Reasons/ReasonLine.php` is the one place the wording lives. Each source builds its line from facts it already reads, at the moment the property is offered, and the line and its structured facts are stored on the list item (`reason`, `reason_facts`) and, at first offer, on the prospect - so the reason is what it was WHEN OFFERED and is not rewritten when the market moves. The intake rows expose `why` (the line) and `why_facts`; the prospect rows already carry `reason` and `reason_facts`. The lines (sentence case):
+
+| Source | Line |
+|---|---|
+| my buyers | `3 of your buyers match: Sanet, Jo, Piet` (best match first; 1 buyer: `1 of your buyers matches: ...`; more than three: `..., and 2 more`) |
+| agency buyers | `Agency has 2 buyers (Piet · agent Anna, Sanet · agent Mia)` (the owning agent per buyer, 13 Oct ruling) |
+| hot pocket | `Hot pocket: 12 sales / 180 days` (leads and buyers join when the pocket has them; the area is in the facts) |
+| price drop | `Price drop R120k on 3 Oct` (old, new, percentage in the facts) |
+| new on market | `New on market 4 days` / `... (first seen by us)` when the portal gave no listed date |
+| long on market | `Long on market 112 days` / `Long on market at least 112 days (first seen by us)` |
+| expired competitor | `Expired with Pam Golding 12 Oct` / `Expired on Property24 12 Oct` when the agency is not known (Johan's wording; the facts keep that the portal said WITHDRAWN on that date) |
+| owner on file | `Owner on file: Piet Botha, last called 12 Sep` |
+| my expired stock | `Your mandate expired 12 Oct` |
+| my stock not selling | `Your listing: 61 days on market, 14 views, 0 enquiries in 30 days` |
+| follow-up | `Follow-up: Spoke - call back, due 13 Oct` / `Back from parked (Cannot be reached), due 15 Oct` |
+| found by you | `You found this on 12 Oct (Drive an Area)` |
+
+Decisions: buyer names are **first names only** (the owning agent's first name beside them for the agency line); an agency buyer's name is shown because the 13 Oct ruling asks for it - 22.5's ContactScope restriction was not built. The count shown is the count the ranking used.
+
+**Release (22.6) - built.** Permission `road_to_sold.release_prospects` ("Give an agent's property back to the pool (reason required)"): owner roles by the owner rule, admin by all-minus-exclude, branch managers in their default list; agents hold no key. `POST /road-to-sold/prospects/{prospect}/release` (`road-to-sold.prospects.release`): needs the key, the prospect inside the viewer's own / branch / agency breadth (404 outside, never across an agency), and a **reason** (3-255 characters). It calls `ProspectService::release`, which stamps who and when, writes a `release` line to the prospect's history with the reason, closes the agent's open list rows for the property, **and hands back what the agent held in Market Intelligence on it** (their active claim on any of its adverts through `ProspectingClaimService::releaseClaim`, and their pitch lock through the new `ProspectingClaimService::releaseLock`, reason code `manual_release`). The page shows a **Release** button on prospect cards and on Parked rows, only to someone holding the key, with one reason pop-up (`_release-modal`); the pop-up is the page lane's to restyle.
+

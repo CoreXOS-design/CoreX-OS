@@ -68,7 +68,8 @@ final class ExpiredCompetitorSelectionTest extends TestCase
 
         $this->assertSame([$id], $items->pluck('prospecting_listing_id')->all());
         $this->assertSame('expired_competitor', $items->first()->selection);
-        $this->assertSame('Withdrawn from Property24 5 days ago (listed by Sam Realty)', $items->first()->reason);
+        $this->assertSame('Expired with Sam Realty 9 Oct', $items->first()->reason);
+        $this->assertSame('2026-10-09', $items->first()->reason_facts['withdrawn_on']);
     }
 
     public function test_only_what_was_withdrawn_inside_the_agencys_look_back_is_offered(): void

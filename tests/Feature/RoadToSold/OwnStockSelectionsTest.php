@@ -47,8 +47,8 @@ final class OwnStockSelectionsTest extends TestCase
         $c = (new MyExpiredStockSelection())->candidates($this->ctx(), 50);
 
         $this->assertSame([$recent, $older, $noDate, $noAddr], $this->propertyIds($c));
-        $this->assertSame('Your mandate expired on 1 Oct 2026 — pitch again', $c[0]->reason);
-        $this->assertSame('Your mandate has expired — pitch again', $c[2]->reason);
+        $this->assertSame('Your mandate expired 1 Oct', $c[0]->reason);
+        $this->assertSame('Your mandate has expired', $c[2]->reason);
         $this->assertFalse($c[3]->hasAddress);
         foreach ([$mates, $active, $rental, $deleted] as $never) {
             $this->assertNotContains($never, $this->propertyIds($c));
@@ -135,7 +135,7 @@ final class OwnStockSelectionsTest extends TestCase
         $c = (new MyStockNotSellingSelection())->candidates($this->ctx(), 50);
 
         $this->assertSame([$stuck1, $stuck2], $this->propertyIds($c));
-        $this->assertSame('120 days on the market, only 12 views and 1 enquiry in the last 30 days', $c[0]->reason);
+        $this->assertSame('Your listing: 120 days on market, 12 views, 1 enquiry in 30 days', $c[0]->reason);
         $this->assertNotContains($mates, $this->propertyIds($c));
     }
 
