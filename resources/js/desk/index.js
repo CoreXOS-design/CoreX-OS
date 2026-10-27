@@ -4,7 +4,6 @@
 
 const cfg = window.CorexDesk;
 const KEY = 'corex.desk.session';
-const TAB_KEY = 'corex.desk.tab';
 const $ = (id) => document.getElementById(id);
 
 // The session belongs to the USER (spec section 4f), so what a tab remembers is shared by all of them: localStorage, not sessionStorage. The code is
@@ -16,54 +15,9 @@ function stored() {
     try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { return null; }
 }
 
-// ── This tab's key ("main" = the tab that started the session; "c<letters>" = every other CoreX tab) ───────────────
-// Kept in sessionStorage so the tab keeps its key across its own page changes. A tab opened from another one can inherit that storage (a copy of the
-// opener's key), so the key is also claimed with a Web Lock held for as long as the page lives: if someone else already holds it, this tab takes a new one.
-function tryLock(key) {
-    return new Promise((resolve) => {
-        if (!navigator.locks || !navigator.locks.request) { resolve(true); return; }
-        navigator.locks.request('corex-desk-tab-' + key, { ifAvailable: true }, (lock) => {
-            if (!lock) { resolve(false); return null; }
-            resolve(true);
-            return new Promise(() => {});   // held until the page goes away
-        }).catch(() => resolve(true));
-    });
-}
-const randomKey = () => 'c' + Math.random().toString(36).slice(2, 8).replace(/[^a-z0-9]/g, 'x').padEnd(5, 'x');
-
-let tabKeyPromise = null;
-function tabKey(wantMain) {
-    if (tabKeyPromise) return tabKeyPromise;
-    tabKeyPromise = (async () => {
-        let k = null;
-        try { k = sessionStorage.getItem(TAB_KEY); } catch (e) { /* private mode */ }
-        if (k && !/^(main|c[a-z0-9]{3,10})$/.test(k)) k = null;
-        if (k) {
-            let ok = await tryLock(k);
-            if (!ok) { await new Promise((r) => setTimeout(r, 350)); ok = await tryLock(k); }   // our own previous page may still be letting go
-            if (!ok) k = null;
-        }
-        if (!k && wantMain && await tryLock('main')) k = 'main';
-        while (!k) { const c = randomKey(); if (await tryLock(c)) k = c; }
-        try { sessionStorage.setItem(TAB_KEY, k); } catch (e) { /* private mode */ }
-        return k;
-    })();
-    return tabKeyPromise;
-}
-
-async function api(method, url, body) {
-    try {
-        const r = await fetch(url, {
-            method,
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': cfg.csrf, 'X-Requested-With': 'XMLHttpRequest' },
-            body: body ? JSON.stringify(body) : undefined,
-        });
-        return { ok: r.ok, status: r.status, json: await r.json().catch(() => ({})) };
-    } catch (e) {
-        return { ok: false, status: 0, json: {} };
-    }
-}
+// This tab's key ("main" = the tab that started the session, "c<letters>" = every other CoreX tab) is worked out by the inline script in
+// layouts/partials/desk-client.blade.php, which also sends the tab's join call as the page starts (so support sees a new tab as early as possible).
+const tabKey = (wantMain) => window.CorexDeskTabKey(!!wantMain);
 
 // ── UI ───────────────────────────────────────────────────────────────────────────
 
@@ -148,7 +102,7 @@ const ui = {
 async function startAgent(session, wantMain) {
     const key = await tabKey(!!wantMain);
     const agent = await import('./agent.js');
-    agent.start({ cfg, session, api, ui, tabKey: key });
+    agent.start({ cfg, session, api, ui, tabKey: key, earlyJoin: window.CorexDeskEarlyJoin || null });
     return agent;
 }
 

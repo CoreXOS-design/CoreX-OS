@@ -49,6 +49,50 @@
     ];
 @endphp
 <script>window.CorexDesk = @json($__deskConfig);</script>
+@if($__deskCanRequest && $__deskEnabled)
+{{-- This tab's key, and - when a session is already live for this user - the tab's "I have joined" call, sent the moment the page starts parsing (not after the
+     Desk scripts have downloaded): a tab opened by a button in CoreX shows up in support's console as early as it possibly can (spec section 4f).
+     "main" = the tab that started the session, "c<letters>" = every other CoreX tab. The key is kept in sessionStorage so a tab keeps it across its own page
+     changes; a tab opened from another can inherit a COPY of that storage, so the key is also claimed with a Web Lock held for as long as the page lives. --}}
+<script>
+(function () {
+    var cfg = window.CorexDesk, TAB = 'corex.desk.tab', REPLAY = 'corex.desk.replay', memo = null;
+    function lock(k) {
+        return new Promise(function (res) {
+            if (!navigator.locks || !navigator.locks.request) { res(true); return; }
+            navigator.locks.request('corex-desk-tab-' + k, { ifAvailable: true }, function (l) { if (!l) { res(false); return null; } res(true); return new Promise(function () {}); }).catch(function () { res(true); });
+        });
+    }
+    function rnd() { return 'c' + Math.random().toString(36).slice(2, 8).replace(/[^a-z0-9]/g, 'x').padEnd(5, 'x'); }
+    window.CorexDeskTabKey = function (wantMain) {
+        if (memo) return memo;
+        memo = (async function () {
+            var k = null;
+            try { k = sessionStorage.getItem(TAB); } catch (e) {}
+            if (k && !/^(main|c[a-z0-9]{3,10})$/.test(k)) k = null;
+            if (k) { var ok = await lock(k); if (!ok) { await new Promise(function (r) { setTimeout(r, 350); }); ok = await lock(k); } if (!ok) k = null; }
+            if (!k && wantMain && await lock('main')) k = 'main';
+            while (!k) { var c = rnd(); if (await lock(c)) k = c; }
+            try { sessionStorage.setItem(TAB, k); } catch (e) {}
+            return k;
+        })();
+        return memo;
+    };
+    var cur = cfg.current;
+    if (cur && cur.status === 'live') {
+        var saved = null; try { saved = JSON.parse(localStorage.getItem('corex.desk.session') || 'null'); } catch (e) {}
+        window.CorexDeskEarlyJoin = window.CorexDeskTabKey(!!(saved && saved.id === cur.id && saved.tab === 'main')).then(function (key) {
+            var body = { action: 'join', tab: key, path: location.pathname, title: document.title || '' };
+            try { var rec = JSON.parse(localStorage.getItem(REPLAY) || 'null'); if (rec && rec.tab && rec.tab !== key && Date.now() - rec.t < 10000) body.from = rec.tab; } catch (e) {}
+            return fetch(cfg.urls.sessions + '/' + cur.id + '/tabs', { method: 'POST', credentials: 'same-origin', keepalive: true,
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': cfg.csrf, 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify(body) })
+                .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, json: j }; }, function () { return { ok: r.ok, status: r.status, json: {} }; }); })
+                .catch(function () { return { ok: false, status: 0, json: {} }; });
+        });
+    }
+})();
+</script>
+@endif
 @if($__deskCanRequest)
 <style>
     #corex-desk-bar { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; gap: .75rem; padding: .25rem .75rem; background: #b91c1c; color: #fff; font-size: .75rem; font-weight: 600; line-height: 1.25rem; }

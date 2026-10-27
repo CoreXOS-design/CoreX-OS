@@ -105,7 +105,8 @@ export function start(ctx) {
         st.listenerKnown = true;   // support is already in the session (this is a page change, or a tab opened later): its console is listening, so the first picture goes out at once
         ui.joined(session.support_name);
         beginRecording();
-        registerTab('join');
+        // (the page's own inline script already sent this tab's join call as the page started; its answer is read here)
+        if (ctx.earlyJoin) { st.registered = 'inflight'; ctx.earlyJoin.then((r) => joined(r)); } else registerTab('join');
         // A page change must not drop a take-over (or a pending request): pick it up again from the session.
         const c = session.control || {};
         if (forMe(c.tab) && c.state === 'requested') askControl(session.support_name);
@@ -134,7 +135,11 @@ async function registerTab(action) {
         const rec = JSON.parse(localStorage.getItem(REPLAY_KEY) || 'null');
         if (rec && rec.tab && rec.tab !== st.tab && Date.now() - rec.t < REPLAY_WINDOW_MS) body.from = rec.tab;
     } catch (e) { /* storage blocked */ }
-    const r = await st.api('POST', st.cfg.urls.sessions + '/' + st.session.id + '/tabs', body);
+    joined(await st.api('POST', st.cfg.urls.sessions + '/' + st.session.id + '/tabs', body));
+}
+
+/** The answer to this tab's join call. */
+function joined(r) {
     if (!st) return;
     st.registered = r.ok ? true : false;
     if (!r.ok) {
