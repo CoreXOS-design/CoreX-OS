@@ -366,6 +366,7 @@ function showSelected() {
     cur.tabs.forEach((t) => { t.root.hidden = t.key !== cur.selected; });
     const tab = cur.tabs.get(cur.selected);
     $('cdc-wait').hidden = !!(tab && tab.replayer);
+    $('cdc-wait').textContent = tab && tab.key !== MAIN && isCoreXTab({ tab: tab.key, host: tab.host }) ? 'Waiting for the new tab to finish loading…' : "Waiting for the agent's window…";
     if (tab && tab.replayer) fit();
     if (tab && tab.page) $('cdc-page').textContent = tab.page;
 }
