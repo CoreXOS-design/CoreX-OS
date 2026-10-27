@@ -529,7 +529,9 @@ function chooseOption(tab, el, selector) {
     Array.from(el.options).forEach((o) => { const op = document.createElement('option'); op.value = o.value; op.textContent = o.textContent; sel.appendChild(op); });
     // (select.remove() is the dropdown's own remove-an-option method - the list has to be taken out through its parent.) Change closes it and the
     // blur that follows must not try again.
-    const close = () => { if (sel.parentNode) sel.parentNode.removeChild(sel); };
+    // Removing a focused element fires its blur synchronously - inside the removal - so a flag, not a parentNode check, keeps it to one removal.
+    let closed = false;
+    const close = () => { if (closed) return; closed = true; if (sel.parentNode) sel.parentNode.removeChild(sel); };
     sel.addEventListener('change', () => { sendAction(tab, { type: 'select', s: selector, v: sel.value }); close(); });
     sel.addEventListener('blur', close);
     $('cdc-live').appendChild(sel);   // inside the viewer, so it shows in full screen too
