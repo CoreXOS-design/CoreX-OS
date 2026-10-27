@@ -1475,5 +1475,11 @@
       "NO_ITEM"
     ],
     "reason": "Redirect-only address (agency-tracker-rehome.md step 8): the TV Messages screens moved to Settings > TV Display (corex.settings.tv-display.index), and this old name answers a 301 to it. It has no menu item of its own any more - by design - and never renders a page, so there is nothing to light."
+  },
+  "corex.documents.file": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "Not a page: the ONE authenticated, scope-checked file stream for a stored document (.ai/specs/private-document-storage.md) - the address behind every Open / Download button on a document row. It has no screen of its own, so there is nothing for the sidebar to point at; access is decided per document by DocumentAccessService::authorise()."
   }
 }
