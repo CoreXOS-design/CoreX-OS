@@ -55,13 +55,35 @@ Base: `/api/v1/mobile/rental-inspections` (group permission `rental_inspections.
 
 The web's completion rules apply unchanged: a draft only is editable; completing is refused while a room is unvisited, a party has neither signed nor refused, anyone awaits a wet-ink scan, or the agent has not signed.
 
-## 3. Tests
+## 3. Leases, notices, breaches, rental applications
 
-- `tests/Feature/Api/MobileInspectionLifecycleTest.php`
-- `tests/Feature/Api/MobileInventoryLifecycleTest.php`
+Two mechanisms, both "the web action itself":
 
-Each proves: the action works through the phone's bearer token; the web's refusals pass through; another agency is `404`; a viewer is `403`; an archived record is `410`.
+- **`MobileRentalLeaseActionsController`** (`RunsWebAction`): runs the web controller's action in-process and answers its outcome as JSON, merging the lease as the phone's lease file shows it (`lease`). Routes under `/api/v1/mobile/leases/{lease}/...`: `PUT /` (edit), `PUT /agents`, `PUT /notice-terms`, `POST /notice-terms/confirm`, `POST /expiry-notice/send`, `POST /expiry-notice/mark-given`, `POST /activate`, `POST /cancel` (`cancel_reason`), `POST /escalate`, `POST /archive` (`archive_reason`), `POST /restore`, `POST /run-date-checks`, `POST /signing/prepare`, `/signing/prepare-again`, `/signing/signed-copy`, `POST /renewal/cancel-draft`, `POST /breaches`, `POST /notice-cases` (the agent records a notice given), `POST /notices` (send a templated notice). Plus `POST /mobile/rental-notices/{notice}/accept` (accept a notice, with the correcting date, note and the three-way outcome).
+- **`mobile.web-action` middleware** (`App\Http\Middleware\MobileWebAction`): used where a mobile route points *straight* at the web action (so route binding, form requests, guards and permissions are the web's own). It marks the request as wanting JSON, then turns a redirect into JSON: a flashed error or error bag -> `409 {ok:false, message, errors, code:"refused"}`; any other redirect -> `200 {ok:true, message, warning, redirect}` where `redirect` is the web path it would have opened (how the app learns the id of a record it just created).
 
-## 4. Not in this addendum (Johan's 27 Oct instruction: nothing new)
+Generated this way from the web route table, with each route's own permission keys copied across: faults (edit, archive, restore, cancel, owner decision / questions / version, send to owner / inspect / authorise, raise work order, reclassify, repair anyway, resume, tenant confirmation, photo marks and notes), work orders (edit, archive, restore, access contact, appointment, approval, cancel, completion rounds, contractor appoint / done / resend / WhatsApp, cost authorise / owner decision / same call, dispute seen, emergency approval void, external fee, invoices edit / archive / restore / share, notes, owner contractor, quotes add / edit / archive / restore / select, send back, start progress, variations decide / resend, who pays), job cards (create, archive, restore, agent / worker sign-off, assign crew, cancel, complete, crew lines accept / reject, crew link issue / revoke / email / send, lines, mark-up, price requests, schedule, send quote, signed copy, start, tasks, tenant confirm), the rest of the inspection screen (planned dates add / edit / skip / reopen / archive / restore, print-for-signature with a link, resend to one recipient, the paper site form scan upload / apply / delete, the move-out comparison finding, follow-up fault reports, checklist items add / rename / retire / restore / retype / reorder, rooms reorder / default order / add missing standard items, build from advertising / the standard checklist, photo pairing / auto-pair / unpair), breaches (bulk send, remedy, vacate, archive, restore), notices sent (resend, archive, restore), notices received (edit, archive, restore), the remaining lease actions (portal access setup / invite / switch, co-applicant contact, deposit deductions reviewed), and **rental applications: create the contact (quick-create), create the application, send it, share the link, re-issue the link — nothing else** (Johan: reviewing documents and authorising stay on the web).
 
-Not built, because they do not exist on the web today: staff screens for rent / deposit / lease fee by role; any notice screen without a Reject; a staff "record the contractor's answer" screen with a mandatory note on the web; CPA-versus-business classification of a notice.
+**Never routed to the phone:** *Edit report* (reopen) on an inspection; *Reject* on a received notice (Johan: an agency can only act on a notice). Both are asserted absent in the tests.
+
+Responses: `422 {message, errors, code:"invalid"}` for the web's validation; `403/404/410` for permission, scope, archived; `409 {message, code:"refused"}` for a business refusal in the web's own words.
+
+## 4. Extra reads the web screens have
+
+| Method + path | What it is | Permission |
+|---|---|---|
+| `GET /mobile/rental-job-cards` | The web job-card list: `q`, `status`, `rental_crew_id`, `property_id`, `date_from`, `date_to`, `overdue`, `needs_pricing`, `awaiting_owner`, `variation_pending`, `archived`, `scope`, `sort`, `direction`, `page`. It *is* `RentalJobCardListQuery`, the object the web list and print-out share. Rows carry no money. | `rental_job_cards.view` |
+| `GET /mobile/rental-suppliers` | The contractors an agent picks from to assign a work order (`agency_service_provider_id` for `POST /mobile/work-orders/{id}/assign-supplier`): `q`, `kind`, `page`; active only, preferred first | `rental_work_orders.view` |
+| `GET /mobile/properties/{property}/rental-inspection-tab` | The web inspection tab's data, including the photo pairing and compare data | `rental_inspections.view` |
+| `GET /mobile/properties/{property}/rental-inspection-rooms/missing-standard-items` | Standard items a room is missing | `rental_inspections.view` |
+| `GET /mobile/rental-inspections/{id}/attendance`, `/form`, `/signatures/{signature}/{kind}` | Who attended; the printable paper site form; a signature or wet-ink scan file | `rental_inspections.view` |
+
+## 5. Tests
+
+- `tests/Feature/Api/MobileInspectionLifecycleTest.php`, `MobileInventoryLifecycleTest.php`, `MobileLeaseActionsTest.php`
+- `tests/Feature/Api/MobileMaintenanceActionsTest.php`, `MobileInspectionWebActionsTest.php`, `MobileNoticesAndApplicationsTest.php` — each checks *the whole generated set*: every route carries the web's permission keys, a viewer is refused on every route that needs more than view, another agency gets `404` on every route that names a record, and the forbidden routes (Edit report, Reject, application review) do not exist.
+- `tests/Feature/Api/MobileMaintenanceReadsTest.php`
+
+## 6. Not in this addendum (Johan's 27 Oct instruction: nothing new)
+
+Not built, because they do not exist on the web today: staff screens for rent / deposit / lease fee by role; a notice screen without a Reject; a staff "record the contractor's answer" screen with a mandatory note on the web; CPA-versus-business classification of a notice. Still to do (web reads that are Blade views with no JSON twin, so they need a read wrapper first): the breach register list, the notices-sent list, the rental-applications list, the move-out deposit comparison data for an inspection, and the lease "who signs" party check. These are the next slice.

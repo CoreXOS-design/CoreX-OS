@@ -120,6 +120,8 @@ return Application::configure(basePath: dirname(__DIR__))
                 'auth.wa_capture' => \App\Http\Middleware\AuthenticateWaCapture::class,
                 'waha.webhook' => \App\Http\Middleware\VerifyWahaWebhook::class,
                 'permission' => \App\Http\Middleware\CheckPermission::class,
+                // Mobile parity: a mobile route pointed straight at a web action that answers a redirect gets its outcome as JSON.
+                'mobile.web-action' => \App\Http\Middleware\MobileWebAction::class,
                 // leases.md §15.8.4 (Build L3c) — a lease agreement's final approval checks the document against its lease.
                 'lease.agreement.confirmed' => \App\Http\Middleware\EnsureLeaseAgreementConfirmed::class,
                 // Per-agency feature gate — orthogonal to permission; 404s when a
