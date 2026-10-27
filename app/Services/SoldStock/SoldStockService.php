@@ -210,7 +210,8 @@ class SoldStockService
         ]));
 
         // Cycle counter + clear the sold grace; query update = no observer recursion.
-        Property::withoutGlobalScopes()->whereKey($property->id)->update(['listing_cycle' => $next, 'portal_sold_until' => null]);
+        // DB::table (not Eloquent) so the property's updated_at is not bumped by bookkeeping.
+        DB::table('properties')->where('id', $property->id)->update(['listing_cycle' => $next, 'portal_sold_until' => null]);
         $property->setAttribute('listing_cycle', $next);
         $property->setAttribute('portal_sold_until', null);
         $property->syncOriginalAttributes(['listing_cycle', 'portal_sold_until']);
@@ -281,7 +282,7 @@ class SoldStockService
             return;
         }
         $until = Carbon::parse($saleDate ?? now())->startOfDay()->addDays(self::showDays($property->agency_id))->toDateString();
-        Property::withoutGlobalScopes()->whereKey($property->id)->update(['portal_sold_until' => $until]);
+        DB::table('properties')->where('id', $property->id)->update(['portal_sold_until' => $until]); // no updated_at bump
         $property->setAttribute('portal_sold_until', $until);
         $property->syncOriginalAttributes(['portal_sold_until']);
     }
@@ -291,7 +292,7 @@ class SoldStockService
         $row = SoldStock::withoutGlobalScope(AgencyScope::class)
             ->where('property_id', $property->id)->where('cycle_no', (int) ($property->listing_cycle ?: 1))->first();
         $row?->delete();
-        Property::withoutGlobalScopes()->whereKey($property->id)->update(['portal_sold_until' => null]);
+        DB::table('properties')->where('id', $property->id)->update(['portal_sold_until' => null]);
     }
 
     /** The deal that sold this property: a registered one first, else the latest granted. */
