@@ -355,6 +355,11 @@ function fit() {
     rep.style.left = Math.max(0, Math.floor((aw - w * scale) / 2)) + 'px';
     rep.style.top = Math.max(0, Math.floor((ah - h * scale) / 2)) + 'px';
     tab.root.style.width = rep.style.width; tab.root.style.height = rep.style.height;
+    // The wrapper is a block: left alone it is only as wide as its parent (the SCALED width), and the transform then shrinks that box again - so the
+    // part of the window that answered the mouse was scale x scale of it (the pointer "only reached 65% across" at a 0.65 scale). Give it the agent's
+    // own window size, so what you see is exactly what you can point at.
+    wrapper.style.width = w + 'px';
+    wrapper.style.height = h + 'px';
     wrapper.style.transformOrigin = 'top left';
     wrapper.style.transform = 'scale(' + scale + ')';
 }
