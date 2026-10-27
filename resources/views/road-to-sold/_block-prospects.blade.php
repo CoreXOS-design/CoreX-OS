@@ -29,13 +29,14 @@
 
     @if($stageCounts)
         {{-- R9: the manager's per-stage figures, one small tile per stage: how many now, how many entered this month, average days, stalled, and the recipe step's own on-track state. --}}
-        <div data-qa="stage-counts" style="display: grid; gap: .4rem; grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));">
+        <div data-qa="stage-counts" style="display: grid; gap: .3rem; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));">
             @foreach($stageCounts as $sc)
-                @php $st = $sc['step_state']; $edge = match ($st) { 'achieved', 'ahead', 'on_track' => 'var(--ds-green, #059669)', 'needs_a_push' => 'var(--ds-amber, #f59e0b)', 'behind' => 'var(--ds-red, #f87171)', default => 'var(--border)' }; @endphp
-                <div class="rounded-md px-2 py-1 text-xs" style="background: var(--surface); border: 1px solid var(--border); border-left: 4px solid {{ $edge }}; color: var(--text-primary);" title="{{ $sc['stalled'] > 0 ? $sc['stalled'] . ' stalled' : '' }}">
-                    <div class="font-semibold">{{ $sc['label'] }}</div>
-                    <div><strong>{{ $sc['now'] }}</strong> now &middot; {{ $sc['entered'] }} in{{ $sc['avg_days'] !== null ? ' &middot; ' . $sc['avg_days'] . 'd' : '' }}@if($sc['stalled'] > 0) &middot; <span class="rts-due-overdue">{{ $sc['stalled'] }} stalled</span>@endif</div>
-                    <div style="color: var(--text-muted);">On track: {{ $st ? ucfirst(str_replace('_', ' ', $st)) : '-' }}</div>
+                @php $st = $sc['step_state']; $edge = match ($st) { 'achieved', 'ahead', 'on_track' => 'var(--ds-green, #059669)', 'needs_a_push' => 'var(--ds-amber, #f59e0b)', 'behind' => 'var(--ds-red, #f87171)', default => 'var(--border)' }; $quiet = $sc['now'] === 0 && $sc['entered'] === 0; @endphp
+                <div class="rounded-md px-2 text-[11px]" style="padding-top: .15rem; padding-bottom: .15rem; background: var(--surface); border: 1px solid var(--border); border-left: 4px solid {{ $edge }}; color: var(--text-primary);" title="{{ $sc['label'] }}: {{ $sc['now'] }} now, {{ $sc['entered'] }} entered this month{{ $sc['avg_days'] !== null ? ', ' . $sc['avg_days'] . ' days on average' : '' }}{{ $sc['stalled'] > 0 ? ', ' . $sc['stalled'] . ' stalled' : '' }}. On track: {{ $st ? ucfirst(str_replace('_', ' ', $st)) : 'no target' }}">
+                    <div class="flex items-center justify-between gap-1"><span class="font-semibold truncate">{{ $sc['label'] }}</span><strong>{{ $sc['now'] }}</strong></div>
+                    @unless($quiet)
+                        <div style="color: var(--text-muted);">{{ $sc['entered'] }} in{{ $sc['avg_days'] !== null ? ' · ' . $sc['avg_days'] . 'd' : '' }}@if($sc['stalled'] > 0) · <span class="rts-due-overdue">{{ $sc['stalled'] }} stalled</span>@endif · {{ $st ? ucfirst(str_replace('_', ' ', $st)) : 'no target' }}</div>
+                    @endunless
                 </div>
             @endforeach
         </div>
