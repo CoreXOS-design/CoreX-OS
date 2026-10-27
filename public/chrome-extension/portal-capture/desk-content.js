@@ -178,6 +178,7 @@
     var res = S.ctl.exec.run(a);
     S.ctl.reporter.add(res.report);
     if (res.ok) S.ctl.idle.touch();
+    else send({ type: 'desk.actionResult', id: a.id, reason: res.reason });   // the console is told it could not be done
   }
 
   // ── Pointer ─────────────────────────────────────────────────────────────────────

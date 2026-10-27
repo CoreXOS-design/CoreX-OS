@@ -83,11 +83,6 @@ content. In the header: *Agent's code* + **Join** on one line. When joined: a st
 shared extension tabs, and the mirror filling the remaining height. **Sessions open now** sits below. No helper paragraphs anywhere — labels carry the
 meaning; only feedback ("That field is private…", "The agent declined.") appears as a transient line.
 
-**The supporter's own menu.** While a session is open the supporter's own left menu collapses so the mirror gets the full width — the layout's
-existing collapse is reused (`layouts/corex.blade.php`: `markupModeActive` + `markupSidebarExpanded`, the one the rental markup view uses), including
-its small round toggle at the menu's edge to bring it back. Collapsing sets the state through the layout's Alpine data and the
-`rental-markup-view-toggled` event; it is restored when the session ends or the console is left.
-
 **Re-opening and sharing.** A code is spent at the first join, but the session lives on. A support person who reloads or closes the console opens
 their live session from **Sessions open now** (an **Open** button on each live row) — no code — and a second support person of the same scope can
 open the same session. `POST /corex/desk/sessions/{id}/attach` (same `desk.support` + own-agency scope as everything else; an ended, waiting, or
@@ -113,6 +108,48 @@ pick-list; also set in staff take-on / onboarding). Platform staff are the owner
 `joined` audit row), so the audit stays true if a title changes later; a new session reads the new title. The protocol field `support_name` carries it
 (`desk.joined`, `desk.control_requested`, every session answer). The pointer whisper carries `who` (the supporter's own label) so two supporters are told
 apart; the audit's "By" column shows the frozen label for a support actor and just the name for the agent.
+
+### 4d. The console viewer (AnyDesk-like; Johan, 27 Oct 2026 — supersedes the 4b "pane under the header" and the supporter's-menu collapse)
+
+The console has two states.
+
+**List** — the standard CoreX page (left menu, sticky header): the code field + Join on one line, and *Sessions open now* (Open / join by code),
+plus a link to the past sessions. Nothing else; no helper text.
+
+**Viewer** — the moment a session is joined (or opened again) the console switches to a full-window viewer:
+- The mirror fills the **whole browser window** (100 vw × 100 vh). Scale = min(window width / agent width, window height / agent height), centred, on a dark
+  background: letterbox only where the aspect differs. The iframe keeps the agent's own viewport size (so its layout and media queries are the agent's);
+  only a transform scales it (up to 3×). No page header, no left menu, no test-site banner, no *Sessions open now*, no helper or technical line:
+  the viewer element sits on `<body>` above everything (z-index 2 000 000), the page behind it does not scroll.
+- **Full screen** is one button (`requestFullscreen` on the viewer). Esc leaves full screen and stays in the viewer.
+- **One thin floating toolbar**, reusing the CoreX button styles: Agent · Support (the display name, 4c) · Page · Elapsed · state pill (**Viewing /
+  Requested / In control**) · [Request control | Withdraw request | Hand back] · [Highlight toggle + note + Clear] · [tab buttons when the extension shares tabs]
+  · [Full screen] [Back] [End session]. It slides away after 3 s of no mouse activity and returns when the mouse goes to the top edge (it stays while the
+  pointer is on it or a field in it has focus). While in control the window has a thin amber frame.
+- **Highlight mode**: on while viewing (a click points something out), off once in control (a click is a click); the toggle overrides either way and
+  Shift+click always points. A highlight shows a small toast naming the element in words (its label / text / placeholder) — never a selector.
+- **Back** returns to the list and leaves the session open (Open it again from *Sessions open now*); **End session** ends it and returns to the list.
+  The agent ending the session also returns to the list with the reason.
+
+#### Click accuracy (every scale)
+
+A click in control mode must land on the element under the cursor in the mirror:
+1. **Position.** The console converts the pointer to the agent's own CSS pixels: `(clientX − the mirror iframe's on-screen left) / scale`, where scale is
+   `iframe on-screen width / iframe.offsetWidth` (never the mirror document's `clientWidth`, which a scrollbar makes narrower). The same point is used to
+   find the element in the mirror (`elementFromPoint` in the mirror document, which already includes the agent's replayed window and inner-container scroll).
+2. **Exact element.** The selector sent for a click is the element's own (id when unique, else a `tag:nth-of-type` path) — not the nearest `[data-tour]`
+   section (right for a highlight, wrong for a click on a button inside it). The click also carries the point (fractions of the agent's window) and the
+   element's box in the mirror (`b = [x, y, w, h]`, CSS px).
+3. **Verified on the agent.** The agent finds the element by selector and by point, and clicks the selector's element only if it really sits where the mirror
+   showed it (box within 8 px) and is what is under that point (or contains / is inside it); otherwise the element under the point if *that* matches the
+   mirror's box; otherwise it refuses with `view_out_of_date` and nothing is clicked.
+4. **Told back.** A refused action is whispered back (`client-action_result` `{id, ok:false, reason}`, from the CoreX page and the extension): the console says
+   why in words and, for `view_out_of_date` / `not_found`, asks for a fresh snapshot — so the next click is on a current picture.
+5. **Real events.** The agent dispatches pointer/mouse events with the pointed-at position (kept inside the element), so handlers that read it behave as for a mouse.
+
+Proof (`viewer-click-proof.mjs`, two real Chromium browsers on QA1): a grid of 20 clicks per page — dashboard, Properties search, a property page — before and
+after the agent scrolls, at support window sizes 1920×1080, 1366×768 and 1280×720 (agent window 1600×900, so scales 1.2, 0.85 and 0.8); each click must
+land on the same element (tag, id, classes, label, box) on the agent's page and in the mirror, plus typing into a field and choosing a dropdown option at each size.
 
 ## 5. Privacy and audit (POPIA)
 
@@ -266,6 +303,7 @@ allowed for the session's agent, and for the support user who joined it while it
   (`support` / `idle` / `session` / `tab`). A client reacts only to its own tab; control state also rides on every session answer
   (`control: {state: none|requested|granted, tab}`) so a page change restores it.
 - Whisper `client-control_ack {t}` (agent → console): the take-over question is on the agent's screen.
+- Whisper `client-action_result {t, id, ok:false, reason}` (agent → console): an action could not be done (`view_out_of_date`, `not_found`, `hidden`, `private_field`, `disabled`, `desk_ui`); only failures are sent. A `client-action` click also carries `b` = the element's box in the mirror `[x,y,w,h]` (CSS px of the agent's window) — section 4d.
 - Whisper `client-action` (support → agent, never stored, never through the server): `{t, id, type, s?, x?, y?, v?, k?, sh?, dx?, dy?, n?}` where
   `type` ∈ `click`, `dblclick`, `type` (v = the text), `key` (k ∈ Enter, Tab, Escape, Backspace, Delete, arrows, Home, End), `scroll`
   (s = scroller selector or empty for the page; dx, dy in the agent's pixels), `select` (v = option value), `focus`. `s` is a selector the

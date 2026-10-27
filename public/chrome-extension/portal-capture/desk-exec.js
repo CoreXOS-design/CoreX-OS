@@ -28,13 +28,41 @@
 
     // ── finding the element ───────────────────────────────────────────────────────
 
-    function find(a) {
+    /** The element's box in CSS pixels of the viewport: what the console saw on its mirror (a.b = [x, y, w, h]) is compared with this. */
+    function box(el) {
+      var r = el.getBoundingClientRect();
+      return [r.left, r.top, r.width, r.height];
+    }
+
+    /** Does this element sit where the console's mirror showed the element it clicked (within a few pixels)? */
+    function sameBox(el, want) {
+      var b = box(el);
+      return Math.abs(b[0] - want[0]) <= 8 && Math.abs(b[1] - want[1]) <= 8 && Math.abs(b[2] - want[2]) <= 12 && Math.abs(b[3] - want[3]) <= 12;
+    }
+
+    /**
+     * Which element does a click mean? The console sends the element's selector, the point it clicked (a fraction of the viewport) and the
+     * element's box on its mirror. We believe the selector only when that element is really where the mirror showed it, and then it must still
+     * be what is under that point here (or contain / sit inside it); else we take what is under the point if THAT matches the mirror's box;
+     * else the agent's page and the mirror disagree (the agent has just scrolled or the page just changed) - refuse rather than click the wrong thing.
+     */
+    function resolve(a) {
       var el = null;
       if (a.s) { try { el = doc.querySelector(a.s); } catch (e) { el = null; } }
-      if (!el && a.type === 'click' && typeof a.x === 'number' && typeof a.y === 'number' && doc.elementFromPoint) {
-        el = doc.elementFromPoint(Math.round(a.x * win.innerWidth), Math.round(a.y * win.innerHeight));
-      }
-      return el;
+      var pointed = null;
+      var hasPoint = typeof a.x === 'number' && typeof a.y === 'number' && doc.elementFromPoint;
+      if (hasPoint) pointed = doc.elementFromPoint(Math.round(a.x * win.innerWidth), Math.round(a.y * win.innerHeight));
+      var want = a.b && a.b.length === 4 ? a.b : null;
+      if (a.type !== 'click' && a.type !== 'dblclick') return { el: el };
+      if (!want) return { el: el || pointed, via: el ? 'selector' : 'point' };   // an older console: no box to compare, the selector first
+      if (el && sameBox(el, want) && (!pointed || pointed === el || el.contains(pointed) || pointed.contains(el))) return { el: el, via: 'selector' };
+      if (pointed && sameBox(pointed, want)) return { el: pointed, via: 'point' };
+      return { el: null, stale: true };
+    }
+
+    function find(a) {
+      var r = resolve(a);
+      return r.el;
     }
 
     function inDeskUi(el) {
@@ -118,7 +146,14 @@
       }
 
       // a key with no addressed element goes to the focused one
-      el = a.s || kind !== 'key' ? find(Object.assign({}, a, { type: kind })) : (doc.activeElement && doc.activeElement !== doc.body ? doc.activeElement : null);
+      var via = null;
+      if (a.s || kind !== 'key') {
+        var rs = resolve(Object.assign({}, a, { type: kind }));
+        el = rs.el; via = rs.via || null;
+        if (!el && rs.stale) return out(false, 'view_out_of_date');
+      } else {
+        el = doc.activeElement && doc.activeElement !== doc.body ? doc.activeElement : null;
+      }
       if (!el) return out(false, 'not_found');
       if (inDeskUi(el)) return out(false, 'desk_ui');
       if (!visible(el)) return out(false, 'hidden');
@@ -140,9 +175,16 @@
             if (el.tagName === 'SELECT') { el.focus(); return out(true); }     // a dropdown is chosen with the select action
             if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
             if (el.focus && /^(input|textarea|button|a)$/i.test(el.tagName) || el.isContentEditable) el.focus();
-            fire(el, 'pointerdown'); fire(el, 'mousedown'); fire(el, 'pointerup'); fire(el, 'mouseup');
-            el.click();
-            if (kind === 'dblclick') { fire(el, 'dblclick'); }
+            // The click carries the position support pointed at (kept inside the element), so handlers that read it - calendars, maps, rows
+            // that open where you click - behave as for a mouse.
+            var r = el.getBoundingClientRect();
+            var px = typeof a.x === 'number' ? a.x * win.innerWidth : r.left + r.width / 2;
+            var py = typeof a.y === 'number' ? a.y * win.innerHeight : r.top + r.height / 2;
+            var at = { clientX: Math.min(Math.max(px, r.left), Math.max(r.left, r.right - 1)), clientY: Math.min(Math.max(py, r.top), Math.max(r.top, r.bottom - 1)) };
+            fire(el, 'pointerover', at); fire(el, 'mouseover', at); fire(el, 'pointermove', at); fire(el, 'mousemove', at);
+            fire(el, 'pointerdown', at); fire(el, 'mousedown', at); fire(el, 'pointerup', at); fire(el, 'mouseup', at);
+            fire(el, 'click', Object.assign({ detail: 1 }, at));
+            if (kind === 'dblclick') { fire(el, 'dblclick', Object.assign({ detail: 2 }, at)); }
             return out(true);
           }
 
