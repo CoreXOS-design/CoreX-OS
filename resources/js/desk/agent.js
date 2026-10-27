@@ -102,6 +102,10 @@ export function start(ctx) {
     window.addEventListener('hashchange', onNavigate);
     window.addEventListener('popstate', onNavigate);
     watchTitle();
+    // The tab's join call goes out as the page starts (before its heading exists, with the app title); once the page has drawn, say what the page is called.
+    const rename = () => { if (st && st.live && st.registered === true && pageName() !== st.sentName) registerTab('update'); };
+    if (document.readyState === 'complete') setTimeout(rename, 0); else { window.addEventListener('DOMContentLoaded', () => setTimeout(rename, 50)); window.addEventListener('load', () => setTimeout(rename, 50)); }
+    st.timers.push(setTimeout(rename, 2500));
 
     if (session.status === 'live') {
         st.live = true;
@@ -126,13 +130,25 @@ export async function endSession() {
     finish('agent');
 }
 
+/**
+ * What this tab is called in support's tab bar. CoreX's own <title> is the same on every page (the app name), so the page's name is its heading - the first
+ * <h1> (Properties, Contacts, an address...) - and the <title> only when there is none.
+ */
+function pageName() {
+    const h = Array.from(document.querySelectorAll('h1')).find((e) => !e.closest('[id^="corex-desk"]') && e.textContent.trim());
+    const t = h ? h.textContent.replace(/\s+/g, ' ').trim() : '';
+    return (t || document.title || '').slice(0, 120);
+}
+
 /** This tab joins (or re-announces itself to) the session: support's tab bar lists it by title and path. */
 async function registerTab(action) {
     // (needs the session to be live, not the live connection: the HTTP call goes out at once and the console learns of this tab a round trip sooner)
     if (!st || !st.live) return;
     if (action === 'join' && st.registered === 'inflight') return;
     st.registered = 'inflight';
-    const body = { action, tab: st.tab, path: location.pathname, title: document.title || '', at: Date.now() };
+    const name = pageName();
+    st.sentName = name;
+    const body = { action, tab: st.tab, path: location.pathname, title: name, at: Date.now() };
     // The tab a replayed click was run in a moment ago: if that click opened THIS tab, control follows it.
     try {
         const rec = JSON.parse(localStorage.getItem(REPLAY_KEY) || 'null');
