@@ -477,6 +477,8 @@ Schedule::command('prospecting:recompute-matches')->dailyAt('04:00')->onOneServe
 Schedule::command('rts:build-lists')->dailyAt('04:30')->onOneServer()->withoutOverlapping();
 // AT-454 v2 phase 4 - put agents who have met their level for the required weeks forward for sign-off. After the build above; idempotent.
 Schedule::command('rts:check-levels')->dailyAt('05:00')->onOneServer()->withoutOverlapping();
+// Road to Sold v3 (22.6): an agent who has gone keeps no allocation - their open prospects go back to the pool.
+Schedule::command('rts:release-inactive')->dailyAt('05:15')->onOneServer()->withoutOverlapping();
 Schedule::command('corex:leave:send-reminders')->dailyAt('06:00')->onOneServer()->withoutOverlapping();
 
 // (P24 location tree now refreshes DAILY at 11:00 with stamp-and-sweep — see

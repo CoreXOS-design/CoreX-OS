@@ -50,23 +50,23 @@ class RtsProspect extends Model
     /** Own / branch / agency breadth (road_to_sold.view), applied in the query - never a hidden link. */
     public function scopeVisibleTo($query, User $viewer, ?string $requestedScope = null)
     {
-        return Scope::apply($query, $viewer, $requestedScope);
+        return Scope::apply($query, $viewer, $requestedScope, 'rts_prospects.user_id', 'rts_prospects.branch_id');
     }
 
     /** Alive: not closed, not released. A parked prospect is still owned. */
     public function scopeOwned($query)
     {
-        return $query->whereNull('closed_at')->whereNull('released_at');
+        return $query->whereNull('rts_prospects.closed_at')->whereNull('rts_prospects.released_at');
     }
 
     public function scopeActiveStage($query)
     {
-        return $query->owned()->whereNull('parked_at');
+        return $query->owned()->whereNull('rts_prospects.parked_at');
     }
 
     public function scopeParked($query)
     {
-        return $query->owned()->whereNotNull('parked_at');
+        return $query->owned()->whereNotNull('rts_prospects.parked_at');
     }
 
     public function isParked(): bool
