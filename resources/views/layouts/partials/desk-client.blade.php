@@ -76,7 +76,7 @@
             var k = null;
             try { k = sessionStorage.getItem(TAB); } catch (e) {}
             if (k && !/^(main|c[a-z0-9]{3,10})$/.test(k)) k = null;
-            if (k) { var ok = await lock(k); if (!ok) { await new Promise(function (r) { setTimeout(r, 350); }); ok = await lock(k); } if (!ok) k = null; }
+            if (k) { var ok = await lock(k); if (!ok) { await new Promise(function (r) { setTimeout(r, 150); }); ok = await lock(k); } if (!ok) k = null; }
             if (!k && wantMain && await lock('main')) k = 'main';
             while (!k) { var c = rnd(); if (await lock(c)) k = c; }
             try { sessionStorage.setItem(TAB, k); } catch (e) {}
