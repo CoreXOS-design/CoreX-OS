@@ -53,11 +53,14 @@ class DeskSessionController extends Controller
     {
         $session = $this->mine($request, $id);
         $session = $this->desk->heartbeat($session, $request->input('page'));
+        $tabs = [];
         if ($session->isLive() && is_string($request->input('tab'))) {
             $this->desk->touchTab($session, $this->desk->cleanTabKey($request->input('tab')));
+            // the tabs the server holds as open: a tab that is missing from it (a "leaving" that overtook its "joined") joins again
+            $tabs = array_keys($this->desk->openTabs($session));
         }
 
-        return response()->json(['status' => $session->status, 'ended_by' => $session->ended_by, 'server_ms' => (int) round(microtime(true) * 1000)]);
+        return response()->json(['status' => $session->status, 'ended_by' => $session->ended_by, 'server_ms' => (int) round(microtime(true) * 1000), 'tabs' => $tabs]);
     }
 
     /** POST /api/v1/desk/sessions/{id}/leaving - beacon from a page that is closing; the next page has a short grace to reconnect. */
@@ -69,7 +72,7 @@ class DeskSessionController extends Controller
         $tab = $request->input('tab');
         if (is_string($tab) && $session->isLive()) {
             try {
-                $this->desk->coreXTabEvent($session, $request->user(), 'leave', $this->desk->cleanTabKey($tab));
+                $this->desk->coreXTabEvent($session, $request->user(), 'leave', $this->desk->cleanTabKey($tab), null, null, null, is_numeric($request->input('at')) ? (int) $request->input('at') : null);
             } catch (\Throwable) {
                 // best effort: a beacon has nobody to tell
             }
@@ -97,9 +100,10 @@ class DeskSessionController extends Controller
             'path' => ['nullable', 'string', 'max:300'],
             'title' => ['nullable', 'string', 'max:300'],
             'from' => ['nullable', 'string', 'regex:/^(main|c[a-z0-9]{3,10})$/'],
+            'at' => ['nullable', 'integer'],
         ]);
         try {
-            $tabs = $this->desk->coreXTabEvent($this->mine($request, $id), $request->user(), $data['action'], $data['tab'], $data['path'] ?? null, $data['title'] ?? null, $data['from'] ?? null);
+            $tabs = $this->desk->coreXTabEvent($this->mine($request, $id), $request->user(), $data['action'], $data['tab'], $data['path'] ?? null, $data['title'] ?? null, $data['from'] ?? null, $data['at'] ?? null);
         } catch (\App\Services\Desk\DeskNotLiveException) {
             return response()->json(['message' => 'That Desk session is not live.'], 409);
         }
