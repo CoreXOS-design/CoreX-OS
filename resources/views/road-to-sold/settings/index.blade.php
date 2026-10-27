@@ -14,7 +14,7 @@
         'areas'    => ['lock_agents_to_areas', 'refresh_portals', 'area_refresh_warn_days', 'min_area_properties'],
         'targets'  => ['half_day_leave_halves_target', 'public_holiday_country', 'missed_items_mode'],
         'calllist' => ['selections'],
-        'limits'   => ['new_on_market_days', 'long_on_market_days', 'owner_known_quantity', 'stuck_stock_min_days', 'stuck_stock_max_views', 'stuck_stock_max_leads', 'stuck_stock_lookback_days', 'hot_pocket_lookback_days', 'price_drop_lookback_days'],
+        'limits'   => ['new_on_market_days', 'long_on_market_days', 'owner_known_quantity', 'stuck_stock_min_days', 'stuck_stock_max_views', 'stuck_stock_max_leads', 'stuck_stock_lookback_days', 'hot_pocket_lookback_days', 'price_drop_lookback_days', 'expired_competitor_lookback_days', 'prospect_stall_days'],
         'matching' => ['buyer_match_tiers', 'active_buyer_states', 'on_market_statuses', 'add_to_day_max', 'hot_pocket_weight_buyers', 'hot_pocket_weight_leads', 'hot_pocket_weight_sales'],
         'aftercall' => ['no_answer_drop_after', 'hold_days'],
         'ontrack'  => ['summary_steps', 'summary_green_from_pct', 'summary_red_below_pct', 'summary_ahead_from_pct', 'capture_back_date_working_days', 'capture_needs_review'],
@@ -216,6 +216,8 @@
                         ['stuck_stock_lookback_days', '...counted over the last', $settings->stuckStockLookbackDays(), 1, 3650, 'days'],
                         ['hot_pocket_lookback_days', 'Hottest pockets: look back', $settings->hotPocketLookbackDays(), 1, 3650, 'days'],
                         ['price_drop_lookback_days', 'Price drops: look back', $settings->priceDropLookbackDays(), 1, 3650, 'days'],
+                        ['expired_competitor_lookback_days', 'Expired competitor listings: withdrawn within', $settings->expiredCompetitorLookbackDays(), 1, 365, 'days'],
+                        ['prospect_stall_days', 'A prospect is stalled after', $settings->prospectStallDays(), 1, 365, 'days'],
                     ] as [$name, $label, $value, $min, $max, $unit])
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="{{ $name }}">{{ $label }}</label>

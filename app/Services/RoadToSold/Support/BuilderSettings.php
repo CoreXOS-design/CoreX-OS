@@ -18,7 +18,7 @@ final class BuilderSettings
 {
     public const DEFAULT_SELECTION_ORDER = [
         'my_buyers_sourcing', 'agency_buyers_sourcing', 'hot_pockets', 'price_drops', 'new_on_market',
-        'long_on_market', 'owner_known', 'my_expired_stock', 'my_stock_not_selling',
+        'long_on_market', 'owner_known', 'my_expired_stock', 'my_stock_not_selling', 'expired_competitor',
     ];
 
     /** @param string[] $enabledSelectionKeys ordered */
@@ -37,6 +37,7 @@ final class BuilderSettings
         public readonly int $stuckStockLookbackDays = RtsSetting::SCALAR_DEFAULTS['stuck_stock_lookback_days'],
         public readonly int $addToDayMax = RtsSetting::SCALAR_DEFAULTS['add_to_day_max'],
         public readonly int $scanPageSize = RtsSetting::SCAN_PAGE_SIZE,
+        public readonly int $expiredCompetitorLookbackDays = RtsSetting::SCALAR_DEFAULTS['expired_competitor_lookback_days'],
         public readonly int $hotPocketWeightBuyers = RtsSetting::SCALAR_DEFAULTS['hot_pocket_weight_buyers'],
         public readonly int $hotPocketWeightLeads = RtsSetting::SCALAR_DEFAULTS['hot_pocket_weight_leads'],
         public readonly int $hotPocketWeightSales = RtsSetting::SCALAR_DEFAULTS['hot_pocket_weight_sales'],
@@ -73,6 +74,7 @@ final class BuilderSettings
             stuckStockLookbackDays: $s->stuckStockLookbackDays(),
             addToDayMax: $s->addToDayMax(),
             scanPageSize: $s->scanPageSize(),
+            expiredCompetitorLookbackDays: $s->expiredCompetitorLookbackDays(),
             hotPocketWeightBuyers: $s->hotPocketWeightBuyers(),
             hotPocketWeightLeads: $s->hotPocketWeightLeads(),
             hotPocketWeightSales: $s->hotPocketWeightSales(),

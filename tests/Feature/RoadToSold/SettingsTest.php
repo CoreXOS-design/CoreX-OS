@@ -69,7 +69,7 @@ final class SettingsTest extends TestCase
         $this->assertSame([1 => 5, 2 => 5, 3 => 5, 4 => 5, 5 => 5, 6 => 0, 7 => 0], $s->defaultWeekdayTargets());
         $this->assertSame(
             ['my_buyers_sourcing', 'agency_buyers_sourcing', 'hot_pockets', 'price_drops', 'new_on_market',
-             'long_on_market', 'owner_known', 'my_expired_stock', 'my_stock_not_selling'],
+             'long_on_market', 'owner_known', 'my_expired_stock', 'my_stock_not_selling', 'expired_competitor'],
             $s->enabledSelectionKeys()
         );
         $this->assertCount(6, array_filter($s->summarySteps(), fn ($i) => $i['enabled']));
@@ -243,7 +243,7 @@ final class SettingsTest extends TestCase
         $s = SettingsService::forAgency($agency->id);
         $all = $s->selections();
 
-        $this->assertCount(9, $all, 'every known selection is always present');
+        $this->assertCount(10, $all, 'every known selection is always present');
         $this->assertSame(['price_drops', 'my_buyers_sourcing', 'hot_pockets'], array_slice(array_column($all, 'key'), 0, 3));
         $this->assertSame(['price_drops', 'hot_pockets'], $s->enabledSelectionKeys(), 'missing keys are appended switched OFF');
         $this->assertFalse($s->selectionEnabled('my_buyers_sourcing'));

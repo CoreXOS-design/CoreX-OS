@@ -79,12 +79,66 @@ final class RecipeCatalogue
             'label' => 'A marketing post is published', 'credit' => [], 'recorded_by' => [],
             'filters' => ['platform' => 'Which platform'],
         ],
+        // Deal events credit EVERY agent on the deal (listing and selling side), never the person who clicked (road-to-sold.md 22.8):
+        // 'agents' => 'deal' tells TaskCompletionService to read the deal's agents; the clicker is only recorded_by.
         \App\Events\Deal\DealCreated::class => [
-            'label' => 'A deal is opened', 'credit' => [], 'recorded_by' => [], 'filters' => [],
+            'label' => 'A deal is opened', 'credit' => [], 'recorded_by' => [], 'filters' => [], 'agents' => 'deal',
         ],
         \App\Events\Deal\DealClosed::class => [
-            'label' => 'A deal is closed', 'credit' => [], 'recorded_by' => [],
+            'label' => 'A deal is closed', 'credit' => [], 'recorded_by' => [], 'agents' => 'deal',
             'filters' => ['outcome' => 'How it closed (won, lost or abandoned)'],
+        ],
+        \App\Events\Deal\DealStageAdvanced::class => [
+            'label' => 'A deal moves to a later stage', 'credit' => [], 'recorded_by' => [], 'agents' => 'deal',
+            'filters' => ['toStage' => 'The stage it moved to'],
+        ],
+        \App\Events\Deal\DealCommissionFinalised::class => [
+            'label' => 'A deal\'s commission is paid', 'credit' => [], 'recorded_by' => [], 'filters' => [], 'agents' => 'deal',
+        ],
+        // Road to Sold v3 (22.8): the Sell Stock events that fire but could not be bound to a task until now.
+        \App\Events\Presentation\PresentationOutcomeRecorded::class => [
+            'label' => 'A presentation gets its outcome', 'credit' => [], 'recorded_by' => [],
+            'filters' => ['outcome' => 'The outcome (for example won_mandate or lost_to_competitor)'],
+        ],
+        \App\Events\Mandate\MandateSigned::class => [
+            'label' => 'A mandate is e-signed', 'credit' => ['userId'], 'recorded_by' => [], 'filters' => [],
+        ],
+        \App\Events\Marketing\SellerLinkCreated::class => [
+            'label' => 'A seller live link is made', 'credit' => [], 'recorded_by' => [], 'filters' => [],
+        ],
+        \App\Events\Marketing\SellerLinkOpened::class => [
+            'label' => 'A seller opens their live link', 'credit' => ['userId'], 'recorded_by' => [], 'filters' => [],
+        ],
+        \App\Events\Marketing\ViewingPackCreated::class => [
+            'label' => 'A viewing pack is made', 'credit' => ['userId'], 'recorded_by' => [], 'filters' => [],
+        ],
+        \App\Events\Contact\ContactMatchCreated::class => [
+            'label' => 'A Core Match is set up for a buyer', 'credit' => ['userId'], 'recorded_by' => [], 'filters' => [],
+        ],
+        \App\Events\Viewing\ViewingScheduled::class => [
+            'label' => 'A viewing is scheduled', 'credit' => ['userId'], 'recorded_by' => [], 'filters' => [],
+        ],
+        \App\Events\Viewing\ViewingHeld::class => [
+            'label' => 'A viewing is held and its feedback captured', 'credit' => ['userId'], 'recorded_by' => [], 'filters' => [],
+        ],
+        \App\Events\Docuperfect\OtpSigned::class => [
+            'label' => 'An offer to purchase is e-signed', 'credit' => ['userId'], 'recorded_by' => [], 'filters' => [],
+        ],
+        \App\Events\Contact\ContactContactedByAgent::class => [
+            'label' => 'An agent contacts a person', 'credit' => [], 'recorded_by' => [],
+            'filters' => ['channel' => 'How (contacted_action, message, shared_link or appointment_feedback)'],
+        ],
+        \App\Events\Prospecting\ClaimCreated::class => [
+            'label' => 'A Market Intelligence claim is taken', 'credit' => [], 'recorded_by' => [], 'filters' => [],
+        ],
+        \App\Events\Prospecting\ClaimFeedbackRecorded::class => [
+            'label' => 'Feedback is recorded on a claim', 'credit' => [], 'recorded_by' => [], 'filters' => [],
+        ],
+        \App\Events\SellerOutreach\PitchSent::class => [
+            'label' => 'A seller pitch is sent', 'credit' => [], 'recorded_by' => [], 'filters' => [],
+        ],
+        \App\Events\SellerOutreach\OutreachOutcomeUpdated::class => [
+            'label' => 'The outcome of a pitch is logged', 'credit' => [], 'recorded_by' => [], 'filters' => [],
         ],
     ];
 
@@ -103,6 +157,13 @@ final class RecipeCatalogue
         \App\Events\Marketing\MarketingPostPublished::class         => 'corex.properties.index',
         \App\Events\Deal\DealCreated::class                         => 'deals-dr2.index',
         \App\Events\Deal\DealClosed::class                          => 'deals-dr2.index',
+        \App\Events\Deal\DealStageAdvanced::class                   => 'deals-dr2.index',
+        \App\Events\Deal\DealCommissionFinalised::class             => 'deals-dr2.index',
+        \App\Events\Presentation\PresentationOutcomeRecorded::class => 'presentations.index',
+        \App\Events\Mandate\MandateSigned::class                    => 'corex.properties.index',
+        \App\Events\Viewing\ViewingScheduled::class                 => 'command-center.calendar',
+        \App\Events\Viewing\ViewingHeld::class                      => 'command-center.calendar',
+        \App\Events\Contact\ContactMatchCreated::class              => 'corex.core-matches.index',
     ];
 
     public static function screenUrl(?string $eventClass): ?string

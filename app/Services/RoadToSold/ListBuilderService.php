@@ -104,10 +104,13 @@ class ListBuilderService
     /**
      * The agent's list for the day, built (or topped up) if it is short of the target.
      *
+     * $limitNew caps the NEW properties this call may add (the nightly build deals stock out in rounds of one so every agent gets a fair share,
+     * road-to-sold.md 22.6); null = fill to the day's target.
+     *
      * @return Collection<int,RtsListItem> ordered by position; empty on a non-working day, for an agent
      *                                     with no agency, or when nothing is eligible
      */
-    public function buildFor(User $user, CarbonInterface|string $date, string $track = RtsListItem::TRACK_SALES): Collection
+    public function buildFor(User $user, CarbonInterface|string $date, string $track = RtsListItem::TRACK_SALES, ?int $limitNew = null): Collection
     {
         $this->assertTrack($track);
         $user = $this->listOwner($user);
@@ -119,8 +122,8 @@ class ListBuilderService
 
         $lock = Cache::lock("rts-build:{$agencyId}:{$user->id}:{$track}:{$day->toDateString()}", 120);
 
-        return $lock->block(15, function () use ($user, $agencyId, $day, $track) {
-            $this->topUp($user, $agencyId, $day, $track);
+        return $lock->block(15, function () use ($user, $agencyId, $day, $track, $limitNew) {
+            $this->topUp($user, $agencyId, $day, $track, $limitNew);
 
             return $this->listFor($user, $day, $track);
         });
@@ -134,7 +137,7 @@ class ListBuilderService
         return RtsListItem::query()->forDay($user, $date, $track)->orderBy('position')->orderBy('id')->get();
     }
 
-    private function topUp(User $user, int $agencyId, Carbon $day, string $track): void
+    private function topUp(User $user, int $agencyId, Carbon $day, string $track, ?int $limitNew = null): void
     {
         if (! $this->calendar->isWorkday($user, $day, $track)) {
             return;
@@ -147,7 +150,7 @@ class ListBuilderService
         // when the pool is simply short today.
         $marker = "rts-built:{$agencyId}:{$user->id}:{$track}:{$day->toDateString()}";
         $exists = RtsListItem::query()->forDay($user, $day, $track)->exists();
-        if ($exists && Cache::has($marker)) {
+        if ($limitNew === null && $exists && Cache::has($marker)) {
             return;
         }
 
@@ -159,7 +162,7 @@ class ListBuilderService
 
         // 2. new properties, selection by selection, in the agency's order
         $counted = $this->countedToward($user, $day, $track);
-        $remaining = $target - $counted;
+        $remaining = min($target, $limitNew ?? $target) - $counted;
         if ($remaining > 0) {
             foreach ($settings->enabledSelectionKeys as $key) {
                 if ($remaining <= 0) {
@@ -171,16 +174,27 @@ class ListBuilderService
                     Log::error('Road to Sold: an enabled selection has no implementation (skipped)', ['selection' => $key, 'user_id' => $user->id]);
                     continue;
                 }
-                $candidates = $selection->candidates($this->context($user, $agencyId, $day, $track, $settings), $remaining);
-                foreach ($candidates as $candidate) {
-                    if ($this->insert($user, $agencyId, $day, $track, $candidate, RtsListItem::ORIGIN_AUTO)) {
-                        $remaining--;
+                // A candidate another agent has just taken is refused at insert(); ask the same source again (its context now excludes
+                // what was refused) up to three times so a race never leaves the day short.
+                for ($pass = 0; $pass < 3 && $remaining > 0; $pass++) {
+                    $refused = 0;
+                    foreach ($selection->candidates($this->context($user, $agencyId, $day, $track, $settings), $remaining) as $candidate) {
+                        if ($this->insert($user, $agencyId, $day, $track, $candidate, RtsListItem::ORIGIN_AUTO)) {
+                            $remaining--;
+                        } else {
+                            $refused++;
+                        }
+                    }
+                    if ($refused === 0) {
+                        break;
                     }
                 }
             }
         }
 
-        Cache::put($marker, 1, now()->addMinutes(10));
+        if ($limitNew === null || $limitNew >= $target) {
+            Cache::put($marker, 1, now()->addMinutes(10));
+        }
     }
 
     /** The pseudo-selection key stored on a row that came from the agent's own captured work. */
@@ -372,6 +386,18 @@ class ListBuilderService
             return null;
         }
 
+        // The allocation (road-to-sold.md 22.6): a property belongs to ONE agent. If another agent owns it, it is not placed -
+        // the caller takes its next candidate. A follow-up on a property worked before prospects existed is adopted at "contacted".
+        $prospect = app(ProspectService::class)->place($user, (int) $c->trackedPropertyId, $track, [
+            'prospecting_listing_id' => $c->prospectingListingId, 'property_id' => $c->propertyId,
+            'selection' => $c->selection, 'reason' => $c->reason, 'reason_facts' => $c->facts,
+            'stage' => in_array($origin, [RtsListItem::ORIGIN_FOLLOW_UP, RtsListItem::ORIGIN_ROLLOVER], true) && $c->selection === RtsListItem::SELECTION_FOLLOW_UP
+                ? ProspectStages::CONTACTED : ProspectStages::FOUND,
+        ]);
+        if ($prospect === null) {
+            return null;
+        }
+
         $position = (int) (clone $base)->max('position') + 1;
         $attrs = [
             'agency_id' => $agencyId, 'branch_id' => $user->branch_id, 'user_id' => $user->id,
@@ -380,6 +406,7 @@ class ListBuilderService
             'property_id' => $c->propertyId, 'selection' => $c->selection, 'origin' => $origin,
             'position' => $position, 'status' => RtsListItem::STATUS_OPEN, 'reason' => mb_substr($c->reason, 0, 255),
             'rolled_from_item_id' => $rolledFrom,
+            'prospect_id' => $prospect->id, 'reason_facts' => $c->facts,
         ];
 
         // I vouch for agency_id (it is the agent's own): the auto-stamp must not replace it with the

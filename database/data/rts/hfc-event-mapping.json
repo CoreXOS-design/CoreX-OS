@@ -1,0 +1,179 @@
+{
+  "_status": "PROPOSED - Johan signs this off (road-to-sold.md 22.8) before anything is applied. rts:bind-tasks only reports; it cannot apply.",
+  "_agency": "HFC (agency 1)",
+  "bind": [
+    {
+      "task": "Load Property on P24",
+      "event": "App\\Events\\Property\\PropertyWentLiveOnPortal",
+      "filter": {
+        "portal": "p24"
+      }
+    },
+    {
+      "task": "Mic claim taken",
+      "event": "App\\Events\\Prospecting\\ClaimCreated",
+      "filter": {}
+    },
+    {
+      "task": "Mic claim feedback",
+      "event": "App\\Events\\Prospecting\\ClaimFeedbackRecorded",
+      "filter": {}
+    },
+    {
+      "task": "Prospecting - Contact Made",
+      "event": "App\\Events\\RoadToSold\\RoadToSoldOutcomeRecorded",
+      "filter": {
+        "kind": "conversation"
+      }
+    },
+    {
+      "task": "Prospecting - No answers",
+      "event": "App\\Events\\RoadToSold\\RoadToSoldOutcomeRecorded",
+      "filter": {
+        "outcomeKey": "no_answer"
+      }
+    },
+    {
+      "task": "Outreach pitch sent",
+      "event": "App\\Events\\SellerOutreach\\PitchSent",
+      "filter": {}
+    },
+    {
+      "task": "Outreach outcome logged",
+      "event": "App\\Events\\SellerOutreach\\OutreachOutcomeUpdated",
+      "filter": {}
+    },
+    {
+      "task": "Appointments",
+      "event": "App\\Events\\Evaluation\\EvaluationBooked",
+      "filter": {},
+      "note": "HFC has two tasks named Appointments (calendar classes property_evaluation and another); Johan says which one binds and which retires."
+    },
+    {
+      "task": "Presentation",
+      "event": "App\\Events\\Presentation\\PresentationPresented",
+      "filter": {},
+      "note": "Two tasks named Presentation; one binds, the other stays the calendar mapping until Johan chooses."
+    },
+    {
+      "task": "Presentation won",
+      "event": "App\\Events\\Presentation\\PresentationOutcomeRecorded",
+      "filter": {
+        "outcome": "won_mandate"
+      }
+    },
+    {
+      "task": "Presentation lost",
+      "event": "App\\Events\\Presentation\\PresentationOutcomeRecorded",
+      "filter": {
+        "outcome": "lost_to_competitor"
+      },
+      "note": "Several lost_to_* outcomes exist; a filter matches one value. Johan chooses one task per outcome, or the engine gains a prefix match."
+    },
+    {
+      "task": "Sign a Exclusive Mandate",
+      "event": "App\\Events\\Mandate\\MandateSigned",
+      "filter": {},
+      "note": "Bind ONE of this and 'Mandate signed'."
+    },
+    {
+      "task": "Load Property on Facebook",
+      "event": "App\\Events\\Marketing\\MarketingPostPublished",
+      "filter": {
+        "platform": "facebook"
+      }
+    },
+    {
+      "task": "Marketing published",
+      "event": "App\\Events\\Marketing\\MarketingPostPublished",
+      "filter": {},
+      "note": "Overlaps the Facebook task; Johan picks which stays."
+    },
+    {
+      "task": "Take out Buyers",
+      "event": "App\\Events\\Viewing\\ViewingScheduled",
+      "filter": {},
+      "note": "Two tasks named Take out Buyers; one binds, the other retires with the calendar mapping 'viewing'."
+    },
+    {
+      "task": "Sign an OTP",
+      "event": "App\\Events\\Docuperfect\\OtpSigned",
+      "filter": {}
+    },
+    {
+      "task": "Deal created",
+      "event": "App\\Events\\Deal\\DealCreated",
+      "filter": {},
+      "note": "Credits every agent on the deal. 'Deal listing side' and 'Deal selling side' are covered by it."
+    },
+    {
+      "task": "Deal stage advanced",
+      "event": "App\\Events\\Deal\\DealStageAdvanced",
+      "filter": {}
+    },
+    {
+      "task": "Deal registered",
+      "event": "App\\Events\\Deal\\DealClosed",
+      "filter": {
+        "outcome": "won"
+      },
+      "note": "The listing-side and selling-side registered tasks are covered by it."
+    },
+    {
+      "task": "Deal commission finalised",
+      "event": "App\\Events\\Deal\\DealCommissionFinalised",
+      "filter": {}
+    }
+  ],
+  "keep": [
+    "Check your admin file",
+    "Follow up emails",
+    "Stats Send",
+    "Overall admin, excl above",
+    "Hand out Business Cards",
+    "Feedback to Sellers - EATS",
+    "Canvass Door to Door",
+    "Drive an Area",
+    "Update Property 24",
+    "List a Property Open Listing",
+    "Check Matches on Listings",
+    "Took photos of Property",
+    "Virtual Tour",
+    "Update Photo Board",
+    "Put up Boards",
+    "Put up Sold Boards",
+    "Put adverts up in Shops",
+    "Check your Boards",
+    "Write article/blog in Media",
+    "Contacted New Buyers",
+    "Send Wishlist to Buyers",
+    "Follow up bond originators",
+    "Liase with Attorneys"
+  ],
+  "johan_to_say": [
+    "Property captured",
+    "Rcr submitted",
+    "Prospecting - Lead",
+    "Feedback to Sellers - EATS"
+  ],
+  "rentals_later": [
+    "Rentals - In and Out Inspection",
+    "Rentals - Pre-approvals",
+    "Rentals - Applications and Marketing Permissions",
+    "Rentals - General Inspections",
+    "Rentals - Breaches / Notice To Vacate",
+    "Rentals - Contractor Arrangements",
+    "Rentals - Contract Renewals",
+    "Rentals - New Contracts"
+  ],
+  "stay_on_old_detector": [
+    "Contact captured",
+    "Presentation generated",
+    "Tracked property promoted to stock",
+    "Fica submitted",
+    "Fica approved",
+    "Fica reviewed",
+    "Property published",
+    "Property compliance passed"
+  ]
+}

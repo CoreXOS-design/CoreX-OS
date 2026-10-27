@@ -251,9 +251,9 @@ class DrilldownService
             ->whereBetween('i.list_date', [$period->start->toDateString(), $period->end->toDateString()]);
 
         match ($metric) {
-            'worked'       => $q->where('i.origin', '!=', 'added')->where('i.status', 'worked'),
+            'worked'       => $q->whereNotIn('i.origin', ['added', 'follow_up'])->where('i.status', 'worked'),
             'added_worked' => $q->where('i.origin', 'added')->where('i.status', 'worked'),
-            default        => $q->where('i.origin', '!=', 'added')->whereIn('i.status', ['missed', 'rolled']),
+            default        => $q->whereNotIn('i.origin', ['added', 'follow_up'])->whereIn('i.status', ['missed', 'rolled']),
         };
 
         return $q;

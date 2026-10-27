@@ -92,7 +92,15 @@ class OutcomeService
                 }
             }
 
-            [$nextAction, $nextAt, $listTag] = $this->resolveNextAction($def, $input, $tp, $wantsValuation);
+            // The allocation (road-to-sold.md 22.6): another agent's prospect is theirs, whether or not a hold has been written.
+            $prospects = app(ProspectService::class);
+            $owned = $prospects->find($agencyId, (int) $tp->id, $track);
+            if (! $def->records_do_not_contact && $owned && $owned->closed_at === null && $owned->released_at === null && (int) $owned->user_id !== $agentId) {
+                $who = User::withoutGlobalScopes()->whereKey($owned->user_id)->value('name') ?: 'Another agent';
+                throw new RoadToSoldException("{$who} is working this property.");
+            }
+
+            [$nextAction, $nextAt, $listTag] = $this->resolveNextAction($def, $input, $tp, $wantsValuation, $appointmentAt);
 
             // N no-answers in a row (this agent, this property). A conversation, or any outcome that
             // is not a no-answer, resets the run.
@@ -117,6 +125,15 @@ class OutcomeService
                 ? Contact::query()->withoutGlobalScope(ContactScope::class)->where('agency_id', $agencyId)->find($tp->owner_contact_id)
                 : null;
 
+            // R10 (road-to-sold.md 22.11): an evaluation booked from a call attaches the PROPERTY. A prospect that is still only a tracked
+            // property gets its property row here (the existing promote-to-stock path), with the owner linked, so the calendar entry carries
+            // the property and the parties.
+            $propertyId = $input['property_id'] ?? ($tp->promoted_to_property_id ?: null);
+            if ($wantsValuation && ! $propertyId) {
+                $propertyId = app(ProspectPropertyService::class)->ensureProperty($tp, $actor)?->id;
+                $input['property_id'] = $propertyId;
+            }
+
             $eventId = null;
             if ($wantsValuation) {
                 $event = $this->calendar->create([
@@ -124,7 +141,7 @@ class OutcomeService
                     'category'    => 'property_evaluation',
                     'event_date'  => $appointmentAt->format('Y-m-d H:i:s'),
                     'description' => 'Booked from Road to Sold' . ($note !== '' ? ': ' . $note : ''),
-                    'property_id' => $input['property_id'] ?? ($tp->promoted_to_property_id ?: null),
+                    'property_id' => $propertyId,
                     'contact_id'  => $contact?->id,
                 ], $actor);
                 $eventId = $event->id;
@@ -143,7 +160,7 @@ class OutcomeService
                 // the assistant who made the call for the agent (null = the agent did): the outcome is the agent's, the call was theirs
                 'recorded_by_user_id'    => (int) $actor->id !== $agentId ? (int) $actor->id : null,
                 'tracked_property_id'    => $tp->id,
-                'property_id'            => $input['property_id'] ?? ($tp->promoted_to_property_id ?: null),
+                'property_id'            => $propertyId,
                 'prospecting_listing_id' => $input['prospecting_listing_id'] ?? null,
                 'list_item_id'           => $input['list_item_id'] ?? null,
                 'contact_id'             => $contact?->id,
@@ -167,6 +184,16 @@ class OutcomeService
                 $this->holds->markNeverSuggest($agencyId, $tp->id, $agentId, $outcome->id, $def->label, $track);
             } else {
                 $this->holds->acquire($agencyId, $actor->effectiveBranchId(), $tp->id, $agentId, $settings->holdDays(), $outcome->id, $track, $occurredAt);
+            }
+
+            // The prospect: take the property (or adopt it), then let the outcome set its next action, due date, stage and any park.
+            $prospect = $prospects->place($actor, (int) $tp->id, $track, [
+                'prospecting_listing_id' => $input['prospecting_listing_id'] ?? null,
+                'property_id' => $propertyId,
+                'stage' => $def->isConversation() ? ProspectStages::CONTACTED : ProspectStages::FOUND, 'actor' => $actor,
+            ]);
+            if ($prospect) {
+                $prospects->applyOutcome($prospect, $outcome, $def, $actor);
             }
 
             if ($contact) {
@@ -204,10 +231,11 @@ class OutcomeService
      *
      * @return array{0:string,1:?Carbon,2:?string}
      */
-    private function resolveNextAction(Def $def, array $input, TrackedProperty $tp, bool $wantsValuation): array
+    private function resolveNextAction(Def $def, array $input, TrackedProperty $tp, bool $wantsValuation, ?Carbon $appointmentAt = null): array
     {
         if ($wantsValuation) {
-            return [Def::ACTION_APPOINTMENT, null, null];
+            // the next action is the evaluation, on the appointment's day (road-to-sold.md 22.7)
+            return [Def::ACTION_APPOINTMENT, $appointmentAt?->copy()->startOfDay(), null];
         }
 
         $today = now()->startOfDay();
@@ -241,6 +269,26 @@ class OutcomeService
                 }
 
                 return [Def::ACTION_EXPIRY_ELSE, $picked, null];
+
+            case Def::ACTION_AFTER_MONTHS:
+                $choices = array_values(array_filter(array_map('intval', (array) $def->choice_months)));
+                $months = (int) ($input['follow_up_months'] ?? 0) ?: (int) ($def->default_months ?: ($choices[0] ?? 6));
+                if ($choices !== [] && ! in_array($months, $choices, true)) {
+                    throw new RoadToSoldException('Pick when this property should come back: ' . implode(', ', $choices) . ' months.');
+                }
+
+                return [Def::ACTION_AFTER_MONTHS, $today->copy()->addMonthsNoOverflow(max(1, $months)), null];
+
+            case Def::ACTION_EXPIRY_ELSE_DAYS:
+                $expiry = $this->knownExpiryDate($tp);
+                if ($expiry && $expiry->gte($today)) {
+                    return [Def::ACTION_EXPIRY_ELSE_DAYS, $expiry->startOfDay(), null];
+                }
+
+                return [Def::ACTION_EXPIRY_ELSE_DAYS, $today->copy()->addDays(max(1, (int) ($def->fallback_days ?: 90))), null];
+
+            case Def::ACTION_FIND_OWNER:
+                return [Def::ACTION_FIND_OWNER, $today->copy()->addDays(max(1, (int) $def->delay_days ?: 3)), $def->list_tag ?: null];
 
             case Def::ACTION_MOVE_TO_LIST:
                 return [Def::ACTION_MOVE_TO_LIST, null, $def->list_tag];
@@ -337,7 +385,7 @@ class OutcomeService
             ->where('is_current', true)->where('dropped', false)
             ->whereNotNull('next_action_at')
             ->whereDate('next_action_at', '<=', Carbon::parse($date)->toDateString())
-            ->whereIn('next_action', [Def::ACTION_AFTER_DAYS, Def::ACTION_PICKED_DATE, Def::ACTION_EXPIRY_ELSE])
+            ->whereIn('next_action', Def::DATED_ACTIONS)
             ->orderBy('next_action_at')->orderBy('id')
             ->get();
     }
