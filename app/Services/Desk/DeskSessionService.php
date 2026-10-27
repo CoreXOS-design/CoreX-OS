@@ -64,7 +64,7 @@ class DeskSessionService
             return true;
         }
 
-        return $session->isLive() && (int) $session->support_user_id === (int) $user->id && $this->canSupport($user, $session);
+        return $session->isLive() && $session->isSupporter($user) && $this->canSupport($user, $session);
     }
 
     // ── Agent side ──────────────────────────────────────────────────────────────────
@@ -209,6 +209,28 @@ class DeskSessionService
             'support_name' => $support->name,
             'joined_at' => $session->joined_at->toIso8601String(),
         ]);
+
+        return $session->fresh();
+    }
+
+    /**
+     * Open a LIVE session again - the support person who joined it (after a reload or a closed window), or a second support person of the same
+     * scope joining the same session. The code is not needed: it was spent at the first join. Audited as another `joined` row.
+     */
+    public function attach(DeskSession $session, User $support): ?DeskSession
+    {
+        $this->expireStale();
+        $session = $session->fresh();
+        if (! $session || ! $session->isLive() || ! $this->canSupport($support, $session)) {
+            return null;   // answered like "not found": nothing about another agency's session leaks
+        }
+
+        $again = $session->isSupporter($support);
+        if (! $again) {
+            $ids = array_values(array_unique(array_merge(array_map('intval', (array) $session->support_user_ids), [(int) $support->id])));
+            $session->forceFill(['support_user_ids' => $ids])->save();
+        }
+        $this->record($session, DeskSessionEvent::JOINED, ['support_name' => $support->name, 'again' => $again, 'additional' => ! $again && (int) $session->support_user_id !== (int) $support->id], $support);
 
         return $session->fresh();
     }
@@ -393,7 +415,7 @@ class DeskSessionService
     public function requestControl(DeskSession $session, User $support, string $tab): DeskSession
     {
         $session = $session->fresh();
-        if (! $session || ! $session->isLive() || (int) $session->support_user_id !== (int) $support->id) {
+        if (! $session || ! $session->isLive() || ! $session->isSupporter($support)) {
             throw new DeskControlException('You are not in a live session.', 409);
         }
         if (! $support->hasPermission('desk.control')) {
@@ -408,7 +430,7 @@ class DeskSessionService
         }
 
         $session->forceFill([
-            'control_state' => DeskSession::CONTROL_REQUESTED, 'control_tab' => $tab,
+            'control_state' => DeskSession::CONTROL_REQUESTED, 'control_tab' => $tab, 'control_support_user_id' => $support->id,
             'control_requested_at' => now(), 'control_granted_at' => null, 'control_last_action_at' => null,
         ])->save();
         $this->record($session, DeskSessionEvent::CONTROL_REQUESTED, $this->tabInfo($session, $tab), $support);
@@ -468,7 +490,7 @@ class DeskSessionService
     public function endControlBySupport(DeskSession $session, User $support): DeskSession
     {
         $session = $session->fresh();
-        if (! $session || (int) $session->support_user_id !== (int) $support->id) {
+        if (! $session || ! $session->isSupporter($support)) {
             throw new DeskControlException('You are not in that session.', 409);
         }
         if (($session->control_state ?: DeskSession::CONTROL_NONE) !== DeskSession::CONTROL_NONE) {
@@ -494,7 +516,8 @@ class DeskSessionService
         }
 
         $info = $this->tabInfo($session, $session->control_tab);
-        $support = $session->support_user_id ? User::withoutGlobalScopes()->find($session->support_user_id) : null;
+        $supportId = $session->control_support_user_id ?: $session->support_user_id;
+        $support = $supportId ? User::withoutGlobalScopes()->find($supportId) : null;
         $kinds = ['click', 'dblclick', 'type', 'key', 'scroll', 'select', 'focus'];
         $max = (int) config('desk.control_actions_per_report', 50);
         $written = 0;
@@ -534,7 +557,7 @@ class DeskSessionService
         }
         $tab = (string) $session->control_tab;
         $info = $this->tabInfo($session, $tab);
-        $session->forceFill(['control_state' => DeskSession::CONTROL_NONE, 'control_tab' => null, 'control_requested_at' => null, 'control_granted_at' => null, 'control_last_action_at' => null])->save();
+        $session->forceFill(['control_state' => DeskSession::CONTROL_NONE, 'control_tab' => null, 'control_requested_at' => null, 'control_granted_at' => null, 'control_last_action_at' => null, 'control_support_user_id' => null])->save();
 
         if ($state === DeskSession::CONTROL_REQUESTED) {
             $this->record($session, DeskSessionEvent::CONTROL_DECLINED, $info + ['reason' => $reason], $actor);

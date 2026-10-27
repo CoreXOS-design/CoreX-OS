@@ -38,7 +38,7 @@ class DeskSession extends Model
     protected $fillable = [
         'agency_id', 'user_id', 'support_user_id', 'status', 'otp_id', 'code_expires_at', 'started_at', 'joined_at', 'ended_at',
         'ended_by', 'ended_by_user_id', 'page_url_last', 'last_heartbeat_at', 'leaving_at', 'ip_address', 'user_agent',
-        'control_state', 'control_tab', 'control_requested_at', 'control_granted_at', 'control_last_action_at',
+        'support_user_ids', 'control_support_user_id', 'control_state', 'control_tab', 'control_requested_at', 'control_granted_at', 'control_last_action_at',
     ];
 
     protected $casts = [
@@ -48,6 +48,7 @@ class DeskSession extends Model
         'ended_at' => 'datetime',
         'last_heartbeat_at' => 'datetime',
         'leaving_at' => 'datetime',
+        'support_user_ids' => 'array',
         'control_requested_at' => 'datetime',
         'control_granted_at' => 'datetime',
         'control_last_action_at' => 'datetime',
@@ -76,6 +77,13 @@ class DeskSession extends Model
     public function events(): HasMany
     {
         return $this->hasMany(DeskSessionEvent::class)->orderBy('id');
+    }
+
+    /** The support person who joined first, or anyone who attached later (the session can be re-opened and shared). */
+    public function isSupporter(User $user): bool
+    {
+        return (int) $this->support_user_id === (int) $user->id
+            || in_array((int) $user->id, array_map('intval', (array) $this->support_user_ids), true);
     }
 
     public function scopeOpen(Builder $query): Builder

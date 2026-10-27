@@ -55,6 +55,8 @@ final class DeskAuditText
         $type = $e->type;
 
         switch ($type) {
+            case 'joined':
+                return (string) ($p['support_name'] ?? '') . (! empty($p['again']) ? ' (opened the session again)' : (! empty($p['additional']) ? ' (a second support person)' : ''));
             case 'page':
                 return (string) ($p['page'] ?? '');
             case 'highlight':

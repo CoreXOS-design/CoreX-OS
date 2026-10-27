@@ -64,6 +64,18 @@ class DeskConsoleController extends Controller
         return response()->json(['session' => $session->load('agent', 'agency', 'supportUser')->toClientArray() + ['tabs' => array_values($this->desk->openTabs($session))]]);
     }
 
+    /** POST /corex/desk/sessions/{id}/attach - open a live session of your scope again, or join it as a second support person. */
+    public function attach(Request $request, int $id): JsonResponse
+    {
+        $session = DeskSession::withoutGlobalScopes()->find($id);
+        $attached = $session ? $this->desk->attach($session, $request->user()) : null;
+        if (! $attached) {
+            return response()->json(['message' => 'That session is not open any more.'], 404);
+        }
+
+        return response()->json(['session' => $attached->load('agent', 'agency', 'supportUser')->toClientArray() + ['tabs' => array_values($this->desk->openTabs($attached))]]);
+    }
+
     /** POST /corex/desk/sessions/{id}/highlight {selector, note} */
     public function highlight(Request $request, int $id): JsonResponse
     {
@@ -131,7 +143,7 @@ class DeskConsoleController extends Controller
     private function mine(Request $request, int $id): DeskSession
     {
         $session = $this->scoped($request, $id);
-        abort_unless($session->isLive() && (int) $session->support_user_id === (int) $request->user()->id, 404);
+        abort_unless($session->isLive() && $session->isSupporter($request->user()), 404);
 
         return $session;
     }

@@ -2342,6 +2342,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'index'])->name('console');
         Route::get('/sessions', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'sessions'])->middleware('throttle:120,1')->name('sessions');
         Route::post('/join', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'join'])->middleware('throttle:30,1')->name('join');
+        Route::post('/sessions/{id}/attach', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'attach'])->whereNumber('id')->middleware('throttle:30,1')->name('attach');
         Route::post('/sessions/{id}/highlight', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'highlight'])->whereNumber('id')->middleware('throttle:120,1')->name('highlight');
         Route::post('/sessions/{id}/highlight/clear', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'clearHighlight'])->whereNumber('id')->middleware('throttle:120,1')->name('highlight.clear');
         Route::post('/sessions/{id}/pointer', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'pointer'])->whereNumber('id')->middleware('throttle:120,1')->name('pointer');

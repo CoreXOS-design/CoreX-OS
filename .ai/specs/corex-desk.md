@@ -43,6 +43,49 @@ password, and the agency can prove afterwards exactly who looked at what and whe
 - **List of live sessions** (waiting + live) for the support user's scope, and recent ended ones.
 - The console loads assets with the support user's own session (no privilege leak). No video is recorded.
 
+### 4a. Mirror fidelity (added 27 Oct 2026 after Johan's real-Chrome test)
+
+A support console that shows a different page than the agent has is worse than none. Rules, each found the hard way and pinned by
+`DeskMirrorFidelityTest` + the browser proof (menu counts and computed colours, real page vs mirror, on the dashboard, Properties, a
+property page and Settings):
+- **Never freeze animations.** rrweb's live replayer adds `html.rrweb-paused` and pauses every CSS animation (`pauseAnimation`, default on).
+  CoreX menus, panels and cards fade in, so frozen they were invisible: the replayer is created with `pauseAnimation: false`.
+- **A blocked element keeps its room but not rrweb's colour.** Desk's own UI is `.rr-block`; rrweb paints blocked boxes `currentColor` (a dark
+  strip where the agent's red bar is). `insertStyleRules: ['.rr-block { background: transparent !important; }']`.
+- **No drift.** Properties a script sets (a `<select>`'s value, a checkbox) raise no DOM mutation, so a long-lived mirror can drift. Both
+  recorders take a fresh full snapshot every 45 s (`checkoutEveryNms`) and once ~2.5 s after recording starts (after a page has drawn itself).
+- **Real button classes.** Console buttons use `corex-btn-primary` / `corex-btn-outline` (the only classes that exist in `corex.css`; `ds-btn` has
+  no CSS and renders as plain text), and `hidden` must still hide them.
+- **Fit the whole agent window, scaled, never reflowed.** The iframe keeps the agent's own viewport width and height (the Meta event), so the
+  agent's media queries, sidebar and content layout are exactly the agent's; it is only scaled by transform: `scale = min(1, pane width / agent
+  width, pane height / agent height)`. The pane's size comes from the *window* (what is left under the header, the session bar and the sessions
+  list), and the mirror is an absolutely positioned child of an `overflow:hidden` pane — so a 1440 px page can never stretch the console, add inner
+  scrollbars, or make the console page scroll (a scrollbar appearing used to steal 15 px and push the mirror past its pane). Refitted on window
+  resize and whenever the bar / tab bar / list change size (ResizeObserver).
+- **No veil.** Nothing may sit over or fade the mirror: no opacity, filter or backdrop on the pane, wrapper or iframe (the proof asserts every
+  ancestor's opacity is 1). The amber "in control" frame is an `outline` on the pane, drawn outside the content.
+- **Sub-menus and anything script-revealed** (the sidebar's slide-in Real Estate / Dashboard lists, Properties cards) come through entrance animations
+  that start at opacity 0; with animations paused they were an empty list. Covered by `pauseAnimation: false`; the proof clicks Real Estate and
+  compares the sub-menu's link count real vs mirror.
+- **Say when the agent cannot answer.** The agent's client whispers `control_ack` as soon as the take-over question is on screen (CoreX page
+  and extension tab alike). If the console has not seen it within 6 s it tells support the agent's page is probably older than the update and
+  needs a refresh — instead of staying silent.
+
+### 4b. The console page, and re-opening a session (added 27 Oct 2026)
+
+**The page.** A standard CoreX page: left menu and the sticky page header (`<x-page-header title="CoreX Desk">`) like Properties search; below it only
+content. In the header: *Agent's code* + **Join** on one line. When joined: a sticky **session bar** (Agent, Agency, Page, Elapsed, a short state chip
+"Waiting for Allow…" / "In control", the highlight note, **Request control**, **Clear highlight**, **End session**), the tab bar when the agent has
+shared extension tabs, and the mirror filling the remaining height. **Sessions open now** sits below. No helper paragraphs anywhere — labels carry the
+meaning; only feedback ("That field is private…", "The agent declined.") appears as a transient line.
+
+**Re-opening and sharing.** A code is spent at the first join, but the session lives on. A support person who reloads or closes the console opens
+their live session from **Sessions open now** (an **Open** button on each live row) — no code — and a second support person of the same scope can
+open the same session. `POST /corex/desk/sessions/{id}/attach` (same `desk.support` + own-agency scope as everything else; an ended, waiting, or
+out-of-scope session answers "not found"). The first to join stays `support_user_id`; anyone else is in `support_user_ids`; all of them may open the
+private channel, point, highlight and ask for control (`control_support_user_id` records who asked, so the audit names the person who acted). Every
+attach is a `joined` audit row ("opened the session again" / "a second support person"). A waiting session is still joined by its code only.
+
 ## 5. Privacy and audit (POPIA)
 
 Johan: a permanent audit so claims can be proven or dismissed.
@@ -194,6 +237,7 @@ allowed for the session's agent, and for the support user who joined it while it
   (`declined` / `no_answer`), `desk.control_revoked {tab}` (the agent took it back), `desk.control_ended {tab, by, reason}`
   (`support` / `idle` / `session` / `tab`). A client reacts only to its own tab; control state also rides on every session answer
   (`control: {state: none|requested|granted, tab}`) so a page change restores it.
+- Whisper `client-control_ack {t}` (agent → console): the take-over question is on the agent's screen.
 - Whisper `client-action` (support → agent, never stored, never through the server): `{t, id, type, s?, x?, y?, v?, k?, sh?, dx?, dy?, n?}` where
   `type` ∈ `click`, `dblclick`, `type` (v = the text), `key` (k ∈ Enter, Tab, Escape, Backspace, Delete, arrows, Home, End), `scroll`
   (s = scroller selector or empty for the page; dx, dy in the agent's pixels), `select` (v = option value), `focus`. `s` is a selector the
