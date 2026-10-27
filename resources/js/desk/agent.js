@@ -12,9 +12,12 @@ import { getEcho, dropEcho } from './echo.js';
 import { encodeBatch } from './frames.js';
 import { slimEvent, resetSlim } from './slim.js';
 
-// How long events wait to be batched before they are whispered: about one screen frame, so a keystroke or a menu opening is on its way at once, and a
-// burst of changes still goes out as one message per frame instead of one per change (spec section 4e).
+// How long events wait to be batched before they are whispered. After a quiet moment: about one screen frame, so a keystroke or a menu opening is on its way
+// at once. In the middle of a burst (the last message went out less than BURST_GAP_MS ago): BURST_MS, so a stream of changes goes out as one message per
+// few frames rather than one per change - a small message costs nearly as many bytes on the wire as a bigger one (spec section 4e).
 const FLUSH_MS = 16;
+const BURST_MS = 50;
+const BURST_GAP_MS = 120;
 const POINTER_IDLE_MS = 4000;
 const REPLAY_KEY = 'corex.desk.replay';   // the tab that last replayed a click for support (a click that opens a new tab hands control to it)
 const REPLAY_WINDOW_MS = 10000;
@@ -254,7 +257,7 @@ function resync(fromConsole) {
 
 function scheduleFlush() {
     if (!st || st.flushTimer) return;
-    st.flushTimer = setTimeout(flush, FLUSH_MS);
+    st.flushTimer = setTimeout(flush, Date.now() - (st.lastFlushAt || 0) > BURST_GAP_MS ? FLUSH_MS : BURST_MS);
 }
 
 /** What kind of batch is this, for the timing overlay. */
@@ -276,6 +279,7 @@ async function flush() {
     // Nothing is whispered before the private channel is subscribed (a page change re-subscribes first); events wait in the buffer.
     if (!st.subscribed || st.flushing || !st.buffer.length) { if (st.buffer.length) scheduleFlush(); return; }
     st.flushing = true;
+    st.lastFlushAt = Date.now();
     const events = st.buffer;
     st.buffer = [];
     try {

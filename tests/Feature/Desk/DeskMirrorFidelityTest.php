@@ -226,6 +226,7 @@ final class DeskMirrorFidelityTest extends TestCase
     {
         // the CoreX tab: about one screen frame (one message per frame at most - a burst is one message), the extension 60 ms
         $this->assertStringContainsString('const FLUSH_MS = 16;', $this->js('agent.js'));
+        $this->assertStringContainsString('const BURST_MS = 50;', $this->js('agent.js'), 'a burst of changes is coalesced, a lone change is not held back');
         $this->assertStringNotContainsString('const FLUSH_MS = 500;', $this->js('agent.js'));
         $ext = (string) file_get_contents(public_path('chrome-extension/portal-capture/desk-content.js'));
         $this->assertStringContainsString('setTimeout(flush, 60)', $ext);
