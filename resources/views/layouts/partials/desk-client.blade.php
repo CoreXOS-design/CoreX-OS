@@ -91,6 +91,9 @@
     <svg width="18" height="18" viewBox="0 0 24 24" fill="#b91c1c" stroke="#fff" stroke-width="1.5" aria-hidden="true" style="position:absolute;left:0;top:0;"><path d="M4 3l16 7-7 2-2 7z"/></svg><span>Support</span>
 </div>
 
+{{-- The Guided Tour's own driver.js stylesheet + CoreX popover theme, so support's highlight looks exactly like a tour step on every page. --}}
+@include('layouts.partials.tour-theme')
+
 @vite(['resources/js/desk/index.js'])
 @endif
 @endif
