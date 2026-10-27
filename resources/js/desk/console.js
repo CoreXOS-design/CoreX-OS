@@ -116,6 +116,7 @@ function detach(callServer) {
     clearInterval(cur.tick);
     clearInterval(cur.retry);
     clearTimeout(cur.typeTimer);
+    clearInterval(cur.focusTimer);
     if (callServer) api('POST', con.urls.sessions + '/' + cur.session.id + '/end');
     $('cdc-replay').innerHTML = '';
     $('cdc-tabs').innerHTML = '';
@@ -321,20 +322,33 @@ function hookReplayInput(tab) {
         const r = ratio(ev); const el = at(r);
         if (el && !isPrivate(el)) sendAction(tab, { type: 'dblclick', s: selectorFor(el), x: r.x, y: r.y });
     });
-    target.addEventListener('keydown', (ev) => {
+    const onKey = (ev) => {
         if (!controlling() || ev.ctrlKey || ev.metaKey || ev.altKey) return;
         if (ev.key.length === 1) { ev.preventDefault(); typeChar(tab, ev.key); return; }
         if (['Enter', 'Tab', 'Escape', 'Backspace', 'Delete', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(ev.key)) {
             ev.preventDefault();
             flushTyped(tab);
+            if (!cur.focusSel && ev.key !== 'Tab' && cur.privateFocus) { say('That field is private - ask the agent to fill it in themselves.', true); return; }
             sendAction(tab, { type: 'key', k: ev.key, sh: ev.shiftKey, s: cur.focusSel || '' });
         }
-    });
-    target.addEventListener('paste', (ev) => {
+    };
+    const onPaste = (ev) => {
         if (!controlling() || !cur.focusSel) return;
         const text = (ev.clipboardData && ev.clipboardData.getData('text')) || '';
         if (text) { ev.preventDefault(); flushTyped(tab); sendAction(tab, { type: 'type', s: cur.focusSel, v: text.slice(0, 500) }); }
-    });
+    };
+    target.addEventListener('keydown', onKey);
+    target.addEventListener('paste', onPaste);
+    // The mirror re-plays the agent's own focus changes, which can move keyboard focus INTO the iframe: catch keys there too (the iframe's
+    // window is re-bound after every full snapshot, which resets it), and hand focus back to the wrapper.
+    const bindIframe = () => {
+        const w = iframe.contentWindow;
+        if (!w) return;
+        w.removeEventListener('keydown', onKey, true); w.addEventListener('keydown', onKey, true);
+        w.removeEventListener('paste', onPaste, true); w.addEventListener('paste', onPaste, true);
+    };
+    bindIframe();
+    tab.replayer.on('fullsnapshot-rebuilded', bindIframe);
     let wheel = null;
     target.addEventListener('wheel', (ev) => {
         if (!controlling()) return;
@@ -361,12 +375,13 @@ const isEditable = (el) => !!el && ((el.tagName === 'INPUT' && !['button', 'subm
 
 function controlClick(tab, el, selector, r) {
     if (isPrivate(el)) {
-        cur.focusSel = null; cur.typed = null;   // nothing typed afterwards may land in the PREVIOUS field
+        cur.focusSel = null; cur.typed = null; cur.privateFocus = true;   // nothing typed afterwards may land in the PREVIOUS field
         say('That field is private - ask the agent to fill it in themselves.', true);
         return;
     }
     if (el.tagName === 'SELECT') { chooseOption(tab, el, selector); return; }
     cur.focusSel = isEditable(el) ? selector : null;
+    cur.privateFocus = false;
     flushTyped(tab);
     sendAction(tab, { type: 'click', s: selector, x: r.x, y: r.y });
 }
@@ -401,7 +416,7 @@ function scrollerFor(el) {
 
 /** Keystrokes are joined into one `type` action every ~120 ms (fewer whispers; the agent's report counts them as one line). */
 function typeChar(tab, ch) {
-    if (!cur.focusSel) { say('Click a text field in the window first.', true); return; }
+    if (!cur.focusSel) { say(cur.privateFocus ? 'That field is private - ask the agent to fill it in themselves.' : 'Click a text field in the window first.', true); return; }
     cur.typed = (cur.typed || '') + ch;
     clearTimeout(cur.typeTimer);
     cur.typeTimer = setTimeout(() => flushTyped(tab), 120);
@@ -422,8 +437,16 @@ function sendAction(tab, a) {
 
 function setControl(state, tabKey, note) {
     if (!cur) return;
+    clearInterval(cur.focusTimer);
     cur.control = { state, tab: state === 'none' ? null : tabKey };
-    if (state !== 'granted') { cur.typed = null; cur.focusSel = null; }
+    if (state !== 'granted') { cur.typed = null; cur.focusSel = null; cur.privateFocus = false; }
+    else {
+        // Belt and braces for the focus tug-of-war with the mirror: while in control, give focus back to the capture layer.
+        cur.focusTimer = setInterval(() => {
+            const t = cur && cur.tabs.get(cur.control.tab);
+            if (t && t.replayer && cur.selected === t.key && document.activeElement === t.replayer.iframe) t.replayer.wrapper.focus({ preventScroll: true });
+        }, 150);
+    }
     paintControl();
     if (note) say(note);
 }
