@@ -17,6 +17,9 @@
     .rts-fit { display: flex; flex-direction: column; gap: .75rem; height: 100%; min-height: 0; }
     .rts-block-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: .75rem; }
     .rts-block-body.is-fit { overflow: hidden; }
+    /* only the block body gives way when the window is short: the header rows keep their height (they used to shrink and slide under the sticky banner) */
+    .rts-fit > * { flex-shrink: 0; }
+    .rts-fit > .rts-block-body { flex: 1 1 0; min-height: 0; }
     /* a flex child with overflow set shrinks to NOTHING when its siblings need the room - that hid the intake table (27 Oct); nothing shrinks except the one list that is meant to */
     .rts-block-body > *, .rts-col > * { flex-shrink: 0; }
     .rts-block-body > .rts-grow, .rts-col > .rts-grow { flex: 1 1 0; min-height: 6rem; overflow: auto; }
@@ -24,15 +27,14 @@
     .rts-clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.25; }
     .rts-nw { white-space: nowrap; max-width: 15rem; overflow: hidden; text-overflow: ellipsis; }
     .rts-top .rts-long { display: none; }
-    .rts-top > :first-child { flex-basis: 17rem; }
-    .rts-top .grid { grid-auto-flow: column !important; grid-template-columns: none !important; grid-auto-columns: minmax(6.5rem, 1fr); }
+    .rts-top .grid { grid-template-columns: repeat(auto-fit, minmax(6.2rem, 1fr)) !important; }
     .rts-block-body form select, .rts-block-body form input[type=text], .rts-block-body form input[type=date] { padding-top: .3rem !important; padding-bottom: .3rem !important; }
     .rts-block-body > form { gap: .5rem !important; }
     .rts-grow thead th { position: sticky; top: 0; z-index: 1; background: var(--surface); }
     .rts-grow table td { padding-top: .35rem; padding-bottom: .35rem; }
     /* what to do next + where the month stands share one row */
     .rts-top { display: flex; gap: .75rem; align-items: stretch; }
-    .rts-top > :first-child { flex: 0 1 17rem; min-width: 0; }
+    .rts-top > :first-child { flex: 0 0 22rem; min-width: 0; }
     .rts-top > :last-child { flex: 1 1 0; min-width: 0; }
     .rts-top > :only-child { flex: 1 1 0; }
     .rts-top .grid { gap: .5rem !important; grid-auto-rows: auto !important; }
