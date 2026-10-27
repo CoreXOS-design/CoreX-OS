@@ -96,6 +96,23 @@
         </div>
     @endif
 
+    {{-- Road to Sold (22.10 step 1): nobody found for this property. Records the "No owner found" outcome on the prospect (its own form: the
+         capture form below is for finding someone). Shown only when this screen was opened from a prospect's row. --}}
+    @if (request()->filled('rts_prospect'))
+        <form method="POST" action="{{ route('road-to-sold.prospects.no-owner', ['prospect' => (int) request()->input('rts_prospect')]) }}"
+              class="mb-4 flex items-center justify-between gap-3 flex-wrap rounded-md p-3"
+              style="background: var(--surface); border: 1px solid var(--border);">
+            @csrf
+            @foreach (\App\Services\RoadToSold\PitchPathService::CARRY as $__carryKey)
+                @if (request()->filled($__carryKey))
+                    <input type="hidden" name="{{ $__carryKey }}" value="{{ request()->input($__carryKey) }}">
+                @endif
+            @endforeach
+            <span class="text-sm" style="color: var(--text-secondary);">Cannot find the owner? Say so and Road to Sold brings this property back for another try.</span>
+            <button type="submit" class="corex-btn-secondary">No owner found</button>
+        </form>
+    @endif
+
     {{-- Contact form — SEARCH & link an existing contact, OR capture a new one.
          Both modes post to the store route matching the source; the controller
          branches on contact_id. --}}
@@ -387,6 +404,12 @@
                   ? route('seller-outreach.entry.store-from-property', $property->id)
                   : route('seller-outreach.entry.store-from-prospecting', $listing->id)) }}">
         @csrf
+        {{-- Road to Sold pop-up context (22.9 / 22.10): kept through the save so the composer, the Done bar and the stage know the prospect --}}
+        @foreach (\App\Services\RoadToSold\PitchPathService::CARRY as $__carryKey)
+            @if (request()->filled($__carryKey))
+                <input type="hidden" name="{{ $__carryKey }}" value="{{ request()->input($__carryKey) }}">
+            @endif
+        @endforeach
 
         {{-- R1 — explicit LINKED-DEED state + unlink. When a deed is selected the sellers panel +
              property address follow it; ✕ Unlink reverts to auto-match (confirm-on-click). --}}

@@ -201,7 +201,11 @@ function composerState(init) {
                     // No client URL (e.g. email) — close the blank WA tab we opened.
                     waTab.close();
                 }
-                window.location.href = this.sentUrlBase + '/' + data.send_id;
+                // Road to Sold pop-up context (embed, the prospect, the stage) rides along so the Done bar still knows the prospect
+                const carry = new URLSearchParams();
+                const here = new URLSearchParams(window.location.search);
+                ['embed', 'rts_prospect', 'rts_stage'].forEach(k => { if (here.get(k)) carry.set(k, here.get(k)); });
+                window.location.href = this.sentUrlBase + '/' + data.send_id + (carry.toString() ? '?' + carry.toString() : '');
             } catch (e) {
                 if (waTab) waTab.close();
                 alert('Network error — try again.');

@@ -6653,6 +6653,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::get('/report/pdf', [\App\Http\Controllers\RoadToSold\ReportController::class, 'pdf'])->name('report.pdf');
             Route::get('/report/xlsx', [\App\Http\Controllers\RoadToSold\ReportController::class, 'xlsx'])->name('report.xlsx');
 
+            // v3 pitch path from a row (22.10, R8): the owner is known -> the composer, else Find owner; "No owner found" is an outcome.
+            Route::get('/prospects/{prospect}/pitch-path', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'show'])
+                ->whereNumber('prospect')->name('prospects.pitch-path');
+            Route::post('/prospects/{prospect}/no-owner', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'noOwner'])
+                ->whereNumber('prospect')->name('prospects.no-owner');
+
             Route::prefix('settings/outcomes')
                 ->middleware('permission:road_to_sold.manage_settings')
                 ->name('settings.outcomes.')
