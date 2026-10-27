@@ -28,7 +28,7 @@ final class DeskCoreXTabsTest extends DeskTestCase
         $this->desk = app(DeskSessionService::class);
         Event::fake([DeskBroadcast::class]);
         Cache::flush();
-        config(['reverb.apps.apps.0.key' => 'abc', 'reverb.public.host' => 'qa.example.test', 'desk.tab_leave_grace_seconds' => 2]);
+        config(['reverb.apps.apps.0.key' => 'abc', 'reverb.public.host' => 'qa.example.test', 'desk.tab_leave_grace_seconds' => 2, 'desk.tab_leave_grace_controlled_seconds' => 15]);
     }
 
     protected function tearDown(): void
@@ -175,10 +175,24 @@ final class DeskCoreXTabsTest extends DeskTestCase
         Event::assertDispatched(DeskBroadcast::class, fn ($e) => $e->name === 'desk.control_moved' && $e->payload['tab'] === 'cnew1234' && $e->payload['from'] === 'main');
         $this->actingAs($agent)->postJson("/api/v1/desk/sessions/{$s->id}/control/actions", ['tab' => 'cnew1234', 'actions' => [['type' => 'click', 'selector' => '#x', 'label' => 'Go', 'ok' => true]]])->assertOk();
 
-        // closing the controlled tab ends control
-        Carbon::setTestNow(Carbon::now());
+        // the controlled tab loading its next page (a click support replayed) must not end control, however slow the page: it has a long grace
+        $now = Carbon::parse('2026-10-27 11:00:00');
+        Carbon::setTestNow($now);
         $this->tab($agent, $s, 'leave', 'cnew1234')->assertOk();
-        Carbon::setTestNow(Carbon::now()->addSeconds(3));
+        Carbon::setTestNow($now->copy()->addSeconds(6));
+        $this->desk->settleTabs($s->fresh());
+        $this->assertSame(DeskSession::CONTROL_GRANTED, $s->fresh()->control_state, 'still in control after 6 s');
+        $this->tab($agent, $s, 'join', 'cnew1234')->assertOk();   // the next page came
+        Carbon::setTestNow($now->copy()->addSeconds(30));
+        $this->desk->settleTabs($s->fresh());
+        $this->assertSame(DeskSession::CONTROL_GRANTED, $s->fresh()->control_state, 'it came back, so nothing ended');
+
+        // closing the controlled tab for good ends control (after the long grace)
+        $this->tab($agent, $s, 'leave', 'cnew1234')->assertOk();
+        Carbon::setTestNow($now->copy()->addSeconds(40));
+        $this->desk->settleTabs($s->fresh());
+        $this->assertSame(DeskSession::CONTROL_GRANTED, $s->fresh()->control_state, '10 s is not enough for a controlled tab');
+        Carbon::setTestNow($now->copy()->addSeconds(46));
         $this->desk->settleTabs($s->fresh());
         $this->assertSame(DeskSession::CONTROL_NONE, $s->fresh()->control_state);
         Event::assertDispatched(DeskBroadcast::class, fn ($e) => $e->name === 'desk.control_ended' && $e->payload['reason'] === 'tab');
@@ -256,7 +270,7 @@ final class DeskCoreXTabsTest extends DeskTestCase
         $this->assertStringContainsString("'.desk.control_moved'", $agent);
         $this->assertStringContainsString("localStorage.setItem(REPLAY_KEY", $agent);
         // the page's inline script claims the key and sends the join call as the page starts; the loader uses it
-        $this->assertStringContainsString('window.CorexDeskTabKey = function (wantMain)', $partial);
+        $this->assertStringContainsString('window.CorexDeskTabKey = function (wantMain, first)', $partial);
         $this->assertStringContainsString("/tabs', { method: 'POST'", $partial);
         $this->assertStringContainsString('navigator.locks.request', $partial);
         $this->assertStringContainsString('window.CorexDeskTabKey(!!wantMain)', $index);

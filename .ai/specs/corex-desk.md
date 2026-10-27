@@ -27,7 +27,7 @@ password, and the agency can prove afterwards exactly who looked at what and whe
   CoreX window."*, and **Cancel**.
 - When support joins: a thin red bar across the top of every page — *"CoreX Desk — {support name} is viewing this window —
   [End session]"*. The agent sees support's pointer (a labelled cursor, "Support") and highlights (outline + optional note,
-  the Guided Tour / driver.js look).
+  a CoreX ring + name label + note card — spec 4g; it clears itself when the agent clicks it).
 - A session ends on: End (either side), logout, tab close (30 s heartbeat timeout), or 10 minutes with nobody joining.
 - Nothing is recorded or sent until support has joined. Passwords and fields marked `data-desk-mask` are masked inside the
   agent's browser before anything leaves it.
@@ -122,10 +122,14 @@ plus a link to the past sessions. Nothing else; no helper text.
   only a transform scales it (up to 3×). No page header, no left menu, no test-site banner, no *Sessions open now*, no helper or technical line:
   the viewer element sits on `<body>` above everything (z-index 2 000 000), the page behind it does not scroll.
 - **Full screen** is one button (`requestFullscreen` on the viewer). Esc leaves full screen and stays in the viewer.
-- **One thin floating toolbar**, reusing the CoreX button styles: Agent · Support (the display name, 4c) · Page · Elapsed · state pill (**Viewing /
-  Requested / In control**) · [Request control | Withdraw request | Hand back] · [Highlight toggle + note + Clear] · [tab buttons when the extension shares tabs]
-  · [Full screen] [Back] [End session]. It slides away after 3 s of no mouse activity and returns when the mouse goes to the top edge (it stays while the
-  pointer is on it or a field in it has focus). While in control the window has a thin amber frame.
+- **One toolbar, pinned** (ruling 27 Oct 2026 — it used to float and slide away after 3 s), reusing the CoreX button styles: Agent · Support (the display name,
+  4c) · Page · Elapsed · state pill (**Viewing / Requested / In control**) · [Request control | Withdraw request | Hand back] · [Highlight toggle + note +
+  Clear] · [one button per tab when the agent has more than one: CoreX tabs and shared Chrome tabs, 4f] · [Full screen] [Back] [End session]. It is always
+  visible (in full screen too) and never covers the picture: the viewer is a column — the toolbar on top (one row of about 45 px where there is room, wrapping
+  on a narrow window), **the mirror below it filling the rest of the window**, refitted whenever that room changes (window resize, full screen, the toolbar
+  wrapping — a `ResizeObserver` on the picture area). While in control a thin amber frame is drawn over the picture.
+  Proof: `toolbar-proof.mjs` — at 1920×1080, 1366×768 and 1280×720 the bar is still at top 0 after 5 s idle, the picture sits below it and fits the remaining
+  room exactly (width or height), and Full screen keeps the bar.
 - **Highlight mode**: on while viewing (a click points something out), off once in control (a click is a click); the toggle overrides either way and
   Shift+click always points. A highlight shows a small toast naming the element in words (its label / text / placeholder) — never a selector.
 - **Back** returns to the list and leaves the session open (Open it again from *Sessions open now*); **End session** ends it and returns to the list.
@@ -166,6 +170,103 @@ that fell inside the window, so where you stopped the agent's cursor stayed a st
 waited `FLUSH_MS = 500` to be batched. Batching is now 60 ms (agent page and extension) and scroll sampling 50 ms. Targets: < 300 ms pointer and typing, < 1 s DOM.
 Proof: `geometry-proof.mjs` (agent 1366×768 @ DPR 1.25 and 1920×1080 @ 1, support 1536×735, dark and light): iframe size = agent size, cards on screen equal,
 pointer error ≤ 3 px on a 5×5 grid, latencies, and the same after the agent's window / zoom changes mid-session.
+
+**Lag round (27 Oct 2026, Johan + Andre on QA1: "lag still heavy" over SA ↔ Hetzner DE ↔ SA).** Measured first, then cut what is ours.
+
+*What the numbers showed* (`lag-proof.mjs`, two real Chromiums on the QA1 box, so the network between them is ~0 and only OUR cost shows):
+
+| | before (82c0aea26) | after |
+|---|---|---|
+| bytes sent when support joins | **503 KB** — three full snapshots of 167 KB each | **59 KB** — one snapshot, in two whispers |
+| one full snapshot, raw / on the wire | 906 KB / 165 KB | 384 KB / 59 KB |
+| join → first picture | 1.8 s | 1.6 s (the page's own load dominates; on a slow link the bytes above are what is saved) |
+| a change on the agent's page → in the mirror | 98 ms | 47 ms |
+| a keystroke → in the mirror | 82 ms | 33 ms |
+| support's pointer → agent's screen | 25 ms | 28 ms (unchanged: 25 moves a second) |
+| a 2 s storm of 600 attribute changes + 60 new nodes: messages / bytes | 30 / 22.8 KB | 31 / 24.4 KB (that run now also carries nothing the mirror cannot show) |
+
+*What was ours and is now cut* (all in `resources/js/desk/`):
+1. **One snapshot, not three.** On join the agent used to send a snapshot when its recorder started (before the console had even subscribed — it went nowhere),
+   another when the console asked, and a third "settle" snapshot 2.5 s later; the console's retry could ask again while the first was still on its way.
+   Now: the recorder's first snapshot is kept only if the console already asked (or support was already in the session — a page change, a new tab); the
+   console's ask is answered once (asks within 900 ms are one); no settle snapshot (later changes arrive as mutations); the console does not ask again while
+   a picture is still arriving, and backs off (3 s, 6 s … 15 s). The periodic checkout is 120 s (was 45 s).
+2. **Stylesheets are not sent.** rrweb used to inline every `<link>` stylesheet into the snapshot (492 KB of CSS, twice). The mirror now loads the page's own
+   stylesheets by URL (same site, so from the support person's cache). `inlineStylesheet: false`.
+3. **Slimming (`slim.js`)** — only what the mirror cannot show: Alpine's `x-data="{…}"` (some 6 KB each), `@click` / `:class` bindings, `on…` handlers, and
+   `data-` / `aria-` attributes that no stylesheet of the page selects on (`[x-cloak]`, `[data-state=open]`, `[aria-expanded=true]` are kept; `data-tour`,
+   `data-desk*` and `aria-label` are always kept); an attribute change that sets the value the mirror already has is not sent; pictures are marked
+   `loading="lazy"`. Text, structure, classes, styles and form values are never touched.
+4. **Compression.** The first snapshot is gzipped through `CompressionStream` (already so); batches under 300 bytes now go as they are (the gzip header cost
+   more than it saved); whisper chunks are 32 000 characters (were 7 000: a snapshot was 24 whispers, now 2).
+5. **One message per frame at most.** After a quiet moment a change goes out within 16 ms; in the middle of a burst the agent waits 50 ms and sends one message
+   for the lot (a small message costs nearly as many bytes as a bigger one: 16 ms batching alone measured 60 messages / 40 KB for the storm above).
+6. **Pointer** ≤ 25 moves a second (one per 40 ms, trailing send — unchanged). **Console side:** no re-render beyond rrweb's own patching; a page change
+   is a new snapshot only because the page is new.
+
+*What is NOT ours — the network floor.* Agent and support are both in South Africa and every message goes through the Reverb server in Germany: agent → DE →
+support. A round trip SA ↔ DE is about 170–190 ms, so **a message needs about 90 ms to reach the server and about 90 ms to come back down — roughly 0.2 s
+end to end, however small it is.** Server-originated events (highlight, take-over, a new tab announced) also pass through a PHP request on the server: about
+0.2 s on QA1 (measured: the server's own answer 217 ms, Reverb adds under 10 ms). We cannot get below that without a relay in South Africa. Measured on the
+QA1 box the browsers share a machine, so these numbers show OUR processing only; the real session is that plus the floor.
+
+**Timing panel (diagnostic, off by default).** `config('desk.timing_overlay')` (env `DESK_TIMING_OVERLAY`, default false; deliberately not an agency
+setting and not in the Setup Wizard). When on, the console shows a small panel (bottom left of the viewer): per kind of message (snapshot / mutation / input
+/ scroll / pointer) the time from the agent's tab to the console (the agent stamps each message with its own clock; the console compares the two clocks from
+ping / pong whispers — a round trip of a few ms through Reverb), the agent's encode time, the console's decode and apply time; the size of the last snapshot
+(raw and on the wire) and the ten biggest mutation batches; the relay round trip; and a server-stamped event timed from the request that caused it next to
+the server's own answer. `POST /corex/desk/sessions/{id}/timing` exists only while it is on (404 otherwise). `window.__deskTiming.snapshot()` returns the numbers.
+
+### 4f. One session, every CoreX tab (Johan + Andre, 27 Oct 2026)
+
+A Desk session belongs to the **user**, not to a tab. A button in CoreX that opens a new tab (`target="_blank"`, `window.open`) used to open a tab support could
+not see. Now **every CoreX tab the agent has — the one that asked for the code, tabs opened later, tabs reloaded or navigated — joins the live session by itself.**
+
+- **Tab keys.** `main` = the tab that asked for the code; `c<letters/digits>` = every other CoreX tab; `x<chrome tab id>` = a tab shared through the extension
+  (unchanged). A tab keeps its key across its own page changes (sessionStorage); a tab opened from another can inherit a *copy* of that storage, so a brand-new
+  tab never reuses a stored key, and the key is also claimed with a Web Lock held for as long as the page lives (a duplicated tab takes a new one).
+- **Joining.** The page's own inline script (`layouts/partials/desk-client.blade.php`) sends `POST /api/v1/desk/sessions/{id}/tabs {action: join, tab, path,
+  title, from?}` **as the page starts parsing**, and the Desk scripts are fetched at the same time (`modulepreload`), so support learns of the tab as early as
+  it can. The server audits `tab_join` (host `CoreX`, with the page path and title), broadcasts `desk.tab_joined`, and `tab_update` / `desk.tab_updated` when
+  the tab's page or title changes. The **red bar shows in every joined tab**; the Get help code is shown **once**, in the tab that asked (what a tab
+  remembers about the session lives in localStorage, shared by all of them; Get help in another tab while a session is live says so).
+- **Leaving.** A closing tab says so (`leaving` beacon with its key). The server does not act at once — the same tab loading its next page says "leaving" and
+  then "joined" again within a moment — it makes a real `tab_leave` (audited, `desk.tab_left`, and control ended with reason `tab` if that tab was controlled)
+  only when nobody came back within `desk.tab_leave_grace_seconds` (3) — or `desk.tab_leave_grace_controlled_seconds` (15) for a tab support is controlling, so a slow next page after a replayed click never ends the take-over. A tab that crashes without a word is dropped after `desk.tab_silent_seconds` (100) of no
+  heartbeat (every tab sends `tab` with its heartbeat). The console's one-second poll settles a closed tab, so it disappears within about 3–4 s.
+- **The console.** One button per tab in the toolbar, labelled **title · path** (CoreX tabs) or title · host (shared Chrome tabs); shown when there is more than one.
+  **A newly opened CoreX tab is switched to by itself** (and asks that tab for its picture); a picture that arrives before the server's announcement is filed
+  under a placeholder that the announcement names. When the selected tab closes the console returns to the first (`main`, else the oldest). Control, pointer
+  and highlight address the **selected** tab: the take-over question is asked only in that tab; actions are reported with its key.
+- **Control follows a click into a new tab.** If support (in control) clicks a button that opens a new CoreX tab, control moves with it: the agent's browser
+  notes, as it replays each click, that this tab did it (`localStorage corex.desk.replay`); the new tab joins with `from` = that tab; only if control is
+  granted on exactly that tab and the note is under 10 s old does the server move `control_tab`, audited as **`control_moved`**
+  (`desk.control_moved {tab, from}`). A tab the agent opens on their own never receives control. (A browser may block a pop-up opened by a *replayed* click —
+  that is the browser's rule, not ours; support can ask the agent to open it.)
+- **Ending.** `desk.ended` reaches every tab; each tears down. The session survives one tab closing — the others keep it alive.
+- **Audit.** `tab_join`, `tab_update`, `tab_leave`, `control_moved` rows (CoreX tabs read "CoreX tab - title (path)").
+
+Proof (`newtab-proof.mjs`, two real Chromiums on QA1, both `target="_blank"` link and `window.open` button): the agent clicks a CoreX button that opens a new
+tab → the console lists it and switches to it (**about 0.3–0.5 s after the new page's HTML arrives; 1.3–2 s from the click** — the property page's own server answer
+is ~0.9 s of that) and shows its picture once the page has loaded (~3 s from the click); the red bar is in both tabs, no second code; Request control → Allow in
+the new tab → In control in ~0.4 s → a click in the viewer replays in the new tab; closing the new tab returns the console to the first within ~2–3 s; the audit
+trail holds `tab_join` and `tab_leave`.
+
+### 4g. The highlight (27 Oct 2026)
+
+Support's highlight is **not a Guided Tour step** any more: no driver.js, no Next / Previous, nothing to press.
+- **Look.** A CoreX ring (brand colour, 3 px, rounded, soft glow) round the element, the supporter's display name on its top edge as a small pill, and — when
+  there is a note — a small CoreX card (surface colour, border, shadow, brand accent on its left edge) next to the element, below it or above when there is no
+  room, at the right edge when the element is near it. Works in light and dark (it uses the theme's variables). The ring follows the element while the page scrolls
+  or resizes. It is real DOM, so the console's picture shows it too.
+- **Auto-clear.** When the agent clicks the highlighted element **or anything inside it** the highlight clears on the agent's side and the agent's tab tells the
+  server (`POST /api/v1/desk/sessions/{id}/highlight/clear {tab, reason: clicked}`): audited (`highlight_cleared`, `by agent`), and `desk.highlight_cleared
+  {tab, reason}` makes the console clear its state and toast **"Done - the agent clicked it."** A highlight also clears **on navigation**: leaving the page
+  (beacon on `pagehide`) or a hash / history change clears it, and the console toasts "The agent moved to another page - the highlight cleared."
+- **Console.** Unchanged: a click in Highlight mode points; the toast names the element in words; Clear removes it.
+- Proof (`highlight-proof.mjs`, including auto-clear): ring within 3 px of the element's box plus its padding; label = the supporter's display name; note in the card; no driver.js
+  element in the page, no buttons; light and dark screenshots; the agent's click inside the element clears it in ~30 ms and the console says Done in ~0.3 s; leaving
+  the page clears it and the console says so in ~1 s.
 
 ## 5. Privacy and audit (POPIA)
 
@@ -225,7 +326,7 @@ Client events (Pusher "whispers" — browser to browser, not stored, not audited
 
 | Event | From | Payload |
 |---|---|---|
-| `client-frame` | agent | one chunk `{id, i, n, z, d}` of a batch of rrweb events (JSON, gzip+base64 when `z=1`, chunks ≤ 7 KB) |
+| `client-frame` | agent | one chunk `{id, i, n, z, d, t?}` of a batch of rrweb events (JSON, gzip+base64 when `z=1`, chunks ≤ 32 KB since 27 Oct; see 7.6) |
 | `client-resync` | support | `{}` — agent answers with a fresh rrweb full snapshot |
 | `client-pointer` | support | `{x, y}` — ratios 0–1 of the agent's viewport |
 
@@ -264,10 +365,8 @@ exists or the console is open (`agent.js`). The console has its own entry (`cons
   `maskTextSelector: '[data-desk-mask]'` hides displayed text (e.g. a bank number shown as text). `data-desk-mask` is set on the
   bank account and branch-code inputs (contacts, payroll, staff take-on, platform company, the rental application's bank account
   field). Any future card/bank input must carry it. All Desk UI carries `rr-block`, so it is never part of what support sees.
-- **Highlight look:** drawn by the Guided Tour's own engine (vendored driver.js) with the tour's own theme —
-  `layouts/partials/tour-theme.blade.php` (moved out of `tour-engine.blade.php` unchanged, included on every page by the Desk
-  partial): overlay colour, stage padding/radius and the `corex-tour` popover, in the "Spot Help" hands-on mode
-  (`body.corex-guide-live`) so the agent can still click and type under the dimming.
+- **Highlight look:** superseded 27 Oct 2026 — see 4g (a CoreX ring + label + note card drawn by Desk itself; it used to be the Guided Tour's driver.js
+  popover, `tour-theme`, which Desk no longer includes).
 - **Mirror:** rrweb `record` on the agent, `Replayer` in live mode on the console. The console stamps each arriving batch with its
   own clock (the Replayer plays a live event when its timestamp comes round on the local clock, so the agent's clock must not
   matter). A page change is a new page load: the new page's recorder emits Meta + full snapshot, the Replayer rebuilds. Frames
@@ -294,7 +393,7 @@ allowed for the session's agent, and for the support user who joined it while it
 
 | Event | From | Payload |
 |---|---|---|
-| `client-frame` | agent | `{id, i, n, z, d}` — chunk `i` of `n` (0-based) of batch `id`. Reassemble `d` by `i`; base64-decode; if `z=1` gunzip; `JSON.parse` → an **array of rrweb events**. `d` ≤ 7000 chars. Incomplete batches are dropped after 30 s |
+| `client-frame` | agent | `{id, i, n, z, d}` — chunk `i` of `n` (0-based) of batch `id`. Reassemble `d` by `i`; base64-decode; if `z=1` gunzip; `JSON.parse` → an **array of rrweb events**. `d` ≤ 7000 chars (32 000 from the CoreX page since 27 Oct; the extension still uses 7000 — receivers accept any). Incomplete batches are dropped after 30 s |
 | `client-resync` | support | `{}` — agent must emit a fresh rrweb **full snapshot** (`record.takeFullSnapshot(true)`). Sent on subscribing and every 3 s until the first snapshot arrives |
 | `client-pointer` | support | `{x, y}` — ratios 0–1 of the agent's viewport (so any window size works); the agent hides the cursor after 4 s idle |
 
@@ -331,6 +430,22 @@ allowed for the session's agent, and for the support user who joined it while it
   `/control/end`.
 - **Consent rule for every client:** nothing is replayed until the *agent's own* Allow has been pressed on that very page and the server's
   `desk.control_granted` has come back; a `client-action` arriving in any other state is ignored.
+
+**Protocol 1.3 (27 Oct 2026, spec 4e–4g) — additive again.**
+- **CoreX tabs.** Tab keys `main` and `c<3–10 letters/digits>` for the agent's CoreX tabs (alongside `x<id>`); a CoreX tab names itself in every whisper it
+  sends (`t`), including `client-frame` chunks, and reacts only to what is addressed to it. `client-viewport`, `client-control_ack` and `client-action_result`
+  carry its key. Server: `POST /api/v1/desk/sessions/{id}/tabs {action: join|update|leave, tab, path, title, from?}` (session auth, own session; `from` = the tab
+  whose replayed click opened this one), `heartbeat {page, tab}`, `leaving` (multipart `tab`). `desk.tab_joined / tab_updated {tab, host: "CoreX", title,
+  path}`, `desk.tab_left {tab}`. New: `desk.control_moved {tab, from, idle_seconds}`; new audit types `control_moved`. `GET /corex/desk/sessions` rows now
+  carry `tabs` and the response `server_ms`.
+- **`desk.highlight_cleared {tab, reason?}`** — `reason` `clicked` | `navigated` when the agent's tab cleared it; agent → server: `POST
+  /api/v1/desk/sessions/{id}/highlight/clear {tab, reason}`.
+- **`client-frame` chunk** `{id, i, n, z, d, t?, m?}`: `t` the tab, `m` the timing stamp (only with the timing panel on). `d` ≤ 32 000 chars; `z=0` for
+  batches under 300 bytes.
+- **Timing panel (config only):** whispers `client-tping {id, c}` (console → all tabs) and `client-tpong {id, c, a, t}`; `POST /corex/desk/sessions/{id}/timing`
+  → event `desk.timing {sent_ms}`.
+- The recorder no longer sends a snapshot nobody asked for: after the first join, a snapshot goes out when the console asks (`client-resync`), or at once for a
+  tab joining a session support is already in.
 
 **Rules every recorder must follow.**
 1. Record only the sharing tab, only while the session is `live`; stop on `desk.ended`.
@@ -376,7 +491,7 @@ Infra (QA1 only): `corex-qa1-reverb.service`, nginx `location /app` in the `qate
 1. The console shows a live mirror of the agent's CoreX page, including scroll and page changes (re-snapshot on navigation).
 2. Passwords and `[data-desk-mask]` fields arrive masked; normal fields arrive as typed.
 3. The support pointer shows on the agent page at the matching position; a click in the mirror highlights the same element on the
-   agent's page, drawn with the Guided Tour's styling, and Clear removes it.
+   agent's page (a CoreX ring and note card, 4g), and Clear removes it.
 4. The protocol (7.6) is documented and pinned by `tests/Feature/Desk/DeskProtocolTest.php`.
 
 ## 11. Phases
@@ -417,7 +532,7 @@ root the site cannot restyle and the recording cannot contain. Nothing is read f
 
 **What support sees.** The console gets a **tab bar** (one button per tab: page title · site; the CoreX page is "CoreX page").
 Switching asks that tab for a fresh snapshot. The pointer, highlight and note go to the selected tab; the agent sees a labelled
-"Support" cursor, and a blue ring + note bubble in the Guided Tour's Spot Help look (dimmed page that stays clickable).
+"Support" cursor, and the CoreX highlight ring + note card (4g).
 
 **Allowed sites (server-enforced).** `config/desk.php` `extension_hosts` — `cmainfo.co.za`, `thevirtualagent.co.za`,
 `property24.com`, `privateproperty.co.za`, `lightstone.co.za`, `lightstoneproperty.co.za`, `loom.com` (each matches itself and its

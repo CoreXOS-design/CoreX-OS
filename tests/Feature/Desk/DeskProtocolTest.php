@@ -150,7 +150,7 @@ final class DeskProtocolTest extends DeskTestCase
         }
         // Both ends use the shared chunk size / codec.
         $frames = (string) file_get_contents(resource_path('js/desk/frames.js'));
-        $this->assertStringContainsString('export const CHUNK = 7000', $frames);
+        $this->assertStringContainsString('export const CHUNK = 32000', $frames);
 
         // Take-over: support whispers actions, the agent's clients replay them and listen for the same consent events.
         $this->assertStringContainsString("whisper('action'", $console);

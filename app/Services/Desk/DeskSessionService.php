@@ -451,6 +451,9 @@ class DeskSessionService
     {
         $idx = (array) Cache::get($this->leaveIndexKey($session->id), []);
         $grace = (int) config('desk.tab_leave_grace_seconds', 3);
+        // A tab under take-over gets a much longer grace: it may be the controlled tab loading its next page (a click support replayed), and that must not
+        // end the take-over just because the page was slow.
+        $graceControlled = (int) config('desk.tab_leave_grace_controlled_seconds', 15);
         $silent = (int) config('desk.tab_silent_seconds', 100);
         $open = $this->openTabs($session);
         $gone = [];
@@ -460,7 +463,8 @@ class DeskSessionService
             }
             $left = $idx[$key] ?? null;
             $seen = Cache::get($this->seenKey($session->id, $key));
-            if (($left && now()->timestamp - (int) $left >= $grace) || ($seen && now()->timestamp - (int) $seen > $silent)) {
+            $g = ($session->control_state !== DeskSession::CONTROL_NONE && $session->control_tab === $key) ? $graceControlled : $grace;
+            if (($left && now()->timestamp - (int) $left >= $g) || ($seen && now()->timestamp - (int) $seen > $silent)) {
                 $gone[] = $key;
             }
         }
@@ -562,7 +566,12 @@ class DeskSessionService
             return ['tab' => 'main', 'host' => 'CoreX', 'title' => $open['main']['title'] ?? 'CoreX page', 'path' => $open['main']['path'] ?? ''];
         }
 
-        return $open[$tab] ?? ['tab' => $tab, 'host' => '', 'title' => '', 'path' => ''];
+        $info = $open[$tab] ?? ['tab' => $tab, 'host' => '', 'title' => ''];
+        if (($info['path'] ?? '') === '') {
+            unset($info['path']);   // (only a CoreX tab has a page path)
+        }
+
+        return $info;
     }
 
     /**
