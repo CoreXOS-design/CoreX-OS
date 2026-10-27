@@ -117,6 +117,8 @@ async function beginRecording() {
     const { record } = await import('rrweb');
     if (!st || st.ended) return;
     st.record = record;
+    // ...and one just after the page has finished drawing itself (menus, lists filled by script), so a support person joining a busy page sees it complete.
+    setTimeout(() => { if (st && st.recording) resync(); }, 2500);
     st.stopRecord = record({
         emit: (event) => { if (st) { st.buffer.push(event); scheduleFlush(); } },
         blockClass: 'rr-block',
@@ -127,6 +129,9 @@ async function beginRecording() {
         recordCanvas: false,
         collectFonts: false,
         sampling: { mousemove: 50, scroll: 100 }, // every keystroke is mirrored (input:'last' would wait for the field to lose focus)
+        // A fresh full snapshot every so often: properties the page sets from script (a select's value, a checkbox) raise no DOM mutation, so a
+        // mirror can drift; this puts it right again.
+        checkoutEveryNms: 45000,
     });
 }
 
@@ -191,6 +196,7 @@ function askControl(supportName) {
     st.ctl.state = 'asking';
     st.ctl.asked = true;
     st.ui.controlAsk(supportName || st.session.support_name);
+    try { st.channel.whisper('control_ack', { t: 'main' }); } catch (e) { /* not subscribed yet */ }   // tells the console the question is on the agent's screen
 }
 
 export async function controlRespond(allow) {

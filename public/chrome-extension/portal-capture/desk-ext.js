@@ -130,7 +130,10 @@ importScripts('desk-lib.js');
       var ta = tabIdFor(m.data && m.data.t); if (ta !== null) toTab(ta, { type: 'desk.action', a: m.data });
     } else if (ev === 'desk.control_requested') {
       var c1 = tabIdFor(m.data && m.data.tab); D.control = { state: c1 !== null ? 'requested' : 'none', tab: m.data && m.data.tab };
-      if (c1 !== null) toTab(c1, { type: 'desk.control_ask', support: m.data.support_name });
+      if (c1 !== null) {
+        toTab(c1, { type: 'desk.control_ask', support: m.data.support_name });
+        send({ event: 'client-control_ack', channel: D.channel, data: { t: m.data.tab } });   // tells the console the question is on the agent's screen
+      }
     } else if (ev === 'desk.control_granted') {
       var c2 = tabIdFor(m.data && m.data.tab); if (c2 !== null) { D.control = { state: 'granted', tab: m.data.tab }; D.idleSeconds = m.data.idle_seconds || D.idleSeconds; toTab(c2, { type: 'desk.control_on', idle: D.idleSeconds }); }
     } else if (ev === 'desk.control_declined' || ev === 'desk.control_revoked' || ev === 'desk.control_ended') {

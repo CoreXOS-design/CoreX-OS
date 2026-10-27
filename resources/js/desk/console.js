@@ -81,6 +81,7 @@ function attach(session) {
         .listen('.desk.tab_joined', (e) => { addExtTab(e); askResync(e.tab); })
         .listen('.desk.tab_updated', (e) => updateExtTab(e))
         .listen('.desk.tab_left', (e) => removeExtTab(e.tab))
+        .listenForWhisper('control_ack', () => clearTimeout(cur && cur.askTimer))   // the agent's page is showing the question
         // Take-over (protocol 1.2)
         .listen('.desk.control_requested', (e) => setControl('requested', e.tab))
         .listen('.desk.control_granted', (e) => setControl('granted', e.tab))
@@ -94,8 +95,10 @@ function attach(session) {
     channel.subscribed(() => cur && cur.tabs.forEach((t) => askResync(t.key)));
     cur.retry = setInterval(() => { if (cur) cur.tabs.forEach((t) => { if (!t.replayer) askResync(t.key); }); }, 3000); // until a tab's first snapshot arrives
 
-    $('cdc-join').hidden = true;
+    $('cdc-form').hidden = true;
     $('cdc-live').hidden = false;
+    $('appScroll') && ($('appScroll').scrollTop = 0);
+    layoutPane();
     $('cdc-agent').textContent = session.agent_name || '';
     $('cdc-agency').textContent = session.agency_name || '';
     $('cdc-page').textContent = session.page || '—';
@@ -129,7 +132,7 @@ function ended(by) {
     const who = { agent: 'The agent ended the session.', support: 'You ended the session.', logout: 'The agent signed out.', timeout: 'The connection to the agent was lost.', expired: 'The session expired.' }[by] || 'The session ended.';
     detach(false);
     $('cdc-live').hidden = true;
-    $('cdc-join').hidden = false;
+    $('cdc-form').hidden = false;
     say(who);
     refreshList();
 }
@@ -176,8 +179,8 @@ function renderTabs() {
     cur.tabs.forEach((tab) => {
         const b = document.createElement('button');
         b.type = 'button';
-        b.className = 'ds-btn' + (tab.key === cur.selected ? ' is-selected' : '');
-        b.style.cssText = 'max-width:22rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' + (tab.key === cur.selected ? 'border-color:var(--brand-icon,#0ea5e9);font-weight:700;' : '');
+        b.className = tab.key === cur.selected ? 'corex-btn-primary' : 'corex-btn-outline';
+        b.style.cssText = 'max-width:22rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
         b.textContent = tab.label;
         b.title = tab.label;
         b.addEventListener('click', () => selectTab(tab.key));
@@ -200,7 +203,6 @@ function showSelected() {
     cur.tabs.forEach((t) => { t.root.hidden = t.key !== cur.selected; });
     const tab = cur.tabs.get(cur.selected);
     $('cdc-wait').hidden = !!(tab && tab.replayer);
-    $('cdc-replay').style.height = tab && tab.replayer ? $('cdc-replay').style.height : '';
     if (tab && tab.replayer) fit();
 }
 
@@ -233,7 +235,13 @@ function startReplayer(tab) {
     tab.root.innerHTML = '';
     // useVirtualDom:false - the virtual DOM is a fast-forward optimisation; in live mode a mutation applied "sync" (an event stamped just
     // before the replayer started) switches it on and later mutations then wait in it for a flush that never comes.
-    const replayer = new Replayer(tab.events, { root: tab.root, liveMode: true, mouseTail: false, showWarning: false, showDebug: false, skipInactive: false, useVirtualDom: false });
+    const replayer = new Replayer(tab.events, { root: tab.root, liveMode: true, mouseTail: false, showWarning: false, showDebug: false, skipInactive: false, useVirtualDom: false,
+        // pauseAnimation:false - in live mode rrweb adds html.rrweb-paused and freezes EVERY CSS animation, and CoreX's menus, panels and cards
+        // appear through entrance animations: frozen at their invisible first frame they simply never showed up (spec section 4a).
+        pauseAnimation: false,
+        // rrweb draws a blocked element (our own .rr-block Desk UI) as a solid currentColor box - a dark strip where the red bar is.
+        // Keep its room, lose its colour.
+        insertStyleRules: ['.rr-block { background: transparent !important; }'] });
     tab.replayer = replayer;
     replayer.startLive();
     hookReplayInput(tab);
@@ -242,23 +250,49 @@ function startReplayer(tab) {
     paintControl();
 }
 
-/** Scale the selected tab's replayed page down to fit the console's pane (the agent's window is usually bigger). */
+/**
+ * The pane's size comes from the WINDOW (what is left under the header, the session bar and the sessions list), not from its content: the
+ * mirror is an absolutely positioned child, so a 1440 px-wide agent page can never stretch the console, add a scrollbar, or make the page scroll.
+ */
+function layoutPane() {
+    const pane = $('cdc-pane');
+    if (!pane || $('cdc-live').hidden) return;
+    const top = pane.getBoundingClientRect().top;
+    const below = $('cdc-sessions').offsetHeight + 12 /* gap */ + 24 /* page padding */;
+    pane.style.height = Math.max(240, Math.floor(window.innerHeight - top - below)) + 'px';
+    fit();
+}
+
+/**
+ * Fit the agent's WHOLE window into the pane: scale = min(pane width / agent width, pane height / agent height). The iframe keeps the agent's own
+ * viewport width and height (so its media queries and its sidebar / content layout are exactly the agent's) and is only scaled by transform.
+ */
 function fit() {
     const tab = cur && cur.tabs.get(cur.selected);
-    if (!tab || !tab.replayer) return;
-    const pane = $('cdc-replay');
+    const pane = $('cdc-pane');
+    if (!tab || !tab.replayer || !pane) return;
     const wrapper = tab.replayer.wrapper;
-    // The replayed page's own size (the agent's window) is on the iframe's width/height attributes, set from the Meta event.
     const iframe = tab.replayer.iframe;
+    // The replayed page's own size (the agent's window) is on the iframe's width/height attributes, set from the Meta event.
     const w = parseFloat(iframe.getAttribute('width')) || wrapper.offsetWidth;
     const h = parseFloat(iframe.getAttribute('height')) || wrapper.offsetHeight;
-    if (!w || !h) return;
-    const scale = Math.min(1, pane.clientWidth / w);
+    const aw = pane.clientWidth, ah = pane.clientHeight;
+    if (!w || !h || !aw || !ah) return;
+    const scale = Math.min(1, aw / w, ah / h);
+    const rep = $('cdc-replay');
+    rep.style.width = Math.floor(w * scale) + 'px';
+    rep.style.height = Math.floor(h * scale) + 'px';
+    rep.style.left = Math.max(0, Math.floor((aw - w * scale) / 2)) + 'px';
+    rep.style.overflow = 'hidden';
+    tab.root.style.width = rep.style.width; tab.root.style.height = rep.style.height;
     wrapper.style.transformOrigin = 'top left';
     wrapper.style.transform = 'scale(' + scale + ')';
-    pane.style.height = Math.round(h * scale) + 'px';
 }
-window.addEventListener('resize', fit);
+window.addEventListener('resize', layoutPane);
+if (window.ResizeObserver) {
+    const ro = new ResizeObserver(() => layoutPane());
+    ['cdc-bar', 'cdc-tabs', 'cdc-sessions'].forEach((id) => { const e = $(id); if (e) ro.observe(e); });
+}
 
 // ── Pointer and highlight ────────────────────────────────────────────────────────
 
@@ -391,8 +425,6 @@ function chooseOption(tab, el, selector) {
     const iframe = tab.replayer.iframe;
     const sc = iframe.getBoundingClientRect().width / iframe.contentDocument.documentElement.clientWidth;
     const rect = el.getBoundingClientRect();
-    const pane = $('cdc-replay');
-    const box = pane.getBoundingClientRect();
     const sel = document.createElement('select');
     sel.size = Math.min(8, Math.max(2, el.options.length));
     sel.style.cssText = 'position:fixed;z-index:50;min-width:10rem;left:' + (iframe.getBoundingClientRect().left + rect.left * sc) + 'px;top:' + (iframe.getBoundingClientRect().top + (rect.bottom * sc)) + 'px;';
@@ -402,7 +434,6 @@ function chooseOption(tab, el, selector) {
     sel.addEventListener('blur', close);
     document.body.appendChild(sel);
     sel.focus();
-    void box;
 }
 
 /** The nearest scrollable ancestor of the element under the pointer, as a selector ('' = the page itself). */
@@ -439,6 +470,11 @@ function setControl(state, tabKey, note) {
     if (!cur) return;
     clearInterval(cur.focusTimer);
     cur.control = { state, tab: state === 'none' ? null : tabKey };
+    clearTimeout(cur.askTimer);
+    if (state === 'requested') {
+        // An agent page that was opened before CoreX Desk learned take-over cannot ask the question. It would stay silent, so say why.
+        cur.askTimer = setTimeout(() => say((cur && cur.session.agent_name || 'The agent') + "'s page has not shown the question. If it was open before today's update, ask them to refresh CoreX (F5), then request again.", true), 6000);
+    }
     if (state !== 'granted') { cur.typed = null; cur.focusSel = null; cur.privateFocus = false; }
     else {
         // Belt and braces for the focus tug-of-war with the mirror: while in control, give focus back to the capture layer.
@@ -459,21 +495,15 @@ function paintControl() {
     if (!btn) return;
     btn.hidden = !con.canControl;
     const c = cur.control;
-    const tab = cur.tabs.get(c.tab || cur.selected);
-    const name = tab ? tab.label : '';
-    if (c.state === 'none') {
-        btn.textContent = 'Request control';
-        status.textContent = 'Ask ' + (cur.session.agent_name || 'the agent') + ' to let you click and type for them in the selected window.';
-    } else if (c.state === 'requested') {
-        btn.textContent = 'Withdraw request';
-        status.textContent = 'Waiting for ' + (cur.session.agent_name || 'the agent') + ' to press Allow…';
-    } else {
-        btn.textContent = 'Hand back control';
-        status.textContent = 'You are in control of ' + name + '. Click, type and scroll in the window below. Shift+click highlights instead. Private fields are skipped.';
-    }
-    // The amber frame goes round the whole viewing pane (not the scaled wrapper, which can be wider than what you see).
+    btn.textContent = c.state === 'none' ? 'Request control' : (c.state === 'requested' ? 'Withdraw request' : 'Hand back control');
+    // A short state chip, not a sentence: the label carries the meaning.
+    status.hidden = c.state === 'none';
+    status.textContent = c.state === 'requested' ? 'Waiting for Allow…' : 'In control';
+    status.style.background = c.state === 'granted' ? '#f59e0b' : 'var(--surface-2)';
+    status.style.color = c.state === 'granted' ? '#1f2937' : 'var(--text-secondary)';
+    // The amber frame goes round the whole viewing pane.
     const framed = c.state === 'granted' && c.tab === cur.selected;
-    const frame = $('cdc-replay').parentElement;
+    const frame = $('cdc-pane');
     frame.style.outline = framed ? '4px solid #f59e0b' : '';
     frame.style.outlineOffset = framed ? '-2px' : '';
 }
@@ -510,11 +540,36 @@ async function refreshList() {
     $('cdc-list-empty').hidden = rows.length > 0;
     for (const s of rows) {
         const li = document.createElement('li');
-        li.style.cssText = 'display:flex;gap:.75rem;align-items:center;padding:.5rem 0;border-top:1px solid var(--border);font-size:.8rem;';
-        li.textContent = (s.agent_name || 'Agent') + (s.agency_name ? ' · ' + s.agency_name : '') + ' — ' + (s.status === 'live' ? 'live with ' + (s.support_name || 'support') : 'waiting for a support person');
+        li.className = 'cdc-row';
+        li.dataset.id = s.id; li.dataset.status = s.status;
+        li.style.cssText = 'display:flex;gap:.75rem;align-items:center;padding:.35rem 0;border-top:1px solid var(--border);font-size:.8rem;';
+        const text = document.createElement('span');
+        text.style.cssText = 'flex:1;min-width:0;';
+        text.textContent = (s.agent_name || 'Agent') + (s.agency_name ? ' · ' + s.agency_name : '') + ' — ' + (s.status === 'live' ? 'live with ' + (s.support_name || 'support') : 'waiting for a support person');
+        li.appendChild(text);
+        if (s.status === 'live') {
+            const b = document.createElement('button');
+            b.type = 'button'; b.className = 'corex-btn-outline'; b.textContent = (cur && cur.session.id === s.id) ? 'Open' : 'Open'; b.dataset.open = s.id;
+            li.appendChild(b);
+        }
         ul.appendChild(li);
     }
+    layoutPane();
 }
+
+/** Open a live session of your scope (again, after a reload; or as a second support person). The code is not needed - it was spent at the first join. */
+async function openSession(id) {
+    if (cur && cur.session.id === id) { say('You already have this session open.'); return; }
+    say('Opening…');
+    const r = await api('POST', con.urls.sessions + '/' + id + '/attach');
+    if (!r.ok) { say(r.json.message || 'Could not open that session.', true); refreshList(); return; }
+    say('');
+    attach(r.json.session);
+}
+$('cdc-list').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-open]');
+    if (b) openSession(parseInt(b.dataset.open, 10));
+});
 
 // ── Wiring ───────────────────────────────────────────────────────────────────────
 
@@ -542,7 +597,7 @@ $('cdc-end').addEventListener('click', () => {
     detach(false);
     api('POST', con.urls.sessions + '/' + id + '/end').then(() => {
         $('cdc-live').hidden = true;
-        $('cdc-join').hidden = false;
+        $('cdc-form').hidden = false;
         say('You ended the session.');
         refreshList();
     });

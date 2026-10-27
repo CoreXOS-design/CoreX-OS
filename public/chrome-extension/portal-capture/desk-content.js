@@ -58,7 +58,9 @@
       recordCanvas: false,
       collectFonts: false,
       sampling: { mousemove: 50, scroll: 100 },
+      checkoutEveryNms: 45000,   // a fresh full snapshot now and then: script-set properties raise no mutation, so a mirror can drift
     });
+    setTimeout(function () { if (S.stop) resync(); }, 2500);   // once the page has finished drawing itself
   }
 
   function flush() {
