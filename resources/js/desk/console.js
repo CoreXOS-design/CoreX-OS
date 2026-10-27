@@ -374,34 +374,55 @@ function renderTabs() {
     // Order = the order the agent opened them (a tab that goes away while it loads its next page keeps its place).
     cur.tabs.forEach((tab, key) => { if (!cur.order.has(key)) cur.order.set(key, cur.order.size); });
     const list = Array.from(cur.tabs.values()).sort((a, b) => cur.order.get(a.key) - cur.order.get(b.key));
-    // Room for each button: its share of a row (three to a row at the most); the address is shortened in the middle only if it must be.
-    const room = Math.max(160, (bar.clientWidth || window.innerWidth) / Math.min(list.length, 3) - 24);
-    const rows = list.map((tab) => {
-        const p = tab.parts || { title: tab.label, where: '' };
-        const chars = Math.floor((room - 40 - (tab.isNew ? 56 : 0)) / 6.8);
-        return { tab, title: p.title, where: midCut(p.where, Math.max(16, chars - p.title.length - 3)), full: p.title + ' — ' + p.where };
-    });
-    const sig = rows.map((r) => [r.tab.key, r.title, r.where, r.tab.key === cur.selected ? 1 : 0, r.tab.isNew ? 1 : 0].join('|')).join('\n');
+    const parts = (tab) => tab.parts || { title: tab.label, where: '' };
+    const sig = bar.clientWidth + '#' + list.map((tab) => [tab.key, parts(tab).title, parts(tab).where, tab.key === cur.selected ? 1 : 0, tab.isNew ? 1 : 0].join('|')).join('\n');
     if (sig === tabSig) return;   // (nothing changed: leave the buttons alone, so a pulsing one is not restarted)
     tabSig = sig;
     bar.innerHTML = '';
-    rows.forEach((r) => {
+    const spans = [];
+    list.forEach((tab) => {
+        const p = parts(tab);
         const b = document.createElement('button');
         b.type = 'button';
-        b.className = 'cdc-tabbtn' + (r.tab.key === cur.selected ? ' cdc-active' : '') + (r.tab.isNew ? ' cdc-new' : '');
+        b.className = 'cdc-tabbtn' + (tab.key === cur.selected ? ' cdc-active' : '') + (tab.isNew ? ' cdc-new' : '');
         b.setAttribute('role', 'tab');
-        b.setAttribute('aria-selected', r.tab.key === cur.selected ? 'true' : 'false');
-        b.title = r.full;
-        b.dataset.tab = r.tab.key;
-        const t = document.createElement('span'); t.className = 'cdc-tt'; t.textContent = r.title;
-        const w = document.createElement('span'); w.className = 'cdc-tw'; w.textContent = '— ' + r.where;
+        b.setAttribute('aria-selected', tab.key === cur.selected ? 'true' : 'false');
+        b.title = p.title + ' — ' + p.where;   // the full value, always
+        b.dataset.tab = tab.key;
+        const t = document.createElement('span'); t.className = 'cdc-tt'; t.textContent = p.title;
+        const w = document.createElement('span'); w.className = 'cdc-tw'; w.textContent = '— ' + p.where;
         b.appendChild(t); b.appendChild(document.createTextNode(' ')); b.appendChild(w);   // (the spaces are for screen readers; the gap is CSS)
-        if (r.tab.isNew) { const n = document.createElement('span'); n.className = 'cdc-newbadge'; n.textContent = 'new'; b.appendChild(document.createTextNode(' ')); b.appendChild(n); }
+        if (tab.isNew) { const n = document.createElement('span'); n.className = 'cdc-newbadge'; n.textContent = 'new'; b.appendChild(document.createTextNode(' ')); b.appendChild(n); }
         b.addEventListener('click', () => {
-            r.tab.isNew = false;   // clicked: no longer new
-            if (cur.selected === r.tab.key) renderTabs(); else selectTab(r.tab.key);
+            tab.isNew = false;   // clicked: no longer new
+            if (cur.selected === tab.key) renderTabs(); else selectTab(tab.key);
         });
         bar.appendChild(b);
+        spans.push({ w, where: p.where, btn: b });
+    });
+    // Whole, unless the buttons do not fit on the row: then the widest addresses are cut IN THE MIDDLE, the narrow ones left alone (water-filling), and
+    // when even that leaves them too small (a narrow window) the row simply wraps.
+    if (bar.hidden) return;
+    const cs = getComputedStyle(bar);
+    const avail = bar.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const gap = parseFloat(cs.columnGap) || 7;
+    const widths = spans.map((x) => x.btn.getBoundingClientRect().width);
+    if (widths.reduce((a, b) => a + b, 0) + gap * (spans.length - 1) <= avail) return;
+    const perRow = Math.min(spans.length, 3);
+    const room = (avail - gap * (perRow - 1)) / perRow;
+    let share = room;
+    for (let i = 0; i < 4; i++) {   // give what the small ones do not use to the big ones
+        const small = widths.filter((w) => w <= share);
+        const left = room * perRow - small.reduce((a, b) => a + b, 0);
+        const bigN = widths.length - small.length;
+        if (!bigN) break;
+        share = Math.max(room, left / Math.min(bigN, perRow));
+    }
+    spans.forEach((x, i) => {
+        if (widths[i] <= share) return;
+        const pxPerChar = widths[i] / (x.where.length + 20);
+        const cut = Math.ceil((widths[i] - share) / pxPerChar) + 1;
+        x.w.textContent = '— ' + midCut(x.where, Math.max(16, x.where.length - cut));
     });
 }
 
