@@ -313,6 +313,8 @@ class SoldStockTest extends TestCase
         $this->assertSame('2026-03-01', SoldStock::withoutGlobalScope(AgencyScope::class)->where('property_id', $p->id)->first()->sale_date->toDateString(),
             'a historic sale with no deal / sold record is dated from when it became Sold, never today');
         $this->assertSame(0, PropertyWebsiteSyndication::withoutGlobalScope(AgencyScope::class)->where('property_id', $victim->id)->where('enabled', true)->count());
+        $this->assertSame('2026-03-01 10:00:00', DB::table('properties')->where('id', $p->id)->value('updated_at'),
+            'bookkeeping writes must not bump the property updated_at');
         // Default run: the website goes off in the database, NO portal job leaves (a copy of live data holds real credentials).
         Queue::assertNotPushed(\App\Jobs\Syndication\DesyndicatePropertyFromPortalsJob::class);
         $this->assertSame(0, PropertyWebsiteSyndication::withoutGlobalScope(AgencyScope::class)->where('property_id', $p->id)->where('enabled', true)->count());
