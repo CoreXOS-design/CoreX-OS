@@ -72,13 +72,13 @@ function hideBar() {
 }
 
 /** The red bar speaks in one voice: viewing (default), asking ("wants to take control" - Allow / Decline), in control (Take back control). */
-function setBarMode(mode, name) {
+function setBarMode(mode, name, note) {
     const bar = $('corex-desk-bar');
     if (!bar) return;
     if (name) $('cd-bar-name').textContent = name;
     bar.hidden = false;
     bar.dataset.mode = mode;
-    $('cd-bar-what').textContent = { view: 'is viewing this window', ask: 'wants to take control of this window', control: 'is in control of this window' }[mode];
+    $('cd-bar-what').textContent = { view: 'is viewing this window', ask: 'wants to take control of this window', control: 'is in control of this window' }[mode] + (note ? ' - ' + note : '');
     bar.querySelector('[data-desk-allow]').hidden = mode !== 'ask';
     bar.querySelector('[data-desk-decline]').hidden = mode !== 'ask';
     bar.querySelector('[data-desk-takeback]').hidden = mode !== 'control';
@@ -87,7 +87,7 @@ function setBarMode(mode, name) {
 }
 
 const ui = {
-    controlAsk(name) { setBarMode('ask', name); },
+    controlAsk(name, note) { setBarMode('ask', name, note); },
     controlOn(name) { setBarMode('control', name); },
     controlOff() { setBarMode('view'); },
     joined(name) { hideModal(); showBar(name); },

@@ -219,8 +219,20 @@ function askControl(supportName) {
 
 export async function controlRespond(allow) {
     if (!st) return;
-    const r = await st.api('POST', controlUrl('respond'), { allow: !!allow });
-    if (!r.ok) { endControlLocal('lapsed'); return; }   // the request already lapsed or was withdrawn
+    // The answer is the one call that must not be lost: a busy minute (429), a dropped connection (0) or a server hiccup (5xx) is retried, and if it still
+    // cannot be sent the question STAYS on screen with a plain "try again" - never silently dropped (the console would wait on "Requested" for good).
+    let r = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+        r = await st.api('POST', controlUrl('respond'), { allow: !!allow });
+        if (r.ok || !(r.status === 429 || r.status === 0 || r.status >= 500)) break;
+        await new Promise((res) => setTimeout(res, 1000 * (attempt + 1)));
+        if (!st) return;
+    }
+    if (!r.ok) {
+        if (r.status === 429 || r.status === 0 || r.status >= 500) { st.ui.controlAsk(st.session.support_name, 'could not send your answer - press ' + (allow ? 'Allow' : 'Decline') + ' again'); return; }
+        endControlLocal('lapsed');   // the request already lapsed or was withdrawn
+        return;
+    }
     if (!allow) endControlLocal('declined');
     // Allow: the server's desk.control_granted event starts it (so the bar and the executor change together).
 }
