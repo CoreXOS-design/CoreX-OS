@@ -29,7 +29,7 @@
       case 'desk.ping': respond({ ok: true, key: S.key }); return false;
       case 'desk.start': start(msg.key, msg.support); return false;
       case 'desk.resync': resync(); return false;
-      case 'desk.pointer': movePointer(msg.x, msg.y, msg.who); return false;
+      case 'desk.pointer': movePointer(msg.x, msg.y, msg.who, msg.vw, msg.vh); return false;
       case 'desk.pointer_hide': hidePointer(); return false;
       case 'desk.highlight': showHighlight(msg.selector, msg.note); return false;
       case 'desk.highlight_clear': clearHighlight(); return false;
@@ -49,7 +49,7 @@
     S.key = key;
     buildUi(support);
     S.stop = rr({
-      emit: function (event) { S.buf.push(event); if (!S.timer) S.timer = setTimeout(flush, 500); },
+      emit: function (event) { S.buf.push(event); if (!S.timer) S.timer = setTimeout(flush, 60); },   // short: a keystroke reaches the console in well under a second
       blockClass: 'rr-block',
       maskInputOptions: ALL_TYPES,
       maskInputFn: Lib.maskInputFn,
@@ -57,11 +57,20 @@
       inlineStylesheet: true,
       recordCanvas: false,
       collectFonts: false,
-      sampling: { mousemove: 50, scroll: 100 },
+      sampling: { mousemove: 50, scroll: 50 },
       checkoutEveryNms: 45000,   // a fresh full snapshot now and then: script-set properties raise no mutation, so a mirror can drift
     });
     setTimeout(function () { if (S.stop) resync(); }, 2500);   // once the page has finished drawing itself
+    sendViewport();
+    window.addEventListener('resize', onViewport);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', onViewport);
   }
+
+  /** This tab's own window size, whispered on start / resync / every resize or zoom: the console lays the mirror out at it (spec section 4e). */
+  function sendViewport() {
+    send({ type: 'desk.viewport', w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio || 1 });
+  }
+  function onViewport() { clearTimeout(S.vpTimer); S.vpTimer = setTimeout(sendViewport, 80); }
 
   function flush() {
     S.timer = null;
@@ -71,10 +80,13 @@
   }
 
   function resync() {
+    sendViewport();
     try { rr.takeFullSnapshot(true); } catch (e) { /* not recording */ }
   }
 
   function stop() {
+    window.removeEventListener('resize', onViewport);
+    if (window.visualViewport) window.visualViewport.removeEventListener('resize', onViewport);
     if (S.stop) { try { S.stop(); } catch (e) { /* ignore */ } }
     if (S.ctl.reporter) S.ctl.reporter.flush();
     if (S.ctl.idle) S.ctl.idle.stop();
@@ -183,8 +195,9 @@
 
   // ── Pointer ─────────────────────────────────────────────────────────────────────
 
-  function movePointer(x, y, who) {
+  function movePointer(x, y, who, vw, vh) {
     if (!S.ui.ptr || typeof x !== 'number' || typeof y !== 'number') return;
+    if ((typeof vw === 'number' && Math.abs(vw - window.innerWidth) > 2) || (typeof vh === 'number' && Math.abs(vh - window.innerHeight) > 2)) sendViewport();   // the console's idea of our window is out of date
     S.ui.ptr.hidden = false;
     var label = S.ui.ptr.querySelector('span');
     if (label) label.textContent = String(who || S.support || 'Support').slice(0, 90);

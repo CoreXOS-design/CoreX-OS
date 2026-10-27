@@ -128,6 +128,14 @@ function attach(session) {
         .listen('.desk.tab_joined', (e) => { addExtTab(e); askResync(e.tab); })
         .listen('.desk.tab_updated', (e) => updateExtTab(e))
         .listen('.desk.tab_left', (e) => removeExtTab(e.tab))
+        .listenForWhisper('viewport', (v) => {
+            // The agent's window size changed (resize, zoom) or was re-announced: lay the mirror out at it and refit.
+            const tab = cur && cur.tabs.get(v && v.t ? v.t : MAIN);
+            if (!tab || !tab.replayer || !v || !(v.w > 0) || !(v.h > 0)) return;
+            const f = tab.replayer.iframe;
+            if (parseFloat(f.getAttribute('width')) !== v.w || parseFloat(f.getAttribute('height')) !== v.h) { f.setAttribute('width', String(v.w)); f.setAttribute('height', String(v.h)); }
+            if (cur.selected === tab.key) fit();
+        })
         .listenForWhisper('action_result', (r) => {
             // The agent could not do what we asked: say why in words; if its screen no longer matches ours, refresh ours.
             if (!cur || !r || r.ok) return;
@@ -176,6 +184,7 @@ function detach(callServer) {
     clearTimeout(cur.typeTimer);
     clearInterval(cur.focusTimer);
     if (callServer) api('POST', con.urls.sessions + '/' + cur.session.id + '/end');
+    cur.tabs.forEach((t) => { if (t.ro) t.ro.disconnect(); });
     $('cdc-replay').innerHTML = '';
     $('cdc-tabs').innerHTML = '';
     cur = null;
@@ -311,6 +320,9 @@ function startReplayer(tab) {
     replayer.startLive();
     hookReplayInput(tab);
     replayer.on('resize', () => { if (cur && cur.selected === tab.key) fit(); });
+    replayer.on('fullsnapshot-rebuilded', () => { if (cur && cur.selected === tab.key) fit(); });
+    // Whatever changes the mirror's own size (a Meta / resize event, the agent's viewport whisper), the scale follows.
+    if (window.ResizeObserver) { const ro = new ResizeObserver(() => { if (cur && cur.selected === tab.key) fit(); }); ro.observe(replayer.iframe); tab.ro = ro; }
     showSelected();
     paintControl();
 }
@@ -342,7 +354,6 @@ function fit() {
     rep.style.height = Math.floor(h * scale) + 'px';
     rep.style.left = Math.max(0, Math.floor((aw - w * scale) / 2)) + 'px';
     rep.style.top = Math.max(0, Math.floor((ah - h * scale) / 2)) + 'px';
-    rep.style.overflow = 'hidden';
     tab.root.style.width = rep.style.width; tab.root.style.height = rep.style.height;
     wrapper.style.transformOrigin = 'top left';
     wrapper.style.transform = 'scale(' + scale + ')';
@@ -385,18 +396,28 @@ function hookReplayInput(tab) {
     // wrapper that captures support's typing. Take it straight back while in control.
     document.addEventListener('focusin', (e) => { if (e.target === iframe && controlling()) target.focus({ preventScroll: true }); });
 
-    target.addEventListener('mousemove', (ev) => {
+    // The pointer is whispered at most every 40 ms - but the LAST position always goes (a trailing send): dropping it left the agent's cursor
+    // one step behind wherever you stopped. It carries the window size this console believes, so an agent whose window changed can correct us.
+    const sendPointer = (r) => {
         if (!cur || cur.selected !== tab.key) return;
-        const now = Date.now();
-        if (now - cur.lastPointer < 40) return;
-        cur.lastPointer = now;
+        cur.lastPointer = Date.now();
         if (!cur.pointerOn) {
             cur.pointerOn = true;
             api('POST', con.urls.sessions + '/' + cur.session.id + '/pointer', { on: true, ...tabParam(tab) });
         }
-        cur.channel.whisper('pointer', { t: tab.key, who: con.me, ...ratio(ev) });
+        cur.channel.whisper('pointer', { t: tab.key, who: con.me, vw: iframe.offsetWidth, vh: iframe.offsetHeight, ...r });
+    };
+    let trailing = null, trailingTimer = null;
+    target.addEventListener('mousemove', (ev) => {
+        if (!cur || cur.selected !== tab.key) return;
+        const r = ratio(ev);
+        const wait = 40 - (Date.now() - cur.lastPointer);
+        if (wait <= 0) { clearTimeout(trailingTimer); trailingTimer = null; sendPointer(r); return; }
+        trailing = r;
+        if (!trailingTimer) trailingTimer = setTimeout(() => { trailingTimer = null; if (trailing) { const t = trailing; trailing = null; sendPointer(t); } }, wait);
     });
     target.addEventListener('mouseleave', () => {
+        clearTimeout(trailingTimer); trailingTimer = null; trailing = null;
         if (cur && cur.pointerOn && cur.selected === tab.key) {
             cur.pointerOn = false;
             api('POST', con.urls.sessions + '/' + cur.session.id + '/pointer', { on: false, ...tabParam(tab) });

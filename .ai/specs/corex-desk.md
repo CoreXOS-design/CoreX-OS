@@ -151,6 +151,22 @@ Proof (`viewer-click-proof.mjs`, two real Chromium browsers on QA1): a grid of 2
 after the agent scrolls, at support window sizes 1920×1080, 1366×768 and 1280×720 (agent window 1600×900, so scales 1.2, 0.85 and 0.8); each click must
 land on the same element (tag, id, classes, label, box) on the agent's page and in the mirror, plus typing into a field and choosing a dropdown option at each size.
 
+### 4e. Geometry and speed (viewer round 2, 27 Oct 2026)
+
+**One size, always current.** The mirror is laid out at the agent's own window size and scaled by `min(window w / agent w, window h / agent h)`. Pointer and
+click positions are sent as **fractions (0..1) of the agent's viewport** and resolved on the agent against its own *current* `innerWidth` / `innerHeight`; the
+console never sends absolute pixels. The size is not learned once: besides rrweb's own resize event, the agent announces `client-viewport` on join, on every resync
+and on every resize / zoom, the console applies it to the mirror iframe and refits (a `ResizeObserver` on the iframe also refits whatever changes its size), and
+the pointer whisper's `vw`/`vh` make a stale size self-correcting. The mirror's clip no longer depends on a once-computed width.
+
+**The pointer's last position always arrives.** The console throttles pointer whispers to one per 40 ms with a *trailing* send: the old throttle dropped the move
+that fell inside the window, so where you stopped the agent's cursor stayed a step behind (more at a larger agent window).
+
+**Speed.** Measured on QA1 (agent and support in two Chromiums on one machine, both themes): pointer ≈ 12 ms; typing / DOM updates were ≈ 530 ms because events
+waited `FLUSH_MS = 500` to be batched. Batching is now 60 ms (agent page and extension) and scroll sampling 50 ms. Targets: < 300 ms pointer and typing, < 1 s DOM.
+Proof: `geometry-proof.mjs` (agent 1366×768 @ DPR 1.25 and 1920×1080 @ 1, support 1536×735, dark and light): iframe size = agent size, cards on screen equal,
+pointer error ≤ 3 px on a 5×5 grid, latencies, and the same after the agent's window / zoom changes mid-session.
+
 ## 5. Privacy and audit (POPIA)
 
 Johan: a permanent audit so claims can be proven or dismissed.
@@ -303,6 +319,7 @@ allowed for the session's agent, and for the support user who joined it while it
   (`support` / `idle` / `session` / `tab`). A client reacts only to its own tab; control state also rides on every session answer
   (`control: {state: none|requested|granted, tab}`) so a page change restores it.
 - Whisper `client-control_ack {t}` (agent → console): the take-over question is on the agent's screen.
+- Whisper `client-viewport {t, w, h, dpr}` (agent → console): the agent's window size (CSS px) — sent on join, on every resync request and on every resize / zoom (80 ms debounce, `window` and `visualViewport`). The console lays the mirror out at exactly this size and refits. The `client-pointer` whisper carries the size the console believes (`vw`, `vh`); an agent that sees a difference of more than 2 px re-announces its size at once, so a stale size heals on the next pointer move.
 - Whisper `client-action_result {t, id, ok:false, reason}` (agent → console): an action could not be done (`view_out_of_date`, `not_found`, `hidden`, `private_field`, `disabled`, `desk_ui`); only failures are sent. A `client-action` click also carries `b` = the element's box in the mirror `[x,y,w,h]` (CSS px of the agent's window) — section 4d.
 - Whisper `client-action` (support → agent, never stored, never through the server): `{t, id, type, s?, x?, y?, v?, k?, sh?, dx?, dy?, n?}` where
   `type` ∈ `click`, `dblclick`, `type` (v = the text), `key` (k ∈ Enter, Tab, Escape, Backspace, Delete, arrows, Home, End), `scroll`
