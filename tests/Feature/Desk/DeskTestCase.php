@@ -66,7 +66,7 @@ abstract class DeskTestCase extends TestCase
     /** A CoreX owner: owner role, reaches every agency. */
     protected function owner(): User
     {
-        return User::factory()->create(['agency_id' => $this->agencyA->id, 'role' => 'super_admin', 'is_active' => true]);
+        return User::factory()->create(['agency_id' => null, 'role' => 'super_admin', 'is_active' => true]);
     }
 
     /** An agency admin who has been granted desk.support in Role Manager (admin does not get it by default). */
