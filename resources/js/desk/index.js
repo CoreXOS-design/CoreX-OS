@@ -19,6 +19,20 @@ function stored() {
 // layouts/partials/desk-client.blade.php, which also sends the tab's join call as the page starts (so support sees a new tab as early as possible).
 const tabKey = (wantMain) => window.CorexDeskTabKey(!!wantMain);
 
+async function api(method, url, body) {
+    try {
+        const r = await fetch(url, {
+            method,
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': cfg.csrf, 'X-Requested-With': 'XMLHttpRequest' },
+            body: body ? JSON.stringify(body) : undefined,
+        });
+        return { ok: r.ok, status: r.status, json: await r.json().catch(() => ({})) };
+    } catch (e) {
+        return { ok: false, status: 0, json: {} };
+    }
+}
+
 // ── UI ───────────────────────────────────────────────────────────────────────────
 
 let countdown = null;
