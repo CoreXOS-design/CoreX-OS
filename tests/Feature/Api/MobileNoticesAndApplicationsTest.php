@@ -83,9 +83,9 @@ final class MobileNoticesAndApplicationsTest extends TestCase
         $names = collect(Route::getRoutes())->map(fn ($r) => (string) $r->getName())->filter(fn ($n) => str_starts_with($n, 'v1.mobile.rental-applications.'))->values()->all();
         sort($names);
         $this->assertSame([
-            'v1.mobile.rental-applications.contacts.quick-create', 'v1.mobile.rental-applications.reissue-link', 'v1.mobile.rental-applications.send',
+            'v1.mobile.rental-applications.contacts.quick-create', 'v1.mobile.rental-applications.index', 'v1.mobile.rental-applications.reissue-link', 'v1.mobile.rental-applications.send',
             'v1.mobile.rental-applications.share-link', 'v1.mobile.rental-applications.store',
-        ], $names, 'review / authorise / decline stay on the web');
+        ], $names, 'the list (to find an application), create the contact, create, send, share / re-issue the link; review / authorise / decline stay on the web');
     }
 
     public function test_reject_a_notice_is_not_on_the_phone(): void
