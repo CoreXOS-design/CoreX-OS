@@ -50,6 +50,12 @@
 @endphp
 <script>window.CorexDesk = @json($__deskConfig);</script>
 @if($__deskCanRequest && $__deskEnabled)
+@if($__deskCurrent && $__deskCurrent->status === 'live')
+    {{-- A tab joining a session that is already live (a page change, a tab opened by a button) fetches the Desk scripts while the page is still parsing, not after. --}}
+    @foreach(array_filter([rescue(fn () => \Illuminate\Support\Facades\Vite::asset('resources/js/desk/agent.js'), null, false), rescue(fn () => \Illuminate\Support\Facades\Vite::asset('node_modules/rrweb/dist/rrweb.js'), null, false)]) as $__deskPre)
+        <link rel="modulepreload" href="{{ $__deskPre }}">
+    @endforeach
+@endif
 {{-- This tab's key, and - when a session is already live for this user - the tab's "I have joined" call, sent the moment the page starts parsing (not after the
      Desk scripts have downloaded): a tab opened by a button in CoreX shows up in support's console as early as it possibly can (spec section 4f).
      "main" = the tab that started the session, "c<letters>" = every other CoreX tab. The key is kept in sessionStorage so a tab keeps it across its own page
