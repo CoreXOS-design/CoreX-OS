@@ -307,6 +307,13 @@ class SoldStockTest extends TestCase
 
         $this->artisan('sold-stock:backfill', ['--agency' => $this->agency->id])->assertSuccessful();
         $this->assertSame(1, SoldStock::withoutGlobalScope(AgencyScope::class)->count());
+        // Default run: the website goes off in the database, NO portal job leaves (a copy of live data holds real credentials).
+        Queue::assertNotPushed(\App\Jobs\Syndication\DesyndicatePropertyFromPortalsJob::class);
+        $this->assertSame(0, PropertyWebsiteSyndication::withoutGlobalScope(AgencyScope::class)->where('property_id', $p->id)->where('enabled', true)->count());
+        $this->withToken($this->token)->getJson('/api/v1/website/listings')->assertOk()->assertJsonCount(0, 'data');
+        // --portals is the production flag: a live PP listing is then taken down.
+        Property::withoutGlobalScopes()->whereKey($p->id)->update(['pp_syndication_enabled' => true]);
+        $this->artisan('sold-stock:backfill', ['--agency' => $this->agency->id, '--portals' => true])->assertSuccessful();
         Queue::assertPushed(\App\Jobs\Syndication\DesyndicatePropertyFromPortalsJob::class);
 
         $this->artisan('sold-stock:backfill', ['--agency' => $this->agency->id])->assertSuccessful();
