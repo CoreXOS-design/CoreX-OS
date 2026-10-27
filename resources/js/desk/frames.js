@@ -2,7 +2,11 @@
 // as "whispers": a batch of events -> JSON -> gzip (when the browser can) -> base64 -> chunks of at most CHUNK characters. The
 // receiver reassembles by batch id. Nothing here touches the server and nothing is stored. The phase-3 extension reuses this as is.
 
-export const CHUNK = 7000;
+// (Reverb accepts client messages up to config/reverb.php max_message_size - 1 MB - so a snapshot goes in a few big whispers instead of two dozen small
+// ones; still small enough that a pointer move never waits long behind one.)
+export const CHUNK = 32000;
+// Below this a batch is sent as it is: gzip costs a header and a CompressionStream round trip, and saves nothing on a pointer move or a keystroke.
+const GZIP_MIN = 300;
 
 let batchSeq = 0;
 
@@ -27,48 +31,65 @@ async function pipe(bytes, stream) {
     return new Uint8Array(await new Response(out).arrayBuffer());
 }
 
-/** @returns {Promise<Array<{id:string,i:number,n:number,z:number,d:string}>>} the chunks to whisper, in order */
-export async function encodeBatch(events, senderTag = 'a') {
+/**
+ * @param {object} [opts] t: the tab the batch is from (the receiver files it under that tab); meta: timing-overlay stamp, carried on chunk 0 only
+ * @returns {Promise<Array<{id:string,i:number,n:number,z:number,d:string,t?:string,m?:object}>>} the chunks to whisper, in order
+ */
+export async function encodeBatch(events, senderTag = 'a', opts = {}) {
+    const t0 = Date.now();
     const json = new TextEncoder().encode(JSON.stringify(events));
     let z = 0;
     let bytes = json;
-    if (typeof CompressionStream !== 'undefined') {
+    if (json.length >= GZIP_MIN && typeof CompressionStream !== 'undefined') {
         try { bytes = await pipe(json, new CompressionStream('gzip')); z = 1; } catch (e) { bytes = json; z = 0; }
     }
     const b64 = toBase64(bytes);
     const id = senderTag + Date.now().toString(36) + (batchSeq++).toString(36);
     const n = Math.max(1, Math.ceil(b64.length / CHUNK));
     const chunks = [];
-    for (let i = 0; i < n; i++) chunks.push({ id, i, n, z, d: b64.slice(i * CHUNK, (i + 1) * CHUNK) });
+    for (let i = 0; i < n; i++) {
+        const c = { id, i, n, z, d: b64.slice(i * CHUNK, (i + 1) * CHUNK) };
+        if (opts.t) c.t = opts.t;
+        if (i === 0 && opts.meta) c.m = { ...opts.meta, raw: json.length, wire: b64.length, enc: Date.now() - t0 };
+        chunks.push(c);
+    }
     return chunks;
 }
 
-/** Collects chunks; calls onBatch(events) once a batch is complete. Incomplete batches older than 30 s are dropped. */
+/** Collects chunks; calls onBatch(events, info) once a batch is complete (info: the timing stamp if the sender added one, the wire size, decode time). Incomplete batches older than 30 s are dropped. */
 export class Reassembler {
     constructor(onBatch) {
         this.onBatch = onBatch;
         this.parts = new Map();
+        this.lastAt = 0;   // when a chunk last arrived (the console does not ask again for a picture that is still coming in)
     }
+
+    /** Is part of a batch on its way in? */
+    get busy() { return this.parts.size > 0 && Date.now() - this.lastAt < 6000; }
 
     async push(chunk) {
         if (!chunk || typeof chunk.id !== 'string') return;
         let entry = this.parts.get(chunk.id);
         if (!entry) {
-            entry = { n: chunk.n, z: chunk.z, got: 0, d: new Array(chunk.n), at: Date.now() };
+            entry = { n: chunk.n, z: chunk.z, got: 0, d: new Array(chunk.n), at: Date.now(), m: null, firstAt: Date.now() };
             this.parts.set(chunk.id, entry);
         }
         if (entry.d[chunk.i] === undefined) {
             entry.d[chunk.i] = chunk.d;
             entry.got++;
+            if (chunk.m) entry.m = chunk.m;
         }
+        this.lastAt = Date.now();
         if (entry.got < entry.n) {
             this.sweep();
             return;
         }
         this.parts.delete(chunk.id);
+        const d0 = Date.now();
         let bytes = fromBase64(entry.d.join(''));
         if (entry.z) bytes = await pipe(bytes, new DecompressionStream('gzip'));
-        this.onBatch(JSON.parse(new TextDecoder().decode(bytes)));
+        const events = JSON.parse(new TextDecoder().decode(bytes));
+        this.onBatch(events, { m: entry.m, wire: entry.d.reduce((a, x) => a + x.length, 0), raw: bytes.length, decode: Date.now() - d0, firstAt: entry.firstAt, doneAt: Date.now() });
     }
 
     sweep() {

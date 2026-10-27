@@ -172,6 +172,15 @@ final class ReasonLinesAndReleaseTest extends TestCase
         Cache::flush();
         $again = app(ListBuilderService::class)->buildFor($this->agent, self::WED);
         $this->assertSame('2 of your buyers match: Piet, Sanet', $again->first()->reason);
+
+        // an untouched prospect offered again takes the new line
+        $this->prospects->place($this->agent, $prospect->tracked_property_id, 'sales', ['reason' => 'Offered again: new line', 'reason_facts' => ['kind' => 'x'], 'selection' => 'long_on_market']);
+        $this->assertSame('Offered again: new line', $prospect->refresh()->reason);
+        $this->prospects->place($this->agent, $prospect->tracked_property_id, 'sales', ['reason' => '2 of your buyers match: Piet, Sanet']);
+        $prospect->forceFill(['stage' => 'contacted'])->save();
+        $this->prospects->place($this->agent, $prospect->tracked_property_id, 'sales', ['reason' => 'Should not replace a worked one']);
+        $this->assertSame('2 of your buyers match: Piet, Sanet', $prospect->refresh()->reason, 'a prospect that has moved on keeps the line it started with');
+
     }
 
     // ── Release ──────────────────────────────────────────────────────────

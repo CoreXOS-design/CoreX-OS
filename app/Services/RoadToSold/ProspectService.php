@@ -120,6 +120,12 @@ class ProspectService
                         'prospecting_listing_id' => $row->prospecting_listing_id ?: ($attrs['prospecting_listing_id'] ?? null),
                         'property_id'            => $row->property_id ?: ($attrs['property_id'] ?? null),
                     ]);
+                    // Offered again while still untouched (found, never called): it is a fresh offer, so the line and facts say why it is offered NOW.
+                    if ($row->stage === ProspectStages::FOUND && $row->last_outcome_id === null && ! empty($attrs['reason'])) {
+                        $fill['reason'] = mb_substr((string) $attrs['reason'], 0, 255);
+                        $fill['reason_facts'] = $attrs['reason_facts'] ?? null;
+                        $fill['selection'] = $attrs['selection'] ?? $row->selection;
+                    }
                     if ($fill !== []) {
                         $row->forceFill($fill)->save();
                     }

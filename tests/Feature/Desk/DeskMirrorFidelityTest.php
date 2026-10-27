@@ -32,11 +32,17 @@ final class DeskMirrorFidelityTest extends TestCase
 
     public function test_both_recorders_refresh_the_snapshot_so_script_set_state_cannot_drift_and_a_busy_page_is_complete(): void
     {
-        foreach ([resource_path('js/desk/agent.js'), public_path('chrome-extension/portal-capture/desk-content.js')] as $file) {
-            $src = (string) file_get_contents($file);
-            $this->assertStringContainsString('checkoutEveryNms: 45000', $src, basename($file));
-            $this->assertMatchesRegularExpression('/setTimeout\(.*resync\(\).*2500\)/', $src, basename($file) . ' takes a second snapshot once the page has drawn itself');
-        }
+        // the extension's recorder: unchanged (45 s checkout + a second snapshot once the page has drawn itself)
+        $ext = (string) file_get_contents(public_path('chrome-extension/portal-capture/desk-content.js'));
+        $this->assertStringContainsString('checkoutEveryNms: 45000', $ext);
+        $this->assertMatchesRegularExpression('/setTimeout\(.*resync\(\).*2500\)/', $ext);
+        // the CoreX tab's recorder: ONE snapshot per ask (it used to send three on join - the first before anyone listened, the console's, and a settle one),
+        // a rare checkout, and no second "settle" snapshot (later changes arrive as mutations)
+        $agent = (string) file_get_contents(resource_path('js/desk/agent.js'));
+        $this->assertStringContainsString('checkoutEveryNms: 120000', $agent);
+        $this->assertStringContainsString('st.haveListener = st.pendingResync;', $agent);
+        $this->assertStringContainsString('now - st.lastSnap < 900', $agent);
+        $this->assertDoesNotMatchRegularExpression('/setTimeout\(.*resync\(\).*2500\)/', $agent);
     }
 
     public function test_the_console_buttons_use_classes_that_have_css_and_hidden_still_hides(): void
@@ -90,7 +96,7 @@ final class DeskMirrorFidelityTest extends TestCase
         $view = (string) file_get_contents(resource_path('views/desk/console.blade.php'));
         $this->assertStringContainsString('#cdc-live { position: fixed; inset: 0;', $view, 'the viewer is the whole browser window');
         $this->assertStringContainsString('background: #0b0f14', $view, 'dark letterbox');
-        $this->assertStringContainsString('#cdc-pane { position: absolute; inset: 0; }', $view);
+        $this->assertStringContainsString('#cdc-pane { position: relative; flex: 1 1 auto; min-height: 0; }', $view);
         $this->assertStringContainsString('#cdc-replay { position: absolute;', $view);
         $this->assertStringNotContainsString('opacity: .', preg_replace('/#cdc-bar[^}]*\}/', '', $view), 'no veil over the mirror');
     }
@@ -143,11 +149,16 @@ final class DeskMirrorFidelityTest extends TestCase
         // The viewer sits on <body> (nothing of the layout - menu, header, test-site banner - over it) and covers the whole window.
         $this->assertStringContainsString("document.body.appendChild(\$('cdc-live'))", $console);
         $this->assertStringContainsString('z-index: 2000000', $view);
-        // One thin toolbar: slides away after 3 s and comes back at the top edge.
-        $this->assertStringContainsString('}, 3000);', $console);
-        $this->assertStringContainsString('cdc-away', $console);
-        $this->assertStringNotContainsString('cdc-hot', $view, 'no strip over the top of the picture: the top of the agent\'s window must stay clickable');
-        $this->assertStringContainsString('ev.clientY <= 8', $console);
+        // One toolbar, PINNED (spec 4d, ruling 27 Oct): always visible, never slides away; the mirror sits below it and fills the rest of the window.
+        $this->assertStringNotContainsString('cdc-away', $console);
+        $this->assertStringNotContainsString('cdc-away', $view);
+        $this->assertStringNotContainsString('barTimer', $console);
+        $this->assertStringNotContainsString('cdc-hot', $view);
+        $this->assertStringContainsString('#cdc-live { position: fixed; inset: 0; z-index: 2000000; background: #0b0f14; overflow: hidden; display: flex; flex-direction: column; }', $view);
+        $this->assertStringContainsString('#cdc-bar { position: relative; flex: 0 0 auto;', $view);
+        $this->assertStringContainsString('#cdc-live[hidden] { display: none !important; }', $view, 'a flex viewer must still be hidden by the hidden attribute (it sat over the whole page, blocking every click)');
+        $this->assertLessThan(strpos($view, 'id="cdc-pane"'), strpos($view, 'id="cdc-bar"'), 'the toolbar comes first, the picture below it');
+        $this->assertStringContainsString("new ResizeObserver(() => layoutPane()).observe(\$('cdc-pane'))", $console, 'the picture refits whenever the room below the toolbar changes');
         // Everything the ruling lists is in it, in one place.
         foreach (['id="cdc-agent"', 'id="cdc-support"', 'id="cdc-page"', 'id="cdc-elapsed"', 'id="cdc-control-status"', 'id="cdc-control"', 'id="cdc-hl"', 'id="cdc-note"', 'id="cdc-tabs"', 'id="cdc-full"', 'id="cdc-end"'] as $id) {
             $this->assertStringContainsString($id, $view, "the toolbar has {$id}");
@@ -191,7 +202,7 @@ final class DeskMirrorFidelityTest extends TestCase
         $ext = (string) file_get_contents(public_path('chrome-extension/portal-capture/desk-content.js'));
 
         // the agent announces its own current size...
-        $this->assertStringContainsString("whisper('viewport', { t: 'main', w: window.innerWidth, h: window.innerHeight", $agent);
+        $this->assertStringContainsString("whisper('viewport', { t: st.tab, w: window.innerWidth, h: window.innerHeight", $agent);
         $this->assertStringContainsString("window.addEventListener('resize', onViewportChange)", $agent);
         $this->assertStringContainsString("window.visualViewport.addEventListener('resize', onViewportChange)", $agent);
         $this->assertStringContainsString('emitViewport();', $agent);
@@ -213,7 +224,9 @@ final class DeskMirrorFidelityTest extends TestCase
 
     public function test_events_are_batched_for_60_ms_not_500(): void
     {
-        $this->assertStringContainsString('const FLUSH_MS = 60;', $this->js('agent.js'));
+        // the CoreX tab: about one screen frame (one message per frame at most - a burst is one message), the extension 60 ms
+        $this->assertStringContainsString('const FLUSH_MS = 16;', $this->js('agent.js'));
+        $this->assertStringContainsString('const BURST_MS = 50;', $this->js('agent.js'), 'a burst of changes is coalesced, a lone change is not held back');
         $this->assertStringNotContainsString('const FLUSH_MS = 500;', $this->js('agent.js'));
         $ext = (string) file_get_contents(public_path('chrome-extension/portal-capture/desk-content.js'));
         $this->assertStringContainsString('setTimeout(flush, 60)', $ext);

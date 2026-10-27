@@ -31,6 +31,7 @@
         'phone' => \App\Http\Controllers\Api\V1\DeskSessionController::supportPhone(),
         'csrf' => csrf_token(),
         'userId' => $__deskUser->id,
+        'timing' => (bool) config('desk.timing_overlay'),
         'heartbeatSeconds' => (int) config('desk.heartbeat_seconds', 30),
         'reverb' => $__deskEnabled ? [
             'key' => $__deskReverbKey,
@@ -48,6 +49,72 @@
     ];
 @endphp
 <script>window.CorexDesk = @json($__deskConfig);</script>
+@if($__deskCanRequest && $__deskEnabled)
+@if($__deskCurrent && $__deskCurrent->status === 'live')
+    {{-- A tab joining a session that is already live (a page change, a tab opened by a button) fetches the Desk scripts while the page is still parsing, not after. --}}
+    @foreach(array_filter([rescue(fn () => \Illuminate\Support\Facades\Vite::asset('resources/js/desk/agent.js'), null, false), rescue(fn () => \Illuminate\Support\Facades\Vite::asset('node_modules/rrweb/dist/rrweb.js'), null, false)]) as $__deskPre)
+        <link rel="modulepreload" href="{{ $__deskPre }}">
+    @endforeach
+@endif
+{{-- This tab's key, and - when a session is already live for this user - the tab's "I have joined" call, sent the moment the page starts parsing (not after the
+     Desk scripts have downloaded): a tab opened by a button in CoreX shows up in support's console as early as it possibly can (spec section 4f).
+     "main" = the tab that started the session, "c<letters>" = every other CoreX tab. The key is kept in sessionStorage so a tab keeps it across its own page
+     changes; a tab opened from another can inherit a COPY of that storage, so the key is also claimed with a Web Lock held for as long as the page lives. --}}
+<script>
+(function () {
+    var cfg = window.CorexDesk, TAB = 'corex.desk.tab', REPLAY = 'corex.desk.replay', memo = null;
+    var VALID = /^(main|c[a-z0-9]{3,10})$/;
+    function lock(k) {
+        return new Promise(function (res) {
+            if (!navigator.locks || !navigator.locks.request) { res(true); return; }
+            navigator.locks.request('corex-desk-tab-' + k, { ifAvailable: true }, function (l) { if (!l) { res(false); return null; } res(true); return new Promise(function () {}); }).catch(function () { res(true); });
+        });
+    }
+    function rnd() { return 'c' + Math.random().toString(36).slice(2, 8).replace(/[^a-z0-9]/g, 'x').padEnd(5, 'x'); }
+    // The key to announce right now, without waiting for anything: this tab's own key if it already has one - except in a brand-new tab (no history, not a
+    // reload), whose storage may be a COPY of the opener's - else a new one.
+    function quickKey() {
+        var k = null; try { k = sessionStorage.getItem(TAB); } catch (e) {}
+        var nav = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+        var brandNew = history.length <= 1 && !(nav && nav.type && nav.type !== 'navigate');
+        if (!k || !VALID.test(k) || brandNew) { k = rnd(); try { sessionStorage.setItem(TAB, k); } catch (e) {} }
+        return k;
+    }
+    // The key this tab really keeps: claimed with a Web Lock held as long as the page lives (so two tabs never share one - a duplicated tab copies the storage
+    // and the history). Settles within a moment; nothing time-critical waits for it. The tab that asks for the code (wantMain) takes "main" if it is free.
+    window.CorexDeskTabKey = function (wantMain, first) {
+        if (memo) return memo;
+        memo = (async function () {
+            var k = first || null;
+            if (!k) { try { k = sessionStorage.getItem(TAB); } catch (e) {} }
+            if (k && !VALID.test(k)) k = null;
+            if (k) { var ok = await lock(k); if (!ok) { await new Promise(function (r) { setTimeout(r, 150); }); ok = await lock(k); } if (!ok) k = null; }
+            if (!k && wantMain && await lock('main')) k = 'main';
+            while (!k) { var c = rnd(); if (await lock(c)) k = c; }
+            try { sessionStorage.setItem(TAB, k); } catch (e) {}
+            return k;
+        })();
+        return memo;
+    };
+    function post(key) {
+        var body = { action: 'join', tab: key, path: location.pathname, title: document.title || '' };
+        try { var rec = JSON.parse(localStorage.getItem(REPLAY) || 'null'); if (rec && rec.tab && rec.tab !== key && Date.now() - rec.t < 10000) body.from = rec.tab; } catch (e) {}
+        return fetch(cfg.urls.sessions + '/' + cur.id + '/tabs', { method: 'POST', credentials: 'same-origin', keepalive: true,
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': cfg.csrf, 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify(body) })
+            .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, json: j }; }, function () { return { ok: r.ok, status: r.status, json: {} }; }); })
+            .catch(function () { return { ok: false, status: 0, json: {} }; });
+    }
+    var cur = cfg.current;
+    if (cur && cur.status === 'live') {
+        var saved = null; try { saved = JSON.parse(localStorage.getItem('corex.desk.session') || 'null'); } catch (e) {}
+        var quick = quickKey();
+        window.CorexDeskEarlyJoin = post(quick);
+        // (the key the page keeps - normally the one just announced; if another page turns out to hold it, a new one is announced as well)
+        window.CorexDeskTabKey(!!(saved && saved.id === cur.id && saved.tab === 'main' && quick === 'main'), quick).then(function (key) { if (key !== quick) window.CorexDeskEarlyJoin = post(key); });
+    }
+})();
+</script>
+@endif
 @if($__deskCanRequest)
 <style>
     #corex-desk-bar { flex: 0 0 auto; display: flex; align-items: center; justify-content: center; gap: .75rem; padding: .25rem .75rem; background: #b91c1c; color: #fff; font-size: .75rem; font-weight: 600; line-height: 1.25rem; }
@@ -69,7 +136,17 @@
     #corex-desk-modal[data-state="creating"] [data-state-only~="creating"] { display: block; }
     #corex-desk-pointer { position: fixed; z-index: 100002; pointer-events: none; transform: translate(-2px, -2px); }
     #corex-desk-pointer span { display: inline-block; margin: 0 0 0 14px; padding: 0 .4rem; border-radius: .25rem; background: #b91c1c; color: #fff; font-size: .65rem; font-weight: 700; }
-    .corex-desk-popover { max-width: 18rem; }
+    /* Support's highlight (spec section 4g): a CoreX ring round the element, the supporter's name on its edge, a small note card beside it. Not part of
+       the Guided Tour - no Next / Previous, nothing to press. The agent's own click on the element clears it. */
+    .cd-hl { position: fixed; z-index: 100000; pointer-events: none; box-sizing: border-box; border: 3px solid var(--brand-icon, #0ea5e9); border-radius: 10px;
+        box-shadow: 0 0 0 4px rgba(14,165,233,.22), 0 0 26px rgba(14,165,233,.45); }
+    .cd-hl .cd-hl-label { position: absolute; left: 10px; top: -13px; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 9px;
+        border-radius: 9999px; background: var(--brand-icon, #0ea5e9); color: #fff; font-size: .68rem; font-weight: 700; line-height: 1.3; }
+    .cd-hl .cd-hl-note { position: absolute; top: calc(100% + 10px); left: 0; min-width: 11rem; max-width: 20rem; padding: .5rem .7rem; border-radius: .5rem;
+        background: var(--surface, #fff); color: var(--text-primary, #111827); border: 1px solid var(--border, #e5e7eb); border-left: 4px solid var(--brand-icon, #0ea5e9);
+        box-shadow: 0 10px 28px rgba(0,0,0,.28); font-size: .8rem; line-height: 1.35; font-weight: 500; white-space: normal; overflow-wrap: anywhere; }
+    .cd-hl.cd-hl-up .cd-hl-note { top: auto; bottom: calc(100% + 10px); }
+    .cd-hl.cd-hl-right .cd-hl-note { left: auto; right: 0; }
 </style>
 
 <div id="corex-desk-bar" class="rr-block" role="status" hidden data-mode="view">
@@ -104,9 +181,6 @@
 <div id="corex-desk-pointer" class="rr-block" hidden>
     <svg width="18" height="18" viewBox="0 0 24 24" fill="#b91c1c" stroke="#fff" stroke-width="1.5" aria-hidden="true" style="position:absolute;left:0;top:0;"><path d="M4 3l16 7-7 2-2 7z"/></svg><span>Support</span>
 </div>
-
-{{-- The Guided Tour's own driver.js stylesheet + CoreX popover theme, so support's highlight looks exactly like a tour step on every page. --}}
-@include('layouts.partials.tour-theme')
 
 @vite(['resources/js/desk/index.js'])
 @endif

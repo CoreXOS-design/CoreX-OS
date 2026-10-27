@@ -1,21 +1,31 @@
-// CoreX Desk - the AGENT's tab while a session is open (spec .ai/specs/corex-desk.md sections 3, 7.2, 7.5).
+// CoreX Desk - the AGENT's tab while a session is open (spec .ai/specs/corex-desk.md sections 3, 4f, 7.2, 7.5).
 // Loaded on demand by index.js, so Echo and rrweb cost nothing until a session exists.
+//
+// A session belongs to the USER: every CoreX tab the agent has joins it, each under its own tab key ("main" for the tab that started the session,
+// "c<letters>" for the others). Each tab runs this module on its own and talks on the same private channel; every whisper names its tab, and a tab
+// only reacts to what is addressed to it.
 //
 // Nothing is recorded or sent until support has joined (desk.joined). From then on rrweb records ONLY this CoreX tab; passwords and
 // anything inside [data-desk-mask] are masked here, in the browser, before a single byte is whispered. Desk's own UI carries
 // .rr-block so it is never part of what support sees.
 import { getEcho, dropEcho } from './echo.js';
 import { encodeBatch } from './frames.js';
+import { slimEvent, resetSlim } from './slim.js';
 
-// How long events wait to be batched before they are whispered. Short on purpose: a keystroke or a menu opening reaches the console in well under a
-// second (500 ms here made typing feel 0.5 s behind - measured 27 Oct, spec section 4e).
-const FLUSH_MS = 60;
+// How long events wait to be batched before they are whispered. After a quiet moment: about one screen frame, so a keystroke or a menu opening is on its way
+// at once. In the middle of a burst (the last message went out less than BURST_GAP_MS ago): BURST_MS, so a stream of changes goes out as one message per
+// few frames rather than one per change - a small message costs nearly as many bytes on the wire as a bigger one (spec section 4e).
+const FLUSH_MS = 16;
+const BURST_MS = 50;
+const BURST_GAP_MS = 120;
 const POINTER_IDLE_MS = 4000;
+const REPLAY_KEY = 'corex.desk.replay';   // the tab that last replayed a click for support (a click that opens a new tab hands control to it)
+const REPLAY_WINDOW_MS = 10000;
 
 let st = null;
 
-/** Protocol 1.1 - no tab named (or "main") means the CoreX page itself. */
-const forMain = (tab) => !tab || tab === 'main';
+/** Is this event / whisper addressed to this tab? No tab named (or "main") means the tab that started the session. */
+const forMe = (tab) => !!st && (tab || 'main') === st.tab;
 
 /** Every input type rrweb can mask. maskInputFn below decides which ones really are (password + [data-desk-mask]). */
 const ALL_INPUT_TYPES = {
@@ -31,35 +41,49 @@ function maskInput(text, el) {
 export function start(ctx) {
     if (st) return st;
     const { cfg, session, api, ui } = ctx;
+    const tab = ctx.tabKey || 'main';
     const channelName = 'desk.session.' + session.id;
     const echo = getEcho();
     const channel = echo.private(channelName);
 
-    st = { cfg, session, api, ui, echo, channel, channelName, timers: [], buffer: [], flushing: false, subscribed: false, ctl: { state: 'none', asked: false, exec: null, reporter: null, idle: null }, stopRecord: null, recording: false, drv: null, ended: false, pointerTimer: null };
+    st = { cfg, session, api, ui, tab, echo, channel, channelName, timers: [], buffer: [], flushing: false, subscribed: false, live: false, registered: false,
+        ctl: { state: 'none', asked: false, exec: null, reporter: null, idle: null }, stopRecord: null, recording: false, hl: null, ended: false, pointerTimer: null,
+        haveListener: false, pendingResync: false, lastSnap: 0 };
 
     channel
-        .listen('.desk.joined', (e) => { if (e.support_name) st.session.support_name = e.support_name; ui.joined(e.support_name); beginRecording(); })
+        .listen('.desk.joined', (e) => { if (e.support_name) st.session.support_name = e.support_name; st.live = true; ui.joined(e.support_name); beginRecording(); registerTab('join'); })
         .listen('.desk.ended', (e) => finish(e.by))
-        // Protocol 1.1: events and whispers may name a tab (an extension tab, "x<id>"). This client is the CoreX page, "main": it only
-        // reacts to its own.
-        .listen('.desk.highlight', (e) => { if (forMain(e.tab)) showHighlight(e.selector, e.note); })
-        .listen('.desk.highlight_cleared', (e) => { if (forMain(e.tab)) clearHighlight(); })
-        .listen('.desk.pointer_state', (e) => { if (forMain(e.tab) && !e.on) hidePointer(); })
-        .listenForWhisper('pointer', (p) => { if (forMain(p && p.t)) movePointer(p); })
-        .listenForWhisper('resync', (r) => { if (forMain(r && r.t)) resync(); })
+        // Events and whispers name the tab they are for. This client only reacts to its own.
+        .listen('.desk.highlight', (e) => { if (forMe(e.tab)) showHighlight(e.selector, e.note); })
+        .listen('.desk.highlight_cleared', (e) => { if (forMe(e.tab)) clearHighlight(); })
+        .listen('.desk.pointer_state', (e) => { if (forMe(e.tab) && !e.on) hidePointer(); })
+        .listenForWhisper('pointer', (p) => { if (forMe(p && p.t)) movePointer(p); })
+        .listenForWhisper('resync', (r) => { if (forMe(r && r.t)) resync(true); })
         // Take-over (protocol 1.2): support asks, the agent answers, and only after the agent's own Allow does anything get replayed.
-        .listen('.desk.control_requested', (e) => { if (forMain(e.tab)) askControl(e.support_name); })
-        .listen('.desk.control_granted', (e) => { if (forMain(e.tab)) beginControl(e.idle_seconds); })
-        .listen('.desk.control_declined', (e) => { if (forMain(e.tab)) endControlLocal('declined'); })
-        .listen('.desk.control_revoked', (e) => { if (forMain(e.tab)) endControlLocal('revoked'); })
-        .listen('.desk.control_ended', (e) => { if (forMain(e.tab)) endControlLocal(e.reason || 'ended'); })
-        .listenForWhisper('action', (a) => { if (forMain(a && a.t)) runAction(a); })
-        .subscribed(() => { if (st) { st.subscribed = true; emitViewport(); if (st.buffer.length) scheduleFlush(); } })
+        .listen('.desk.control_requested', (e) => { if (forMe(e.tab)) askControl(e.support_name); })
+        .listen('.desk.control_granted', (e) => { if (forMe(e.tab)) beginControl(e.idle_seconds); })
+        .listen('.desk.control_declined', (e) => { if (forMe(e.tab)) endControlLocal('declined'); })
+        .listen('.desk.control_revoked', (e) => { if (forMe(e.tab)) endControlLocal('revoked'); })
+        .listen('.desk.control_ended', (e) => { if (forMe(e.tab)) endControlLocal(e.reason || 'ended'); })
+        // A click support replayed opened a new CoreX tab: control moves there. This tab goes back to "viewing"; the new one starts replaying.
+        .listen('.desk.control_moved', (e) => {
+            if (e.from === st.tab) endControlLocal('moved');
+            else if (forMe(e.tab)) { st.ctl.asked = true; beginControl(e.idle_seconds); }
+        })
+        .listenForWhisper('action', (a) => { if (forMe(a && a.t)) runAction(a); })
+        .listenForWhisper('tping', (p) => { if (st.cfg.timing && p) { try { st.channel.whisper('tpong', { id: p.id, c: p.c, a: Date.now(), t: st.tab }); } catch (e) { /* not subscribed */ } } })
+        .subscribed(() => {
+            if (!st) return;
+            st.subscribed = true;
+            emitViewport();
+            if (st.buffer.length) scheduleFlush();
+            if (st.live && !st.registered) registerTab('join');
+        })
         .error(() => ui.error('Could not open the live connection. Check your internet connection and try again.'));
 
     // Keep the session alive; learn if the other side (or a timeout) already ended it.
     const beat = async () => {
-        const r = await api('POST', cfg.urls.sessions + '/' + session.id + '/heartbeat', { page: location.pathname });
+        const r = await api('POST', cfg.urls.sessions + '/' + session.id + '/heartbeat', { page: location.pathname, tab: st.tab });
         if (r.ok && r.json.status === 'ended') finish(r.json.ended_by);
     };
     beat();
@@ -69,14 +93,22 @@ export function start(ctx) {
     window.addEventListener('pagehide', leaving);
     window.addEventListener('resize', onViewportChange);
     if (window.visualViewport) window.visualViewport.addEventListener('resize', onViewportChange);
+    document.addEventListener('click', onDocClick, true);
+    window.addEventListener('hashchange', onNavigate);
+    window.addEventListener('popstate', onNavigate);
+    watchTitle();
 
     if (session.status === 'live') {
+        st.live = true;
+        st.listenerKnown = true;   // support is already in the session (this is a page change, or a tab opened later): its console is listening, so the first picture goes out at once
         ui.joined(session.support_name);
         beginRecording();
+        // (the page's own inline script already sent this tab's join call as the page started; its answer is read here)
+        if (ctx.earlyJoin) { st.registered = 'inflight'; ctx.earlyJoin.then((r) => joined(r)); } else registerTab('join');
         // A page change must not drop a take-over (or a pending request): pick it up again from the session.
         const c = session.control || {};
-        if (forMain(c.tab) && c.state === 'requested') askControl(session.support_name);
-        if (forMain(c.tab) && c.state === 'granted') { st.ctl.asked = true; beginControl(cfg.controlIdleSeconds); }
+        if (forMe(c.tab) && c.state === 'requested') askControl(session.support_name);
+        if (forMe(c.tab) && c.state === 'granted') { st.ctl.asked = true; beginControl(cfg.controlIdleSeconds); }
     }
 
     return st;
@@ -89,12 +121,54 @@ export async function endSession() {
     finish('agent');
 }
 
+/** This tab joins (or re-announces itself to) the session: support's tab bar lists it by title and path. */
+async function registerTab(action) {
+    // (needs the session to be live, not the live connection: the HTTP call goes out at once and the console learns of this tab a round trip sooner)
+    if (!st || !st.live) return;
+    if (action === 'join' && st.registered === 'inflight') return;
+    st.registered = 'inflight';
+    const body = { action, tab: st.tab, path: location.pathname, title: document.title || '' };
+    // The tab a replayed click was run in a moment ago: if that click opened THIS tab, control follows it.
+    try {
+        const rec = JSON.parse(localStorage.getItem(REPLAY_KEY) || 'null');
+        if (rec && rec.tab && rec.tab !== st.tab && Date.now() - rec.t < REPLAY_WINDOW_MS) body.from = rec.tab;
+    } catch (e) { /* storage blocked */ }
+    joined(await st.api('POST', st.cfg.urls.sessions + '/' + st.session.id + '/tabs', body));
+}
+
+/** The answer to this tab's join call. */
+function joined(r) {
+    if (!st) return;
+    st.registered = r.ok ? true : false;
+    if (!r.ok) {
+        if (r.status === 409) finish('ended');   // the session is not live any more
+        return;
+    }
+    // Control may already have moved here (the event can arrive before this answer, or not at all): the server's word settles it.
+    const c = r.json.session && r.json.session.control;
+    if (c && c.state === 'granted' && forMe(c.tab) && st.ctl.state !== 'granted') { st.ctl.asked = true; beginControl(st.cfg.controlIdleSeconds); }
+}
+
+let titleObs = null, titleTimer = null;
+function watchTitle() {
+    const el = document.querySelector('title');
+    if (!el || !window.MutationObserver) return;
+    titleObs = new MutationObserver(() => { clearTimeout(titleTimer); titleTimer = setTimeout(() => registerTab('update'), 600); });
+    titleObs.observe(el, { childList: true, characterData: true, subtree: true });
+}
+
 function leaving() {
     if (!st || st.ended) return;
     try {
         const fd = new FormData();
         fd.append('_token', st.cfg.csrf);
+        fd.append('tab', st.tab);
         navigator.sendBeacon(st.cfg.urls.sessions + '/' + st.session.id + '/leaving', fd);
+        if (st.hl) {   // leaving the page clears the highlight on the console as well
+            const h = new FormData();
+            h.append('_token', st.cfg.csrf); h.append('tab', st.tab); h.append('reason', 'navigated');
+            navigator.sendBeacon(st.cfg.urls.sessions + '/' + st.session.id + '/highlight/clear', h);
+        }
     } catch (e) { /* best effort */ }
 }
 
@@ -105,10 +179,14 @@ function finish(by) {
     stopRecording();
     clearHighlight();
     hidePointer();
-    st.timers.forEach(clearInterval);
+    st.timers.forEach((t) => { clearInterval(t); clearTimeout(t); });
     window.removeEventListener('pagehide', leaving);
     window.removeEventListener('resize', onViewportChange);
     if (window.visualViewport) window.visualViewport.removeEventListener('resize', onViewportChange);
+    document.removeEventListener('click', onDocClick, true);
+    window.removeEventListener('hashchange', onNavigate);
+    window.removeEventListener('popstate', onNavigate);
+    if (titleObs) { titleObs.disconnect(); titleObs = null; }
     dropEcho(); // disconnecting drops the subscription server-side; a separate leave() would send on a socket that is closing
     const ui = st.ui;
     st = null;
@@ -123,22 +201,30 @@ async function beginRecording() {
     const { record } = await import('rrweb');
     if (!st || st.ended) return;
     st.record = record;
-    // ...and one just after the page has finished drawing itself (menus, lists filled by script), so a support person joining a busy page sees it complete.
-    setTimeout(() => { if (st && st.recording) resync(); }, 2500);
+    resetSlim();
+    // On the FIRST join nobody is listening until support's console has subscribed and asked for a picture (its "resync"): a snapshot sent before that goes
+    // nowhere. So the recorder starts, but its first snapshot is only kept if the console already asked (or support was already here - a page change or a
+    // newly opened tab); otherwise it waits for the ask. (If no ask comes, send one anyway.)
+    st.haveListener = st.pendingResync || !!st.listenerKnown;
+    st.pendingResync = false;
     st.stopRecord = record({
-        emit: (event) => { if (st) { st.buffer.push(event); scheduleFlush(); } },
+        emit: (event) => { if (!st || !st.haveListener) return; const e = slimEvent(event); if (e) { st.buffer.push(e); scheduleFlush(); } },
         blockClass: 'rr-block',
         maskInputOptions: ALL_INPUT_TYPES,
         maskInputFn: maskInput,
         maskTextSelector: '[data-desk-mask]',
-        inlineStylesheet: true,
+        // The mirror loads the page's stylesheets itself (same site, so they come from its own cache) instead of receiving ~half a megabyte of CSS inside
+        // every snapshot (measured 27 Oct, spec section 4e).
+        inlineStylesheet: false,
         recordCanvas: false,
         collectFonts: false,
         sampling: { mousemove: 50, scroll: 50 }, // every keystroke is mirrored (input:'last' would wait for the field to lose focus)
-        // A fresh full snapshot every so often: properties the page sets from script (a select's value, a checkbox) raise no DOM mutation, so a
-        // mirror can drift; this puts it right again.
-        checkoutEveryNms: 45000,
+        // A fresh full snapshot now and then: properties the page sets from script (a select's value, a checkbox) raise no DOM mutation, so a mirror can
+        // drift; this puts it right again. (Each one is the whole page again - kept rare.)
+        checkoutEveryNms: 120000,
     });
+    // The console's ask can be lost; do not leave it with a blank window.
+    setTimeout(() => { if (st && !st.haveListener) resync(true); }, 3000);
 }
 
 function stopRecording() {
@@ -152,21 +238,39 @@ function stopRecording() {
  */
 function emitViewport() {
     if (!st || !st.subscribed) return;
-    try { st.channel.whisper('viewport', { t: 'main', w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio || 1 }); } catch (e) { /* not subscribed yet */ }
+    try { st.channel.whisper('viewport', { t: st.tab, w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio || 1 }); } catch (e) { /* not subscribed yet */ }
 }
 let vpTimer = null;
 function onViewportChange() { clearTimeout(vpTimer); vpTimer = setTimeout(emitViewport, 80); }
 
-function resync() {
+/** The console asks for a picture. Asks that arrive close together (a retry, a tab switch) are one picture, not several. */
+function resync(fromConsole) {
+    if (!st) return;
     emitViewport();
-    if (st && st.record && st.recording) {
-        try { st.record.takeFullSnapshot(true); } catch (e) { /* ignore */ }
-    }
+    if (!st.record || !st.recording || !st.stopRecord) { if (fromConsole) st.pendingResync = true; return; }
+    const now = Date.now();
+    if (st.haveListener && now - st.lastSnap < 900) return;
+    st.haveListener = true;
+    st.lastSnap = now;
+    try { resetSlim(); st.record.takeFullSnapshot(true); } catch (e) { /* ignore */ }
 }
 
 function scheduleFlush() {
     if (!st || st.flushTimer) return;
-    st.flushTimer = setTimeout(flush, FLUSH_MS);
+    st.flushTimer = setTimeout(flush, Date.now() - (st.lastFlushAt || 0) > BURST_GAP_MS ? FLUSH_MS : BURST_MS);
+}
+
+/** What kind of batch is this, for the timing overlay. */
+function categoryOf(events) {
+    let k = 'other';
+    const rank = { snapshot: 5, mutation: 4, input: 3, scroll: 2, pointer: 1, other: 0 };
+    for (const e of events) {
+        let c = 'other';
+        if (e.type === 2) c = 'snapshot';
+        else if (e.type === 3 && e.data) c = { 0: 'mutation', 1: 'pointer', 3: 'scroll', 5: 'input' }[e.data.source] || 'other';
+        if (rank[c] > rank[k]) k = c;
+    }
+    return k;
 }
 
 async function flush() {
@@ -175,10 +279,12 @@ async function flush() {
     // Nothing is whispered before the private channel is subscribed (a page change re-subscribes first); events wait in the buffer.
     if (!st.subscribed || st.flushing || !st.buffer.length) { if (st.buffer.length) scheduleFlush(); return; }
     st.flushing = true;
+    st.lastFlushAt = Date.now();
     const events = st.buffer;
     st.buffer = [];
     try {
-        const chunks = await encodeBatch(events, 'a');
+        const meta = st.cfg.timing ? { ts: Date.now(), k: categoryOf(events), ev: events.length } : null;
+        const chunks = await encodeBatch(events, 'a', { t: st.tab, meta });
         for (const c of chunks) {
             if (!st) break;
             st.channel.whisper('frame', c);
@@ -214,7 +320,7 @@ function askControl(supportName) {
     st.ctl.state = 'asking';
     st.ctl.asked = true;
     st.ui.controlAsk(supportName || st.session.support_name);
-    try { st.channel.whisper('control_ack', { t: 'main' }); } catch (e) { /* not subscribed yet */ }   // tells the console the question is on the agent's screen
+    try { st.channel.whisper('control_ack', { t: st.tab }); } catch (e) { /* not subscribed yet */ }   // tells the console the question is on the agent's screen
 }
 
 export async function controlRespond(allow) {
@@ -250,7 +356,7 @@ async function beginControl(idleSeconds) {
     const c = st.ctl;
     c.state = 'granted';
     c.exec = window.CoreXDeskExec.create({ doc: document, win: window, isBlocked: blockedField });
-    c.reporter = window.CoreXDeskExec.createReporter((actions) => st && st.api('POST', controlUrl('actions'), { tab: 'main', actions }), 1500);
+    c.reporter = window.CoreXDeskExec.createReporter((actions) => st && st.api('POST', controlUrl('actions'), { tab: st.tab, actions }), 1500);
     const secs = Math.max(60, idleSeconds || st.cfg.controlIdleSeconds || 300);
     c.idle = window.CoreXDeskExec.createIdleTimer(secs, () => { if (st) { endControlLocal('idle'); st.api('POST', controlUrl('revoke'), { reason: 'idle' }); } });
     c.idle.start();
@@ -271,11 +377,15 @@ function endControlLocal(reason, quiet) {
 /** One action whispered by support. Only replayed while control is granted HERE; refusals are reported like anything else. */
 function runAction(a) {
     if (!st || st.ctl.state !== 'granted' || !st.ctl.exec) return;
+    // A click that opens a new tab must be traceable to this tab: note it BEFORE it runs (the new tab reads this when it joins).
+    if (a && (a.type === 'click' || a.type === 'dblclick' || (a.type === 'key' && a.k === 'Enter'))) {
+        try { localStorage.setItem(REPLAY_KEY, JSON.stringify({ tab: st.tab, t: Date.now() })); } catch (e) { /* storage blocked */ }
+    }
     const res = st.ctl.exec.run(a);
     st.ctl.reporter.add(res.report);
     if (res.ok) st.ctl.idle.touch();
     // Tell the console when it could not be done (the screen it clicked on is out of date, the field is private...): it refreshes and says so.
-    else { try { st.channel.whisper('action_result', { t: 'main', id: a.id, ok: false, reason: res.reason }); } catch (e) { /* not subscribed */ } }
+    else { try { st.channel.whisper('action_result', { t: st.tab, id: a.id, ok: false, reason: res.reason }); } catch (e) { /* not subscribed */ } }
 }
 
 // ── Support's pointer ────────────────────────────────────────────────────────────
@@ -303,61 +413,69 @@ function hidePointer() {
     if (el) el.hidden = true;
 }
 
-// ── Support's highlight (the Guided Tour / driver.js look) ───────────────────────
+// ── Support's highlight: a CoreX ring + label and a small note card (spec section 4g) ─────────────────────────
 
-// The Guided Tour's own engine and look: the same vendored driver.js and the same themed CSS (layouts/partials/tour-theme.blade.php,
-// included on every page by the Desk partial). A page that has a tour already loaded driver.js; any other page fetches it here.
-function loadDriver() {
-    if (window.driver && window.driver.js) return Promise.resolve();
-    if (st && st.driverLoading) return st.driverLoading;
-    const p = new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = '/vendor/driverjs/driver.js.iife.js';
-        s.onload = () => resolve();
-        s.onerror = () => reject(new Error('driver.js failed to load'));
-        document.head.appendChild(s);
-    });
-    if (st) st.driverLoading = p;
-    return p;
-}
+const esc = (t) => String(t).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
 
-async function showHighlight(selector, note) {
+function showHighlight(selector, note) {
     clearHighlight();
     let target = null;
     try { target = document.querySelector(selector); } catch (e) { return; }
     if (!target) return;
-    try { await loadDriver(); } catch (e) { return; }
-    if (!st) return;
     target.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    // Exactly the Guided Tour's "Spot Help" look: the tour's overlay colour, stage padding/radius and `corex-tour` popover, with
-    // body.corex-guide-live so the agent can still click and type on the real page (the dimming does not block the screen).
-    const dark = document.documentElement.classList.contains('dark');
-    document.body.classList.add('corex-guide-live');
-    st.drv = window.driver.js.driver({
-        allowClose: false,
-        allowKeyboardControl: false,
-        showButtons: [],
-        showProgress: false,
-        animate: true,
-        overlayColor: dark ? 'rgba(149,151,153,0.96)' : 'rgba(3,6,12,0.93)',
-        overlayOpacity: 0.35,
-        stagePadding: 6,
-        stageRadius: 8,
-        popoverClass: 'corex-tour',
-        // A highlight is a pointing finger, not a tour: no Next/Previous/close, no footer.
-        onPopoverRender: (popover) => {
-            ['footer', 'closeButton'].forEach((k) => { if (popover[k]) popover[k].style.display = 'none'; });
-        },
-    });
-    st.drv.highlight({
-        element: target,
-        popover: note
-            ? { title: String(st.session.support_name || 'CoreX support'), description: note.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])), side: 'bottom' }
-            : undefined,
-    });
+    const ring = document.createElement('div');
+    ring.id = 'corex-desk-hl';
+    ring.className = 'cd-hl';
+    ring.setAttribute('aria-hidden', 'true');
+    const name = String(st.session.support_name || 'CoreX support');
+    ring.innerHTML = '<span class="cd-hl-label"></span>' + (note ? '<div class="cd-hl-note"></div>' : '');
+    ring.querySelector('.cd-hl-label').textContent = name;
+    if (note) ring.querySelector('.cd-hl-note').textContent = String(note);
+    document.body.appendChild(ring);
+    const h = { target, ring, raf: 0, last: '' };
+    st.hl = h;
+    // The ring follows the element while the page scrolls or resizes (the smooth scroll above is still running when it first appears).
+    const place = () => {
+        if (!st || st.hl !== h) return;
+        if (!target.isConnected) { clearHighlight(); return; }
+        const r = target.getBoundingClientRect();
+        const pad = 4;
+        const key = [r.left, r.top, r.width, r.height, innerWidth, innerHeight].map(Math.round).join(',');
+        if (key !== h.last) {
+            h.last = key;
+            ring.style.left = Math.round(r.left - pad) + 'px';
+            ring.style.top = Math.round(r.top - pad) + 'px';
+            ring.style.width = Math.round(r.width + pad * 2) + 'px';
+            ring.style.height = Math.round(r.height + pad * 2) + 'px';
+            // The note sits below the element, or above it when there is no room below; the label is on the ring's top edge.
+            ring.classList.toggle('cd-hl-up', r.bottom + 120 > innerHeight && r.top > 140);
+            ring.classList.toggle('cd-hl-right', r.left > innerWidth - 300);
+        }
+        h.raf = requestAnimationFrame(place);
+    };
+    place();
 }
 
 function clearHighlight() {
-    if (st && st.drv) { try { st.drv.destroy(); } catch (e) { /* ignore */ } st.drv = null; }
-    document.body.classList.remove('corex-guide-live');
+    const h = st && st.hl;
+    if (h) { cancelAnimationFrame(h.raf); if (h.ring.parentNode) h.ring.parentNode.removeChild(h.ring); st.hl = null; }
+    else { const r = document.getElementById('corex-desk-hl'); if (r && r.parentNode) r.parentNode.removeChild(r); }
+}
+
+/** The agent clicked the highlighted element (or anything inside it): it did what was pointed out. Clear it on both sides; the console says "done". */
+function onDocClick(ev) {
+    const h = st && st.hl;
+    if (!h) return;
+    const path = ev.composedPath ? ev.composedPath() : [ev.target];
+    if (path.includes(h.target) || h.target.contains(ev.target)) {
+        clearHighlight();
+        st.api('POST', st.cfg.urls.sessions + '/' + st.session.id + '/highlight/clear', { tab: st.tab, reason: 'clicked' });
+    }
+}
+
+/** A hash / history change inside the page: what was pointed at is probably not there any more. */
+function onNavigate() {
+    if (!st || !st.hl) return;
+    clearHighlight();
+    st.api('POST', st.cfg.urls.sessions + '/' + st.session.id + '/highlight/clear', { tab: st.tab, reason: 'navigated' });
 }

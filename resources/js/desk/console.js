@@ -4,13 +4,15 @@
 // rebuild the agent's page with rrweb's live-mode Replayer. The mouse over the replayed page is whispered to the agent as a
 // labelled cursor; a click resolves the element to a selector and asks the server (audited) to have the agent outline it.
 //
-// Phase 3 (protocol 1.1): the session can hold several TABS - the agent's CoreX page ("main") plus any Chrome tabs the CoreX
-// extension shares ("x<chrome tab id>"). Each tab has its own Replayer; a tab bar switches between them. Every whisper and
-// highlight names the tab it is for; a frame with no `t` is the CoreX page.
+// The session can hold several TABS: every CoreX tab the agent has ("main" = the one that started the session, "c<letters>" = the others, each
+// joining by itself - spec section 4f) plus any Chrome tabs the CoreX extension shares ("x<chrome tab id>"). Each tab has its own Replayer; a tab bar
+// switches between them, and a newly opened CoreX tab is switched to by itself. Every whisper and highlight names the tab it is for; a frame with no
+// `t` is the "main" CoreX tab.
 import { Replayer } from 'rrweb';
 import 'rrweb/dist/style.css';
 import { getEcho, dropEcho } from './echo.js';
 import { Reassembler } from './frames.js';
+import { timing } from './timing.js';
 
 const cfg = window.CorexDesk || {};
 const con = window.CorexDeskConsole || {};
@@ -57,42 +59,23 @@ function say(msg, bad = false) {
 // ── The viewer: the agent's window fills the browser window (spec section 4d) ───────────────────────────────────
 // The viewer element lives in <body> so no part of the page layout - menu, header, test-site banner - can sit over it.
 document.body.appendChild($('cdc-live'));
-let barTimer = null;
-function showBar() {
-    const bar = $('cdc-bar');
-    bar.classList.remove('cdc-away');
-    clearTimeout(barTimer);
-    barTimer = setTimeout(() => {
-        // not while the pointer is on the bar or a field in it has focus (typing a note)
-        if (bar.matches(':hover') || bar.contains(document.activeElement) && document.activeElement !== document.body) { showBar(); return; }
-        bar.classList.add('cdc-away');
-    }, 3000);
-}
 function openViewer() {
     $('cdc-live').hidden = false;
     document.documentElement.style.overflow = 'hidden';
-    showBar();
 }
 function closeViewer() {
     if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
     $('cdc-live').hidden = true;
     document.documentElement.style.overflow = '';
-    clearTimeout(barTimer);
 }
-$('cdc-bar').addEventListener('mousemove', showBar);
-// Leaving the toolbar tucks it away at once (1.2 s), so it is not in the way of what you point at next.
-$('cdc-bar').addEventListener('mouseleave', () => {
-    clearTimeout(barTimer);
-    barTimer = setTimeout(() => { const b = $('cdc-bar'); if (!b.contains(document.activeElement) || document.activeElement === document.body) b.classList.add('cdc-away'); }, 1200);
-});
-$('cdc-bar').addEventListener('focusin', showBar);
-// The toolbar returns when the mouse touches the top edge (8 px) - no strip sits over the picture, so the top of the agent's window can be pointed at and clicked.
-$('cdc-pane').addEventListener('mousemove', (ev) => { if (ev.clientY <= 8) showBar(); });
+// The toolbar is pinned (it never hides); the mirror fills what is left below it, so the picture is re-fitted whenever that room changes - a window
+// resize, full screen, or the toolbar wrapping onto a second row on a narrow window.
 document.addEventListener('fullscreenchange', () => { $('cdc-full').textContent = document.fullscreenElement ? 'Exit full screen' : 'Full screen'; layoutPane(); });
 $('cdc-full').addEventListener('click', () => {
     if (document.fullscreenElement) document.exitFullscreen();
     else if ($('cdc-live').requestFullscreen) $('cdc-live').requestFullscreen().catch(() => say('This browser would not go full screen.', true));
 });
+if (window.ResizeObserver) new ResizeObserver(() => layoutPane()).observe($('cdc-pane'));
 
 // ── Joining ──────────────────────────────────────────────────────────────────────
 
@@ -112,27 +95,43 @@ function newTab(key, label, host) {
     root.className = 'cdc-tab';
     root.hidden = true;
     $('cdc-replay').appendChild(root);
-    return { key, label, host: host || '', root, replayer: null, events: [], reassembler: null };
+    return { key, label, host: host || '', root, replayer: null, events: [], reassembler: null, born: Date.now(), asked: 0, askedAt: 0 };
 }
 
 function attach(session) {
     if (cur) detach(false);
     const name = 'desk.session.' + session.id;
     const channel = getEcho().private(name);
-    cur = { session, channel, name, tabs: new Map(), selected: MAIN, started: Date.parse(session.joined_at || session.started_at), pointerOn: false, lastPointer: 0, control: { state: (session.control && session.control.state) || 'none', tab: session.control && session.control.tab }, focusSel: null, typed: null, hl: !(session.control && session.control.state === 'granted') };
+    cur = { session, channel, name, tabs: new Map(), selected: MAIN, tabsSince: Date.now(), started: Date.parse(session.joined_at || session.started_at), pointerOn: false, lastPointer: 0, control: { state: (session.control && session.control.state) || 'none', tab: session.control && session.control.tab }, focusSel: null, typed: null, hl: !(session.control && session.control.state === 'granted') };
     cur.tabs.set(MAIN, newTab(MAIN, 'CoreX page', ''));
-    (session.tabs || []).forEach((t) => addExtTab(t));
+    (session.tabs || []).forEach((t) => addTab(t, true));
+    timing.reset(con.timing, { api, url: (id) => con.urls.sessions + '/' + id });
+    if (con.timing) [300, 700, 1200, 2000].forEach((ms) => setTimeout(() => cur && timing.probe(cur), ms));
 
     channel
         .listenForWhisper('frame', (chunk) => {
-            const tab = cur && cur.tabs.get(chunk && chunk.t ? chunk.t : MAIN);
-            if (!tab) return;   // a tab we have not been told about (yet): its tab_joined event creates it, the resync below asks again
-            if (!tab.reassembler) tab.reassembler = new Reassembler((events) => onEvents(tab, events));
+            if (!cur) return;
+            const key = chunk && chunk.t ? chunk.t : MAIN;
+            // A CoreX tab's first picture can arrive before the server's word that the tab exists (they travel by different routes): file it under a placeholder
+            // that tab_joined then names. Anything else we have not been told about is dropped (the resync it triggers asks again).
+            if (!cur.tabs.has(key) && /^c[a-z0-9]{3,10}$/.test(key)) addTab({ tab: key, host: 'CoreX', title: '', path: '' }, false);
+            const tab = cur.tabs.get(key);
+            if (!tab) return;
+            if (!tab.reassembler) tab.reassembler = new Reassembler((events, info) => onEvents(tab, events, info));
             tab.reassembler.push(chunk);
         })
-        .listen('.desk.tab_joined', (e) => { addExtTab(e); askResync(e.tab); })
-        .listen('.desk.tab_updated', (e) => updateExtTab(e))
-        .listen('.desk.tab_left', (e) => removeExtTab(e.tab))
+        .listen('.desk.tab_joined', (e) => {
+            if (!cur) return;
+            const before = cur.tabs.get(e.tab);
+            const fresh = !before || !before.announced;
+            addTab(e, true);
+            // A CoreX tab the agent has just opened: show it at once (selecting asks it for its picture).
+            if (fresh && isCoreXTab(e) && e.tab !== MAIN) { selectTab(e.tab); say('A new CoreX tab opened: ' + (cur.tabs.get(e.tab) || {}).label); } else if (!before || !before.replayer) askResync(e.tab);
+        })
+        .listen('.desk.tab_updated', (e) => updateTab(e))
+        .listen('.desk.tab_left', (e) => removeTab(e.tab))
+        .listen('.desk.timing', (e) => timing.serverEvent(e))
+        .listenForWhisper('tpong', (p) => timing.pong(p))
         .listenForWhisper('viewport', (v) => {
             // The agent's window size changed (resize, zoom) or was re-announced: lay the mirror out at it and refit.
             const tab = cur && cur.tabs.get(v && v.t ? v.t : MAIN);
@@ -153,6 +152,10 @@ function attach(session) {
         // Take-over (protocol 1.2)
         .listen('.desk.control_requested', (e) => setControl('requested', e.tab))
         .listen('.desk.control_granted', (e) => setControl('granted', e.tab))
+        // The agent's replayed click opened a new CoreX tab and control went with it: follow it (the tab_joined that came first has switched the view already).
+        .listen('.desk.control_moved', (e) => { setControl('granted', e.tab, 'Control moved to the new tab.'); selectTab(e.tab); })
+        // The agent clicked what was pointed at (or left the page): done.
+        .listen('.desk.highlight_cleared', (e) => { if (e.reason === 'clicked') say('Done - the agent clicked it.'); else if (e.reason === 'navigated') say('The agent moved to another page - the highlight cleared.'); })
         .listen('.desk.control_declined', (e) => setControl('none', e.tab, e.reason === 'no_answer' ? 'The agent did not answer in time.' : 'The agent declined.'))
         .listen('.desk.control_revoked', (e) => setControl('none', e.tab, 'The agent took back control.'))
         .listen('.desk.control_ended', (e) => setControl('none', e.tab, { idle: 'Control ended - nothing was done for a while.', tab: 'Control ended - the tab was closed.', session: 'Control ended with the session.', support: 'You handed control back.' }[e.reason] || 'Control ended.'))
@@ -161,7 +164,16 @@ function attach(session) {
 
     // Subscribed: a tab may already have sent its first snapshot before we listened - ask every tab for a fresh one.
     channel.subscribed(() => cur && cur.tabs.forEach((t) => askResync(t.key)));
-    cur.retry = setInterval(() => { if (cur) cur.tabs.forEach((t) => { if (!t.replayer) askResync(t.key); }); }, 3000); // until a tab's first snapshot arrives
+    // Until a tab's first picture has arrived, ask again - but not while one is still coming in (asking again made the agent send a second copy of a big
+    // picture behind the first), and less and less often (3 s, 6 s, 12 s ... at most every 15 s).
+    cur.retry = setInterval(() => {
+        if (!cur) return;
+        cur.tabs.forEach((t) => {
+            if (t.replayer || (t.reassembler && t.reassembler.busy)) return;
+            if (Date.now() - t.askedAt < Math.min(15000, 3000 * Math.pow(2, Math.max(0, t.asked - 1)))) return;
+            askResync(t.key);
+        });
+    }, 1000);
 
     $('cdc-form').hidden = true;
     $('cdc-support').textContent = con.me || ''; $('cdc-support').title = con.me || '';
@@ -171,7 +183,10 @@ function attach(session) {
     $('cdc-agency').textContent = session.agency_name || '';
     $('cdc-page').textContent = session.page || '—';
     cur.tick = setInterval(tickElapsed, 1000);
-    cur.poll = setInterval(reconcile, 2000);   // belt and braces: events can be missed (a dropped connection, a restart) - the server's word is read every 2 s
+    // Belt and braces: events can be missed (a dropped connection, a restart), so the server's word is read every second (one cheap query; it also settles
+    // a closed CoreX tab within the server's short grace).
+    cur.poll = setInterval(() => reconcile(), 1000);
+    if (con.timing) { cur.timingTick = setInterval(() => timing.probe(cur), 5000); timing.paint(); }
     tickElapsed();
     renderTabs();
     showSelected();
@@ -180,7 +195,7 @@ function attach(session) {
 }
 
 /**
- * Every 2 s: ask the server where this session stands and fall into line with it. The websocket tells us the moment something happens, but a missed
+ * Every second: ask the server where this session stands and fall into line with it. The websocket tells us the moment something happens, but a missed
  * event (a dropped connection, a restart, a throttled call on the agent's side) must not leave the console waiting on "Requested" for good.
  */
 async function reconcile() {
@@ -192,6 +207,7 @@ async function reconcile() {
         if (!r.ok || !cur || cur.session.id !== id) return;
         const row = (r.json.sessions || []).find((s) => s.id === id);
         if (!row) { ended('expired'); return; }   // no longer open on the server
+        reconcileTabs(row.tabs || []);
         const c = row.control || { state: 'none', tab: null };
         const before = cur.control;
         if (c.state !== before.state || (c.state !== 'none' && (c.tab || null) !== (before.tab || null))) {
@@ -204,7 +220,10 @@ async function reconcile() {
 }
 
 function askResync(key) {
-    if (cur) cur.channel.whisper('resync', { t: key });
+    if (!cur) return;
+    const t = cur.tabs.get(key);
+    if (t) { t.asked++; t.askedAt = Date.now(); }
+    cur.channel.whisper('resync', { t: key });
 }
 
 function detach(callServer) {
@@ -212,12 +231,14 @@ function detach(callServer) {
     clearInterval(cur.tick);
     clearInterval(cur.poll);
     clearInterval(cur.retry);
+    clearInterval(cur.timingTick);
     clearTimeout(cur.typeTimer);
     clearInterval(cur.focusTimer);
     if (callServer) api('POST', con.urls.sessions + '/' + cur.session.id + '/end');
     cur.tabs.forEach((t) => { if (t.ro) t.ro.disconnect(); });
     $('cdc-replay').innerHTML = '';
     $('cdc-tabs').innerHTML = '';
+    $('cdc-timing').hidden = true;
     cur = null;
     dropEcho();
 }
@@ -243,32 +264,72 @@ function tickElapsed() {
     $('cdc-elapsed').textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 }
 
-// ── Tabs (the CoreX page + the extension's shared Chrome tabs) ───────────────────
+// ── Tabs (every CoreX tab of the agent + the extension's shared Chrome tabs) ────────────────────
 
-const labelFor = (t) => (t.title && t.title.trim() ? t.title.trim() : t.host) + ' · ' + t.host;
+const isCoreXTab = (t) => t.host === 'CoreX' || t.tab === MAIN || /^c[a-z0-9]{3,10}$/.test(t.tab || '');
+/** "Properties · /corex/properties" for a CoreX tab, "title · host" for a shared Chrome tab. */
+const labelFor = (t) => {
+    const title = (t.title && t.title.trim()) ? t.title.trim().replace(/\s*[-–|]\s*CoreX.*$/i, '') || t.title.trim() : '';
+    if (isCoreXTab(t)) return (title || 'CoreX page') + (t.path ? ' · ' + t.path : '');
+    return (title || t.host) + ' · ' + t.host;
+};
 
-function addExtTab(t) {
-    if (!cur || !t || !t.tab || cur.tabs.has(t.tab)) return;
-    cur.tabs.set(t.tab, newTab(t.tab, labelFor(t), t.host));
+/** announced: the server has told us about this tab (a tab that only sent a picture so far is a placeholder). */
+function addTab(t, announced) {
+    if (!cur || !t || !t.tab) return;
+    const known = cur.tabs.get(t.tab);
+    if (known) {
+        if (announced) { known.announced = true; known.label = labelFor(t); known.host = t.host || known.host; renderTabs(); }
+        return;
+    }
+    const tab = newTab(t.tab, labelFor(t), t.host);
+    tab.announced = !!announced;
+    cur.tabs.set(t.tab, tab);
     renderTabs();
 }
 
-function updateExtTab(t) {
+function updateTab(t) {
     const tab = cur && cur.tabs.get(t.tab);
-    if (!tab) { addExtTab(t); return; }
+    if (!tab) { addTab(t, true); return; }
+    tab.announced = true;
     tab.label = labelFor(t);
     tab.host = t.host;
     renderTabs();
 }
 
-function removeExtTab(key) {
+function removeTab(key) {
     const tab = cur && cur.tabs.get(key);
     if (!tab) return;
+    if (tab.ro) tab.ro.disconnect();
     tab.root.remove();
     cur.tabs.delete(key);
-    if (cur.selected === key) { cur.selected = MAIN; showSelected(); }
+    if (cur.selected === key) {
+        // back to the first tab (the oldest one still open)
+        const next = cur.tabs.has(MAIN) ? MAIN : (cur.tabs.keys().next().value || null);
+        cur.selected = next;
+        cur.pointerOn = false;
+        showSelected();
+        if (next) askResync(next);
+    }
     renderTabs();
-    say('A shared tab was closed or stopped by the agent.');
+    paintControl();
+    say(key === MAIN || /^c/.test(key) ? 'A CoreX tab was closed.' : 'A shared tab was closed or stopped by the agent.');
+}
+
+/** The poll's view of the tabs: add one the event for which was missed, drop one that is gone. */
+function reconcileTabs(rows) {
+    if (!cur || !Array.isArray(rows)) return;
+    const live = new Set(rows.map((t) => t.tab));
+    rows.forEach((t) => {
+        const known = cur.tabs.get(t.tab);
+        if (!known || !known.announced) {
+            addTab(t, true);
+            if (!known || !known.replayer) askResync(t.tab);
+            if (!known && isCoreXTab(t) && (Date.now() - (cur.tabsSince || 0)) > 3000) selectTab(t.tab);
+        }
+    });
+    // (MAIN is kept when the agent's page predates tab registration - it never appears in the list at all)
+    if (rows.length) cur.tabs.forEach((t, key) => { if (!live.has(key) && !(key === MAIN && !rows.some((r) => isCoreXTab(r)))) removeTab(key); });
 }
 
 function renderTabs() {
@@ -280,9 +341,9 @@ function renderTabs() {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = tab.key === cur.selected ? 'corex-btn-primary' : 'corex-btn-outline';
-        b.style.cssText = 'max-width:22rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
         b.textContent = tab.label;
         b.title = tab.label;
+        b.dataset.tab = tab.key;
         b.addEventListener('click', () => selectTab(tab.key));
         bar.appendChild(b);
     });
@@ -303,13 +364,16 @@ function showSelected() {
     cur.tabs.forEach((t) => { t.root.hidden = t.key !== cur.selected; });
     const tab = cur.tabs.get(cur.selected);
     $('cdc-wait').hidden = !!(tab && tab.replayer);
+    $('cdc-wait').textContent = tab && tab.key !== MAIN && isCoreXTab({ tab: tab.key, host: tab.host }) ? 'Waiting for the new tab to finish loading…' : "Waiting for the agent's window…";
     if (tab && tab.replayer) fit();
+    if (tab && tab.page) $('cdc-page').textContent = tab.page;
 }
 
 // ── Rebuilding the agent's page ──────────────────────────────────────────────────
 
-function onEvents(tab, events) {
+function onEvents(tab, events, info) {
     if (!cur || cur.tabs.get(tab.key) !== tab) return;
+    const applyStart = Date.now();
     // The Replayer schedules a live event for the moment its timestamp comes round on THIS computer's clock, so an agent whose clock is
     // a few seconds behind or ahead would be mirrored late (or in a burst). A live mirror wants "as it arrives": stamp the batch with
     // the moment it arrived here (order inside the batch is kept - equal stamps keep their sequence).
@@ -319,7 +383,8 @@ function onEvents(tab, events) {
         if (ev.type === EVENT_META && ev.data && ev.data.href && cur.selected === tab.key) {
             try {
                 const u = new URL(ev.data.href);
-                $('cdc-page').textContent = tab.key === MAIN ? u.pathname : u.host + u.pathname;
+                tab.page = isCoreXTab({ tab: tab.key, host: tab.host }) ? u.pathname : u.host + u.pathname;
+                $('cdc-page').textContent = tab.page;
             } catch (e) { /* ignore */ }
         }
         if (!tab.replayer) {
@@ -329,6 +394,7 @@ function onEvents(tab, events) {
             tab.replayer.addEvent(ev);
         }
     }
+    timing.batch(tab.key, info, Date.now() - applyStart, events);
 }
 
 function startReplayer(tab) {
@@ -751,7 +817,7 @@ $('cdc-form').addEventListener('submit', (e) => {
     join(code);
 });
 $('cdc-control').addEventListener('click', async () => {
-    if (!cur) return;
+    if (!cur || !cur.selected) return;
     const url = con.urls.sessions + '/' + cur.session.id + '/control/';
     const r = cur.control.state === 'none'
         ? await api('POST', url + 'request', { tab: cur.selected })
