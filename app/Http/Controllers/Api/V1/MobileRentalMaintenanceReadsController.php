@@ -98,7 +98,8 @@ class MobileRentalMaintenanceReadsController extends Controller
         ]);
 
         // BelongsToAgency scopes this to the caller's agency; inactive suppliers are never offered for a new assignment.
-        $query = AgencyServiceProvider::query()->where('is_active', true)->matching($v['q'] ?? null);
+        // maintenance contractors only: attorneys and bond originators are never offered for a work order (the web's own rule, which quotes and invoices also enforce)
+        $query = AgencyServiceProvider::query()->where('is_active', true)->maintenanceContractors()->matching($v['q'] ?? null);
         if (! empty($v['kind'])) {
             $query->where('kind', $v['kind']);
         }

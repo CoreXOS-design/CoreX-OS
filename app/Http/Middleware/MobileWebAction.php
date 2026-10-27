@@ -37,6 +37,7 @@ class MobileWebAction
         $flashedError = session('error');
         $message = session('success') ?? session('status');
         $warning = session('warning');
+        $link = session('reissued_link'); // re-issue: {url, code, expires} - shown once on the web, so it must travel in the answer
         $target = parse_url($response->getTargetUrl(), PHP_URL_PATH) ?: null;
         $this->clearFlash();
 
@@ -50,7 +51,7 @@ class MobileWebAction
         }
 
         // `redirect` is the web path the action would have opened (e.g. /corex/rental-applications/57): how the app learns the id of what it just created
-        return new JsonResponse(['ok' => true, 'message' => $message, 'warning' => $warning, 'redirect' => $target]);
+        return new JsonResponse(['ok' => true, 'message' => $message, 'warning' => $warning, 'redirect' => $target, 'link' => $link]);
     }
 
     private function clearFlash(): void

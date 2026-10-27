@@ -125,5 +125,8 @@ final class MobileInspectionWebActionsTest extends TestCase
 
         $this->asStaff($this->admin)->getJson("/api/v1/mobile/properties/{$this->property->id}/rental-inspection-tab")->assertOk();
         $this->asStaff($this->admin)->getJson("/api/v1/mobile/rental-inspections/{$insp->id}/attendance")->assertOk();
+        // the standard items a room is missing: the route names the room (it crashed without one)
+        $this->asStaff($this->admin)->getJson("/api/v1/mobile/properties/{$this->property->id}/rental-inspection-rooms/{$this->room->id}/missing-standard-items")
+            ->assertOk()->assertJsonPath('room_id', $this->room->id)->assertJsonStructure(['missing', 'present']);
     }
 }

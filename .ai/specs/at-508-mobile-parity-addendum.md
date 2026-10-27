@@ -68,6 +68,14 @@ Generated this way from the web route table, with each route's own permission ke
 
 Responses: `422 {message, errors, code:"invalid"}` for the web's validation; `403/404/410` for permission, scope, archived; `409 {message, code:"refused"}` for a business refusal in the web's own words.
 
+**Answers the app should know about (found by the mobile app's code review, 27 Oct):**
+- `POST /mobile/breaches/bulk/send` answers `{ok, batch, issued:[{id,lease_id,tenant,property,amount,remedy_deadline}], skipped:[{lease_id,reason}], ignored}` (the web answers a result page; this is the same data).
+- `POST /mobile/rental-applications/{id}/share-link` answers `link:{url, expires}`; `POST .../reissue-link` answers `link:{url, code, expires}`. The re-issue code is shown **once** and never stored in clear: show it to the agent straight away.
+- A create that redirects to a *parent* page (a notice, a breach, a quote, a task, a planned date) cannot say the new record's id; the answer's `redirect` is the parent. Re-read the parent to get the new row. An application's `redirect` does carry its id.
+- Where the web creates a record and then flashes an error because an email only partly went out (breach notice, templated notice, notice to vacate), the answer is `409 refused` **although the record exists**. Re-read before you retry, or you will make a duplicate.
+- `GET /mobile/rental-suppliers` lists maintenance contractors only (attorneys, conveyancers and bond originators are never offered for a work order, as on the web).
+- `GET /mobile/properties/{property}/rental-inspection-rooms/{room}/missing-standard-items` names the room.
+
 ## 4. Extra reads the web screens have
 
 | Method + path | What it is | Permission |

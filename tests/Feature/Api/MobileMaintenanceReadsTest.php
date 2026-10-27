@@ -69,6 +69,10 @@ final class MobileMaintenanceReadsTest extends TestCase
         $this->supplier('Sparky Electrical');
         $this->supplier('Old Roofing', ['is_active' => false]);
         $this->supplier('Other Agency Plumbers', ['agency_id' => $this->other->id]);
+        // property-transaction firms are never offered for a work order (the web's own rule): an attorney, a bond originator, an attorney by flag
+        $this->supplier('Smith Conveyancers', ['kind' => 'attorney_conveyancer']);
+        $this->supplier('Bond Mortgages', ['kind' => 'bond_originator']);
+        $this->supplier('Flagged Attorneys', ['is_transfer_attorney' => true]);
 
         $res = $this->asStaff($this->admin)->getJson('/api/v1/mobile/rental-suppliers')->assertOk();
         $res->assertJsonPath('meta.total', 2)->assertJsonPath('data.0.name', 'Cape Plumbing - Contact Cape Plumbing');

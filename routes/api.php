@@ -1080,8 +1080,8 @@ Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(f
         // missing, the printable site form, a scan's file, a signature's file, who attended. Same action, same permission as the web.
         Route::get('/mobile/properties/{property}/rental-inspection-tab', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'tabData'])
             ->whereNumber('property')->middleware(['permission:rental_inspections.view'])->name('v1.mobile.properties.rental-inspection-tab.data');
-        Route::get('/mobile/properties/{property}/rental-inspection-rooms/missing-standard-items', [\App\Http\Controllers\CoreX\RentalInspectionRoomChecklistController::class, 'missing'])
-            ->whereNumber('property')->middleware(['permission:rental_inspections.view'])->name('v1.mobile.properties.rental-inspection-rooms.missing-standard-items');
+        Route::get('/mobile/properties/{property}/rental-inspection-rooms/{room}/missing-standard-items', [\App\Http\Controllers\CoreX\RentalInspectionRoomChecklistController::class, 'missing'])
+            ->whereNumber(['property', 'room'])->middleware(['permission:rental_inspections.view'])->name('v1.mobile.properties.rental-inspection-rooms.missing-standard-items');
         Route::get('/mobile/rental-inspections/{rentalInspection}/attendance', [\App\Http\Controllers\CoreX\RentalInspectionAttendanceController::class, 'show'])
             ->whereNumber('rentalInspection')->middleware(['permission:rental_inspections.view'])->name('v1.mobile.rental-inspections.attendance.show');
         Route::get('/mobile/rental-inspections/{rentalInspection}/form', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'form'])
@@ -1097,13 +1097,13 @@ Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(f
         Route::post('/mobile/rental-applications/contacts/quick-create', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'quickCreateContact'])->middleware(['mobile.web-action', 'permission:rental_applications.view', 'permission:rental_applications.create'])->name('v1.mobile.rental-applications.contacts.quick-create');
         Route::post('/mobile/rental-applications/{rentalApplication}/reissue-link', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'reissueLink'])->whereNumber('rentalApplication')->middleware(['mobile.web-action', 'permission:rental_applications.view', 'permission:rental_applications.create'])->name('v1.mobile.rental-applications.reissue-link');
         Route::post('/mobile/rental-applications/{rentalApplication}/send', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'send'])->whereNumber('rentalApplication')->middleware(['mobile.web-action', 'permission:rental_applications.view', 'permission:rental_applications.create'])->name('v1.mobile.rental-applications.send');
-        Route::post('/mobile/rental-applications/{rentalApplication}/share-link', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'shareLinkManually'])->whereNumber('rentalApplication')->middleware(['mobile.web-action', 'permission:rental_applications.view', 'permission:rental_applications.create'])->name('v1.mobile.rental-applications.share-link');
+        Route::post('/mobile/rental-applications/{rentalApplication}/share-link', [\App\Http\Controllers\Api\V1\MobileRentalLeaseActionsController::class, 'shareApplicationLink'])->whereNumber('rentalApplication')->middleware(['permission:rental_applications.view', 'permission:rental_applications.create'])->name('v1.mobile.rental-applications.share-link');
         // MOBILE PARITY (rental applications: create + send) END
 
         // MOBILE PARITY (breaches + notices sent + notices received) BEGIN
         // Generated from the web route table: each route is the web action itself, with the web's own permission keys, wrapped by
         // mobile.web-action so a redirect answer becomes JSON. Spec: .ai/specs/at-508-mobile-parity-addendum.md.
-        Route::post('/mobile/breaches/bulk/send', [\App\Http\Controllers\CoreX\LeaseBreachController::class, 'bulkStore'])->middleware(['mobile.web-action', 'permission:rental_breaches.manage'])->name('v1.mobile.breaches.bulk.store');
+        Route::post('/mobile/breaches/bulk/send', [\App\Http\Controllers\Api\V1\MobileRentalLeaseActionsController::class, 'bulkBreachSend'])->middleware(['permission:rental_breaches.manage'])->name('v1.mobile.breaches.bulk.store');
         Route::post('/mobile/breaches/{id}/archive', [\App\Http\Controllers\CoreX\LeaseBreachController::class, 'archive'])->whereNumber('id')->middleware(['mobile.web-action', 'permission:rental_breaches.manage'])->name('v1.mobile.breaches.archive');
         Route::post('/mobile/breaches/{id}/remedy', [\App\Http\Controllers\CoreX\LeaseBreachController::class, 'remedy'])->whereNumber('id')->middleware(['mobile.web-action', 'permission:rental_breaches.manage'])->name('v1.mobile.breaches.remedy');
         Route::post('/mobile/breaches/{id}/restore', [\App\Http\Controllers\CoreX\LeaseBreachController::class, 'restore'])->whereNumber('id')->withTrashed()->middleware(['mobile.web-action', 'permission:rental_breaches.manage'])->name('v1.mobile.breaches.restore');

@@ -9,8 +9,10 @@ use App\Http\Controllers\CoreX\LeaseBreachController;
 use App\Http\Controllers\CoreX\LeaseController;
 use App\Http\Controllers\CoreX\LeaseNoticeController;
 use App\Http\Controllers\CoreX\LeaseRenewalController;
+use App\Http\Controllers\CoreX\RentalApplicationController;
 use App\Http\Controllers\CoreX\RentalNoticeController;
 use App\Models\Lease;
+use App\Models\RentalApplication;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -131,6 +133,47 @@ class MobileRentalLeaseActionsController extends Controller
     public function acceptNotice(Request $request, int $notice): JsonResponse
     {
         return $this->runWebAction($request, LeaseNoticeController::class, 'accept', ['id' => $notice]);
+    }
+
+    /** "Send all overdue breach notices": the web answers a result PAGE; the phone gets the same result as data (answerView below). */
+    public function bulkBreachSend(Request $request): JsonResponse
+    {
+        return $this->runWebAction($request, LeaseBreachController::class, 'bulkStore');
+    }
+
+    /** "Share the link myself": the web shows the link on the application page; the phone gets it in the answer. */
+    public function shareApplicationLink(Request $request, RentalApplication $rentalApplication): JsonResponse
+    {
+        $response = $this->runWebAction($request, RentalApplicationController::class, 'shareLinkManually', ['rentalApplication' => $rentalApplication]);
+        if ($response->getStatusCode() >= 300) {
+            return $response;
+        }
+        $fresh = $rentalApplication->fresh();
+
+        return response()->json((array) $response->getData(true) + [
+            'link' => $fresh?->token ? ['url' => route('rental-applications.public.show', $fresh->token), 'expires' => $fresh->token_expires_at?->format('d M Y')] : null,
+        ]);
+    }
+
+    /** The data the web's bulk-breach result page shows (RunsWebAction calls this when a web action renders a page). */
+    protected function answerView(\Illuminate\View\View $view): JsonResponse
+    {
+        if ($view->name() !== 'corex.breaches.bulk-result') {
+            return response()->json(['ok' => true]);
+        }
+        $data = $view->getData();
+        $result = (array) ($data['result'] ?? []);
+
+        return response()->json([
+            'ok' => true,
+            'batch' => $result['batch'] ?? null,
+            'issued' => collect($result['issued'] ?? [])->map(fn ($b) => [
+                'id' => $b->id, 'lease_id' => $b->lease_id, 'tenant' => $b->lease?->tenantNames(), 'property' => $b->lease?->property?->buildDisplayAddress(),
+                'amount' => (float) $b->amount, 'remedy_deadline' => $b->remedy_deadline?->toDateString(),
+            ])->values(),
+            'skipped' => collect($result['skipped'] ?? [])->map(fn ($k) => ['lease_id' => $k['lease']->id ?? null, 'reason' => $k['reason'] ?? null])->values(),
+            'ignored' => (int) ($data['ignored'] ?? 0),
+        ]);
     }
 
     private function onLease(Request $request, Lease $lease, string $controller, string $method): JsonResponse

@@ -50,6 +50,11 @@ trait RunsWebAction
         }
 
         if (! $result instanceof RedirectResponse) {
+            // a web action that renders a page: the using controller supplies the page's data as JSON (answerView), else just {ok:true}
+            if ($result instanceof \Illuminate\View\View && method_exists($this, 'answerView')) {
+                return $this->answerView($result);
+            }
+
             return $result instanceof JsonResponse ? $result : response()->json(['ok' => true]);
         }
 
