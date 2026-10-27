@@ -106,7 +106,7 @@ function attach(session) {
     cur.tabs.set(MAIN, newTab(MAIN, 'CoreX page', ''));
     (session.tabs || []).forEach((t) => addTab(t, true));
     timing.reset(con.timing, { api, url: (id) => con.urls.sessions + '/' + id });
-    if (con.timing) [0, 500, 1200].forEach((ms) => setTimeout(() => reconcile(true), ms));
+    if (con.timing) [300, 700, 1200, 2000].forEach((ms) => setTimeout(() => cur && timing.probe(cur), ms));
 
     channel
         .listenForWhisper('frame', (chunk) => {
@@ -198,14 +198,12 @@ function attach(session) {
  * Every second: ask the server where this session stands and fall into line with it. The websocket tells us the moment something happens, but a missed
  * event (a dropped connection, a restart, a throttled call on the agent's side) must not leave the console waiting on "Requested" for good.
  */
-async function reconcile(clockOnly) {
-    if (!cur || (cur.reconciling && !clockOnly)) return;
+async function reconcile() {
+    if (!cur || cur.reconciling) return;
     const id = cur.session.id;
     cur.reconciling = true;
     try {
-        const t0 = Date.now();
         const r = await api('GET', con.urls.list);
-        if (r.ok) timing.clock(t0, Date.now(), r.json.server_ms);
         if (!r.ok || !cur || cur.session.id !== id) return;
         const row = (r.json.sessions || []).find((s) => s.id === id);
         if (!row) { ended('expired'); return; }   // no longer open on the server
