@@ -471,9 +471,11 @@ function paintControl() {
         btn.textContent = 'Hand back control';
         status.textContent = 'You are in control of ' + name + '. Click, type and scroll in the window below. Shift+click highlights instead. Private fields are skipped.';
     }
-    cur.tabs.forEach((t) => {
-        if (t.replayer) t.replayer.wrapper.style.outline = c.state === 'granted' && c.tab === t.key ? '3px solid #f59e0b' : '';
-    });
+    // The amber frame goes round the whole viewing pane (not the scaled wrapper, which can be wider than what you see).
+    const framed = c.state === 'granted' && c.tab === cur.selected;
+    const frame = $('cdc-replay').parentElement;
+    frame.style.outline = framed ? '4px solid #f59e0b' : '';
+    frame.style.outlineOffset = framed ? '-2px' : '';
 }
 
 /** [data-tour] anchor when the element (or an ancestor) has one, else a CSS path that is unique on the agent's page. */
