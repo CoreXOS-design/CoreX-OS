@@ -48,7 +48,7 @@
 
         header.brand-bar {
             display: flex; align-items: center; justify-content: space-between; gap: 16px;
-            padding: 20px clamp(20px, 5vw, 72px);
+            padding-top: 20px; padding-bottom: 20px;
         }
         header.brand-bar .logo { font-size: 1.25rem; font-weight: 800; letter-spacing: -0.3px; color: var(--brand); }
         header.brand-bar .logo .os { color: #1aa6c4; }
@@ -150,7 +150,7 @@
     </style>
 </head>
 <body>
-    <header class="brand-bar">
+    <header class="brand-bar wrap">
         <span class="logo">corex<span class="os"> os</span></span>
         <a class="signin" href="{{ route('login') }}">Sign in</a>
     </header>
