@@ -83,6 +83,7 @@
                         <x-sort-header field="status" label="Status" :current-sort="$f['sort']" :current-direction="$f['direction']" />
                         <x-sort-header field="used" label="Times used" align="right" :current-sort="$f['sort']" :current-direction="$f['direction']" />
                         <x-sort-header field="cost" label="AI cost" align="right" :current-sort="$f['sort']" :current-direction="$f['direction']" />
+                        <x-sort-header field="originality" label="Originality" align="right" :current-sort="$f['sort']" :current-direction="$f['direction']" />
                         <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Actions</th>
                     </tr>
                 </thead>
@@ -106,6 +107,13 @@
                             </td>
                             <td class="px-4 py-3 align-top text-right font-mono" style="color:var(--text-primary);">{{ number_format((int) $a->used_count) }}</td>
                             <td class="px-4 py-3 align-top text-right font-mono" style="color:var(--text-secondary);">R {{ number_format((float) $a->cost_zar, 2) }}</td>
+                            <td class="px-4 py-3 align-top text-right whitespace-nowrap font-mono text-xs" style="color:var(--text-secondary);">
+                                @if($a->originality_overlap !== null)
+                                    Overlap {{ rtrim(rtrim(number_format((float) $a->originality_overlap * 100, 1), '0'), '.') }}% · {{ (int) $a->originality_longest_run }} {{ (int) $a->originality_longest_run === 1 ? 'word' : 'words' }}
+                                @else
+                                    —
+                                @endif
+                            </td>
                             <td class="px-4 py-3 align-top">
                                 <div class="flex items-center justify-end gap-1.5 whitespace-nowrap">
                                     <button type="button" class="corex-btn-outline corex-btn-xs" @click="open = !open" x-text="open ? 'Close' : 'Read'">Read</button>
@@ -118,7 +126,7 @@
                             </td>
                         </tr>
                         <tr x-show="open" x-cloak>
-                            <td colspan="7" class="px-5 py-4 text-sm whitespace-pre-line" style="background:var(--surface-2); color:var(--text-secondary);">{{ $a->body }}</td>
+                            <td colspan="8" class="px-5 py-4 text-sm whitespace-pre-line" style="background:var(--surface-2); color:var(--text-secondary);">{{ $a->body }}</td>
                         </tr>
                     </tbody>
                 @endforeach
