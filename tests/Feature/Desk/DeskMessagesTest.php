@@ -200,6 +200,10 @@ final class DeskMessagesTest extends DeskTestCase
         $this->assertStringContainsString('b.title = r.full;', $console, 'the full value on hover');
         $this->assertStringContainsString("n.textContent = 'new'", $console);
         $this->assertStringContainsString('r.tab.isNew = false;   // clicked', $console, 'the badge goes when the tab is clicked, not when the console switches to it by itself');
+        // CoreX's <title> is the app name on every page, so a tab is named by its page heading (first h1), and the console falls back to the path until that arrives
+        $this->assertStringContainsString("querySelectorAll('h1')", $this->js('agent.js'));
+        $this->assertStringContainsString("registerTab('update')", $this->js('agent.js'));
+        $this->assertStringContainsString('const nameFromPath', $console);
         $this->assertStringContainsString('cur.order', $console, 'order = the order the agent opened them');
         $this->assertStringContainsString('!cur.known.has(e.tab)', $console, 'a page that moves on is never "new" again');
         $this->assertStringContainsString('.cdc-tabbtn.cdc-active { background: var(--brand-icon', $view, 'the active tab is filled');

@@ -283,10 +283,12 @@ function tickElapsed() {
 
 const isCoreXTab = (t) => t.host === 'CoreX' || t.tab === MAIN || /^c[a-z0-9]{3,10}$/.test(t.tab || '');
 /** What a tab is called: its page title, and where it is - "Properties" and "qatesting1.corexos.co.za/corex/properties" for a CoreX tab, "Title" and "host" for a shared Chrome tab. */
+const APP_TITLE = (document.title || '').trim();   // (CoreX's <title> is the app name on every page: it says nothing about which page)
+const nameFromPath = (p) => { const seg = String(p || '').split('/').filter(Boolean).filter((s) => s !== 'corex')[0]; return seg ? seg.replace(/[-_]+/g, ' ').replace(/^./, (c) => c.toUpperCase()) : 'Home'; };
 const partsFor = (t) => {
-    const raw = (t.title && t.title.trim()) ? t.title.trim() : '';
+    const raw = (t.title && t.title.trim() && !(isCoreXTab(t) && t.title.trim() === APP_TITLE)) ? t.title.trim() : '';
     const title = raw ? (raw.replace(/\s*[-–|]\s*CoreX.*$/i, '') || raw) : '';
-    if (isCoreXTab(t)) return { title: title || 'CoreX page', where: location.host + (t.path || '') };
+    if (isCoreXTab(t)) return { title: title || (t.path ? nameFromPath(t.path) : 'CoreX page'), where: location.host + (t.path || '') };
     return { title: title || t.host, where: (t.host || '') + (t.path || '') };
 };
 const labelFor = (t) => { const p = partsFor(t); return p.title + ' — ' + p.where; };
@@ -393,8 +395,8 @@ function renderTabs() {
         b.dataset.tab = r.tab.key;
         const t = document.createElement('span'); t.className = 'cdc-tt'; t.textContent = r.title;
         const w = document.createElement('span'); w.className = 'cdc-tw'; w.textContent = '— ' + r.where;
-        b.appendChild(t); b.appendChild(w);
-        if (r.tab.isNew) { const n = document.createElement('span'); n.className = 'cdc-newbadge'; n.textContent = 'new'; b.appendChild(n); }
+        b.appendChild(t); b.appendChild(document.createTextNode(' ')); b.appendChild(w);   // (the spaces are for screen readers; the gap is CSS)
+        if (r.tab.isNew) { const n = document.createElement('span'); n.className = 'cdc-newbadge'; n.textContent = 'new'; b.appendChild(document.createTextNode(' ')); b.appendChild(n); }
         b.addEventListener('click', () => {
             r.tab.isNew = false;   // clicked: no longer new
             if (cur.selected === r.tab.key) renderTabs(); else selectTab(r.tab.key);
