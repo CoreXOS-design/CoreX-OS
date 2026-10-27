@@ -114,7 +114,7 @@
     }
 
     function stamp(item) { var t = Date.parse(item && item.created_at); return isNaN(t) ? 0 : t; }
-    function titleOf(item) { return item.title || 'New alert'; }
+    function titleOf(item) { return item.title || 'New notification'; }
 
     function ago(item) {
         var secs = Math.max(0, Math.round((Date.now() - stamp(item)) / 1000));
@@ -253,7 +253,7 @@
         var list = panel.querySelector('.cxa-list');
         list.textContent = '';
         if (!items.length) {
-            list.appendChild(el('div', 'cxa-empty', 'No unread alerts'));
+            list.appendChild(el('div', 'cxa-empty', 'No unread notifications'));
             return;
         }
         items.forEach(function (item) {
@@ -273,7 +273,7 @@
         panel = el('div');
         panel.id = 'cxa-panel';
         var head = el('div', 'cxa-head');
-        head.appendChild(el('span', null, 'Alerts'));
+        head.appendChild(el('span', null, 'Notifications'));
         var all = el('button', 'cxa-btn', 'Mark all read');
         all.type = 'button';
         all.setAttribute('data-alert-read-all', '1');

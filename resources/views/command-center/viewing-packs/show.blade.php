@@ -24,7 +24,7 @@
                 @endif
                 {{-- Two SEPARATE files, two SEPARATE buttons (compliance spine §1) — never a combined download. --}}
                 @if($pack->viewingPackProperties->isNotEmpty())
-                    <a href="{{ route('corex.viewing-packs.buyer-pack', $pack) }}" class="corex-btn-primary text-xs no-underline" target="_blank" rel="noopener">Download Buyer Pack</a>
+                    @include('command-center.viewing-packs._buyer-pack-download', ['pack' => $pack, 'class' => 'corex-btn-primary text-xs no-underline'])
                     <a href="{{ route('corex.viewing-packs.agent-sheet', $pack) }}" class="corex-btn-outline text-xs no-underline"
                        target="_blank" rel="noopener"
                        style="color:#fff; border-color: var(--ds-crimson); background: var(--ds-crimson);"

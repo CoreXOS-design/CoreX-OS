@@ -106,7 +106,7 @@ class AlertInboxController extends Controller
     {
         $request->user()->unreadNotifications()->update(['read_at' => now()]);
 
-        return back()->with('success', 'All alerts marked as read.');
+        return back()->with('success', 'All notifications marked as read.');
     }
 
     private function own($user)

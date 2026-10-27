@@ -815,7 +815,7 @@
                 <div class="corex-nav-panel-title">Dashboard</div>
 
                 <a href="{{ route('command-center.today') }}" class="corex-nav-subitem {{ request()->routeIs('corex.dashboard', 'command-center.today') ? 'active' : '' }}">Today</a>
-                <a href="{{ route('corex.alerts.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.alerts.*') ? 'active' : '' }}">Alerts</a>
+                <a href="{{ route('corex.alerts.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.alerts.*') ? 'active' : '' }}">Notifications</a>
                 {{-- .ai/specs/dashboard-menu-tabs.md (2026-10-22) - Dashboard was 12 items; Calendar + Invitations are ONE item "Calendar", and
                      the six performance screens are ONE item "Performance", each opening a screen with tabs (App\Support\Navigation\TabHubs; same
                      mechanism as the Real Estate items). Each tab keeps its route and the exact check its old item had; the old names stay
