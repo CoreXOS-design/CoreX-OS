@@ -224,6 +224,24 @@ final class DeskCoreXTabsTest extends DeskTestCase
         Event::assertDispatched(DeskBroadcast::class, fn ($e) => $e->name === 'desk.control_ended' && $e->payload['reason'] === 'tab');
     }
 
+    public function test_a_tab_opened_before_support_joins_is_turned_away_until_the_session_is_live_and_then_announces_itself(): void
+    {
+        $agent = $this->agentIn($this->agencyA);
+        [$s, $code] = $this->desk->start($agent);   // WAITING: nobody has joined yet
+
+        // a second CoreX tab opened now cannot register (there is no one to show it to) ...
+        $this->tab($agent, $s, 'join', 'cearly123')->assertStatus(409);
+        $this->assertSame([], array_keys($this->desk->openTabs($s->fresh())));
+
+        // ... so it has to say so again the moment support joins: the page listens for desk.joined and registers then
+        $agentJs = (string) file_get_contents(base_path('resources/js/desk/agent.js'));
+        $this->assertStringContainsString(".listen('.desk.joined', (e) => { if (e.support_name) st.session.support_name = e.support_name; st.live = true; ui.joined(e.support_name); beginRecording(); registerTab('join'); })", $agentJs);
+        $this->desk->join($this->owner(), $code);
+        $this->tab($agent, $s, 'join', 'cearly123')->assertOk();
+        $this->assertSame(['cearly123'], array_keys($this->desk->openTabs($s->fresh())));
+        $this->assertContains('tab_join', $this->types($s));
+    }
+
     public function test_control_can_be_requested_for_and_answered_in_a_corex_tab(): void
     {
         [$s, $agent, $support] = $this->live();
