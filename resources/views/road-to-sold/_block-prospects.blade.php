@@ -15,10 +15,10 @@
     };
     $moneyFmt = fn ($v) => $v ? 'R ' . number_format((int) $v, 0, '.', ',') : null;
 @endphp
-<div class="space-y-3" x-data="rtsProspectActions(@js($parkReasons))" data-qa="block-prospects">
+<div class="rts-col" x-data="rtsProspectActions(@js($parkReasons))" data-qa="block-prospects">
 
     {{-- Stage strip: where everything sits; a stage is a filter --}}
-    <div class="flex items-center gap-2 flex-wrap text-xs" data-qa="stage-strip">
+    <div class="flex items-center gap-2 flex-wrap text-xs {{ $stageCounts ? 'hidden' : '' }}" data-qa="stage-strip">
         @foreach($stageMeta as $key => $meta)
             @if(($stageStrip[$key] ?? 0) > 0)
                 <a href="{{ route('road-to-sold.index', ['block' => 'prospects', 'p_stage' => $key] + $keepAgent + \App\Services\RoadToSold\Track::params($track)) }}" class="rts-chip" style="{{ $pf['stage'] === $key ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : '' }}">{{ $meta['label'] }} {{ $stageStrip[$key] }}</a>
@@ -28,26 +28,16 @@
     </div>
 
     @if($stageCounts)
-        {{-- R9: the manager's per-stage figures. "On track" is the recipe step's own bar for this agent. --}}
-        <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);" data-qa="stage-counts">
-            <table class="w-full text-xs ds-table">
-                <thead><tr style="color: var(--text-muted);">
-                    <th class="px-3 py-2 text-left">Stage</th><th class="px-3 py-2 text-right">Now</th><th class="px-3 py-2 text-right">Entered this month</th>
-                    <th class="px-3 py-2 text-right">Average days in stage</th><th class="px-3 py-2 text-right">Stalled</th><th class="px-3 py-2 text-left">On track</th>
-                </tr></thead>
-                <tbody>
-                @foreach($stageCounts as $sc)
-                    <tr style="border-top: 1px solid var(--border); color: var(--text-primary);">
-                        <td class="px-3 py-1.5 font-semibold">{{ $sc['label'] }}</td>
-                        <td class="px-3 py-1.5 text-right">{{ $sc['now'] }}</td>
-                        <td class="px-3 py-1.5 text-right">{{ $sc['entered'] }}</td>
-                        <td class="px-3 py-1.5 text-right">{{ $sc['avg_days'] ?? '-' }}</td>
-                        <td class="px-3 py-1.5 text-right {{ $sc['stalled'] > 0 ? 'rts-due-overdue' : '' }}">{{ $sc['stalled'] ?: '-' }}</td>
-                        <td class="px-3 py-1.5">{{ $sc['step_state'] ? ucfirst(str_replace('_', ' ', $sc['step_state'])) : '-' }}</td>
-                    </tr>
-                @endforeach
-                </tbody>
-            </table>
+        {{-- R9: the manager's per-stage figures, one small tile per stage: how many now, how many entered this month, average days, stalled, and the recipe step's own on-track state. --}}
+        <div data-qa="stage-counts" style="display: grid; gap: .4rem; grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));">
+            @foreach($stageCounts as $sc)
+                @php $st = $sc['step_state']; $edge = match ($st) { 'achieved', 'ahead', 'on_track' => 'var(--ds-green, #059669)', 'needs_a_push' => 'var(--ds-amber, #f59e0b)', 'behind' => 'var(--ds-red, #f87171)', default => 'var(--border)' }; @endphp
+                <div class="rounded-md px-2 py-1 text-xs" style="background: var(--surface); border: 1px solid var(--border); border-left: 4px solid {{ $edge }}; color: var(--text-primary);" title="{{ $sc['stalled'] > 0 ? $sc['stalled'] . ' stalled' : '' }}">
+                    <div class="font-semibold">{{ $sc['label'] }}</div>
+                    <div><strong>{{ $sc['now'] }}</strong> now &middot; {{ $sc['entered'] }} in{{ $sc['avg_days'] !== null ? ' &middot; ' . $sc['avg_days'] . 'd' : '' }}@if($sc['stalled'] > 0) &middot; <span class="rts-due-overdue">{{ $sc['stalled'] }} stalled</span>@endif</div>
+                    <div style="color: var(--text-muted);">On track: {{ $st ? ucfirst(str_replace('_', ' ', $st)) : '-' }}</div>
+                </div>
+            @endforeach
         </div>
     @endif
 
@@ -109,34 +99,36 @@
             @endif
         </div>
     @else
-        <div class="rts-board" data-qa="prospect-board">
-            @foreach($groups as $g => $gl)
-                <section aria-label="{{ $gl }}" class="space-y-2">
-                    <h2 class="text-xs font-bold uppercase tracking-widest" style="color: var(--text-muted);">{{ $gl }} <span class="rts-chip">{{ ($byGroup[$g] ?? collect())->count() }}</span></h2>
-                    @forelse(($byGroup[$g] ?? collect()) as $r)
+        @php $shown = collect($groups)->filter(fn ($gl, $g) => ($byGroup[$g] ?? collect())->isNotEmpty()); @endphp
+        <div class="rts-grow" data-qa="prospect-board">
+          <div class="rts-board" style="grid-template-columns: repeat({{ max(1, $shown->count()) }}, minmax(0, 1fr));">
+            @foreach($shown as $g => $gl)
+                <section aria-label="{{ $gl }}" class="space-y-1">
+                    <h2 class="text-xs font-bold uppercase tracking-widest" style="color: var(--text-muted);">{{ $gl }} <span class="rts-chip">{{ $byGroup[$g]->count() }}</span></h2>
+                    <div class="rts-cards">
+                    @foreach($byGroup[$g] as $r)
                         <article class="rts-card {{ $r['due_state'] === 'overdue' ? 'is-overdue' : '' }}" data-prospect="{{ $r['id'] }}" data-stage="{{ $r['stage'] }}">
                             <div class="flex items-start justify-between gap-2">
-                                <div>
-                                    <div class="text-sm font-semibold" style="color: var(--text-primary);">{{ $r['address'] }}@if($r['suburb'])<span class="font-normal" style="color: var(--text-muted);"> &middot; {{ $r['suburb'] }}</span>@endif</div>
-                                    <div class="text-xs" style="color: var(--text-muted);">
+                                <div class="min-w-0">
+                                    <div class="text-xs font-semibold truncate" style="color: var(--text-primary);" title="{{ $r['address'] }}">{{ $r['address'] }}@if($r['suburb'])<span class="font-normal" style="color: var(--text-muted);"> &middot; {{ $r['suburb'] }}</span>@endif</div>
+                                    <div class="text-[11px] truncate" style="color: var(--text-muted);">
                                         @if($r['owner_name']){{ $r['owner_name'] }}@if($r['owner_phone']) &middot; {{ $r['owner_phone'] }}@endif @else Owner not known yet @endif
                                         @if($moneyFmt($r['price'])) &middot; {{ $moneyFmt($r['price']) }}@endif
                                     </div>
                                 </div>
-                                <span class="rts-chip" title="{{ $r['days_in_stage'] !== null ? $r['days_in_stage'] . ' days at this stage' : '' }}">{{ $r['stage_label'] }}</span>
+                                <span class="rts-chip shrink-0" title="{{ $r['days_in_stage'] !== null ? $r['days_in_stage'] . ' days at this stage' : '' }}{{ $r['reason'] ? ' - started: ' . $r['reason'] : '' }}">{{ $r['stage_label'] }}</span>
                             </div>
-                            <div class="mt-2 text-xs" style="color: var(--text-primary);" data-qa="next-action">
+                            <div class="mt-1 text-xs" style="color: var(--text-primary);" data-qa="next-action">
                                 <span class="font-semibold">Next:</span> {{ $r['next_action'] ?: 'Decide what happens next' }}
                                 <span class="rts-due-{{ $r['due_state'] }}" data-due="{{ $r['due_state'] }}">&middot; {{ $dueWords($r) }}</span>
                             </div>
-                            @if($r['reason'])<div class="text-xs mt-1" style="color: var(--text-muted);">Started: {{ $r['reason'] }}</div>@endif
-                            <div class="mt-2 flex items-center gap-2 flex-wrap">
+                            <div class="mt-1 flex items-center gap-1 flex-wrap">
                                 @if($canWriteProspects)
                                     <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="prospect-step"
                                             data-step-url="{{ route('road-to-sold.prospects.step', [$r['id'], $r['primary']['key']]) }}" data-step-label="{{ $r['primary']['label'] }} - {{ $r['address'] }}"
                                             @click="$dispatch('rts-step', $el.dataset)">{{ $r['primary']['label'] }}</button>
                                     <button type="button" class="corex-btn-outline corex-btn-xs" data-tp="{{ $r['tracked_property_id'] }}" data-address="{{ $r['address'] }}" @click="openContact($el.dataset)">Record a result</button>
-                                    <button type="button" class="corex-btn-outline corex-btn-xs" @click="openNext({{ $r['id'] }}, @js($r['next_action']), @js($r['next_action_at']))">Change next action</button>
+                                    <button type="button" class="corex-btn-outline corex-btn-xs" @click="openNext({{ $r['id'] }}, @js($r['next_action']), @js($r['next_action_at']))">Next action</button>
                                     <button type="button" class="corex-btn-outline corex-btn-xs" @click="openPark({{ $r['id'] }}, @js($r['address']))">Set aside</button>
                                 @endif
                                 <button type="button" class="corex-btn-outline corex-btn-xs"
@@ -144,11 +136,11 @@
                                         @click="$dispatch('rts-step', $el.dataset)">History</button>
                             </div>
                         </article>
-                    @empty
-                        <div class="text-xs px-1" style="color: var(--text-muted);">None at {{ strtolower($gl) }} stages{{ $pf['stage'] !== '' || $pf['due'] !== '' ? ' for this filter' : '' }}.</div>
-                    @endforelse
+                    @endforeach
+                    </div>
                 </section>
             @endforeach
+          </div>
         </div>
         {{ $prospectRows->links() }}
     @endif

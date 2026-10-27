@@ -6,7 +6,7 @@
     $inputStyle = 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);';
     $reasonLink = fn (string $reason) => route('road-to-sold.index', ['block' => 'parked', 'k_reason' => $reason, 'who' => $parkedEveryone ? 'all' : null] + $keepAgent + \App\Services\RoadToSold\Track::params($track));
 @endphp
-<div class="space-y-3" data-qa="block-parked">
+<div class="rts-col" data-qa="block-parked">
     @if($parkedByReason !== [])
         <div class="flex items-center gap-2 flex-wrap text-xs" data-qa="parked-by-reason">
             @foreach($parkedByReason as $br)
@@ -51,7 +51,7 @@
         @endif
     </form>
 
-    <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md rts-grow" style="background: var(--surface); border: 1px solid var(--border);">
         <table class="w-full text-xs ds-table">
             <thead><tr style="color: var(--text-muted);">
                 <th class="px-3 py-2 text-left">Why it was set aside</th><th class="px-3 py-2 text-left">Property</th><th class="px-3 py-2 text-left">Owner</th>
