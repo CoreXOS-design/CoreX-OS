@@ -119,6 +119,32 @@ final class DeskCoreXTabsTest extends DeskTestCase
         $this->assertSame(['main'], array_keys($this->desk->openTabs($s)));
     }
 
+    public function test_a_leaving_that_reaches_the_server_after_the_next_pages_join_is_ignored_and_a_heartbeat_names_the_open_tabs(): void
+    {
+        [$s, $agent] = $this->live();
+        Carbon::setTestNow(Carbon::parse('2026-10-27 10:00:00'));
+        $this->tab($agent, $s, 'join', 'main', ['at' => 1000000])->assertOk();
+
+        // the new page's join (client clock 2 000 000) overtakes the old page's leaving (client clock 1 999 000)
+        $this->tab($agent, $s, 'join', 'main', ['at' => 2000000, 'path' => '/corex/contacts'])->assertOk();
+        $this->tab($agent, $s, 'leave', 'main', ['at' => 1999000])->assertOk();
+        Carbon::setTestNow(Carbon::parse('2026-10-27 10:00:30'));
+        $this->desk->settleTabs($s->fresh());
+        $this->assertNotContains('tab_leave', $this->types($s), 'the tab came back, the late goodbye is stale');
+        $this->assertSame(['main'], array_keys($this->desk->openTabs($s)));
+
+        // a leave that really is newer still counts
+        $this->tab($agent, $s, 'leave', 'main', ['at' => 2500000])->assertOk();
+        Carbon::setTestNow(Carbon::parse('2026-10-27 10:00:40'));
+        $this->desk->settleTabs($s->fresh());
+        $this->assertContains('tab_leave', $this->types($s));
+
+        // the heartbeat names the tabs the server holds open, so a tab that is missing from it knows to join again
+        $this->actingAs($agent)->postJson("/api/v1/desk/sessions/{$s->id}/heartbeat", ['page' => '/corex', 'tab' => 'main'])->assertOk()->assertJsonPath('tabs', []);
+        $this->tab($agent, $s, 'join', 'main', ['at' => 3000000])->assertOk();
+        $this->actingAs($agent)->postJson("/api/v1/desk/sessions/{$s->id}/heartbeat", ['page' => '/corex', 'tab' => 'main'])->assertOk()->assertJsonPath('tabs', ['main']);
+    }
+
     public function test_the_consoles_poll_settles_a_closed_tab_and_lists_the_tabs(): void
     {
         [$s, $agent, $support] = $this->live();
@@ -266,6 +292,8 @@ final class DeskCoreXTabsTest extends DeskTestCase
         $this->assertStringNotContainsString("t: 'main'", $agent);
         // closing / leaving, the heartbeat and control moving with a replayed click
         $this->assertStringContainsString("fd.append('tab', st.tab);", $agent);
+        $this->assertStringContainsString("fd.append('at', String(Date.now()));", $agent, 'a leaving carries the tab\'s own clock so a late one is told from a real one');
+        $this->assertStringContainsString("registerTab('join');", $agent);
         $this->assertStringContainsString("{ page: location.pathname, tab: st.tab }", $agent);
         $this->assertStringContainsString("'.desk.control_moved'", $agent);
         $this->assertStringContainsString("localStorage.setItem(REPLAY_KEY", $agent);

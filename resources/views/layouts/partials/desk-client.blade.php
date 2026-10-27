@@ -97,7 +97,7 @@
         return memo;
     };
     function post(key) {
-        var body = { action: 'join', tab: key, path: location.pathname, title: document.title || '' };
+        var body = { action: 'join', tab: key, path: location.pathname, title: document.title || '', at: Date.now() };
         try { var rec = JSON.parse(localStorage.getItem(REPLAY) || 'null'); if (rec && rec.tab && rec.tab !== key && Date.now() - rec.t < 10000) body.from = rec.tab; } catch (e) {}
         return fetch(cfg.urls.sessions + '/' + cur.id + '/tabs', { method: 'POST', credentials: 'same-origin', keepalive: true,
             headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': cfg.csrf, 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify(body) })

@@ -85,6 +85,8 @@ export function start(ctx) {
     const beat = async () => {
         const r = await api('POST', cfg.urls.sessions + '/' + session.id + '/heartbeat', { page: location.pathname, tab: st.tab });
         if (r.ok && r.json.status === 'ended') finish(r.json.ended_by);
+        // The server does not list this tab as open (a "leaving" that reached it after the next page's "joined"): say so again.
+        else if (r.ok && st && st.live && Array.isArray(r.json.tabs) && !r.json.tabs.includes(st.tab)) registerTab('join');
     };
     beat();
     st.timers.push(setInterval(beat, Math.max(5, cfg.heartbeatSeconds || 30) * 1000));
@@ -127,7 +129,7 @@ async function registerTab(action) {
     if (!st || !st.live) return;
     if (action === 'join' && st.registered === 'inflight') return;
     st.registered = 'inflight';
-    const body = { action, tab: st.tab, path: location.pathname, title: document.title || '' };
+    const body = { action, tab: st.tab, path: location.pathname, title: document.title || '', at: Date.now() };
     // The tab a replayed click was run in a moment ago: if that click opened THIS tab, control follows it.
     try {
         const rec = JSON.parse(localStorage.getItem(REPLAY_KEY) || 'null');
@@ -163,6 +165,7 @@ function leaving() {
         const fd = new FormData();
         fd.append('_token', st.cfg.csrf);
         fd.append('tab', st.tab);
+        fd.append('at', String(Date.now()));
         navigator.sendBeacon(st.cfg.urls.sessions + '/' + st.session.id + '/leaving', fd);
         if (st.hl) {   // leaving the page clears the highlight on the console as well
             const h = new FormData();

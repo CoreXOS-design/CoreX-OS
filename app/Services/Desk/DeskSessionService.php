@@ -377,12 +377,15 @@ class DeskSessionService
      * tab_join / tab_leave exactly like an extension tab. A leave is not acted on at once: the same tab loading its next page says "leaving" and
      * then "joined" again within a moment - settleTabs() makes it a real leave only when nobody came back for the grace.
      *
+     * $at: the agent's own clock (ms) when the tab sent this. Two calls from one tab can reach the server out of order (the old page's "leaving" beacon
+     * against the next page's "joined"), so a leave that is older than the tab's latest join is ignored - the tab came back.
+     *
      * $followedFrom: the tab whose replayed click opened this one (the agent's browser knows - it just ran that click). While control is
      * granted on that tab, control moves with it, so a button that opens a new tab does not strand support behind it (audited as control_moved).
      *
      * @return array<string, array{tab:string, host:string, title:string, path:string}> the tabs open now
      */
-    public function coreXTabEvent(DeskSession $session, User $agent, string $action, string $key, ?string $path = null, ?string $title = null, ?string $followedFrom = null): array
+    public function coreXTabEvent(DeskSession $session, User $agent, string $action, string $key, ?string $path = null, ?string $title = null, ?string $followedFrom = null, ?int $at = null): array
     {
         $session = $session->fresh();
         if (! $session || ! $session->isLive() || (int) $session->user_id !== (int) $agent->id) {
@@ -395,7 +398,11 @@ class DeskSessionService
         $session = $session->fresh();
         $open = $this->openTabs($session);
 
+        $joinAtKey = 'desk:tabjoinat:' . $session->id . ':' . $key;
         if ($action === 'leave') {
+            if ($at !== null && $at <= (int) Cache::get($joinAtKey, 0)) {
+                return $open;   // it already came back
+            }
             if (isset($open[$key])) {
                 $idx = (array) Cache::get($this->leaveIndexKey($session->id), []);
                 $idx[$key] = now()->timestamp;
@@ -406,6 +413,9 @@ class DeskSessionService
         }
 
         // joined (or still here): cancels a leave that was waiting out its grace
+        if ($at !== null) {
+            Cache::put($joinAtKey, max($at, (int) Cache::get($joinAtKey, 0)), 600);
+        }
         $idx = (array) Cache::get($this->leaveIndexKey($session->id), []);
         if (isset($idx[$key])) {
             unset($idx[$key]);
