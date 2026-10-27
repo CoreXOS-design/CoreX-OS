@@ -1713,3 +1713,276 @@ For someone else's page "you/your" becomes the agent's name. No agency is named 
 **Tests:** `tests/Feature/RoadToSold/EmptyListReasonTest.php` (each reason, who sees which action, the button builds with the real builder and is idempotent, 404 outside breadth/agency, 403 without the page key, a day other than today is not explained).
 **Open for Johan:** QA1 still has no scheduler. Installing one would also start the other QA1-only scheduled commands (see the supplier-invoice/scheduler note: lease month-to-month flips, inspection-reminder mail), so it was NOT done here.
 
+
+
+---
+
+## 22. Road to Sold v3 — the agent's engine (Johan's rulings, 27 Oct 2026)
+
+**Status:** approved by Johan 27 Oct 2026 (rulings below, condensed by the conductor from his instruction). Spec first; the engine (22.13 lane A) and the screens (lanes B and C) build from this section in parallel. Nothing here is built when this section is committed.
+**Why:** the 27 Oct audit (`/mnt/HC_Volume_103099143/setE-proof/rts-audit-2026-10-27.md`) found that an agent cannot work the whole day inside Road to Sold: a row cannot start a pitch, every step after the call is a navigate-away, ten events can complete a task and HFC uses none of them, and every agent is offered the same rows. v3 fixes those four things and adds the one thing the page never had: a **prospect** - the agent's running relationship with one property, with a stage, a next action and a due date.
+**Pillars:** Property (`tracked_properties` and, once it exists, `properties`), Contact (owner, buyers, leads), Deal, Agent. Reads and writes through the existing services (match-or-create, `ContactPropertyLinker`, the calendar creator); invents no parallel store.
+
+### 22.1 The rulings (as relayed; R-numbers are the conductor's)
+
+- **R1** Road to Sold is the agent's daily command centre. The agent starts the day there, does every step from there and captures every result there. **Nothing navigates away**: every step opens as a pop-up over Road to Sold (the CoreX modal component; the existing screen is loaded inside it, pre-filled with the property / contact) and closes back to Road to Sold with the result captured on the step.
+- **R2** Three blocks: **Today's intake** (new properties from the list builder, target N a day), **My prospects** (every property the agent has touched, by stage, each with NEXT ACTION + DUE DATE), **Parked** (dead stock with reason + revisit date). Follow-ups due today appear in Today's intake as "follow-ups", counted apart from new intake.
+- **R3** Stages, Get stock then Sell stock: Found, Contacted, Appointment set, Evaluation done, Presentation given, Presentation feedback, Mandate signed, Listing live, Advertising / social shares, Lead, Lead contacted, Core Match set up, Viewing scheduled, Viewing pack sent, Viewing feedback, Offer, Deal, Registered. A dead / active split after Presentation feedback (dead goes to Parked with a reason). Rentals mirror later (Road to Rented) - **not built now**.
+- **R4** Each intake row leads with WHY, with numbers and names ("3 of your buyers match (names)", "agency has 2 buyers (Piet, Sanet)", "hot pocket: 12 sales / 180 days", price drop, new on market, long on market...). Agency buyers show the owning agent's name (13 Oct ruling). The order of sources stays the General setting.
+- **R5** Per-agent allocation: a property on one agent's list or prospects is never offered to another agent (lock by tracked property AND listing); stock is spread across agents (round-robin by rank), never the same rows to everyone. The expired-competitor source (20 Oct ruling) is built.
+- **R6** Outcomes carry a NEXT ACTION and a DATE; the agency edits outcomes, next actions and defaults in the Recipe area. Defaults in 22.7.
+- **R7** Every stage credits automatically from the CoreX event when one exists (all Sell Stock events including presentation feedback, lead arrived and deal stage advanced go on the allowed list; **deal credit goes to the agents on the deal, not the person who clicked**). Manual capture only where no event exists. HFC's 70 old tasks are mapped to events where one exists and the matching old detectors retired - the mapping is in 22.8 and **Johan signs it off before anything is retired**.
+- **R8** Pitch path from a row: Find owner (deeds / CMA Info); if no deed, create the property from the MIC address (the listing route / promote-to-stock path) plus the contact; then pitch (WhatsApp / email composer) - all in pop-ups, never the dead end. When the owner is known the row offers Pitch directly.
+- **R9** A manager or owner viewing an agent's page stays read-only, but every stage shows counts and the on-track bar; stalls flag training (existing flags).
+- **R10** An evaluation booked from a call attaches the property; the appointment lands in the calendar with the property and the parties.
+- **R11** The QA1 scheduler is NOT switched on. Builds run on demand ("Build my list") on QA1.
+- **Design standard applies:** page standard, no helper text, every threshold an agency setting, Role Manager, full CRUD with soft delete, scoping in the query, no scrolling tabs.
+
+### 22.2 The stages
+
+One **prospect** (22.12) holds exactly one current stage. A stage is entered by an event where CoreX raises one, otherwise by a manual capture on the step (R7). Stages only move forward, except the two resets below. A stage may be skipped (a property that is already mandated when the agent first meets it enters at Mandate signed).
+
+| # | Key | Label (agency-renamable) | Recipe step | Entered by |
+|---|---|---|---|---|
+| 1 | `found` | Found | find | list placement, a capture, a MIC claim (`ClaimCreated`) |
+| 2 | `contacted` | Contacted | contact_outcome | `RoadToSoldOutcomeRecorded` with a conversation outcome (an attempt keeps the prospect at Found and counts a try) |
+| 3 | `appointment_set` | Appointment set | evaluation_booked | `EvaluationBooked` |
+| 4 | `evaluation_done` | Evaluation done | evaluation_booked | `EvaluationCompleted` |
+| 5 | `presentation_given` | Presentation given | presentation | `PresentationPresented` |
+| 6 | `presentation_feedback` | Presentation feedback | presentation | `PresentationOutcomeRecorded` (new on the allowed list) |
+| 7 | `mandate_signed` | Mandate signed | mandate | `MandateSigned` or `DocumentFiledToProperty` (type mandate) - whichever comes first; once per property |
+| 8 | `listing_live` | Listing live | listing_live | `PropertyWentLiveOnPortal` |
+| 9 | `advertising` | Advertising / social shares | marketing | `MarketingPostPublished`, `SellerLinkCreated`, `SellerLinkOpened` |
+| 10 | `lead` | Lead | buyers | `NewPortalLeadReceived` on the property |
+| 11 | `lead_contacted` | Lead contacted | buyers | `ContactContactedByAgent` for the lead's contact |
+| 12 | `core_match` | Core Match set up | buyers | `ContactMatchCreated` |
+| 13 | `viewing_scheduled` | Viewing scheduled | viewings | `ViewingScheduled` (**new event**, 22.8) |
+| 14 | `viewing_pack` | Viewing pack sent | viewings | `ViewingPackCreated` (a pack has no "sent" state today - credited on creation; the label says "sent" because that is Johan's word; a real send moment is a later change) |
+| 15 | `viewing_feedback` | Viewing feedback | viewings | `ViewingHeld` |
+| 16 | `offer` | Offer | otp | `OtpSigned` or `DocumentFiledToProperty` (type otp), once per property |
+| 17 | `deal` | Deal | deal | `DealCreated` |
+| 18 | `registered` | Registered | deal | `DealStageAdvanced` to registered, or `DealClosed` (won) |
+
+- **Dead / active split (after stage 6).** The Presentation-feedback capture asks one thing: *active* (the seller will give a mandate) or *dead*. `PresentationOutcomeRecorded` with a won outcome = active; `lost_to_*` = dead, with the reason picked from the park reasons (22.7); `still_pending` / `other` = neither (the prospect stays at stage 6 with a follow-up). Dead = Parked (22.4).
+- **Resets.** `DealClosed` lost / abandoned puts the prospect back at `advertising` (the property is on the market again). A parked prospect that comes due returns at the stage it left.
+- **Steps without an event today** are captured by hand on the stage (R7): Found (a drive / canvass capture), the owner-found sub-state, and stage 14 until a real send exists.
+- **The funnel is unchanged.** Stage counts for managers (22.11) come from the prospect history (`rts_prospect_events`), not from the current stage alone, so "how many reached Evaluation done this month" survives a prospect moving on.
+
+### 22.3 Today's intake (block 1)
+
+- **What it holds.** (a) **New** properties from the list builder, target N a day (the existing weekday target, 5 by default), origin `auto` / `added` / `found_by_you`; (b) **Follow-ups** due today (next action due on or before today, including parked items whose revisit date has come), origin `follow_up`. **Follow-ups are counted apart from new intake.** This supersedes §9.6 and §9.8 ("follow-ups count toward the target"): from v3 the daily target N is met by NEW properties only; follow-ups have their own count and never reduce N. The month figure "calls made / should be done by today" is unchanged (every recorded outcome counts, whatever its origin).
+- **Row layout.** The WHY line first (22.5), then address, price, days on market, listing agency, owner (name, phone) or **Find owner**, last outcome, and the row's actions (22.9). One next action per row; the primary button is the one that moves the prospect on.
+- **Search (named):** address, suburb, owner name, owner phone, reason text. **Filters:** source (the nine + expired competitor + follow-up + found by you), kind (new / follow-up), status (open default, worked, missed, all), day. **Sort:** list order (default), address, price, days on market, reason strength, last outcome date. **Page size** 50. **Empty states:** the existing empty-day explanations (`EmptyListExplainer`) plus "no follow-ups due".
+- **Scoping.** Own (the agent, or the agent an assistant acts for); a manager sees the agent they pick, read-only, within their breadth (`road_to_sold.view` own / branch / agency) enforced in the query; an id outside the breadth is a 404.
+
+### 22.4 My prospects (block 2) and Parked (block 3)
+
+**My prospects** - every prospect of the agent that is not parked and not closed, grouped by stage (Get stock stages, then Sell stock stages), each row: address, owner, stage, **next action** (the action label, e.g. "Call again", "Do the evaluation", "Follow up with seller"), **due date** (overdue in the "behind" colour, today in the "to do" colour), days in stage, the reason it started. Actions per row: open the next step (a pop-up, 22.9), change the outcome / next action, park, history.
+- **Search:** address, suburb, owner name, owner phone, next action label. **Filters:** stage (single or group Get / Sell), due (overdue / today / this week / later / none), selection it came from, with / without owner. **Sort:** due date (default, soonest first, no date last), stage (pipeline order), address, days in stage, last outcome date. **Page size** 25 and a stage count strip above the list.
+- **Empty state:** "No prospects yet - they start when you work today's intake."
+- **Scoping:** as 22.3; a manager sees an agent's prospects read-only; the platform owner sees nothing unless switched into an agency.
+
+**Parked** - dead stock the agent has set aside: address, owner, **reason**, parked on, **revisit date**, last stage, note. Actions: Bring back now (becomes a follow-up today), change revisit date, history. A parked prospect whose revisit date arrives appears in Today's intake as a follow-up (22.3) and returns to My prospects at the stage it left.
+- **Search:** address, owner, reason label, note. **Filters:** reason, revisit (due / next 30 days / later), parked between dates, last stage. **Sort:** revisit date (default), parked date, address, reason. **Page size** 25.
+- **Manager view:** the same list across the agents in breadth, **grouped by reason with counts** (Johan: "manager sees the parked pile by reason"), read-only, with the agent's name.
+- **Park reasons** are an agency list (`rts_park_reasons`, 22.12): seeded neutral set - Seller chose another agency, Not selling now, Sold elsewhere, Mandate with another agency, No owner found, Cannot be reached, Price unrealistic, Other - each with a default revisit interval in days. Full CRUD with archive / restore on the Recipe area. Outcomes and the Presentation-feedback capture choose from this list.
+
+### 22.5 The reason is the pitch (R4)
+
+Each intake row's WHY line is built by the selection that produced the row, from facts it already holds. Names and numbers are mandatory where they exist; a line never says "matches" without saying how many.
+
+| Source (key) | Line (examples) | Facts needed |
+|---|---|---|
+| `my_buyers_sourcing` | "3 of your buyers match: Piet Botha, Sanet Meyer, Lize van Zyl" (first three names, then "and 2 more") | the agent's matched buyers (names) |
+| `agency_buyers_sourcing` | "Agency has 2 buyers looking for this: Piet (Mia Manager), Sanet (Andre Roets)" - **the owning agent's name per buyer** (13 Oct ruling) | matched buyers + their agent |
+| `hot_pockets` | "Hot pocket: 12 sales, 8 enquiries, 3 buyers in 180 days" | the hot-pocket counts and window |
+| `price_drops` | "Price dropped 8% (R 1 450 000 to R 1 334 000) 6 days ago" | old / new price, date |
+| `new_on_market` | "New on the market: listed 3 days ago on Property24" | listed date, portal |
+| `long_on_market` | "On the market 142 days, asking R 1 250 000" | days, price |
+| `owner_known` | "Owner on file: Piet Botha, last called 12 Sep" | owner, last outcome |
+| `my_expired_stock` | "Your mandate expired 9 days ago" | expiry date |
+| `my_stock_not_selling` | "Your listing: 61 days, 14 views, 0 enquiries" | days, views, leads |
+| `expired_competitor` (new, 22.6) | "Withdrawn from Property24 9 days ago by <agency>" | portal status date, agency |
+| `follow_up` | "Call again: no answer on 20 Oct (1 in a row)" / "Evaluation follow-up due" | the outcome that set it |
+| `found_by_you` | "You found this on <date> (<task>)" | the capture |
+
+Wording is per-source data in one place (`ReasonLine` builder in `app/Services/RoadToSold/Reasons/`), never hard-coded to an agency. A buyer's name appears only to a user allowed to see that contact (`ContactScope`); otherwise the line shows the count and "ask your manager". The line is stored on the list item (`reason`, 255 chars) as today and the structured facts on a new `reason_facts` JSON column so the page can show the full name list in a tooltip-free expandable row.
+
+### 22.6 Allocation, locks, round-robin, expired competitors (R5)
+
+**The rule.** A property (tracked property, and every listing of it) is **owned by one agent at a time** once it is on that agent's list or in that agent's prospects. It is never offered to another agent until released.
+- **Owner record.** The `rts_prospects` row (22.12) is the allocation: unique per (agency, track, tracked property). Placing a property on a list creates the prospect (stage Found) in the same transaction as the list item, under the existing per-agent build lock plus a short per-property lock (`Cache::lock("rts-own:{agency}:{tp}")`) so two simultaneous builds cannot both take it.
+- **Lock by listing too.** The prospect also stores `prospecting_listing_id`; the MIC pool excludes any listing whose tracked property **or** whose own id belongs to another agent's active prospect, today's open list items of other agents, another agent's MIC claim, and **a pitch lock on the tracked property (not only on the listing - the gap the audit found at `MicPoolSelection.php:183`)**. The same exclusion is applied in `ListBuilderService::mayPlace` as the last gate.
+- **Round-robin by rank.** The nightly / bulk build (`rts:build-lists`) fills agents **in rounds**: in each round every agent, in a stable rotating order (rotation start = day of year, so nobody always goes first), takes the best-ranked unowned candidate of the next enabled source until each has N new or the pool runs dry. The on-demand build ("Build my list", opening the page) takes the best unowned candidates for that one agent; ownership of earlier builds is what spreads the stock. Candidate ranking is unchanged (areas, address, source order).
+- **Release.** An allocation ends only when: the prospect closes (Registered, or a deal that is lost with the property off the market), the contact is flagged do-not-contact (never offered to anyone - existing never-suggest flag), the agent is deactivated or removed (a command releases their open allocations), or a manager with `road_to_sold.release_prospects` presses **Release to the pool** on a prospect (audited in `rts_prospect_events`). There is no automatic timeout (Johan: an agent never approaches another agent's stock).
+- **Properties that are already another agent's CoreX stock** stay excluded (existing `OtherAgentStock`).
+- **A first-run note.** Rows already on today's lists (built before v3) are adopted into prospects by a one-off, idempotent command (`rts:adopt-prospects`, dry-run first). Duplicates across agents on those existing rows are resolved by keeping the agent with the earliest open list item; the others' rows for the day are released to missed.
+
+**Expired competitor listings (the tenth source, `expired_competitor`)** - appended after the nine in the default order, so no stored order changes; on / off and position are the existing selections setting. Coverage was checked on QA1 (27 Oct): `prospecting_listings.portal_status` is dated by `portal_status_changed_at` on every non-null row (HFC: 29,905 `withdrawn` rows - 11,495 Property24, 18,410 Private Property; 949 `under_offer`; 213 `sold`); **no listing carries a mandate end date** (`mandate_type` is NULL on all 45,440). So the dated signal that exists is **"withdrawn from the portal on <date>"**.
+- A listing qualifies when: sale track, `portal_status = withdrawn`, `portal_status_changed_at` within `expired_competitor_lookback_days` (new agency setting, default 30), it is not the agency's own stock, no other **active** listing exists for the same tracked property, the property is not `sold` / `under_offer` on any portal, and the allocation / guard rules apply as for every source. A listing with no dated status never appears (nothing is guessed). Order: most recently withdrawn first.
+- The reason line says "Withdrawn from <portal> <n> days ago", never "expired" (a withdrawal can be a relist elsewhere or a seller's change of mind; "expired" is Johan's word for the list, the line states the fact).
+- Setting `expired_competitor_lookback_days` is surfaced per rule 10a: General tab of Road to Sold settings now; Setup Wizard once Road to Sold is done (Johan's standing 23 Oct ruling, recorded in `agency-onboarding-setup.md` 5.1 - "Deliberately NOT in the wizard yet").
+
+### 22.7 Outcomes, next actions, parking (R6)
+
+Every outcome definition carries: kind (attempt / conversation), **next action**, **delay or date rule**, an optional **try limit** and what happens when it is reached, and the **stage** the prospect moves to. The agency edits all of it in Recipe (the existing Outcomes screen is linked from the Recipe area and keeps its address); defaults are seeded per agency and track.
+
+New columns on `rts_outcome_definitions` (additive migration): `stage_after` (varchar 30, nullable - a stage key), `max_tries` (tinyint, nullable), `after_max_tries` (`park` / `manager_report`, nullable), `park_reason_id` (nullable), `choice_months` (json, nullable - e.g. [3, 6, 12]), `default_months` (tinyint, nullable), `fallback_days` (smallint, nullable). New `next_action` kinds (added to the existing set `return_after_days`, `return_on_picked_date`, `return_on_expiry_else_picked`, `move_to_list`, `never_again`, `calendar_appointment`): `return_after_months` (pick from `choice_months`, default `default_months`), `return_on_expiry_else_days` (use the mandate end date when CoreX holds one, else `fallback_days`), `find_owner_after_days` (a try counts toward `max_tries`).
+
+| Outcome (key) | Kind | Default next action and date | Stage after |
+|---|---|---|---|
+| No answer (`no_answer`) | attempt | call again +7 days; **3 in a row: drops off the list and onto the manager's report** (the existing no-answers-in-a-row drop setting) | Found |
+| Wrong number (`wrong_number`) | attempt | find the owner +3 days; **2 tries then Parked** (reason "No owner found") | Found |
+| No owner found (`no_owner_found`, **new key**; recorded by the Find-owner pop-up when nobody is found) | attempt | find the owner +3 days; **2 tries then Parked** | Found |
+| Spoke - evaluation booked (`spoke_evaluation_booked`) | conversation | evaluation **on the appointment date** (calendar entry created, 22.10) | Appointment set |
+| Spoke - call back (`spoke_call_back`) | conversation | the agent **picks a date (required)** | Contacted |
+| Spoke - not now, maybe later (`spoke_not_interested`, **relabelled**) | conversation | follow up in **3 / 6 / 12 months, default 6** (agent picks one) | Contacted |
+| Spoke - do not contact (`do_not_contact`) | conversation | **never**; the contact is flagged do-not-contact (existing) | none (closed) |
+| Listed with another agency (`listed_other_agency_open`) | conversation | check the mandate expiry: the date if CoreX has one, else **+90 days** (today no listing carries a mandate end date, so +90 days applies until a source exists) | Contacted |
+| Mandated with another agency - sole (`mandated_other_agency_sole`) | conversation | follow up **at the expiry date (required)** | Contacted |
+| Evaluation done - seller undecided (`eval_undecided`, **new**) | conversation | follow up +7 days | Evaluation done |
+| Seller chose another agency (`eval_chose_other`, **new**) | conversation | follow up +90 days; **Parked** with reason "Seller chose another agency" | Parked |
+| Owner selling privately (`eval_selling_privately`, **new**) | conversation | follow up +30 days; **Parked** with reason "Not selling now" | Parked |
+
+- **Parked items return on their date as follow-ups** (22.4). The manager sees the parked pile by reason.
+- **Existing agencies.** Their seeded rows are not rewritten silently: `rts:apply-outcome-defaults --agency= [--apply]` (dry run first) updates only rows that are still exactly the old seed values (label and next action unchanged) and adds the three new outcomes; an agency's own edits and its own outcomes are left alone. New agencies get the table above.
+- **Evaluation-done outcomes** (the last three rows) appear in the Contacted-client pop-up only for a prospect that is at or past Appointment set.
+- **Wrong-number / no-owner "move to list"** (the "Find the right contact" list) is replaced by the prospect's own next action ("Find the owner", due date); the list tag stays on the existing rows for history.
+
+### 22.8 Events, credit and the HFC mapping (R7)
+
+**Allowed list (`RecipeCatalogue::EVENTS`).** Add, each with `credit` = the agent the work counts for:
+`SellerLinkCreated` (who pressed, assistants to their agent), `SellerLinkOpened` (`userId`), `ViewingPackCreated`, `ContactMatchCreated` (`userId`), `ViewingHeld` (`userId`), `OtpSigned` (`userId`), `MandateSigned` (`userId`), `PresentationOutcomeRecorded`, `NewPortalLeadReceived` (the property's agent), `DealStageAdvanced`, `DealCommissionFinalised`, `ContactContactedByAgent` (filter: channel; for the lead stage), and **new events** `ViewingScheduled` (raised by `CalendarEventObserver::created` for viewing-category events; credit = the event owner) and, for Found / Contacted credit that HFC takes from the old detectors, `ClaimCreated`, `ClaimFeedbackRecorded`, `PitchSent`, `OutreachOutcomeUpdated`. Each new event is added to `corex-domain-events-spec.md` section 5 in the same change; all raised through `SafeRaise`.
+**Where two events mark one real thing**, a task binds to ONE: mandate - `MandateSigned` (at signing) or `DocumentFiledToProperty` mandate (at filing, also covers paper); OTP - `OtpSigned` or `DocumentFiledToProperty` otp. The **stage** is entered by whichever comes first (once per property, idempotent on property + stage + period).
+
+**Deal credit goes to the agents on the deal.** `DealCreated`, `DealStageAdvanced`, `DealClosed` and `DealCommissionFinalised` credit each agent on the deal (`deal_user`, through `ParticipantResolver`), not `Auth::user()`. A task completion is written once per agent per deal per stage (idempotency key already includes the subject). The office user who pressed the button is recorded as `recorded_by_user_id`, never credited. The prospect of each agent on the deal advances.
+
+**Engine behaviour.** A new listener `AdvanceProspectsFromDomainEvent` (registered on the `DomainEvent` interface beside `CompleteTasksFromDomainEvent`; never throws) maps the event to a stage (22.2), finds the agent's prospect for the property (by tracked property, or by `properties.id` through `tracked_properties.promoted_to_property_id`), advances it forward-only, writes `rts_prospect_events`, and sets the prospect's next action from the stage's default (22.2 table: e.g. entering Appointment set sets "Do the evaluation" due on the appointment date). It runs in addition to task crediting; the two never block each other. An event for a property with no prospect of that agent creates the prospect at the event's stage (the agent did the work without the list).
+
+**The HFC mapping (PROPOSED - Johan signs off before anything is retired).** HFC's 70 tasks (agency 1, cut over 26 Oct; all currently credited by the old detectors, none bound). "Bind" = the task is credited by the event and its old detector / calendar mapping is switched off for HFC in the same step; "Keep" = stays a captured (hand-ticked) task.
+
+| Step | Task(s) | Proposal |
+|---|---|---|
+| find | Check your admin file; Follow up emails; Stats Send; Overall admin, excl above; Hand out Business Cards; Feedback to Sellers - EATS | **Keep** (no event; "EATS" meaning to be confirmed by Johan) |
+| find | Canvass Door to Door; Drive an Area | **Keep, set capture kind "properties with their owner"** so a capture creates tracked properties + owners (today all 70 are "notes only") |
+| find | Load Property on P24 | **Bind** `PropertyWentLiveOnPortal` (P24) |
+| find | Update Property 24 | **Keep** (a refresh has no event) |
+| find | Mic claim taken; Mic claim feedback | **Bind** `ClaimCreated`; `ClaimFeedbackRecorded` |
+| find | Property captured; Rcr submitted | **Johan to say** (Property captured fires at wizard draft creation; "Rcr" meaning to be confirmed). Until then they stay on the old detector |
+| find | Rentals: In and Out Inspection; Pre-approvals; Applications and Marketing Permissions; General Inspections; Breaches / Notice To Vacate | **Keep** - Road to Rented, later |
+| find_owner | Contact captured | Stay on the old detector (`ContactCreated` is not an owner event); the owner step is credited by `OwnerLinkedToTrackedProperty` through the default recipe task |
+| contact_outcome | Prospecting - Contact Made; Prospecting - No answers | **Bind** `RoadToSoldOutcomeRecorded` (kind conversation / outcome no_answer) |
+| contact_outcome | Prospecting - Lead | **Johan to say** (a hot lead? a portal lead?) |
+| contact_outcome | Outreach pitch sent; Outreach outcome logged | **Bind** `PitchSent`; `OutreachOutcomeUpdated` |
+| evaluation_booked | Appointments (x2) | **Bind** `EvaluationBooked`; retire the calendar mapping `property_evaluation` -> Appointments (and the second Appointments mapping if it maps the same class) |
+| presentation | Presentation (x2) | **Bind** `PresentationPresented` (one); the other stays the calendar mapping `listing_presentation` until Johan chooses |
+| presentation | Presentation generated | Stay on the old detector (not a stage) |
+| presentation | Presentation won; Presentation lost | **Bind** `PresentationOutcomeRecorded` (won / lost) |
+| mandate | Sign a Exclusive Mandate; Mandate signed | **Bind** `MandateSigned` (one task) |
+| mandate | Tracked property promoted to stock; Fica submitted; Fica approved; Fica reviewed | Stay on the old detectors (compliance / promotion, not stages) |
+| listing_live | List a Property Open Listing; Check Matches on Listings | **Keep** |
+| listing_live | Property published; Property compliance passed | Stay on the old detectors (website publish / compliance, not the portal go-live) |
+| marketing | Load Property on Facebook | **Bind** `MarketingPostPublished` (Facebook) |
+| marketing | Marketing published | **Bind** `MarketingPostPublished` (any platform) - one of the two, Johan to pick which stays |
+| marketing | Took photos; Virtual Tour; Update Photo Board; Put up Boards; Put up Sold Boards; Put adverts up in Shops; Check your Boards; Write article/blog in Media | **Keep** |
+| buyers | Contacted New Buyers; Send Wishlist to Buyers | **Keep** |
+| buyers | Take out Buyers (x2) | **Bind** `ViewingScheduled` (one); the other retires with the calendar mapping `viewing` |
+| otp | Sign an OTP | **Bind** `OtpSigned` |
+| deal | Deal created; Deal listing side; Deal selling side | **Bind** `DealCreated` (per agent on the deal) |
+| deal | Deal stage advanced; Deal registered; Deal registered listing side; Deal registered selling side | **Bind** `DealStageAdvanced` / `DealClosed` (won), per agent on the deal |
+| deal | Deal commission finalised | **Bind** `DealCommissionFinalised`, per agent on the deal |
+| deal | Follow up bond originators; Liase with Attorneys | **Keep** |
+| deal | Rentals: Contractor Arrangements; Contract Renewals; New Contracts | **Keep** - Road to Rented, later |
+
+The mechanism (lane A): `rts:bind-tasks --agency=1 [--apply]` reads a mapping file approved by Johan (`database/data/rts/hfc-event-mapping.json`), dry-runs by default, and for each bound task sets `event_key` + filter and switches off the matching legacy credit (the `activity_definition_calendar_classes` row or the instant-slug rule) in one transaction per agency; it prints before / after counts for the last 30 days so double or missing credit is visible. History is never rewritten. Nothing is applied to any agency before Johan signs the mapping.
+
+### 22.9 Everything opens as a pop-up (R1)
+
+- **Container.** The existing CoreX modal component (`resources/views/components/modal.blade.php`, `<x-modal>`), one wide modal ("Road to Sold step") holding an `<iframe>` of the real screen. The screen is the existing screen, not a copy.
+- **Embed mode.** Any CoreX screen opened with `?embed=1` renders without the sidebar, header and footer (layout switch in `layouts/corex-app.blade.php` to a chrome-less variant) and with a "Done" behaviour: when the screen finishes its job it calls `window.parent.postMessage({ rts: 'done', stage, subject }, origin)`. `embed=1` only removes chrome; it grants no access and changes no permission. The parent accepts messages from its own origin only. Framing is same-origin only; lane C verifies the app's frame headers allow it and fixes them if not.
+- **Pre-fill.** Each step's URL carries the property / contact / prospect (`?embed=1&rts_prospect={id}` plus the screen's own parameters, e.g. `property_id`, `contact_id`), so nothing is retyped.
+- **Close and capture.** When the modal closes (Done, the X, or Escape) the page reloads the prospect's row. If the screen raised an event (22.8) the stage has already advanced; if the step has no event the modal's footer shows the **manual capture** (what happened, date, next action) and writes the stage through `ProspectService::advance` with source `captured`. Closing without finishing leaves the prospect unchanged.
+- **Stage to screen** (existing screens, opened in the modal):
+
+| Next step | Screen in the modal |
+|---|---|
+| Find owner | Seller outreach entry for the tracked property or listing (22.10) |
+| Pitch | Outreach composer for the contact, WhatsApp or email (22.10) |
+| Record a call result | The existing outcome form (becomes a modal over the modal-free page as today) |
+| Book / do the evaluation | Calendar event create / feedback (property + parties pre-filled, 22.11) |
+| Create presentation; give it; feedback | Presentations create / deliver / outcome |
+| Mandate | DocuPerfect e-sign wizard for the property (mandate template) or the document upload |
+| Listing live; Advertising | Property go-live and syndication; Ad Manager for the property |
+| Lead; Lead contacted | The portal lead / contact page |
+| Core Match | Core Matches create for the buyer |
+| Viewing; viewing pack; viewing feedback | Calendar viewing create; viewing pack create; calendar feedback |
+| Offer; Deal; pipeline | DocuPerfect OTP; Deal Register create; the deal pipeline |
+
+- **Offline of the iframe.** A screen that cannot be framed (an external site, a download) opens in a new tab with a "Return to Road to Sold" notice - the only allowed exception, and it is listed in the build log when used.
+- **Accessibility.** Focus is trapped in the modal and returned to the row's button on close; Escape closes.
+
+### 22.10 The pitch path from a row (R8)
+
+1. **Owner unknown - Find owner.** Opens the seller-outreach entry in the modal. It first shows owners from the deeds / CMA Info captures when CoreX holds them (existing `DeedsCaptureLinkService`); the agent confirms one (linking the owner to the tracked property, which raises `OwnerLinkedToTrackedProperty`), or searches / creates a contact (phone or email required, duplicate check as today). If nobody is found the agent presses **No owner found**, which records the `no_owner_found` outcome (22.7).
+2. **No deed - the property is created from the MIC address.** Choosing a contact for a property with no CoreX property row runs the **listing route** (`EntryPointController::promoteListingToProperty`, extracted to a shared service so the Road to Sold row, the MIC slide-over and the outreach entry call one implementation) when the row has a listing; otherwise `TrackedPropertyMatchOrCreateService::promoteToStock`'s prospecting path. An advert with no address asks for it (the existing address capture). The property is created in the agency's existing "prospecting" state (not mandated stock), linked to the contact as seller, and the prospect gets `property_id`. The agent never reaches "No property or address to pitch about".
+3. **Pitch.** The composer opens in the modal on the same contact and property (channel WhatsApp by default, email available). Sending raises the existing `PitchSent`; the prospect moves to Contacted only when a conversation outcome is recorded (22.2).
+4. **Owner known.** The row's button is **Pitch** and goes straight to step 3.
+5. **Locks.** Step 1 takes the tracked-property lock as today; it is honoured by the list builder (22.6).
+
+### 22.11 Evaluation, calendar and the manager view (R10, R9)
+
+- **R10.** Recording a conversation outcome with "Evaluation booked" first ensures the prospect has a property row (22.10 step 2), then creates the calendar event with `property_id`, the owner as a party (`contact_id`) and the agent as owner, category `property_evaluation`, title with the address; the prospect moves to Appointment set with the next action "Do the evaluation" due on the appointment date. The calendar entry shows the property and parties; completing its feedback raises `EvaluationCompleted` (stage 4). Today `OutcomeService.php:122` attaches a property only when the tracked property is already stock - that gap is closed.
+- **R9.** A manager or owner viewing an agent stays read-only (no outcome, no capture, no pitch buttons - an outcome is logged in the signed-in user's name). They see, per stage: the count of prospects now at the stage, the number that **entered** the stage in the period (from `rts_prospect_events`), and the **on-track bar** (the recipe step's target for the stage's step, same states as today: achieved / ahead / on track / needs a push / behind), plus the average days in stage. A stalled stage (a prospect with no movement for `prospect_stall_days`, default 14, new agency setting; or a ratio below the existing flag threshold) feeds the **existing training flags** (`FunnelService`); no new flag type is invented. The Parked pile by reason is in 22.4.
+- **Team view** gets two additions: prospects by stage (counts per agent) and parked by reason. Same scoping as the existing Team funnel (`road_to_sold.view_funnel`, breadth in the query).
+
+### 22.12 Data model
+
+All tables: `agency_id` NOT NULL with `BelongsToAgency`, `branch_id` where the row belongs to an agent, `track` varchar(20) default `'sales'`, soft deletes, no hard deletes, unique keys that ignore soft deletes (BUILD_STANDARD 5a: `withTrashed()->firstOrNew` + `restore()`), money never involved.
+
+| Table | Columns |
+|---|---|
+| `rts_prospects` | id, agency_id, branch_id, track, **user_id** (list owner), **tracked_property_id** NOT NULL, prospecting_listing_id nullable, property_id nullable, stage (varchar 30), stage_entered_at, selection (varchar 40, first source), reason (varchar 255), reason_facts (json), next_action_key (varchar 40), next_action_label (varchar 120), next_action_at (date, nullable), tries (tinyint, consecutive tries of the current action), last_outcome_id nullable, parked_at, parked_until (date), park_reason_id nullable, park_note (varchar 255), closed_at, closed_reason (varchar 40), released_at, released_by_user_id, timestamps, soft deletes. **Unique (agency_id, track, tracked_property_id)**; indexes (agency, track, user, stage), (user, next_action_at), (parked_until). One agent owns a property at a time: this unique key IS the allocation. |
+| `rts_prospect_events` (append-only, the model refuses update and delete) | id, agency_id, prospect_id, user_id (agent), actor_user_id, occurred_at, kind (`placed`, `stage`, `outcome`, `next_action`, `park`, `unpark`, `release`, `assign`, `credit`), from_stage, to_stage, outcome_id, event_class (varchar 190), subject_type, subject_id, note, meta (json). Source of every stage count. |
+| `rts_park_reasons` | id, agency_id, track, key, label, default_revisit_days, is_system, is_active, sort_order, soft deletes. Unique (agency, track, key). |
+| `rts_outcome_definitions` (extended) | the new columns in 22.7. |
+| `rts_list_items` (extended) | `prospect_id` nullable, `reason_facts` json nullable. |
+| `rts_settings` (extended) | `expired_competitor_lookback_days` (default 30), `prospect_stall_days` (default 14). |
+
+Models in `app/Models/RoadToSold/`: `RtsProspect`, `RtsProspectEvent`, `RtsParkReason`. Services in `app/Services/RoadToSold/`: `ProspectService` (place, advance, setNextAction, park, unpark, release, close; the only writer of `rts_prospects`), `AllocationService` (the owner check, per-property locks, rounds), `ReasonLine` builders, `OutcomeDefaults`, `AdvanceProspectsFromDomainEvent` (listener), `ProspectListService` (blocks 2 and 3 queries, scoped), `StageCountService` (manager counts). Commands: `rts:adopt-prospects`, `rts:apply-outcome-defaults`, `rts:bind-tasks`, and a release command for deactivated agents. Routes (all under the existing group, `permission:access_road_to_sold`): prospects list, parked list, prospect park / unpark / next-action / history, release (needs `road_to_sold.release_prospects`), modal-return capture, build list (exists).
+
+### 22.13 Lanes and build order
+
+Three lanes build from this section in parallel; the conductor assigns people. **Lane A - Engine (this lane, step 2):** tables, `ProspectService`, allocation + locks + rounds, outcome config + defaults + migration command, follow-up surfacing and the new target arithmetic, expired-competitor source, the allowed-list additions, `ViewingScheduled`, deal credit to the agents on the deal, R10, the stage listener, `rts:adopt-prospects`, `rts:bind-tasks` (no apply), tests. **Lane B - Page:** the three blocks (22.3, 22.4), the reason lines on the page (22.5), manager stage counts (22.11), filters / sorts / pagination, against lane A's services (`ProspectListService`, `StageCountService`, the intake query). **Lane C - Pop-ups:** embed mode and the modal host (22.9), the pitch path (22.10), the stage-to-screen table. Contracts between lanes: the service method signatures and the route names in 22.12 are fixed here; lane A commits stubs with the real signatures first so B and C can code against them.
+**Order inside lane A:** (1) migrations + models + `ProspectService`; (2) outcome config + defaults; (3) allocation + builder changes (follow-ups apart, locks, rounds); (4) expired-competitor source; (5) listener + allowed list + new events + deal credit; (6) R10; (7) commands + tests + deploy QA1.
+
+### 22.14 Permissions, settings, wizard, scoping summary
+
+- **Permissions** (`config/corex-permissions.php`, section road-to-sold): `road_to_sold.release_prospects` (new; branch managers and admins by default; owner roles by the owner rule). Everything else reuses `access_road_to_sold`, `road_to_sold.view` (breadth), `manage_settings`, `manage_recipe`, `manage_targets`. Sidebar: no new item (the blocks live on the existing page); the Recipe area gains Park reasons and the Outcomes link.
+- **Settings** (rule 10a): `expired_competitor_lookback_days`, `prospect_stall_days` on Settings -> Road to Sold -> General now; the Setup Wizard once Road to Sold is done (Johan, 23 Oct 2026) - recorded in `agency-onboarding-setup.md` 5.1. The selections on / off and order setting already exists and gains the tenth source.
+- **Scoping** - every list, count, export and pop-up target is scoped in the query: an agent sees their own prospects (an assistant their agent's); a branch manager the branch; an admin the agency; a second agency's data never. A prospect id outside breadth is a 404 on every route. Direct URL by id is blocked, not just unlinked. The platform owner is read-only when switched into an agency.
+- **Multi-agency.** No HFC wording, ids or areas anywhere: stage labels, reasons, outcomes and next actions are agency data seeded neutral; the HFC mapping (22.8) is data applied to agency 1 only.
+
+### 22.15 Input space (prevent or absorb)
+
+| Input | Rule |
+|---|---|
+| Two agents' builds race for one property | The per-property lock + the unique prospect key: one wins, the other takes its next candidate. No error shown. |
+| Event for a property with no prospect | Create the prospect at the event's stage for the credited agent. |
+| Event arrives out of order (Offer before Mandate) | Stage moves to the later stage; skipped stages are not back-filled. History shows the jump. |
+| Same event twice (retried job) | Idempotent: no second stage row, no second credit. |
+| Outcome with a required date left blank | Refused with the existing plain message; nothing written. |
+| Try limit reached | The configured action: park (reason from the outcome) or manager report. Never silently dropped. |
+| Park reason archived after use | The parked prospect keeps its reason text; the reason cannot be chosen again. |
+| Agent deactivated with open prospects | Released to the pool by the command; history keeps the agent. |
+| `embed=1` on a screen that needs a full page | The screen renders chrome-less; if it cannot, the modal shows "Open in a new tab" with the return notice. |
+| Manager presses an agent's step | No buttons rendered; the route refuses with 403. |
+| Listing twin (P24 + PP) of an owned property | Excluded: the lock is on the tracked property and on every listing id seen for it. |
+| Assistant | Works the agent's prospects (list-owner rule 11.1); `recorded_by` says who. |
+| Deal with two agents | Each agent is credited and each prospect advances once. |
+
+### 22.16 Acceptance, tests, what this supersedes
+
+- **Acceptance (engine):** two agents building the same day get disjoint properties; the same agent building twice adds nothing; a follow-up never reduces N; every R6 default outcome sets the stated next action, date and stage; a try limit parks; each allowed event advances the right agent's prospect once; a deal with two agents credits both and not the clicker; an evaluation from a call creates the calendar entry with property + owner; the expired-competitor source returns only dated withdrawals inside the lookback; a manager cannot write; a second agency sees nothing.
+- **Tests (single files via `scripts/lane-test.sh`):** `ProspectServiceTest`, `AllocationTest`, `OutcomeDefaultsTest`, `ExpiredCompetitorSelectionTest`, `StageListenerTest`, `DealCreditTest`, `EvaluationFromCallTest`, `ProspectScopingTest`, plus the existing `ListBuilderTest`, `AgentWeekScenarioTest`, `OutcomeServiceTest`, `RoadToSoldPageTest` updated where the follow-up counting changes.
+- **Supersedes:** §9.6 / §9.8 on follow-ups counting toward the target; the "move to list" behaviour of Wrong number (22.7); the 10.1 statement that Do-this-next names only the list (it also names the next overdue prospect action). Everything else in sections 1-21 stands.
+- **Open for Johan (business only):** sign off the HFC mapping table in 22.8; the three "Johan to say" rows (Property captured / Rcr submitted / Prospecting - Lead, and what "EATS" means); whether a deal that falls through should send the property back to Advertising (written that way in 22.2); that "Viewing pack sent" is credited on creation until a real send exists.
