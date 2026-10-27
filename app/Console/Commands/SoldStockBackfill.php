@@ -18,7 +18,8 @@ use Illuminate\Support\Facades\DB;
  */
 class SoldStockBackfill extends Command
 {
-    protected $signature = 'sold-stock:backfill {--agency= : Only this agency id} {--dry-run : Count only, write nothing}';
+    protected $signature = 'sold-stock:backfill {--agency= : Only this agency id} {--dry-run : Count only, write nothing}
+        {--portals : ALSO dispatch the Property24 / Private Property take-down jobs and the website "removed" webhooks (production run only - a non-production copy of the data carries real portal credentials)}';
 
     protected $description = 'Create sold_stock snapshots for every Sold property and registered deal, and take Sold properties off the for-sale website/PP feeds.';
 
@@ -27,7 +28,7 @@ class SoldStockBackfill extends Command
         $dry    = (bool) $this->option('dry-run');
         $agency = $this->option('agency') !== null ? (int) $this->option('agency') : null;
         $c = ['sold_properties' => 0, 'created' => 0, 'already_present' => 0, 'deals_checked' => 0, 'deal_snapshots' => 0,
-              'syndication_off' => 0, 'skipped' => 0];
+              'website_switched_off' => 0, 'portal_jobs_dispatched' => 0, 'portal_listings_still_to_take_down' => 0, 'skipped' => 0];
 
         $props = Property::withoutGlobalScope(AgencyScope::class)
             ->whereRaw("LOWER(TRIM(status)) = 'sold'")
@@ -43,9 +44,7 @@ class SoldStockBackfill extends Command
                     continue;
                 }
                 $service->snapshot($property, null, 'backfill');
-                if ($this->takeOffForSaleFeeds($property->fresh())) {
-                    $c['syndication_off']++;
-                }
+                $this->takeOffForSaleFeeds($property->fresh(), (bool) $this->option('portals'), $c);
             }
         });
 
@@ -87,17 +86,27 @@ class SoldStockBackfill extends Command
             ->where('property_id', $property->id)->where('cycle_no', (int) ($property->listing_cycle ?: 1))->exists();
     }
 
-    /** Website + PP off now; P24 stays as Sold only while the grace window is still open. */
-    private function takeOffForSaleFeeds(Property $property): bool
+    /**
+     * The website pivot goes off in the database (no external call). The portals (PP always, P24 once the grace window has
+     * passed) only when --portals is given - this command may be run on a copy of live data that holds real portal credentials.
+     */
+    private function takeOffForSaleFeeds(Property $property, bool $portals, array &$c): void
     {
-        $siteOn = PropertyWebsiteSyndication::withoutGlobalScope(AgencyScope::class)
-            ->where('property_id', $property->id)->where('enabled', true)->exists();
-        if (! $siteOn && ! $property->pp_syndication_enabled && ! $property->mayBeLiveOnP24()) {
-            return false;
+        $off = PropertyWebsiteSyndication::withoutGlobalScope(AgencyScope::class)
+            ->where('property_id', $property->id)->where('enabled', true)
+            ->update(['enabled' => false, 'status' => PropertyWebsiteSyndication::STATUS_DEACTIVATED]);
+        $off > 0 && $c['website_switched_off']++;
+
+        if (! $property->pp_syndication_enabled && ! $property->mayBeLiveOnP24()) {
+            return;
+        }
+        if (! $portals) {
+            $c['portal_listings_still_to_take_down']++;
+
+            return;
         }
         $graceOpen = $property->portal_sold_until !== null && $property->portal_sold_until->toDateString() >= now()->toDateString();
-        DesyndicatePropertyFromPortalsJob::dispatch($property, removeFromWebsite: true, keepPpForSold: false, keepP24ForSold: (bool) $graceOpen);
-
-        return true;
+        DesyndicatePropertyFromPortalsJob::dispatch($property, removeFromWebsite: true, keepPpForSold: false, keepP24ForSold: $graceOpen);
+        $c['portal_jobs_dispatched']++;
     }
 }

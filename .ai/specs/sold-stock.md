@@ -120,9 +120,14 @@ plus Laravel `links`/`meta`. Read-only, from `sold_stock` only; it never reads `
 
 `php artisan sold-stock:backfill {--agency=} {--dry-run}` — snapshots every property currently
 `sold` (excluding `sold_by_3rd_party`) and every registered (R) DR2 deal whose property has no snapshot,
-turns website/PP syndication off on Sold properties (P24 left on until its grace date, counted from the
-sale date, then expired by the daily command), prints counts (snapshots created / already present /
-deals / syndication switched off / skipped with reason). Idempotent — safe to re-run.
+switches the website pivot off on Sold properties **in the database** (no external call), prints counts
+(snapshots created / already present / deals / website switched off / portal listings still to take down /
+skipped). **Portals:** the Property24 / Private Property take-down jobs and the website `removed` webhooks are
+dispatched **only with `--portals`** — the production run (Andre). Without it the report says how many portal
+listings are still to take down. Reason: a non-production copy of live data (QA1) carries the real portal
+credentials, and a mass take-down from there would hit the real portals. P24 stays up as Sold until the grace date
+(sale date + the agency setting); `sold-stock:expire-portals` (daily, production scheduler only) then withdraws it.
+Idempotent — safe to re-run.
 
 ## 8. Not in scope / follow-ups
 
