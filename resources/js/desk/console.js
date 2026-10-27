@@ -114,7 +114,6 @@ function onEvents(events) {
     // a few seconds behind or ahead would be mirrored late (or in a burst). A live mirror wants "as it arrives": stamp the batch with
     // the moment it arrived here (order inside the batch is kept - equal stamps keep their sequence).
     const arrived = Date.now();
-    (window.__deskLog = window.__deskLog || []).push([arrived, events.map((e) => e.type + ':' + (e.data && e.data.source !== undefined ? e.data.source : ''))]); // TEMP debug
     for (const ev of events) {
         ev.timestamp = arrived;
         if (ev.type === EVENT_META && ev.data && ev.data.href) {
@@ -132,9 +131,10 @@ function onEvents(events) {
 function startReplayer() {
     const root = $('cdc-replay');
     root.innerHTML = '';
-    const replayer = new Replayer(cur.events, { root, liveMode: true, mouseTail: false, showWarning: false, showDebug: false, skipInactive: false });
+    // useVirtualDom:false - the virtual DOM is a fast-forward optimisation; in live mode a mutation applied "sync" (an event stamped just
+    // before the replayer started) switches it on and later mutations then wait in it for a flush that never comes.
+    const replayer = new Replayer(cur.events, { root, liveMode: true, mouseTail: false, showWarning: false, showDebug: false, skipInactive: false, useVirtualDom: false });
     cur.replayer = replayer;
-    window.__deskReplayer = replayer; // TEMP debug
     $('cdc-wait').hidden = true;
     replayer.startLive();
     fit();
