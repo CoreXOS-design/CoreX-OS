@@ -231,7 +231,7 @@ final class DeskExtensionApiTest extends DeskTestCase
         $this->desk->join($owner, $code);
         $this->as($agent)->tab($s, 'join', 'x3', 'https://www.cmainfo.co.za/', 'CMA')->assertOk();
 
-        $this->assertSame([['tab' => 'x3', 'host' => 'www.cmainfo.co.za', 'title' => 'CMA']], array_values($this->desk->openTabs($s)));
+        $this->assertSame([['tab' => 'x3', 'host' => 'www.cmainfo.co.za', 'title' => 'CMA', 'path' => '']], array_values($this->desk->openTabs($s)));
     }
 
     // ── The private channel for a token user ────────────────────────────────────────
@@ -315,9 +315,10 @@ final class DeskExtensionApiTest extends DeskTestCase
     public function test_the_corex_page_client_ignores_events_addressed_to_extension_tabs_and_the_console_names_the_tab(): void
     {
         $agent = (string) file_get_contents(resource_path('js/desk/agent.js'));
-        $this->assertStringContainsString('const forMain = (tab) => !tab || tab === \'main\'', $agent);
-        $this->assertStringContainsString('if (forMain(e.tab)) showHighlight', $agent);
-        $this->assertStringContainsString("listenForWhisper('resync', (r) => { if (forMain(r && r.t))", $agent);
+        // (since spec section 4f a CoreX tab answers to its own key - "main" or "c<letters>" - and nobody else's)
+        $this->assertStringContainsString("const forMe = (tab) => !!st && (tab || 'main') === st.tab;", $agent);
+        $this->assertStringContainsString('if (forMe(e.tab)) showHighlight', $agent);
+        $this->assertStringContainsString("listenForWhisper('resync', (r) => { if (forMe(r && r.t))", $agent);
 
         $console = (string) file_get_contents(resource_path('js/desk/console.js'));
         foreach (["'.desk.tab_joined'", "'.desk.tab_updated'", "'.desk.tab_left'", "whisper('resync', { t:", "whisper('pointer', { t: tab.key", 'tabParam(tab)'] as $needle) {

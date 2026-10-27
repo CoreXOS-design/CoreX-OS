@@ -35,6 +35,8 @@ class DeskSessionEvent extends Model
     public const CONTROL_REVOKED = 'control_revoked';
     public const CONTROL_ENDED = 'control_ended';
     public const CONTROL_ACTION = 'control_action';
+    // Control followed the agent's replayed click into a new CoreX tab (spec section 4f).
+    public const CONTROL_MOVED = 'control_moved';
 
     protected $fillable = ['desk_session_id', 'agency_id', 'type', 'payload', 'actor_user_id', 'created_at'];
 

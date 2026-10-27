@@ -10,6 +10,7 @@ use App\Models\Otp;
 use App\Models\User;
 use App\Services\Otp\OtpService;
 use App\Support\Desk\DeskSupporterLabel;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 
@@ -156,6 +157,9 @@ class DeskSessionService
         if ($changed && $session->isLive()) {
             $this->record($session, DeskSessionEvent::PAGE, ['page' => $path]);
         }
+        if ($session->isLive()) {
+            $this->settleTabs($session);
+        }
 
         return $session;
     }
@@ -295,10 +299,18 @@ class DeskSessionService
         return false;
     }
 
-    /** A tab key: "main" (the CoreX page) or "x<chrome tab id>" for an extension tab. Anything else is treated as the CoreX page. */
+    /**
+     * A tab key: "main" (the CoreX tab that started the session), "c<letters/digits>" (any other CoreX tab of the agent - spec section 4f) or
+     * "x<chrome tab id>" for an extension tab. Anything else is treated as "main".
+     */
     public function cleanTabKey(?string $key): string
     {
-        return is_string($key) && preg_match('/^x\d{1,10}$/', $key) ? $key : 'main';
+        return is_string($key) && preg_match('/^(x\d{1,10}|c[a-z0-9]{3,10})$/', $key) ? $key : 'main';
+    }
+
+    private function isCoreXTabKey(string $key): bool
+    {
+        return $key === 'main' || (bool) preg_match('/^c[a-z0-9]{3,10}$/', $key);
     }
 
     /**
@@ -358,6 +370,147 @@ class DeskSessionService
         return $open;
     }
 
+    // ── The agent's CoreX tabs (spec section 4f): a session belongs to the USER, so every CoreX tab they have joins it ───────────
+
+    /**
+     * A CoreX tab of the agent joined, changed page / title, or is going away (the agent's own browser, session-authenticated). Audited as
+     * tab_join / tab_leave exactly like an extension tab. A leave is not acted on at once: the same tab loading its next page says "leaving" and
+     * then "joined" again within a moment - settleTabs() makes it a real leave only when nobody came back for the grace.
+     *
+     * $followedFrom: the tab whose replayed click opened this one (the agent's browser knows - it just ran that click). While control is
+     * granted on that tab, control moves with it, so a button that opens a new tab does not strand support behind it (audited as control_moved).
+     *
+     * @return array<string, array{tab:string, host:string, title:string, path:string}> the tabs open now
+     */
+    public function coreXTabEvent(DeskSession $session, User $agent, string $action, string $key, ?string $path = null, ?string $title = null, ?string $followedFrom = null): array
+    {
+        $session = $session->fresh();
+        if (! $session || ! $session->isLive() || (int) $session->user_id !== (int) $agent->id) {
+            throw new DeskNotLiveException('That Desk session is not live.');
+        }
+        if (! $this->isCoreXTabKey($key)) {
+            throw new \InvalidArgumentException('Not a CoreX tab.');
+        }
+        $this->settleTabs($session);
+        $session = $session->fresh();
+        $open = $this->openTabs($session);
+
+        if ($action === 'leave') {
+            if (isset($open[$key])) {
+                $idx = (array) Cache::get($this->leaveIndexKey($session->id), []);
+                $idx[$key] = now()->timestamp;
+                Cache::put($this->leaveIndexKey($session->id), $idx, 300);
+            }
+
+            return $open;
+        }
+
+        // joined (or still here): cancels a leave that was waiting out its grace
+        $idx = (array) Cache::get($this->leaveIndexKey($session->id), []);
+        if (isset($idx[$key])) {
+            unset($idx[$key]);
+            Cache::put($this->leaveIndexKey($session->id), $idx, 300);
+        }
+        Cache::put($this->seenKey($session->id, $key), now()->timestamp, 600);
+
+        $info = ['tab' => $key, 'host' => 'CoreX', 'title' => $this->cleanTitle($title), 'path' => (string) ($this->cleanPath($path) ?? '')];
+        $isNew = ! isset($open[$key]);
+        if ($isNew) {
+            $this->record($session, DeskSessionEvent::TAB_JOIN, $info, $agent);
+            DeskBroadcast::dispatch($session->id, 'desk.tab_joined', $info);
+        } elseif (($open[$key]['title'] ?? '') !== $info['title'] || ($open[$key]['path'] ?? '') !== $info['path']) {
+            // (recorded too, so the tabs derived from the trail carry the page the tab is on now)
+            $this->record($session, DeskSessionEvent::TAB_UPDATE, $info, $agent);
+            DeskBroadcast::dispatch($session->id, 'desk.tab_updated', $info);
+        }
+        $open[$key] = $info;
+
+        if ($isNew && $followedFrom && $followedFrom !== $key && $this->isCoreXTabKey($followedFrom)
+            && $session->control_state === DeskSession::CONTROL_GRANTED && $session->control_tab === $followedFrom) {
+            $session->forceFill(['control_tab' => $key, 'control_last_action_at' => now()])->save();
+            $this->record($session, DeskSessionEvent::CONTROL_MOVED, $info + ['from' => $followedFrom], $agent);
+            DeskBroadcast::dispatch($session->id, 'desk.control_moved', ['tab' => $key, 'from' => $followedFrom, 'idle_seconds' => $this->controlIdleMinutes($session->agency_id ? (int) $session->agency_id : null) * 60]);
+        }
+
+        return $open;
+    }
+
+    /** Every CoreX tab pings with the session heartbeat: a tab that crashed (no "leaving" ever came) is dropped after this long. */
+    public function touchTab(DeskSession $session, string $key): void
+    {
+        if ($this->isCoreXTabKey($key)) {
+            Cache::put($this->seenKey($session->id, $key), now()->timestamp, 600);
+        }
+    }
+
+    /**
+     * Turn the tabs that said "leaving" and did not come back within the grace, and the tabs that stopped pinging, into real leaves
+     * (audited, broadcast, control ended if it was on that tab). Cheap; called on every read of the session.
+     */
+    public function settleTabs(DeskSession $session): void
+    {
+        $idx = (array) Cache::get($this->leaveIndexKey($session->id), []);
+        $grace = (int) config('desk.tab_leave_grace_seconds', 3);
+        $silent = (int) config('desk.tab_silent_seconds', 100);
+        $open = $this->openTabs($session);
+        $gone = [];
+        foreach ($open as $key => $t) {
+            if (! $this->isCoreXTabKey($key)) {
+                continue;
+            }
+            $left = $idx[$key] ?? null;
+            $seen = Cache::get($this->seenKey($session->id, $key));
+            if (($left && now()->timestamp - (int) $left >= $grace) || ($seen && now()->timestamp - (int) $seen > $silent)) {
+                $gone[] = $key;
+            }
+        }
+        foreach ($gone as $key) {
+            if ($session->control_state !== DeskSession::CONTROL_NONE && $session->control_tab === $key) {
+                $this->closeControl($session, 'system', 'tab');
+                $session = $session->fresh();
+            }
+            $this->record($session, DeskSessionEvent::TAB_LEAVE, ['tab' => $key, 'host' => 'CoreX', 'title' => $open[$key]['title'] ?? '', 'path' => $open[$key]['path'] ?? '']);
+            DeskBroadcast::dispatch($session->id, 'desk.tab_left', ['tab' => $key]);
+            unset($idx[$key]);
+            Cache::forget($this->seenKey($session->id, $key));
+        }
+        if ($gone) {
+            Cache::put($this->leaveIndexKey($session->id), $idx, 300);
+        }
+    }
+
+    private function leaveIndexKey(int $sessionId): string
+    {
+        return 'desk:tableaves:' . $sessionId;
+    }
+
+    private function seenKey(int $sessionId, string $key): string
+    {
+        return 'desk:tabseen:' . $sessionId . ':' . $key;
+    }
+
+    /** The agent clicked the highlighted element (or left the page): the highlight is gone on both sides; the console says "done". */
+    public function highlightDone(DeskSession $session, User $agent, ?string $tab, string $reason): void
+    {
+        $session = $session->fresh();
+        if (! $session || ! $session->isLive() || (int) $session->user_id !== (int) $agent->id) {
+            return;
+        }
+        $tab = $this->cleanTabKey($tab);
+        $reason = $reason === 'navigated' ? 'navigated' : 'clicked';
+        $this->record($session, DeskSessionEvent::HIGHLIGHT_CLEARED, ['tab' => $tab, 'reason' => $reason, 'by' => 'agent'], $agent);
+        DeskBroadcast::dispatch($session->id, 'desk.highlight_cleared', ['tab' => $tab, 'reason' => $reason]);
+    }
+
+    /** Timing overlay only (config desk.timing_overlay): a server-stamped event so the console can show the server-to-console leg. */
+    public function timingProbe(DeskSession $session): int
+    {
+        $ms = (int) round(microtime(true) * 1000);
+        DeskBroadcast::dispatch($session->id, 'desk.timing', ['sent_ms' => $ms]);
+
+        return $ms;
+    }
+
     /** The extension tabs open in this session right now, derived from its audit trail (last join/update/leave per tab). */
     public function openTabs(DeskSession $session): array
     {
@@ -374,7 +527,7 @@ class DeskSessionService
             if ($e->type === DeskSessionEvent::TAB_LEAVE) {
                 unset($open[$key]);
             } else {
-                $open[$key] = ['tab' => $key, 'host' => (string) ($p['host'] ?? ''), 'title' => (string) ($p['title'] ?? '')];
+                $open[$key] = ['tab' => $key, 'host' => (string) ($p['host'] ?? ''), 'title' => (string) ($p['title'] ?? ''), 'path' => (string) ($p['path'] ?? '')];
             }
         }
 
@@ -404,12 +557,12 @@ class DeskSessionService
     /** host + title of a tab for the audit trail ("main" is the CoreX page itself). */
     private function tabInfo(DeskSession $session, string $tab): array
     {
-        if ($tab === 'main') {
-            return ['tab' => 'main', 'host' => 'CoreX', 'title' => 'CoreX page'];
-        }
         $open = $this->openTabs($session);
+        if ($tab === 'main') {
+            return ['tab' => 'main', 'host' => 'CoreX', 'title' => $open['main']['title'] ?? 'CoreX page', 'path' => $open['main']['path'] ?? ''];
+        }
 
-        return $open[$tab] ?? ['tab' => $tab, 'host' => '', 'title' => ''];
+        return $open[$tab] ?? ['tab' => $tab, 'host' => '', 'title' => '', 'path' => ''];
     }
 
     /**

@@ -53,14 +53,27 @@ class DeskSessionController extends Controller
     {
         $session = $this->mine($request, $id);
         $session = $this->desk->heartbeat($session, $request->input('page'));
+        if ($session->isLive() && is_string($request->input('tab'))) {
+            $this->desk->touchTab($session, $this->desk->cleanTabKey($request->input('tab')));
+        }
 
-        return response()->json(['status' => $session->status, 'ended_by' => $session->ended_by]);
+        return response()->json(['status' => $session->status, 'ended_by' => $session->ended_by, 'server_ms' => (int) round(microtime(true) * 1000)]);
     }
 
     /** POST /api/v1/desk/sessions/{id}/leaving - beacon from a page that is closing; the next page has a short grace to reconnect. */
     public function leaving(Request $request, int $id): JsonResponse
     {
-        $this->desk->leaving($this->mine($request, $id));
+        $session = $this->mine($request, $id);
+        $this->desk->leaving($session);
+        // A CoreX tab going away says so by name: the console drops it unless the same tab comes back (its next page) within the grace.
+        $tab = $request->input('tab');
+        if (is_string($tab) && $session->isLive()) {
+            try {
+                $this->desk->coreXTabEvent($session, $request->user(), 'leave', $this->desk->cleanTabKey($tab));
+            } catch (\Throwable) {
+                // best effort: a beacon has nobody to tell
+            }
+        }
 
         return response()->json(['ok' => true]);
     }
@@ -71,6 +84,36 @@ class DeskSessionController extends Controller
         $session = $this->desk->end($this->mine($request, $id), DeskSession::ENDED_BY_AGENT, $request->user());
 
         return response()->json(['status' => $session->status]);
+    }
+
+    // ── The agent's CoreX tabs (spec section 4f) ─────────────────────────────────────────────────────
+
+    /** POST /api/v1/desk/sessions/{id}/tabs {action: join|update|leave, tab, path, title, from?} - this CoreX tab joins (or leaves) the session. */
+    public function tab(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate([
+            'action' => ['required', 'in:join,update,leave'],
+            'tab' => ['required', 'string', 'regex:/^(main|c[a-z0-9]{3,10})$/'],
+            'path' => ['nullable', 'string', 'max:300'],
+            'title' => ['nullable', 'string', 'max:300'],
+            'from' => ['nullable', 'string', 'regex:/^(main|c[a-z0-9]{3,10})$/'],
+        ]);
+        try {
+            $tabs = $this->desk->coreXTabEvent($this->mine($request, $id), $request->user(), $data['action'], $data['tab'], $data['path'] ?? null, $data['title'] ?? null, $data['from'] ?? null);
+        } catch (\App\Services\Desk\DeskNotLiveException) {
+            return response()->json(['message' => 'That Desk session is not live.'], 409);
+        }
+
+        return response()->json(['tabs' => array_values($tabs), 'session' => $this->mine($request, $id)->load('agent', 'agency', 'supportUser')->toClientArray()]);
+    }
+
+    /** POST /api/v1/desk/sessions/{id}/highlight/clear {tab, reason: clicked|navigated} - the agent clicked the highlighted element, or left the page. */
+    public function highlightClear(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate(['tab' => ['nullable', 'string', 'max:12'], 'reason' => ['nullable', 'string', 'max:12']]);
+        $this->desk->highlightDone($this->mine($request, $id), $request->user(), $data['tab'] ?? null, (string) ($data['reason'] ?? 'clicked'));
+
+        return response()->json(['ok' => true]);
     }
 
     // ── Take-over (phase 2): the agent's answers and the report of what their browser replayed ──────────

@@ -44,6 +44,15 @@ return [
     'state_per_minute' => (int) env('DESK_STATE_PER_MINUTE', 60),
     'live_per_minute' => (int) env('DESK_LIVE_PER_MINUTE', 600),
 
+    // The agent's CoreX tabs (spec section 4f): a tab that says "leaving" has this long to come back (it is only loading its next page) before it counts
+    // as closed; a tab that stops pinging for tab_silent_seconds (crashed) is dropped.
+    'tab_leave_grace_seconds' => (int) env('DESK_TAB_LEAVE_GRACE_SECONDS', 3),
+    'tab_silent_seconds' => (int) env('DESK_TAB_SILENT_SECONDS', 100),
+
+    // Diagnostics (off by default; NOT an agency setting): the console shows a timing panel - agent-to-console and server-to-console times per event type,
+    // snapshot size, the ten biggest mutation batches, relay round trip (spec section 4e).
+    'timing_overlay' => (bool) env('DESK_TIMING_OVERLAY', false),
+
     // Selector / note limits for a highlight.
     'selector_max' => 500,
     'note_max' => 200,
