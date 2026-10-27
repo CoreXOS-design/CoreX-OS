@@ -29,7 +29,7 @@ class DeskConsoleController extends Controller
 
         return view('desk.console', [
             'sessions' => $this->visibleSessions($request)->open()->with('agent', 'agency', 'supportUser')->latest('id')->get(),
-            'consoleConfig' => ['canControl' => (bool) $request->user()->hasPermission('desk.control'), 'me' => \App\Support\Desk\DeskSupporterLabel::for($request->user()), 'urls' => [
+            'consoleConfig' => ['canControl' => (bool) $request->user()->hasPermission('desk.control'), 'me' => \App\Support\Desk\DeskSupporterLabel::for($request->user()), 'timing' => (bool) config('desk.timing_overlay'), 'urls' => [
                 'join' => route('corex.desk.join'),
                 'list' => route('corex.desk.sessions'),
                 'sessions' => url('corex/desk/sessions'),
@@ -42,9 +42,15 @@ class DeskConsoleController extends Controller
     {
         $this->desk->expireStale();
         $rows = $this->visibleSessions($request)->open()->with('agent', 'agency', 'supportUser')->latest('id')->get()
-            ->map(fn (DeskSession $s) => $s->toClientArray())->values();
+            ->map(function (DeskSession $s) {
+                if ($s->isLive()) {
+                    $this->desk->settleTabs($s);   // a CoreX tab that was closed leaves the console within a couple of seconds
+                }
 
-        return response()->json(['sessions' => $rows]);
+                return $s->toClientArray() + ['tabs' => $s->isLive() ? array_values($this->desk->openTabs($s)) : []];
+            })->values();
+
+        return response()->json(['sessions' => $rows, 'server_ms' => (int) round(microtime(true) * 1000)]);
     }
 
     /** POST /corex/desk/join {code} */
@@ -104,6 +110,14 @@ class DeskConsoleController extends Controller
         $this->desk->pointer($this->mine($request, $id), $request->user(), (bool) $data['on'], $data['tab'] ?? null);
 
         return response()->json(['ok' => true]);
+    }
+
+    /** POST /corex/desk/sessions/{id}/timing - only while the timing overlay is switched on (config desk.timing_overlay). */
+    public function timing(Request $request, int $id): JsonResponse
+    {
+        abort_unless(config('desk.timing_overlay'), 404);
+
+        return response()->json(['server_ms' => $this->desk->timingProbe($this->mine($request, $id)), 'done_ms' => (int) round(microtime(true) * 1000)]);
     }
 
     /** POST /corex/desk/sessions/{id}/end */

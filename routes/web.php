@@ -519,6 +519,8 @@ Route::middleware('auth')->group(function () {
             Route::post('/', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'store'])->middleware('throttle:desk-state')->name('store');
             Route::get('/current', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'current'])->middleware('throttle:desk-live')->name('current');
             Route::post('/{id}/heartbeat', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'heartbeat'])->whereNumber('id')->middleware('throttle:desk-live')->name('heartbeat');
+            Route::post('/{id}/tabs', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'tab'])->whereNumber('id')->middleware('throttle:desk-live')->name('tab');
+            Route::post('/{id}/highlight/clear', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'highlightClear'])->whereNumber('id')->middleware('throttle:desk-live')->name('highlight.clear');
             Route::post('/{id}/leaving', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'leaving'])->whereNumber('id')->middleware('throttle:desk-live')->name('leaving');
             Route::post('/{id}/end', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'end'])->whereNumber('id')->middleware('throttle:desk-state')->name('end');
             // Take-over (phase 2, spec section 14): the agent answers a request, takes control back, and reports what their browser replayed.
@@ -2356,6 +2358,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/sessions/{id}/attach', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'attach'])->whereNumber('id')->middleware('throttle:desk-state')->name('attach');
         Route::post('/sessions/{id}/highlight', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'highlight'])->whereNumber('id')->middleware('throttle:desk-live')->name('highlight');
         Route::post('/sessions/{id}/highlight/clear', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'clearHighlight'])->whereNumber('id')->middleware('throttle:desk-live')->name('highlight.clear');
+        Route::post('/sessions/{id}/timing', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'timing'])->whereNumber('id')->middleware('throttle:desk-live')->name('timing');
         Route::post('/sessions/{id}/pointer', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'pointer'])->whereNumber('id')->middleware('throttle:desk-live')->name('pointer');
         Route::post('/sessions/{id}/end', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'end'])->whereNumber('id')->middleware('throttle:desk-state')->name('end');
         // Take-over (phase 2): needs desk.control as well as desk.support (the group's gate).

@@ -4,13 +4,51 @@
 
 const cfg = window.CorexDesk;
 const KEY = 'corex.desk.session';
+const TAB_KEY = 'corex.desk.tab';
 const $ = (id) => document.getElementById(id);
 
+// The session belongs to the USER (spec section 4f), so what a tab remembers is shared by all of them: localStorage, not sessionStorage. The code is
+// shown in the tab that asked for it (saved.tab); every other tab just joins.
 function store(v) {
-    try { if (v) sessionStorage.setItem(KEY, JSON.stringify(v)); else sessionStorage.removeItem(KEY); } catch (e) { /* private mode */ }
+    try { if (v) localStorage.setItem(KEY, JSON.stringify(v)); else localStorage.removeItem(KEY); } catch (e) { /* private mode */ }
 }
 function stored() {
-    try { return JSON.parse(sessionStorage.getItem(KEY) || 'null'); } catch (e) { return null; }
+    try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { return null; }
+}
+
+// ── This tab's key ("main" = the tab that started the session; "c<letters>" = every other CoreX tab) ───────────────
+// Kept in sessionStorage so the tab keeps its key across its own page changes. A tab opened from another one can inherit that storage (a copy of the
+// opener's key), so the key is also claimed with a Web Lock held for as long as the page lives: if someone else already holds it, this tab takes a new one.
+function tryLock(key) {
+    return new Promise((resolve) => {
+        if (!navigator.locks || !navigator.locks.request) { resolve(true); return; }
+        navigator.locks.request('corex-desk-tab-' + key, { ifAvailable: true }, (lock) => {
+            if (!lock) { resolve(false); return null; }
+            resolve(true);
+            return new Promise(() => {});   // held until the page goes away
+        }).catch(() => resolve(true));
+    });
+}
+const randomKey = () => 'c' + Math.random().toString(36).slice(2, 8).replace(/[^a-z0-9]/g, 'x').padEnd(5, 'x');
+
+let tabKeyPromise = null;
+function tabKey(wantMain) {
+    if (tabKeyPromise) return tabKeyPromise;
+    tabKeyPromise = (async () => {
+        let k = null;
+        try { k = sessionStorage.getItem(TAB_KEY); } catch (e) { /* private mode */ }
+        if (k && !/^(main|c[a-z0-9]{3,10})$/.test(k)) k = null;
+        if (k) {
+            let ok = await tryLock(k);
+            if (!ok) { await new Promise((r) => setTimeout(r, 350)); ok = await tryLock(k); }   // our own previous page may still be letting go
+            if (!ok) k = null;
+        }
+        if (!k && wantMain && await tryLock('main')) k = 'main';
+        while (!k) { const c = randomKey(); if (await tryLock(c)) k = c; }
+        try { sessionStorage.setItem(TAB_KEY, k); } catch (e) { /* private mode */ }
+        return k;
+    })();
+    return tabKeyPromise;
 }
 
 async function api(method, url, body) {
@@ -107,9 +145,10 @@ const ui = {
 
 // ── Flow ─────────────────────────────────────────────────────────────────────────
 
-async function startAgent(session) {
+async function startAgent(session, wantMain) {
+    const key = await tabKey(!!wantMain);
     const agent = await import('./agent.js');
-    agent.start({ cfg, session, api, ui });
+    agent.start({ cfg, session, api, ui, tabKey: key });
     return agent;
 }
 
@@ -119,6 +158,10 @@ async function openHelp() {
         return;
     }
     const saved = stored();
+    if (cfg.current && cfg.current.status === 'live') {
+        showModal('error', { message: 'CoreX support is already connected to all of your CoreX windows. Use the red bar to end the session.' });
+        return;
+    }
     if (saved && saved.code && saved.expires_at && new Date(saved.expires_at) > new Date()) {
         showModal('waiting', { code: saved.code, expiresAt: saved.expires_at });
         return;
@@ -135,9 +178,10 @@ async function openHelp() {
     }
     const s = r.json.session;
     const expiresAt = s.code_expires_at;
-    store({ id: s.id, code: r.json.code, expires_at: expiresAt });
+    const mine = await tabKey(true);
+    store({ id: s.id, code: r.json.code, expires_at: expiresAt, tab: mine });
     showModal('waiting', { code: r.json.code, expiresAt });
-    startAgent(s);
+    startAgent(s, true);
 }
 
 async function cancel() {
@@ -167,12 +211,15 @@ function boot() {
         else if (e.target.closest('[data-desk-takeback]')) { control('controlRevoke'); }
     });
 
-    // A session already open in THIS tab (a page change): pick it up again. A session open in some other tab is not ours to share.
+    // A session the server has open for this user (spec section 4f): EVERY CoreX tab joins it - the one that asked for the code, a page change in it,
+    // and any tab opened afterwards (a button that opens a new tab). The code is shown once, in the tab that asked.
     const saved = stored();
     const cur = cfg.current;
-    if (saved && cur && saved.id === cur.id) {
-        if (cur.status === 'waiting') showModal('waiting', { code: saved.code, expiresAt: saved.expires_at });
-        startAgent(cur);
+    if (cur) {
+        if (cur.status === 'waiting' && saved && saved.id === cur.id && saved.code) {
+            tabKey(true).then((k) => { if (saved.tab === k) showModal('waiting', { code: saved.code, expiresAt: saved.expires_at }); });
+        }
+        startAgent(cur, !!(saved && saved.id === cur.id && saved.tab === 'main'));
     } else if (saved) {
         store(null); // the server no longer has it open
     }

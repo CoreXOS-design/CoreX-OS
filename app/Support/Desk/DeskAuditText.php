@@ -13,9 +13,9 @@ final class DeskAuditText
     private const LABELS = [
         'created' => 'Code issued', 'joined' => 'Support joined', 'page' => 'Moved to page', 'highlight' => 'Support highlighted',
         'highlight_cleared' => 'Highlight cleared', 'pointer_on' => 'Support pointer on', 'pointer_off' => 'Support pointer off', 'ended' => 'Session ended',
-        'tab_join' => 'Browser tab shared', 'tab_update' => 'Shared tab moved to another site', 'tab_leave' => 'Browser tab no longer shared',
+        'tab_join' => 'Browser tab shared', 'tab_update' => 'Shared tab moved to another page or site', 'tab_leave' => 'Browser tab no longer shared',
         'control_requested' => 'Support asked to take control', 'control_granted' => 'Agent allowed control', 'control_declined' => 'Control not given',
-        'control_revoked' => 'Agent took back control', 'control_ended' => 'Control ended', 'control_action' => 'Support acted on the agent\'s screen',
+        'control_revoked' => 'Agent took back control', 'control_ended' => 'Control ended', 'control_action' => 'Support acted on the agent\'s screen', 'control_moved' => 'Control followed the agent to a new CoreX tab',
     ];
 
     private const ENDED = ['agent' => 'the agent', 'support' => 'support', 'logout' => 'the agent signing out', 'timeout' => 'the connection being lost',
@@ -65,6 +65,9 @@ final class DeskAuditText
         }
         $host = (string) ($p['host'] ?? '');
         $title = (string) ($p['title'] ?? '');
+        if ($host === 'CoreX') {
+            return 'the CoreX tab ' . trim(($title !== '' ? $title : '') . (! empty($p['path']) ? ' (' . $p['path'] . ')' : ''));
+        }
 
         return 'the shared tab ' . trim(($title !== '' ? $title . ' - ' : '') . $host);
     }
@@ -87,7 +90,15 @@ final class DeskAuditText
             case 'tab_join':
             case 'tab_update':
             case 'tab_leave':
+                if (($p['host'] ?? '') === 'CoreX') {
+                    return 'CoreX tab' . (! empty($p['title']) ? ' - ' . $p['title'] : '') . (! empty($p['path']) ? ' (' . $p['path'] . ')' : '');
+                }
+
                 return (string) ($p['host'] ?? '') . (! empty($p['title']) ? ' - ' . $p['title'] : '');
+            case 'control_moved':
+                return 'to ' . self::where($p);
+            case 'highlight_cleared':
+                return ! empty($p['reason']) ? ($p['reason'] === 'clicked' ? 'the agent clicked it' : 'the agent moved to another page') : '';
             case 'ended':
                 return 'by ' . (self::ENDED[$p['by'] ?? ''] ?? ($p['by'] ?? ''));
             case 'control_requested':

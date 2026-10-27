@@ -31,6 +31,7 @@
         'phone' => \App\Http\Controllers\Api\V1\DeskSessionController::supportPhone(),
         'csrf' => csrf_token(),
         'userId' => $__deskUser->id,
+        'timing' => (bool) config('desk.timing_overlay'),
         'heartbeatSeconds' => (int) config('desk.heartbeat_seconds', 30),
         'reverb' => $__deskEnabled ? [
             'key' => $__deskReverbKey,
@@ -69,7 +70,17 @@
     #corex-desk-modal[data-state="creating"] [data-state-only~="creating"] { display: block; }
     #corex-desk-pointer { position: fixed; z-index: 100002; pointer-events: none; transform: translate(-2px, -2px); }
     #corex-desk-pointer span { display: inline-block; margin: 0 0 0 14px; padding: 0 .4rem; border-radius: .25rem; background: #b91c1c; color: #fff; font-size: .65rem; font-weight: 700; }
-    .corex-desk-popover { max-width: 18rem; }
+    /* Support's highlight (spec section 4g): a CoreX ring round the element, the supporter's name on its edge, a small note card beside it. Not part of
+       the Guided Tour - no Next / Previous, nothing to press. The agent's own click on the element clears it. */
+    .cd-hl { position: fixed; z-index: 100000; pointer-events: none; box-sizing: border-box; border: 3px solid var(--brand-icon, #0ea5e9); border-radius: 10px;
+        box-shadow: 0 0 0 4px rgba(14,165,233,.22), 0 0 26px rgba(14,165,233,.45); }
+    .cd-hl .cd-hl-label { position: absolute; left: 10px; top: -13px; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 9px;
+        border-radius: 9999px; background: var(--brand-icon, #0ea5e9); color: #fff; font-size: .68rem; font-weight: 700; line-height: 1.3; }
+    .cd-hl .cd-hl-note { position: absolute; top: calc(100% + 10px); left: 0; min-width: 11rem; max-width: 20rem; padding: .5rem .7rem; border-radius: .5rem;
+        background: var(--surface, #fff); color: var(--text-primary, #111827); border: 1px solid var(--border, #e5e7eb); border-left: 4px solid var(--brand-icon, #0ea5e9);
+        box-shadow: 0 10px 28px rgba(0,0,0,.28); font-size: .8rem; line-height: 1.35; font-weight: 500; white-space: normal; overflow-wrap: anywhere; }
+    .cd-hl.cd-hl-up .cd-hl-note { top: auto; bottom: calc(100% + 10px); }
+    .cd-hl.cd-hl-right .cd-hl-note { left: auto; right: 0; }
 </style>
 
 <div id="corex-desk-bar" class="rr-block" role="status" hidden data-mode="view">
@@ -104,9 +115,6 @@
 <div id="corex-desk-pointer" class="rr-block" hidden>
     <svg width="18" height="18" viewBox="0 0 24 24" fill="#b91c1c" stroke="#fff" stroke-width="1.5" aria-hidden="true" style="position:absolute;left:0;top:0;"><path d="M4 3l16 7-7 2-2 7z"/></svg><span>Support</span>
 </div>
-
-{{-- The Guided Tour's own driver.js stylesheet + CoreX popover theme, so support's highlight looks exactly like a tour step on every page. --}}
-@include('layouts.partials.tour-theme')
 
 @vite(['resources/js/desk/index.js'])
 @endif
