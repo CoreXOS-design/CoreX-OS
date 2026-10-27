@@ -47,22 +47,22 @@ class DeskSession extends Model
 
     public function agent(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'user_id');
+        return $this->belongsTo(User::class, 'user_id')->withoutGlobalScopes();
     }
 
     public function supportUser(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'support_user_id');
+        return $this->belongsTo(User::class, 'support_user_id')->withoutGlobalScopes();
     }
 
     public function endedByUser(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'ended_by_user_id');
+        return $this->belongsTo(User::class, 'ended_by_user_id')->withoutGlobalScopes();
     }
 
     public function agency(): BelongsTo
     {
-        return $this->belongsTo(Agency::class);
+        return $this->belongsTo(Agency::class)->withoutGlobalScopes();
     }
 
     public function events(): HasMany

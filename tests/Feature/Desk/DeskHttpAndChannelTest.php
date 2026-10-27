@@ -127,6 +127,19 @@ final class DeskHttpAndChannelTest extends DeskTestCase
             ->assertSee('/corex/compliance/desk-sessions/' . $a->id, false)->assertSee('/corex/compliance/desk-sessions/' . $b->id, false);
     }
 
+    public function test_an_agency_admin_sees_the_name_of_the_corex_support_user_who_joined(): void
+    {
+        // The support user is a CoreX owner with no agency; the agency admin's own agency scope must not hide them.
+        $agent = $this->agentIn($this->agencyA);
+        $owner = $this->owner();
+        [$session, $code] = $this->desk->start($agent);
+        $this->desk->join($owner, $code);
+        $adminA = $this->agentIn($this->agencyA, 'admin');
+
+        $this->actingAs($adminA)->get('/corex/compliance/desk-sessions/' . $session->id)->assertOk()->assertSee($owner->name);
+        $this->actingAs($agent)->getJson('/api/v1/desk/sessions/current')->assertOk()->assertJsonPath('session.support_name', $owner->name);
+    }
+
     public function test_an_agent_cannot_open_the_audit(): void
     {
         $this->actingAs($this->agentIn($this->agencyA))->get('/corex/compliance/desk-sessions')->assertForbidden();
