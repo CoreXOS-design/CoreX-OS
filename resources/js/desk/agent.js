@@ -213,6 +213,10 @@ async function showHighlight(selector, note) {
         stagePadding: 6,
         stageRadius: 8,
         popoverClass: 'corex-tour',
+        // A highlight is a pointing finger, not a tour: no Next/Previous/close, no footer.
+        onPopoverRender: (popover) => {
+            ['footer', 'closeButton'].forEach((k) => { if (popover[k]) popover[k].style.display = 'none'; });
+        },
     });
     st.drv.highlight({
         element: target,

@@ -132,9 +132,63 @@ match the session gets the same "code not found" answer as a wrong code.
 
 All Desk JS is its own Vite entry (`resources/js/desk/index.js`) loaded by both layouts (`corex.blade.php`,
 `corex-app.blade.php`) through one partial. It is a tiny loader; rrweb and Echo are imported dynamically only when a session
-exists or the console is open. The console has its own entry (`resources/js/desk/console.js`). No CSP exists today and none is
-added. Masking: `maskInputOptions.password`, `maskInputFn` for `[data-desk-mask]`, `maskTextSelector: '[data-desk-mask]'`,
-`blockClass: 'rr-block'` on all Desk UI. `data-desk-mask` is added to card and bank inputs.
+exists or the console is open (`agent.js`). The console has its own entry (`console.js`). `echo.js` (one connection per tab) and
+`frames.js` (the frame codec) are shared. No CSP exists today and none is added.
+
+- **Masking (in the agent's browser, before anything is sent):** every input type is passed to rrweb's `maskInputOptions`, and
+  `maskInputFn` keeps the real value unless the field is `type="password"` or sits inside `[data-desk-mask]`;
+  `maskTextSelector: '[data-desk-mask]'` hides displayed text (e.g. a bank number shown as text). `data-desk-mask` is set on the
+  bank account and branch-code inputs (contacts, payroll, staff take-on, platform company, the rental application's bank account
+  field). Any future card/bank input must carry it. All Desk UI carries `rr-block`, so it is never part of what support sees.
+- **Highlight look:** drawn by the Guided Tour's own engine (vendored driver.js) with the tour's own theme —
+  `layouts/partials/tour-theme.blade.php` (moved out of `tour-engine.blade.php` unchanged, included on every page by the Desk
+  partial): overlay colour, stage padding/radius and the `corex-tour` popover, in the "Spot Help" hands-on mode
+  (`body.corex-guide-live`) so the agent can still click and type under the dimming.
+- **Mirror:** rrweb `record` on the agent, `Replayer` in live mode on the console. The console stamps each arriving batch with its
+  own clock (the Replayer plays a live event when its timestamp comes round on the local clock, so the agent's clock must not
+  matter). A page change is a new page load: the new page's recorder emits Meta + full snapshot, the Replayer rebuilds. Frames
+  wait in the agent's buffer until its channel is subscribed, so a snapshot is never whispered into the void.
+- **Assets:** the replayed page is rebuilt in an iframe inside the console, so images and fonts load with the support user's own
+  session; the stylesheets travel inlined in the snapshot.
+
+### 7.6 Protocol reference (protocol version 1 — the phase-3 extension uses this unchanged)
+
+**Channel.** `private-desk.session.{id}` on the Reverb/Pusher protocol. Auth: `POST /broadcasting/auth` (session cookie + CSRF);
+allowed for the session's agent, and for the support user who joined it while it is `live`. An ended session admits nobody.
+
+**Server events** (`broadcast`, JSON, Echo listens with a leading dot, e.g. `.desk.joined`). All audited in `desk_session_events`.
+
+| Event | Payload | Meaning / what a client does |
+|---|---|---|
+| `desk.joined` | `{support_name, joined_at}` | agent: show the red bar, **start recording** (nothing is recorded or sent before this) |
+| `desk.highlight` | `{selector, note}` | agent: outline `selector` (scroll it into view); `note` optional, ≤ 200 chars, plain text |
+| `desk.highlight_cleared` | `{}` | agent: remove the outline |
+| `desk.pointer_state` | `{on}` | agent: show/hide the "Support" cursor (the moves themselves are whispers) |
+| `desk.ended` | `{by}` | both: tear down. `by` ∈ `agent`, `support`, `logout`, `timeout`, `expired`, `disabled`, `replaced` |
+
+**Client events** ("whispers", `client-` prefix, browser to browser; never stored or audited per message):
+
+| Event | From | Payload |
+|---|---|---|
+| `client-frame` | agent | `{id, i, n, z, d}` — chunk `i` of `n` (0-based) of batch `id`. Reassemble `d` by `i`; base64-decode; if `z=1` gunzip; `JSON.parse` → an **array of rrweb events**. `d` ≤ 7000 chars. Incomplete batches are dropped after 30 s |
+| `client-resync` | support | `{}` — agent must emit a fresh rrweb **full snapshot** (`record.takeFullSnapshot(true)`). Sent on subscribing and every 3 s until the first snapshot arrives |
+| `client-pointer` | support | `{x, y}` — ratios 0–1 of the agent's viewport (so any window size works); the agent hides the cursor after 4 s idle |
+
+**HTTP.** Agent (`/api/v1/desk/sessions`, session-auth): `POST /` create → `{session, code, code_minutes}`; `GET /current`;
+`POST /{id}/heartbeat {page}` every 30 s and on each page load (answers `{status, ended_by}` — a dead session is noticed here);
+`POST /{id}/leaving` (beacon on `pagehide`); `POST /{id}/end`. Support (`/corex/desk`): `POST /join {code}`,
+`POST /sessions/{id}/highlight {selector, note}`, `/highlight/clear`, `/pointer {on}`, `/end`; `GET /sessions` (live list).
+
+**Rules every recorder must follow.**
+1. Record only the sharing tab, only while the session is `live`; stop on `desk.ended`.
+2. Mask before sending: password inputs, anything inside `[data-desk-mask]`; never send content of elements marked `rr-block`.
+3. Subscribe to the channel before whispering; keep the buffer until subscribed.
+4. Answer every `client-resync` with a full snapshot; a page change must emit a new snapshot.
+5. The page path (never the query string) is the only page information that reaches the server (heartbeat `page`).
+6. A client never trusts a selector blindly: an unmatched or invalid `selector` is ignored, never evaluated.
+
+**Selectors.** The console sends a `[data-tour="…"]` anchor when the clicked element (or an ancestor) has one; otherwise a CSS path
+of `tag:nth-of-type(n)` steps from `body` (shortened to the nearest stable `#id`).
 
 ## 8. Files (phase 1)
 
@@ -163,6 +217,14 @@ Infra (QA1 only): `corex-qa1-reverb.service`, nginx `location /app` in the `qate
 5. Both Role Manager keys, the agency setting and the wizard step exist.
 6. `desk_sessions` / `desk_session_events` rows are written for the lifecycle.
 7. Tests cover the session lifecycle and channel authorisation.
+
+## 10b. Acceptance criteria — week 2
+
+1. The console shows a live mirror of the agent's CoreX page, including scroll and page changes (re-snapshot on navigation).
+2. Passwords and `[data-desk-mask]` fields arrive masked; normal fields arrive as typed.
+3. The support pointer shows on the agent page at the matching position; a click in the mirror highlights the same element on the
+   agent's page, drawn with the Guided Tour's styling, and Clear removes it.
+4. The protocol (7.6) is documented and pinned by `tests/Feature/Desk/DeskProtocolTest.php`.
 
 ## 11. Phases
 
