@@ -2014,3 +2014,134 @@ Three lanes build from this section in parallel; the conductor assigns people. *
 
 **Found, not fixed:** `ReportService` / `DrilldownService` now leave follow-ups out of "worked" and "missed" (they are counted apart); the printed report has no follow-up column yet. `AgentWeekScenarioTest` was reworked so Ben works his own suburb (a property belongs to one agent now); the old shared-stock assertions were replaced, not deleted.
 
+### 22.18 Appendix - HFC's 70 tasks to events, for Johan's sign-off (AT-454, lane D, 27 Oct 2026)
+
+**Status: PROPOSED. Nothing is applied. Johan signs this off, then `database/data/rts/hfc-event-mapping.json` is corrected to match and `rts:bind-tasks --agency=1 --apply` (not built yet) is the only thing that changes HFC's tasks.** The rows below are HFC's real tasks, read from QA1 on 27 Oct 2026 (agency 1, 70 tasks, all active). "Bind" = the task is credited by the CoreX event and its old detector or calendar mapping is switched off for HFC in the same step. History is never rewritten.
+
+| Decision | Tasks |
+|---|---|
+| Bind | 20 |
+| Folded into another | 7 |
+| Keep | 22 |
+| Johan to say | 5 |
+| Later (Road to Rented) | 8 |
+| Stays on old detector | 8 |
+| **Total** | **70** |
+
+**What Johan decides (business only):**
+
+1. **Double credit today.** Appointments, Presentation and Take out Buyers each exist twice, and both copies are wired to the same calendar entry class, so one evaluation, one presentation or one viewing can count twice for an HFC agent. The proposal lets one of each pair bind the event and the other stop crediting (the task and its history stay). Say which of each pair you want to keep.
+2. **Mandate signed.** One signature must credit one task. The file binds "Sign a Exclusive Mandate"; the signing already credits "Mandate signed". Pick one.
+3. **Facebook.** A Facebook post credits both "Load Property on Facebook" and "Marketing published". Pick which stays.
+4. **Presentation lost.** One task per lost outcome, or one task for all of them.
+5. **Property captured, Rcr submitted, Prospecting - Lead, Feedback to Sellers - EATS** - what each one means (4 answers).
+6. **Deal side tasks.** Deal listing side / selling side and Deal registered listing side / selling side are folded into "Deal created" / "Deal registered" (each agent on the deal is credited once). Confirm.
+
+| Id | Step | Task | Decision | Event and filter | What happens |
+|---|---|---|---|---|---|
+| 271 | find | Check your admin file | Keep | - | Hand-ticked. No event exists. |
+| 273 | find | Follow up emails | Keep | - | Hand-ticked. |
+| 275 | find | Stats Send | Keep | - | Hand-ticked. |
+| 276 | find | Overall admin, excl above | Keep | - | Hand-ticked. |
+| 284 | find | Canvass Door to Door | Keep | - | Hand-ticked; capture kind set to "properties with their owner" so a capture makes tracked properties + owners (today all 70 are "notes only"). |
+| 288 | find | Load Property on P24 | Bind | PropertyWentLiveOnPortal {portal: p24} | Credited by the portal go-live; its old detector (definition 14) is switched off for HFC in the same step. |
+| 291 | find | Update Property 24 | Keep | - | A refresh has no event. |
+| 297 | find | Hand out Business Cards | Keep | - | Hand-ticked. |
+| 298 | find | Drive an Area | Keep | - | Hand-ticked; capture kind as for Canvass Door to Door. |
+| 300 | find | Feedback to Sellers - EATS | Johan to say | - | Stays hand-ticked until you say what "EATS" means. |
+| 306 | find | Rentals - In and Out Inspection | Later (Road to Rented) | - | Rentals track, later. |
+| 307 | find | Rentals - Pre-approvals | Later (Road to Rented) | - | Rentals track, later. |
+| 308 | find | Rentals - Applications and Marketing Permissions | Later (Road to Rented) | - | Rentals track, later. |
+| 309 | find | Rentals - General Inspections | Later (Road to Rented) | - | Rentals track, later. |
+| 313 | find | Rentals - Breaches / Notice To Vacate | Later (Road to Rented) | - | Rentals track, later. |
+| 315 | find | Property captured | Johan to say | - | Fires when the wizard makes a DRAFT, not when a property is finished. Until you say, it stays on the old detector. |
+| 318 | find | Mic claim taken | Bind | ClaimCreated | Credited by the claim; old detector off for HFC. |
+| 319 | find | Mic claim feedback | Bind | ClaimFeedbackRecorded | Credited by the feedback; old detector off for HFC. |
+| 338 | find | Rcr submitted | Johan to say | - | Say what "Rcr" is. Until then it stays on the old detector. |
+| 314 | find_owner | Contact captured | Stays on old detector | - | A new contact is not an owner event. The owner step is credited by "owner linked to a tracked property" through the default recipe task. |
+| 277 | contact_outcome | Prospecting - Contact Made | Bind | RoadToSoldOutcomeRecorded {kind: conversation} | Every spoken outcome credits it; old detector off. |
+| 278 | contact_outcome | Prospecting - No answers | Bind | RoadToSoldOutcomeRecorded {outcomeKey: no_answer} | Old detector off. |
+| 279 | contact_outcome | Prospecting - Lead | Johan to say | - | Is this a hot lead the agent found, or a portal lead? Until you say, it stays on the old detector. |
+| 321 | contact_outcome | Outreach pitch sent | Bind | PitchSent | Old detector off. |
+| 322 | contact_outcome | Outreach outcome logged | Bind | OutreachOutcomeUpdated | Old detector off. |
+| 280 | evaluation_booked | Appointments (definition 15) | Bind | EvaluationBooked | Credited when the evaluation is booked; its calendar mapping property_evaluation is switched off for HFC. |
+| 281 | evaluation_booked | Appointments (definition 300) | Folded into another | - | Today BOTH Appointments tasks are wired to the same calendar class (property_evaluation), so one appointment can count twice. Proposed: this one stops crediting; the task and its history stay. |
+| 282 | presentation | Presentation (definition 16) | Bind | PresentationPresented | Credited when a presentation is delivered; calendar mapping listing_presentation off for HFC. |
+| 283 | presentation | Presentation (definition 316) | Folded into another | - | Same double credit as Appointments (same calendar class). Proposed: stops crediting; your pick which of the two stays. |
+| 323 | presentation | Presentation generated | Stays on old detector | - | Not a stage; stays on the old detector. |
+| 324 | presentation | Presentation won | Bind | PresentationOutcomeRecorded {outcome: won_mandate} | Old detector off. |
+| 325 | presentation | Presentation lost | Bind | PresentationOutcomeRecorded {outcome: lost_to_competitor} | There are several "lost" outcomes (competitor, price, no decision, no response) and a filter matches one. Your pick: one task per outcome, or one task for every lost outcome (a small engine change). |
+| 286 | mandate | Sign a Exclusive Mandate | Bind | MandateSigned | cc5's file binds THIS task. See "Mandate signed" below: one real signature must credit one task. |
+| 326 | mandate | Mandate signed | Johan to say | MandateSigned | Already credited by the signing itself (definition 55, "mandate.signed"). Choose: this task binds the event and "Sign a Exclusive Mandate" stays hand-ticked, or the other way round. Not both. |
+| 320 | mandate | Tracked property promoted to stock | Stays on old detector | - | Promotion, not a stage. |
+| 335 | mandate | Fica submitted | Stays on old detector | - | Compliance, not a stage. |
+| 336 | mandate | Fica approved | Stays on old detector | - | Compliance, not a stage. |
+| 337 | mandate | Fica reviewed | Stays on old detector | - | Compliance, not a stage. |
+| 285 | listing_live | List a Property Open Listing | Keep | - | Hand-ticked. |
+| 305 | listing_live | Check Matches on Listings | Keep | - | Hand-ticked. |
+| 316 | listing_live | Property published | Stays on old detector | - | Website publishing, not the portal go-live. |
+| 317 | listing_live | Property compliance passed | Stays on old detector | - | Compliance, not a stage. |
+| 287 | marketing | Took photos of Property | Keep | - | Hand-ticked. |
+| 289 | marketing | Load Property on Facebook | Bind | MarketingPostPublished {platform: facebook} | Credited by the post. Overlaps "Marketing published" below. |
+| 290 | marketing | Virtual Tour | Keep | - | Hand-ticked. |
+| 292 | marketing | Update Photo Board | Keep | - | Hand-ticked. |
+| 293 | marketing | Put up Boards | Keep | - | Hand-ticked. |
+| 294 | marketing | Put up Sold Boards | Keep | - | Hand-ticked. |
+| 295 | marketing | Put adverts up in Shops | Keep | - | Hand-ticked. |
+| 296 | marketing | Check your Boards | Keep | - | Hand-ticked. |
+| 299 | marketing | Write article/blog in Media | Keep | - | Hand-ticked. |
+| 339 | marketing | Marketing published | Bind | MarketingPostPublished (any platform) | Already credited by the post itself (definition 64, "marketing.published"). A Facebook post credits BOTH this and "Load Property on Facebook". Your pick which one stays. |
+| 270 | buyers | Contacted New Buyers | Keep | - | Hand-ticked. |
+| 301 | buyers | Take out Buyers (definition 24) | Bind | ViewingScheduled | Credited when a viewing is scheduled; calendar mapping viewing off for HFC. |
+| 302 | buyers | Take out Buyers (definition 335) | Folded into another | - | Same double credit (same calendar class "viewing"). Proposed: stops crediting with the calendar mapping. |
+| 304 | buyers | Send Wishlist to Buyers | Keep | - | Hand-ticked. |
+| 303 | otp | Sign an OTP | Bind | OtpSigned | Old detector off. |
+| 272 | deal | Follow up bond originators | Keep | - | Hand-ticked. |
+| 274 | deal | Liase with Attorneys | Keep | - | Hand-ticked. |
+| 310 | deal | Rentals - Contractor Arrangements | Later (Road to Rented) | - | Rentals track, later. |
+| 311 | deal | Rentals - Contract Renewals | Later (Road to Rented) | - | Rentals track, later. |
+| 312 | deal | Rentals - New Contracts | Later (Road to Rented) | - | Rentals track, later. |
+| 327 | deal | Deal created | Bind | DealCreated | Credits EVERY agent on the deal (not the person who pressed the button). |
+| 328 | deal | Deal listing side | Folded into another | - | Covered by "Deal created": each agent on the deal is credited once, whichever side they are on. Proposed: stops crediting. |
+| 329 | deal | Deal selling side | Folded into another | - | As above. |
+| 330 | deal | Deal stage advanced | Bind | DealStageAdvanced | Per agent on the deal. |
+| 331 | deal | Deal registered | Bind | DealClosed {outcome: won} | Per agent on the deal. |
+| 332 | deal | Deal registered listing side | Folded into another | - | Covered by "Deal registered". |
+| 333 | deal | Deal registered selling side | Folded into another | - | Covered by "Deal registered". |
+| 334 | deal | Deal commission finalised | Bind | DealCommissionFinalised | Per agent on the deal ("commission paid"). |
+
+### 22.19 Build log - lane D, the wiring (AT-454, QA1, 27 Oct 2026)
+
+**Built** (22.1 R7, R8, R10; the HFC mapping):
+- **The listing route is one implementation.** `EntryPointController::promoteListingToProperty` (and its address helpers) moved unchanged into `App\Services\SellerOutreach\ListingPropertyPromoter`; the controller keeps two thin private delegates. The existing entry tests (`EntryPointStoreFromProspectingTest`, `EntryPointCollisionTest`, `EntryPointBranchlessActorTest`, `EntryPointFromTrackedPropertyTest`, `AddressOnlyComposeTest`) pass unchanged.
+- **The pitch path (R8, 22.10).** `App\Services\RoadToSold\PitchPathService`: `next(prospect, actor, carry)` answers the row's one question - owner known -> the composer on that contact AND the property (made now through the listing route when the row came from an advert, otherwise through `ProspectPropertyService` / promote-to-stock; an advert with no address borrows the tracked property's, never a "Prospecting listing N" placeholder); nobody -> Find owner on the advert capture (`seller-outreach.entry.from-prospecting`) or the tracked-property capture (`...from-tracked-property`). `ready()` links the contact as the property's seller and the tracked property's owner (never overwriting an owner already captured); `linkSellerIfNone()` never changes a role the contact already holds on the property. `carry()` / `prospectFor()` read the pop-up context (`embed`, `rts_prospect`, `rts_stage`) back, only for the signed-in person's OWN prospect (an assistant's agent's) - anything else is ignored, never an error, so the same screens keep working outside the pop-up.
+- **Modal-capable endpoints.** `GET road-to-sold/prospects/{prospect}/pitch-path` (`road-to-sold.prospects.pitch-path`: JSON `{step, label, url, property_id, contact_id}` for the pop-up host, a plain redirect for a normal page) and `POST road-to-sold/prospects/{prospect}/no-owner` (`road-to-sold.prospects.no-owner`: records the `no_owner_found` outcome; JSON or a small chrome-less confirmation page). Scoping: another agent's prospect = 403 (a manager sees it read-only), another agency's = 404.
+- **The screens in the chain keep the context and never dead-end.** The tracked-property capture's save makes the property (only when opened from a row) and redirects to the composer with `property_id` + the pop-up context; the advert capture's save and its "still need a number" bounce keep the context; the pitch-ready interstitial's composer links keep it; the composer, opened from a row on a contact with no property, makes the property itself (or sends the agent back to the capture with "Add the property address first") - the "No property or address to pitch about" card is gone from this path and unchanged elsewhere; the sent page keeps the context so the Done bar still knows the prospect; the capture screen has a **No owner found** button (only when opened from a row).
+- **R10 (22.11).** An evaluation booked from a call puts every owner CoreX knows (the tracked property's owner contact, then `tracked_property_owners` with a contact) on the calendar entry as attendees (`seller_contact`), links each to the property as its seller (no role is changed), and still carries the property and the agent as owner. Before this only the event's single contact field was set.
+- **R7 (22.8).** Audited: every event on the allowed list exists and is raised (`OtpSigned` through `RaiseOtpSignedFromEnvelope`, `NewPortalLeadReceived` through `handleLead`), and the stage listener handles every one that is a stage. Seven stage moves had no test; `SellStockStageWiringTest` now proves listing live, lead -> lead contacted -> Core Match (forward only, once), viewing pack, viewing held and OTP, plus a structural guard that fails if a new event is added to the allowed list without a raise site and either a stage or a named credit-only reason. No new events were needed, so `corex-domain-events-spec.md` is unchanged.
+- **The HFC mapping (22.18).** HFC's 70 real tasks (read from QA1) with a decision per task. cc5's `hfc-event-mapping.json` is NOT changed - it is corrected after Johan signs. Nothing was retired or applied.
+
+**Tests:** `PitchPathTest` (17), `SellStockStageWiringTest` (6); neighbours green: `EntryPointStoreFromProspectingTest`, `EntryPointFromTrackedPropertyTest`, `EntryPointCollisionTest`, `EntryPointBranchlessActorTest`, `AddressOnlyComposeTest`, `ProspectEngineTest`, `OutcomeServiceTest`.
+
+**Found, not fixed (report only):** (1) AgencyScope is memoised per process, so a test that signs in as two agencies in one test method gets the first agency's scope - keep a cross-agency check in its own test (it returns 404 correctly on its own). (2) The two "Appointments", "Presentation" and "Take out Buyers" HFC tasks are wired to the same calendar class (22.18) - a likely double credit today. (3) `rts:bind-tasks --apply` does not exist yet by design; the mapping needs Johan's answers first.
+
+**Not built:** the pop-up host and the row buttons (lane C / cc4 - they call the two endpoints above); `rts:bind-tasks --apply`; the viewing "pack sent" moment.
+
+### 22.20 Build log - lanes B and C, the screen and the pop-ups (AT-454, QA1, 27 Oct 2026)
+
+**Built** (22.3, 22.4, 22.9, 22.11 and the pop-up part of 22.10), against lane A's services; nothing of the engine was duplicated.
+
+- **The page.** `road-to-sold.index` now has four blocks chosen by `?block=` (server-rendered, only the open block is worked out): **Today's intake** (the existing list - search, selection / status / day filters, "Add to my day", Build my list, the empty-day explainer - with the **reason column first** ("Why - start here"), a Follow-up chip on follow-up rows, and a Pitch / Find owner button that opens the pop-up), **My prospects**, **Parked**, and **My progress** (the existing do-this-next card, summary bar and task progress, moved here so the page fits). The header and the block bar stay in view; the open block fills the rest and scrolls inside itself (`.rts-fit`), the page does not scroll.
+- **My prospects (22.4).** The stage strip (a stage is a filter), then two columns - Get stock | Sell stock - of cards: address, owner or "Owner not known yet", stage chip, **"Next: <action> - Overdue - was due <date> / Due today / Due <date> / No date set"** (overdue in the behind colour with a red edge), why it started. Filters: stage, due, suburb (`ProspectListService::prospects` gained a `suburb` filter - the one change to lane A's file), search, sort (default soonest due first). Actions per card (own list only): the **primary step** (Find owner when nobody owns the property, otherwise the stage's step - `ProspectStepService::primary`), Record a result (the existing outcome pop-up), Change next action, Set aside (park: reason from the agency's list, date prefilled from the reason's interval), History.
+- **Parked (22.4).** Reason, property, owner, set aside on, comes back (due now in the "to do" colour), the stage it left, Bring back now (a follow-up due today, `ProspectService::unpark`); reason chips with counts; search, revisit filter, sort. A manager can choose "Everyone I can see": the same list across their breadth with the agent's name, read-only.
+- **Manager / owner (R9).** Opening an agent's page shows "Looking at <agent> - read only", no step / outcome / park buttons (the routes answer 403 as well), and on Prospects a per-stage table from `StageCountService`: now, entered this month, average days in stage, stalled, and the recipe step's **on-track** state. Stalled stages feed the existing training flags through `FunnelService` (unchanged).
+- **Pop-ups (22.9).** `_blocks-bar` hosts one wide modal holding an iframe; any button with `data-step-url` / `data-step-label` dispatches `rts-step`. Close (button, Escape, or the screen's "Done" message from the SAME origin) reloads the page so the card shows the result; focus returns to the button. Every step is `GET road-to-sold/prospects/{prospect}/step/{step}`, which finds the prospect through `RtsProspect::visibleTo()` (404 outside breadth), requires it to be on the viewer's own list (403 for a manager) and redirects to the existing screen with `embed=1&rts_prospect=&rts_stage=` (`ProspectStepService::urlFor`): find owner and pitch (both go through lane D's `road-to-sold.prospects.pitch-path`: composer on the owner and the property, or Find owner - no dead end), evaluation and viewing (calendar), presentation, mandate and offer (e-sign create), listing (property / tracked property), advertise (property marketing, else Ad Manager), lead (portal leads), Core Match, viewing pack, deal (Deal Register create). **Embed mode:** `App\Support\Embed::on()` (`?embed=1` or `Sec-Fetch-Dest: iframe`, so a save + redirect stays chrome-less) removes the sidebar, banners, header and floating widgets from BOTH layouts and adds a "Done - back to Road to Sold" bar; it grants no access. The app sends no frame-blocking header (checked: none in the app or the QA1 nginx site).
+- **Routes (all in the existing group):** `road-to-sold.prospects.step|history|park|unpark|next-action|capture`. `capture` is the pop-up's manual capture (stage reached + next action + date, forward only, `ProspectService::advance`); History is a chrome-less page of `rts_prospect_events`.
+- **Tests:** `ProspectScreenTest` (blocks and counts, cards with next action / overdue, filters, empty state, park / unpark / next action / capture validation, every step's target, 404 for a colleague's and another agency's prospect, 403 for a manager, the manager's read-only table, embed mode, reason column first).
+
+**Not built / decisions:**
+- **Reason lines with names and numbers (22.5, R4) are NOT built** - they are lane A's `ReasonLine` builders ("Not built" in 22.17); the intake still shows the selection's existing one-line reason, now in the first column. `rts_list_items.reason_facts` is ready when they land.
+- **No Release button:** the permission `road_to_sold.release_prospects` is not in `config/corex-permissions.php` yet (22.14), so the manager's Release to the pool is not drawn.
+- **Steps whose screen does not take the property / contact in its address yet** (presentation create, e-sign create, deal create, calendar, core matches, viewing packs) open the screen as it is and rely on the agent choosing; each prefill is a one-line change in `ProspectStepService::urlFor` when the screen reads it. Find owner and Pitch are pre-filled by lane D's pitch path. The calendar "Book evaluation" from a call is still the outcome pop-up (R10 is lane A's).
+- **Close always reloads** the page (simple and correct; no partial refresh of one card).
+- Not verified here: how each existing screen behaves inside the frame beyond chrome removal (a screen with its own full-page assumptions may need a pass) - listed for Johan's walk.

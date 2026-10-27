@@ -621,7 +621,8 @@ final class AgentViewAndCaptureTest extends TestCase
         $task = $this->custom('property', 'week', 2, 'none', 5.0, 'Drive your area');
         $this->complete($task, $this->agent, 1);
 
-        $res = $this->actingAs($this->agent)->get(route('road-to-sold.index'));
+        // v3: the task progress table lives on the "My progress" block; the header, next action and step tile stay on every block
+        $res = $this->actingAs($this->agent)->get(route('road-to-sold.index', ['block' => 'progress']));
 
         $res->assertOk();
         $res->assertSee('rts-sticky', false);
@@ -637,8 +638,8 @@ final class AgentViewAndCaptureTest extends TestCase
 
     public function test_the_page_names_a_missing_recipe_and_links_to_where_to_start_it_for_those_who_can(): void
     {
-        $this->actingAs($this->agent)->get(route('road-to-sold.index'))->assertOk()->assertSee('No recipe is set up for this agency yet.')->assertDontSee('Start the recipe');
-        $this->actingAs($this->admin)->get(route('road-to-sold.index', ['agent' => $this->agent->id]))->assertOk()
+        $this->actingAs($this->agent)->get(route('road-to-sold.index', ['block' => 'progress']))->assertOk()->assertSee('No recipe is set up for this agency yet.')->assertDontSee('Start the recipe');
+        $this->actingAs($this->admin)->get(route('road-to-sold.index', ['agent' => $this->agent->id, 'block' => 'progress']))->assertOk()
             ->assertSee('No recipe is set up for this agency yet.')->assertSee('Start the recipe')->assertSee(route('road-to-sold.settings.recipe.index'), false);
     }
 
@@ -647,7 +648,7 @@ final class AgentViewAndCaptureTest extends TestCase
         $task = $this->custom('property', 'week', 2, 'none', 5.0, 'Drive your area');
         $this->complete($task, $this->agent, 1);
 
-        $res = $this->actingAs($this->manager)->get(route('road-to-sold.index', ['agent' => $this->agent->id]));
+        $res = $this->actingAs($this->manager)->get(route('road-to-sold.index', ['agent' => $this->agent->id, 'block' => 'progress']));
 
         $res->assertOk()->assertSee($task->label);
         $res->assertDontSee('@click="openCapture(', false);

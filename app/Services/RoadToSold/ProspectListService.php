@@ -93,6 +93,9 @@ class ProspectListService
         if (! empty($f['selection'])) {
             $q->where('rts_prospects.selection', (string) $f['selection']);
         }
+        if (! empty($f['suburb'])) {   // the page's suburb filter (a list of the agent's own suburbs)
+            $q->where('tp.suburb', (string) $f['suburb']);
+        }
         if (($f['owner'] ?? null) === 'with') {
             $q->whereNotNull('oc.id');
         } elseif (($f['owner'] ?? null) === 'without') {

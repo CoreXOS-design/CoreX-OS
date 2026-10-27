@@ -36,7 +36,7 @@
     $listView = in_array($filters['view'], ['today', 'no_owner'], true);
 @endphp
 
-<div class="w-full space-y-4 rts-page" x-data="rtsPage(@js($pageConfig))">
+<div class="w-full rts-page rts-fit" x-data="rtsPage(@js($pageConfig))">
     @include('road-to-sold._controls')
 
     <div class="rounded-md px-6 py-3 corex-page-banner rts-sticky">
@@ -117,15 +117,26 @@
         </div>
     @endif
 
-    {{-- The Team view is about everyone: the viewer's own next action, summary tiles and tasks do not belong above it. --}}
+    {{-- What to do next and where the month stands stay in view on every block (the team view is about everyone, so not there). --}}
     @unless($isTeam)
         @include('road-to-sold._recipe', ['part' => 'next'])
 
         @include('road-to-sold._summary-bar')
+    @endunless
 
+    @include('road-to-sold._blocks-bar')
+
+    <div class="rts-block-body">
+    @if($block === 'progress')
+    @unless($isTeam)
         @include('road-to-sold._recipe', ['part' => 'tasks'])
     @endunless
 
+    @elseif($block === 'prospects')
+        @include('road-to-sold._block-prospects')
+    @elseif($block === 'parked')
+        @include('road-to-sold._block-parked')
+    @else
     {{-- Filters --}}
     <form method="GET" class="flex items-end gap-3 flex-wrap">
         @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
@@ -246,11 +257,11 @@
         <table class="w-full text-xs ds-table">
             <thead>
                 <tr style="color: var(--text-muted);">
+                    <th class="px-3 py-2 text-left">Why - start here</th>
                     <th class="px-3 py-2 text-left">Address</th>
                     <th class="px-3 py-2 text-right">Price</th>
                     <th class="px-3 py-2 text-right">Days on market</th>
                     <th class="px-3 py-2 text-left">Listing agency</th>
-                    <th class="px-3 py-2 text-left">Why suggested</th>
                     <th class="px-3 py-2 text-left">Owner</th>
                     <th class="px-3 py-2 text-left">Last outcome</th>
                     <th class="px-3 py-2 text-right"></th>
@@ -260,6 +271,9 @@
             @forelse($rowsPage as $r)
                 @php $lo = $r['last_outcome']; @endphp
                 <tr style="border-top: 1px solid var(--border);">
+                    <td class="px-3 py-2 font-semibold" style="color: var(--text-primary); min-width: 14rem;" data-qa="intake-why">
+                        @if(($r['origin'] ?? null) === 'follow_up')<span class="rts-chip">Follow-up</span> @endif{{ $r['why'] ?: '-' }}
+                    </td>
                     <td class="px-3 py-2" style="color: var(--text-primary);">
                         <div class="font-semibold">{{ $r['street'] !== '' ? $r['street'] : $r['address'] }}</div>
                         @if($r['street'] !== '' && $r['suburb'])<div style="color: var(--text-muted);">{{ $r['suburb'] }}</div>@endif
@@ -267,11 +281,12 @@
                     <td class="px-3 py-2 text-right whitespace-nowrap" style="color: var(--text-primary);">{{ $money($r['price']) ?: '-' }}</td>
                     <td class="px-3 py-2 text-right" style="color: var(--text-primary);">{{ $r['dom'] !== null ? $r['dom'] : '-' }}</td>
                     <td class="px-3 py-2" style="color: var(--text-primary);">{{ $r['agency_name'] ?: '-' }}</td>
-                    <td class="px-3 py-2" style="color: var(--text-primary);">{{ $r['why'] ?: '-' }}</td>
                     <td class="px-3 py-2" style="color: var(--text-primary);">
                         @if($r['owner_name'])
                             <div class="font-semibold">{{ $r['owner_name'] }}</div>
                             @if($r['owner_phone'])<div style="color: var(--text-muted);">{{ $r['owner_phone'] }}</div>@endif
+                        @elseif($r['find_owner_url'] && ! empty($intakeProspects[$r['tracked_property_id']]))
+                            <span style="color: var(--text-muted);">Not known yet</span>
                         @elseif($r['find_owner_url'])
                             <a href="{{ $r['find_owner_url'] }}" class="corex-btn-outline corex-btn-xs">Find the owner</a>
                         @else
@@ -291,6 +306,13 @@
                             @if(! empty($history[$r['tracked_property_id']]))
                                 <button type="button" class="corex-btn-outline corex-btn-xs" data-tp="{{ $r['tracked_property_id'] }}" data-address="{{ $r['address'] }}"
                                         @click="openHistory($el.dataset)">History</button>
+                            @endif
+                            @if($viewingOwn && $r['status'] === 'open' && ! empty($intakeProspects[$r['tracked_property_id']]))
+                                @php $stepKey = $r['owner_name'] ? 'pitch' : 'find_owner'; @endphp
+                                <button type="button" class="corex-btn-outline corex-btn-xs" data-qa="intake-step"
+                                        data-step-url="{{ route('road-to-sold.prospects.step', [$intakeProspects[$r['tracked_property_id']], $stepKey]) }}"
+                                        data-step-label="{{ \App\Services\RoadToSold\ProspectStepService::LABELS[$stepKey] }} - {{ $r['address'] }}"
+                                        @click="$dispatch('rts-step', $el.dataset)">{{ \App\Services\RoadToSold\ProspectStepService::LABELS[$stepKey] }}</button>
                             @endif
                             @if($viewingOwn && ($r['status'] === 'open' || in_array($filters['view'], ['no_answer', 'wrong_number'], true)))
                                 <button type="button" class="corex-btn-primary corex-btn-xs"
@@ -384,6 +406,9 @@
         @endforeach
     </div>
     @endif
+
+    @endif
+    </div>{{-- /rts-block-body --}}
 
     @if($captureTasks->isNotEmpty())
         @include('road-to-sold._capture-modal')
