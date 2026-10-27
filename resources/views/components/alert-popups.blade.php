@@ -4,8 +4,9 @@
     ONE script owns everything an agent sees of their alerts on a page:
       - the POLL of the session-authenticated feed GET /api/v1/alerts/unread (Api\V1\AlertFeedController, routes/web.php beside the
         reminders poll - NOT /api/v1/notifications, the mobile app's token-only route, which answered a browser session with 401);
-      - the TOAST STACK (top right): newest on top, at most 5 shown, older ones collapse into one "+N more" row; a toast STAYS until it is
-        clicked (opens the alert and marks it read) or closed with x (marks it read) - it never fades. The ids of toasts not yet dismissed
+      - the TOAST STACK (top right): newest on top, at most 5 shown, older ones collapse into one "+N more" row; a toast closes ITSELF 5 seconds after it is
+        first shown (AT-509, Andre 27 Oct 2026) - it stays unread and is still in the bell - or sooner when clicked (opens the alert and
+        marks it read) or closed with x (marks it read). The 5 seconds run on across a page change, never restart. The ids of toasts not yet dismissed
         are kept in this tab's sessionStorage, so they are still there after a page change; each poll asks the server which of them are still
         unread, so reading one in the bell or another tab removes it here;
       - the BELL in the left menu (components/alert-bell.blade.php is only the button): unread count badge, and a panel of the latest unread
@@ -70,6 +71,7 @@
     var INTERVAL_MS = Math.max(15, {{ (int) $__alertPopupSeconds }}) * 1000;
     var MAX_DELAY_MS = 5 * 60 * 1000;
     var MAX_TOASTS = 5;
+    var AUTO_CLOSE_MS = 5000;
     var KEY = 'corex_alerts_seen_{{ (int) $__alertPopupUser->id }}';
     var CURSOR_KEY = 'corex_alerts_cursor_{{ (int) $__alertPopupUser->id }}';
     var PENDING_KEY = 'corex_alerts_toasts_{{ (int) $__alertPopupUser->id }}';
@@ -85,6 +87,7 @@
     var stack = null;
     var panel = null;
     var panelButton = null;
+    var closeTimers = {};   // id -> the timer that closes that toast on its own
 
     try {
         var raw = window.sessionStorage.getItem(KEY);
@@ -164,9 +167,26 @@
         return stack;
     }
 
+    function clearTimer(id) {
+        if (closeTimers[id]) { clearTimeout(closeTimers[id]); delete closeTimers[id]; }
+    }
+
     function dropPending(id) {
+        clearTimer(id);
         pending = pending.filter(function (i) { return i.id !== id; });
         savePending();
+    }
+
+    /** A toast on screen closes itself AUTO_CLOSE_MS after it was first shown. It is NOT marked read - it stays in the bell. */
+    function armAutoClose(item) {
+        if (closeTimers[item.id]) { return; }
+        if (!item.shown_at) { item.shown_at = Date.now(); savePending(); }
+        var left = Math.max(0, AUTO_CLOSE_MS - (Date.now() - item.shown_at));
+        closeTimers[item.id] = setTimeout(function () {
+            delete closeTimers[item.id];
+            dropPending(item.id);
+            renderToasts();
+        }, left);
     }
 
     function renderToasts() {
@@ -193,6 +213,7 @@
             toast.appendChild(link);
             toast.appendChild(close);
             box.appendChild(toast);
+            armAutoClose(item);
         });
         var rest = pending.length - MAX_TOASTS;
         if (rest > 0) {
@@ -257,6 +278,7 @@
         all.type = 'button';
         all.setAttribute('data-alert-read-all', '1');
         all.addEventListener('click', function () {
+            pending.forEach(function (i) { clearTimer(i.id); });
             pending = []; savePending(); renderToasts();
             post(READ_ALL).then(function () { setCount(0); fillPanel([]); });
         });
@@ -316,6 +338,7 @@
         if (Array.isArray(payload.still_unread)) {
             var alive = {};
             payload.still_unread.forEach(function (id) { alive[id] = true; });
+            pending.forEach(function (i) { if (!alive[i.id]) { clearTimer(i.id); } });
             pending = pending.filter(function (i) { return alive[i.id]; });
         }
 

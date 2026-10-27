@@ -252,6 +252,10 @@ Route::get('/data-deletion', [\App\Http\Controllers\Public\LegalController::clas
 Route::get('/support', [\App\Http\Controllers\Public\LegalController::class, 'support'])
     ->middleware('throttle:60,1')
     ->name('public.support');
+// CoreX Training Videos — public, no auth. Spec: .ai/specs/training-videos.md §4.3
+Route::get('/training-videos', [\App\Http\Controllers\Public\TrainingVideoController::class, 'index'])
+    ->middleware('throttle:60,1')
+    ->name('public.training-videos');
 Route::get('/extension/privacy', [\App\Http\Controllers\Public\LegalController::class, 'extensionPrivacy'])
     ->middleware('throttle:60,1')
     ->name('public.extension-privacy');
@@ -5297,6 +5301,30 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // (Meta/Facebook OAuth config + public legal page URLs). Owner-only.
     Route::middleware('owner_only')->prefix('admin/integrations')->name('admin.integrations.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Admin\IntegrationsController::class, 'index'])->name('index');
+    });
+
+    // Training Videos — CoreX's own public training catalogue (YouTube links in
+    // owner-made groups), published at /training-videos. Owner-only, no permission
+    // key by design. Spec: .ai/specs/training-videos.md §4
+    Route::middleware('owner_only')->prefix('admin/integrations/training-videos')->name('admin.training-videos.')->group(function () {
+        // Static segments (/create, /groups) come before /{video} or the binding swallows them.
+        Route::get('/groups',                  [\App\Http\Controllers\Admin\TrainingVideoGroupController::class, 'index'])->name('groups.index');
+        Route::get('/groups/create',           [\App\Http\Controllers\Admin\TrainingVideoGroupController::class, 'create'])->name('groups.create');
+        Route::post('/groups',                 [\App\Http\Controllers\Admin\TrainingVideoGroupController::class, 'store'])->name('groups.store');
+        Route::get('/groups/{group}/edit',     [\App\Http\Controllers\Admin\TrainingVideoGroupController::class, 'edit'])->whereNumber('group')->withTrashed()->name('groups.edit');
+        Route::put('/groups/{group}',          [\App\Http\Controllers\Admin\TrainingVideoGroupController::class, 'update'])->whereNumber('group')->withTrashed()->name('groups.update');
+        Route::post('/groups/{group}/restore', [\App\Http\Controllers\Admin\TrainingVideoGroupController::class, 'restore'])->whereNumber('group')->withTrashed()->name('groups.restore');
+        // "Delete" archives. The row is never removed (non-negotiable #1).
+        Route::delete('/groups/{group}',       [\App\Http\Controllers\Admin\TrainingVideoGroupController::class, 'destroy'])->whereNumber('group')->name('groups.destroy');
+
+        Route::get('/',                        [\App\Http\Controllers\Admin\TrainingVideoController::class, 'index'])->name('index');
+        Route::get('/create',                  [\App\Http\Controllers\Admin\TrainingVideoController::class, 'create'])->name('create');
+        Route::post('/',                       [\App\Http\Controllers\Admin\TrainingVideoController::class, 'store'])->name('store');
+        Route::get('/{video}/edit',            [\App\Http\Controllers\Admin\TrainingVideoController::class, 'edit'])->whereNumber('video')->withTrashed()->name('edit');
+        Route::put('/{video}',                 [\App\Http\Controllers\Admin\TrainingVideoController::class, 'update'])->whereNumber('video')->withTrashed()->name('update');
+        Route::post('/{video}/restore',        [\App\Http\Controllers\Admin\TrainingVideoController::class, 'restore'])->whereNumber('video')->withTrashed()->name('restore');
+        // "Delete" archives. The row is never removed (non-negotiable #1).
+        Route::delete('/{video}',              [\App\Http\Controllers\Admin\TrainingVideoController::class, 'destroy'])->whereNumber('video')->name('destroy');
     });
 
     // Dev Settings — system-wide developer overrides (owner-only).

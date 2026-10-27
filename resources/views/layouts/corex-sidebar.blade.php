@@ -344,7 +344,7 @@
         $activeGroup = 'deal-register-settings';
     } elseif (request()->routeIs('deals-v2.*') || request()->routeIs('admin.settings.deal-distribution-rules.*')) {
         $activeGroup = 'deals-v2';
-    } elseif (request()->routeIs('admin.integrations.*')) {
+    } elseif (request()->routeIs('admin.integrations.*', 'admin.training-videos.*')) {
         $activeGroup = 'integration';
     } elseif (request()->routeIs(
         'agencies.*',
@@ -2922,9 +2922,12 @@
                 </button>
                 <div class="corex-nav-panel-title">Integration</div>
                 <a href="{{ route('admin.integrations.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.integrations.*') ? 'active' : '' }}">Meta (Facebook &amp; Instagram)</a>
+                {{-- Training Videos — owner-managed YouTube catalogue, published at /training-videos. Spec: training-videos.md §4 --}}
+                <a href="{{ route('admin.training-videos.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.training-videos.*') ? 'active' : '' }}">Training Videos</a>
                 <a href="{{ route('public.platform-privacy') }}" target="_blank" rel="noopener" class="corex-nav-subitem">Privacy Policy ↗</a>
                 <a href="{{ route('public.data-deletion') }}" target="_blank" rel="noopener" class="corex-nav-subitem">Data Deletion ↗</a>
                 <a href="{{ route('public.support') }}" target="_blank" rel="noopener" class="corex-nav-subitem">Support ↗</a>
+                <a href="{{ route('public.training-videos') }}" target="_blank" rel="noopener" class="corex-nav-subitem">Training Videos ↗</a>
             </div>
         </div>
 
