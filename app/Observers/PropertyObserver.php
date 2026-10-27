@@ -548,6 +548,18 @@ class PropertyObserver
         $returningToMarket = !empty(self::$returningToMarket[$property->id]);
         unset(self::$returningToMarket[$property->id]);
 
+        // Sold stock (AT-512, .ai/specs/sold-stock.md): freeze the sale when a property becomes Sold, start a
+        // new listing cycle when a Sold property is re-prospected. Never allowed to break the save.
+        // MUST stay FIRST in saved(): later steps (AutoEventService::onPropertyUpdated saves last_activity_at)
+        // reset Eloquent's changes, after which wasChanged('status') is false and the hook would silently do nothing.
+        if ($property->wasChanged('status')) {
+            try {
+                app(\App\Services\SoldStock\SoldStockService::class)->onStatusChanged($property);
+            } catch (\Throwable $e) {
+                Log::warning("Sold-stock hook failed for property #{$property->id}: {$e->getMessage()}");
+            }
+        }
+
         // AT-108 — stock changed → buyers' canonical Core Match counts may shift.
         // Queue an ASYNC, COALESCED recompute (Freshness Option B). Never sync —
         // bulk imports must stay fast; ShouldBeUnique + delay collapse a burst into
@@ -605,16 +617,6 @@ class PropertyObserver
             }
         } catch (\Throwable $e) {
             Log::warning("Command Center activity update failed for property #{$property->id}: {$e->getMessage()}");
-        }
-
-        // Sold stock (AT-512, .ai/specs/sold-stock.md): freeze the sale when a property becomes Sold, start a
-        // new listing cycle when a Sold property is re-prospected. Never allowed to break the save.
-        if ($property->wasChanged('status')) {
-            try {
-                app(\App\Services\SoldStock\SoldStockService::class)->onStatusChanged($property);
-            } catch (\Throwable $e) {
-                Log::warning("Sold-stock hook failed for property #{$property->id}: {$e->getMessage()}");
-            }
         }
 
         // Audit: track meaningful field changes
