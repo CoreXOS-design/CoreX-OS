@@ -82,7 +82,6 @@ function detach(callServer) {
     if (!cur) return;
     clearInterval(cur.tick);
     clearInterval(cur.retry);
-    try { getEcho().leave(cur.name); } catch (e) { /* gone */ }
     if (callServer) api('POST', con.urls.sessions + '/' + cur.session.id + '/end');
     const root = $('cdc-replay');
     root.innerHTML = '';
