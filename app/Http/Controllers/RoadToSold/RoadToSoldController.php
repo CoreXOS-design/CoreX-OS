@@ -231,6 +231,7 @@ class RoadToSoldController extends Controller
             'block' => $block,
             'blockCounts' => ['prospects' => $own()->activeStage()->count(), 'parked' => $own()->parked()->count()],
             'canWriteProspects' => $viewingOwn,
+            'canRelease' => $viewer->hasPermission('road_to_sold.release_prospects'),
         ];
 
         // intake rows: the prospect behind each row (its step button opens the pop-up through the prospect)

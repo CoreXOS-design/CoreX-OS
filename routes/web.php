@@ -6625,6 +6625,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 Route::post('/unpark', [$c, 'unpark'])->name('unpark');
                 Route::put('/next-action', [$c, 'nextAction'])->name('next-action');
                 Route::post('/capture', [$c, 'capture'])->name('capture');
+                // Give the property back to the pool (spec 22.6): needs its own key, a reason, and leaves an audit line.
+                Route::post('/release', [$c, 'release'])->middleware('permission:road_to_sold.release_prospects')->name('release');
             });
 
             // Captured tasks (v2 phase 2): save, change the note, archive, restore, view a photo. Always the signed-in person's own list;

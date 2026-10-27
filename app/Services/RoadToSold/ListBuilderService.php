@@ -223,8 +223,20 @@ class ListBuilderService
 
     private function addFoundByYou(User $user, int $agencyId, Carbon $day, string $track): void
     {
-        foreach ($this->foundTrackedIds($user, $agencyId, $track) as $tid) {
-            $this->insert($user, $agencyId, $day, $track, new Candidate($tid, null, null, self::SELECTION_FOUND_BY_YOU, 'Found by you', true, true), RtsListItem::ORIGIN_AUTO);
+        $ids = $this->foundTrackedIds($user, $agencyId, $track);
+        if ($ids === []) {
+            return;
+        }
+        // when and by which task the agent found it - the line says so ("You found this on 12 Oct (Drive an Area)")
+        $found = DB::table('rts_task_completion_records as r')
+            ->join('rts_task_completions as c', 'c.id', '=', 'r.completion_id')
+            ->leftJoin('rts_tasks as t', 't.id', '=', 'c.task_id')
+            ->where('r.agency_id', $agencyId)->where('r.record_type', \App\Models\Prospecting\TrackedProperty::class)->whereIn('r.record_id', $ids)
+            ->where('c.user_id', $user->id)->where('c.track', $track)->where('c.source', 'captured')->whereNull('c.deleted_at')
+            ->orderBy('c.occurred_at')->get(['r.record_id', 'c.occurred_at', 't.label'])->unique('record_id')->keyBy('record_id');
+        foreach ($ids as $tid) {
+            $why = \App\Services\RoadToSold\Reasons\ReasonLine::foundByYou($found[$tid]->occurred_at ?? null, $found[$tid]->label ?? null);
+            $this->insert($user, $agencyId, $day, $track, new Candidate($tid, null, null, self::SELECTION_FOUND_BY_YOU, $why['line'], true, true, $why['facts']), RtsListItem::ORIGIN_AUTO);
         }
     }
 
@@ -281,6 +293,7 @@ class ListBuilderService
                 reason: $f->reason,
                 hasAddress: true,
                 inArea: true,
+                facts: $f->facts,
             ), RtsListItem::ORIGIN_FOLLOW_UP);
         }
     }

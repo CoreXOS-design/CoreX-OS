@@ -135,6 +135,9 @@
                                 <button type="button" class="corex-btn-outline corex-btn-xs"
                                         data-step-url="{{ route('road-to-sold.prospects.history', [$r['id'], 'embed' => 1]) }}" data-step-label="History - {{ $r['address'] }}"
                                         @click="$dispatch('rts-step', $el.dataset)">History</button>
+                                @if($canRelease ?? false)
+                                    <button type="button" class="corex-btn-outline corex-btn-xs" data-qa="prospect-release" @click="$dispatch('rts-release', { id: {{ $r['id'] }}, address: @js($r['address']) })">Release</button>
+                                @endif
                             </div>
                         </article>
                     @endforeach

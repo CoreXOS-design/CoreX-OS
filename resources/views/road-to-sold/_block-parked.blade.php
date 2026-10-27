@@ -72,6 +72,9 @@
                     <td class="px-3 py-2 text-right">
                         <div class="flex items-center justify-end gap-2">
                             <button type="button" class="corex-btn-outline corex-btn-xs" data-step-url="{{ route('road-to-sold.prospects.history', [$r['id'], 'embed' => 1]) }}" data-step-label="History - {{ $r['address'] }}" @click="$dispatch('rts-step', $el.dataset)">History</button>
+                            @if($canRelease ?? false)
+                                <button type="button" class="corex-btn-outline corex-btn-xs" data-qa="parked-release" @click="$dispatch('rts-release', { id: {{ $r['id'] }}, address: @js($r['address']) })">Release</button>
+                            @endif
                             @if($canWriteProspects && ! $parkedEveryone)
                                 <form method="POST" action="{{ route('road-to-sold.prospects.unpark', $r['id']) }}">@csrf
                                     @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
