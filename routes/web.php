@@ -5387,6 +5387,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{video}/edit',            [\App\Http\Controllers\Admin\TrainingVideoController::class, 'edit'])->whereNumber('video')->withTrashed()->name('edit');
         Route::put('/{video}',                 [\App\Http\Controllers\Admin\TrainingVideoController::class, 'update'])->whereNumber('video')->withTrashed()->name('update');
         Route::post('/{video}/restore',        [\App\Http\Controllers\Admin\TrainingVideoController::class, 'restore'])->whereNumber('video')->withTrashed()->name('restore');
+        // Uploaded videos: re-queue a failed (or failed-replacement) compression. Spec §8.5.
+        Route::post('/{video}/retry',          [\App\Http\Controllers\Admin\TrainingVideoController::class, 'retry'])->whereNumber('video')->name('retry');
         // "Delete" archives. The row is never removed (non-negotiable #1).
         Route::delete('/{video}',              [\App\Http\Controllers\Admin\TrainingVideoController::class, 'destroy'])->whereNumber('video')->name('destroy');
     });

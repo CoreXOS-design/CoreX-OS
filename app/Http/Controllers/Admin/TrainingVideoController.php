@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\TrainingVideos\CompressTrainingVideoJob;
 use App\Models\TrainingVideo;
 use App\Models\TrainingVideoGroup;
+use App\Services\TrainingVideos\ChunkedUploadService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
@@ -30,6 +32,10 @@ class TrainingVideoController extends Controller
         'updated' => 'training_videos.updated_at',
     ];
 
+    public function __construct(private readonly ChunkedUploadService $uploads)
+    {
+    }
+
     private function assertOwner(): void
     {
         abort_unless(Auth::user()?->isOwnerRole(), 403, 'This area is restricted to System Owners.');
@@ -45,6 +51,7 @@ class TrainingVideoController extends Controller
         $dir    = $request->query('dir') === 'asc' ? 'asc' : 'desc';
         $q      = trim((string) $request->query('q', ''));
         $group  = (string) $request->query('group', '');
+        $source = in_array($request->query('source'), [TrainingVideo::SOURCE_YOUTUBE, TrainingVideo::SOURCE_UPLOAD], true) ? $request->query('source') : '';
 
         $query = TrainingVideo::query()
             ->with('group')
@@ -64,6 +71,10 @@ class TrainingVideoController extends Controller
                   ->orWhere('training_videos.description', 'like', $like)
                   ->orWhere('training_video_groups.name', 'like', $like);
             });
+        }
+
+        if ($source !== '') {
+            $query->where('training_videos.source', $source);
         }
 
         if ($group === 'none') {
@@ -86,10 +97,10 @@ class TrainingVideoController extends Controller
             ->withQueryString();
 
         $groups   = TrainingVideoGroup::withTrashed()->orderBy('name')->get(['id', 'name', 'deleted_at']);
-        $filtered = $q !== '' || $status !== 'active' || $group !== '' || $request->filled('from') || $request->filled('to');
+        $filtered = $q !== '' || $status !== 'active' || $group !== '' || $source !== '' || $request->filled('from') || $request->filled('to');
         $hasAny   = TrainingVideo::withTrashed()->exists();
 
-        return view('admin.training-videos.index', compact('videos', 'groups', 'status', 'sort', 'dir', 'q', 'group', 'filtered', 'hasAny'));
+        return view('admin.training-videos.index', compact('videos', 'groups', 'status', 'sort', 'dir', 'q', 'group', 'source', 'filtered', 'hasAny'));
     }
 
     /** GET /corex/admin/integrations/training-videos/create */
@@ -106,6 +117,29 @@ class TrainingVideoController extends Controller
         $this->assertOwner();
 
         $data = $this->validated($request, null);
+
+        if ($data['source'] === TrainingVideo::SOURCE_UPLOAD) {
+            // The file is already on the server (the pieces were stitched and checked); this save
+            // creates the record and hands it to the video worker. It stays off the public page
+            // until the worker marks it Ready (§8.4).
+            $uploadId = $data['upload_id'];
+            $meta     = $this->uploads->completedUpload($request->user(), $uploadId);
+            unset($data['upload_id']);
+
+            $video = TrainingVideo::create($data + [
+                'status'                => TrainingVideo::STATUS_PROCESSING,
+                'pending_upload_id'     => $uploadId,
+                'original_size_bytes'   => $meta['size'],
+                'processing_started_at' => now(),
+                'created_by'            => Auth::id(),
+                'updated_by'            => Auth::id(),
+            ]);
+            CompressTrainingVideoJob::dispatch($video->id);
+
+            return redirect()
+                ->route('admin.training-videos.index')
+                ->with('status', 'Upload received. CoreX is shrinking the video now — it appears on the public page when it shows Ready.');
+        }
 
         TrainingVideo::create($data + [
             'created_by' => Auth::id(),
@@ -133,11 +167,60 @@ class TrainingVideoController extends Controller
     {
         $this->assertOwner();
 
-        $video->update($this->validated($request, $video) + ['updated_by' => Auth::id()]);
+        $data     = $this->validated($request, $video);
+        $uploadId = $data['upload_id'] ?? null;
+        unset($data['upload_id']);
+
+        if ($uploadId !== null) {
+            // Replace file (U9): the old copy keeps playing until the new one is Ready. Only a
+            // video that never produced a file (still processing / failed) goes back to Processing.
+            $this->uploads->completedUpload($request->user(), $uploadId);
+            $data += [
+                'pending_upload_id'     => $uploadId,
+                'failure_reason'        => null,
+                'processing_started_at' => now(),
+            ];
+            if (! $video->file_name) {
+                $data['status'] = TrainingVideo::STATUS_PROCESSING;
+            }
+        }
+
+        $video->update($data + ['updated_by' => Auth::id()]);
+
+        if ($uploadId !== null) {
+            CompressTrainingVideoJob::dispatch($video->id);
+
+            return redirect()
+                ->route('admin.training-videos.index')
+                ->with('status', 'Upload received. The current video keeps playing until the new one has been shrunk and shows Ready.');
+        }
 
         return redirect()
             ->route('admin.training-videos.index')
             ->with('status', 'Video updated.');
+    }
+
+    /** POST /corex/admin/integrations/training-videos/{video}/retry — re-queue a failed shrink (U6). */
+    public function retry(TrainingVideo $video)
+    {
+        $this->assertOwner();
+
+        if (! $video->canRetry()) {
+            return back()->withErrors(['retry' => 'Nothing to retry for this video.']);
+        }
+        if (! $this->uploads->exists($video->pending_upload_id)) {
+            return back()->withErrors(['retry' => 'The uploaded file is no longer on the server. Open the video and upload it again.']);
+        }
+
+        $video->forceFill([
+            'status'                => $video->file_name ? TrainingVideo::STATUS_READY : TrainingVideo::STATUS_PROCESSING,
+            'failure_reason'        => null,
+            'processing_started_at' => now(),
+            'updated_by'            => Auth::id(),
+        ])->save();
+        CompressTrainingVideoJob::dispatch($video->id);
+
+        return back()->with('status', 'Trying again. The video is being shrunk.');
     }
 
     /** DELETE /corex/admin/integrations/training-videos/{video} — ARCHIVES (non-negotiable #1). */
@@ -181,18 +264,35 @@ class TrainingVideoController extends Controller
     {
         $allowedGroupIds = $this->selectableGroups($video)->pluck('id')->all();
 
-        $data = $request->validate([
+        // An existing video keeps its kind; a new one is whichever the owner chose.
+        $source = $video?->source
+            ?? ($request->input('source') === TrainingVideo::SOURCE_UPLOAD ? TrainingVideo::SOURCE_UPLOAD : TrainingVideo::SOURCE_YOUTUBE);
+
+        $rules = [
             'title'                   => ['required', 'string', 'max:200'],
-            'youtube_url'             => ['required', 'string', 'max:500', function ($attr, $value, $fail) {
+            'training_video_group_id' => ['nullable', 'integer', Rule::in($allowedGroupIds)],
+            'description'             => ['nullable', 'string', 'max:5000'],
+        ];
+
+        if ($source === TrainingVideo::SOURCE_UPLOAD) {
+            // Required when adding; optional when editing (= keep the current file, or replace it).
+            $rules['upload_id'] = [$video ? 'nullable' : 'required', 'string', function ($attr, $value, $fail) {
+                if (! $this->uploads->isValidId($value)) {
+                    $fail('The video has not finished uploading.');
+                }
+            }];
+        } else {
+            $rules['youtube_url'] = ['required', 'string', 'max:500', function ($attr, $value, $fail) {
                 if (TrainingVideo::extractYoutubeId((string) $value) === null) {
                     $fail("That doesn't look like a YouTube link. Paste the link from the Share button on YouTube.");
                 }
-            }],
-            'training_video_group_id' => ['nullable', 'integer', Rule::in($allowedGroupIds)],
-            'description'             => ['nullable', 'string', 'max:5000'],
-        ], [
+            }];
+        }
+
+        $data = $request->validate($rules, [
             'title.required'             => 'Give the video a title.',
             'youtube_url.required'       => 'Paste the YouTube link for this video.',
+            'upload_id.required'         => 'Choose a video file and wait for the upload to reach 100% before saving.',
             'training_video_group_id.in' => 'That group is not available. Pick another group or "No group".',
         ]);
 
@@ -200,8 +300,12 @@ class TrainingVideoController extends Controller
         // (No group / no description) — never "leave the old value".
         $data['training_video_group_id'] = $data['training_video_group_id'] ?? null;
         $data['description']             = $data['description'] ?? null;
-        $data['youtube_url']      = trim($data['youtube_url']);
-        $data['youtube_video_id'] = TrainingVideo::extractYoutubeId($data['youtube_url']);
+        $data['source']                  = $source;
+
+        if ($source === TrainingVideo::SOURCE_YOUTUBE) {
+            $data['youtube_url']      = trim($data['youtube_url']);
+            $data['youtube_video_id'] = TrainingVideo::extractYoutubeId($data['youtube_url']);
+        }
 
         return $data;
     }

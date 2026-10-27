@@ -509,6 +509,14 @@ Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(f
     // ─────────────────────────────────────────────────────────────
     Route::prefix('v1')->group(function () {
 
+        // Training Videos — owner uploads a video file in pieces. .ai/specs/training-videos.md §8.5.
+        // Owner-only (re-checked in the controller; no grantable permission key by design).
+        Route::prefix('admin/training-video-uploads')->name('api.v1.training-video-uploads.')->group(function () {
+            Route::post('/', [\App\Http\Controllers\Api\V1\TrainingVideoUploadController::class, 'start'])->name('start');
+            Route::post('/{upload}/chunks', [\App\Http\Controllers\Api\V1\TrainingVideoUploadController::class, 'chunk'])->name('chunk');
+            Route::post('/{upload}/complete', [\App\Http\Controllers\Api\V1\TrainingVideoUploadController::class, 'complete'])->name('complete');
+        });
+
         // Other Agency Stock — Chrome extension import (see the
         // 2026-09-29 URGENT FIX comment above this group for why this
         // lives here and not on auth.portal_capture).

@@ -69,6 +69,8 @@
             position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; padding: 0;
             border: 0; border-radius: 6px; overflow: hidden; background: #000; cursor: pointer;
         }
+        /* Uploaded files: the browser's own player; preload="none" so nothing downloads until play (spec §8 U10). */
+        .file-player { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 6px; background: #000; }
         .player img { width: 100%; height: 100%; object-fit: cover; display: block; }
         .player iframe { width: 100%; height: 100%; border: 0; display: block; }
         .player .play {
@@ -126,16 +128,24 @@
                     <div class="grid">
                         @foreach ($section['videos'] as $video)
                             <article class="video">
-                                <button type="button" class="player" data-embed="{{ $video->embedUrl() }}" data-title="{{ $video->title }}"
-                                        aria-label="Play {{ $video->title }}">
-                                    <img src="{{ $video->thumbnailUrl() }}" alt="" loading="lazy">
-                                    <span class="play" aria-hidden="true"></span>
-                                </button>
+                                @if ($video->isUpload())
+                                    <video class="file-player" controls preload="none" playsinline
+                                           poster="{{ $video->posterUrl() }}" src="{{ $video->fileUrl() }}"
+                                           aria-label="{{ $video->title }}"></video>
+                                @else
+                                    <button type="button" class="player" data-embed="{{ $video->embedUrl() }}" data-title="{{ $video->title }}"
+                                            aria-label="Play {{ $video->title }}">
+                                        <img src="{{ $video->thumbnailUrl() }}" alt="" loading="lazy">
+                                        <span class="play" aria-hidden="true"></span>
+                                    </button>
+                                @endif
                                 <h3>{{ $video->title }}</h3>
                                 @if ($video->description)
                                     <p>{{ $video->description }}</p>
                                 @endif
-                                <a class="watch" href="{{ $video->watchUrl() }}" target="_blank" rel="noopener">Watch on YouTube ↗</a>
+                                @unless ($video->isUpload())
+                                    <a class="watch" href="{{ $video->watchUrl() }}" target="_blank" rel="noopener">Watch on YouTube ↗</a>
+                                @endunless
                             </article>
                         @endforeach
                     </div>

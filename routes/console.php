@@ -138,6 +138,9 @@ Schedule::command('model:prune', ['--model' => [\App\Models\AssistantActivityLog
 // from two nodes.
 Schedule::command('buyers:autoland-pipeline')->dailyAt('04:45')->onOneServer()->withoutOverlapping();
 
+// Training Videos — remove upload pieces never finished/saved after 24h (spec §8 U11).
+Schedule::command('training-videos:purge-abandoned-uploads')->dailyAt('03:10')->onOneServer()->withoutOverlapping();
+
 // AT-163 — voice-note transcription batch. Hourly; each run processes agencies
 // whose configured nightly time (default 22:00, clear of the 03:30 backup) matches
 // the current hour. CPU-nice'd inside the worker.

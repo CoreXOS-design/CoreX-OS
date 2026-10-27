@@ -1,6 +1,6 @@
 # Training Videos — Spec
 
-> **Status:** §0–§7 APPROVED and BUILT (Andre, 2026-10-27, uncommitted). **§8 (upload your own video files) — DRAFT, awaiting Andre's approval. No §8 code yet.** (Johan to countersign per the spec-sync rule.)
+> **Status:** §0–§7 APPROVED and BUILT (Andre, 2026-10-27). **§8 (upload your own video files) — APPROVED (Andre: "yes add that", then "please add a video upload" to the Add video screen, 2026-10-27) and BUILT on Staging.** (Johan to countersign per the spec-sync rule.)
 > Author: Claude · Requested by: Andre, 2026-10-27 · Module: Integration (platform-owner area)
 > Branch: `AT-509-Multple-changes`
 > Related specs: [`webinar-registration.md`](webinar-registration.md) (same owner-managed-list pattern)
@@ -183,7 +183,7 @@ The Training Videos screen has a **"Groups"** button in its header; the groups s
 
 ---
 
-## §8 — AMENDMENT: upload your own video files, compressed automatically (DRAFT — awaiting approval)
+## §8 — AMENDMENT: upload your own video files, compressed automatically (APPROVED and BUILT 2026-10-27)
 
 > Requested by Andre, 2026-10-27: *"is there a way when I upload a video of 180mb that it can be reduced because I would rather upload them myself onto the page"* → *"yes add that"*.
 
@@ -206,7 +206,7 @@ On Add video, the owner chooses **YouTube link** or **Upload a file**. An upload
 | U9 | **Replacing the file** | Editing an uploaded video can upload a new file. The old one keeps playing until the new one is ready, then is discarded. | No gap on the public page. |
 | U10 | **Public player** | The browser's own video player (`<video controls preload="none">`) showing the poster image until play is pressed. | Nothing downloads until someone presses play, same as the YouTube click-to-play (D3). |
 | U11 | **Abandoned uploads** | Pieces of an upload never finished are cleaned up after 24 hours by a scheduled command. | Temporary pieces, not records — they would otherwise fill the disk. No video record is created until the upload completes. |
-| U12 | **Migration** | The not-yet-shipped `2026_12_05_100000_create_training_videos_tables_at509` migration is amended in place (it exists only locally and is uncommitted), not followed by a second migration. | Nothing has run it outside this machine; one clean migration ships. |
+| U12 | **Migration** | **Superseded at build time.** The original create migration had already run on Staging (batch 276), so it was NOT amended: a new additive migration `2026_12_13_100000_add_upload_columns_to_training_videos` adds the §8.4 columns. Every existing row stays `source = youtube`, `status = ready`. One extra column beyond §8.4: `pending_upload_id` (varchar 32, nullable) — the finished upload waiting to be shrunk. It is what lets "Replace file" (U9) leave the old copy playing and lets "Try again" (U6) work without a re-upload. | The first migration had shipped, so editing it would have left Staging and a fresh install with different tables. |
 
 ### §8.3 What it costs (stated plainly, for the record)
 
@@ -281,3 +281,12 @@ Upload pieces are JSON, so per non-negotiable #7 they live under `/api/v1`, name
 7. Unfinished uploads older than 24 hours are cleaned up; no video record exists for them.
 8. A non-owner is refused on every upload endpoint (403), including with a valid upload id.
 9. YouTube videos behave exactly as before (§7 still passes).
+
+### §8.10 As built (2026-10-27)
+
+- **Queue lane:** `training-videos`, registered in `config/queue_alerting.php` as a BATCH lane (alarm = head not advancing for 65 min, not depth). Supervisor: `docs/infra/supervisor/corex-worker-training-videos.conf` (live); Staging has its own program, `corex-worker-staging-training-videos`.
+- **Container binding:** `VideoCompressor` is bound to `FfmpegVideoCompressor` with the `#[Bind]` attribute on the interface, so no service-provider edit; tests swap in a fake.
+- **Verified for real, not just faked:** a generated 1080p/60fps clip (27 MB) through the real compressor came out 720p/30fps H.264+AAC, `+faststart`, 0.7 MB, with a poster; a text file renamed `.mov` was refused with the U4 message.
+- **A failed first-time upload** shows Failed + reason + Try again; **a failed replacement** leaves the old video playing and shows the reason with Try again on the edit screen and list.
+- **Not in this build:** no automatic quality ladder (§8.3 #2), no resumable-after-page-close upload — a closed tab means starting that file again (the unfinished pieces are cleaned up after 24h, U11).
+- **Tests:** `tests/Feature/TrainingVideos/TrainingVideoUploadTest.php` (acceptance 1–9 with a fake compressor).

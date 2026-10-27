@@ -27,7 +27,7 @@
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Training Videos</h1>
                 <p class="text-xs" style="color: var(--text-muted);">
-                    YouTube videos published on the public Training Videos page. Anyone can watch them — no login needed.
+                    Videos published on the public Training Videos page — YouTube links and files you upload. Anyone can watch them — no login needed.
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
@@ -53,6 +53,15 @@
                     border: 1px solid color-mix(in srgb, var(--ds-emerald) 30%, transparent);
                     color: var(--text-primary);">
             {{ session('status') }}
+        </div>
+    @endif
+
+    @if ($errors->has('retry'))
+        <div role="alert" class="rounded-md px-4 py-3 text-sm"
+             style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent);
+                    border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);
+                    color: var(--text-primary);">
+            {{ $errors->first('retry') }}
         </div>
     @endif
 
@@ -85,6 +94,14 @@
                     <option value="active" @selected($status === 'active')>Active</option>
                     <option value="archived" @selected($status === 'archived')>Archived</option>
                     <option value="all" @selected($status === 'all')>All</option>
+                </select>
+            </div>
+            <div>
+                <label for="source" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Kind</label>
+                <select id="source" name="source" class="{{ $field }}" style="{{ $fieldStyle }}">
+                    <option value="">All</option>
+                    <option value="youtube" @selected($source === 'youtube')>YouTube</option>
+                    <option value="upload" @selected($source === 'upload')>Uploaded</option>
                 </select>
             </div>
             <div>
@@ -136,9 +153,19 @@
                             @foreach ($videos as $video)
                                 <tr style="border-bottom: 1px solid var(--border);">
                                     <td class="px-4 py-3">
-                                        <a href="{{ $video->watchUrl() }}" target="_blank" rel="noopener">
-                                            <img src="{{ $video->thumbnailUrl() }}" alt="" loading="lazy" class="rounded-md" style="width: 112px; aspect-ratio: 16/9; object-fit: cover; background: var(--surface-2);">
-                                        </a>
+                                        @if ($video->isUpload())
+                                            <a href="{{ route('admin.training-videos.edit', $video) }}">
+                                                @if ($video->file_name && ! $video->trashed())
+                                                    <img src="{{ $video->posterUrl() }}" alt="" loading="lazy" class="rounded-md" style="width: 112px; aspect-ratio: 16/9; object-fit: cover; background: var(--surface-2);">
+                                                @else
+                                                    <div class="rounded-md" style="width: 112px; aspect-ratio: 16/9; background: var(--surface-2);"></div>
+                                                @endif
+                                            </a>
+                                        @else
+                                            <a href="{{ $video->watchUrl() }}" target="_blank" rel="noopener">
+                                                <img src="{{ $video->thumbnailUrl() }}" alt="" loading="lazy" class="rounded-md" style="width: 112px; aspect-ratio: 16/9; object-fit: cover; background: var(--surface-2);">
+                                            </a>
+                                        @endif
                                     </td>
                                     <td class="px-4 py-3">
                                         <a href="{{ route('admin.training-videos.edit', $video) }}" class="font-medium hover:underline" style="color: var(--corex-accent);">
@@ -146,6 +173,30 @@
                                         </a>
                                         @if ($video->description)
                                             <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ \Illuminate\Support\Str::limit($video->description, 110) }}</div>
+                                        @endif
+                                        @if ($video->isUpload())
+                                            <div class="mt-1 flex flex-wrap items-center gap-2 text-xs" style="color: var(--text-muted);">
+                                                <span class="ds-badge" style="--ds-badge-c: var(--text-muted);">Uploaded</span>
+                                                @if ($video->status === 'processing' && ! $video->file_name)
+                                                    <span class="ds-badge" style="--ds-badge-c: var(--ds-amber);">Processing</span>
+                                                @elseif ($video->status === 'failed')
+                                                    <span class="ds-badge" style="--ds-badge-c: var(--ds-crimson);">Failed</span>
+                                                @else
+                                                    <span class="ds-badge" style="--ds-badge-c: var(--ds-emerald);">Ready</span>
+                                                @endif
+                                                @if ($video->sizeSummary())
+                                                    <span>{{ $video->sizeSummary() }}@if ($video->durationLabel()) · {{ $video->durationLabel() }}@endif</span>
+                                                @endif
+                                            </div>
+                                            @if ($video->isReplacing())
+                                                <div class="text-xs mt-1" style="color: var(--ds-amber);">New file being shrunk — the current one keeps playing.</div>
+                                            @endif
+                                            @if ($video->failure_reason && ($video->status === 'failed' || $video->replacementFailed()))
+                                                <div class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $video->failure_reason }}</div>
+                                            @endif
+                                            @if ($video->isStuck())
+                                                <div class="text-xs mt-1" style="color: var(--ds-amber);">Still processing after an hour — the video worker may not be running on this server.</div>
+                                            @endif
                                         @endif
                                         @if ($video->trashed())
                                             <span class="ds-badge mt-1" style="--ds-badge-c: var(--text-muted);">Archived</span>
@@ -165,6 +216,12 @@
                                     <td class="px-4 py-3 whitespace-nowrap" style="color: var(--text-muted);">{{ $video->updated_at?->format('j M Y') }}</td>
                                     <td class="px-4 py-3 text-right whitespace-nowrap">
                                         <a href="{{ route('admin.training-videos.edit', $video) }}" class="corex-btn-outline text-xs">Edit</a>
+                                        @if ($video->canRetry() && ! $video->trashed())
+                                            <form method="POST" action="{{ route('admin.training-videos.retry', $video) }}" class="inline">
+                                                @csrf
+                                                <button type="submit" class="corex-btn-outline text-xs">Try again</button>
+                                            </form>
+                                        @endif
                                         @if ($video->trashed())
                                             <form method="POST" action="{{ route('admin.training-videos.restore', $video) }}" class="inline">
                                                 @csrf

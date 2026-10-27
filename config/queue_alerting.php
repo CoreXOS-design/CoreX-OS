@@ -124,6 +124,16 @@ return [
                 'progress_window'   => 300,
                 'supervisor'        => 'corex-worker-live-thumbnails:*',
             ],
+
+            // BATCH lane (Training Videos, spec §8 U5). One ffmpeg compress can legitimately run for
+            // most of an hour (job timeout 3600s), so a head that has not advanced for 65 minutes is
+            // the fault; a lane that is merely busy is not.
+            'training-videos' => [
+                'max_age'           => 7200,
+                'requires_progress' => true,
+                'progress_window'   => 3900,
+                'supervisor'        => 'corex-worker-live-training-videos:*',
+            ],
         ],
     ],
 

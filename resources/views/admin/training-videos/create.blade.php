@@ -29,13 +29,15 @@
         </div>
     </div>
 
-    <form method="POST" action="{{ route('admin.training-videos.store') }}" class="max-w-3xl space-y-4">
+    <form method="POST" action="{{ route('admin.training-videos.store') }}" class="max-w-3xl space-y-4"
+          x-data="tvForm({ source: @js(old('source') === 'upload' ? 'upload' : 'youtube'), isEdit: false })"
+          @tv-upload-state="uploadBusy = $event.detail.busy; uploadDone = $event.detail.done">
         @csrf
 
         @include('admin.training-videos._form', ['video' => null])
 
         <div class="flex items-center gap-2">
-            <button type="submit" class="corex-btn-primary text-xs">Add video</button>
+            <button type="submit" class="corex-btn-primary text-xs" :disabled="blocked" :class="blocked ? 'opacity-50 cursor-not-allowed' : ''">Add video</button>
             <a href="{{ route('admin.training-videos.index') }}" class="corex-btn-outline text-xs">Cancel</a>
         </div>
     </form>
