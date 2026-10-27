@@ -382,7 +382,7 @@ the real edit form). An agent without the permission is refused and nothing chan
    WhatsApp / email; my details or the listing agent's) and the same link, the public preview, which has carried the OAS exemption since
    30 Sep (`MarketingReadinessService::isMarketable()`). `show.blade.php` also treats an OAS row as marketable for the page's own buttons so
    Live Preview is no longer greyed under "Marketing blocked" (the full readiness report can never pass for OAS: its seller is never on
-   file); `statusFor()` itself is untouched. The Syndication button is held shut by its own OAS rule, and Ad Builder / Market Property /
+   file); `statusFor()` itself is untouched, and the header badge beside the Compliance Status button reads **N/A** instead of BLOCKED (the button stays). The Syndication button is held shut by its own OAS rule, and Ad Builder / Market Property /
    Pitch Seller / Generate Presentation / Duplicate stay blocked by the §5c registry and §5b. Test: `OtherAgencyStockShareTest`.
 
 ### 5d. Property24 import — the advert's heading and the features (2026-10-07, extension 3.9.1; reference: P24 117580701 vs QA1 property 21181)
