@@ -528,6 +528,7 @@ Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(f
             Route::post('/broadcasting-auth', [\App\Http\Controllers\Api\V1\DeskExtensionController::class, 'channelAuth'])->name('channel-auth');
             Route::post('/sessions/{id}/heartbeat', [\App\Http\Controllers\Api\V1\DeskExtensionController::class, 'heartbeat'])->whereNumber('id')->name('heartbeat');
             Route::post('/sessions/{id}/tabs', [\App\Http\Controllers\Api\V1\DeskExtensionController::class, 'tab'])->whereNumber('id')->name('tab');
+            Route::post('/sessions/{id}/message', [\App\Http\Controllers\Api\V1\DeskExtensionController::class, 'message'])->whereNumber('id')->name('message');
             // Take-over on a shared tab (phase 2): the same answers and report as the CoreX page, over the token.
             Route::post('/sessions/{id}/control/respond', [\App\Http\Controllers\Api\V1\DeskExtensionController::class, 'controlRespond'])->whereNumber('id')->name('control.respond');
             Route::post('/sessions/{id}/control/revoke', [\App\Http\Controllers\Api\V1\DeskExtensionController::class, 'controlRevoke'])->whereNumber('id')->name('control.revoke');

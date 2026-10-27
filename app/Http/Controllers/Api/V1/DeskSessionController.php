@@ -108,7 +108,9 @@ class DeskSessionController extends Controller
             return response()->json(['message' => 'That Desk session is not live.'], 409);
         }
 
-        return response()->json(['tabs' => array_values($tabs), 'session' => $this->mine($request, $id)->load('agent', 'agency', 'supportUser')->toClientArray()]);
+        $session = $this->mine($request, $id);
+
+        return response()->json(['tabs' => array_values($tabs), 'session' => $session->load('agent', 'agency', 'supportUser')->toClientArray(), 'messages' => $this->desk->recentMessages($session)]);
     }
 
     /** POST /api/v1/desk/sessions/{id}/highlight/clear {tab, reason: clicked|navigated} - the agent clicked the highlighted element, or left the page. */
@@ -118,6 +120,21 @@ class DeskSessionController extends Controller
         $this->desk->highlightDone($this->mine($request, $id), $request->user(), $data['tab'] ?? null, (string) ($data['reason'] ?? 'clicked'));
 
         return response()->json(['ok' => true]);
+    }
+
+    /** POST /api/v1/desk/sessions/{id}/message {text, tab, id} - the agent's reply to support (audited; the text also travels as a whisper). */
+    public function message(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate(['text' => ['required', 'string', 'max:2000'], 'tab' => ['nullable', 'string', 'max:12'], 'id' => ['nullable', 'string', 'max:24']]);
+        try {
+            $row = $this->desk->message($this->mine($request, $id), $request->user(), 'agent', $data['text'], $data['tab'] ?? null, $data['id'] ?? null);
+        } catch (\App\Services\Desk\DeskNotLiveException) {
+            return response()->json(['message' => 'That Desk session is not live.'], 409);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['ok' => true, 'message' => $row]);
     }
 
     // ── Take-over (phase 2): the agent's answers and the report of what their browser replayed ──────────

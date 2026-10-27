@@ -160,7 +160,7 @@ final class DeskMirrorFidelityTest extends TestCase
         $this->assertLessThan(strpos($view, 'id="cdc-pane"'), strpos($view, 'id="cdc-bar"'), 'the toolbar comes first, the picture below it');
         $this->assertStringContainsString("new ResizeObserver(() => layoutPane()).observe(\$('cdc-pane'))", $console, 'the picture refits whenever the room below the toolbar changes');
         // Everything the ruling lists is in it, in one place.
-        foreach (['id="cdc-agent"', 'id="cdc-support"', 'id="cdc-page"', 'id="cdc-elapsed"', 'id="cdc-control-status"', 'id="cdc-control"', 'id="cdc-hl"', 'id="cdc-note"', 'id="cdc-tabs"', 'id="cdc-full"', 'id="cdc-end"'] as $id) {
+        foreach (['id="cdc-agent"', 'id="cdc-support"', 'id="cdc-page"', 'id="cdc-elapsed"', 'id="cdc-control-status"', 'id="cdc-control"', 'id="cdc-hl"', 'id="cdc-msg-in"', 'id="cdc-msg-send"', 'id="cdc-tabs"', 'id="cdc-full"', 'id="cdc-end"'] as $id) {
             $this->assertStringContainsString($id, $view, "the toolbar has {$id}");
         }
         // The old chrome is gone from the viewer: no list, no technical line.

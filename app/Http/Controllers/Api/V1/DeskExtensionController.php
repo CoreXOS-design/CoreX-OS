@@ -85,6 +85,21 @@ class DeskExtensionController extends Controller
         return response()->json(['tabs' => array_values($tabs)]);
     }
 
+    /** POST /api/v1/desk/ext/sessions/{id}/message {text, tab, id} - the agent's reply to support from a shared Chrome tab. */
+    public function message(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate(['text' => ['required', 'string', 'max:2000'], 'tab' => ['nullable', 'string', 'regex:/^x\d{1,10}$/'], 'id' => ['nullable', 'string', 'max:24']]);
+        try {
+            $row = $this->desk->message($this->mine($request, $id), $request->user(), 'agent', $data['text'], $data['tab'] ?? null, $data['id'] ?? null);
+        } catch (DeskNotLiveException) {
+            return response()->json(['message' => 'That Desk session is not live.'], 409);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['ok' => true, 'message' => $row]);
+    }
+
     // ── Take-over on a shared extension tab (phase 2): same answers and the same report as the CoreX page, over the token ────────
 
     /** POST /api/v1/desk/ext/sessions/{id}/control/respond {allow} */

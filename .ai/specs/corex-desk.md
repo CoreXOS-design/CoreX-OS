@@ -39,7 +39,7 @@ password, and the agency can prove afterwards exactly who looked at what and whe
 - **Live view**: rrweb live-mode replay of the agent's tab (scroll and page changes included, about 0.5 s behind).
 - **Pointer**: the mouse over the replayed view is sent to the agent as a labelled "Support" cursor.
 - **Highlight**: click an element in the replayed view → the console resolves a `[data-tour]` anchor if there is one, else a
-  generated CSS path → the agent's page outlines it (with an optional note). One at a time. **Clear** removes it.
+  generated CSS path → the agent's page outlines it (the line support has just written in the message strip, section 4h, rides on its card). One at a time. **Clear** removes it.
 - **List of live sessions** (waiting + live) for the support user's scope, and recent ended ones.
 - The console loads assets with the support user's own session (no privilege leak). No video is recorded.
 
@@ -79,7 +79,7 @@ property page and Settings):
 
 **The page.** A standard CoreX page: left menu and the sticky page header (`<x-page-header title="CoreX Desk">`) like Properties search; below it only
 content. In the header: *Agent's code* + **Join** on one line. When joined: a sticky **session bar** (Agent, Agency, Page, Elapsed, a short state chip
-"Waiting for Allow…" / "In control", the highlight note, **Request control**, **Clear highlight**, **End session**), the tab bar when the agent has
+"Waiting for Allow…" / "In control", the message box (4h), **Request control**, **Clear highlight**, **End session**), the tab bar when the agent has
 shared extension tabs, and the mirror filling the remaining height. **Sessions open now** sits below. No helper paragraphs anywhere — labels carry the
 meaning; only feedback ("That field is private…", "The agent declined.") appears as a transient line.
 
@@ -123,11 +123,22 @@ plus a link to the past sessions. Nothing else; no helper text.
   the viewer element sits on `<body>` above everything (z-index 2 000 000), the page behind it does not scroll.
 - **Full screen** is one button (`requestFullscreen` on the viewer). Esc leaves full screen and stays in the viewer.
 - **One toolbar, pinned** (ruling 27 Oct 2026 — it used to float and slide away after 3 s), reusing the CoreX button styles: Agent · Support (the display name,
-  4c) · Page · Elapsed · state pill (**Viewing / Requested / In control**) · [Request control | Withdraw request | Hand back] · [Highlight toggle + note +
-  Clear] · [one button per tab when the agent has more than one: CoreX tabs and shared Chrome tabs, 4f] · [Full screen] [Back] [End session]. It is always
-  visible (in full screen too) and never covers the picture: the viewer is a column — the toolbar on top (one row of about 45 px where there is room, wrapping
-  on a narrow window), **the mirror below it filling the rest of the window**, refitted whenever that room changes (window resize, full screen, the toolbar
-  wrapping — a `ResizeObserver` on the picture area). While in control a thin amber frame is drawn over the picture.
+  4c) · Page · Elapsed · state pill (**Viewing / Requested / In control**) · [Request control | Withdraw request | Hand back] · [Highlight toggle + Clear] ·
+  **[Message to {agent} — one line + Send]** (4h; it replaced the old "Note" box, which did nothing visible) · [Full screen] [Back] [End session]. It is always
+  visible (in full screen too) and never covers the picture: the viewer is a column — the toolbar on top (one row of about 45 px where there is room — from
+  1640 px wide — wrapping onto a second row on a narrower window), **then the tab bar** (below), **the mirror below that filling the rest of the window**,
+  refitted whenever that room changes (window resize, full screen, the toolbar wrapping, the tab bar appearing — a `ResizeObserver` on the picture area).
+  While in control a thin amber frame is drawn over the picture.
+- **Tab bar** (ruling 27 Oct 2026, second round; shown when the agent has more than one tab — every CoreX tab, 4f, and any shared Chrome tab, section 13):
+  its own row under the toolbar, pinned with it. One **larger, clearly separated button per tab**, labelled **"Title — host/path"** — e.g.
+  *Properties — qatesting1.corexos.co.za/corex/properties* (a shared Chrome tab: *Title — host*). The **full address is on hover**; it is shortened **in the
+  middle** (`qatesting1.corexos.co.za/co…/21203`) only when the buttons would not otherwise fit on the row (three to a row at the most, then it wraps). The
+  active tab is **filled** in the brand colour. A tab that has **just opened carries a "new" badge and pulses** (reduced-motion: a steady ring) **until it is
+  clicked** — the console still switches to it by itself (4f), the badge stays until support clicks it. **Order = the order the agent opened them**; a tab
+  keeps its place while it loads its next page. A page that reloads or moves on is never "new" again.
+  Proof: `tabbar-proof.mjs` — the agent clicks a CoreX button that opens a new tab → within 2 s the bar shows *Properties — qatesting1.corexos.co.za/corex/properties*
+  with the new badge, the new tab filled, the first tab still first; hover title is the full address; a long address is cut in the middle at a narrow window
+  and whole at a wide one; clicking clears the badge; the picture still fits the room left below the bar.
   Proof: `toolbar-proof.mjs` — at 1920×1080, 1366×768 and 1280×720 the bar is still at top 0 after 5 s idle, the picture sits below it and fits the remaining
   room exactly (width or height), and Full screen keeps the bar.
 - **Highlight mode**: on while viewing (a click points something out), off once in control (a click is a click); the toggle overrides either way and
@@ -268,10 +279,36 @@ Support's highlight is **not a Guided Tour step** any more: no driver.js, no Nex
   server (`POST /api/v1/desk/sessions/{id}/highlight/clear {tab, reason: clicked}`): audited (`highlight_cleared`, `by agent`), and `desk.highlight_cleared
   {tab, reason}` makes the console clear its state and toast **"Done - the agent clicked it."** A highlight also clears **on navigation**: leaving the page
   (beacon on `pagehide`) or a hash / history change clears it, and the console toasts "The agent moved to another page - the highlight cleared."
-- **Console.** Unchanged: a click in Highlight mode points; the toast names the element in words; Clear removes it.
+- **Console.** A click in Highlight mode points; the toast names the element in words; Clear removes it. The old "Note" box beside Highlight is gone (it
+  did nothing visible): what support writes goes through the message strip (4h) and, while a highlight is showing, **rides on its card**.
 - Proof (`highlight-proof.mjs`, including auto-clear): ring within 3 px of the element's box plus its padding; label = the supporter's display name; note in the card; no driver.js
   element in the page, no buttons; light and dark screenshots; the agent's click inside the element clears it in ~30 ms and the console says Done in ~0.3 s; leaving
   the page clears it and the console says so in ~1 s.
+
+### 4h. The session message strip (Johan, 27 Oct 2026, second round)
+
+Support and the agent can write each other short lines during a session — no phone call needed to say "click the blue button".
+- **Support → agent.** The console toolbar has one input labelled **"Message to {agent name}"** (placeholder *Shows on their red bar - Enter sends*) and **Send**;
+  Enter sends. The line appears on the agent's **red bar**, in **every CoreX tab** the agent has and in every shared Chrome tab, as
+  **"Johan Reichel — CoreX Support: …"** (the supporter's frozen display name, 4c), and the bar flashes once. If a **highlight** is showing on the tab the console
+  was looking at, the same line also rides on the **highlight card** (a highlight made within 60 s of a line carries it too).
+- **Agent → support.** Once there is a thread the red bar shows a one-line **Reply** box (Enter sends). The reply appears in the console in a small panel over the
+  corner of the picture and as a toast ("Reply from …").
+- **The thread.** Both sides see the **last three lines**, with *Show all* (up to 30) / *Show fewer*. A tab that opens or changes page mid-session gets the thread so far
+  from the server (the `tabs` answer carries the last 10 lines), as does a console that opens the session again.
+- **Transport.** The text travels as a **whisper** (`client-message {id, from, name, text, tab, at}`) for speed, and the sender also calls the server —
+  `POST /corex/desk/sessions/{id}/message` (support) or `POST /api/v1/desk/sessions/{id}/message` (agent; `POST /api/v1/desk/ext/sessions/{id}/message` from a shared Chrome
+  tab) with `{text, tab, id}` — which **records the audit row** and broadcasts `desk.message {id, from, name, text, tab, at}` as a safety net. Each side shows a line once:
+  the whisper, the server's copy and the echo of its own line all carry the same `id`. Text is plain (tags stripped, spaces collapsed), at most `desk.message_max`
+  (300) characters, shown with `textContent` only.
+- **Audit.** Every message is a `message` row in `desk_session_events` — `{from: support|agent, name, text, tab, id}` and the actor — shown in the Desk session log as
+  *Message — support to the agent: "…"* / *the agent: "…"*. (A message is *content the people chose to write to each other*, unlike the agent's screen, which is never stored.)
+- **Extension tabs.** The service worker passes `client-message` / `desk.message` to every shared tab (a closed shadow-root thread under the bar, with the same
+  Reply box) and sends the agent's reply as a whisper plus the audit call.
+- **Settings.** `desk.message_max` is a config tunable like the other Desk limits, not an agency setting (nothing for the Setup Wizard: no agency would want a different
+  length). Multi-agency: the wording is neutral ("CoreX support"), the supporter's name comes from their own agency-neutral display label.
+- Proof (`message-proof.mjs`, two real Chromium browsers on QA1): support sends → it is on the agent's red bar in every one of two tabs within a second or so; the agent
+  replies → it is in the console; a highlight active → the line is on the card; the audit shows both lines; the thread shows three lines and expands.
 
 ## 5. Privacy and audit (POPIA)
 
@@ -280,7 +317,7 @@ Johan: a permanent audit so claims can be proven or dismissed.
 - `desk_sessions` — one row per session: agency, agent, support user, status, code (hashed through `OtpService`), started /
   joined / ended times, who ended it, last page (path only — never a query string).
 - `desk_session_events` — append-only trail per session: `created`, `joined`, `page` (path), `highlight` (selector + note),
-  `highlight_cleared`, `pointer_on` / `pointer_off`, `ended`; phase 3: `tab_join` / `tab_update` / `tab_leave`; phase 2: `control_requested` / `control_granted` / `control_declined` / `control_revoked` / `control_ended` and one `control_action` per thing replayed (section 14).
+  `highlight_cleared`, `pointer_on` / `pointer_off`, `message` (4h), `ended`; phase 3: `tab_join` / `tab_update` / `tab_leave`; phase 2: `control_requested` / `control_granted` / `control_declined` / `control_revoked` / `control_ended` and one `control_action` per thing replayed (section 14).
 - Both tables soft delete; nothing is ever hard-deleted.
 - The screen content itself is **never stored** — it travels browser to browser over the live channel only.
 - Agency admins see their own agency's sessions under **Compliance › Reports & Logs › Desk sessions**. The CoreX owner
@@ -405,7 +442,7 @@ allowed for the session's agent, and for the support user who joined it while it
 **HTTP.** Agent (`/api/v1/desk/sessions`, session-auth): `POST /` create → `{session, code, code_minutes}`; `GET /current`;
 `POST /{id}/heartbeat {page}` every 30 s and on each page load (answers `{status, ended_by}` — a dead session is noticed here);
 `POST /{id}/leaving` (beacon on `pagehide`); `POST /{id}/end`. Support (`/corex/desk`): `POST /join {code}`,
-`POST /sessions/{id}/highlight {selector, note}`, `/highlight/clear`, `/pointer {on}`, `/end`; `GET /sessions` (live list).
+`POST /sessions/{id}/highlight {selector, note}`, `/highlight/clear`, `/pointer {on}`, `/message {text, tab, id}`, `/end`; `GET /sessions` (live list).
 
 **Protocol 1.1 (phase 3) — additive only; a 1.0 client keeps working.** A session can now hold several *tabs*: the agent's CoreX page
 (`main`) and any Chrome tabs the CoreX extension shares (`x<chrome tab id>`, e.g. `x412`).
@@ -445,6 +482,10 @@ allowed for the session's agent, and for the support user who joined it while it
   carry `tabs` and the response `server_ms`.
 - **`desk.highlight_cleared {tab, reason?}`** — `reason` `clicked` | `navigated` when the agent's tab cleared it; agent → server: `POST
   /api/v1/desk/sessions/{id}/highlight/clear {tab, reason}`.
+- **Messages (protocol 1.4, section 4h):** whisper `client-message {id, from: support|agent, name, text, tab, at}` (both directions; every tab and the extension
+  worker listen) and server event `desk.message {id, from, name, text, tab, at}`; server calls `POST /corex/desk/sessions/{id}/message`, `POST
+  /api/v1/desk/sessions/{id}/message`, `POST /api/v1/desk/ext/sessions/{id}/message`, each `{text, tab, id}`. The `tabs` answer and the console's `join` / `attach` answers
+  carry `messages` (the last 10 lines). Additive: a client that knows nothing of messages ignores them.
 - **`client-frame` chunk** `{id, i, n, z, d, t?, m?}`: `t` the tab, `m` the timing stamp (only with the timing panel on). `d` ≤ 32 000 chars; `z=0` for
   batches under 300 bytes.
 - **Timing panel (config only):** whispers `client-tping {id, c}` (console → all tabs) and `client-tpong {id, c, a, t}`; `POST /corex/desk/sessions/{id}/timing`

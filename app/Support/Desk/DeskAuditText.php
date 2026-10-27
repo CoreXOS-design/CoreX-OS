@@ -16,6 +16,7 @@ final class DeskAuditText
         'tab_join' => 'Browser tab shared', 'tab_update' => 'Shared tab moved to another page or site', 'tab_leave' => 'Browser tab no longer shared',
         'control_requested' => 'Support asked to take control', 'control_granted' => 'Agent allowed control', 'control_declined' => 'Control not given',
         'control_revoked' => 'Agent took back control', 'control_ended' => 'Control ended', 'control_action' => 'Support acted on the agent\'s screen', 'control_moved' => 'Control followed the agent to a new CoreX tab',
+        'message' => 'Message',
     ];
 
     private const ENDED = ['agent' => 'the agent', 'support' => 'support', 'logout' => 'the agent signing out', 'timeout' => 'the connection being lost',
@@ -95,6 +96,10 @@ final class DeskAuditText
                 }
 
                 return (string) ($p['host'] ?? '') . (! empty($p['title']) ? ' - ' . $p['title'] : '');
+            case 'message':
+                $in = (empty($p['tab']) || $p['tab'] === 'main') ? '' : (str_starts_with((string) $p['tab'], 'x') ? ' (in a shared browser tab)' : ' (in another CoreX tab)');
+
+                return ($p['from'] ?? 'support') === 'agent' ? 'the agent: "' . ($p['text'] ?? '') . '"' . $in : 'support to the agent: "' . ($p['text'] ?? '') . '"' . $in;
             case 'control_moved':
                 return 'to ' . self::where($p);
             case 'highlight_cleared':

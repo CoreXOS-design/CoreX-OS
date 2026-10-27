@@ -55,6 +55,9 @@ return [
     // snapshot size, the ten biggest mutation batches, relay round trip (spec section 4e).
     'timing_overlay' => (bool) env('DESK_TIMING_OVERLAY', false),
 
+    // The session message strip (spec section 4h): the longest line either side may send.
+    'message_max' => (int) env('DESK_MESSAGE_MAX', 300),
+
     // Selector / note limits for a highlight.
     'selector_max' => 500,
     'note_max' => 200,
