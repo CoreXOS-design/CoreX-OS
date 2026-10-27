@@ -86,8 +86,7 @@ function finish(by) {
     hidePointer();
     st.timers.forEach(clearInterval);
     window.removeEventListener('pagehide', leaving);
-    try { st.echo.leave(st.channelName); } catch (e) { /* gone already */ }
-    dropEcho();
+    dropEcho(); // disconnecting drops the subscription server-side; a separate leave() would send on a socket that is closing
     const ui = st.ui;
     st = null;
     ui.ended(by);
@@ -110,7 +109,7 @@ async function beginRecording() {
         inlineStylesheet: true,
         recordCanvas: false,
         collectFonts: false,
-        sampling: { mousemove: 50, scroll: 100, input: 'last' },
+        sampling: { mousemove: 50, scroll: 100 }, // every keystroke is mirrored (input:'last' would wait for the field to lose focus)
     });
 }
 
