@@ -62,7 +62,7 @@ final class DeskControlTest extends DeskTestCase
         $s = $this->desk->requestControl($s, $support, 'main');
         $this->assertSame('requested', $s->control_state);
         $this->assertSame('main', $s->control_tab);
-        Event::assertDispatched(DeskBroadcast::class, fn ($e) => $e->name === 'desk.control_requested' && $e->payload === ['tab' => 'main', 'support_name' => $support->name]);
+        Event::assertDispatched(DeskBroadcast::class, fn ($e) => $e->name === 'desk.control_requested' && $e->payload === ['tab' => 'main', 'support_name' => \App\Support\Desk\DeskSupporterLabel::for($support)]);
         $this->assertNull($s->control_granted_at, 'nothing is granted by asking');
 
         $s = $this->desk->respondControl($s, $agent, true);
@@ -341,7 +341,7 @@ final class DeskControlTest extends DeskTestCase
         ]);
         $this->desk->revokeControl($s->fresh(), $agent);
 
-        $page = $this->actingAs($this->owner())->get('/corex/compliance/desk-sessions/' . $s->id)->assertOk();
+        $page = $this->actingAs($this->owner())->get('/corex/desk-log/' . $s->id)->assertOk();
         foreach (['Support asked to take control', 'of the shared tab Property search - www.cmainfo.co.za', 'Agent allowed control',
             'clicked "Search deeds" on the shared tab Property search - www.cmainfo.co.za', 'typed into "Suburb" on the shared tab Property search - www.cmainfo.co.za (6 keystrokes)',
             'typed into "Password"', 'blocked - a private field', 'Agent took back control'] as $text) {

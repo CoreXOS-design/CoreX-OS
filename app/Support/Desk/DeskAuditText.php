@@ -31,6 +31,26 @@ final class DeskAuditText
         'hidden' => 'it was not visible', 'disabled' => 'it was switched off', 'not_a_text_field' => 'not a text field', 'not_a_dropdown' => 'not a dropdown',
         'no_such_choice' => 'no such choice', 'key_not_allowed' => 'key not allowed', 'unknown_action' => 'not an allowed action', 'error' => 'it failed'];
 
+    /**
+     * Who did it, as they were identified in the session: a support person by the "Name — Organisation, Designation" frozen when they joined
+     * (the session's, or their own `joined` row if they were a second supporter), anyone else (the agent) by name.
+     */
+    public static function actor(DeskSessionEvent $e, \App\Models\DeskSession $session): string
+    {
+        $id = (int) $e->actor_user_id;
+        if ($id && (int) $session->support_user_id === $id && $session->support_display) {
+            return $session->support_display;
+        }
+        if ($id && $session->relationLoaded('events')) {
+            $joined = $session->events->where('type', 'joined')->where('actor_user_id', $id)->last();
+            if ($joined && ! empty($joined->payload['support_name'])) {
+                return (string) $joined->payload['support_name'];
+            }
+        }
+
+        return $e->actor?->name ?? '—';
+    }
+
     public static function label(string $type): string
     {
         return self::LABELS[$type] ?? $type;

@@ -2364,6 +2364,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/sessions/{id}/control/end', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'controlEnd'])->whereNumber('id')->middleware('throttle:30,1')->name('control.end');
     });
 
+    // CoreX Desk sessions log - the permanent audit (Admin > Desk > Desk sessions; moved out of Compliance, Johan 27 Oct 2026).
+    // desk.support holders, or an agency admin (manage_users) for their own agency. Own agency only; owner roles see all.
+    // Spec .ai/specs/corex-desk.md sections 5, 9 and 12. No agency.required: an owner reads every agency's sessions without switching into one.
+    Route::prefix('desk-log')->name('corex.desk.log.')->middleware('permission:desk.support,manage_users')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Compliance\DeskSessionsController::class, 'index'])->name('index');
+        Route::get('/{id}', [\App\Http\Controllers\Compliance\DeskSessionsController::class, 'show'])->whereNumber('id')->name('show');
+    });
+
     // AT-451 — "all alerts switched off": the warning bar's two buttons act on the LOGGED-IN user only (no id in the URL);
     // the agency list and its per-user actions need manage_users and resolve the user inside the viewer's scoped query.
     Route::post('/alerts/bar/turn-on', [\App\Http\Controllers\CoreX\AlertSwitchController::class, 'barTurnOn'])->name('corex.alerts.bar.turn-on');
@@ -3168,13 +3176,6 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // (`access_communication_archive`). Stays filed under Compliance per the re-cut IA.
     Route::middleware(['permission:access_communication_archive', 'agency.required'])->prefix('compliance/communications')->name('compliance.communications.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\CommunicationsLogController::class, 'index'])->name('index');
-    });
-
-    // ── CoreX Desk sessions - the permanent audit (Compliance > Reports & Logs > Desk sessions). Own agency only; owner roles see all.
-    // Spec .ai/specs/corex-desk.md section 5 and 9. No agency.required: an owner reads every agency's sessions without switching into one.
-    Route::middleware(['permission:access_compliance', 'permission:manage_users'])->prefix('compliance/desk-sessions')->name('compliance.desk-sessions.')->group(function () {
-        Route::get('/', [\App\Http\Controllers\Compliance\DeskSessionsController::class, 'index'])->name('index');
-        Route::get('/{id}', [\App\Http\Controllers\Compliance\DeskSessionsController::class, 'show'])->whereNumber('id')->name('show');
     });
 
     // ── Communication Archive (AT-33) — email/WhatsApp evidence archive viewer.

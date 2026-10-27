@@ -33,6 +33,7 @@
     <div id="cdc-live" hidden>
         <div id="cdc-bar" class="rounded-md px-4 py-2 flex items-center gap-x-5 gap-y-2 flex-wrap text-xs" style="background:var(--surface); border:1px solid var(--border); margin-bottom:.5rem;">
             <div><span style="color:var(--text-muted);">Agent</span> <strong id="cdc-agent" style="color:var(--text-primary);"></strong></div>
+            <div style="min-width:0;"><span style="color:var(--text-muted);">Support</span> <strong id="cdc-support" style="color:var(--text-primary);"></strong></div>
             <div><span style="color:var(--text-muted);">Agency</span> <strong id="cdc-agency" style="color:var(--text-primary);"></strong></div>
             <div style="min-width:0;"><span style="color:var(--text-muted);">Page</span> <strong id="cdc-page" style="color:var(--text-primary); overflow-wrap:anywhere;"></strong></div>
             <div><span style="color:var(--text-muted);">Elapsed</span> <strong id="cdc-elapsed" style="color:var(--text-primary);">0:00</strong></div>
@@ -66,9 +67,8 @@
             @endforeach
         </ul>
         <p id="cdc-list-empty" class="text-xs" style="color:var(--text-muted); margin:0;" @if($sessions->isNotEmpty()) hidden @endif>No sessions open.</p>
-        @if(auth()->user()->hasPermission('manage_users'))
-            <p class="text-xs" style="margin:.5rem 0 0;"><a href="{{ route('compliance.desk-sessions.index') }}" class="font-semibold" style="color:var(--brand-icon);">All past Desk sessions →</a></p>
-        @endif
+        <p class="text-xs" style="margin:.5rem 0 0;"><a href="{{ route('corex.desk.log.index') }}" class="font-semibold" style="color:var(--brand-icon);">All past Desk sessions →</a></p>
+        
     </div>
 </div>
 

@@ -15,11 +15,10 @@
         </p>
     </div>
 
-    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\ComplianceReportsTabs::class])
 
     <div class="rounded-md px-5 py-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs" style="background:var(--surface); border:1px solid var(--border);">
         <div><div style="color:var(--text-muted);">Agent</div><div style="color:var(--text-primary);">{{ $session->agent?->name ?? '—' }}</div></div>
-        <div><div style="color:var(--text-muted);">Support</div><div style="color:var(--text-primary);">{{ $session->supportUser?->name ?? 'Nobody joined' }}</div></div>
+        <div><div style="color:var(--text-muted);">Support</div><div style="color:var(--text-primary);">{{ $session->support_display ?: ($session->supportUser?->name ?? 'Nobody joined') }}</div></div>
         <div><div style="color:var(--text-muted);">Length</div><div style="color:var(--text-primary);">{{ $session->joined_at ? ($secs >= 60 ? floor($secs / 60) . ' min ' . ($secs % 60) . ' s' : $secs . ' s') : '—' }}</div></div>
         <div><div style="color:var(--text-muted);">Status</div><div style="color:var(--text-primary);">{{ ucfirst($session->status) }}@if($session->ended_by) — ended by {{ $endedLabel[$session->ended_by] ?? $session->ended_by }}@endif</div></div>
     </div>
@@ -38,7 +37,7 @@
                     <td class="px-4 py-3 text-xs" style="color:var(--text-muted);">{{ $e->created_at?->format('d M Y H:i:s') }}</td>
                     <td class="px-4 py-3 text-xs" style="color:var(--text-primary);">{{ \App\Support\Desk\DeskAuditText::label($e->type) }}</td>
                     <td class="px-4 py-3 text-xs" style="color:var(--text-secondary);">{{ \App\Support\Desk\DeskAuditText::detail($e) }}</td>
-                    <td class="px-4 py-3 text-xs" style="color:var(--text-secondary);">{{ $e->actor?->name ?? '—' }}</td>
+                    <td class="px-4 py-3 text-xs" style="color:var(--text-secondary);">{{ \App\Support\Desk\DeskAuditText::actor($e, $session) }}</td>
                 </tr>
                 @empty
                 <tr><td colspan="4" class="px-4 py-12 text-center text-sm" style="color:var(--text-muted);">No events recorded.</td></tr>
@@ -47,6 +46,6 @@
         </table>
     </div>
 
-    <div><a href="{{ route('compliance.desk-sessions.index') }}" class="text-xs font-semibold" style="color:var(--brand-icon);">← All Desk sessions</a></div>
+    <div><a href="{{ route('corex.desk.log.index') }}" class="text-xs font-semibold" style="color:var(--brand-icon);">← All Desk sessions</a></div>
 </div>
 @endsection

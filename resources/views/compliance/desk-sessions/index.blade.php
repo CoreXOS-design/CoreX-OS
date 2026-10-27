@@ -7,7 +7,7 @@
     // A sortable column header: flips direction when it is the current sort, keeps the other filters.
     $sortLink = function (string $key) use ($sort, $dir) {
         $next = ($sort === $key && $dir === 'desc') ? 'asc' : 'desc';
-        return route('compliance.desk-sessions.index', array_merge(request()->query(), ['sort' => $key, 'dir' => $next, 'page' => null]));
+        return route('corex.desk.log.index', array_merge(request()->query(), ['sort' => $key, 'dir' => $next, 'page' => null]));
     };
     $arrow = fn (string $key) => $sort === $key ? ($dir === 'asc' ? ' ↑' : ' ↓') : '';
     $statusBadge = fn (string $s) => match ($s) { 'live' => 'ds-badge-success', 'waiting' => 'ds-badge-info', default => 'ds-badge-default' };
@@ -22,7 +22,6 @@
         </div>
     </div>
 
-    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\ComplianceReportsTabs::class])
 
     <div class="rounded-md px-4 py-3" style="background:var(--surface); border:1px solid var(--border);">
         <form method="GET" class="flex items-center gap-3 flex-wrap">
@@ -38,7 +37,7 @@
             <label class="text-xs" style="color:var(--text-muted);">To <input type="date" name="to" value="{{ request('to') }}" class="list-header-filter" onchange="this.form.submit()"></label>
             <button type="submit" class="text-xs font-semibold" style="color:var(--brand-icon);">Search</button>
             @if($hasFilters)
-                <a href="{{ route('compliance.desk-sessions.index') }}" class="text-xs font-semibold" style="color:var(--brand-icon);">Clear</a>
+                <a href="{{ route('corex.desk.log.index') }}" class="text-xs font-semibold" style="color:var(--brand-icon);">Clear</a>
             @endif
             <span class="ml-auto text-xs" style="color:var(--text-muted);">Showing {{ number_format($sessions->count()) }} of {{ number_format($sessions->total()) }}</span>
         </form>
@@ -65,13 +64,13 @@
                         <td class="px-4 py-3 text-xs" style="color:var(--text-muted);">{{ $s->started_at?->format('d M Y H:i') ?? '—' }}</td>
                         <td class="px-4 py-3 text-xs" style="color:var(--text-primary);">{{ $s->agent?->name ?? '—' }}</td>
                         @if($isOwner)<td class="px-4 py-3 text-xs" style="color:var(--text-secondary);">{{ $s->agency?->name ?? '—' }}</td>@endif
-                        <td class="px-4 py-3 text-xs" style="color:var(--text-secondary);">{{ $s->supportUser?->name ?? 'Nobody joined' }}</td>
+                        <td class="px-4 py-3 text-xs" style="color:var(--text-secondary);">{{ $s->support_display ?: ($s->supportUser?->name ?? 'Nobody joined') }}</td>
                         <td class="px-4 py-3 text-xs" style="color:var(--text-secondary);">{{ $s->joined_at ? ($secs >= 60 ? floor($secs / 60) . ' min ' . ($secs % 60) . ' s' : $secs . ' s') : '—' }}</td>
                         <td class="px-4 py-3">
                             <span class="ds-badge ds-badge-pill {{ $statusBadge($s->status) }}">{{ ucfirst($s->status) }}</span>
                             @if($s->ended_by)<span class="text-xs" style="color:var(--text-muted);">{{ $endedLabel[$s->ended_by] ?? $s->ended_by }}</span>@endif
                         </td>
-                        <td class="px-4 py-3 text-right"><a href="{{ route('compliance.desk-sessions.show', $s->id) }}" class="text-xs font-semibold" style="color:var(--brand-icon);">Open</a></td>
+                        <td class="px-4 py-3 text-right"><a href="{{ route('corex.desk.log.show', $s->id) }}" class="text-xs font-semibold" style="color:var(--brand-icon);">Open</a></td>
                     </tr>
                     @empty
                     <tr>

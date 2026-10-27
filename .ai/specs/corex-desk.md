@@ -52,6 +52,10 @@ property page and Settings):
   CoreX menus, panels and cards fade in, so frozen they were invisible: the replayer is created with `pauseAnimation: false`.
 - **A blocked element keeps its room but not rrweb's colour.** Desk's own UI is `.rr-block`; rrweb paints blocked boxes `currentColor` (a dark
   strip where the agent's red bar is). `insertStyleRules: ['.rr-block { background: transparent !important; }']`.
+- **The mirror shows the page as it IS, not arriving.** Every full snapshot rebuilds the iframe document, which would replay each staggered entrance
+  animation (late menu items invisible for seconds). The replayer injects `* { animation-duration: .001s; animation-delay: 0s; transition-duration: 0s }`
+  (`insertStyleRules`). A `<select>` must NOT be in rrweb's `maskInputOptions`: with selects masked rrweb drops `option.selected`, so the mirror
+  shows the first option instead of the chosen one (the proof compares every select's choice real vs mirror).
 - **No drift.** Properties a script sets (a `<select>`'s value, a checkbox) raise no DOM mutation, so a long-lived mirror can drift. Both
   recorders take a fresh full snapshot every 45 s (`checkoutEveryNms`) and once ~2.5 s after recording starts (after a page has drawn itself).
 - **Real button classes.** Console buttons use `corex-btn-primary` / `corex-btn-outline` (the only classes that exist in `corex.css`; `ds-btn` has
@@ -79,12 +83,36 @@ content. In the header: *Agent's code* + **Join** on one line. When joined: a st
 shared extension tabs, and the mirror filling the remaining height. **Sessions open now** sits below. No helper paragraphs anywhere — labels carry the
 meaning; only feedback ("That field is private…", "The agent declined.") appears as a transient line.
 
+**The supporter's own menu.** While a session is open the supporter's own left menu collapses so the mirror gets the full width — the layout's
+existing collapse is reused (`layouts/corex.blade.php`: `markupModeActive` + `markupSidebarExpanded`, the one the rental markup view uses), including
+its small round toggle at the menu's edge to bring it back. Collapsing sets the state through the layout's Alpine data and the
+`rental-markup-view-toggled` event; it is restored when the session ends or the console is left.
+
 **Re-opening and sharing.** A code is spent at the first join, but the session lives on. A support person who reloads or closes the console opens
 their live session from **Sessions open now** (an **Open** button on each live row) — no code — and a second support person of the same scope can
 open the same session. `POST /corex/desk/sessions/{id}/attach` (same `desk.support` + own-agency scope as everything else; an ended, waiting, or
 out-of-scope session answers "not found"). The first to join stays `support_user_id`; anyone else is in `support_user_ids`; all of them may open the
 private channel, point, highlight and ask for control (`control_support_user_id` records who asked, so the audit names the person who acted). Every
 attach is a `joined` audit row ("opened the session again" / "a second support person"). A waiting session is still joined by its code only.
+
+### 4c. Who is the support person? (Johan + Andre, 27 Oct 2026)
+
+The support person is identified in full everywhere the agent sees them — the red bar, the consent prompt ("… wants to take control of this
+window"), the "in control" bar, the pointer's label, the highlight popover's title, the console's session bar, the audit rows and the Desk sessions list:
+
+| Who | Reads | Example |
+|---|---|---|
+| CoreX platform staff (an owner role — agency-less) | `{full name} — CoreX {designation}` (designation from their record, default *Support*) | Johan Reichel — CoreX Support |
+| An agency's own staff | `{full name} — {agency display name}, {designation}` (no designation: their role's label) | Elize Reichel — Home Finders Coastal, Principal |
+
+**Where it comes from.** `users.designation` is the user's own field — edited on the user's record (Admin › Users › edit, from the `designations`
+pick-list; also set in staff take-on / onboarding). Platform staff are the owner roles (`roles.is_owner`, e.g. System Owner); an agency's name is
+`Agency::displayNameFor()`. Nothing is hardcoded (`App\Support\Desk\DeskSupporterLabel`).
+
+**Frozen.** The string is computed once at join time and stored on the session (`desk_sessions.support_display`; a second supporter's is on their own
+`joined` audit row), so the audit stays true if a title changes later; a new session reads the new title. The protocol field `support_name` carries it
+(`desk.joined`, `desk.control_requested`, every session answer). The pointer whisper carries `who` (the supporter's own label) so two supporters are told
+apart; the audit's "By" column shows the frozen label for a support actor and just the name for the agent.
 
 ## 5. Privacy and audit (POPIA)
 
@@ -303,12 +331,22 @@ Infra (QA1 only): `corex-qa1-reverb.service`, nginx `location /app` in the `qate
 
 ## 12. Navigation links (added as built)
 
-- **Get help** — top bar of every CoreX page (sidebar top row, left of the Ellie icon; in both layouts, My Portal included).
-- **Desk console** — `/corex/desk` (route `corex.desk.console`) — Settings menu › *CoreX Desk*, for users with `desk.support`.
-- **Take over** — console › *Request control* (needs `desk.control`); the agent answers in the red bar (CoreX page) or the bar on the shared tab.
+CoreX Desk lives under the **Admin** section of the left menu as one group, **Desk** (Johan's ruling, 27 Oct 2026 — it was not findable before;
+it is not under Compliance or Settings; menu path **Admin › Desk**):
+
+| Menu item | Goes to | Visible to |
+|---|---|---|
+| **Desk console** | `/corex/desk` (`corex.desk.console`) | `desk.support` holders (owner roles; an agency's role only if its admin granted it) |
+| **Desk sessions** | `/corex/desk-log` (`corex.desk.log.index` / `.show`) — the audit list, moved out of Compliance › Reports & Logs | `desk.support` holders, and an agency admin (`manage_users`) for their own agency |
+| **Desk settings** | Company Settings › CoreX Desk tab (`admin.company-settings#desk`) — the agency switch and the take-over idle limit | anyone who may edit settings (`access_settings` / `manage_performance_settings`) |
+
+The group shows when the user holds `desk.support` or `manage_users`; the Admin section itself opens for a `desk.support` holder. Opening any
+`corex.desk.*` page opens the Desk panel. Other places:
+- **Get help** — top bar of every CoreX page (sidebar top row, left of the Ellie icon; both layouts, My Portal included).
 - **Extension** — the CoreX Chrome extension popup › *CoreX Desk* card (phase 3, section 13).
-- **Desk sessions** — Compliance › Reports & Logs › *Desk sessions* tab (routes `compliance.desk-sessions.index` / `.show`).
+- **Take over** — console › *Request control* (needs `desk.control`); the agent answers in the red bar (CoreX page) or the bar on the shared tab.
 - **Agency switch** — Company Settings › *CoreX Desk* tab, and the Setup Wizard's last step (*Access & finish*); both post to `corex.settings.desk`.
+- Removed: the *Desk sessions* tab of Compliance › Reports & Logs, and the old *CoreX Desk* item in the Settings menu.
 
 ## 13. Phase 3 — extension tabs (built 27 Oct 2026, QA1)
 

@@ -121,5 +121,32 @@ final class DeskMirrorFidelityTest extends TestCase
         $css = (string) file_get_contents(resource_path('views/corex/properties/index.blade.php'));
         $this->assertStringContainsString('animation: props-card-rise', $css, 'the kind of animation that was being frozen');
     }
+
+    public function test_the_mirror_does_not_replay_entrance_animations_and_selects_keep_their_choice(): void
+    {
+        $console = $this->js('console.js');
+        $this->assertStringContainsString('animation-duration: 0.001s !important', $console);
+        $this->assertStringContainsString('transition-duration: 0s !important', $console);
+
+        // a masked <select> loses option.selected in rrweb - so selects are not in the mask list (either recorder)
+        foreach ([$this->js('agent.js'), (string) file_get_contents(public_path('chrome-extension/portal-capture/desk-content.js'))] as $src) {
+            $this->assertDoesNotMatchRegularExpression('/textarea: true, select: true/', $src);
+        }
+    }
+
+    public function test_the_supporters_own_menu_collapses_while_a_session_is_open_using_the_layouts_existing_mechanism(): void
+    {
+        $console = $this->js('console.js');
+        $this->assertStringContainsString('function collapseMenu(on)', $console);
+        $this->assertStringContainsString("'rental-markup-view-toggled'", $console, 'the layout\'s own collapse event');
+        $this->assertStringContainsString('markupSidebarExpanded = false', $console);
+        $this->assertSame(1, substr_count($console, 'collapseMenu(true);'), 'collapsed when a session is attached');
+        $this->assertGreaterThanOrEqual(1, substr_count($console, 'collapseMenu(false);'), 'restored when it ends / is left');
+        // the mechanism really is in the layout (so reusing it is not a guess)
+        $layout = (string) file_get_contents(resource_path('views/layouts/corex.blade.php'));
+        $this->assertStringContainsString('@rental-markup-view-toggled.window="markupModeActive = $event.detail.open"', $layout);
+        $this->assertStringContainsString("markupSidebarExpanded ? 'Collapse menu' : 'Expand menu'", $layout, 'with its own toggle to bring the menu back');
+        $this->assertStringContainsString("['cdc-live', 'cdc-bar', 'cdc-tabs', 'cdc-sessions']", $console, 'the mirror is refitted when the menu collapses');
+    }
 }
 

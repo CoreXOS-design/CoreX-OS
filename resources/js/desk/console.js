@@ -42,6 +42,18 @@ function say(msg, bad = false) {
     el.style.color = bad ? 'var(--ds-danger, #b91c1c)' : 'var(--text-muted)';
 }
 
+// ── The supporter's own left menu: out of the way while a session is open (the mirror gets the full width) ─────────
+// Reuses the layout's existing collapse (layouts/corex.blade.php: `markupModeActive` + `markupSidebarExpanded`, the same one the rental markup
+// view uses) - including its small round toggle at the menu's edge to bring it back. Restored when the session ends.
+function collapseMenu(on) {
+    const aside = document.querySelector('aside');
+    const root = aside && aside.closest('[x-data]');
+    try {
+        if (on && root && window.Alpine) window.Alpine.$data(root).markupSidebarExpanded = false;
+        window.dispatchEvent(new CustomEvent('rental-markup-view-toggled', { detail: { open: !!on } }));
+    } catch (e) { /* layout without the mechanism: leave the menu alone */ }
+}
+
 // ── Joining ──────────────────────────────────────────────────────────────────────
 
 async function join(code) {
@@ -97,6 +109,8 @@ function attach(session) {
 
     $('cdc-form').hidden = true;
     $('cdc-live').hidden = false;
+    $('cdc-support').textContent = con.me || '';
+    collapseMenu(true);
     $('appScroll') && ($('appScroll').scrollTop = 0);
     layoutPane();
     $('cdc-agent').textContent = session.agent_name || '';
@@ -120,6 +134,7 @@ function detach(callServer) {
     clearInterval(cur.retry);
     clearTimeout(cur.typeTimer);
     clearInterval(cur.focusTimer);
+    collapseMenu(false);
     if (callServer) api('POST', con.urls.sessions + '/' + cur.session.id + '/end');
     $('cdc-replay').innerHTML = '';
     $('cdc-tabs').innerHTML = '';
@@ -241,7 +256,12 @@ function startReplayer(tab) {
         pauseAnimation: false,
         // rrweb draws a blocked element (our own .rr-block Desk UI) as a solid currentColor box - a dark strip where the red bar is.
         // Keep its room, lose its colour.
-        insertStyleRules: ['.rr-block { background: transparent !important; }'] });
+        insertStyleRules: [
+            '.rr-block { background: transparent !important; }',
+            // A mirror shows the page as it IS, not the page arriving: no entrance animations or transitions. (Every full snapshot rebuilds the
+            // document, which would otherwise replay each staggered fade-in and leave late items invisible for seconds.)
+            '*, *::before, *::after { animation-duration: 0.001s !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: 0s !important; transition-delay: 0s !important; }',
+        ] });
     tab.replayer = replayer;
     replayer.startLive();
     hookReplayInput(tab);
@@ -291,7 +311,7 @@ function fit() {
 window.addEventListener('resize', layoutPane);
 if (window.ResizeObserver) {
     const ro = new ResizeObserver(() => layoutPane());
-    ['cdc-bar', 'cdc-tabs', 'cdc-sessions'].forEach((id) => { const e = $(id); if (e) ro.observe(e); });
+    ['cdc-live', 'cdc-bar', 'cdc-tabs', 'cdc-sessions'].forEach((id) => { const e = $(id); if (e) ro.observe(e); });
 }
 
 // ── Pointer and highlight ────────────────────────────────────────────────────────
@@ -329,7 +349,7 @@ function hookReplayInput(tab) {
             cur.pointerOn = true;
             api('POST', con.urls.sessions + '/' + cur.session.id + '/pointer', { on: true, ...tabParam(tab) });
         }
-        cur.channel.whisper('pointer', { t: tab.key, ...ratio(ev) });
+        cur.channel.whisper('pointer', { t: tab.key, who: con.me, ...ratio(ev) });
     });
     target.addEventListener('mouseleave', () => {
         if (cur && cur.pointerOn && cur.selected === tab.key) {

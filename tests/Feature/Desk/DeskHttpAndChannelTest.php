@@ -117,14 +117,14 @@ final class DeskHttpAndChannelTest extends DeskTestCase
         [$b] = $this->desk->start($this->agentIn($this->agencyB));
         $adminA = $this->agentIn($this->agencyA, 'admin');
 
-        $res = $this->actingAs($adminA)->get('/corex/compliance/desk-sessions');
-        $res->assertOk()->assertSee('/corex/compliance/desk-sessions/' . $a->id, false)->assertDontSee('/corex/compliance/desk-sessions/' . $b->id, false);
+        $res = $this->actingAs($adminA)->get('/corex/desk-log');
+        $res->assertOk()->assertSee('/corex/desk-log/' . $a->id, false)->assertDontSee('/corex/desk-log/' . $b->id, false);
 
-        $this->actingAs($adminA)->get('/corex/compliance/desk-sessions/' . $a->id)->assertOk();
-        $this->actingAs($adminA)->get('/corex/compliance/desk-sessions/' . $b->id)->assertNotFound();
+        $this->actingAs($adminA)->get('/corex/desk-log/' . $a->id)->assertOk();
+        $this->actingAs($adminA)->get('/corex/desk-log/' . $b->id)->assertNotFound();
 
-        $this->actingAs($this->owner())->get('/corex/compliance/desk-sessions')->assertOk()
-            ->assertSee('/corex/compliance/desk-sessions/' . $a->id, false)->assertSee('/corex/compliance/desk-sessions/' . $b->id, false);
+        $this->actingAs($this->owner())->get('/corex/desk-log')->assertOk()
+            ->assertSee('/corex/desk-log/' . $a->id, false)->assertSee('/corex/desk-log/' . $b->id, false);
     }
 
     public function test_an_agency_admin_sees_the_name_of_the_corex_support_user_who_joined(): void
@@ -136,13 +136,13 @@ final class DeskHttpAndChannelTest extends DeskTestCase
         $this->desk->join($owner, $code);
         $adminA = $this->agentIn($this->agencyA, 'admin');
 
-        $this->actingAs($adminA)->get('/corex/compliance/desk-sessions/' . $session->id)->assertOk()->assertSee($owner->name);
-        $this->actingAs($agent)->getJson('/api/v1/desk/sessions/current')->assertOk()->assertJsonPath('session.support_name', $owner->name);
+        $this->actingAs($adminA)->get('/corex/desk-log/' . $session->id)->assertOk()->assertSee($owner->name);
+        $this->actingAs($agent)->getJson('/api/v1/desk/sessions/current')->assertOk()->assertJsonPath('session.support_name', \App\Support\Desk\DeskSupporterLabel::for($owner));
     }
 
     public function test_an_agent_cannot_open_the_audit(): void
     {
-        $this->actingAs($this->agentIn($this->agencyA))->get('/corex/compliance/desk-sessions')->assertForbidden();
+        $this->actingAs($this->agentIn($this->agencyA))->get('/corex/desk-log')->assertForbidden();
     }
 
     // ── Agency switch ───────────────────────────────────────────────────────────────

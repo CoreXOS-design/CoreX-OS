@@ -322,6 +322,8 @@
         $activeGroup = 'hr-documents';
     } elseif (request()->routeIs('admin.importer.*') || request()->routeIs('admin.pp.*')) {
         $activeGroup = 'importer';
+    } elseif (request()->routeIs('corex.desk.*')) {
+        $activeGroup = 'desk';   // CoreX Desk (Admin > Desk): console + sessions log (spec .ai/specs/corex-desk.md section 12)
     } elseif (request()->routeIs(
         'corex.settings*',
         // P24 Auto-Import is a Settings > Operations page now (step 8); its sub-routes open the Settings panel.
@@ -2418,7 +2420,7 @@
              ADMIN SECTION (agency-level admins — BMs, super_admin)
              ═══════════════════════════════════════════ --}}
         @permission('sidebar.section.admin')
-        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_knowledge_base', 'manage_reference_sources', 'access_role_manager', 'assistants.view', 'access_finance_engine', 'access_settings', 'access_soft_deletes', 'manage_staff_take_on', 'marketing_suppressions.view', 'manage_payroll', 'run_payroll', 'view_payroll_reports']))
+        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_knowledge_base', 'manage_reference_sources', 'access_role_manager', 'assistants.view', 'access_finance_engine', 'access_settings', 'access_soft_deletes', 'manage_staff_take_on', 'marketing_suppressions.view', 'manage_payroll', 'run_payroll', 'view_payroll_reports', 'desk.support']))
         <div class="corex-nav-divider"></div>
         <div class="corex-nav-section-label">Admin</div>
 
@@ -2687,12 +2689,48 @@
         </div>
         @endif
 
+        {{-- Desk (slide-panel group, Admin) - CoreX Desk: the support console, the sessions log, and its setting. Johan's ruling 27 Oct 2026.
+             The group shows to anyone who may run Desk (desk.support) or read the log (manage_users, an agency admin's own agency); each child
+             keeps its own gate. Spec .ai/specs/corex-desk.md section 12. --}}
+        @if($user && $user->hasAnyPermission(['desk.support', 'manage_users']))
+        <div>
+            <button type="button" @click="push('desk')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'desk' ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
+                </svg>
+                <span>Desk</span>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div class="corex-nav-panel {{ $activeGroup === 'desk' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('desk') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Desk</div>
+
+                @permission('desk.support')
+                <a href="{{ route('corex.desk.console') }}" class="corex-nav-subitem {{ request()->routeIs('corex.desk.console') ? 'active' : '' }}">Desk console</a>
+                @endpermission
+
+                {{-- The audit of every session: an agency admin reads their own agency's, owner roles every agency's --}}
+                <a href="{{ route('corex.desk.log.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.desk.log.*') ? 'active' : '' }}">Desk sessions</a>
+
+                {{-- The agency's own switch + take-over idle limit live in Company Settings --}}
+                @permission('manage_performance_settings')
+                <a href="{{ route('admin.company-settings') }}#desk" class="corex-nav-subitem">Desk settings</a>
+                @endpermission
+            </div>
+        </div>
+        @endif
+
         {{-- Settings (slide-panel group) — Settings page + Features page + Users. Johan 2026-10-12: Features moved out of the
              Settings page into its own page, and both now live under one "Settings" sub menu. Each child keeps its OWN
              permission (Settings = access_settings, Features = agency_features.manage, Users = manage_users,
              Role Manager = access_role_manager); the group shows when the user holds any of them. Spec: features-page.md.
              Andre 2026-10-14: Role Manager moved here from the Company group. --}}
-        @if($user && $user->hasAnyPermission(['access_settings', 'agency_features.manage', 'manage_users', 'access_role_manager', 'desk.support']))
+        @if($user && $user->hasAnyPermission(['access_settings', 'agency_features.manage', 'manage_users', 'access_role_manager']))
         <div>
             <button type="button" @click="push('settings')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'settings' ? 'active' : '' }}">
@@ -2727,11 +2765,6 @@
                 {{-- Role Manager — moved here from the Company group (Andre 2026-10-14). Route and permission unchanged. --}}
                 @permission('access_role_manager')
                 <a href="{{ route('corex.role-manager') }}" class="corex-nav-subitem {{ request()->routeIs('corex.role-manager*') ? 'active' : '' }}">Role Manager</a>
-                @endpermission
-
-                {{-- CoreX Desk - the support console (spec .ai/specs/corex-desk.md section 4). Owner roles, or any role granted desk.support. --}}
-                @permission('desk.support')
-                <a href="{{ route('corex.desk.console') }}" class="corex-nav-subitem {{ request()->routeIs('corex.desk.*') ? 'active' : '' }}">CoreX Desk</a>
                 @endpermission
             </div>
         </div>

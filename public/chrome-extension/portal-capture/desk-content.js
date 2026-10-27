@@ -19,7 +19,7 @@
   var S = window.__corexDeskExt = { ctl: { state: 'none', exec: null, reporter: null, idle: null }, support: 'CoreX support', key: null, stop: null, buf: [], timer: null, host: null, root: null, ui: {}, hl: null, ptrTimer: null, raf: 0 };
   if (!Lib || !rr) { delete window.__corexDeskExt; return; }
 
-  var ALL_TYPES = { color: true, date: true, 'datetime-local': true, email: true, month: true, number: true, range: true, search: true, tel: true, text: true, time: true, url: true, week: true, textarea: true, select: true, password: true };
+  var ALL_TYPES = { color: true, date: true, 'datetime-local': true, email: true, month: true, number: true, range: true, search: true, tel: true, text: true, time: true, url: true, week: true, textarea: true, password: true };   // (not select: rrweb then drops option.selected and the mirror shows the wrong choice)
 
   // ── Messages from the service worker ────────────────────────────────────────────
 
@@ -29,7 +29,7 @@
       case 'desk.ping': respond({ ok: true, key: S.key }); return false;
       case 'desk.start': start(msg.key, msg.support); return false;
       case 'desk.resync': resync(); return false;
-      case 'desk.pointer': movePointer(msg.x, msg.y); return false;
+      case 'desk.pointer': movePointer(msg.x, msg.y, msg.who); return false;
       case 'desk.pointer_hide': hidePointer(); return false;
       case 'desk.highlight': showHighlight(msg.selector, msg.note); return false;
       case 'desk.highlight_clear': clearHighlight(); return false;
@@ -112,7 +112,7 @@
       '<button type="button" id="stop">Stop sharing</button></div>' +
       '<div class="ptr" hidden><svg width="18" height="18" viewBox="0 0 24 24" fill="#b91c1c" stroke="#fff" stroke-width="1.5" style="position:absolute;left:0;top:0"><path d="M4 3l16 7-7 2-2 7z"/></svg><span>Support</span></div>' +
       '<div class="ring" hidden></div>' +
-      '<div class="note" hidden><b>CoreX support</b><span></span></div>';
+      '<div class="note" hidden><b id="who">CoreX support</b><span></span></div>';
     S.support = name;
     sh.getElementById('allow').addEventListener('click', function () { send({ type: 'desk.controlRespond', allow: true }); });
     sh.getElementById('decline').addEventListener('click', function () { send({ type: 'desk.controlRespond', allow: false }); controlOff('declined'); });
@@ -182,9 +182,11 @@
 
   // ── Pointer ─────────────────────────────────────────────────────────────────────
 
-  function movePointer(x, y) {
+  function movePointer(x, y, who) {
     if (!S.ui.ptr || typeof x !== 'number' || typeof y !== 'number') return;
     S.ui.ptr.hidden = false;
+    var label = S.ui.ptr.querySelector('span');
+    if (label) label.textContent = String(who || S.support || 'Support').slice(0, 90);
     S.ui.ptr.style.left = Math.round(Math.min(1, Math.max(0, x)) * window.innerWidth) + 'px';
     S.ui.ptr.style.top = Math.round(Math.min(1, Math.max(0, y)) * window.innerHeight) + 'px';
     clearTimeout(S.ptrTimer);
@@ -203,7 +205,7 @@
     el.scrollIntoView({ block: 'center', behavior: 'smooth' });
     S.hl = { el: el, note: note || '' };
     S.ui.ring.hidden = false;
-    if (note) { S.ui.noteText.textContent = note; S.ui.note.hidden = false; }
+    if (note) { S.ui.noteText.textContent = note; var wb = S.sh.getElementById('who'); if (wb) wb.textContent = S.support || 'CoreX support'; S.ui.note.hidden = false; }
     place();
     setTimeout(place, 450);   // after the smooth scroll
   }
