@@ -67,12 +67,12 @@ export const timing = {
         el.hidden = false;
         const row = (name, k) => name.padEnd(9) + String(k.n).padStart(4) + '  ' + String(pct(k.total, 0.5)).padStart(5) + String(pct(k.total, 0.95)).padStart(6) +
             String(pct(k.enc, 0.5)).padStart(6) + String(pct(k.dec, 0.5)).padStart(6) + String(pct(k.apply, 0.5)).padStart(7);
-        const lines = ['CoreX Desk timing (ms)  agent -> console, server-clock corrected', 'kind        n   p50   p95   enc   dec  apply'];
+        const lines = ['CoreX Desk timing (ms)  agent tab -> console, clocks compared by ping', 'kind        n   p50   p95   enc   dec  apply'];
         ['snapshot', 'mutation', 'input', 'scroll', 'pointer', 'other'].forEach((n) => { if (S.kinds[n]) lines.push(row(n, S.kinds[n])); });
         if (S.snap) lines.push('last snapshot: ' + kb(S.snap.raw) + ' raw, ' + kb(S.snap.wire) + ' on the wire, ' + Math.round(S.snap.ms) + ' ms to arrive');
         if (S.muts.length) lines.push('10 biggest mutation batches (wire): ' + S.muts.map((m) => kb(m.wire)).join(', '));
         lines.push('relay round trip console>agent>console: ' + (S.rtt.length ? S.rtt[S.rtt.length - 1] + ' ms (p50 ' + pct(S.rtt, 0.5) + ')' : '-'));
-        lines.push('server event reaches the console:  ' + (S.srv.length ? Math.round(S.srv[S.srv.length - 1]) + ' ms (p50 ' + pct(S.srv, 0.5) + ')' : '-') + ' after the request was sent; the server\'s own answer took ' + (S.http.length ? S.http[S.http.length - 1] + ' ms' : '-'));
+        lines.push('server event -> console: ' + (S.srv.length ? Math.round(S.srv[S.srv.length - 1]) + ' ms (p50 ' + pct(S.srv, 0.5) + ')' : '-') + ' after the request; server answered in ' + (S.http.length ? S.http[S.http.length - 1] + ' ms' : '-'));
         el.textContent = lines.join('\n');
         S.dirty = false;
     },
