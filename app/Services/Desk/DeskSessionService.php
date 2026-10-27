@@ -377,8 +377,9 @@ class DeskSessionService
      * tab_join / tab_leave exactly like an extension tab. A leave is not acted on at once: the same tab loading its next page says "leaving" and
      * then "joined" again within a moment - settleTabs() makes it a real leave only when nobody came back for the grace.
      *
-     * $at: the agent's own clock (ms) when the tab sent this. Two calls from one tab can reach the server out of order (the old page's "leaving" beacon
-     * against the next page's "joined"), so a leave that is older than the tab's latest join is ignored - the tab came back.
+     * $at: the agent's own clock (ms) when the tab sent this. Two calls from one tab can reach the server in either order (the old page's "leaving" beacon
+     * against the next page's "joined" - both fire as the new page commits), so each only records its time and a tab is left only if its latest leave is
+     * newer than its latest join.
      *
      * $followedFrom: the tab whose replayed click opened this one (the agent's browser knows - it just ran that click). While control is
      * granted on that tab, control moves with it, so a button that opens a new tab does not strand support behind it (audited as control_moved).
@@ -398,29 +399,19 @@ class DeskSessionService
         $session = $session->fresh();
         $open = $this->openTabs($session);
 
-        $joinAtKey = 'desk:tabjoinat:' . $session->id . ':' . $key;
+        // A tab loading its next page sends "leaving" (the old page, as it is replaced) and "joined" (the new page, as it starts) at almost the same moment,
+        // and the two can be handled in either order by two PHP workers. So neither is acted on as it comes: each only records WHEN (the tab's own clock) it
+        // happened, in a key of its own, and a tab counts as left only if its latest leave is newer than its latest join (settleTabs). Any order gives the same answer.
+        $stamp = $at ?? (int) round(microtime(true) * 1000);
         if ($action === 'leave') {
-            if ($at !== null && $at <= (int) Cache::get($joinAtKey, 0)) {
-                return $open;   // it already came back
-            }
-            if (isset($open[$key])) {
-                $idx = (array) Cache::get($this->leaveIndexKey($session->id), []);
-                $idx[$key] = now()->timestamp;
-                Cache::put($this->leaveIndexKey($session->id), $idx, 300);
-            }
+            Cache::put($this->leaveAtKey($session->id, $key), max($stamp, (int) Cache::get($this->leaveAtKey($session->id, $key), 0)), 600);
+            Cache::put($this->leaveRecvKey($session->id, $key), now()->timestamp, 600);
 
             return $open;
         }
 
-        // joined (or still here): cancels a leave that was waiting out its grace
-        if ($at !== null) {
-            Cache::put($joinAtKey, max($at, (int) Cache::get($joinAtKey, 0)), 600);
-        }
-        $idx = (array) Cache::get($this->leaveIndexKey($session->id), []);
-        if (isset($idx[$key])) {
-            unset($idx[$key]);
-            Cache::put($this->leaveIndexKey($session->id), $idx, 300);
-        }
+        // joined (or still here)
+        Cache::put($this->joinAtKey($session->id, $key), max($stamp, (int) Cache::get($this->joinAtKey($session->id, $key), 0)), 600);
         Cache::put($this->seenKey($session->id, $key), now()->timestamp, 600);
 
         $info = ['tab' => $key, 'host' => 'CoreX', 'title' => $this->cleanTitle($title), 'path' => (string) ($this->cleanPath($path) ?? '')];
@@ -459,7 +450,6 @@ class DeskSessionService
      */
     public function settleTabs(DeskSession $session): void
     {
-        $idx = (array) Cache::get($this->leaveIndexKey($session->id), []);
         $grace = (int) config('desk.tab_leave_grace_seconds', 3);
         // A tab under take-over gets a much longer grace: it may be the controlled tab loading its next page (a click support replayed), and that must not
         // end the take-over just because the page was slow.
@@ -471,10 +461,13 @@ class DeskSessionService
             if (! $this->isCoreXTabKey($key)) {
                 continue;
             }
-            $left = $idx[$key] ?? null;
+            $leftAt = (int) Cache::get($this->leaveAtKey($session->id, $key), 0);
+            $joinedAt = (int) Cache::get($this->joinAtKey($session->id, $key), 0);
+            $recv = Cache::get($this->leaveRecvKey($session->id, $key));
             $seen = Cache::get($this->seenKey($session->id, $key));
             $g = ($session->control_state !== DeskSession::CONTROL_NONE && $session->control_tab === $key) ? $graceControlled : $grace;
-            if (($left && now()->timestamp - (int) $left >= $g) || ($seen && now()->timestamp - (int) $seen > $silent)) {
+            $wentAway = $leftAt > 0 && $leftAt > $joinedAt && $recv && now()->timestamp - (int) $recv >= $g;
+            if ($wentAway || ($seen && now()->timestamp - (int) $seen > $silent)) {
                 $gone[] = $key;
             }
         }
@@ -485,17 +478,25 @@ class DeskSessionService
             }
             $this->record($session, DeskSessionEvent::TAB_LEAVE, ['tab' => $key, 'host' => 'CoreX', 'title' => $open[$key]['title'] ?? '', 'path' => $open[$key]['path'] ?? '']);
             DeskBroadcast::dispatch($session->id, 'desk.tab_left', ['tab' => $key]);
-            unset($idx[$key]);
-            Cache::forget($this->seenKey($session->id, $key));
-        }
-        if ($gone) {
-            Cache::put($this->leaveIndexKey($session->id), $idx, 300);
+            foreach ([$this->leaveAtKey($session->id, $key), $this->leaveRecvKey($session->id, $key), $this->joinAtKey($session->id, $key), $this->seenKey($session->id, $key)] as $k) {
+                Cache::forget($k);
+            }
         }
     }
 
-    private function leaveIndexKey(int $sessionId): string
+    private function leaveAtKey(int $sessionId, string $key): string
     {
-        return 'desk:tableaves:' . $sessionId;
+        return 'desk:tableaveat:' . $sessionId . ':' . $key;
+    }
+
+    private function leaveRecvKey(int $sessionId, string $key): string
+    {
+        return 'desk:tableaverecv:' . $sessionId . ':' . $key;
+    }
+
+    private function joinAtKey(int $sessionId, string $key): string
+    {
+        return 'desk:tabjoinat:' . $sessionId . ':' . $key;
     }
 
     private function seenKey(int $sessionId, string $key): string
