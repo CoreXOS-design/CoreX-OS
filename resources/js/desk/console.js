@@ -110,7 +110,12 @@ function tickElapsed() {
 
 function onEvents(events) {
     if (!cur) return;
+    // The Replayer schedules a live event for the moment its timestamp comes round on THIS computer's clock, so an agent whose clock is
+    // a few seconds behind or ahead would be mirrored late (or in a burst). A live mirror wants "as it arrives": stamp the batch with
+    // the moment it arrived here (order inside the batch is kept - equal stamps keep their sequence).
+    const arrived = Date.now();
     for (const ev of events) {
+        ev.timestamp = arrived;
         if (ev.type === EVENT_META && ev.data && ev.data.href) {
             try { $('cdc-page').textContent = new URL(ev.data.href).pathname; } catch (e) { /* ignore */ }
         }
