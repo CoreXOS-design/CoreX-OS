@@ -388,6 +388,17 @@ Route::middleware('auth')->group(function () {
     Route::get('/api/v1/p24/cities',    [\App\Http\Controllers\Api\V1\P24LocationController::class, 'cities'])->name('api.v1.p24.cities');
     Route::get('/api/v1/p24/suburbs',   [\App\Http\Controllers\Api\V1\P24LocationController::class, 'suburbs'])->name('api.v1.p24.suburbs');
 
+    // Training Videos — the owner uploads a video file in pieces from the Add video page (fetch + session cookie, so
+    // these live here, NOT in routes/api.php: that file's group has the session stack stripped and answers
+    // "Unauthenticated" to a logged-in browser). Under /api/v1 so the Admin -> API catalogue lists them
+    // (non-negotiable #7). Owner-only: owner_only here, re-checked in the controller. .ai/specs/training-videos.md §8.5
+    Route::prefix('api/v1/admin/training-video-uploads')->middleware(['owner_only', 'throttle:staff-api'])
+        ->name('api.v1.training-video-uploads.')->group(function () {
+            Route::post('/', [\App\Http\Controllers\Api\V1\TrainingVideoUploadController::class, 'start'])->name('start');
+            Route::post('/{upload}/chunks', [\App\Http\Controllers\Api\V1\TrainingVideoUploadController::class, 'chunk'])->name('chunk');
+            Route::post('/{upload}/complete', [\App\Http\Controllers\Api\V1\TrainingVideoUploadController::class, 'complete'])->name('complete');
+        });
+
     // AT-479 — the reOS review screen's saves and pickers (called from the Blade page over fetch with the session cookie,
     // so they live here like the P24 ones above). Under /api/v1 so the Admin → API catalogue lists them (non-negotiable #7).
     Route::prefix('api/v1/rentals/take-on-import')->middleware(['feature:rental-take-on-import', 'permission:rentals_take_on_import.manage'])->group(function () {

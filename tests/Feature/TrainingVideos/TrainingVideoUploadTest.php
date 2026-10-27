@@ -355,6 +355,25 @@ class TrainingVideoUploadTest extends TestCase
         }
     }
 
+    /**
+     * REGRESSION (found on Staging 2026-10-27: "Unauthenticated." on the first request of a real upload).
+     * The browser calls these with fetch() and its session cookie. Every route registered in routes/api.php
+     * has the session stack stripped (bootstrap/app.php: mobile is bearer-only), so a logged-in browser got
+     * 401 there — yet actingAs() in tests still passed, because it sets the user without needing the session.
+     * Session-cookie /api/v1 endpoints must live in routes/web.php. This pins that, since no other test can
+     * tell the difference.
+     */
+    public function test_the_upload_endpoints_use_the_session_stack_a_browser_needs_not_the_bearer_only_api_group(): void
+    {
+        foreach (['start', 'chunk', 'complete'] as $action) {
+            $middleware = app('router')->getRoutes()->getByName("api.v1.training-video-uploads.{$action}")->gatherMiddleware();
+
+            $this->assertContains('web', $middleware, "{$action} must run the web (session) middleware group");
+            $this->assertNotContains('api', $middleware, "{$action} must not be in the bearer-only api group");
+            $this->assertContains('owner_only', $middleware, "{$action} is owner-only");
+        }
+    }
+
     // ── acceptance 9: YouTube unchanged ──────────────────────────────────
 
     public function test_a_youtube_video_is_still_added_live_with_its_link_and_never_needs_the_worker(): void
