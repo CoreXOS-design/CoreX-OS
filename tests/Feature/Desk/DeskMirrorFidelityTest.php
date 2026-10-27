@@ -219,5 +219,18 @@ final class DeskMirrorFidelityTest extends TestCase
         $this->assertStringNotContainsString('setTimeout(flush, 500)', $ext);
         $this->assertStringContainsString('scroll: 50', $this->js('agent.js'));
     }
+
+    public function test_the_wrapper_that_takes_the_mouse_is_the_agents_full_window_size_so_the_pointer_reaches_the_whole_picture(): void
+    {
+        $console = $this->js('console.js');
+        // Without an explicit size the block wrapper is only as wide as its (scaled) parent and the transform shrinks it again: hit area = scale x scale.
+        $this->assertStringContainsString("wrapper.style.width = w + 'px';", $console);
+        $this->assertStringContainsString("wrapper.style.height = h + 'px';", $console);
+        $this->assertGreaterThan(
+            strpos($console, "wrapper.style.height = h + 'px';"),
+            strpos($console, "wrapper.style.transform = 'scale('"),
+            'the size is set before the scale is applied'
+        );
+    }
 }
 
