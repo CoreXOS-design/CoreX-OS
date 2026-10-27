@@ -118,7 +118,7 @@ importScripts('desk-lib.js');
     } else if (ev === 'client-resync') {
       var t1 = tabIdFor(m.data && m.data.t); if (t1 !== null) toTab(t1, { type: 'desk.resync' });
     } else if (ev === 'client-pointer') {
-      var t2 = tabIdFor(m.data && m.data.t); if (t2 !== null) toTab(t2, { type: 'desk.pointer', x: m.data.x, y: m.data.y, who: m.data.who });
+      var t2 = tabIdFor(m.data && m.data.t); if (t2 !== null) toTab(t2, { type: 'desk.pointer', x: m.data.x, y: m.data.y, who: m.data.who, vw: m.data.vw, vh: m.data.vh });
     } else if (ev === 'desk.highlight') {
       var t3 = tabIdFor(m.data && m.data.tab); if (t3 !== null) toTab(t3, { type: 'desk.highlight', selector: m.data.selector, note: m.data.note });
     } else if (ev === 'desk.highlight_cleared') {
@@ -318,6 +318,7 @@ importScripts('desk-lib.js');
     if (msg.type === 'desk.frames' && sender.tab) { onFrames(sender.tab.id, msg.events); return false; }
     if (msg.type === 'desk.controlRespond' && sender.tab) { controlCall(sender.tab.id, 'respond', { allow: !!msg.allow }).then(respond); return true; }
     if (msg.type === 'desk.controlRevoke' && sender.tab) { controlCall(sender.tab.id, 'revoke', { reason: msg.reason === 'idle' ? 'idle' : 'agent' }).then(respond); return true; }
+    if (msg.type === 'desk.viewport' && sender.tab) { send({ event: 'client-viewport', channel: D.channel, data: { t: Lib.tabKey(sender.tab.id), w: msg.w, h: msg.h, dpr: msg.dpr } }); return false; }
     if (msg.type === 'desk.actionResult' && sender.tab) { send({ event: 'client-action_result', channel: D.channel, data: { t: Lib.tabKey(sender.tab.id), id: msg.id, ok: false, reason: msg.reason } }); return false; }
     if (msg.type === 'desk.controlActions' && sender.tab) { controlCall(sender.tab.id, 'actions', { tab: Lib.tabKey(sender.tab.id), actions: msg.actions }).then(respond); return true; }
     if (msg.type === 'desk.stopMe' && sender.tab) { stopTab(sender.tab.id, false).then(function () { respond({ ok: true }); }); return true; }

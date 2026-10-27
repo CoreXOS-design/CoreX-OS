@@ -7,7 +7,9 @@
 import { getEcho, dropEcho } from './echo.js';
 import { encodeBatch } from './frames.js';
 
-const FLUSH_MS = 500;
+// How long events wait to be batched before they are whispered. Short on purpose: a keystroke or a menu opening reaches the console in well under a
+// second (500 ms here made typing feel 0.5 s behind - measured 27 Oct, spec section 4e).
+const FLUSH_MS = 60;
 const POINTER_IDLE_MS = 4000;
 
 let st = null;
@@ -52,7 +54,7 @@ export function start(ctx) {
         .listen('.desk.control_revoked', (e) => { if (forMain(e.tab)) endControlLocal('revoked'); })
         .listen('.desk.control_ended', (e) => { if (forMain(e.tab)) endControlLocal(e.reason || 'ended'); })
         .listenForWhisper('action', (a) => { if (forMain(a && a.t)) runAction(a); })
-        .subscribed(() => { if (st) { st.subscribed = true; if (st.buffer.length) scheduleFlush(); } })
+        .subscribed(() => { if (st) { st.subscribed = true; emitViewport(); if (st.buffer.length) scheduleFlush(); } })
         .error(() => ui.error('Could not open the live connection. Check your internet connection and try again.'));
 
     // Keep the session alive; learn if the other side (or a timeout) already ended it.
@@ -65,6 +67,8 @@ export function start(ctx) {
 
     // The page is closing or changing: say so, so the next page gets a short grace instead of the full timeout.
     window.addEventListener('pagehide', leaving);
+    window.addEventListener('resize', onViewportChange);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', onViewportChange);
 
     if (session.status === 'live') {
         ui.joined(session.support_name);
@@ -103,6 +107,8 @@ function finish(by) {
     hidePointer();
     st.timers.forEach(clearInterval);
     window.removeEventListener('pagehide', leaving);
+    window.removeEventListener('resize', onViewportChange);
+    if (window.visualViewport) window.visualViewport.removeEventListener('resize', onViewportChange);
     dropEcho(); // disconnecting drops the subscription server-side; a separate leave() would send on a socket that is closing
     const ui = st.ui;
     st = null;
@@ -128,7 +134,7 @@ async function beginRecording() {
         inlineStylesheet: true,
         recordCanvas: false,
         collectFonts: false,
-        sampling: { mousemove: 50, scroll: 100 }, // every keystroke is mirrored (input:'last' would wait for the field to lose focus)
+        sampling: { mousemove: 50, scroll: 50 }, // every keystroke is mirrored (input:'last' would wait for the field to lose focus)
         // A fresh full snapshot every so often: properties the page sets from script (a select's value, a checkbox) raise no DOM mutation, so a
         // mirror can drift; this puts it right again.
         checkoutEveryNms: 45000,
@@ -140,7 +146,19 @@ function stopRecording() {
     if (st) { st.stopRecord = null; st.recording = false; st.buffer = []; }
 }
 
+/**
+ * The agent's own window size, whispered on join / resync / every resize or zoom (spec section 4e): the console lays the mirror out at THIS size and
+ * recomputes its scale each time, never from a size it learned once. dpr is informational (browser zoom shows up as a changed innerWidth).
+ */
+function emitViewport() {
+    if (!st || !st.subscribed) return;
+    try { st.channel.whisper('viewport', { t: 'main', w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio || 1 }); } catch (e) { /* not subscribed yet */ }
+}
+let vpTimer = null;
+function onViewportChange() { clearTimeout(vpTimer); vpTimer = setTimeout(emitViewport, 80); }
+
 function resync() {
+    emitViewport();
     if (st && st.record && st.recording) {
         try { st.record.takeFullSnapshot(true); } catch (e) { /* ignore */ }
     }
@@ -255,6 +273,8 @@ function pointerEl() { return document.getElementById('corex-desk-pointer'); }
 function movePointer(p) {
     const el = pointerEl();
     if (!el || !p || typeof p.x !== 'number' || typeof p.y !== 'number') return;
+    // The console says what window size it believes this is. If it is out of date (a resize / zoom it has not heard of), tell it now.
+    if ((typeof p.vw === 'number' && Math.abs(p.vw - window.innerWidth) > 2) || (typeof p.vh === 'number' && Math.abs(p.vh - window.innerHeight) > 2)) emitViewport();
     el.hidden = false;
     const who = el.querySelector('span');
     if (who) who.textContent = String((p && p.who) || (st && st.session.support_name) || 'Support').slice(0, 90);

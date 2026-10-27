@@ -182,4 +182,42 @@ final class DeskMirrorFidelityTest extends TestCase
         $this->assertStringContainsString("whisper('action_result'", $this->js('agent.js'));
         $this->assertStringContainsString('client-action_result', (string) file_get_contents(public_path('chrome-extension/portal-capture/desk-ext.js')));
     }
+
+    public function test_the_agents_window_size_is_announced_on_join_resize_and_zoom_and_the_pointer_arrives_in_full(): void
+    {
+        $agent = $this->js('agent.js');
+        $console = $this->js('console.js');
+        $ext = (string) file_get_contents(public_path('chrome-extension/portal-capture/desk-content.js'));
+
+        // the agent announces its own current size...
+        $this->assertStringContainsString("whisper('viewport', { t: 'main', w: window.innerWidth, h: window.innerHeight", $agent);
+        $this->assertStringContainsString("window.addEventListener('resize', onViewportChange)", $agent);
+        $this->assertStringContainsString("window.visualViewport.addEventListener('resize', onViewportChange)", $agent);
+        $this->assertStringContainsString('emitViewport();', $agent);
+        $this->assertStringContainsString("type: 'desk.viewport'", $ext);
+        $this->assertStringContainsString("window.addEventListener('resize', onViewport)", $ext);
+        $this->assertStringContainsString('client-viewport', (string) file_get_contents(public_path('chrome-extension/portal-capture/desk-ext.js')));
+        // ...the console lays the mirror out at it and refits on anything that changes the mirror's size
+        $this->assertStringContainsString("listenForWhisper('viewport'", $console);
+        $this->assertStringContainsString("f.setAttribute('width', String(v.w))", $console);
+        $this->assertStringContainsString('new ResizeObserver(() => { if (cur && cur.selected === tab.key) fit(); })', $console);
+        // positions are fractions of the agent's viewport, never absolute pixels; and a stale size is noticed from the pointer
+        $this->assertStringContainsString('const ratio = (ev) => { const g = geo(ev); return { x: g.px / g.W, y: g.py / g.H }; };', $console);
+        $this->assertStringContainsString('vw: iframe.offsetWidth, vh: iframe.offsetHeight', $console);
+        $this->assertStringContainsString('Math.abs(p.vw - window.innerWidth) > 2', $agent);
+        // the last pointer position is always sent (trailing throttle)
+        $this->assertStringContainsString('trailingTimer = setTimeout', $console);
+        $this->assertStringContainsString('a trailing send', $console);
+    }
+
+    public function test_events_are_batched_for_60_ms_not_500(): void
+    {
+        $this->assertStringContainsString('const FLUSH_MS = 60;', $this->js('agent.js'));
+        $this->assertStringNotContainsString('const FLUSH_MS = 500;', $this->js('agent.js'));
+        $ext = (string) file_get_contents(public_path('chrome-extension/portal-capture/desk-content.js'));
+        $this->assertStringContainsString('setTimeout(flush, 60)', $ext);
+        $this->assertStringNotContainsString('setTimeout(flush, 500)', $ext);
+        $this->assertStringContainsString('scroll: 50', $this->js('agent.js'));
+    }
 }
+
