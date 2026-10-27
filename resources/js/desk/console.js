@@ -285,6 +285,8 @@ function addTab(t, announced) {
     const tab = newTab(t.tab, labelFor(t), t.host);
     tab.announced = !!announced;
     cur.tabs.set(t.tab, tab);
+    // The only tab went away (it was loading its next page) and came back: it is the one on show again.
+    if (!cur.selected || !cur.tabs.has(cur.selected)) { cur.selected = t.tab; cur.pointerOn = false; showSelected(); paintControl(); }
     renderTabs();
 }
 

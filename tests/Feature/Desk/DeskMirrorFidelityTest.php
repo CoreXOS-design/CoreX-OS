@@ -40,7 +40,7 @@ final class DeskMirrorFidelityTest extends TestCase
         // a rare checkout, and no second "settle" snapshot (later changes arrive as mutations)
         $agent = (string) file_get_contents(resource_path('js/desk/agent.js'));
         $this->assertStringContainsString('checkoutEveryNms: 120000', $agent);
-        $this->assertStringContainsString('st.haveListener = st.pendingResync;', $agent);
+        $this->assertStringContainsString('st.haveListener = st.pendingResync || !!st.listenerKnown;', $agent);
         $this->assertStringContainsString('now - st.lastSnap < 900', $agent);
         $this->assertDoesNotMatchRegularExpression('/setTimeout\(.*resync\(\).*2500\)/', $agent);
     }
@@ -59,7 +59,7 @@ final class DeskMirrorFidelityTest extends TestCase
             $this->assertStringContainsString($rule, $css, "{$rule} exists in corex.css");
         }
         // display:inline-flex on the button classes beats the hidden attribute unless this rule is there.
-        $this->assertStringContainsString('#cdc-root [hidden], #cdc-live [hidden] { display: none !important; }', $view);
+        $this->assertStringContainsString('#cdc-root [hidden], #cdc-live [hidden], #cdc-live[hidden] { display: none !important; }', $view);
     }
 
     public function test_an_agent_page_that_cannot_ask_is_noticed_by_the_console(): void
