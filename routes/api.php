@@ -791,6 +791,117 @@ Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(f
         });
         // AT-508 P5/P6 END
 
+        // MOBILE PARITY (inspections) BEGIN
+        // Everything the web inspection screen does that the phone could not yet. Spec: .ai/specs/at-508-mobile-parity-addendum.md.
+        // No new rule: each route is either a wrapper over the web's own model method (MobileRentalInspectionLifecycleController) or points
+        // STRAIGHT at the web controller action, which already answers JSON. Permission keys are the web's own, route for route.
+        Route::prefix('mobile/rental-inspections')->middleware('permission:rental_inspections.view')->group(function () {
+            $l = \App\Http\Controllers\Api\V1\MobileRentalInspectionLifecycleController::class;
+            $rec = \App\Http\Controllers\CoreX\RentalInspectionRecordingController::class;
+            $links = \App\Http\Controllers\CoreX\RentalInspectionSigningLinkController::class;
+            $notes = \App\Http\Controllers\CoreX\RentalInspectionPhotoNoteController::class;
+            $att = \App\Http\Controllers\CoreX\RentalInspectionAttendanceController::class;
+            $web = \App\Http\Controllers\CoreX\RentalInspectionController::class;
+            $n = 'v1.mobile.rental-inspections.';
+
+            // lifecycle
+            Route::post('/schedule', [$l, 'schedule'])->middleware('permission:rental_inspections.create')->name($n . 'schedule');
+            Route::post('/{inspection}/reschedule', [$l, 'reschedule'])->whereNumber('inspection')->middleware('permission:rental_inspections.reschedule')->name($n . 'reschedule');
+            Route::post('/{inspection}/cancel', [$l, 'cancel'])->whereNumber('inspection')->middleware('permission:rental_inspections.cancel')->name($n . 'cancel');
+            Route::delete('/{inspection}', [$l, 'archive'])->whereNumber('inspection')->middleware('permission:rental_inspections.archive')->name($n . 'archive');
+            Route::post('/{inspection}/restore', [$l, 'restore'])->whereNumber('inspection')->middleware('permission:rental_inspections.restore')->name($n . 'restore');
+            Route::post('/{inspection}/next', [$l, 'next'])->whereNumber('inspection')->middleware('permission:rental_inspections.create')->name($n . 'next');
+            Route::post('/{inspection}/replace', [$l, 'replace'])->whereNumber('inspection')->middleware('permission:rental_inspections.create')->name($n . 'replace');
+            Route::post('/{inspection}/public-link', [$l, 'generatePublicLink'])->whereNumber('inspection')->middleware('permission:rental_inspections.public_link')->name($n . 'public-link.generate');
+            Route::delete('/{inspection}/public-link', [$l, 'revokePublicLink'])->whereNumber('inspection')->middleware('permission:rental_inspections.public_link')->name($n . 'public-link.revoke');
+
+            // ready to sign, header block, room marks
+            Route::post('/{rentalInspection}/ready-to-sign', [$rec, 'startAwaitingSignature'])->whereNumber('rentalInspection')->middleware('permission:rental_inspections.create')->name($n . 'ready-to-sign');
+            Route::post('/{rentalInspection}/details', [$rec, 'updateDetails'])->whereNumber('rentalInspection')->middleware('permission:rental_inspections.edit_details')->name($n . 'details.update');
+            Route::post('/{rentalInspection}/rooms/{room}/mark-na', [$rec, 'markRoomNa'])->whereNumber(['rentalInspection', 'room'])->middleware('permission:rental_inspections.create')->name($n . 'rooms.mark-na');
+            Route::post('/{rentalInspection}/rooms/{room}/mark-good', [$rec, 'markRoomGood'])->whereNumber(['rentalInspection', 'room'])->middleware('permission:rental_inspections.create')->name($n . 'rooms.mark-good');
+            Route::post('/{rentalInspection}/mark-all-good', [$rec, 'markAllGood'])->whereNumber('rentalInspection')->middleware('permission:rental_inspections.create')->name($n . 'mark-all-good');
+
+            // photos: tag, untag, archive, notes
+            Route::post('/{rentalInspection}/photos/tag-bulk', [$rec, 'tagPhotosBulk'])->whereNumber('rentalInspection')->middleware('permission:rental_inspections.create')->name($n . 'photos.tag-bulk');
+            Route::post('/{rentalInspection}/photos/{photo}/tag', [$rec, 'tagPhoto'])->whereNumber(['rentalInspection', 'photo'])->middleware('permission:rental_inspections.create')->name($n . 'photos.tag');
+            Route::post('/{rentalInspection}/photos/{photo}/untag', [$rec, 'untagPhoto'])->whereNumber(['rentalInspection', 'photo'])->middleware('permission:rental_inspections.create')->name($n . 'photos.untag');
+            Route::delete('/{rentalInspection}/photos/{photo}', [$rec, 'archivePhoto'])->whereNumber(['rentalInspection', 'photo'])->middleware('permission:rental_inspections.create')->name($n . 'photos.archive');
+            Route::post('/{rentalInspection}/photos/{photo}/notes', [$notes, 'store'])->whereNumber(['rentalInspection', 'photo'])->middleware('permission:rental_inspections.create')->name($n . 'photos.notes.store');
+            Route::patch('/{rentalInspection}/photos/{photo}/notes/{note}', [$notes, 'update'])->whereNumber(['rentalInspection', 'photo', 'note'])->middleware('permission:rental_inspections.create')->name($n . 'photos.notes.update');
+            Route::delete('/{rentalInspection}/photos/{photo}/notes/{note}', [$notes, 'archive'])->whereNumber(['rentalInspection', 'photo', 'note'])->middleware('permission:rental_inspections.create')->name($n . 'photos.notes.archive');
+            Route::post('/{rentalInspection}/photos/{photo}/notes/{note}/restore', [$notes, 'restore'])->whereNumber(['rentalInspection', 'photo', 'note'])->withTrashed()->middleware('permission:rental_inspections.create')->name($n . 'photos.notes.restore');
+
+            // attendance: withdraw, invitations given
+            Route::post('/{rentalInspection}/attendance/{attendance}/withdraw', [$att, 'withdraw'])->whereNumber(['rentalInspection', 'attendance'])->middleware('permission:rental_inspections.record_attendance')->name($n . 'attendance.withdraw');
+            Route::post('/{rentalInspection}/attendance-invitations', [$att, 'storeInvitation'])->whereNumber('rentalInspection')->middleware('permission:rental_inspections.record_attendance')->name($n . 'attendance.invitations.store');
+
+            // signing: personal links (email / WhatsApp / QR), sign on the agent's phone, paper (wet-ink) correction
+            Route::get('/{rentalInspection}/signing-links', [$links, 'index'])->whereNumber('rentalInspection')->name($n . 'signing-links.index');
+            Route::post('/{rentalInspection}/signing-links', [$links, 'issue'])->whereNumber('rentalInspection')->middleware('permission:rental_inspections.public_link')->name($n . 'signing-links.issue');
+            Route::post('/{rentalInspection}/signing-links/send-all', [$links, 'sendAll'])->whereNumber('rentalInspection')->middleware('permission:rental_inspections.public_link')->name($n . 'signing-links.send-all');
+            Route::post('/{rentalInspection}/signing-links/{link}/email', [$links, 'email'])->whereNumber(['rentalInspection', 'link'])->name($n . 'signing-links.email');
+            Route::post('/{rentalInspection}/signing-links/{link}/revoke', [$links, 'revoke'])->whereNumber(['rentalInspection', 'link'])->name($n . 'signing-links.revoke');
+            Route::get('/{rentalInspection}/signing-links/{link}/qr', [$links, 'qr'])->whereNumber(['rentalInspection', 'link'])->name($n . 'signing-links.qr');
+            Route::post('/{rentalInspection}/signing-links/{link}/device', [$links, 'deviceSubmit'])->whereNumber(['rentalInspection', 'link'])->name($n . 'signing-links.device-submit');
+            Route::post('/{rentalInspection}/signatures/{signature}/supersede-wet-ink', [$rec, 'supersedeWetInkSignature'])->whereNumber(['rentalInspection', 'signature'])->middleware('permission:rental_inspections.create')->name($n . 'signatures.supersede-wet-ink');
+
+            // the report: PDF for the agent, the paper form to print for signature, and resending a completed report
+            Route::get('/{rentalInspection}/report', [$web, 'report'])->whereNumber('rentalInspection')->name($n . 'report');
+            Route::get('/{rentalInspection}/print-for-signature', [$web, 'printForSignature'])->whereNumber('rentalInspection')->name($n . 'print-for-signature');
+            Route::post('/{rentalInspection}/resend-report', [$rec, 'resendReport'])->whereNumber('rentalInspection')->middleware('permission:rental_inspections.create')->name($n . 'resend-report');
+        });
+        // MOBILE PARITY (inspections) END
+
+        // MOBILE PARITY (inventories) BEGIN
+        // Same idea as above: wrappers for the actions that answer a redirect on the web (start, cancel, archive, restore, move-out), and the
+        // web's own JSON actions pointed at directly for the rest. Permission keys are the web's own (.create on every write).
+        Route::post('/mobile/properties/{property}/inventory', [\App\Http\Controllers\Api\V1\MobileRentalInventoryLifecycleController::class, 'start'])
+            ->whereNumber('property')->middleware('permission:rental_inventories.create')->name('v1.mobile.properties.inventory.start');
+        Route::prefix('mobile/rental-inventories')->middleware('permission:rental_inventories.view')->group(function () {
+            $l = \App\Http\Controllers\Api\V1\MobileRentalInventoryLifecycleController::class;
+            $rec = \App\Http\Controllers\CoreX\RentalInventoryRecordingController::class;
+            $cap = \App\Http\Controllers\CoreX\RentalInventoryCaptureController::class;
+            $web = \App\Http\Controllers\CoreX\RentalInventoryController::class;
+            $buyer = \App\Http\Controllers\CoreX\RentalInventoryBuyerAcceptanceController::class;
+            $n = 'v1.mobile.rental-inventories.';
+            $w = 'permission:rental_inventories.create';
+
+            // lifecycle and move-out
+            Route::post('/{inventory}/cancel', [$l, 'cancel'])->whereNumber('inventory')->middleware($w)->name($n . 'cancel');
+            Route::delete('/{inventory}', [$l, 'archive'])->whereNumber('inventory')->middleware($w)->name($n . 'archive');
+            Route::post('/{inventory}/restore', [$l, 'restore'])->whereNumber('inventory')->middleware($w)->name($n . 'restore');
+            Route::get('/{inventory}/comparison', [$l, 'comparison'])->whereNumber('inventory')->name($n . 'comparison');
+            Route::post('/{inventory}/move-out/complete', [$l, 'completeMoveOut'])->whereNumber('inventory')->middleware($w)->name($n . 'move-out.complete');
+            Route::post('/{inventory}/move-out/sign-off', [$l, 'signOffMoveOut'])->whereNumber('inventory')->middleware($w)->name($n . 'move-out.sign-off');
+
+            // rooms and copying the last inventory
+            Route::post('/{rentalInventory}/rooms/{room}/mark-empty', [$rec, 'markRoomEmpty'])->whereNumber(['rentalInventory', 'room'])->middleware($w)->name($n . 'rooms.mark-empty');
+            Route::delete('/{rentalInventory}/rooms/{room}/mark-empty', [$rec, 'unmarkRoomEmpty'])->whereNumber(['rentalInventory', 'room'])->middleware($w)->name($n . 'rooms.unmark-empty');
+            Route::post('/{rentalInventory}/copy-from-last', [$rec, 'copyFromLastInventory'])->whereNumber('rentalInventory')->middleware($w)->name($n . 'copy-from-last');
+
+            // photos: archive, tag / untag to a line, share the inspection's photos, move-out photos
+            Route::delete('/{rentalInventory}/photos/{photo}', [$cap, 'archivePhoto'])->whereNumber(['rentalInventory', 'photo'])->middleware($w)->name($n . 'photos.archive');
+            Route::get('/{rentalInventory}/inspection-photos', [$cap, 'inspectionPhotos'])->whereNumber('rentalInventory')->middleware($w)->name($n . 'inspection-photos.index');
+            Route::post('/{rentalInventory}/inspection-photos/{inspectionPhoto}', [$cap, 'shareInspectionPhoto'])->whereNumber(['rentalInventory', 'inspectionPhoto'])->middleware($w)->name($n . 'inspection-photos.share');
+            Route::post('/{rentalInventory}/lines/{line}/photos/{photo}', [$cap, 'attachLinePhoto'])->whereNumber(['rentalInventory', 'line', 'photo'])->middleware($w)->name($n . 'lines.photos.attach');
+            Route::delete('/{rentalInventory}/lines/{line}/photos/{photo}', [$cap, 'detachLinePhoto'])->whereNumber(['rentalInventory', 'line', 'photo'])->middleware($w)->name($n . 'lines.photos.detach');
+            Route::post('/{rentalInventory}/lines/{line}/dispositions', [$rec, 'storeLineDisposition'])->whereNumber(['rentalInventory', 'line'])->middleware($w)->name($n . 'lines.dispositions.store');
+            Route::post('/{rentalInventory}/lines/{line}/move-out-photos', [$rec, 'storeLineMoveOutPhoto'])->whereNumber(['rentalInventory', 'line'])->middleware($w)->name($n . 'lines.move-out-photos.store');
+            Route::get('/{rentalInventory}/lines/{line}/move-out-inspection-photos', [$rec, 'moveOutInspectionPhotos'])->whereNumber(['rentalInventory', 'line'])->middleware($w)->name($n . 'lines.move-out-inspection-photos.index');
+            Route::post('/{rentalInventory}/lines/{line}/move-out-inspection-photos/{inspectionPhoto}', [$rec, 'shareMoveOutInspectionPhoto'])->whereNumber(['rentalInventory', 'line', 'inspectionPhoto'])->middleware($w)->name($n . 'lines.move-out-inspection-photos.share');
+
+            // signing, completing, the report, buyer acceptance
+            Route::post('/{rentalInventory}/signatures', [$rec, 'storeSignature'])->whereNumber('rentalInventory')->middleware($w)->name($n . 'signatures.store');
+            Route::post('/{rentalInventory}/signatures/{signature}/supersede-wet-ink', [$rec, 'supersedeWetInkSignature'])->whereNumber(['rentalInventory', 'signature'])->middleware($w)->name($n . 'signatures.supersede-wet-ink');
+            Route::post('/{rentalInventory}/complete', [$rec, 'complete'])->whereNumber('rentalInventory')->middleware($w)->name($n . 'complete');
+            Route::post('/{rentalInventory}/resend-report', [$rec, 'resendReport'])->whereNumber('rentalInventory')->middleware($w)->name($n . 'resend-report');
+            Route::get('/{rentalInventory}/report', [$web, 'report'])->whereNumber('rentalInventory')->name($n . 'report');
+            Route::get('/{rentalInventory}/print-for-signature', [$web, 'printForSignature'])->whereNumber('rentalInventory')->name($n . 'print-for-signature');
+            Route::post('/{rentalInventory}/buyer-acceptances/{contact}/send', [$buyer, 'send'])->whereNumber(['rentalInventory', 'contact'])->middleware($w)->name($n . 'buyer-acceptances.send');
+        });
+        // MOBILE PARITY (inventories) END
+
         // ── Mobile P24 location tree (token-authed) ──────────────────
         Route::prefix('mobile/p24')->group(function () {
             Route::get('/provinces', [\App\Http\Controllers\Api\V1\P24LocationController::class, 'provinces'])->name('v1.mobile.p24.provinces');
