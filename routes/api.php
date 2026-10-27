@@ -708,7 +708,7 @@ Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(f
             ->middleware('permission:rental_command_centre.view')->name('v1.mobile.rentals.waiting');
 
         Route::prefix('mobile/rental-job-cards')->group(function () {
-            Route::get('/{rentalJobCard}', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'show'])->name('v1.mobile.rental-job-cards.show');
+            Route::get('/{rentalJobCard}', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'show'])->whereNumber('rentalJobCard')->name('v1.mobile.rental-job-cards.show');
             Route::put('/{rentalJobCard}', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'update'])->middleware('permission:rental_job_cards.create')->name('v1.mobile.rental-job-cards.update');
             Route::post('/{rentalJobCard}/tasks/{task}/tick', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'tickTask'])->middleware('permission:rental_job_cards.create')->name('v1.mobile.rental-job-cards.tasks.tick');
             Route::post('/{rentalJobCard}/photos', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'storePhoto'])->middleware('permission:rental_job_cards.create')->name('v1.mobile.rental-job-cards.photos.store');
@@ -741,7 +741,7 @@ Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(f
 
         // AT-508 P3: the staff lease list / lease file (read-only; the actions are the existing /leases/{lease}/renewal/* routes) and the notices waiting for review.
         Route::get('/mobile/leases', [\App\Http\Controllers\Api\MobileRentalLeaseController::class, 'index'])->middleware('permission:leases.view')->name('v1.mobile.leases.index');
-        Route::get('/mobile/leases/{lease}', [\App\Http\Controllers\Api\MobileRentalLeaseController::class, 'show'])->middleware('permission:leases.view')->name('v1.mobile.leases.show');
+        Route::get('/mobile/leases/{lease}', [\App\Http\Controllers\Api\MobileRentalLeaseController::class, 'show'])->whereNumber('lease')->middleware('permission:leases.view')->name('v1.mobile.leases.show');
         Route::get('/mobile/rental-notices', [\App\Http\Controllers\Api\MobileRentalNoticeController::class, 'index'])->middleware('permission:rental_notices.review')->name('v1.mobile.rental-notices.index');
         // AT-508 P2/P3 END
 
@@ -1068,6 +1068,27 @@ Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(f
         Route::post('/mobile/properties/{property}/rental-inspection-rooms/reorder', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'reorderRooms'])->whereNumber('property')->middleware(['mobile.web-action', 'permission:access_properties', 'permission:rental_inspections.create'])->name('v1.mobile.properties.rental-inspection-rooms.reorder');
         Route::post('/mobile/properties/{property}/rental-inspection-rooms/{room}/missing-standard-items', [\App\Http\Controllers\CoreX\RentalInspectionRoomChecklistController::class, 'topUp'])->whereNumber(['property', 'room'])->middleware(['mobile.web-action', 'permission:access_properties', 'permission:rental_inspections.create'])->name('v1.mobile.properties.rental-inspection-rooms.add-missing-standard-items');
         // MOBILE PARITY (inspection checklist + pairing) END
+
+        // MOBILE PARITY (lists + pickers) BEGIN
+        // The web lists that are pages with no JSON twin (they RUN the web action and answer its data, so the query is the web's own), the
+        // pickers a form needs, the JSON property pickers the web already has, and the user's own permission keys for the rentals areas.
+        Route::get('/mobile/breaches', [\App\Http\Controllers\Api\V1\MobileRentalListsController::class, 'breaches'])->middleware('permission:rental_breaches.view')->name('v1.mobile.breaches.index');
+        Route::get('/mobile/rental-notices-sent', [\App\Http\Controllers\Api\V1\MobileRentalListsController::class, 'sentNotices'])->middleware('permission:rental_notices.view')->name('v1.mobile.rental-notices-sent.index');
+        Route::get('/mobile/rental-applications', [\App\Http\Controllers\Api\V1\MobileRentalListsController::class, 'applications'])->middleware('permission:rental_applications.view')->name('v1.mobile.rental-applications.index');
+        Route::get('/mobile/rental-inspections/{rentalInspection}/deposit-comparison', [\App\Http\Controllers\Api\V1\MobileRentalListsController::class, 'depositComparison'])->whereNumber('rentalInspection')
+            ->middleware('permission:rental_inspections.view')->name('v1.mobile.rental-inspections.deposit-comparison');
+        Route::get('/mobile/rental-inspectors', [\App\Http\Controllers\Api\V1\MobileRentalListsController::class, 'inspectors'])->middleware('permission:rental_inspections.view')->name('v1.mobile.rental-inspectors.index');
+        Route::get('/mobile/leases/{lease}/selectable-agents', [\App\Http\Controllers\Api\V1\MobileRentalListsController::class, 'leaseAgents'])->whereNumber('lease')->middleware('permission:leases.view')->name('v1.mobile.leases.selectable-agents');
+        Route::get('/mobile/rental-notice-templates', [\App\Http\Controllers\Api\V1\MobileRentalListsController::class, 'noticeTemplates'])->middleware('permission:rental_notices.view')->name('v1.mobile.rental-notice-templates.index');
+        Route::get('/mobile/rental-crews', [\App\Http\Controllers\Api\V1\MobileRentalListsController::class, 'crews'])->middleware('permission:rental_job_cards.view')->name('v1.mobile.rental-crews.index');
+        Route::get('/mobile/rentals/permissions', [\App\Http\Controllers\Api\V1\MobileRentalListsController::class, 'permissions'])->name('v1.mobile.rentals.permissions');
+        Route::get('/mobile/leases/party-check', [\App\Http\Controllers\CoreX\LeaseController::class, 'partyCheck'])->middleware('permission:leases.view')->name('v1.mobile.leases.party-check');
+        Route::get('/mobile/leases/search-properties', [\App\Http\Controllers\CoreX\LeaseController::class, 'searchProperties'])->middleware('permission:leases.view')->name('v1.mobile.leases.search-properties');
+        Route::get('/mobile/leases/search-rental-properties', [\App\Http\Controllers\CoreX\LeaseController::class, 'searchRentalProperties'])->middleware(['permission:leases.view', 'permission:leases.create'])->name('v1.mobile.leases.search-rental-properties');
+        Route::get('/mobile/rental-fault-reports/search-properties', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'searchProperties'])->middleware('permission:rental_fault_reports.view')->name('v1.mobile.rental-fault-reports.search-properties');
+        Route::get('/mobile/rental-job-cards/search-properties', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'searchProperties'])->middleware('permission:rental_job_cards.view')->name('v1.mobile.rental-job-cards.search-properties');
+        Route::get('/mobile/rental-work-orders/search-properties', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'searchProperties'])->middleware(['permission:rental_work_orders.view', 'permission:rental_work_orders.create'])->name('v1.mobile.rental-work-orders.search-properties');
+        // MOBILE PARITY (lists + pickers) END
 
         // MOBILE PARITY (maintenance reads) BEGIN
         // The job-card list (the web's own RentalJobCardListQuery) and the contractor list an agent assigns a work order from.

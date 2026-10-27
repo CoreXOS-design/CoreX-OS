@@ -365,6 +365,22 @@ class MobileRentalWorkOrderController extends Controller
 
         $out = $this->summary($w) + [
             'description' => $w->description,
+            // the ids the action routes need: owner questions (answer), variations (decision / resend), completion rounds (tenant answer), contractor sends (WhatsApp)
+            'owner_questions' => \App\Models\RentalOwnerQuery::query()->where('rental_work_order_id', $w->id)->orderByDesc('asked_at')->get()->map(fn ($q) => [
+                'id' => $q->id, 'question' => $q->question, 'asked_at' => $q->asked_at?->toIso8601String(),
+                'answer' => $q->answer, 'answered_at' => $q->answered_at?->toIso8601String(),
+            ])->values()->all(),
+            'variations' => $w->variations()->orderBy('revision')->get()->map(fn ($v) => [
+                'id' => $v->id, 'revision' => $v->revision, 'status' => $v->status, 'origin' => $v->origin,
+            ] + ($canMoney ? ['extra_amount' => (float) $v->extra_amount, 'new_total' => (float) $v->new_total] : []))->values()->all(),
+            'completion_rounds' => $w->completionRounds()->orderBy('round_no')->get()->map(fn ($r) => [
+                'id' => $r->id, 'round_no' => $r->round_no, 'outcome' => $r->outcome, 'opened_at' => $r->opened_at?->toIso8601String(),
+                'responded_at' => $r->responded_at?->toIso8601String(), 'window_ends_at' => $r->window_ends_at?->toIso8601String(),
+            ])->values()->all(),
+            'dispatches' => \App\Models\RentalJobDispatch::query()->where('rental_work_order_id', $w->id)->orderByDesc('id')->get()->map(fn ($d) => [
+                'id' => $d->id, 'recipient_kind' => $d->recipient_kind, 'recipient_name' => $d->recipient_name, 'channel' => $d->channel,
+                'status' => $d->status, 'sent_at' => $d->sent_at?->toIso8601String(), 'opened_at' => $d->opened_at?->toIso8601String(),
+            ])->values()->all(),
             'reported_by_type' => $w->reported_by_type,
             'owner_approval_status' => $w->owner_approval_status,
             'ordered_at' => $w->ordered_at?->toIso8601String(),

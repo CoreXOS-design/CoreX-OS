@@ -105,6 +105,10 @@ final class MobileInspectionLifecycleTest extends TestCase
         // an archived inspection answers 410 on the lifecycle routes that need it open
         $this->asStaff($this->admin)->postJson($this->base("/{$insp->id}/cancel"), ['cancel_reason' => 'x'])->assertStatus(410)->assertJsonPath('code', 'archived');
 
+        // the archived list: the way to reach Restore
+        $this->asStaff($this->admin)->getJson($this->base('?archived=1'))->assertOk()->assertJsonPath('meta.total', 1)->assertJsonPath('data.0.id', $insp->id);
+        $this->asStaff($this->admin)->getJson($this->base())->assertOk()->assertJsonPath('meta.total', 0);
+
         $this->asStaff($this->admin)->postJson($this->base("/{$insp->id}/restore"))->assertOk()->assertJsonPath('id', $insp->id);
         $this->assertNull(RentalInspection::withTrashed()->find($insp->id)->deleted_at);
     }

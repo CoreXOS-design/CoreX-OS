@@ -400,6 +400,11 @@ class MobileRentalFaultController extends Controller
 
         return $this->summary($f) + [
             'description' => $f->description,
+            // the owner's questions, with the ids the answer route needs (POST /mobile/rental-fault-reports/{id}/owner-questions/{query}/answer)
+            'owner_questions' => \App\Models\RentalOwnerQuery::query()->where('rental_fault_report_id', $f->id)->orderByDesc('asked_at')->get()->map(fn ($q) => [
+                'id' => $q->id, 'question' => $q->question, 'asked_at' => $q->asked_at?->toIso8601String(),
+                'answer' => $q->answer, 'answered_at' => $q->answered_at?->toIso8601String(),
+            ])->values()->all(),
             'fault_type_detail' => $f->faultType ? [
                 'id' => $f->faultType->id, 'name' => $f->faultType->name, 'category' => $f->faultType->category, 'urgency' => $f->faultType->urgency,
             ] : null,

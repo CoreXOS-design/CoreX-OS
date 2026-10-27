@@ -86,6 +86,26 @@ Responses: `422 {message, errors, code:"invalid"}` for the web's validation; `40
 | `GET /mobile/properties/{property}/rental-inspection-rooms/missing-standard-items` | Standard items a room is missing | `rental_inspections.view` |
 | `GET /mobile/rental-inspections/{id}/attendance`, `/form`, `/signatures/{signature}/{kind}` | Who attended; the printable paper site form; a signature or wet-ink scan file | `rental_inspections.view` |
 
+**Lists and pickers (second round, 27 Oct)** - `MobileRentalListsController`. The three page-only lists RUN THE WEB ACTION and answer its data (`{data, meta:{page,per_page,total,last_page,empty_reason}, ...}`), so scope, search, filters and tiles are the web's own; filter names are the web's (`q`, `status`, `kind`, `party`, `date_from`, `date_to`, `archived`, `tile`, `sort`, `dir`, `scope`, `page`).
+
+| Method + path | What it is | Permission |
+|---|---|---|
+| `GET /mobile/breaches` | The breach register (rows + `tile_counts`) | `rental_breaches.view` |
+| `GET /mobile/rental-notices-sent` | Notices the agency sent | `rental_notices.view` |
+| `GET /mobile/rental-applications` | The applications list (`counts`, `scope_options`); the phone creates and sends only, it does not review | `rental_applications.view` |
+| `GET /mobile/rental-inspections/{id}/deposit-comparison` | The Out inspection against the In, per item, with the agent's finding (the write is the finding route) | `rental_inspections.view` |
+| `GET /mobile/rental-inspections?archived=1` | Archived inspections, so Restore can be reached | `rental_inspections.view` |
+| `GET /mobile/rental-inspectors` | Who can be booked as inspector (active users of the agency) + `default_inspector_id` | `rental_inspections.view` |
+| `GET /mobile/leases/{lease}/selectable-agents` | The owner's / tenant's agent choices (lease's own branch first) | `leases.view` |
+| `GET /mobile/rental-notice-templates?type=` | Active templates (breach, notice to vacate, expiry ...) | `rental_notices.view` |
+| `GET /mobile/rental-crews` | Active crews | `rental_job_cards.view` |
+| `GET /mobile/leases/party-check`, `/leases/search-properties`, `/leases/search-rental-properties`, `/rental-fault-reports/search-properties`, `/rental-job-cards/search-properties`, `/rental-work-orders/search-properties` | The web's own JSON pickers | the web's keys |
+| `GET /mobile/rentals/permissions` | `{permissions:{"rental_inspections.cancel":true,...}}` - the user's own keys for the rentals areas, so the app shows only buttons that will work. It echoes the Role Manager; it decides nothing | none (own keys) |
+
+Detail payloads gained the ids the action routes need: a fault report has `owner_questions[{id,question,asked_at,answer,answered_at}]`; a work order has `owner_questions`, `variations[{id,revision,status,origin}]` (+ `extra_amount`, `new_total` only with `view_costs`), `completion_rounds[{id,round_no,outcome,...}]`, `dispatches[{id,recipient_kind,channel,status,...}]`.
+
+Older id routes (`GET /mobile/leases/{lease}`, `GET /mobile/rental-job-cards/{id}`) are now constrained to numeric ids so the literal-path routes above are not swallowed.
+
 ## 5. Tests
 
 - `tests/Feature/Api/MobileInspectionLifecycleTest.php`, `MobileInventoryLifecycleTest.php`, `MobileLeaseActionsTest.php`
@@ -94,4 +114,4 @@ Responses: `422 {message, errors, code:"invalid"}` for the web's validation; `40
 
 ## 6. Not in this addendum (Johan's 27 Oct instruction: nothing new)
 
-Not built, because they do not exist on the web today: staff screens for rent / deposit / lease fee by role; a notice screen without a Reject; a staff "record the contractor's answer" screen with a mandatory note on the web; CPA-versus-business classification of a notice. Still to do (web reads that are Blade views with no JSON twin, so they need a read wrapper first): the breach register list, the notices-sent list, the rental-applications list, the move-out deposit comparison data for an inspection, and the lease "who signs" party check. These are the next slice.
+Not built, because they do not exist on the web today: staff screens for rent / deposit / lease fee by role; a notice screen without a Reject; a staff "record the contractor's answer" screen with a mandatory note on the web; CPA-versus-business classification of a notice. Still open: see the final report (resend-to-one-recipient needs a key the phone cannot get; creates that redirect to a parent page cannot return the new id; no CPA / business flag on notices).
