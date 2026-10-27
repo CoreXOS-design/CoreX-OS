@@ -79,7 +79,7 @@ class SoldStockService
 
         $cycle = (int) ($property->listing_cycle ?: 1);
         $deal ??= $this->resolveDeal($property);
-        $facts = $this->saleFacts($property, $deal);
+        $facts = $this->saleFacts($property, $deal, $source === 'backfill');
 
         $existing = SoldStock::withoutGlobalScope(AgencyScope::class)->withTrashed()
             ->where('property_id', $property->id)->where('cycle_no', $cycle)->first();
@@ -210,7 +210,8 @@ class SoldStockService
         ]));
 
         // Cycle counter + clear the sold grace; query update = no observer recursion.
-        Property::withoutGlobalScopes()->whereKey($property->id)->update(['listing_cycle' => $next, 'portal_sold_until' => null]);
+        // DB::table (not Eloquent) so the property's updated_at is not bumped by bookkeeping.
+        DB::table('properties')->where('id', $property->id)->update(['listing_cycle' => $next, 'portal_sold_until' => null]);
         $property->setAttribute('listing_cycle', $next);
         $property->setAttribute('portal_sold_until', null);
         $property->syncOriginalAttributes(['listing_cycle', 'portal_sold_until']);
@@ -281,7 +282,7 @@ class SoldStockService
             return;
         }
         $until = Carbon::parse($saleDate ?? now())->startOfDay()->addDays(self::showDays($property->agency_id))->toDateString();
-        Property::withoutGlobalScopes()->whereKey($property->id)->update(['portal_sold_until' => $until]);
+        DB::table('properties')->where('id', $property->id)->update(['portal_sold_until' => $until]); // no updated_at bump
         $property->setAttribute('portal_sold_until', $until);
         $property->syncOriginalAttributes(['portal_sold_until']);
     }
@@ -291,7 +292,7 @@ class SoldStockService
         $row = SoldStock::withoutGlobalScope(AgencyScope::class)
             ->where('property_id', $property->id)->where('cycle_no', (int) ($property->listing_cycle ?: 1))->first();
         $row?->delete();
-        Property::withoutGlobalScopes()->whereKey($property->id)->update(['portal_sold_until' => null]);
+        DB::table('properties')->where('id', $property->id)->update(['portal_sold_until' => null]);
     }
 
     /** The deal that sold this property: a registered one first, else the latest granted. */
@@ -306,7 +307,7 @@ class SoldStockService
     }
 
     /** @return array<string,mixed> sale columns derived from the deal, else the sold record */
-    private function saleFacts(Property $property, ?Deal $deal): array
+    private function saleFacts(Property $property, ?Deal $deal, bool $historic = false): array
     {
         $record = DB::table('property_sold_records')->where('property_id', $property->id)
             ->orderByDesc('sold_date')->orderByDesc('id')->first();
@@ -320,6 +321,13 @@ class SoldStockService
         }
         $price ??= $record?->sold_price;
         $date  ??= $record?->sold_date;
+        if (! $date && $historic) {
+            // Backfill of a sale that predates this feature and carries no deal / sold record: the best evidence of WHEN it
+            // sold is the audit-log moment the status became Sold, else the property's last update - never "today".
+            $date = DB::table('property_audit_log')->where('property_id', $property->id)->where('event_type', 'status_changed')
+                ->whereRaw("LOWER(JSON_UNQUOTE(JSON_EXTRACT(new_values, '$.status'))) = 'sold'")->orderByDesc('created_at')->value('created_at')
+                ?: $property->updated_at;
+        }
         $date = $date ? Carbon::parse($date) : (strtolower((string) $property->status) === 'sold' ? Carbon::today() : null);
 
         $days = $record?->days_on_market;

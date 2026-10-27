@@ -32,7 +32,7 @@ class SoldStockExpirePortals extends Command
                         continue;
                     }
                     DesyndicatePropertyFromPortalsJob::dispatch($property, removeFromWebsite: true, keepPpForSold: false, keepP24ForSold: false);
-                    Property::withoutGlobalScopes()->whereKey($property->id)->update(['p24_syndication_enabled' => false, 'pp_syndication_enabled' => false]);
+                    \Illuminate\Support\Facades\DB::table('properties')->where('id', $property->id)->update(['p24_syndication_enabled' => false, 'pp_syndication_enabled' => false]);
                 }
             });
 

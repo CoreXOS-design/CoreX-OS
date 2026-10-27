@@ -140,7 +140,8 @@ final class HotPocketsTest extends TestCase
         $c = $sel->candidates($this->ctx(), 50);
 
         $this->assertSame([$hot, $warm], $this->listingIds($c));
-        $this->assertSame('Hot pocket: 3 leads in Uvongo', $c[0]->reason);
+        $this->assertStringStartsWith('Hot pocket: 3 leads / ', $c[0]->reason);
+        $this->assertSame('Uvongo', $c[0]->facts['area']);
         $this->assertNotContains($cold, $this->listingIds($c));
     }
 
@@ -252,6 +253,6 @@ final class HotPocketsTest extends TestCase
         $this->assertNotContains($noIdPort, $ids);
         $this->assertNotContains($noIdBare, $ids, 'a bare name that two towns share is never guessed');
         $this->assertContains($noIdHot, $ids, 'no suburb id, but the town agrees');
-        $this->assertStringContainsString('2 leads in Uvongo', $c[0]->reason);
+        $this->assertStringContainsString('2 leads', $c[0]->reason);
     }
 }

@@ -112,14 +112,17 @@ abstract class OwnStockSelection implements Selection
             if (isset($blocked[$tid]) || isset($held[$tid]) || isset($excluded[$tid])) {
                 continue;
             }
+            $why = $reason($row);
+            $why = is_array($why) ? $why : ['line' => (string) $why, 'facts' => null];
             $out[] = new Candidate(
                 trackedPropertyId: $tid,
                 prospectingListingId: null,
                 propertyId: (int) $row->id,
                 selection: $key,
-                reason: $reason($row),
+                reason: $why['line'],
                 hasAddress: trim((string) $row->address) !== '',
                 inArea: true, // the agent's own stock is theirs wherever it is
+                facts: $why['facts'],
             );
             if (count($out) >= $limit) {
                 break;

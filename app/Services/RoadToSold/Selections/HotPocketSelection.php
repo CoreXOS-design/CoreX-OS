@@ -125,6 +125,29 @@ final class HotPocketSelection extends MicPoolSelection
         );
     }
 
+    protected function explain(object $row, SelectionContext $ctx): array
+    {
+        $pocket = $this->pocketOf($row, $ctx);
+
+        return $pocket
+            ? \App\Services\RoadToSold\Reasons\ReasonLine::hotPocket($pocket, max(1, (int) $ctx->settings->hotPocketLookbackDays))
+            : ['line' => 'Hot pocket', 'facts' => ['kind' => 'hot_pocket']];
+    }
+
+    /** @return ?array the pocket this row sits in */
+    private function pocketOf(object $row, SelectionContext $ctx): ?array
+    {
+        $pockets = $this->pockets($ctx);
+        $p = $this->resolver->resolve(
+            $row->tp_suburb_id ? (int) $row->tp_suburb_id : null,
+            $row->tp_city_id ? (int) $row->tp_city_id : null,
+            $row->tp_town,
+            $row->suburb
+        );
+
+        return $p ? ($pockets[$p['key']] ?? null) : null;
+    }
+
     protected function reason(object $row, SelectionContext $ctx): string
     {
         $pockets = $this->pockets($ctx);

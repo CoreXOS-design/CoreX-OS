@@ -128,6 +128,10 @@
 
     @include('road-to-sold._blocks-bar')
 
+    @if(($canRelease ?? false) && in_array($block, ['prospects', 'parked'], true))
+        @include('road-to-sold._release-modal')
+    @endif
+
     <div class="rts-block-body {{ $block === 'progress' ? '' : 'is-fit' }}">
     @if($block === 'progress')
     @unless($isTeam)

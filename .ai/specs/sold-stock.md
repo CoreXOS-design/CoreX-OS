@@ -127,7 +127,7 @@ dispatched **only with `--portals`** — the production run (Andre). Without it 
 listings are still to take down. Reason: a non-production copy of live data (QA1) carries the real portal
 credentials, and a mass take-down from there would hit the real portals. P24 stays up as Sold until the grace date
 (sale date + the agency setting); `sold-stock:expire-portals` (daily, production scheduler only) then withdraws it.
-Idempotent — safe to re-run.
+A historic sale with no deal or sold record is dated from the audit-log moment it became Sold (else the property's last update), never "today". Re-prospected / Not-selling properties whose website switch is still on are switched off too (the bug's victims). Idempotent — safe to re-run.
 
 ## 8. Not in scope / follow-ups
 
