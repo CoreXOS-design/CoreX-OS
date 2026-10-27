@@ -203,6 +203,7 @@ final class DeskMessagesTest extends DeskTestCase
         // CoreX's <title> is the app name on every page, so a tab is named by its page heading (first h1), and the console falls back to the path until that arrives
         $this->assertStringContainsString("querySelectorAll('h1')", $this->js('agent.js'));
         $this->assertStringContainsString("registerTab('update')", $this->js('agent.js'));
+        $this->assertStringContainsString("if (/^\\/corex\\/?$/.test(location.pathname)) return 'Home';", $this->js('agent.js'), 'the home page is called Home, not by its greeting');
         $this->assertStringContainsString('const nameFromPath', $console);
         $this->assertStringContainsString('cur.order', $console, 'order = the order the agent opened them');
         $this->assertStringContainsString('!cur.known.has(e.tab)', $console, 'a page that moves on is never "new" again');
