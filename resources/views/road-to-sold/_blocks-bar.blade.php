@@ -19,6 +19,8 @@
     .rts-block-body.is-fit { overflow: hidden; }
     /* only the block body gives way when the window is short: the header rows keep their height (they used to shrink and slide under the sticky banner) */
     .rts-fit > * { flex-shrink: 0; }
+    /* the page does not scroll any more, so the banner needs no stickiness - and its pulled-up margin made it overlap the row below */
+    .rts-fit > .rts-sticky { position: static !important; margin-top: 0 !important; }
     .rts-fit > .rts-block-body { flex: 1 1 0; min-height: 0; }
     /* a flex child with overflow set shrinks to NOTHING when its siblings need the room - that hid the intake table (27 Oct); nothing shrinks except the one list that is meant to */
     .rts-block-body > *, .rts-col > * { flex-shrink: 0; }
@@ -34,6 +36,7 @@
     .rts-grow table td { padding-top: .35rem; padding-bottom: .35rem; }
     /* one line per cell (the reason may take two): a row is ~44px, so five rows fit */
     .rts-grow th { white-space: nowrap; }
+    .rts-grow td:last-child { max-width: none !important; overflow: visible !important; }
     .rts-grow td:not([data-qa="intake-why"]) { white-space: nowrap; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; }
     /* what to do next + where the month stands share one row */
     .rts-top { display: flex; gap: .75rem; align-items: stretch; }

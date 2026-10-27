@@ -33,9 +33,9 @@ for (const person of people) {
         page.on('pageerror', (e) => errors.push(e.message));
         page.on('console', (m) => { if (/Alpine Expression Error/.test(m.text())) errors.push(m.text().split('\n')[0]); });
         await page.setCookie({ ...cookie, domain: new URL(BASE).hostname, path: '/', httpOnly: true, secure: true });
-        await page.goto(BASE + '/corex/my-portal', { waitUntil: 'domcontentloaded' });
+        await page.goto(BASE + '/corex/my-portal', { waitUntil: 'networkidle2', timeout: 90000 });
         if (person.switchAgency) {
-            await page.evaluate(async () => { const t = document.querySelector('meta[name=csrf-token]').content; await fetch('/agency/switch/1', { method: 'POST', headers: { 'X-CSRF-TOKEN': t }, redirect: 'manual' }); });
+            await page.evaluate(async () => { const t = document.querySelector('meta[name=csrf-token]')?.content || ''; await fetch('/agency/switch/1', { method: 'POST', headers: { 'X-CSRF-TOKEN': t }, redirect: 'manual' }); });
         }
         for (const block of blocks) {
             await page.goto(`${BASE}/corex/road-to-sold?block=${block}${person.query}`, { waitUntil: 'networkidle2', timeout: 90000 });
