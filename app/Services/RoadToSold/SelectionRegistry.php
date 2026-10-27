@@ -3,6 +3,7 @@
 namespace App\Services\RoadToSold;
 
 use App\Services\RoadToSold\Selections\BuyerSourcingSelection;
+use App\Services\RoadToSold\Selections\ExpiredCompetitorSelection;
 use App\Services\RoadToSold\Selections\HotPocketSelection;
 use App\Services\RoadToSold\Selections\LongOnMarketSelection;
 use App\Services\RoadToSold\Selections\MyExpiredStockSelection;
@@ -13,7 +14,7 @@ use App\Services\RoadToSold\Selections\PriceDropSelection;
 use App\Services\RoadToSold\Selections\Selection;
 
 /**
- * The nine selections, by their stored key. Which are on, and in what order, is the agency's choice
+ * The ten selections, by their stored key. Which are on, and in what order, is the agency's choice
  * (lane 1's settings); this only knows how to build each one.
  */
 final class SelectionRegistry
@@ -34,6 +35,7 @@ final class SelectionRegistry
             new OwnerKnownSelection(),
             new MyExpiredStockSelection(),
             new MyStockNotSellingSelection(),
+            new ExpiredCompetitorSelection(),
         ] as $s) {
             $this->selections[$s->key()] = $s;
         }

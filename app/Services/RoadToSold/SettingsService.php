@@ -345,6 +345,18 @@ class SettingsService
         return (int) $this->scalar('summary_ahead_from_pct');
     }
 
+    /** How recently a competitor's advert must have been withdrawn to be offered (road-to-sold.md 22.6). */
+    public function expiredCompetitorLookbackDays(): int
+    {
+        return max(1, (int) $this->scalar('expired_competitor_lookback_days'));
+    }
+
+    /** Days a prospect may sit without moving before the manager's stage view flags it (road-to-sold.md 22.11). */
+    public function prospectStallDays(): int
+    {
+        return max(1, (int) $this->scalar('prospect_stall_days'));
+    }
+
     /** How many WORKING days back a captured task may be dated (spec 10.5 "Backdated completion", 21.1): weekends and public holidays do not count. */
     public function captureBackDateWorkingDays(): int
     {

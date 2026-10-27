@@ -126,7 +126,7 @@ final class OutcomeServiceTest extends TestCase
         $svc->ensureDefaults($this->agencyId);
         $svc->ensureDefaults($this->agencyId);
 
-        $this->assertSame(8, Def::withoutGlobalScopes()->where('agency_id', $this->agencyId)->count());
+        $this->assertSame(12, Def::withoutGlobalScopes()->where('agency_id', $this->agencyId)->count());
         $noAnswer = $this->def('no_answer');
         $this->assertSame('attempt', $noAnswer->kind);
         $this->assertSame(Def::ACTION_AFTER_DAYS, $noAnswer->next_action);
@@ -140,11 +140,11 @@ final class OutcomeServiceTest extends TestCase
         [$agencyB] = $this->makeAgency();
         OutcomeDefinitionService::forgetMemo();
         $svc->ensureDefaults($agencyB);
-        $this->assertSame(8, Def::withoutGlobalScopes()->where('agency_id', $agencyB)->count());
-        $this->assertSame(16, Def::withoutGlobalScopes()->count());
+        $this->assertSame(12, Def::withoutGlobalScopes()->where('agency_id', $agencyB)->count());
+        $this->assertSame(24, Def::withoutGlobalScopes()->count());
 
         $svc->ensureDefaults(0);
-        $this->assertSame(16, Def::withoutGlobalScopes()->count(), 'agency id 0 never writes');
+        $this->assertSame(24, Def::withoutGlobalScopes()->count(), 'agency id 0 never writes');
     }
 
     public function test_add_rename_switch_off_archive_and_recreate_restores_the_archived_row(): void
@@ -167,8 +167,8 @@ final class OutcomeServiceTest extends TestCase
         $this->assertSame('phone_is_off', $new->fresh()->key, 'key is stable across a rename');
 
         $svc->setActive($new, false);
-        $this->assertCount(8, $svc->list($this->agencyId), 'a switched-off outcome is not offered');
-        $this->assertCount(9, $svc->list($this->agencyId, 'sales', false));
+        $this->assertCount(12, $svc->list($this->agencyId), 'a switched-off outcome is not offered');
+        $this->assertCount(13, $svc->list($this->agencyId, 'sales', false));
 
         $svc->archive($new);
         $this->assertNull(Def::find($new->id));
@@ -200,7 +200,7 @@ final class OutcomeServiceTest extends TestCase
                 $this->assertNotEmpty($e->errors());
             }
         }
-        $this->assertSame(8, Def::withoutGlobalScopes()->where('agency_id', $this->agencyId)->count());
+        $this->assertSame(12, Def::withoutGlobalScopes()->where('agency_id', $this->agencyId)->count());
     }
 
     public function test_reorder_changes_the_order_shown_to_agents(): void
@@ -321,7 +321,7 @@ final class OutcomeServiceTest extends TestCase
         $tp = $this->tp();
         foreach ([[], ['next_action_at' => '2026-10-01'], ['next_action_at' => 'not a date']] as $in) {
             try {
-                $this->record('spoke_not_interested', $tp, $in);
+                $this->record('spoke_call_back', $tp, $in);
                 $this->fail('should be refused');
             } catch (RoadToSoldException $e) {
                 $this->assertNotSame('', $e->getMessage());
@@ -330,7 +330,7 @@ final class OutcomeServiceTest extends TestCase
         $this->assertSame(0, RtsContactOutcome::withoutGlobalScopes()->count());
         $this->assertSame(0, RtsHold::withoutGlobalScopes()->count());
 
-        $ok = $this->record('spoke_not_interested', $tp, ['next_action_at' => '2026-10-14']);
+        $ok = $this->record('spoke_call_back', $tp, ['next_action_at' => '2026-10-14']);
         $this->assertSame('2026-10-14', $ok->next_action_at->toDateString(), 'today is allowed');
     }
 
@@ -368,7 +368,7 @@ final class OutcomeServiceTest extends TestCase
 
         $this->assertTrue($o->valuation_booked);
         $this->assertSame('calendar_appointment', $o->next_action);
-        $this->assertNull($o->next_action_at);
+        $this->assertSame('2026-10-20', $o->next_action_at->toDateString(), 'the next action is the evaluation, on the appointment day (road-to-sold.md 22.7)');
         $event = CalendarEvent::withoutGlobalScopes()->find($o->calendar_event_id);
         $this->assertSame('property_evaluation', $event->category);
         $this->assertSame($this->agent->id, (int) $event->user_id);
@@ -395,16 +395,16 @@ final class OutcomeServiceTest extends TestCase
         $this->record('spoke_call_back', $tp3, ['valuation_booked' => '1', 'next_action_at' => '2026-10-30']);
     }
 
-    public function test_wrong_number_is_an_attempt_that_moves_the_property_to_the_tagged_list(): void
+    public function test_wrong_number_is_an_attempt_that_sends_the_agent_to_find_the_owner_again_in_three_days(): void
     {
         $owner = $this->owner();
         $tp = $this->tp($owner->id);
         $o = $this->record('wrong_number', $tp);
 
         $this->assertSame('attempt', $o->kind);
-        $this->assertSame('move_to_list', $o->next_action);
-        $this->assertSame('Find the right contact', $o->list_tag);
-        $this->assertNull($o->next_action_at);
+        $this->assertSame('find_owner_after_days', $o->next_action);
+        $this->assertSame('Find the right contact', $o->list_tag, 'the Wrong number view keeps working');
+        $this->assertSame(now()->startOfDay()->addDays(3)->toDateString(), $o->next_action_at->toDateString());
         $this->assertNull($owner->fresh()->last_contacted_at);
     }
 
@@ -457,6 +457,16 @@ final class OutcomeServiceTest extends TestCase
 
         Carbon::setTestNow('2026-12-05 09:00:00');
         $this->assertFalse($holds->isHeldByOther($tp->id, $this->other), 'lapsed: free again');
+        // v3 (road-to-sold.md 22.6): the hold has lapsed but the property is still the first agent's prospect - another agent is
+        // refused until it is released (a manager's "Release to the pool").
+        try {
+            $this->record('no_answer', $tp, [], $this->other);
+            $this->fail('the property is still allocated to the first agent');
+        } catch (RoadToSoldException $e) {
+            $this->assertStringContainsString('is working this property', $e->getMessage());
+        }
+        $prospect = app(\App\Services\RoadToSold\ProspectService::class)->find($this->agencyId, $tp->id);
+        app(\App\Services\RoadToSold\ProspectService::class)->release($prospect, $this->agent);
         $mine = $this->record('no_answer', $tp, [], $this->other);
         $this->assertSame($this->other->id, (int) $mine->user_id);
         $this->assertSame(1, RtsHold::withoutGlobalScopes()->where('tracked_property_id', $tp->id)->count(), 'one hold row per property is re-used');

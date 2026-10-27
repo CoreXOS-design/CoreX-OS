@@ -180,6 +180,12 @@ class ReportService
                 }
                 continue;
             }
+            if ($r->origin === 'follow_up') {      // counted apart from the day's new intake (road-to-sold.md 22.3)
+                if ($r->status === 'worked') {
+                    $out[$u]['followups_worked'] = ($out[$u]['followups_worked'] ?? 0) + (int) $r->n;
+                }
+                continue;
+            }
             if ($r->status === 'worked') {
                 $out[$u]['worked'] = ($out[$u]['worked'] ?? 0) + (int) $r->n;
             } elseif (in_array($r->status, ['missed', 'rolled'], true)) {

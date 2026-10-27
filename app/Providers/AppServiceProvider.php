@@ -505,6 +505,9 @@ class AppServiceProvider extends ServiceProvider
         // AT-454 Road to Sold v2 phase 1: the one generic listener that completes recipe tasks from domain events
         // (.ai/specs/road-to-sold.md section 5.1). Only the events in RecipeCatalogue::EVENTS are looked at.
         Event::listen(DomainEvent::class, \App\Listeners\RoadToSold\CompleteTasksFromDomainEvent::class);
+        // Road to Sold v3 (22.2): the same events move each agent's prospect from stage to stage; a portal lead is not a DomainEvent, so it has its own line.
+        Event::listen(DomainEvent::class, \App\Listeners\RoadToSold\AdvanceProspectsFromDomainEvent::class);
+        Event::listen(\App\Events\Leads\NewPortalLeadReceived::class, [\App\Listeners\RoadToSold\AdvanceProspectsFromDomainEvent::class, 'handleLead']);
 
         // ─────────────────────────────────────────────────────────────────
         // Syndication Approval Gate (layer 3) — .ai/specs/syndication-approval-gate.md §8.

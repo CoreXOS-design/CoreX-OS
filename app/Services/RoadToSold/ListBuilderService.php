@@ -171,10 +171,19 @@ class ListBuilderService
                     Log::error('Road to Sold: an enabled selection has no implementation (skipped)', ['selection' => $key, 'user_id' => $user->id]);
                     continue;
                 }
-                $candidates = $selection->candidates($this->context($user, $agencyId, $day, $track, $settings), $remaining);
-                foreach ($candidates as $candidate) {
-                    if ($this->insert($user, $agencyId, $day, $track, $candidate, RtsListItem::ORIGIN_AUTO)) {
-                        $remaining--;
+                // A candidate another agent has just taken is refused at insert(); ask the same source again (its context now excludes
+                // what was refused) up to three times so a race never leaves the day short.
+                for ($pass = 0; $pass < 3 && $remaining > 0; $pass++) {
+                    $refused = 0;
+                    foreach ($selection->candidates($this->context($user, $agencyId, $day, $track, $settings), $remaining) as $candidate) {
+                        if ($this->insert($user, $agencyId, $day, $track, $candidate, RtsListItem::ORIGIN_AUTO)) {
+                            $remaining--;
+                        } else {
+                            $refused++;
+                        }
+                    }
+                    if ($refused === 0) {
+                        break;
                     }
                 }
             }
@@ -372,6 +381,18 @@ class ListBuilderService
             return null;
         }
 
+        // The allocation (road-to-sold.md 22.6): a property belongs to ONE agent. If another agent owns it, it is not placed -
+        // the caller takes its next candidate. A follow-up on a property worked before prospects existed is adopted at "contacted".
+        $prospect = app(ProspectService::class)->place($user, (int) $c->trackedPropertyId, $track, [
+            'prospecting_listing_id' => $c->prospectingListingId, 'property_id' => $c->propertyId,
+            'selection' => $c->selection, 'reason' => $c->reason, 'reason_facts' => $c->facts,
+            'stage' => in_array($origin, [RtsListItem::ORIGIN_FOLLOW_UP, RtsListItem::ORIGIN_ROLLOVER], true) && $c->selection === RtsListItem::SELECTION_FOLLOW_UP
+                ? ProspectStages::CONTACTED : ProspectStages::FOUND,
+        ]);
+        if ($prospect === null) {
+            return null;
+        }
+
         $position = (int) (clone $base)->max('position') + 1;
         $attrs = [
             'agency_id' => $agencyId, 'branch_id' => $user->branch_id, 'user_id' => $user->id,
@@ -380,6 +401,7 @@ class ListBuilderService
             'property_id' => $c->propertyId, 'selection' => $c->selection, 'origin' => $origin,
             'position' => $position, 'status' => RtsListItem::STATUS_OPEN, 'reason' => mb_substr($c->reason, 0, 255),
             'rolled_from_item_id' => $rolledFrom,
+            'prospect_id' => $prospect->id, 'reason_facts' => $c->facts,
         ];
 
         // I vouch for agency_id (it is the agent's own): the auto-stamp must not replace it with the

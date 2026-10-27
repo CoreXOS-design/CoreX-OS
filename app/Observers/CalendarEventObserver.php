@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Observers;
 
 use App\Events\Evaluation\EvaluationBooked;
+use App\Events\Viewing\ViewingScheduled;
 use App\Models\CommandCenter\CalendarEvent;
 use App\Services\Activity\ProvisionalPointService;
 use App\Support\Events\SafeRaise;
@@ -49,6 +50,20 @@ final class CalendarEventObserver
                 userId: $event->user_id !== null ? (int) $event->user_id : null,
                 propertyId: $event->property_id !== null ? (int) $event->property_id : null,
                 contactId: $event->contact_id !== null ? (int) $event->contact_id : null,
+                startsAt: $event->event_date ? (string) $event->event_date : null,
+                actorUserId: $event->created_by_id !== null ? (int) $event->created_by_id : (auth()->id() ? (int) auth()->id() : null),
+            ));
+        }
+
+        // Road to Sold v3 (22.8): a buyer's viewing was put in the calendar. Once per appointment; never breaks the save.
+        if (in_array($event->category, ['viewing', 'viewings', 'buyer_viewing'], true)) {
+            SafeRaise::dispatch('ViewingScheduled', fn () => new ViewingScheduled(
+                calendarEventId: (int) $event->id,
+                propertyId: $event->property_id !== null ? (int) $event->property_id : null,
+                contactId: $event->contact_id !== null ? (int) $event->contact_id : null,
+                agencyId: $event->agency_id !== null ? (int) $event->agency_id : null,
+                branchId: $event->branch_id !== null ? (int) $event->branch_id : null,
+                userId: $event->user_id !== null ? (int) $event->user_id : null,
                 startsAt: $event->event_date ? (string) $event->event_date : null,
                 actorUserId: $event->created_by_id !== null ? (int) $event->created_by_id : (auth()->id() ? (int) auth()->id() : null),
             ));

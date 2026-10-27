@@ -17,7 +17,7 @@ class OutcomeDefinitionService
     private static array $seeded = [];
 
     /**
-     * The eight seeded outcomes (Johan, 13 Oct). Keys are stable and stored; labels are editable.
+     * The seeded outcomes (Johan, 13 Oct; v3 ruling R6, 27 Oct). Keys are stable and stored; labels are editable.
      *
      * @return array<int, array<string, mixed>>
      */
@@ -27,24 +27,115 @@ class OutcomeDefinitionService
             ['key' => 'no_answer', 'label' => 'No answer', 'kind' => Def::KIND_ATTEMPT,
              'next_action' => Def::ACTION_AFTER_DAYS, 'delay_days' => 7, 'counts_as_no_answer' => true],
             ['key' => 'spoke_evaluation_booked', 'label' => 'Spoke - evaluation booked', 'kind' => Def::KIND_CONVERSATION,
-             'next_action' => Def::ACTION_APPOINTMENT],
+             'next_action' => Def::ACTION_APPOINTMENT, 'stage_after' => 'appointment_set'],
             ['key' => 'spoke_call_back', 'label' => 'Spoke - call back', 'kind' => Def::KIND_CONVERSATION,
-             'next_action' => Def::ACTION_PICKED_DATE],
-            ['key' => 'spoke_not_interested', 'label' => 'Spoke - not interested', 'kind' => Def::KIND_CONVERSATION,
-             'next_action' => Def::ACTION_PICKED_DATE],
+             'next_action' => Def::ACTION_PICKED_DATE, 'stage_after' => 'contacted'],
+            ['key' => 'spoke_not_interested', 'label' => 'Spoke - not now, maybe later', 'kind' => Def::KIND_CONVERSATION,
+             'next_action' => Def::ACTION_AFTER_MONTHS, 'choice_months' => [3, 6, 12], 'default_months' => 6, 'stage_after' => 'contacted'],
             ['key' => 'listed_other_agency_open', 'label' => 'Listed with another agency - open mandate', 'kind' => Def::KIND_CONVERSATION,
-             'next_action' => Def::ACTION_PICKED_DATE],
+             'next_action' => Def::ACTION_EXPIRY_ELSE_DAYS, 'fallback_days' => 90, 'stage_after' => 'contacted'],
             ['key' => 'mandated_other_agency_sole', 'label' => 'Mandated with another agency - sole mandate', 'kind' => Def::KIND_CONVERSATION,
-             'next_action' => Def::ACTION_EXPIRY_ELSE],
+             'next_action' => Def::ACTION_EXPIRY_ELSE, 'stage_after' => 'contacted'],
             ['key' => 'wrong_number', 'label' => 'Wrong number', 'kind' => Def::KIND_ATTEMPT,
-             'next_action' => Def::ACTION_MOVE_TO_LIST, 'list_tag' => 'Find the right contact'],
+             'next_action' => Def::ACTION_FIND_OWNER, 'delay_days' => 3, 'list_tag' => 'Find the right contact',
+             'max_tries' => 2, 'after_max_tries' => Def::AFTER_PARK, 'park_reason_key' => 'no_owner_found'],
+            ['key' => 'no_owner_found', 'label' => 'No owner found', 'kind' => Def::KIND_ATTEMPT,
+             'next_action' => Def::ACTION_FIND_OWNER, 'delay_days' => 3, 'list_tag' => 'Find the right contact',
+             'max_tries' => 2, 'after_max_tries' => Def::AFTER_PARK, 'park_reason_key' => 'no_owner_found'],
             ['key' => 'do_not_contact', 'label' => 'Do not contact', 'kind' => Def::KIND_CONVERSATION,
              'next_action' => Def::ACTION_NEVER_AGAIN, 'records_do_not_contact' => true],
+            // after the evaluation (road-to-sold.md 22.7)
+            ['key' => 'eval_undecided', 'label' => 'Evaluation done - seller undecided', 'kind' => Def::KIND_CONVERSATION,
+             'next_action' => Def::ACTION_AFTER_DAYS, 'delay_days' => 7, 'stage_after' => 'evaluation_done'],
+            ['key' => 'eval_chose_other', 'label' => 'Seller chose another agency', 'kind' => Def::KIND_CONVERSATION,
+             'next_action' => Def::ACTION_AFTER_DAYS, 'delay_days' => 90, 'park_reason_key' => 'chose_other_agency'],
+            ['key' => 'eval_selling_privately', 'label' => 'Owner selling privately', 'kind' => Def::KIND_CONVERSATION,
+             'next_action' => Def::ACTION_AFTER_DAYS, 'delay_days' => 30, 'park_reason_key' => 'not_selling_now'],
+        ];
+    }
+
+    /** The outcomes that only make sense once the evaluation has been booked (hidden from the pop-up before that stage). */
+    public const AFTER_EVALUATION_KEYS = ['eval_undecided', 'eval_chose_other', 'eval_selling_privately'];
+
+    /**
+     * The seeded values before v3, per key: a row still exactly like this has never been edited, so the upgrade may change it.
+     *
+     * @return array<string,array<string,mixed>>
+     */
+    public static function previousDefaults(): array
+    {
+        return [
+            'no_answer'                  => ['label' => 'No answer', 'next_action' => Def::ACTION_AFTER_DAYS, 'delay_days' => 7],
+            'spoke_evaluation_booked'    => ['label' => 'Spoke - evaluation booked', 'next_action' => Def::ACTION_APPOINTMENT, 'delay_days' => null],
+            'spoke_call_back'            => ['label' => 'Spoke - call back', 'next_action' => Def::ACTION_PICKED_DATE, 'delay_days' => null],
+            'spoke_not_interested'       => ['label' => 'Spoke - not interested', 'next_action' => Def::ACTION_PICKED_DATE, 'delay_days' => null],
+            'listed_other_agency_open'   => ['label' => 'Listed with another agency - open mandate', 'next_action' => Def::ACTION_PICKED_DATE, 'delay_days' => null],
+            'mandated_other_agency_sole' => ['label' => 'Mandated with another agency - sole mandate', 'next_action' => Def::ACTION_EXPIRY_ELSE, 'delay_days' => null],
+            'wrong_number'               => ['label' => 'Wrong number', 'next_action' => Def::ACTION_MOVE_TO_LIST, 'delay_days' => null],
+            'do_not_contact'             => ['label' => 'Do not contact', 'next_action' => Def::ACTION_NEVER_AGAIN, 'delay_days' => null],
         ];
     }
 
     /**
-     * Seed the eight outcomes the first time an agency+track is used. Idempotent; a trashed or
+     * Bring an agency's outcomes up to the v3 defaults without touching its edits: a row that is still exactly the old seed is updated; a
+     * row the agency changed is left alone; the new outcomes are added when missing. $apply false = report only.
+     *
+     * @return array{updated:string[],added:string[],kept:string[]}
+     */
+    public function upgradeDefaults(int $agencyId, string $track = 'sales', bool $apply = false): array
+    {
+        $out = ['updated' => [], 'added' => [], 'kept' => []];
+        if ($agencyId <= 0) {
+            return $out;
+        }
+        $this->ensureDefaults($agencyId, $track);
+        $rows = Def::withTrashed()->where('agency_id', $agencyId)->where('track', $track)->get()->keyBy('key');
+        $max = (int) $rows->max('sort_order');
+        $old = self::previousDefaults();
+
+        foreach (self::defaults() as $new) {
+            $row = $rows->get($new['key']);
+            if (! $row) {
+                $out['added'][] = $new['key'];
+                if ($apply) {
+                    $max += 10;
+                    Def::create($new + ['agency_id' => $agencyId, 'track' => $track, 'is_active' => true, 'is_system' => true, 'sort_order' => $max]);
+                }
+                continue;
+            }
+            $was = $old[$new['key']] ?? null;
+            $untouched = $row->is_system && $was !== null && $row->label === $was['label'] && $row->next_action === $was['next_action']
+                && ($row->delay_days === $was['delay_days'] || (int) $row->delay_days === (int) $was['delay_days']);
+            if (! $untouched) {
+                $out['kept'][] = $new['key'];
+                continue;
+            }
+            $out['updated'][] = $new['key'];
+            if ($apply) {
+                $row->forceFill(array_diff_key($new, ['key' => 1]))->save();
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * The outcomes an agent may pick for a prospect at $stage: the evaluation-only ones appear once an appointment has been set.
+     *
+     * @return Collection<int, Def>
+     */
+    public function availableFor(int $agencyId, string $track = 'sales', ?string $stage = null): Collection
+    {
+        $all = $this->list($agencyId, $track);
+        if ($stage !== null && ProspectStages::order($stage) >= ProspectStages::order(ProspectStages::APPOINTMENT_SET)) {
+            return $all;
+        }
+
+        return $all->reject(fn (Def $d) => in_array($d->key, self::AFTER_EVALUATION_KEYS, true))->values();
+    }
+
+    /**
+     * Seed the outcomes the first time an agency+track is used. Idempotent; a trashed or
      * switched-off row counts as "already seeded" (an agency that archived them keeps its choice).
      * agency_id <= 0 never writes (STANDARDS Rule 17).
      */
@@ -124,7 +215,7 @@ class OutcomeDefinitionService
         }
 
         $delay = null;
-        if ($action === Def::ACTION_AFTER_DAYS) {
+        if (in_array($action, [Def::ACTION_AFTER_DAYS, Def::ACTION_FIND_OWNER], true)) {
             $raw = trim((string) ($in['delay_days'] ?? ''));
             if ($raw === '' || ! ctype_digit($raw) || (int) $raw < 1 || (int) $raw > 3650) {
                 $errors['delay_days'] = 'Enter the number of days as a whole number from 1 to 3650.';
@@ -141,6 +232,59 @@ class OutcomeDefinitionService
             }
         }
 
+        // v3 (road-to-sold.md 22.7): months to choose from, a fallback in days, a try limit, a park rule, the stage it moves to.
+        // A form that does not send a field (the older screen) keeps what is stored; it never wipes it.
+        $get = fn (string $k) => array_key_exists($k, $in) ? $in[$k] : $existing?->{$k};
+        $choiceMonths = null;
+        $defaultMonths = null;
+        if ($action === Def::ACTION_AFTER_MONTHS) {
+            $raw = $get('choice_months') ?? '';
+            $list = is_array($raw) ? $raw : preg_split('/[\s,]+/', trim((string) $raw), -1, PREG_SPLIT_NO_EMPTY);
+            $list = array_values(array_unique(array_map('intval', array_filter($list, fn ($v) => ctype_digit((string) $v)))));
+            if ($list === [] || count($list) > 8 || min($list) < 1 || max($list) > 60) {
+                $errors['choice_months'] = 'Enter the months the agent can choose from, for example 3, 6, 12 (1 to 60).';
+            } else {
+                sort($list);
+                $choiceMonths = $list;
+                $d = (int) ($get('default_months') ?? 0);
+                $defaultMonths = in_array($d, $list, true) ? $d : $list[0];
+            }
+        }
+        $fallback = null;
+        if ($action === Def::ACTION_EXPIRY_ELSE_DAYS) {
+            $raw = trim((string) ($get('fallback_days') ?? ''));
+            if ($raw === '' || ! ctype_digit($raw) || (int) $raw < 1 || (int) $raw > 3650) {
+                $errors['fallback_days'] = 'Enter the days to wait when no mandate end date is known, from 1 to 3650.';
+            } else {
+                $fallback = (int) $raw;
+            }
+        }
+        $maxTries = null;
+        $afterMax = null;
+        $rawTries = trim((string) ($get('max_tries') ?? ''));
+        if ($rawTries !== '') {
+            if (! ctype_digit($rawTries) || (int) $rawTries < 1 || (int) $rawTries > 20) {
+                $errors['max_tries'] = 'Enter how many tries are allowed, from 1 to 20.';
+            } else {
+                $maxTries = (int) $rawTries;
+                $afterMax = (string) ($get('after_max_tries') ?? '');
+                if (! in_array($afterMax, Def::AFTER_MAX_TRIES, true)) {
+                    $errors['after_max_tries'] = 'Choose what happens when the tries are used up.';
+                }
+            }
+        }
+        $parkKey = trim((string) ($get('park_reason_key') ?? '')) ?: null;
+        if ($parkKey !== null && mb_strlen($parkKey) > 40) {
+            $errors['park_reason_key'] = 'Pick a reason from the list.';
+        }
+        if ($maxTries !== null && $afterMax === Def::AFTER_PARK && $parkKey === null) {
+            $errors['park_reason_key'] = 'Pick why it is parked when the tries are used up.';
+        }
+        $stageAfter = trim((string) ($get('stage_after') ?? '')) ?: null;
+        if ($stageAfter !== null && ! ProspectStages::exists($stageAfter)) {
+            $errors['stage_after'] = 'Pick a stage from the list.';
+        }
+
         if ($errors) {
             throw ValidationException::withMessages($errors);
         }
@@ -150,7 +294,14 @@ class OutcomeDefinitionService
             'kind'                   => $kind,
             'next_action'            => $action,
             'delay_days'             => $delay,
-            'list_tag'               => $tag,
+            'list_tag'               => $tag ?? (trim((string) ($in['list_tag'] ?? '')) ?: null),
+            'stage_after'            => $stageAfter,
+            'max_tries'              => $maxTries,
+            'after_max_tries'        => $maxTries !== null ? $afterMax : null,
+            'park_reason_key'        => $parkKey,
+            'choice_months'          => $choiceMonths,
+            'default_months'         => $defaultMonths,
+            'fallback_days'          => $fallback,
             'counts_as_no_answer'    => $kind === Def::KIND_ATTEMPT && ! empty($in['counts_as_no_answer']),
             'records_do_not_contact' => $action === Def::ACTION_NEVER_AGAIN && ! empty($in['records_do_not_contact']),
             'is_active'              => array_key_exists('is_active', $in) ? (bool) $in['is_active'] : true,

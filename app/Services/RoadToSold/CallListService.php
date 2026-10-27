@@ -129,7 +129,7 @@ class CallListService
         ];
     }
 
-    /** Worked / counting toward the target / added on top, for the day. */
+    /** Worked / counting toward the target (new intake) / added on top / follow-ups, for the day. */
     public function dayCounts(User $viewer, int $agentId, Carbon $date, string $track = 'sales'): array
     {
         $base = fn () => RtsListItem::query()->visibleTo($viewer)->forDay($agentId, $date, $track);
@@ -140,6 +140,10 @@ class CallListService
             'worked'        => (clone $counting)->where('rts_list_items.status', RtsListItem::STATUS_WORKED)->count(),
             'added'         => $base()->where('rts_list_items.origin', RtsListItem::ORIGIN_ADDED)->count(),
             'added_worked'  => $base()->where('rts_list_items.origin', RtsListItem::ORIGIN_ADDED)
+                ->where('rts_list_items.status', RtsListItem::STATUS_WORKED)->count(),
+            // follow-ups are counted apart from the day's new intake (road-to-sold.md 22.3)
+            'followups'        => $base()->where('rts_list_items.origin', RtsListItem::ORIGIN_FOLLOW_UP)->count(),
+            'followups_worked' => $base()->where('rts_list_items.origin', RtsListItem::ORIGIN_FOLLOW_UP)
                 ->where('rts_list_items.status', RtsListItem::STATUS_WORKED)->count(),
             'any'           => $base()->count(),
         ];

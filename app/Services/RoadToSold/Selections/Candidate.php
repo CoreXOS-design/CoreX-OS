@@ -13,6 +13,8 @@ final class Candidate
         public readonly string $reason,
         public readonly bool $hasAddress,
         public readonly bool $inArea,
+        /** The structured facts behind the reason line (names, numbers) - road-to-sold.md 22.5. */
+        public readonly ?array $facts = null,
     ) {
     }
 

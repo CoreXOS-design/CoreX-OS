@@ -119,7 +119,7 @@ class HoldService
             ->where(function ($w) use ($day) {
                 $w->where('dropped', true)
                     ->orWhereIn('next_action', [Def::ACTION_MOVE_TO_LIST, Def::ACTION_APPOINTMENT])
-                    ->orWhere(fn ($f) => $f->whereIn('next_action', [Def::ACTION_AFTER_DAYS, Def::ACTION_PICKED_DATE, Def::ACTION_EXPIRY_ELSE])
+                    ->orWhere(fn ($f) => $f->whereIn('next_action', Def::DATED_ACTIONS)
                         ->whereNotNull('next_action_at')->whereDate('next_action_at', '>', $day));
             })
             ->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->unique()->values()->all();

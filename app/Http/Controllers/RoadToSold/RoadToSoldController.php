@@ -200,7 +200,8 @@ class RoadToSoldController extends Controller
             return ['open' => 0, 'first' => null];
         }
         $counts = $this->list->dayCounts($viewer, $agentId, $date, $track);
-        $open = max(0, $counts['target_items'] - $counts['worked']) + max(0, $counts['added'] - $counts['added_worked']);
+        $open = max(0, $counts['target_items'] - $counts['worked']) + max(0, $counts['added'] - $counts['added_worked'])
+            + max(0, ($counts['followups'] ?? 0) - ($counts['followups_worked'] ?? 0));
         if ($open === 0) {
             return ['open' => 0, 'first' => null];
         }
@@ -285,6 +286,7 @@ class RoadToSoldController extends Controller
             'next_action_at'        => ['nullable', 'date'],
             'valuation_booked'      => ['nullable', 'boolean'],
             'appointment_at'        => ['nullable', 'date'],
+            'follow_up_months'      => ['nullable', 'integer', 'min:1', 'max:60'],
         ], [
             'tracked_property_id.required'   => 'Pick the property again.',
             'outcome_definition_id.required' => 'Pick an outcome.',
@@ -298,6 +300,7 @@ class RoadToSoldController extends Controller
             'next_action_at'   => $data['next_action_at'] ?? null,
             'valuation_booked' => $request->boolean('valuation_booked'),
             'appointment_at'   => $data['appointment_at'] ?? null,
+            'follow_up_months' => $data['follow_up_months'] ?? null,
         ];
 
         if (! empty($data['list_item_id'])) {

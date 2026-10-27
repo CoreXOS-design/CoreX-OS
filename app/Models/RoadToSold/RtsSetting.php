@@ -53,6 +53,7 @@ class RtsSetting extends Model
         'summary_ahead_from_pct', 'capture_back_date_working_days', 'capture_needs_review',
         'levels_signoff_required', 'level_periods_required',
         'flag_min_sample', 'flag_below_pct', 'flag_window_days', 'suggest_window_weeks', 'suggest_growth_pct',
+        'expired_competitor_lookback_days', 'prospect_stall_days',
     ];
 
     protected $casts = [
@@ -90,6 +91,8 @@ class RtsSetting extends Model
         'capture_needs_review'         => 'boolean',
         'levels_signoff_required'      => 'boolean',
         'level_periods_required'       => 'integer',
+        'expired_competitor_lookback_days' => 'integer',
+        'prospect_stall_days'          => 'integer',
         'flag_min_sample'              => 'integer',
         'flag_below_pct'               => 'integer',
         'flag_window_days'             => 'integer',
@@ -130,6 +133,8 @@ class RtsSetting extends Model
         'capture_needs_review'         => false,
         'levels_signoff_required'      => true,
         'level_periods_required'       => 4,
+        'expired_competitor_lookback_days' => 30,
+        'prospect_stall_days'          => 14,
         'flag_min_sample'              => 20,
         'flag_below_pct'               => 60,
         'flag_window_days'             => 30,
@@ -195,6 +200,7 @@ class RtsSetting extends Model
             'owner_known'            => 'Owner already known',
             'my_expired_stock'       => 'My expired stock',
             'my_stock_not_selling'   => 'My stock that is not selling',
+            'expired_competitor'     => 'Expired competitor listings',
         ];
     }
 

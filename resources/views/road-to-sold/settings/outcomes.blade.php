@@ -11,6 +11,13 @@
         'next_action'            => $o->next_action,
         'delay_days'             => $o->delay_days,
         'list_tag'               => $o->list_tag,
+        'stage_after'            => $o->stage_after,
+        'max_tries'              => $o->max_tries,
+        'after_max_tries'        => $o->after_max_tries,
+        'park_reason_key'        => $o->park_reason_key,
+        'choice_months'          => implode(', ', (array) $o->choice_months),
+        'default_months'         => $o->default_months,
+        'fallback_days'          => $o->fallback_days,
         'counts_as_no_answer'    => (bool) $o->counts_as_no_answer,
         'records_do_not_contact' => (bool) $o->records_do_not_contact,
         'action'                 => route('road-to-sold.settings.outcomes.update', $o->id),
@@ -172,9 +179,49 @@
                     </select>
                 </div>
 
-                <div x-show="f.next_action === 'return_after_days'">
+                <div x-show="['return_after_days', 'find_owner_after_days'].includes(f.next_action)">
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-f-days">Days until it comes back</label>
                     <input id="rts-f-days" type="number" min="1" max="3650" name="delay_days" x-model="f.delay_days" class="w-full rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                </div>
+
+                <div x-show="f.next_action === 'return_after_months'">
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-f-months">Months the agent can choose</label>
+                    <input id="rts-f-months" type="text" name="choice_months" x-model="f.choice_months" placeholder="3, 6, 12" class="w-full rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                </div>
+                <div x-show="f.next_action === 'return_after_months'">
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-f-defmonths">Months to suggest</label>
+                    <input id="rts-f-defmonths" type="number" min="1" max="60" name="default_months" x-model="f.default_months" class="w-full rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                </div>
+                <div x-show="f.next_action === 'return_on_expiry_else_days'">
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-f-fallback">Days to wait when no end date is known</label>
+                    <input id="rts-f-fallback" type="number" min="1" max="3650" name="fallback_days" x-model="f.fallback_days" class="w-full rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-f-stage">Moves the property to the stage</label>
+                    <select id="rts-f-stage" name="stage_after" x-model="f.stage_after" class="w-full rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        <option value="">Stays where it is</option>
+                        @foreach($stages as $k => $l)<option value="{{ $k }}">{{ $l }}</option>@endforeach
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-f-tries">Tries allowed (blank = no limit)</label>
+                    <input id="rts-f-tries" type="number" min="1" max="20" name="max_tries" x-model="f.max_tries" class="w-full rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                </div>
+                <div x-show="f.max_tries">
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-f-after">When the tries are used up</label>
+                    <select id="rts-f-after" name="after_max_tries" x-model="f.after_max_tries" class="w-full rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        <option value="">Choose</option>
+                        <option value="park">Park it</option>
+                        <option value="manager_report">Put it on the manager's report</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-f-park">Park it with the reason</label>
+                    <select id="rts-f-park" name="park_reason_key" x-model="f.park_reason_key" class="w-full rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        <option value="">Do not park</option>
+                        @foreach($parkReasons as $k => $l)<option value="{{ $k }}">{{ $l }}</option>@endforeach
+                    </select>
                 </div>
 
                 <div x-show="f.next_action === 'move_to_list'">
@@ -203,7 +250,7 @@
 
 <script>
 function rtsOutcomeForm(cfg) {
-    const blank = () => ({ label: '', kind: 'attempt', next_action: 'return_after_days', delay_days: 7, list_tag: '', counts_as_no_answer: false, records_do_not_contact: false });
+    const blank = () => ({ label: '', kind: 'attempt', next_action: 'return_after_days', delay_days: 7, list_tag: '', stage_after: '', max_tries: '', after_max_tries: '', park_reason_key: '', choice_months: '', default_months: '', fallback_days: '', counts_as_no_answer: false, records_do_not_contact: false });
     return {
         open: false,
         editId: null,
@@ -215,6 +262,8 @@ function rtsOutcomeForm(cfg) {
                     label: cfg.old.label || '', kind: cfg.old.kind || 'attempt',
                     next_action: cfg.old.next_action || 'return_after_days',
                     delay_days: cfg.old.delay_days || '', list_tag: cfg.old.list_tag || '',
+                    stage_after: cfg.old.stage_after || '', max_tries: cfg.old.max_tries || '', after_max_tries: cfg.old.after_max_tries || '',
+                    park_reason_key: cfg.old.park_reason_key || '', choice_months: cfg.old.choice_months || '', default_months: cfg.old.default_months || '', fallback_days: cfg.old.fallback_days || '',
                     counts_as_no_answer: !!cfg.old.counts_as_no_answer,
                     records_do_not_contact: !!cfg.old.records_do_not_contact,
                 });
@@ -228,7 +277,7 @@ function rtsOutcomeForm(cfg) {
             if (!r) { return; }
             this.editId = id;
             this.formAction = r.action;
-            this.f = { label: r.label, kind: r.kind, next_action: r.next_action, delay_days: r.delay_days || '', list_tag: r.list_tag || '', counts_as_no_answer: r.counts_as_no_answer, records_do_not_contact: r.records_do_not_contact };
+            this.f = { label: r.label, kind: r.kind, next_action: r.next_action, delay_days: r.delay_days || '', list_tag: r.list_tag || '', stage_after: r.stage_after || '', max_tries: r.max_tries || '', after_max_tries: r.after_max_tries || '', park_reason_key: r.park_reason_key || '', choice_months: r.choice_months || '', default_months: r.default_months || '', fallback_days: r.fallback_days || '', counts_as_no_answer: r.counts_as_no_answer, records_do_not_contact: r.records_do_not_contact };
             this.open = true;
         },
     };

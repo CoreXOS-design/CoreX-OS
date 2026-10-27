@@ -69,29 +69,26 @@ class TaskCompletionService
             return 0;
         }
 
-        $people = $this->peopleFor($event, $agencyId);
-        if ($people === null) {
-            return 0;
-        }
-        [$agent, $recordedBy, $kind] = $people;
-
         $subject    = $event->subject();
         $written    = 0;
         $occurredAt = isset($event->occurredAt) ? Carbon::instance($event->occurredAt) : now();
 
-        foreach ($tasks as $task) {
-            if (! RecipeCatalogue::matches($event, $task->event_filter)) {
-                continue;
-            }
-            $completion = $this->complete($task, $agent, $subject, [
-                'recorded_by' => $recordedBy,
-                'kind'        => $kind,
-                'occurred_at' => $occurredAt,
-                'event_id'    => $event->eventId ?? null,
-                'source'      => RtsTaskCompletion::SOURCE_AUTO_EVENT,
-            ]);
-            if ($completion !== null) {
-                $written++;
+        // One agent, or - for a deal - every agent on it (road-to-sold.md 22.8: deal credit goes to the agents on the deal).
+        foreach ($this->peopleListFor($event, $agencyId) as [$agent, $recordedBy, $kind]) {
+            foreach ($tasks as $task) {
+                if (! RecipeCatalogue::matches($event, $task->event_filter)) {
+                    continue;
+                }
+                $completion = $this->complete($task, $agent, $subject, [
+                    'recorded_by' => $recordedBy,
+                    'kind'        => $kind,
+                    'occurred_at' => $occurredAt,
+                    'event_id'    => $event->eventId ?? null,
+                    'source'      => RtsTaskCompletion::SOURCE_AUTO_EVENT,
+                ]);
+                if ($completion !== null) {
+                    $written++;
+                }
             }
         }
 
@@ -310,6 +307,47 @@ class TaskCompletionService
      *
      * @return array{0:User,1:User,2:string}|null [agent credited, who did it, agent|assistant|system]
      */
+    /**
+     * Who the event credits: the single agent peopleFor() finds, or - for an event whose catalogue entry says 'agents' => 'deal' - every
+     * agent on that deal. The person who pressed the button on a deal is recorded as recorded_by and is NOT credited unless they are on it.
+     *
+     * @return list<array{0:User,1:User,2:string}> [agent, recordedBy, kind]
+     */
+    private function peopleListFor(DomainEvent $event, int $agencyId): array
+    {
+        $meta = RecipeCatalogue::EVENTS[$event::class] ?? [];
+        if (($meta['agents'] ?? null) === 'deal' && isset($event->deal)) {
+            $ids = array_values(array_unique(array_map(
+                fn ($p) => (int) $p['user_id'],
+                app(\App\Services\Activity\ParticipantResolver::class)->resolveForDealCommissionFinalised($event->deal)
+            )));
+            $agency = Agency::query()->withoutGlobalScopes()->find($agencyId);
+            if (! $agency || ! app(AgencyFeatureService::class)->enabled('road-to-sold', $agency)) {
+                return [];
+            }
+            $actorId = $event->actorUserId();
+            $clicker = $actorId ? User::query()->withoutGlobalScopes()->find($actorId) : null;
+            $out = [];
+            foreach ($ids as $id) {
+                $agent = User::query()->withoutGlobalScopes()->find($id);
+                if (! $agent || $agent->trashed() || (int) $agent->agency_id !== $agencyId || ! $agent->is_active || $agent->is_assistant) {
+                    continue;
+                }
+                $recorded = $clicker ?: $agent;
+                $kind = $actorId === null ? RtsTaskCompletion::KIND_SYSTEM
+                    : ((int) $recorded->id !== (int) $agent->id && $recorded->is_assistant ? RtsTaskCompletion::KIND_ASSISTANT : RtsTaskCompletion::KIND_AGENT);
+                $out[] = [$agent, $recorded, $kind];
+            }
+            if ($out !== []) {
+                return $out;
+            }
+        }
+
+        $one = $this->peopleFor($event, $agencyId);
+
+        return $one === null ? [] : [$one];
+    }
+
     private function peopleFor(DomainEvent $event, int $agencyId): ?array
     {
         $meta    = RecipeCatalogue::EVENTS[$event::class] ?? ['credit' => [], 'recorded_by' => []];

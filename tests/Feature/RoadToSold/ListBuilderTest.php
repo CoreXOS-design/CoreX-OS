@@ -144,10 +144,10 @@ final class ListBuilderTest extends TestCase
         for ($i = 0; $i < 8; $i++) { $this->longListing(); }
         $this->assertCount(5, $this->builder(['target' => 5])->buildFor($this->agent, self::WED));
 
-        $this->assertCount(3, $this->builder(['target' => 10])->buildFor($this->mate, self::WED)->take(3), 'sanity');
+        // v3 (road-to-sold.md 22.6): the first agent's five are theirs, so the next agent is offered only the three that are left.
         $short = $this->makeAgent();
         $items = $this->builder(['target' => 20, 'settings' => ['enabledSelectionKeys' => ['long_on_market']]])->buildFor($short, self::WED);
-        $this->assertCount(8, $items, 'only 8 eligible properties exist: no padding');
+        $this->assertCount(3, $items, 'only 3 unowned properties are left: no padding');
     }
 
     public function test_a_property_in_two_selections_is_listed_once_under_the_first(): void
@@ -174,7 +174,8 @@ final class ListBuilderTest extends TestCase
 
         $this->assertEqualsCanonicalizing([$addr1, $addr2], $items->pluck('prospecting_listing_id')->all(), 'the address-less ones are only used when there are not enough addressed');
 
-        $more = $this->builder(['target' => 4, 'settings' => ['enabledSelectionKeys' => ['long_on_market']]])->buildFor($this->mate, self::WED);
+        \Illuminate\Support\Facades\Cache::flush();   // the builder's "built a moment ago" marker would skip the top-up
+        $more = $this->builder(['target' => 4, 'settings' => ['enabledSelectionKeys' => ['long_on_market']]])->buildFor($this->agent, self::WED);
         $this->assertEqualsCanonicalizing([$addr1, $addr2, $none1, $none2], $more->pluck('prospecting_listing_id')->all());
         $this->assertEqualsCanonicalizing([$addr1, $addr2], $more->take(2)->pluck('prospecting_listing_id')->all());
     }
@@ -194,7 +195,7 @@ final class ListBuilderTest extends TestCase
 
     // ── follow-ups ───────────────────────────────────────────────────────
 
-    public function test_follow_ups_come_first_and_count_toward_the_target(): void
+    public function test_follow_ups_come_first_and_are_counted_apart_from_the_new_intake_target(): void
     {
         $tpA = $this->tp(); $tpB = $this->tp();
         $lA = $this->longListing([], $tpA);
@@ -202,14 +203,14 @@ final class ListBuilderTest extends TestCase
         $others = [$this->longListing(), $this->longListing(), $this->longListing()];
 
         $items = $this->builder([
-            'target' => 4, 'settings' => ['enabledSelectionKeys' => ['long_on_market']],
+            'target' => 2, 'settings' => ['enabledSelectionKeys' => ['long_on_market']],
             'followUps' => [$this->agent->id => [
                 new FollowUp($tpA->id, $lA, null, 'No answer last week - try again'),
                 new FollowUp($tpB->id, $lB, null, 'Asked to call back'),
             ]],
         ])->buildFor($this->agent, self::WED);
 
-        $this->assertCount(4, $items, '2 follow-ups + 2 new = the target of 4');
+        $this->assertCount(4, $items, '2 follow-ups, and the new-intake target of 2 on top (road-to-sold.md 22.3)');
         $this->assertSame(['follow_up', 'follow_up', 'auto', 'auto'], $items->pluck('origin')->all());
         $this->assertSame([$tpA->id, $tpB->id], array_slice($this->trackedIds($items), 0, 2));
         $this->assertSame('follow_up', $items[0]->selection);
@@ -217,7 +218,7 @@ final class ListBuilderTest extends TestCase
         $this->assertNotContains($lA, $items->slice(2)->pluck('prospecting_listing_id')->all(), 'a follow-up is not suggested again as new');
     }
 
-    public function test_follow_ups_are_never_trimmed_even_past_the_target_and_then_nothing_new_is_added(): void
+    public function test_follow_ups_are_never_trimmed_and_do_not_use_up_the_new_intake_target(): void
     {
         $fu = [];
         for ($i = 0; $i < 4; $i++) { $tp = $this->tp(); $fu[] = new FollowUp($tp->id, null, null, 'due'); }
@@ -225,8 +226,8 @@ final class ListBuilderTest extends TestCase
 
         $items = $this->builder(['target' => 3, 'followUps' => [$this->agent->id => $fu]])->buildFor($this->agent, self::WED);
 
-        $this->assertCount(4, $items);
-        $this->assertSame(['follow_up'], $items->pluck('origin')->unique()->values()->all());
+        $this->assertCount(5, $items, '4 follow-ups, plus the one new property the pool holds (target 3 of new intake)');
+        $this->assertSame(['follow_up', 'follow_up', 'follow_up', 'follow_up', 'auto'], $items->pluck('origin')->all());
     }
 
     public function test_a_follow_up_the_guard_now_blocks_is_dropped(): void
@@ -313,7 +314,8 @@ final class ListBuilderTest extends TestCase
         $this->assertSame([$in], $locked->pluck('prospecting_listing_id')->all());
 
         $open = $this->builder(['areaNames' => ['uvongo'], 'settings' => ['lockAgentsToAreas' => false, 'enabledSelectionKeys' => ['long_on_market']]])->buildFor($this->mate, self::WED);
-        $this->assertSame([$in, $out], $open->pluck('prospecting_listing_id')->all());
+        // the locked agent already owns the in-area one (road-to-sold.md 22.6), so the open agent is offered what is left
+        $this->assertSame([$out], $open->pluck('prospecting_listing_id')->all());
 
         $none = $this->makeAgent();
         $this->assertCount(0, $this->builder(['settings' => ['lockAgentsToAreas' => true, 'enabledSelectionKeys' => ['long_on_market']]])->buildFor($none, self::WED), 'locked with no areas: no list');
@@ -341,18 +343,19 @@ final class ListBuilderTest extends TestCase
         $mine = $this->builder($opts)->buildFor($this->agent, self::WED);
 
         $this->assertSame([$tp2->id], $this->trackedIds($mate), 'the held property is not offered to the other agent');
-        $this->assertSame([$tp2->id], $this->trackedIds($mine), 'and the holder is not offered it as "new" either (a follow-up brings it back)');
+        // the holder is not offered tp1 as "new" (a follow-up brings it back) and tp2 is now the other agent's (road-to-sold.md 22.6)
+        $this->assertSame([], $this->trackedIds($mine));
     }
 
-    public function test_without_a_hold_two_agents_can_be_handed_the_same_property(): void
+    public function test_even_without_a_hold_two_agents_are_never_handed_the_same_property(): void
     {
-        // Documents spec question Q7: the brief only forbids HELD properties; there is no same-day de-duplication.
+        // v3 ruling R5 (27 Oct 2026) replaces the old Q7 answer: a property on one agent's list belongs to that agent.
         $tp = $this->tp();
         $this->longListing([], $tp);
         $opts = ['target' => 5, 'settings' => ['enabledSelectionKeys' => ['long_on_market']]];
 
         $this->assertSame([$tp->id], $this->trackedIds($this->builder($opts)->buildFor($this->agent, self::WED)));
-        $this->assertSame([$tp->id], $this->trackedIds($this->builder($opts)->buildFor($this->mate, self::WED)));
+        $this->assertSame([], $this->trackedIds($this->builder($opts)->buildFor($this->mate, self::WED)));
     }
 
     // ── own stock never leaks ────────────────────────────────────────────
