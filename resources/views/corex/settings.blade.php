@@ -2764,6 +2764,21 @@
                                 <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save</button>
                             </div>
                         </div>
+
+                        {{-- Sold stock (AT-512, .ai/specs/sold-stock.md section 4): how long a sale stays on the portals marked Sold. --}}
+                        <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md flex-wrap" style="background:var(--surface); border:1px solid var(--border);">
+                            <div>
+                                <div class="text-sm font-medium" style="color:var(--text-primary);">Keep showing on portals as Sold for (days)</div>
+                                <div class="text-xs" style="color:var(--text-muted);">After a property sells it stays on Property24 marked Sold for this many days after the sale date, then comes down. 0 takes it down at once. Your website's Sold showcase is not affected - it keeps every sale. <a href="{{ route('corex.sold-stock.index') }}" style="color:var(--brand-button,#0ea5e9);">Open Sold stock</a></div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <input type="number" name="sold_portal_show_days" min="0" max="365" step="1" required
+                                       value="{{ old('sold_portal_show_days', $soldPortalShowDays) }}"
+                                       class="w-20 rounded-md px-3 py-2 text-sm"
+                                       style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save</button>
+                            </div>
+                        </div>
                     </form>
                 </div>
 

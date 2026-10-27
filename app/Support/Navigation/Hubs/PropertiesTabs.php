@@ -22,6 +22,8 @@ final class PropertiesTabs extends TabHub
                 'feature' => null, 'permissions' => ['access_properties'], 'config' => 'features.properties'],
             'imported-stock' => ['label' => 'Imported stock', 'route' => 'corex.properties.imported-stock', 'old' => 'Imported Stock',
                 'feature' => 'imported-stock', 'permissions' => ['access_imported_stock']],
+            'sold-stock' => ['label' => 'Sold stock', 'route' => 'corex.sold-stock.index', 'match' => ['corex.sold-stock.*'], 'old' => null,
+                'feature' => null, 'permissions' => ['access_sold_stock']],
             'map' => ['label' => 'Map', 'route' => 'corex.map.index', 'old' => 'Map',
                 'feature' => null, 'permissions' => ['access_properties']],
         ];

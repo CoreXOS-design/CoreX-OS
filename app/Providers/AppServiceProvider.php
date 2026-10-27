@@ -511,6 +511,8 @@ class AppServiceProvider extends ServiceProvider
         //   (c) DealClosed(lost) → revert to prior on-market status   [default ON]
         Event::listen(\App\Events\Deal\DealCreated::class,       \App\Listeners\Deal\FlagPropertyUnderOfferOnDealCreated::class);
         Event::listen(\App\Events\Deal\DealStageAdvanced::class, \App\Listeners\Deal\MarkPropertySoldOnDealMilestone::class);
+        // (b2) DealStageAdvanced(→R) → freeze the sale into sold_stock (AT-512, .ai/specs/sold-stock.md).
+        Event::listen(\App\Events\Deal\DealStageAdvanced::class, \App\Listeners\Deal\SnapshotSoldStockOnDealRegistered::class);
         Event::listen(\App\Events\Deal\DealClosed::class,        \App\Listeners\Deal\RevertPropertyStatusOnDealDeclined::class);
         // (d) DealStageAdvanced(→G) → auto-decline every OTHER active deal on the
         //     property (grant cascades; one grant at a time). Audited, re-grantable.

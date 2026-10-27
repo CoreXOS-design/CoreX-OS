@@ -5938,6 +5938,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/imported-stock', [\App\Http\Controllers\CoreX\PropertyController::class, 'importedStock'])->name('imported-stock');
     });
 
+    // Sold stock (AT-512, .ai/specs/sold-stock.md) - the agency's frozen sales, own/branch/agency scoped in the query.
+    Route::prefix('sold-stock')->middleware(['permission:access_sold_stock', 'agency.required'])->name('corex.sold-stock.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\SoldStockController::class, 'index'])->name('index');
+        Route::get('/{soldStock}', [\App\Http\Controllers\CoreX\SoldStockController::class, 'show'])->whereNumber('soldStock')->name('show');
+        Route::post('/{soldStock}/archive', [\App\Http\Controllers\CoreX\SoldStockController::class, 'archive'])->whereNumber('soldStock')->name('archive');
+        Route::post('/{soldStock}/restore', [\App\Http\Controllers\CoreX\SoldStockController::class, 'restore'])->whereNumber('soldStock')->name('restore');
+    });
+    Route::post('properties/{property}/listing-cycle/confirm', [\App\Http\Controllers\CoreX\SoldStockController::class, 'confirmSuggestion'])
+        ->middleware(['permission:access_properties', 'agency.required', 'deny_assistant_property_write'])->whereNumber('property')->name('corex.properties.cycle.confirm');
+    Route::post('properties/{property}/listing-cycle/dismiss', [\App\Http\Controllers\CoreX\SoldStockController::class, 'dismissSuggestion'])
+        ->middleware(['permission:access_properties', 'agency.required', 'deny_assistant_property_write'])->whereNumber('property')->name('corex.properties.cycle.dismiss');
+
     Route::prefix('properties')->middleware(['permission:access_properties', 'agency.required', 'deny_assistant_property_write'])->name('corex.properties.')->group(function () {
         // Marketing compliance — go live
         Route::post('/{property}/go-live', [\App\Http\Controllers\CoreX\PropertyController::class, 'goLive'])->name('go-live');

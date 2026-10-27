@@ -338,6 +338,8 @@ Route::prefix('v1/website')
         Route::middleware('website.scope:listings:read')->group(function () {
             Route::get('/listings',          [\App\Http\Controllers\Api\V1\Website\ListingsController::class, 'index'])->name('v1.website.listings.index');
             Route::get('/listings/{idOrRef}', [\App\Http\Controllers\Api\V1\Website\ListingsController::class, 'show'])->name('v1.website.listings.show');
+            // Sold showcase / sold map - frozen sales from sold_stock (.ai/specs/sold-stock.md section 6).
+            Route::get('/sold', [\App\Http\Controllers\Api\V1\Website\SoldStockController::class, 'index'])->name('v1.website.sold.index');
         });
 
         Route::middleware('website.scope:agents:read')->group(function () {

@@ -87,6 +87,12 @@ class Property extends Model
     public bool $allowOtherAgencyStockContentWrite = false;
 
     /**
+     * .ai/specs/sold-stock.md - why a Sold -> Prospecting save is happening ('deeds', 'promote'), read by
+     * SoldStockService when it starts the property's next listing cycle. Unset = 'manual'.
+     */
+    public ?string $cycleStartReason = null;
+
+    /**
      * Off-market / terminal listing statuses — the single source of truth for
      * "this listing is NOT live on the market". Everything else (for_sale, incl.
      * Reduced Price / Pending sub-labels, under_offer, on_show, on_auction,
@@ -1278,6 +1284,8 @@ class Property extends Model
         // a form post, an import, an API payload — can ever stamp a listing as
         // approved for syndication.
         'syndication_approved_at'     => 'datetime',
+        'portal_sold_until'           => 'date',
+        'listing_cycle'               => 'integer',
         'compliance_evidence_flags'   => 'array',
         'first_marketed_at'           => 'datetime',
         'municipal_valuation'         => 'decimal:2',

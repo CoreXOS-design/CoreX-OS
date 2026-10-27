@@ -156,6 +156,8 @@ class SettingsController extends Controller
         // AT-369 — agency cap on agent-opted-in PP sole-mandate exclusivity days.
         // Default 92 = PP's own hard maximum (Rev 4.6 p20); agency-configurable downward.
         $data['ppExclusiveDaysMax']        = (int) PerformanceSetting::get('pp_exclusive_days_max', 92);
+        // Sold stock (AT-512) - how long a sold listing stays on the portals marked Sold. Default 14.
+        $data['soldPortalShowDays']        = \App\Services\SoldStock\SoldStockService::showDays(auth()->user()?->effectiveAgencyId());
         // AT-448 — Mandate Expiry card (warn-days + expiry lock). Resolved through the
         // policy so the page and the runtime can never read the setting differently.
         $mandateExpiryAgencyId             = (int) (auth()->user()?->effectiveAgencyId() ?: 0);
@@ -584,6 +586,10 @@ class SettingsController extends Controller
             ]);
         }
 
+        if ($request->has('sold_portal_show_days')) {
+            $request->validate(['sold_portal_show_days' => ['required', 'integer', 'min:0', 'max:365']]);
+        }
+
         // The approval-gate permission is checked BEFORE any write in this request
         // so a 403 can never leave the portal toggles below half-saved.
         if ($request->has('syndication_approval_required')) {
@@ -603,6 +609,12 @@ class SettingsController extends Controller
 
         if ($request->has('pp_exclusive_days_max')) {
             PerformanceSetting::set('pp_exclusive_days_max', (int) $request->input('pp_exclusive_days_max'));
+        }
+
+        // Sold stock (AT-512): "Keep showing on portals as Sold for X days". Guarded by has() so a wizard step
+        // that does not render it never wipes it (agency-onboarding-setup.md 6.1).
+        if ($request->has('sold_portal_show_days')) {
+            PerformanceSetting::set('sold_portal_show_days', (int) $request->input('sold_portal_show_days'));
         }
 
         // ── Syndication Approval Gate (layer 3) ──────────────────────────
