@@ -89,6 +89,7 @@
         @stack('head')
     </head>
     <body class="font-sans antialiased corex-ui-v2">
+        @php $__embed = \App\Support\Embed::on(); @endphp
         {{-- AT-230 — per-company demo watermark + page-view beacon. Renders
              NOTHING unless this is a demo instance with a resolved grant.
              MUST also be in layouts/corex.blade.php (the other ~231 views).
@@ -100,13 +101,16 @@
              is pushed down, never overlapped. Empty banner = single flex child
              = exactly 100vh = identical to before (zero layout shift on live). --}}
         <div class="h-screen flex flex-col overflow-hidden">
+        @unless($__embed ?? false)
         @include('partials._env-banner')
         <x-outbound-mail-banner />
         {{-- CoreX Desk: the red "support is viewing this window" bar + Get help screen (hidden until used). Spec .ai/specs/corex-desk.md --}}
         @include('layouts.partials.desk-client')
+        @endunless
         {{-- Mobile sidebar toggle --}}
         <div x-data="{ sidebarOpen: false }" class="flex flex-1 min-h-0 overflow-hidden" style="background:var(--bg, #f4f6fb)">
 
+            @unless($__embed)
             {{-- Mobile overlay --}}
             <div x-show="sidebarOpen" x-transition:enter="transition-opacity ease-linear duration-200"
                  x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
@@ -120,11 +124,13 @@
                    class="fixed inset-y-0 left-0 z-50 w-60 transform transition-transform duration-200 ease-in-out lg:relative lg:translate-x-0 lg:flex-shrink-0">
                 @include('layouts.corex-sidebar')
             </aside>
+@endunless
 
             {{-- Main area --}}
             <div class="flex-1 flex flex-col overflow-hidden min-w-0">
                 {{-- AT-451 — one-line warning when this user has every alert switched off --}}
-                @include('layouts.partials._alerts-off-bar')
+                @unless($__embed)@include('layouts.partials._alerts-off-bar')@endunless
+@unless($__embed)
                 {{-- Header --}}
                 <div class="flex items-center lg:hidden px-4 py-2" style="background:var(--surface, #fff); border-bottom:1px solid var(--border, rgba(0,0,0,0.07))">
                     <button @click="sidebarOpen = true" type="button" style="color:var(--text-secondary, #4b5563)">
@@ -134,6 +140,7 @@
                     </button>
                     <span class="ml-3 text-sm font-bold" style="color:var(--text-primary, #111827)">CoreX <span style="color:var(--brand-icon, #0ea5e9)">Os</span></span>
                 </div>
+@endunless
 
                 {{-- Content --}}
                 <main id="appScroll" class="flex-1 overflow-y-auto p-4 lg:p-6" style="background:var(--bg, #f4f6fb)">
@@ -174,6 +181,7 @@
         </div>{{-- /environment column --}}
 
         {{-- Combined Help Widget (Ellie + Feedback) — sidebar-mounted --}}
+        @unless($__embed)
         @auth
             @include('layouts.partials.help-widget')
         @endauth
@@ -190,6 +198,8 @@
         {{-- Welcome pop-up — new agency Admin's first successful login.
              Spec: .ai/specs/agency-admin-rule.md §R1b --}}
         @include('layouts.partials.welcome-onboarding-modal')
+        @endunless
+        @includeWhen($__embed, 'layouts.partials._embed-done')
 
         {{-- Portal Leads real-time toast (P24 + PP). Spec: .ai/specs/portal-leads.md --}}
         @include('components.portal-lead-toast')

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\RoadToSold;
 
 use App\Http\Controllers\Controller;
 use App\Models\RoadToSold\RtsListItem;
+use App\Models\RoadToSold\RtsProspect;
 use App\Models\RoadToSold\RtsOutcomeDefinition as Def;
 use App\Services\RoadToSold\CallListService;
 use App\Services\RoadToSold\CompletionListService;
@@ -136,7 +137,7 @@ class RoadToSoldController extends Controller
             $captureChoices = $this->completionList->filterChoices($agencyId, $track);
         }
 
-        return view('road-to-sold.index', $data + [
+        return view('road-to-sold.index', $data + $this->blocks($request, $viewer, $agentId, $agents, $viewingOwn, $track, $date, collect($data['rows']->items())->pluck('tracked_property_id')->all()) + [
             'feeds'          => $feeds,
             'emptyState'     => $emptyState,
             'progress'       => $progress,
@@ -213,6 +214,67 @@ class RoadToSoldController extends Controller
         $first = collect($rows->items())->firstWhere('status', 'open');
 
         return ['open' => $open, 'first' => $first ? ['tracked_property_id' => $first['tracked_property_id'], 'list_item_id' => $first['list_item_id'], 'address' => $first['street'] !== '' ? $first['street'] : $first['address']] : null];
+    }
+
+    /**
+     * Road to Sold v3 (spec 22.2-22.4, 22.11): the three blocks - Today's intake, My prospects, Parked - and My progress. Only the block that is
+     * open is worked out (the others show a count), so the page stays quick. A manager looking at an agent sees the same blocks read-only
+     * with the per-stage counts and the on-track bar (R9).
+     *
+     * @return array<string,mixed>
+     */
+    private function blocks(Request $request, $viewer, int $agentId, $agents, bool $viewingOwn, string $track, $date, array $intakeTrackedIds = []): array
+    {
+        $block = in_array($request->query('block'), ['intake', 'prospects', 'parked', 'progress'], true) ? (string) $request->query('block') : 'intake';
+        $own = fn () => RtsProspect::query()->visibleTo($viewer)->where('rts_prospects.track', $track)->where('rts_prospects.user_id', $agentId);
+        $out = [
+            'block' => $block,
+            'blockCounts' => ['prospects' => $own()->activeStage()->count(), 'parked' => $own()->parked()->count()],
+            'canWriteProspects' => $viewingOwn,
+        ];
+
+        // intake rows: the prospect behind each row (its step button opens the pop-up through the prospect)
+        $out['intakeProspects'] = $block === 'intake' && $intakeTrackedIds !== []
+            ? $own()->whereIn('rts_prospects.tracked_property_id', $intakeTrackedIds)->pluck('rts_prospects.id', 'rts_prospects.tracked_property_id')->map(fn ($v) => (int) $v)->all()
+            : [];
+
+        $steps = app(\App\Services\RoadToSold\ProspectStepService::class);
+        if ($block === 'prospects') {
+            $f = [
+                'q' => (string) $request->query('p_q', ''), 'stage' => (string) $request->query('p_stage', ''), 'group' => (string) $request->query('p_group', ''),
+                'due' => (string) $request->query('p_due', ''), 'suburb' => (string) $request->query('p_suburb', ''),
+                'sort' => (string) $request->query('p_sort', 'due'), 'dir' => (string) $request->query('p_dir', 'asc'), 'page' => (int) $request->query('page', 1),
+            ];
+            $list = app(\App\Services\RoadToSold\ProspectListService::class)->prospects($viewer, $agentId, $f, $track);
+            $owners = $steps->ownersOf($list['rows']->pluck('tracked_property_id')->all());
+            $rows = $list['rows']->through(function (array $r) use ($steps, $owners) {
+                $r['owner_contact_id'] = $owners[$r['tracked_property_id']] ?? null;
+                $r['primary'] = $steps->primary($r, $r['owner_contact_id'] !== null);
+
+                return $r;
+            });
+            $out += [
+                'prospectRows' => $rows, 'stageStrip' => $list['counts'], 'prospectFilters' => $f,
+                'suburbChoices' => $own()->activeStage()->join('tracked_properties as sp', 'sp.id', '=', 'rts_prospects.tracked_property_id')
+                    ->whereNotNull('sp.suburb')->where('sp.suburb', '<>', '')->distinct()->orderBy('sp.suburb')->pluck('sp.suburb')->all(),
+                // R9: the manager's read-only view - per stage now / entered / days / on-track bar (the recipe step's own state).
+                'stageCounts' => $viewingOwn ? null : app(\App\Services\RoadToSold\StageCountService::class)->forStages($viewer, $agentId, $date->copy()->startOfMonth(), $date, $track),
+            ];
+        } elseif ($block === 'parked') {
+            $everyone = $request->query('who') === 'all' && $agents->count() > 1;
+            $f = [
+                'q' => (string) $request->query('k_q', ''), 'reason' => (string) $request->query('k_reason', ''), 'revisit' => (string) $request->query('k_revisit', ''),
+                'sort' => (string) $request->query('k_sort', 'revisit'), 'dir' => (string) $request->query('k_dir', 'asc'), 'page' => (int) $request->query('page', 1),
+            ];
+            $list = app(\App\Services\RoadToSold\ProspectListService::class)->parked($viewer, $everyone ? null : $agentId, $f, $track);
+            $out += ['parkedRows' => $list['rows'], 'parkedByReason' => $list['by_reason'], 'parkedFilters' => $f, 'parkedEveryone' => $everyone];
+        }
+        $out['parkReasons'] = $block === 'prospects' && $viewingOwn
+            ? app(\App\Services\RoadToSold\ParkReasonService::class)->choices((int) ($viewer->effectiveAgencyId() ?: 0), $track)
+                ->map(fn ($r) => ['key' => $r->key, 'label' => $r->label, 'days' => (int) $r->default_revisit_days])->values()->all()
+            : [];
+
+        return $out;
     }
 
     /**

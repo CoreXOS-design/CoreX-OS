@@ -6603,6 +6603,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/add-to-day', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'addToDay'])->name('add-to-day');
             Route::post('/build-list', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'buildList'])->name('build-list');
 
+            // Road to Sold v3 (spec 22.4 / 22.9): what the agent does with a prospect from the page. The prospect is found through the
+            // viewer's breadth (own / branch / agency in the query, 404 outside it); every write needs it to be on the viewer's own list.
+            Route::prefix('prospects/{prospect}')->whereNumber('prospect')->name('prospects.')->group(function () {
+                $c = \App\Http\Controllers\RoadToSold\ProspectController::class;
+                Route::get('/step/{step}', [$c, 'step'])->name('step');
+                Route::get('/history', [$c, 'history'])->name('history');
+                Route::post('/park', [$c, 'park'])->name('park');
+                Route::post('/unpark', [$c, 'unpark'])->name('unpark');
+                Route::put('/next-action', [$c, 'nextAction'])->name('next-action');
+                Route::post('/capture', [$c, 'capture'])->name('capture');
+            });
+
             // Captured tasks (v2 phase 2): save, change the note, archive, restore, view a photo. Always the signed-in person's own list;
             // an id outside their breadth is a 404.
             Route::prefix('captures')->name('captures.')->group(function () {
