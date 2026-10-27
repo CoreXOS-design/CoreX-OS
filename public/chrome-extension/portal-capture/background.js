@@ -14,6 +14,8 @@
 // Durable IndexedDB send-queue (self.CoreXQueue). Replaces the old
 // chrome.storage.local array queue that silently dropped batches on quota.
 importScripts('queue-idb.js');
+// CoreX Desk (spec .ai/specs/corex-desk.md section 13): share chosen tabs into the agent's open support session.
+importScripts('desk-ext.js');
 
 // Robust PP price read — mirrors ppPriceFrom in content-pp.js (same fix,
 // separate copy: this file runs in the service-worker parsing static HTML

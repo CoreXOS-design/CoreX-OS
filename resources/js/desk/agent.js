@@ -12,6 +12,9 @@ const POINTER_IDLE_MS = 4000;
 
 let st = null;
 
+/** Protocol 1.1 - no tab named (or "main") means the CoreX page itself. */
+const forMain = (tab) => !tab || tab === 'main';
+
 /** Every input type rrweb can mask. maskInputFn below decides which ones really are (password + [data-desk-mask]). */
 const ALL_INPUT_TYPES = {
     color: true, date: true, 'datetime-local': true, email: true, month: true, number: true, range: true, search: true,
@@ -35,11 +38,13 @@ export function start(ctx) {
     channel
         .listen('.desk.joined', (e) => { ui.joined(e.support_name); beginRecording(); })
         .listen('.desk.ended', (e) => finish(e.by))
-        .listen('.desk.highlight', (e) => showHighlight(e.selector, e.note))
-        .listen('.desk.highlight_cleared', () => clearHighlight())
-        .listen('.desk.pointer_state', (e) => { if (!e.on) hidePointer(); })
-        .listenForWhisper('pointer', (p) => movePointer(p))
-        .listenForWhisper('resync', () => resync())
+        // Protocol 1.1: events and whispers may name a tab (an extension tab, "x<id>"). This client is the CoreX page, "main": it only
+        // reacts to its own.
+        .listen('.desk.highlight', (e) => { if (forMain(e.tab)) showHighlight(e.selector, e.note); })
+        .listen('.desk.highlight_cleared', (e) => { if (forMain(e.tab)) clearHighlight(); })
+        .listen('.desk.pointer_state', (e) => { if (forMain(e.tab) && !e.on) hidePointer(); })
+        .listenForWhisper('pointer', (p) => { if (forMain(p && p.t)) movePointer(p); })
+        .listenForWhisper('resync', (r) => { if (forMain(r && r.t)) resync(); })
         .subscribed(() => { if (st) { st.subscribed = true; if (st.buffer.length) scheduleFlush(); } })
         .error(() => ui.error('Could not open the live connection. Check your internet connection and try again.'));
 

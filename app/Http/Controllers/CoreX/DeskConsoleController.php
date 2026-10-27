@@ -60,7 +60,7 @@ class DeskConsoleController extends Controller
             return response()->json(['message' => 'That code was not found, or it has expired. Ask the agent for a new one.'], 422);
         }
 
-        return response()->json(['session' => $session->load('agent', 'agency', 'supportUser')->toClientArray()]);
+        return response()->json(['session' => $session->load('agent', 'agency', 'supportUser')->toClientArray() + ['tabs' => array_values($this->desk->openTabs($session))]]);
     }
 
     /** POST /corex/desk/sessions/{id}/highlight {selector, note} */
@@ -69,8 +69,9 @@ class DeskConsoleController extends Controller
         $data = $request->validate([
             'selector' => ['required', 'string', 'max:' . (int) config('desk.selector_max', 500)],
             'note' => ['nullable', 'string', 'max:' . (int) config('desk.note_max', 200)],
+            'tab' => ['nullable', 'string', 'max:12'],
         ]);
-        $this->desk->highlight($this->mine($request, $id), $request->user(), $data['selector'], $data['note'] ?? null);
+        $this->desk->highlight($this->mine($request, $id), $request->user(), $data['selector'], $data['note'] ?? null, $data['tab'] ?? null);
 
         return response()->json(['ok' => true]);
     }
@@ -78,7 +79,7 @@ class DeskConsoleController extends Controller
     /** POST /corex/desk/sessions/{id}/highlight/clear */
     public function clearHighlight(Request $request, int $id): JsonResponse
     {
-        $this->desk->clearHighlight($this->mine($request, $id), $request->user());
+        $this->desk->clearHighlight($this->mine($request, $id), $request->user(), $request->input('tab'));
 
         return response()->json(['ok' => true]);
     }
@@ -86,8 +87,8 @@ class DeskConsoleController extends Controller
     /** POST /corex/desk/sessions/{id}/pointer {on} - audited on/off only; the moves themselves travel on the channel. */
     public function pointer(Request $request, int $id): JsonResponse
     {
-        $data = $request->validate(['on' => ['required', 'boolean']]);
-        $this->desk->pointer($this->mine($request, $id), $request->user(), (bool) $data['on']);
+        $data = $request->validate(['on' => ['required', 'boolean'], 'tab' => ['nullable', 'string', 'max:12']]);
+        $this->desk->pointer($this->mine($request, $id), $request->user(), (bool) $data['on'], $data['tab'] ?? null);
 
         return response()->json(['ok' => true]);
     }

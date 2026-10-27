@@ -213,7 +213,7 @@ class DeskSessionService
         return $session->fresh();
     }
 
-    public function highlight(DeskSession $session, User $support, string $selector, ?string $note = null): void
+    public function highlight(DeskSession $session, User $support, string $selector, ?string $note = null, ?string $tab = null): void
     {
         $selector = trim(mb_substr($selector, 0, (int) config('desk.selector_max', 500)));
         $note = $note !== null && trim($note) !== '' ? trim(mb_substr($note, 0, (int) config('desk.note_max', 200))) : null;
@@ -221,20 +221,142 @@ class DeskSessionService
             throw new \InvalidArgumentException('A highlight needs an element.');
         }
 
-        $this->record($session, DeskSessionEvent::HIGHLIGHT, ['selector' => $selector, 'note' => $note], $support);
-        DeskBroadcast::dispatch($session->id, 'desk.highlight', ['selector' => $selector, 'note' => $note]);
+        $tab = $this->cleanTabKey($tab);
+        $this->record($session, DeskSessionEvent::HIGHLIGHT, ['selector' => $selector, 'note' => $note, 'tab' => $tab], $support);
+        DeskBroadcast::dispatch($session->id, 'desk.highlight', ['selector' => $selector, 'note' => $note, 'tab' => $tab]);
     }
 
-    public function clearHighlight(DeskSession $session, User $support): void
+    public function clearHighlight(DeskSession $session, User $support, ?string $tab = null): void
     {
-        $this->record($session, DeskSessionEvent::HIGHLIGHT_CLEARED, [], $support);
-        DeskBroadcast::dispatch($session->id, 'desk.highlight_cleared', []);
+        $tab = $this->cleanTabKey($tab);
+        $this->record($session, DeskSessionEvent::HIGHLIGHT_CLEARED, ['tab' => $tab], $support);
+        DeskBroadcast::dispatch($session->id, 'desk.highlight_cleared', ['tab' => $tab]);
     }
 
-    public function pointer(DeskSession $session, User $support, bool $on): void
+    public function pointer(DeskSession $session, User $support, bool $on, ?string $tab = null): void
     {
-        $this->record($session, $on ? DeskSessionEvent::POINTER_ON : DeskSessionEvent::POINTER_OFF, [], $support);
-        DeskBroadcast::dispatch($session->id, 'desk.pointer_state', ['on' => $on]);
+        $tab = $this->cleanTabKey($tab);
+        $this->record($session, $on ? DeskSessionEvent::POINTER_ON : DeskSessionEvent::POINTER_OFF, ['tab' => $tab], $support);
+        DeskBroadcast::dispatch($session->id, 'desk.pointer_state', ['on' => $on, 'tab' => $tab]);
+    }
+
+    // ── Extension tabs (phase 3) ────────────────────────────────────────────────────
+
+    /** Hosts whose tabs the extension may share: the platform list plus this agency's own website. */
+    public function allowedExtensionHosts(?int $agencyId): array
+    {
+        $hosts = array_map('strtolower', (array) config('desk.extension_hosts', []));
+        if ($agencyId) {
+            $url = Agency::withoutGlobalScopes()->whereKey($agencyId)->value('website_url');
+            $host = $url ? parse_url(str_contains($url, '://') ? $url : 'https://' . $url, PHP_URL_HOST) : null;
+            if (is_string($host) && $host !== '') {
+                $hosts[] = preg_replace('/^www\./', '', strtolower($host));
+            }
+        }
+
+        return array_values(array_unique($hosts));
+    }
+
+    public function hostAllowed(string $host, ?int $agencyId): bool
+    {
+        $host = strtolower($host);
+        foreach ($this->allowedExtensionHosts($agencyId) as $allowed) {
+            if ($host === $allowed || str_ends_with($host, '.' . $allowed)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** A tab key: "main" (the CoreX page) or "x<chrome tab id>" for an extension tab. Anything else is treated as the CoreX page. */
+    public function cleanTabKey(?string $key): string
+    {
+        return is_string($key) && preg_match('/^x\d{1,10}$/', $key) ? $key : 'main';
+    }
+
+    /**
+     * An extension tab joined, moved to another page, or left (the agent's browser, over the token-authenticated extension API).
+     * Only while the session is live; only for allowed sites (the extension is not trusted to police that). Audited as tab_join /
+     * tab_leave, and tab_update when the tab moved to a different site; a mere title change is broadcast but not audited.
+     *
+     * @return array<string, array{tab:string, host:string, title:string}> the tabs open now, by key
+     */
+    public function tabEvent(DeskSession $session, User $agent, string $action, string $key, ?string $url = null, ?string $title = null): array
+    {
+        $session = $session->fresh();
+        if (! $session || ! $session->isLive() || (int) $session->user_id !== (int) $agent->id) {
+            throw new DeskNotLiveException('That Desk session is not live.');
+        }
+        if (! preg_match('/^x\d{1,10}$/', $key)) {
+            throw new \InvalidArgumentException('Not an extension tab.');
+        }
+
+        $open = $this->openTabs($session);
+
+        if ($action === 'leave') {
+            if (isset($open[$key])) {
+                $this->record($session, DeskSessionEvent::TAB_LEAVE, ['tab' => $key, 'host' => $open[$key]['host'], 'title' => $open[$key]['title']], $agent);
+                DeskBroadcast::dispatch($session->id, 'desk.tab_left', ['tab' => $key]);
+                unset($open[$key]);
+            }
+
+            return $open;
+        }
+
+        $host = $url ? parse_url($url, PHP_URL_HOST) : null;
+        $host = is_string($host) ? mb_substr(strtolower($host), 0, 120) : '';
+        if ($host === '' || ! $this->hostAllowed($host, $session->agency_id ? (int) $session->agency_id : null)) {
+            throw new \InvalidArgumentException('That site cannot be shared.');
+        }
+        $title = $this->cleanTitle($title);
+        $info = ['tab' => $key, 'host' => $host, 'title' => $title];
+
+        if (! isset($open[$key])) {
+            $this->record($session, DeskSessionEvent::TAB_JOIN, $info, $agent);
+            DeskBroadcast::dispatch($session->id, 'desk.tab_joined', $info);
+        } else {
+            if ($open[$key]['host'] !== $host) {
+                $this->record($session, DeskSessionEvent::TAB_UPDATE, $info, $agent);
+            }
+            if ($open[$key]['host'] !== $host || $open[$key]['title'] !== $title) {
+                DeskBroadcast::dispatch($session->id, 'desk.tab_updated', $info);
+            }
+        }
+        $open[$key] = $info;
+
+        return $open;
+    }
+
+    /** The extension tabs open in this session right now, derived from its audit trail (last join/update/leave per tab). */
+    public function openTabs(DeskSession $session): array
+    {
+        $open = [];
+        $events = DeskSessionEvent::query()->where('desk_session_id', $session->id)
+            ->whereIn('type', [DeskSessionEvent::TAB_JOIN, DeskSessionEvent::TAB_UPDATE, DeskSessionEvent::TAB_LEAVE])
+            ->orderBy('id')->get(['type', 'payload']);
+        foreach ($events as $e) {
+            $p = (array) $e->payload;
+            $key = (string) ($p['tab'] ?? '');
+            if ($key === '') {
+                continue;
+            }
+            if ($e->type === DeskSessionEvent::TAB_LEAVE) {
+                unset($open[$key]);
+            } else {
+                $open[$key] = ['tab' => $key, 'host' => (string) ($p['host'] ?? ''), 'title' => (string) ($p['title'] ?? '')];
+            }
+        }
+
+        return $open;
+    }
+
+    /** A page title is whatever the site says - strip markup, collapse whitespace, cap the length. */
+    private function cleanTitle(?string $title): string
+    {
+        $t = trim((string) preg_replace('/\s+/u', ' ', strip_tags((string) $title)));
+
+        return mb_substr($t, 0, 120);
     }
 
     // ── Ending ──────────────────────────────────────────────────────────────────────

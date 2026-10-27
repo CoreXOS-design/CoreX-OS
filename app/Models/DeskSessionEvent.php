@@ -24,6 +24,10 @@ class DeskSessionEvent extends Model
     public const POINTER_ON = 'pointer_on';
     public const POINTER_OFF = 'pointer_off';
     public const ENDED = 'ended';
+    // Phase 3 (extension tabs): an agent's other Chrome tab joined / left the session, or moved to another site (host change).
+    public const TAB_JOIN = 'tab_join';
+    public const TAB_LEAVE = 'tab_leave';
+    public const TAB_UPDATE = 'tab_update';
 
     protected $fillable = ['desk_session_id', 'agency_id', 'type', 'payload', 'actor_user_id', 'created_at'];
 

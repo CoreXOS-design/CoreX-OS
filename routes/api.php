@@ -521,6 +521,15 @@ Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(f
                 ->name('v1.other-agency-stock.import');
         });
 
+        // CoreX Desk phase 3 - the CoreX Chrome extension shares the agent's OTHER tabs into their open Desk session (spec
+        // .ai/specs/corex-desk.md section 13). Sanctum bearer token like every extension call; own session only; desk.request_help.
+        Route::prefix('desk/ext')->name('v1.desk.ext.')->middleware('permission:desk.request_help')->group(function () {
+            Route::get('/session', [\App\Http\Controllers\Api\V1\DeskExtensionController::class, 'session'])->name('session');
+            Route::post('/broadcasting-auth', [\App\Http\Controllers\Api\V1\DeskExtensionController::class, 'channelAuth'])->name('channel-auth');
+            Route::post('/sessions/{id}/heartbeat', [\App\Http\Controllers\Api\V1\DeskExtensionController::class, 'heartbeat'])->whereNumber('id')->name('heartbeat');
+            Route::post('/sessions/{id}/tabs', [\App\Http\Controllers\Api\V1\DeskExtensionController::class, 'tab'])->whereNumber('id')->name('tab');
+        });
+
         // AT-441 — .ai/specs/rental-command-centre.md §5. Mirrors the web
         // screen exactly (same RentalCommandCentreService) — Andre's mobile
         // app's rentals landing screen calls this.

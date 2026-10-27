@@ -1,0 +1,166 @@
+/**
+ * CoreX Desk (extension) - the in-page half. Injected by desk-ext.js into a tab the agent chose to share (never automatically).
+ * Spec .ai/specs/corex-desk.md section 13 (protocol 7.6, version 1.1).
+ *
+ *   - records ONLY this tab with rrweb and hands the events to the service worker (which whispers them to the console);
+ *   - masks passwords, [data-desk-mask] and any input that looks like a card / ID / bank / secret field, in THIS browser, before the
+ *     events leave the page (desk-lib.js isSensitiveField);
+ *   - shows the red "CoreX Desk" bar, support's labelled pointer and highlights. All of it lives in a closed shadow root marked
+ *     .rr-block, so it is never part of what support sees and the site's own CSS cannot touch it.
+ * Idempotent: injecting twice does nothing the second time.
+ */
+/* global chrome, CoreXDeskLib, rrwebRecord */
+(function () {
+  'use strict';
+  if (window.__corexDeskExt) return;
+
+  var Lib = window.CoreXDeskLib;
+  var rr = window.rrwebRecord && window.rrwebRecord.record;
+  var S = window.__corexDeskExt = { key: null, stop: null, buf: [], timer: null, host: null, root: null, ui: {}, hl: null, ptrTimer: null, raf: 0 };
+  if (!Lib || !rr) { delete window.__corexDeskExt; return; }
+
+  var ALL_TYPES = { color: true, date: true, 'datetime-local': true, email: true, month: true, number: true, range: true, search: true, tel: true, text: true, time: true, url: true, week: true, textarea: true, select: true, password: true };
+
+  // ── Messages from the service worker ────────────────────────────────────────────
+
+  chrome.runtime.onMessage.addListener(function (msg, sender, respond) {
+    if (!msg || typeof msg.type !== 'string') return false;
+    switch (msg.type) {
+      case 'desk.ping': respond({ ok: true, key: S.key }); return false;
+      case 'desk.start': start(msg.key, msg.support); return false;
+      case 'desk.resync': resync(); return false;
+      case 'desk.pointer': movePointer(msg.x, msg.y); return false;
+      case 'desk.pointer_hide': hidePointer(); return false;
+      case 'desk.highlight': showHighlight(msg.selector, msg.note); return false;
+      case 'desk.highlight_clear': clearHighlight(); return false;
+      case 'desk.stop': stop(); return false;
+      default: return false;
+    }
+  });
+
+  // ── Recording ───────────────────────────────────────────────────────────────────
+
+  function start(key, support) {
+    if (S.stop) return;
+    S.key = key;
+    buildUi(support);
+    S.stop = rr({
+      emit: function (event) { S.buf.push(event); if (!S.timer) S.timer = setTimeout(flush, 500); },
+      blockClass: 'rr-block',
+      maskInputOptions: ALL_TYPES,
+      maskInputFn: Lib.maskInputFn,
+      maskTextSelector: '[data-desk-mask]',
+      inlineStylesheet: true,
+      recordCanvas: false,
+      collectFonts: false,
+      sampling: { mousemove: 50, scroll: 100 },
+    });
+  }
+
+  function flush() {
+    S.timer = null;
+    if (!S.buf.length) return;
+    var events = S.buf; S.buf = [];
+    try { chrome.runtime.sendMessage({ type: 'desk.frames', events: events }, function () { void chrome.runtime.lastError; }); } catch (e) { /* extension reloaded */ }
+  }
+
+  function resync() {
+    try { rr.takeFullSnapshot(true); } catch (e) { /* not recording */ }
+  }
+
+  function stop() {
+    if (S.stop) { try { S.stop(); } catch (e) { /* ignore */ } }
+    clearTimeout(S.timer); cancelAnimationFrame(S.raf); clearTimeout(S.ptrTimer);
+    if (S.root && S.root.parentNode) S.root.parentNode.removeChild(S.root);
+    window.removeEventListener('scroll', place, true);
+    window.removeEventListener('resize', place, true);
+    delete window.__corexDeskExt;
+  }
+
+  // ── UI (closed shadow root, blocked from the recording) ─────────────────────────
+
+  function buildUi(support) {
+    var host = document.createElement('div');
+    host.id = 'corex-desk-ext-root';
+    host.className = 'rr-block';
+    host.style.cssText = 'all:initial;position:fixed;top:0;left:0;width:0;height:0;z-index:2147483647;';
+    var sh = host.attachShadow({ mode: 'closed' });
+    var name = String(support || 'CoreX support').replace(/[<>&"]/g, '');
+    sh.innerHTML =
+      '<style>' +
+      '.bar{position:fixed;top:0;left:0;right:0;height:26px;display:flex;align-items:center;justify-content:center;gap:12px;background:#b91c1c;color:#fff;font:600 12px/26px system-ui,sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.3)}' +
+      '.bar button{all:unset;cursor:pointer;padding:0 10px;border:1px solid rgba(255,255,255,.6);border-radius:4px;background:rgba(255,255,255,.18);font:700 11px/20px system-ui,sans-serif}' +
+      '.bar button:hover{background:rgba(255,255,255,.3)}' +
+      '.ptr{position:fixed;pointer-events:none;transform:translate(-2px,-2px)}' +
+      '.ptr span{display:inline-block;margin-left:14px;padding:0 6px;border-radius:4px;background:#b91c1c;color:#fff;font:700 10px/16px system-ui,sans-serif}' +
+      '.ring{position:fixed;pointer-events:none;border-radius:8px;outline:3px solid #0ea5e9;outline-offset:3px;box-shadow:0 0 0 9999px rgba(3,6,12,.35)}' +
+      '.note{position:fixed;pointer-events:none;max-width:280px;padding:10px 12px;border-radius:12px;background:#fff;color:#111827;border:1px solid rgba(0,0,0,.1);box-shadow:0 18px 50px rgba(0,0,0,.35);font:13px/1.45 system-ui,sans-serif}' +
+      '.note b{display:block;margin-bottom:2px;font-size:14px}' +
+      '[hidden]{display:none!important}' +
+      '</style>' +
+      '<div class="bar"><span>CoreX Desk — ' + name + ' is viewing this window</span><button type="button" id="stop">Stop sharing</button></div>' +
+      '<div class="ptr" hidden><svg width="18" height="18" viewBox="0 0 24 24" fill="#b91c1c" stroke="#fff" stroke-width="1.5" style="position:absolute;left:0;top:0"><path d="M4 3l16 7-7 2-2 7z"/></svg><span>Support</span></div>' +
+      '<div class="ring" hidden></div>' +
+      '<div class="note" hidden><b>CoreX support</b><span></span></div>';
+    sh.getElementById('stop').addEventListener('click', function () {
+      try { chrome.runtime.sendMessage({ type: 'desk.stopMe' }, function () { void chrome.runtime.lastError; }); } catch (e) { /* ignore */ }
+    });
+    S.root = host;
+    S.ui = { bar: sh.querySelector('.bar'), ptr: sh.querySelector('.ptr'), ring: sh.querySelector('.ring'), note: sh.querySelector('.note'), noteText: sh.querySelector('.note span') };
+    document.documentElement.appendChild(host);
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place, true);
+  }
+
+  // ── Pointer ─────────────────────────────────────────────────────────────────────
+
+  function movePointer(x, y) {
+    if (!S.ui.ptr || typeof x !== 'number' || typeof y !== 'number') return;
+    S.ui.ptr.hidden = false;
+    S.ui.ptr.style.left = Math.round(Math.min(1, Math.max(0, x)) * window.innerWidth) + 'px';
+    S.ui.ptr.style.top = Math.round(Math.min(1, Math.max(0, y)) * window.innerHeight) + 'px';
+    clearTimeout(S.ptrTimer);
+    S.ptrTimer = setTimeout(hidePointer, 4000);
+  }
+
+  function hidePointer() { if (S.ui.ptr) S.ui.ptr.hidden = true; }
+
+  // ── Highlight (the Guided Tour's "Spot Help" look: blue ring, dimmed page that stays clickable, a note bubble) ──
+
+  function showHighlight(selector, note) {
+    clearHighlight();
+    var el = null;
+    try { el = document.querySelector(selector); } catch (e) { return; }   // an invalid selector is ignored, never evaluated
+    if (!el) return;
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    S.hl = { el: el, note: note || '' };
+    S.ui.ring.hidden = false;
+    if (note) { S.ui.noteText.textContent = note; S.ui.note.hidden = false; }
+    place();
+    setTimeout(place, 450);   // after the smooth scroll
+  }
+
+  function place() {
+    if (!S.hl) return;
+    cancelAnimationFrame(S.raf);
+    S.raf = requestAnimationFrame(function () {
+      if (!S.hl) return;
+      var r = S.hl.el.getBoundingClientRect();
+      var ring = S.ui.ring;
+      ring.style.left = (r.left - 6) + 'px'; ring.style.top = (r.top - 6) + 'px';
+      ring.style.width = (r.width + 12) + 'px'; ring.style.height = (r.height + 12) + 'px';
+      if (S.hl.note) {
+        var note = S.ui.note;
+        var below = r.bottom + 14;
+        note.style.left = Math.max(8, Math.min(window.innerWidth - 300, r.left)) + 'px';
+        note.style.top = (below + 90 > window.innerHeight ? Math.max(34, r.top - 14 - note.offsetHeight) : below) + 'px';
+      }
+    });
+  }
+
+  function clearHighlight() {
+    S.hl = null;
+    if (S.ui.ring) S.ui.ring.hidden = true;
+    if (S.ui.note) S.ui.note.hidden = true;
+  }
+})();
