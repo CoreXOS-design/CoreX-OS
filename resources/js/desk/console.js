@@ -147,8 +147,10 @@ function fit() {
     if (!cur || !cur.replayer) return;
     const pane = $('cdc-replay');
     const wrapper = cur.replayer.wrapper;
-    const w = parseFloat(wrapper.style.width) || wrapper.offsetWidth;
-    const h = parseFloat(wrapper.style.height) || wrapper.offsetHeight;
+    // The replayed page's own size (the agent's window) is on the iframe's width/height attributes, set from the Meta event.
+    const iframe = cur.replayer.iframe;
+    const w = parseFloat(iframe.getAttribute('width')) || wrapper.offsetWidth;
+    const h = parseFloat(iframe.getAttribute('height')) || wrapper.offsetHeight;
     if (!w || !h) return;
     const scale = Math.min(1, pane.clientWidth / w);
     cur.scale = scale;
