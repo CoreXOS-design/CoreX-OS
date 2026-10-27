@@ -8,6 +8,7 @@ use App\Models\Compliance\RmcpSection;
 use App\Models\Compliance\RmcpVariable;
 use App\Models\Compliance\RmcpVersion;
 use App\Services\Compliance\CompliancePdf;
+use App\Services\Compliance\RmcpBoardApprovalService;
 use App\Services\Compliance\RmcpReSignService;
 use App\Services\Compliance\RmcpVariableResolver;
 use Illuminate\Http\Request;
@@ -64,7 +65,16 @@ class RmcpController extends Controller
         $agency = Agency::findOrFail($version->agency_id);
         $variables = $this->resolver->resolve($agency, $version);
 
-        return view('compliance.rmcp.show', compact('version', 'agency', 'variables'));
+        // Board approval panel (draft: send / track; approved: the signed letter it was approved with). Only for people who
+        // manage or approve the RMCP - everyone else with access_rmcp sees the RMCP as before.
+        $board = Auth::user()->hasAnyPermission(['manage_rmcp_board_approval', 'approve_rmcp'])
+            ? app(RmcpBoardApprovalService::class)->panel($version)
+            : null;
+        $myBoardLine = $board && $version->canBeEdited()
+            ? app(RmcpBoardApprovalService::class)->openLineForUser($version, Auth::user())
+            : null;
+
+        return view('compliance.rmcp.show', compact('version', 'agency', 'variables', 'board', 'myBoardLine'));
     }
 
     /**
@@ -168,7 +178,12 @@ class RmcpController extends Controller
         abort_unless(Auth::user()->hasPermission('approve_rmcp'), 403);
         abort_unless($version->canBeEdited(), 403, 'Only draft versions can be approved.');
 
-        return view('compliance.rmcp.approve', compact('version'));
+        $check = app(RmcpBoardApprovalService::class)->problemFor($version);
+        $boardLetter = $check['letter'];
+        $boardProblem = $check['problem'];
+        $boardFacts = $boardLetter ? app(RmcpBoardApprovalService::class)->approvalFacts($boardLetter) : null;
+
+        return view('compliance.rmcp.approve', compact('version', 'boardLetter', 'boardProblem', 'boardFacts'));
     }
 
     /**
@@ -179,31 +194,58 @@ class RmcpController extends Controller
         abort_unless(Auth::user()->hasPermission('approve_rmcp'), 403);
         abort_unless($version->canBeEdited(), 403, 'Only draft versions can be approved.');
 
-        $validated = $request->validate([
-            'approver_title'           => 'required|string|max:100',
-            'board_approval_document'  => 'required|file|mimes:pdf|max:10240',
-            'effective_from'           => 'required|date|after_or_equal:today',
-            'next_review_due'          => 'required|date|after:effective_from',
-            'approval_notes'           => 'nullable|string|max:2000',
-        ]);
+        $board = app(RmcpBoardApprovalService::class);
 
-        // Upload board approval document
-        $documentPath = $request->file('board_approval_document')
-            ->store("rmcp/{$version->agency_id}", 'local');
+        // Two ways to show the board approved: the letter the board signed in CoreX, or a signed PDF uploaded as before.
+        // The button on the form decides; neither one silently stands in for the other.
+        if ($request->boolean('use_board_letter')) {
+            $letter = $board->usableLetter($version);
+            if (! $letter) {
+                $problem = $board->problemFor($version)['problem'];
 
-        // Update lifecycle dates
-        $version->update([
-            'effective_from'  => $validated['effective_from'],
-            'next_review_due' => $validated['next_review_due'],
-        ]);
+                return redirect()->to(route('compliance.rmcp.show', $version) . '#board-approval')
+                    ->with('error', 'The signed board letter cannot be used yet. ' . $problem);
+            }
 
-        // Approve (supersedes previous active version)
-        $version->approve(
-            Auth::user(),
-            $validated['approver_title'],
-            $documentPath,
-            $validated['approval_notes'] ?? null
-        );
+            $validated = $request->validate(['approval_notes' => 'nullable|string|max:2000']);
+            $facts = $board->approvalFacts($letter);
+
+            $version->update([
+                'effective_from'  => $letter->effective_from,
+                'next_review_due' => $letter->next_review_due ?? $letter->effective_from->copy()->addYear(),
+            ]);
+            $version->approve(Auth::user(), $facts['titles'] ?: 'Board', $letter->signed_pdf_path, $validated['approval_notes'] ?? null, $letter->id);
+            $board->recordApproval($version, $letter, Auth::user(), 'board_letter');
+        } else {
+            $validated = $request->validate([
+                'approver_title'           => 'required|string|max:100',
+                'board_approval_document'  => 'required|file|mimes:pdf|max:10240',
+                'effective_from'           => 'required|date|after_or_equal:today',
+                'next_review_due'          => 'required|date|after:effective_from',
+                'approval_notes'           => 'nullable|string|max:2000',
+            ], [
+                'board_approval_document.required' => 'Add the signed board approval as a PDF, or have the board sign the letter in CoreX from the Board approval panel on the RMCP page.',
+            ]);
+
+            // Upload board approval document
+            $documentPath = $request->file('board_approval_document')
+                ->store("rmcp/{$version->agency_id}", 'local');
+
+            // Update lifecycle dates
+            $version->update([
+                'effective_from'  => $validated['effective_from'],
+                'next_review_due' => $validated['next_review_due'],
+            ]);
+
+            // Approve (supersedes previous active version)
+            $version->approve(
+                Auth::user(),
+                $validated['approver_title'],
+                $documentPath,
+                $validated['approval_notes'] ?? null
+            );
+            $board->recordApproval($version, null, Auth::user(), 'uploaded_document');
+        }
 
         Log::info('RMCP version approved', [
             'version_id' => $version->id,

@@ -88,9 +88,26 @@ class CompanySettingsController extends Controller
                 ->orderBy('sort_order')->orderBy('id')->get()
             : collect();
 
+        // Compliance tab - the board / senior management list that signs the RMCP approval letter. Shown only to people
+        // who manage board approval; the first look starts the list from the agency's top-role users (service docblock).
+        $canManageBoard = (bool) ($agency && $user?->hasPermission('manage_rmcp_board_approval'));
+        $boardMembers = collect();
+        $boardArchived = collect();
+        $boardUsers = collect();
+        if ($canManageBoard) {
+            $boardService = app(\App\Services\Compliance\RmcpBoardApprovalService::class);
+            $boardService->seedDefaultsIfNeverConfigured((int) $agency->id);
+            $boardMembers = $boardService->members((int) $agency->id);
+            $boardArchived = \App\Models\Compliance\AgencyBoardMember::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)->onlyTrashed()
+                ->where('agency_id', $agency->id)->orderByDesc('deleted_at')->get();
+            $boardUsers = User::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)->where('agency_id', $agency->id)->where('is_active', true)
+                ->where('is_assistant', false)->whereNull('deleted_at')->orderBy('name')->get(['id', 'name']);
+        }
+
         return view('admin.company-settings.index', compact(
             'agencies', 'agency', 'agents', 'branches', 'branchUsers', 'archivedBranches', 'vatRate', 'listingsPerSale',
-            'websiteActive', 'vatTypes', 'catalogueItemTypes', 'catalogueUnits'
+            'websiteActive', 'vatTypes', 'catalogueItemTypes', 'catalogueUnits',
+            'canManageBoard', 'boardMembers', 'boardArchived', 'boardUsers'
         ));
     }
 

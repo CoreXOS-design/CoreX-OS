@@ -22,6 +22,7 @@ class RmcpVersion extends Model
         'approved_at',
         'approver_title',
         'board_approval_document_path',
+        'board_letter_id',
         'approval_ip',
         'approval_notes',
         'effective_from',
@@ -56,6 +57,18 @@ class RmcpVersion extends Model
         return $this->belongsTo(User::class, 'created_by');
     }
 
+    /** Every round of the board approval letter sent for this version (newest first). */
+    public function boardLetters(): HasMany
+    {
+        return $this->hasMany(RmcpBoardLetter::class, 'rmcp_version_id')->orderByDesc('round');
+    }
+
+    /** The signed letter this version was approved with - the Approval block reads its signatories and date. */
+    public function boardLetter(): BelongsTo
+    {
+        return $this->belongsTo(RmcpBoardLetter::class, 'board_letter_id');
+    }
+
     public function supersededBy(): BelongsTo
     {
         return $this->belongsTo(self::class, 'superseded_by_version_id');
@@ -86,7 +99,21 @@ class RmcpVersion extends Model
         return $this->sections->contains(fn (RmcpSection $s) => strcasecmp((string) $s->section_number, 'Approval') === 0);
     }
 
-    public function approve(User $user, string $title, ?string $documentPath, ?string $notes): void
+    /**
+     * A fingerprint of the text the board is asked to approve (version number, title and every section, in order).
+     * Frozen on the letter at send; the Approve step compares it so a section edited after the board signed is caught.
+     */
+    public function contentHash(): string
+    {
+        $parts = [(string) $this->version_number, (string) $this->title];
+        foreach ($this->sections()->get(['display_order', 'section_number', 'title', 'body_html']) as $s) {
+            $parts[] = implode("\x1f", [$s->display_order, $s->section_number, $s->title, $s->body_html]);
+        }
+
+        return hash('sha256', implode("\x1e", $parts));
+    }
+
+    public function approve(User $user, string $title, ?string $documentPath, ?string $notes, ?int $boardLetterId = null): void
     {
         // Supersede the current active version for this agency
         self::where('agency_id', $this->agency_id)
@@ -103,6 +130,7 @@ class RmcpVersion extends Model
             'approved_at'                  => now(),
             'approver_title'               => $title,
             'board_approval_document_path' => $documentPath,
+            'board_letter_id'              => $boardLetterId,
             'approval_ip'                  => request()->ip(),
             'approval_notes'               => $notes,
         ]);
