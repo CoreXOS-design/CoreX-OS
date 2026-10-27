@@ -79,10 +79,10 @@ function closeViewer() {
     document.documentElement.style.overflow = '';
     clearTimeout(barTimer);
 }
-$('cdc-hot').addEventListener('mousemove', showBar);
 $('cdc-bar').addEventListener('mousemove', showBar);
 $('cdc-bar').addEventListener('focusin', showBar);
-$('cdc-pane').addEventListener('mousemove', (ev) => { if (ev.clientY <= 40) showBar(); });
+// The toolbar returns when the mouse touches the top edge (8 px) - no strip sits over the picture, so the top of the agent's window can be pointed at and clicked.
+$('cdc-pane').addEventListener('mousemove', (ev) => { if (ev.clientY <= 8) showBar(); });
 document.addEventListener('fullscreenchange', () => { $('cdc-full').textContent = document.fullscreenElement ? 'Exit full screen' : 'Full screen'; layoutPane(); });
 $('cdc-full').addEventListener('click', () => {
     if (document.fullscreenElement) document.exitFullscreen();
