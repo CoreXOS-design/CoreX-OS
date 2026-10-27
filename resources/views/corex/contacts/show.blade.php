@@ -650,7 +650,7 @@
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Account Number</label>
-                                <input type="text" name="bank_account_number" value="{{ old('bank_account_number', $contact->bank_account_number) }}"
+                                <input type="text" name="bank_account_number" data-desk-mask value="{{ old('bank_account_number', $contact->bank_account_number) }}"
                                        placeholder="e.g. 62000000000"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
@@ -664,7 +664,7 @@
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Branch Code</label>
-                                <input type="text" name="bank_branch_code" value="{{ old('bank_branch_code', $contact->bank_branch_code) }}"
+                                <input type="text" name="bank_branch_code" data-desk-mask value="{{ old('bank_branch_code', $contact->bank_branch_code) }}"
                                        placeholder="e.g. 210835"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">

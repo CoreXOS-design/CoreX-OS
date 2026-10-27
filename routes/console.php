@@ -21,6 +21,9 @@ Schedule::command('p24:sync-locations')->dailyAt('11:00')->withoutOverlapping();
 // Article pool scraper — runs daily
 Schedule::command('articles:scrape')->daily();
 
+// CoreX Desk - close sessions that expired or lost their connection (also swept lazily on every read). Spec .ai/specs/corex-desk.md 7.3
+Schedule::command('desk:expire')->everyMinute()->withoutOverlapping();
+
 // Signature reminders — runs daily at 08:00
 Schedule::command('signatures:send-reminders')->dailyAt('08:00');
 // AT-450 - title deeds still at the office: remind the owners (capped, idempotent; settings per agency).

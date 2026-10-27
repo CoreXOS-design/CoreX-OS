@@ -102,6 +102,8 @@
         <div class="h-screen flex flex-col overflow-hidden">
         @include('partials._env-banner')
         <x-outbound-mail-banner />
+        {{-- CoreX Desk: the red "support is viewing this window" bar + Get help screen (hidden until used). Spec .ai/specs/corex-desk.md --}}
+        @include('layouts.partials.desk-client')
         {{-- Mobile sidebar toggle --}}
         <div x-data="{ sidebarOpen: false }" class="flex flex-1 min-h-0 overflow-hidden" style="background:var(--bg, #f4f6fb)">
 

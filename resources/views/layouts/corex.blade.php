@@ -95,6 +95,8 @@
         <div class="h-screen flex flex-col overflow-hidden">
         @include('partials._env-banner')
         <x-outbound-mail-banner />
+        {{-- CoreX Desk: the red "support is viewing this window" bar + Get help screen (hidden until used). Spec .ai/specs/corex-desk.md --}}
+        @include('layouts.partials.desk-client')
         {{-- Mobile sidebar toggle.
 
              CLICK-TO-TOGGLE, 2026-09-12 — Johan, live on QA1, after

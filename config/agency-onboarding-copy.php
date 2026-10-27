@@ -2080,8 +2080,14 @@ return [
         ],
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'updateRemoteAccess'],
+            ['controller' => SettingsController::class, 'method' => 'updateDesk'],
         ],
         'controls' => [
+            // CoreX Desk (.ai/specs/corex-desk.md section 6): on by default, so an agency that does nothing can be helped.
+            ['key' => 'desk_enabled', 'source' => 'agency', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Let my agents press Get help to share their CoreX window with CoreX support',
+             'explain' => 'Every page has a Get help button. The agent reads a 6-digit code to CoreX support (usually on a phone call), and support can then see that one CoreX window live, point at things and highlight them. Support never sees other tabs, files or the desktop, never clicks for the agent, and every session is logged under Compliance > Reports & Logs > Desk sessions. Nothing from the screen is stored.',
+             'affects' => 'Whether the Get help button starts a live session with CoreX support, or just shows the CoreX support phone number.'],
             ['key' => 'require_external_access_authorization', 'source' => 'agency', 'type' => 'toggle', 'default' => 0,
              'label' => 'Ask my permission before a developer or tester enters my agency',
              'explain' => 'With this on, a CoreX developer or tester must send you a consent request and wait for you to approve it before they can switch into your agency. With it off, they can enter directly to support you.',

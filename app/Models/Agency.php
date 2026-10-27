@@ -251,6 +251,7 @@ class Agency extends Model
         'is_active',
         'is_demo',
         'require_external_access_authorization',
+        'desk_enabled', // CoreX Desk (.ai/specs/corex-desk.md section 6) - default ON
         'timezone', // audit 2026-10-20 (L7) - the agency's own timezone (IANA name); null = the application's
         'portal_show_agency_commission_totals',
         'dashboard_settings_mode',
@@ -471,6 +472,7 @@ class Agency extends Model
         'ss_show_complex_section' => 'boolean',
         'privacy_policy_published_at' => 'datetime',
         'require_external_access_authorization' => 'boolean',
+        'desk_enabled' => 'boolean',
         'portal_show_agency_commission_totals' => 'boolean',
         'split_branches_enabled' => 'boolean',
         'other_agency_stock_visible_roles' => 'array',
