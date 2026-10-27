@@ -542,6 +542,6 @@ dropped the question; nothing told the console, because the server's state had n
   `desk.state_per_minute`, `desk.live_per_minute`.
 - **The answer is never lost silently.** The agent's page retries Allow / Decline (3 tries, 1 s then 2 s apart) on 429, a dropped connection or a 5xx; if it still
   cannot be sent, the question stays on screen reading "… could not send your answer - press Allow again". Only a genuine lapse (the request already ended) ends it.
-- **The console reconciles with the server every 2 s** (`reconcile()`): it reads `GET /corex/desk/sessions` (whose rows carry `control: {state, tab}`) and falls into
+- **The console reconciles with the server every second** (was 2 s until the 27 Oct round - spec 4f) (`reconcile()`): it reads `GET /corex/desk/sessions` (whose rows carry `control: {state, tab}`) and falls into
   line — *In control* if the agent allowed it, back to *Viewing* if the request ended or control was ended, closed if the session is no longer open. A missed
-  websocket event (dropped connection, Reverb restart) therefore heals within 2 s instead of leaving the console waiting.
+  websocket event (dropped connection, Reverb restart) therefore heals within a second or two instead of leaving the console waiting.

@@ -112,7 +112,7 @@ final class DeskControlGrantTest extends DeskTestCase
     public function test_the_console_polls_every_two_seconds_and_the_agents_page_never_drops_the_question_silently(): void
     {
         $console = (string) file_get_contents(resource_path('js/desk/console.js'));
-        $this->assertStringContainsString('cur.poll = setInterval(reconcile, 2000)', $console);
+        $this->assertStringContainsString('cur.poll = setInterval(() => reconcile(), 1000)', $console);
         $this->assertStringContainsString('clearInterval(cur.poll)', $console);
         $this->assertStringContainsString("const r = await api('GET', con.urls.list);", $console);
         $this->assertStringContainsString("setControl(c.state, c.tab, note)", $console, 'the poll drives the same state machine as the events');
