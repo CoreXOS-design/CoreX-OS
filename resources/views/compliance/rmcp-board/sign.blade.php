@@ -24,7 +24,7 @@
         {!! $letter->letter_html !!}
         @include('compliance.rmcp-board._signature-capture', [
             'action' => route('compliance.rmcp.board.sign.submit', $version),
-            'agencyName' => $version->agency?->trading_name ?? $version->agency?->name ?? 'the agency',
+            'agencyName' => \App\Models\Agency::displayNameFor($version->agency, 'the agency'),
         ])
     </div>
 </div>
