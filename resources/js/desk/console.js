@@ -281,6 +281,9 @@ function hookReplayInput(tab) {
     target.style.cursor = 'crosshair';
     target.tabIndex = 0;   // so typing can be captured while support is in control
     const controlling = () => cur && cur.selected === tab.key && cur.control.state === 'granted' && cur.control.tab === tab.key;
+    // The Replayer re-plays the agent's own focus changes inside the mirror, which would pull keyboard focus into the iframe and away from the
+    // wrapper that captures support's typing. Take it straight back while in control.
+    document.addEventListener('focusin', (e) => { if (e.target === iframe && controlling()) target.focus({ preventScroll: true }); });
 
     target.addEventListener('mousemove', (ev) => {
         if (!cur || cur.selected !== tab.key) return;
@@ -357,7 +360,11 @@ function isPrivate(el) {
 const isEditable = (el) => !!el && ((el.tagName === 'INPUT' && !['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'image', 'hidden', 'range', 'color', 'password'].includes(String(el.type || 'text').toLowerCase())) || el.tagName === 'TEXTAREA' || el.isContentEditable);
 
 function controlClick(tab, el, selector, r) {
-    if (isPrivate(el)) { say('That field is private - ask the agent to fill it in themselves.', true); return; }
+    if (isPrivate(el)) {
+        cur.focusSel = null; cur.typed = null;   // nothing typed afterwards may land in the PREVIOUS field
+        say('That field is private - ask the agent to fill it in themselves.', true);
+        return;
+    }
     if (el.tagName === 'SELECT') { chooseOption(tab, el, selector); return; }
     cur.focusSel = isEditable(el) ? selector : null;
     flushTyped(tab);
