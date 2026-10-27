@@ -607,6 +607,16 @@ class PropertyObserver
             Log::warning("Command Center activity update failed for property #{$property->id}: {$e->getMessage()}");
         }
 
+        // Sold stock (AT-512, .ai/specs/sold-stock.md): freeze the sale when a property becomes Sold, start a
+        // new listing cycle when a Sold property is re-prospected. Never allowed to break the save.
+        if ($property->wasChanged('status')) {
+            try {
+                app(\App\Services\SoldStock\SoldStockService::class)->onStatusChanged($property);
+            } catch (\Throwable $e) {
+                Log::warning("Sold-stock hook failed for property #{$property->id}: {$e->getMessage()}");
+            }
+        }
+
         // Audit: track meaningful field changes
         if (!$property->wasRecentlyCreated) {
             try {
@@ -808,7 +818,9 @@ class PropertyObserver
                         // queued job's P24 step raced that push with a hard 'Withdrawn' and instantly
                         // delisted a listing that should have stayed live ~1 week as sold stock.
                         // Withdrawn/expired/etc. still de-list P24; mandate-expiry still removes.
-                        keepP24ForSold: true,
+                        // Only a plain Sold keeps P24 (grace window); any other off-market move (prospecting,
+                        // not selling...) withdraws it. Sold-stock fix AT-512.
+                        keepP24ForSold: strtolower(trim((string) $property->status)) === 'sold',
                     );
                 }
             } catch (\Throwable $e) {
@@ -1204,7 +1216,9 @@ class PropertyObserver
         }
 
         $s = strtolower($status);
-        foreach (['withdrawn', 'expired', 'cancelled', 'archived', 'unavailable'] as $needle) {
+        // Sold-stock fix (AT-512): Sold, Prospecting, Not selling and Transferred also leave the for-sale website
+        // feed - a sold sale is shown from sold_stock (/api/v1/website/sold), never from the property's status.
+        foreach (['withdrawn', 'expired', 'cancelled', 'archived', 'unavailable', 'sold', 'prospecting', 'not_selling', 'not selling', 'transferred'] as $needle) {
             if (str_contains($s, $needle)) {
                 return true;
             }

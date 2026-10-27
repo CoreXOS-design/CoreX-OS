@@ -644,3 +644,11 @@ Schedule::command('article-library:run')->dailyAt('02:30')->onOneServer()->witho
 Schedule::command('marketing:publish-due')->everyMinute()->onOneServer()->withoutOverlapping(10)->runInBackground();
 // Scheduled-post pictures: kept until published + 30 days; unused uploads removed after 2 days.
 Schedule::command('marketing:purge-scheduled-images')->dailyAt('03:20')->onOneServer()->withoutOverlapping();
+
+// Sold stock (AT-512): withdraw Sold adverts from the portals once the agency's "show as Sold for X days"
+// window has passed. Spec: .ai/specs/sold-stock.md section 2B.
+Schedule::command('sold-stock:expire-portals')
+    ->dailyAt('03:20')
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->name('sold-stock-expire-portals');

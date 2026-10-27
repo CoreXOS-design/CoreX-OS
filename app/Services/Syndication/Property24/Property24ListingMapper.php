@@ -1694,6 +1694,10 @@ class Property24ListingMapper
             str_contains($status, 'cancelled')
                 || str_contains($status, 'archived')    => 'Cancelled',
             str_contains($status, 'draft')              => 'Withdrawn',
+            // Sold-stock fix (AT-512): a re-prospected Sold property fell through to 'Active' here and
+            // was pushed LIVE to P24. Prospecting / Not selling are never the agency's advert.
+            str_contains($status, 'prospecting')
+                || str_contains($status, 'not selling') => 'Withdrawn',
             default                                     => null,
         };
         if ($terminal !== null) {

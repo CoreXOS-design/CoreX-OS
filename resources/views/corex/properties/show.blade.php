@@ -3,6 +3,7 @@
 @section('corex-content')
 @if($property->exists ?? false)
     @include('corex.properties.partials._dead-end-warning', ['property' => $property])
+    @include('corex.properties.partials._listing-cycle-banner', ['property' => $property])
 @endif
 @php
     $isNew = !$property->exists;
