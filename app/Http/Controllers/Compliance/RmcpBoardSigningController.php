@@ -41,7 +41,7 @@ class RmcpBoardSigningController extends Controller
             'token'       => $token,
             'sig'         => $sig,
             'letter'      => $letter,
-            'agencyName'  => $agency ? ($agency->trading_name ?: $agency->name) : 'the agency',
+            'agencyName'  => Agency::displayNameFor($agency, 'the agency'),
             'version'     => $version,
             'verified'    => $verified,
             'maskedEmail' => Str::mask($sig->member_email, '*', 2, max(0, (int) strpos($sig->member_email, '@') - 3)),

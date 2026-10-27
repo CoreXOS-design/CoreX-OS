@@ -212,7 +212,7 @@ class RmcpBoardApprovalService
 
     private function deliver(RmcpBoardLetter $letter, RmcpBoardSignature $sig, ?User $actor, Agency $agency, int $versionNumber, bool $reminder): bool
     {
-        $agencyName = (string) ($agency->trading_name ?: $agency->name);
+        $agencyName = Agency::displayNameFor($agency);
         try {
             app(ComplianceMailDispatcher::class)->send($sig->member_email, new RmcpBoardApprovalMail(
                 $agency, $letter, $sig, route('rmcp-board.show', $sig->token), $agencyName, $versionNumber, $actor, $reminder
@@ -383,7 +383,7 @@ class RmcpBoardApprovalService
         $html = $this->pdf->boardLetterHtml($letter, $agency, $images);
         $bytes = $this->pdf->render(
             $html,
-            ($agency->trading_name ?: $agency->name) . ' · RMCP v' . $letter->version?->version_number . ' board approval',
+            Agency::displayNameFor($agency) . ' · RMCP v' . $letter->version?->version_number . ' board approval',
             'rmcp-board-' . $letter->id
         );
         if ($bytes === null) {
