@@ -57,8 +57,11 @@ class TrainingVideoUploadTest extends TestCase
                 return ['duration' => 125, 'width' => 1920, 'height' => 1080, 'fps' => 60.0];
             }
 
-            public function compress(string $source, string $mp4Path, string $posterPath, array $probe): void
+            public function compress(string $source, string $mp4Path, string $posterPath, array $probe, ?callable $onProgress = null): void
             {
+                if ($onProgress) {
+                    $onProgress(42);
+                }
                 if (str_starts_with((string) file_get_contents($source, false, null, 0, 4), 'BOOM')) {
                     throw new \RuntimeException('ffmpeg exploded');
                 }
@@ -416,5 +419,25 @@ class TrainingVideoUploadTest extends TestCase
         $video = $this->readyUpload();
         $this->actingAs($this->owner)->get(self::BASE . "/{$video->id}/edit")->assertOk()
             ->assertSee('Replace the video file')->assertSee('<video', false);
+    }
+
+    public function test_progress_endpoint_reports_videos_being_shrunk_and_is_owner_only(): void
+    {
+        $video = TrainingVideo::create([
+            'title' => 'Shrinking', 'source' => 'upload', 'status' => 'processing',
+            'pending_upload_id' => str_repeat('a', 32), 'progress_percent' => 40,
+            'processing_started_at' => now()->subMinutes(4),
+        ]);
+
+        $json = $this->actingAs($this->owner)->getJson(route('api.v1.training-video-uploads.progress'))
+            ->assertOk()->json();
+
+        $this->assertSame(1, $json['active']);
+        $this->assertSame($video->id, $json['videos'][0]['id']);
+        $this->assertSame(40, $json['videos'][0]['percent']);
+        $this->assertEqualsWithDelta(360, $json['videos'][0]['eta'], 5);   // 4 min for 40% → ~6 min left
+
+        $agent = User::factory()->create(['role' => 'agent']);
+        $this->actingAs($agent)->getJson(route('api.v1.training-video-uploads.progress'))->assertForbidden();
     }
 }

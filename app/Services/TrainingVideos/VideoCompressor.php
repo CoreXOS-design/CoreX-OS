@@ -25,6 +25,7 @@ interface VideoCompressor
      * Write the shrunk MP4 and its poster image. Throws on any failure; the caller cleans up.
      *
      * @param array{duration: int, width: int, height: int, fps: float} $probe
+     * @param (callable(int): void)|null $onProgress called with 0-99 while the video is being shrunk
      */
-    public function compress(string $source, string $mp4Path, string $posterPath, array $probe): void;
+    public function compress(string $source, string $mp4Path, string $posterPath, array $probe, ?callable $onProgress = null): void;
 }

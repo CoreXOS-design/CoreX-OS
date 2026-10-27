@@ -47,7 +47,7 @@ class FfmpegVideoCompressor implements VideoCompressor
         ];
     }
 
-    public function compress(string $source, string $mp4Path, string $posterPath, array $probe): void
+    public function compress(string $source, string $mp4Path, string $posterPath, array $probe, ?callable $onProgress = null): void
     {
         $cfg  = config('training-videos.compress');
         $side = (int) $cfg['max_side'];
@@ -61,14 +61,14 @@ class FfmpegVideoCompressor implements VideoCompressor
         $threads = $cfg['threads'] ?: max(1, intdiv($this->cores(), 2));
 
         $this->run([
-            'nice', '-n', '19', config('training-videos.ffmpeg'), '-y', '-v', 'error', '-i', $source,
+            'nice', '-n', '19', config('training-videos.ffmpeg'), '-y', '-v', 'error', '-nostats', '-progress', 'pipe:1', '-i', $source,
             '-map', '0:v:0', '-map', '0:a:0?',
             '-vf', implode(',', $filters),
             '-c:v', 'libx264', '-preset', (string) $cfg['preset'], '-crf', (string) $cfg['crf'], '-pix_fmt', 'yuv420p',
             '-c:a', 'aac', '-b:a', $cfg['audio_kbps'] . 'k',
             '-movflags', '+faststart', '-threads', (string) $threads,
             $mp4Path,
-        ], (int) $cfg['timeout']);
+        ], (int) $cfg['timeout'], $this->progressReader($probe['duration'], $onProgress));
 
         // Poster: a frame from ~3 seconds in (or the middle of a very short clip).
         $at = min((float) $cfg['poster_at_second'], max(0.0, $probe['duration'] / 2));
@@ -82,11 +82,32 @@ class FfmpegVideoCompressor implements VideoCompressor
         }
     }
 
-    private function run(array $command, int $timeout): void
+    /** Turns ffmpeg's `-progress` lines (out_time_us=…) into a 0-99 percentage of the clip's length. */
+    private function progressReader(int $duration, ?callable $onProgress): ?callable
+    {
+        if ($onProgress === null || $duration <= 0) {
+            return null;
+        }
+
+        $last = -1;
+
+        return function (string $type, string $buffer) use ($duration, $onProgress, &$last): void {
+            if ($type !== Process::OUT || ! preg_match_all('/out_time_us=(\d+)/', $buffer, $m)) {
+                return;
+            }
+            $percent = min(99, (int) floor(((int) end($m[1])) / 1_000_000 / $duration * 100));
+            if ($percent > $last) {
+                $last = $percent;
+                $onProgress($percent);
+            }
+        };
+    }
+
+    private function run(array $command, int $timeout, ?callable $onOutput = null): void
     {
         $process = new Process($command);
         $process->setTimeout($timeout);
-        $process->run();
+        $process->run($onOutput);
 
         if (! $process->isSuccessful()) {
             throw new RuntimeException('ffmpeg failed: ' . mb_substr(trim($process->getErrorOutput()), -500));
