@@ -244,6 +244,8 @@ function runAction(a) {
     const res = st.ctl.exec.run(a);
     st.ctl.reporter.add(res.report);
     if (res.ok) st.ctl.idle.touch();
+    // Tell the console when it could not be done (the screen it clicked on is out of date, the field is private...): it refreshes and says so.
+    else { try { st.channel.whisper('action_result', { t: 'main', id: a.id, ok: false, reason: res.reason }); } catch (e) { /* not subscribed */ } }
 }
 
 // ── Support's pointer ────────────────────────────────────────────────────────────

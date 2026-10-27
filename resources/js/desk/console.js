@@ -36,23 +36,58 @@ async function api(method, url, body) {
     }
 }
 
+// ── Messages: a line under the header on the list page; a small toast over the window while in the viewer ───────
+let toastTimer = null;
 function say(msg, bad = false) {
+    const viewer = $('cdc-live');
+    if (viewer && !viewer.hidden) {
+        const t = $('cdc-toast');
+        clearTimeout(toastTimer);
+        t.hidden = !msg;
+        t.textContent = msg || '';
+        t.classList.toggle('cdc-bad', !!bad);
+        if (msg) toastTimer = setTimeout(() => { t.hidden = true; }, bad ? 5000 : 2800);
+        return;
+    }
     const el = $('cdc-msg');
     el.textContent = msg || '';
     el.style.color = bad ? 'var(--ds-danger, #b91c1c)' : 'var(--text-muted)';
 }
 
-// ── The supporter's own left menu: out of the way while a session is open (the mirror gets the full width) ─────────
-// Reuses the layout's existing collapse (layouts/corex.blade.php: `markupModeActive` + `markupSidebarExpanded`, the same one the rental markup
-// view uses) - including its small round toggle at the menu's edge to bring it back. Restored when the session ends.
-function collapseMenu(on) {
-    const aside = document.querySelector('aside');
-    const root = aside && aside.closest('[x-data]');
-    try {
-        if (on && root && window.Alpine) window.Alpine.$data(root).markupSidebarExpanded = false;
-        window.dispatchEvent(new CustomEvent('rental-markup-view-toggled', { detail: { open: !!on } }));
-    } catch (e) { /* layout without the mechanism: leave the menu alone */ }
+// ── The viewer: the agent's window fills the browser window (spec section 4d) ───────────────────────────────────
+// The viewer element lives in <body> so no part of the page layout - menu, header, test-site banner - can sit over it.
+document.body.appendChild($('cdc-live'));
+let barTimer = null;
+function showBar() {
+    const bar = $('cdc-bar');
+    bar.classList.remove('cdc-away');
+    clearTimeout(barTimer);
+    barTimer = setTimeout(() => {
+        // not while the pointer is on the bar or a field in it has focus (typing a note)
+        if (bar.matches(':hover') || bar.contains(document.activeElement) && document.activeElement !== document.body) { showBar(); return; }
+        bar.classList.add('cdc-away');
+    }, 3000);
 }
+function openViewer() {
+    $('cdc-live').hidden = false;
+    document.documentElement.style.overflow = 'hidden';
+    showBar();
+}
+function closeViewer() {
+    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    $('cdc-live').hidden = true;
+    document.documentElement.style.overflow = '';
+    clearTimeout(barTimer);
+}
+$('cdc-hot').addEventListener('mousemove', showBar);
+$('cdc-bar').addEventListener('mousemove', showBar);
+$('cdc-bar').addEventListener('focusin', showBar);
+$('cdc-pane').addEventListener('mousemove', (ev) => { if (ev.clientY <= 40) showBar(); });
+document.addEventListener('fullscreenchange', () => { $('cdc-full').textContent = document.fullscreenElement ? 'Exit full screen' : 'Full screen'; layoutPane(); });
+$('cdc-full').addEventListener('click', () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else if ($('cdc-live').requestFullscreen) $('cdc-live').requestFullscreen().catch(() => say('This browser would not go full screen.', true));
+});
 
 // ── Joining ──────────────────────────────────────────────────────────────────────
 
@@ -79,7 +114,7 @@ function attach(session) {
     if (cur) detach(false);
     const name = 'desk.session.' + session.id;
     const channel = getEcho().private(name);
-    cur = { session, channel, name, tabs: new Map(), selected: MAIN, started: Date.parse(session.joined_at || session.started_at), pointerOn: false, lastPointer: 0, control: { state: (session.control && session.control.state) || 'none', tab: session.control && session.control.tab }, focusSel: null, typed: null };
+    cur = { session, channel, name, tabs: new Map(), selected: MAIN, started: Date.parse(session.joined_at || session.started_at), pointerOn: false, lastPointer: 0, control: { state: (session.control && session.control.state) || 'none', tab: session.control && session.control.tab }, focusSel: null, typed: null, hl: !(session.control && session.control.state === 'granted') };
     cur.tabs.set(MAIN, newTab(MAIN, 'CoreX page', ''));
     (session.tabs || []).forEach((t) => addExtTab(t));
 
@@ -93,6 +128,14 @@ function attach(session) {
         .listen('.desk.tab_joined', (e) => { addExtTab(e); askResync(e.tab); })
         .listen('.desk.tab_updated', (e) => updateExtTab(e))
         .listen('.desk.tab_left', (e) => removeExtTab(e.tab))
+        .listenForWhisper('action_result', (r) => {
+            // The agent could not do what we asked: say why in words; if its screen no longer matches ours, refresh ours.
+            if (!cur || !r || r.ok) return;
+            const t = r.t || MAIN;
+            const words = { view_out_of_date: 'The screen had just changed - it has been refreshed, click again.', not_found: 'That is no longer on the agent\'s screen.', hidden: 'That is not visible on the agent\'s screen.', private_field: 'That field is private - ask the agent to fill it in themselves.', disabled: 'That is switched off on the agent\'s screen.', desk_ui: 'That is part of the agent\'s CoreX Desk bar.' };
+            say(words[r.reason] || 'The agent\'s screen could not do that.', true);
+            if (r.reason === 'view_out_of_date' || r.reason === 'not_found') askResync(t);
+        })
         .listenForWhisper('control_ack', () => clearTimeout(cur && cur.askTimer))   // the agent's page is showing the question
         // Take-over (protocol 1.2)
         .listen('.desk.control_requested', (e) => setControl('requested', e.tab))
@@ -108,10 +151,8 @@ function attach(session) {
     cur.retry = setInterval(() => { if (cur) cur.tabs.forEach((t) => { if (!t.replayer) askResync(t.key); }); }, 3000); // until a tab's first snapshot arrives
 
     $('cdc-form').hidden = true;
-    $('cdc-live').hidden = false;
     $('cdc-support').textContent = con.me || '';
-    collapseMenu(true);
-    $('appScroll') && ($('appScroll').scrollTop = 0);
+    openViewer();
     layoutPane();
     $('cdc-agent').textContent = session.agent_name || '';
     $('cdc-agency').textContent = session.agency_name || '';
@@ -134,7 +175,6 @@ function detach(callServer) {
     clearInterval(cur.retry);
     clearTimeout(cur.typeTimer);
     clearInterval(cur.focusTimer);
-    collapseMenu(false);
     if (callServer) api('POST', con.urls.sessions + '/' + cur.session.id + '/end');
     $('cdc-replay').innerHTML = '';
     $('cdc-tabs').innerHTML = '';
@@ -145,10 +185,15 @@ function detach(callServer) {
 function ended(by) {
     if (!cur) return;
     const who = { agent: 'The agent ended the session.', support: 'You ended the session.', logout: 'The agent signed out.', timeout: 'The connection to the agent was lost.', expired: 'The session expired.' }[by] || 'The session ended.';
-    detach(false);
-    $('cdc-live').hidden = true;
-    $('cdc-form').hidden = false;
+    leave();
     say(who);
+}
+
+/** Back to the list page (the session is NOT ended here: End session / the other side does that). */
+function leave() {
+    detach(false);
+    closeViewer();
+    $('cdc-form').hidden = false;
     refreshList();
 }
 
@@ -271,22 +316,15 @@ function startReplayer(tab) {
 }
 
 /**
- * The pane's size comes from the WINDOW (what is left under the header, the session bar and the sessions list), not from its content: the
- * mirror is an absolutely positioned child, so a 1440 px-wide agent page can never stretch the console, add a scrollbar, or make the page scroll.
+ * Fit the agent's WHOLE window into the browser window: scale = min(window width / agent width, window height / agent height), letterboxed and
+ * centred where the aspect differs. The iframe keeps the agent's own viewport width and height (so its media queries and its sidebar / content
+ * layout are exactly the agent's) and is only scaled by transform - never scrolled.
  */
 function layoutPane() {
-    const pane = $('cdc-pane');
-    if (!pane || $('cdc-live').hidden) return;
-    const top = pane.getBoundingClientRect().top;
-    const below = $('cdc-sessions').offsetHeight + 12 /* gap */ + 24 /* page padding */;
-    pane.style.height = Math.max(240, Math.floor(window.innerHeight - top - below)) + 'px';
+    if ($('cdc-live').hidden) return;
     fit();
 }
 
-/**
- * Fit the agent's WHOLE window into the pane: scale = min(pane width / agent width, pane height / agent height). The iframe keeps the agent's own
- * viewport width and height (so its media queries and its sidebar / content layout are exactly the agent's) and is only scaled by transform.
- */
 function fit() {
     const tab = cur && cur.tabs.get(cur.selected);
     const pane = $('cdc-pane');
@@ -298,21 +336,18 @@ function fit() {
     const h = parseFloat(iframe.getAttribute('height')) || wrapper.offsetHeight;
     const aw = pane.clientWidth, ah = pane.clientHeight;
     if (!w || !h || !aw || !ah) return;
-    const scale = Math.min(1, aw / w, ah / h);
+    const scale = Math.min(aw / w, ah / h, 3);
     const rep = $('cdc-replay');
     rep.style.width = Math.floor(w * scale) + 'px';
     rep.style.height = Math.floor(h * scale) + 'px';
     rep.style.left = Math.max(0, Math.floor((aw - w * scale) / 2)) + 'px';
+    rep.style.top = Math.max(0, Math.floor((ah - h * scale) / 2)) + 'px';
     rep.style.overflow = 'hidden';
     tab.root.style.width = rep.style.width; tab.root.style.height = rep.style.height;
     wrapper.style.transformOrigin = 'top left';
     wrapper.style.transform = 'scale(' + scale + ')';
 }
 window.addEventListener('resize', layoutPane);
-if (window.ResizeObserver) {
-    const ro = new ResizeObserver(() => layoutPane());
-    ['cdc-live', 'cdc-bar', 'cdc-tabs', 'cdc-sessions'].forEach((id) => { const e = $(id); if (e) ro.observe(e); });
-}
 
 // ── Pointer and highlight ────────────────────────────────────────────────────────
 
@@ -320,14 +355,24 @@ const tabParam = (tab) => (tab.key === MAIN ? {} : { tab: tab.key });
 
 function hookReplayInput(tab) {
     const iframe = tab.replayer.iframe;
-    const ratio = (ev) => {
+    // Pointer position -> the agent's viewport. The iframe keeps the agent's own viewport size (offsetWidth/Height, unscaled) and is only
+    // scaled by a transform, so a point on screen is (clientX - the iframe's on-screen left) / the scale, in the agent's own CSS pixels - the
+    // same pixels elementFromPoint() and getBoundingClientRect() use inside the mirror. (Never the document's clientWidth: a scrollbar in
+    // the mirror makes that narrower than the agent's window and every click would drift towards the right-hand edge.)
+    const geo = (ev) => {
         const r = iframe.getBoundingClientRect();
-        return { x: (ev.clientX - r.left) / r.width, y: (ev.clientY - r.top) / r.height };
+        const W = iframe.offsetWidth || parseFloat(iframe.getAttribute('width')) || r.width;
+        const H = iframe.offsetHeight || parseFloat(iframe.getAttribute('height')) || r.height;
+        const k = r.width / W;
+        return { px: (ev.clientX - r.left) / k, py: (ev.clientY - r.top) / k, W, H, k };
     };
-    const scale = () => { const d = iframe.contentDocument; return d && d.documentElement.clientWidth ? iframe.getBoundingClientRect().width / d.documentElement.clientWidth : 1; };
-    const at = (r) => {
+    // What goes to the agent / the pointer whisper: fractions of the agent's window.
+    const ratio = (ev) => { const g = geo(ev); return { x: g.px / g.W, y: g.py / g.H }; };
+    const scale = () => { const r = iframe.getBoundingClientRect(); const W = iframe.offsetWidth || r.width; return W ? r.width / W : 1; };
+    const at = (ev) => {
         const d = iframe.contentDocument;
-        return d ? d.elementFromPoint(r.x * d.documentElement.clientWidth, r.y * d.documentElement.clientHeight) : null;
+        const g = geo(ev);
+        return d ? d.elementFromPoint(g.px, g.py) : null;
     };
     // Mouse events land on the wrapper (the iframe itself does not deliver them to us while replaying).
     const target = tab.replayer.wrapper;
@@ -360,21 +405,23 @@ function hookReplayInput(tab) {
     target.addEventListener('click', (ev) => {
         if (!cur || cur.selected !== tab.key) return;
         const r = ratio(ev);
-        const el = at(r);
-        const selector = el ? selectorFor(el) : null;
-        if (!selector) return;
+        const el = at(ev);
+        if (!el) return;
         target.focus({ preventScroll: true });
-        // Plain click while in control = a real click on the agent's page. Shift+click (or no control) = the week-2 highlight.
-        if (controlling() && !ev.shiftKey) { controlClick(tab, el, selector, r); return; }
+        // In control, a plain click is a real click on the agent's page - unless Highlight is switched on (or Shift is held): then it points.
+        if (controlling() && !ev.shiftKey && !cur.hl) { controlClick(tab, el, exactSelector(el), r); return; }
+        if (!cur.hl && !ev.shiftKey) return;   // viewing only, Highlight off: a click does nothing
+        const selector = selectorFor(el);
         const note = $('cdc-note').value.trim();
         api('POST', con.urls.sessions + '/' + cur.session.id + '/highlight', { selector, note: note || null, ...tabParam(tab) }).then((res) => {
-            say(res.ok ? 'Highlighted: ' + selector : 'Could not send the highlight.', !res.ok);
+            // The toast names what was pointed at in words (never a selector).
+            say(res.ok ? 'Highlighted: ' + visibleLabel(el) : 'Could not send the highlight.', !res.ok);
         });
     });
     target.addEventListener('dblclick', (ev) => {
-        if (!controlling() || ev.shiftKey) return;
-        const r = ratio(ev); const el = at(r);
-        if (el && !isPrivate(el)) sendAction(tab, { type: 'dblclick', s: selectorFor(el), x: r.x, y: r.y });
+        if (!controlling() || ev.shiftKey || cur.hl) return;
+        const r = ratio(ev); const el = at(ev);
+        if (el && !isPrivate(el)) sendAction(tab, { type: 'dblclick', s: exactSelector(el), x: r.x, y: r.y, b: boxOf(el) });
     });
     const onKey = (ev) => {
         if (!controlling() || ev.ctrlKey || ev.metaKey || ev.altKey) return;
@@ -407,7 +454,7 @@ function hookReplayInput(tab) {
     target.addEventListener('wheel', (ev) => {
         if (!controlling()) return;
         ev.preventDefault();
-        const r = ratio(ev); const el = at(r);
+        const el = at(ev);
         const sc = scale();
         wheel = wheel || { dx: 0, dy: 0, sel: scrollerFor(el), timer: setTimeout(() => { const w = wheel; wheel = null; sendAction(tab, { type: 'scroll', s: w.sel, dx: Math.round(w.dx), dy: Math.round(w.dy) }); }, 60) };
         wheel.dx += ev.deltaX / sc; wheel.dy += ev.deltaY / sc;
@@ -437,22 +484,22 @@ function controlClick(tab, el, selector, r) {
     cur.focusSel = isEditable(el) ? selector : null;
     cur.privateFocus = false;
     flushTyped(tab);
-    sendAction(tab, { type: 'click', s: selector, x: r.x, y: r.y });
+    sendAction(tab, { type: 'click', s: selector, x: r.x, y: r.y, b: boxOf(el) });
 }
 
 /** A dropdown cannot open on a static mirror: offer its options in a small native list on top of it. */
 function chooseOption(tab, el, selector) {
     const iframe = tab.replayer.iframe;
-    const sc = iframe.getBoundingClientRect().width / iframe.contentDocument.documentElement.clientWidth;
+    const sc = iframe.getBoundingClientRect().width / (iframe.offsetWidth || 1);
     const rect = el.getBoundingClientRect();
     const sel = document.createElement('select');
     sel.size = Math.min(8, Math.max(2, el.options.length));
-    sel.style.cssText = 'position:fixed;z-index:50;min-width:10rem;left:' + (iframe.getBoundingClientRect().left + rect.left * sc) + 'px;top:' + (iframe.getBoundingClientRect().top + (rect.bottom * sc)) + 'px;';
+    sel.style.cssText = 'position:fixed;z-index:20;min-width:10rem;left:' + (iframe.getBoundingClientRect().left + rect.left * sc) + 'px;top:' + (iframe.getBoundingClientRect().top + (rect.bottom * sc)) + 'px;';
     Array.from(el.options).forEach((o) => { const op = document.createElement('option'); op.value = o.value; op.textContent = o.textContent; sel.appendChild(op); });
     const close = () => sel.remove();
     sel.addEventListener('change', () => { sendAction(tab, { type: 'select', s: selector, v: sel.value }); close(); });
     sel.addEventListener('blur', close);
-    document.body.appendChild(sel);
+    $('cdc-live').appendChild(sel);   // inside the viewer, so it shows in full screen too
     sel.focus();
 }
 
@@ -460,7 +507,7 @@ function chooseOption(tab, el, selector) {
 function scrollerFor(el) {
     for (let n = el; n && n.nodeType === 1 && n.tagName !== 'BODY' && n.tagName !== 'HTML'; n = n.parentElement) {
         const cs = n.ownerDocument.defaultView.getComputedStyle(n);
-        if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll') && n.scrollHeight > n.clientHeight + 4) return selectorFor(n);
+        if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll') && n.scrollHeight > n.clientHeight + 4) return exactSelector(n);
     }
     return '';
 }
@@ -495,6 +542,7 @@ function setControl(state, tabKey, note) {
         // An agent page that was opened before CoreX Desk learned take-over cannot ask the question. It would stay silent, so say why.
         cur.askTimer = setTimeout(() => say((cur && cur.session.agent_name || 'The agent') + "'s page has not shown the question. If it was open before today's update, ask them to refresh CoreX (F5), then request again.", true), 6000);
     }
+    cur.hl = state !== 'granted';   // in control a click clicks; otherwise a click points
     if (state !== 'granted') { cur.typed = null; cur.focusSel = null; cur.privateFocus = false; }
     else {
         // Belt and braces for the focus tug-of-war with the mirror: while in control, give focus back to the capture layer.
@@ -507,7 +555,7 @@ function setControl(state, tabKey, note) {
     if (note) say(note);
 }
 
-/** The Request / Hand back button, the status line, and the amber frame while in control. */
+/** The Request / Hand back button, the state pill (Viewing / Requested / In control) and the amber frame while in control. */
 function paintControl() {
     if (!cur) return;
     const btn = $('cdc-control');
@@ -515,17 +563,23 @@ function paintControl() {
     if (!btn) return;
     btn.hidden = !con.canControl;
     const c = cur.control;
-    btn.textContent = c.state === 'none' ? 'Request control' : (c.state === 'requested' ? 'Withdraw request' : 'Hand back control');
-    // A short state chip, not a sentence: the label carries the meaning.
-    status.hidden = c.state === 'none';
-    status.textContent = c.state === 'requested' ? 'Waiting for Allow…' : 'In control';
+    btn.textContent = c.state === 'none' ? 'Request control' : (c.state === 'requested' ? 'Withdraw request' : 'Hand back');
+    btn.className = c.state === 'granted' ? 'corex-btn-outline' : (c.state === 'requested' ? 'corex-btn-outline' : 'corex-btn-primary');
+    status.textContent = c.state === 'requested' ? 'Requested' : (c.state === 'granted' ? 'In control' : 'Viewing');
     status.style.background = c.state === 'granted' ? '#f59e0b' : 'var(--surface-2)';
     status.style.color = c.state === 'granted' ? '#1f2937' : 'var(--text-secondary)';
-    // The amber frame goes round the whole viewing pane.
+    // The amber frame goes round the whole window while in control of the tab on show.
     const framed = c.state === 'granted' && c.tab === cur.selected;
-    const frame = $('cdc-pane');
-    frame.style.outline = framed ? '4px solid #f59e0b' : '';
-    frame.style.outlineOffset = framed ? '-2px' : '';
+    $('cdc-live').classList.toggle('cdc-controlling', framed);
+    paintHighlight();
+}
+
+/** Highlight mode: on while viewing (a click points something out), off once in control (a click is a click). The toggle overrides either way. */
+function paintHighlight() {
+    if (!cur) return;
+    const b = $('cdc-hl');
+    b.setAttribute('aria-pressed', cur.hl ? 'true' : 'false');
+    b.className = cur.hl ? 'corex-btn-primary' : 'corex-btn-outline';
 }
 
 /** [data-tour] anchor when the element (or an ancestor) has one, else a CSS path that is unique on the agent's page. */
@@ -547,6 +601,43 @@ export function selectorFor(el) {
         node = node.parentElement;
     }
     return parts.join(' > ');
+}
+
+/** The exact element's own selector - what a CLICK needs (selectorFor above deliberately stops at the nearest [data-tour] section: right for a highlight, wrong for a click on a button inside it). */
+export function exactSelector(el) {
+    const parts = [];
+    let node = el;
+    while (node && node.nodeType === 1 && node.tagName !== 'HTML') {
+        if (node.id && /^[A-Za-z][\w-]*$/.test(node.id) && !/\d{4,}/.test(node.id)) {
+            const d = node.ownerDocument;
+            if (d.querySelectorAll('#' + node.id).length === 1) { parts.unshift('#' + node.id); break; }
+        }
+        const tag = node.tagName.toLowerCase();
+        if (tag === 'body') { parts.unshift('body'); break; }
+        let n = 1;
+        for (let sib = node.previousElementSibling; sib; sib = sib.previousElementSibling) if (sib.tagName === node.tagName) n++;
+        parts.unshift(tag + ':nth-of-type(' + n + ')');
+        node = node.parentElement;
+    }
+    return parts.join(' > ');
+}
+
+/** Where the element sits in the agent's window, in the agent's own CSS pixels: the agent checks it before it clicks. */
+function boxOf(el) {
+    const r = el.getBoundingClientRect();
+    return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)];
+}
+
+/** What a person would call the element: its label, its text, its placeholder - never a selector. */
+export function visibleLabel(el) {
+    const pick = (v) => { v = (v || '').replace(/\s+/g, ' ').trim(); return v ? v.slice(0, 60) : ''; };
+    const tag = (el.tagName || '').toLowerCase();
+    let l = pick(el.getAttribute && el.getAttribute('aria-label')) || pick(el.getAttribute && el.getAttribute('title'));
+    if (!l && el.labels && el.labels.length) l = pick(el.labels[0].textContent);
+    if (!l && /^(input|textarea|select)$/.test(tag)) l = pick(el.getAttribute('placeholder')) || pick(el.getAttribute('name'));
+    if (!l && !/^(input|textarea|select)$/.test(tag)) l = pick(el.innerText || el.textContent);
+    if (l) return l;
+    return { a: 'a link', button: 'a button', input: 'a field', select: 'a dropdown', textarea: 'a text box', img: 'a picture', svg: 'an icon' }[tag] || 'that spot';
 }
 
 // ── Live sessions list ───────────────────────────────────────────────────────────
@@ -574,7 +665,6 @@ async function refreshList() {
         }
         ul.appendChild(li);
     }
-    layoutPane();
 }
 
 /** Open a live session of your scope (again, after a reload; or as a second support person). The code is not needed - it was spent at the first join. */
@@ -611,13 +701,13 @@ $('cdc-control').addEventListener('click', async () => {
 $('cdc-clear').addEventListener('click', () => {
     if (cur) api('POST', con.urls.sessions + '/' + cur.session.id + '/highlight/clear', cur.selected === MAIN ? {} : { tab: cur.selected });
 });
+$('cdc-hl').addEventListener('click', () => { if (cur) { cur.hl = !cur.hl; paintHighlight(); } });
+$('cdc-back').addEventListener('click', () => { if (cur) { leave(); say('The session is still open - Open it again from the list.'); } });
 $('cdc-end').addEventListener('click', () => {
     if (!cur) return;
     const id = cur.session.id;
-    detach(false);
+    leave();
     api('POST', con.urls.sessions + '/' + id + '/end').then(() => {
-        $('cdc-live').hidden = true;
-        $('cdc-form').hidden = false;
         say('You ended the session.');
         refreshList();
     });

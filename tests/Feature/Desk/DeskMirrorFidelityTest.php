@@ -46,14 +46,14 @@ final class DeskMirrorFidelityTest extends TestCase
 
         $this->assertStringNotContainsString('ds-btn', $view, 'ds-btn has no CSS anywhere - those buttons rendered as plain text');
         $this->assertStringNotContainsString('ds-btn', $this->js('console.js'));
-        foreach (['id="cdc-control" class="corex-btn-primary"', 'class="corex-btn-primary">Join', 'id="cdc-clear" class="corex-btn-outline"', 'id="cdc-end" class="corex-btn-outline"'] as $needle) {
+        foreach (['id="cdc-control" class="corex-btn-primary"', 'class="corex-btn-primary">Join', 'id="cdc-clear" class="corex-btn-outline"', 'id="cdc-end" class="corex-btn-outline"', 'id="cdc-back" class="corex-btn-outline"', 'id="cdc-full" class="corex-btn-outline"'] as $needle) {
             $this->assertStringContainsString($needle, $view);
         }
         foreach (['.corex-btn-primary {', '.corex-btn-outline {'] as $rule) {
             $this->assertStringContainsString($rule, $css, "{$rule} exists in corex.css");
         }
         // display:inline-flex on the button classes beats the hidden attribute unless this rule is there.
-        $this->assertStringContainsString('#cdc-root [hidden] { display: none !important; }', $view);
+        $this->assertStringContainsString('#cdc-root [hidden], #cdc-live [hidden] { display: none !important; }', $view);
     }
 
     public function test_an_agent_page_that_cannot_ask_is_noticed_by_the_console(): void
@@ -75,24 +75,24 @@ final class DeskMirrorFidelityTest extends TestCase
         }
     }
 
-    public function test_the_mirror_is_fitted_whole_into_a_pane_whose_size_comes_from_the_window_never_from_its_content(): void
+    public function test_the_mirror_is_fitted_whole_into_the_browser_window_with_letterbox_only_where_the_aspect_differs(): void
     {
         $console = $this->js('console.js');
 
-        // scale = min(pane width / agent width, pane height / agent height); never above 1.
-        $this->assertStringContainsString('Math.min(1, aw / w, ah / h)', $console);
-        // The pane's height comes from the window (what is left under the header / bar / list) and the mirror is an absolutely positioned child,
-        // so the agent's 1440 px page cannot stretch the console or add scrollbars.
-        $this->assertStringContainsString('window.innerHeight - top - below', $console);
-        $this->assertStringContainsString('new ResizeObserver', $console);
+        // scale = min(window width / agent width, window height / agent height), centred both ways; the stage is the whole viewport.
+        $this->assertStringContainsString('Math.min(aw / w, ah / h, 3)', $console);
+        $this->assertStringContainsString("rep.style.top = Math.max(0, Math.floor((ah - h * scale) / 2))", $console);
         $this->assertStringContainsString("addEventListener('resize', layoutPane)", $console);
         // The iframe keeps the agent's own viewport size (media queries / sidebar layout are the agent's); only a transform scales it.
         $this->assertStringContainsString("iframe.getAttribute('width')", $console);
         $this->assertStringContainsString("wrapper.style.transform = 'scale('", $console);
 
         $view = (string) file_get_contents(resource_path('views/desk/console.blade.php'));
-        $this->assertStringContainsString('#cdc-pane { position: relative; overflow: hidden;', $view);
+        $this->assertStringContainsString('#cdc-live { position: fixed; inset: 0;', $view, 'the viewer is the whole browser window');
+        $this->assertStringContainsString('background: #0b0f14', $view, 'dark letterbox');
+        $this->assertStringContainsString('#cdc-pane { position: absolute; inset: 0; }', $view);
         $this->assertStringContainsString('#cdc-replay { position: absolute;', $view);
+        $this->assertStringNotContainsString('opacity: .', preg_replace('/#cdc-bar[^}]*\}/', '', $view), 'no veil over the mirror');
     }
 
     public function test_the_console_is_a_standard_page_with_no_helper_paragraphs(): void
@@ -105,12 +105,13 @@ final class DeskMirrorFidelityTest extends TestCase
             $this->assertStringNotContainsString($helper, $view, "no helper text: {$helper}");
         }
         $this->assertStringContainsString('id="cdc-form"', $view);                       // code + Join on one line, in the header
-        $this->assertStringContainsString('#cdc-bar { position: sticky;', $view);          // the session bar stays put
-        $this->assertStringContainsString('Sessions open now', $view);
+        $this->assertStringContainsString('Sessions open now', $view);                   // on the LIST page (the standard layout), never over the viewer
         // control state is a short chip, not a sentence
         $console = $this->js('console.js');
         $this->assertStringNotContainsString('Click, type and scroll in the window below', $console);
-        $this->assertStringContainsString("'Waiting for Allow…'", $console);
+        $this->assertStringContainsString("'Requested'", $console);
+        $this->assertStringContainsString("'In control'", $console);
+        $this->assertStringContainsString("'Viewing'", $console);
     }
 
     public function test_sub_menus_and_other_script_revealed_content_mirror_because_animations_run(): void
@@ -134,19 +135,51 @@ final class DeskMirrorFidelityTest extends TestCase
         }
     }
 
-    public function test_the_supporters_own_menu_collapses_while_a_session_is_open_using_the_layouts_existing_mechanism(): void
+    public function test_the_live_session_is_a_full_window_viewer_with_one_auto_hiding_toolbar(): void
     {
         $console = $this->js('console.js');
-        $this->assertStringContainsString('function collapseMenu(on)', $console);
-        $this->assertStringContainsString("'rental-markup-view-toggled'", $console, 'the layout\'s own collapse event');
-        $this->assertStringContainsString('markupSidebarExpanded = false', $console);
-        $this->assertSame(1, substr_count($console, 'collapseMenu(true);'), 'collapsed when a session is attached');
-        $this->assertGreaterThanOrEqual(1, substr_count($console, 'collapseMenu(false);'), 'restored when it ends / is left');
-        // the mechanism really is in the layout (so reusing it is not a guess)
-        $layout = (string) file_get_contents(resource_path('views/layouts/corex.blade.php'));
-        $this->assertStringContainsString('@rental-markup-view-toggled.window="markupModeActive = $event.detail.open"', $layout);
-        $this->assertStringContainsString("markupSidebarExpanded ? 'Collapse menu' : 'Expand menu'", $layout, 'with its own toggle to bring the menu back');
-        $this->assertStringContainsString("['cdc-live', 'cdc-bar', 'cdc-tabs', 'cdc-sessions']", $console, 'the mirror is refitted when the menu collapses');
+        $view = (string) file_get_contents(resource_path('views/desk/console.blade.php'));
+
+        // The viewer sits on <body> (nothing of the layout - menu, header, test-site banner - over it) and covers the whole window.
+        $this->assertStringContainsString("document.body.appendChild(\$('cdc-live'))", $console);
+        $this->assertStringContainsString('z-index: 2000000', $view);
+        // One thin toolbar: slides away after 3 s and comes back at the top edge.
+        $this->assertStringContainsString('}, 3000);', $console);
+        $this->assertStringContainsString('cdc-away', $console);
+        $this->assertStringContainsString('<div id="cdc-hot"></div>', $view);
+        // Everything the ruling lists is in it, in one place.
+        foreach (['id="cdc-agent"', 'id="cdc-support"', 'id="cdc-page"', 'id="cdc-elapsed"', 'id="cdc-control-status"', 'id="cdc-control"', 'id="cdc-hl"', 'id="cdc-note"', 'id="cdc-tabs"', 'id="cdc-full"', 'id="cdc-end"'] as $id) {
+            $this->assertStringContainsString($id, $view, "the toolbar has {$id}");
+        }
+        // The old chrome is gone from the viewer: no list, no technical line.
+        $this->assertStringNotContainsString('Highlighted: [', $console);
+        $this->assertStringContainsString("'Highlighted: ' + visibleLabel(el)", $console, 'a toast with what it is in words, not a selector');
+        $this->assertStringNotContainsString("'Highlighted: ' + selector", $console);
+        // Full screen is one click; Esc leaves it and stays in the viewer (the browser does that for us - we only follow fullscreenchange).
+        $this->assertStringContainsString('requestFullscreen()', $console);
+        $this->assertStringContainsString("addEventListener('fullscreenchange'", $console);
+        // Back and End both return to the list page; Back keeps the session open.
+        $this->assertStringContainsString('function leave()', $console);
+        $this->assertStringContainsString('Open it again from the list', $console);
+        // The supporter's own menu is not collapsed any more - the viewer covers it.
+        $this->assertStringNotContainsString('collapseMenu', $console);
+    }
+
+    public function test_a_click_is_converted_through_the_scale_and_the_iframe_offset_and_checked_against_the_agents_screen(): void
+    {
+        $console = $this->js('console.js');
+
+        // (clientX - on-screen left of the mirror iframe) / scale, in the agent's own CSS pixels - never the mirror document's clientWidth.
+        $this->assertStringContainsString('px: (ev.clientX - r.left) / k', $console);
+        $this->assertStringContainsString('const k = r.width / W;', $console);
+        $this->assertStringContainsString('d.elementFromPoint(g.px, g.py)', $console);
+        $this->assertStringNotContainsString('documentElement.clientWidth', $console);
+        // A click names the exact element (not the surrounding [data-tour] section) and carries its box for the agent to compare.
+        $this->assertStringContainsString('controlClick(tab, el, exactSelector(el), r)', $console);
+        $this->assertStringContainsString('b: boxOf(el)', $console);
+        $this->assertStringContainsString('export function exactSelector', $console);
+        $this->assertStringContainsString("listenForWhisper('action_result'", $console);
+        $this->assertStringContainsString("whisper('action_result'", $this->js('agent.js'));
+        $this->assertStringContainsString('client-action_result', (string) file_get_contents(public_path('chrome-extension/portal-capture/desk-ext.js')));
     }
 }
-

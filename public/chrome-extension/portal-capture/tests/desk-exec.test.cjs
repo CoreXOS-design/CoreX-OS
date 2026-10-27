@@ -190,5 +190,47 @@ function setup() {
     t.start(); t.stop(); await new Promise((r) => setTimeout(r, 120)); assert.strictEqual(idle, 1, 'stopped');
   });
 
+  // ── Click accuracy (viewer round, 27 Oct): the agent checks WHERE the console's element sits before it clicks ──
+  const boxes = (w, map) => { w.Element.prototype.getBoundingClientRect = function () { const b = map[this.id]; return b ? { left: b[0], top: b[1], width: b[2], height: b[3], right: b[0] + b[2], bottom: b[1] + b[3] } : { left: 0, top: 0, width: 0, height: 0, right: 0, bottom: 0 }; }; };
+
+  await test('click: the selector is believed only when that element is where the mirror showed it; the event carries the pointed-at position', () => {
+    const { w, d, ex, log } = setup();
+    boxes(w, { save: [100, 200, 120, 30] });
+    let ev = null; d.getElementById('save').addEventListener('click', (e) => { ev = e; });
+    d.elementFromPoint = () => d.getElementById('save');
+    // pointed at (150, 215) of an 1000x800 window; the mirror's box for the button is [101, 199, 120, 30] - within tolerance
+    const res = ex.run({ type: 'click', s: '#save', x: 0.15, y: 215 / w.innerHeight, b: [101, 199, 120, 30] });
+    assert.strictEqual(res.ok, true);
+    assert.deepStrictEqual(log, ['click:save']);
+    assert.strictEqual(Math.round(ev.clientX), Math.round(0.15 * w.innerWidth) < 100 ? 100 : Math.round(0.15 * w.innerWidth), 'the click carries the pointed-at x (kept inside the element)');
+    assert.ok(ev.clientY >= 200 && ev.clientY < 230);
+  });
+
+  await test('click: a selector whose element is NOT where the mirror showed it is refused (the screen is out of date), not clicked', () => {
+    const { w, d, ex, log } = setup();
+    boxes(w, { save: [100, 500, 120, 30], lnk: [10, 10, 80, 20] });
+    d.elementFromPoint = () => d.getElementById('lnk');
+    const res = ex.run({ type: 'click', s: '#save', x: 0.5, y: 0.5, b: [100, 200, 120, 30] });
+    assert.strictEqual(res.ok, false);
+    assert.strictEqual(res.reason, 'view_out_of_date');
+    assert.deepStrictEqual(log, [], 'nothing was clicked');
+  });
+
+  await test('click: a wrong selector but the right element under the point is clicked by position, and a stale selector with a matching point too', () => {
+    const { w, d, ex, log } = setup();
+    boxes(w, { save: [100, 200, 120, 30], lnk: [300, 300, 80, 20] });
+    d.elementFromPoint = () => d.getElementById('lnk');
+    const res = ex.run({ type: 'click', s: '#nothing-here', x: 0.35, y: 0.4, b: [300, 300, 80, 20] });
+    assert.strictEqual(res.ok, true);
+    assert.deepStrictEqual(log, ['click:lnk']);
+  });
+
+  await test('click: an older console (no box) still works by selector', () => {
+    const { w, d, ex, log } = setup();
+    const res = ex.run({ type: 'click', s: '#save' });
+    assert.strictEqual(res.ok, true);
+    assert.deepStrictEqual(log, ['click:save']);
+  });
+
   console.log('\n' + passed + ' passed' + (process.exitCode ? ', some FAILED' : ''));
 })();
