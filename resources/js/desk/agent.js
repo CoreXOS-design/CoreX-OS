@@ -30,7 +30,7 @@ export function start(ctx) {
     const echo = getEcho();
     const channel = echo.private(channelName);
 
-    st = { cfg, session, api, ui, echo, channel, channelName, timers: [], buffer: [], flushing: false, stopRecord: null, recording: false, drv: null, ended: false, pointerTimer: null };
+    st = { cfg, session, api, ui, echo, channel, channelName, timers: [], buffer: [], flushing: false, subscribed: false, stopRecord: null, recording: false, drv: null, ended: false, pointerTimer: null };
 
     channel
         .listen('.desk.joined', (e) => { ui.joined(e.support_name); beginRecording(); })
@@ -40,6 +40,7 @@ export function start(ctx) {
         .listen('.desk.pointer_state', (e) => { if (!e.on) hidePointer(); })
         .listenForWhisper('pointer', (p) => movePointer(p))
         .listenForWhisper('resync', () => resync())
+        .subscribed(() => { if (st) { st.subscribed = true; if (st.buffer.length) scheduleFlush(); } })
         .error(() => ui.error('Could not open the live connection. Check your internet connection and try again.'));
 
     // Keep the session alive; learn if the other side (or a timeout) already ended it.
@@ -132,7 +133,8 @@ function scheduleFlush() {
 async function flush() {
     if (!st) return;
     st.flushTimer = null;
-    if (st.flushing || !st.buffer.length) { if (st.buffer.length) scheduleFlush(); return; }
+    // Nothing is whispered before the private channel is subscribed (a page change re-subscribes first); events wait in the buffer.
+    if (!st.subscribed || st.flushing || !st.buffer.length) { if (st.buffer.length) scheduleFlush(); return; }
     st.flushing = true;
     const events = st.buffer;
     st.buffer = [];
@@ -172,17 +174,12 @@ function hidePointer() {
 
 // ── Support's highlight (the Guided Tour / driver.js look) ───────────────────────
 
+// The Guided Tour's own engine and look: the same vendored driver.js and the same themed CSS (layouts/partials/tour-theme.blade.php,
+// included on every page by the Desk partial). A page that has a tour already loaded driver.js; any other page fetches it here.
 function loadDriver() {
     if (window.driver && window.driver.js) return Promise.resolve();
     if (st && st.driverLoading) return st.driverLoading;
     const p = new Promise((resolve, reject) => {
-        if (!document.querySelector('link[data-desk-driver]')) {
-            const l = document.createElement('link');
-            l.rel = 'stylesheet';
-            l.href = '/vendor/driverjs/driver.css';
-            l.setAttribute('data-desk-driver', '');
-            document.head.appendChild(l);
-        }
         const s = document.createElement('script');
         s.src = '/vendor/driverjs/driver.js.iife.js';
         s.onload = () => resolve();
@@ -201,20 +198,31 @@ async function showHighlight(selector, note) {
     try { await loadDriver(); } catch (e) { return; }
     if (!st) return;
     target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    // Exactly the Guided Tour's "Spot Help" look: the tour's overlay colour, stage padding/radius and `corex-tour` popover, with
+    // body.corex-guide-live so the agent can still click and type on the real page (the dimming does not block the screen).
+    const dark = document.documentElement.classList.contains('dark');
+    document.body.classList.add('corex-guide-live');
     st.drv = window.driver.js.driver({
         allowClose: false,
-        overlayColor: '#0b2a4a',
+        allowKeyboardControl: false,
+        showButtons: [],
+        showProgress: false,
+        animate: true,
+        overlayColor: dark ? 'rgba(149,151,153,0.96)' : 'rgba(3,6,12,0.93)',
         overlayOpacity: 0.35,
         stagePadding: 6,
         stageRadius: 8,
-        popoverClass: 'corex-tour corex-desk-popover',
+        popoverClass: 'corex-tour',
     });
     st.drv.highlight({
         element: target,
-        popover: note ? { description: note.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])), side: 'bottom' } : undefined,
+        popover: note
+            ? { title: 'CoreX support', description: note.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])), side: 'bottom' }
+            : undefined,
     });
 }
 
 function clearHighlight() {
     if (st && st.drv) { try { st.drv.destroy(); } catch (e) { /* ignore */ } st.drv = null; }
+    document.body.classList.remove('corex-guide-live');
 }

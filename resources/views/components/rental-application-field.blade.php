@@ -37,7 +37,7 @@
     word. A short hint directly under the field, not just a stricter
     label, is the more robust fix for exactly the error he described.
 --}}
-<div @if($order !== null) style="order: {{ (int) $order }}" @endif>
+<div @if($order !== null) style="order: {{ (int) $order }}" @endif @if(str_contains($name, 'bank_account')) data-desk-mask @endif>
     <label class="block text-xs text-slate-500 mb-1">{{ $label }}@if($requiredExpr)<span x-show="{{ $requiredExpr }}" x-cloak> *</span>@elseif($required) *@endif</label>
     <input type="{{ $type }}" name="{{ $name }}" value="{{ old($name, $value) }}"
            @if($inputmode) inputmode="{{ $inputmode }}" @endif
