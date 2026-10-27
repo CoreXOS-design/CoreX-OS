@@ -3163,8 +3163,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // ── CoreX Desk sessions - the permanent audit (Compliance > Reports & Logs > Desk sessions). Own agency only; owner roles see all.
-    // Spec .ai/specs/corex-desk.md section 5 and 9.
-    Route::middleware(['permission:access_compliance', 'permission:manage_users', 'agency.required'])->prefix('compliance/desk-sessions')->name('compliance.desk-sessions.')->group(function () {
+    // Spec .ai/specs/corex-desk.md section 5 and 9. No agency.required: an owner reads every agency's sessions without switching into one.
+    Route::middleware(['permission:access_compliance', 'permission:manage_users'])->prefix('compliance/desk-sessions')->name('compliance.desk-sessions.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Compliance\DeskSessionsController::class, 'index'])->name('index');
         Route::get('/{id}', [\App\Http\Controllers\Compliance\DeskSessionsController::class, 'show'])->whereNumber('id')->name('show');
     });
