@@ -44,7 +44,7 @@
     .rts-top > :last-child { flex: 1 1 0; min-width: 0; }
     .rts-top > :only-child { flex: 1 1 0; }
     .rts-top .grid { gap: .5rem !important; grid-auto-rows: auto !important; }
-    .rts-top .grid > button { padding: .35rem .6rem !important; }
+    .rts-top .grid > button { padding: .25rem .5rem !important; }
     .rts-top .grid .text-lg { font-size: 1rem; line-height: 1.25rem; }
     .rts-tabs a { padding: .45rem .9rem; border-radius: 6px; font-size: .8125rem; font-weight: 600; border: 1px solid var(--border); background: var(--surface); color: var(--text-primary); white-space: nowrap; }
     .rts-tabs a.is-on { background: var(--brand-icon, #0ea5e9); border-color: var(--brand-icon, #0ea5e9); color: #fff; }
