@@ -199,7 +199,9 @@
 
         $isMarketable = false;
         if (!$isNew) {
-            $isMarketable = ($readinessReport->snapshotAt !== null) || $readinessReport->ready;
+            // Other Agency Stock is shared, never marketed by us: the full report can never pass for it (its seller is never on file),
+            // so Live Preview would sit greyed under "Marketing blocked". Syndication stays shut by its own rule below.
+            $isMarketable = ($readinessReport->snapshotAt !== null) || $readinessReport->ready || $property->isOtherAgencyStock();
             $cmpLive    = $readinessReport->snapshotAt !== null;
             $cmpReady   = $readinessReport->ready && !$cmpLive;
             $cmpLabel   = $cmpLive ? 'LIVE' : ($cmpReady ? 'READY' : 'BLOCKED');
@@ -427,11 +429,13 @@
 
                 {{-- Save Changes + Compliance Status live in the identity strip at the top of the page. --}}
 
+                {{-- Other Agency Stock is never syndicated (spec other-agency-stock.md 2): held shut by its own rule, not by the compliance gate. --}}
+                @php $oasSyn = $property->isOtherAgencyStock(); @endphp
                 <button type="button" data-oas-action="syndication"
                         @unless($canEdit ?? true) data-edit-only @endunless
-                        @click="{{ $isMarketable ? "synOpen=true; synStep='main'" : 'complianceModalOpen = true' }}"
-                        class="prop-action-btn prop-action-btn-neutral {{ !$isMarketable ? 'opacity-50 cursor-not-allowed' : '' }}"
-                        title="{{ !$isMarketable ? 'Marketing blocked — open Compliance Status to resolve' : 'Manage portal syndication' }}">
+                        @if($oasSyn) disabled aria-disabled="true" style="pointer-events:none;" @else @click="{{ $isMarketable ? "synOpen=true; synStep='main'" : 'complianceModalOpen = true' }}" @endif
+                        class="prop-action-btn prop-action-btn-neutral {{ (!$isMarketable || $oasSyn) ? 'opacity-50 cursor-not-allowed' : '' }}"
+                        title="{{ $oasSyn ? "Other Agency Stock is another agency's listing - it is never sent to a portal or the website." : (!$isMarketable ? 'Marketing blocked — open Compliance Status to resolve' : 'Manage portal syndication') }}">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z"/></svg>
                     Syndication
                 </button>

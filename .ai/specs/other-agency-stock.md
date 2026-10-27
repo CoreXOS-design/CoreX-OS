@@ -338,8 +338,8 @@ listing is not "marketable"):
 | **Generate Presentation** (`generate_presentation`) | disabled (also the "Generate presentation" link in the Market Position card) | the generate and coverage routes, and `PresentationGeneratorService::generateForProperty()` itself for any non-HTTP caller |
 
 Unchanged on purpose: **Syndication** stays refused by its own layers (§2); **Live Preview**, **Archive**, **Report
-Non-Compliance** keep working; **Duplicate** stays blocked (§5b). Share (taking a buyer to it) is allowed — the panel draws it
-from Core Matches only, by the existing design of `share-actions.blade.php`.
+Non-Compliance** keep working; **Duplicate** stays blocked (§5b). Share (taking a buyer to it) is allowed and is drawn on the
+property's own page as well as from Core Matches (Johan, 27 Oct 2026 — see point 4 below).
 
 **Standalone brochure — ALLOWED (Johan, 2026-10-08).** `corex.properties.brochure` (`/corex/properties/{id}/brochure`, the printable
 ad sheet) stays open for Other Agency Stock: an agent who pulled the stock may print a brochure for their buyer. This is a declared
@@ -377,8 +377,13 @@ the real edit form). An agent without the permission is refused and nothing chan
    link and the "Locked — imported from …" line (both gated on the status) disappear.
 3. Moving it to **Active** then requires a linked contact like any other listing (the exemption in §8b is for OAS only) — expected,
    but it is the first time an agent meets that rule on this property.
-4. The share-link button is not drawn on an OAS property's own page (only from Core Matches) — existing design, noted because
-   "share links" is one of the two things OAS is for.
+4. **Share is drawn on an OAS property's own page (Johan, 27 Oct 2026: OAS exists to be shared; it does not depend on any compliance switch).**
+   `share-actions.blade.php` draws the button for `isOtherAgencyStock()` as well as the live statuses, with the same chooser (copy link /
+   WhatsApp / email; my details or the listing agent's) and the same link, the public preview, which has carried the OAS exemption since
+   30 Sep (`MarketingReadinessService::isMarketable()`). `show.blade.php` also treats an OAS row as marketable for the page's own buttons so
+   Live Preview is no longer greyed under "Marketing blocked" (the full readiness report can never pass for OAS: its seller is never on
+   file); `statusFor()` itself is untouched. The Syndication button is held shut by its own OAS rule, and Ad Builder / Market Property /
+   Pitch Seller / Generate Presentation / Duplicate stay blocked by the §5c registry and §5b. Test: `OtherAgencyStockShareTest`.
 
 ### 5d. Property24 import — the advert's heading and the features (2026-10-07, extension 3.9.1; reference: P24 117580701 vs QA1 property 21181)
 
