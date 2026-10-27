@@ -177,6 +177,9 @@ class SoldPropertyImporter
                     'created_at'            => now(),
                     'updated_at'            => now(),
                 ]);
+                // Sold stock (AT-512): the status save above froze the sale before this record existed - take the real
+                // sale date / price from the sheet.
+                app(\App\Services\SoldStock\SoldStockService::class)->syncFromSoldRecord($property);
 
                 PropertyMarketingActivity::create([
                     'property_id'       => $property->id,

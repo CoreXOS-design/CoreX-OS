@@ -35,6 +35,17 @@ abstract class MicPoolSelection implements Selection
     /** Plain-English reason for this row. */
     abstract protected function reason(object $row, SelectionContext $ctx): string;
 
+    /**
+     * The line and the structured facts for one row, stored on the list item at the moment it is offered (road-to-sold.md 22.5). A source
+     * that has numbers and names overrides this; the default is its plain reason() with no facts.
+     *
+     * @return array{line:string,facts:?array}
+     */
+    protected function explain(object $row, SelectionContext $ctx): array
+    {
+        return ['line' => $this->reason($row, $ctx), 'facts' => null];
+    }
+
     /** Whether the agent's own still-held properties are skipped (follow-ups bring them back when due). */
     protected function skipOwnHeld(): bool
     {
@@ -105,14 +116,16 @@ abstract class MicPoolSelection implements Selection
                     }
                 }
 
+                $why = $this->explain($row, $ctx);
                 $c = new Candidate(
                     trackedPropertyId: $tid,
                     prospectingListingId: (int) $row->listing_id,
                     propertyId: $row->matched_property_id ? (int) $row->matched_property_id : null,
                     selection: $this->key(),
-                    reason: $this->reason($row, $ctx),
+                    reason: $why['line'],
                     hasAddress: (bool) $row->has_address,
                     inArea: (bool) $row->in_area,
+                    facts: $why['facts'],
                 );
                 if (isset($seen[$c->dedupeKey()])) {
                     continue; // the P24 / PP twin of one already taken

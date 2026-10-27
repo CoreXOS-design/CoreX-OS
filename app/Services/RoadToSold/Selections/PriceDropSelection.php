@@ -45,6 +45,11 @@ final class PriceDropSelection extends MicPoolSelection
         $q->orderByDesc('ph.changed_at')->orderByDesc('drop_pct');
     }
 
+    protected function explain(object $row, SelectionContext $ctx): array
+    {
+        return \App\Services\RoadToSold\Reasons\ReasonLine::priceDrop((int) $row->old_price, (int) $row->new_price, $row->changed_at);
+    }
+
     protected function reason(object $row, SelectionContext $ctx): string
     {
         return 'Price dropped ' . rtrim(rtrim(number_format((float) $row->drop_pct, 1), '0'), '.') . '% on '

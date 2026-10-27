@@ -13,8 +13,8 @@ use Illuminate\Support\Carbon;
  * end date, so nothing is guessed from one. It must have happened inside the agency's look-back (default 30 days), no other advert for the
  * same property may be live, and the property may not be sold / under offer on any portal. Most recently withdrawn first.
  *
- * The line says "Withdrawn from <portal> <n> days ago" - a withdrawal can be a relist elsewhere or a seller's change of mind, so the line
- * states the fact rather than calling it "expired".
+ * The line reads "Expired with <agency> <date>" (Johan's wording, 27 Oct); the structured facts keep what CoreX actually knows - the portal said
+ * WITHDRAWN on that date - so a withdrawal that was a relist or a change of mind can still be told apart.
  */
 final class ExpiredCompetitorSelection extends MicPoolSelection
 {
@@ -57,13 +57,13 @@ final class ExpiredCompetitorSelection extends MicPoolSelection
         $q->orderByDesc('withdrawn_at');
     }
 
+    protected function explain(object $row, SelectionContext $ctx): array
+    {
+        return \App\Services\RoadToSold\Reasons\ReasonLine::expiredCompetitor($row->listing_agency ?? null, $row->portal_source === 'pp' ? 'Private Property' : 'Property24', $row->withdrawn_at);
+    }
+
     protected function reason(object $row, SelectionContext $ctx): string
     {
-        $days = (int) Carbon::parse($row->withdrawn_at)->startOfDay()->diffInDays(Carbon::instance($ctx->date)->startOfDay());
-        $when = $days <= 0 ? 'today' : "{$days} " . ($days === 1 ? 'day' : 'days') . ' ago';
-        $portal = $row->portal_source === 'pp' ? 'Private Property' : 'Property24';
-        $by = trim((string) ($row->listing_agency ?? ''));
-
-        return "Withdrawn from {$portal} {$when}" . ($by !== '' ? " (listed by {$by})" : '');
+        return $this->explain($row, $ctx)['line'];
     }
 }

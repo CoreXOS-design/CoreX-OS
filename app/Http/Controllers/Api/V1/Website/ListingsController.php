@@ -125,6 +125,11 @@ class ListingsController extends Controller
             ->whereHas('websiteSyndication', fn ($q) => $q
                 ->where('agency_api_key_id', $keyId)
                 ->where('enabled', true))
+            // Sold-stock fix (AT-512, .ai/specs/sold-stock.md section 2C): the FOR-SALE feed only ever carries
+            // on-market stock. Prospecting / Sold / Not selling / any off-market status can never leak through an
+            // enabled pivot row; sold sales are served from /sold (sold_stock). Other Agency Stock is never ours.
+            ->onMarket()
+            ->where(fn ($q) => $q->whereNull('status')->orWhere('status', '!=', Property::STATUS_OTHER_AGENCY_STOCK))
             ->where(fn ($q) => $q
                 ->whereNull('status')
                 ->orWhereNotIn('status', self::NEVER_PUBLIC_STATUSES))

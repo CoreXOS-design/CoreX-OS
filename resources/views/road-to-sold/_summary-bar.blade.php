@@ -26,7 +26,7 @@
                 </div>
                 <div class="text-[11px] mt-0.5" style="color: var(--text-muted);">
                     @if($should !== null && $should > 0)
-                        {{ round($step['pct']) }}% of where you should be · {{ $statusWord }}
+                        <span class="rts-long">{{ round($step['pct']) }}% of where you should be · </span>{{ $statusWord }}
                     @elseif($should !== null)
                         No target this month
                     @else

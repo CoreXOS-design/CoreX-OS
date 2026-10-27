@@ -81,6 +81,7 @@
         @endauth
     </head>
     <body class="font-sans antialiased corex-ui-v2">
+        @php $__embed = \App\Support\Embed::on(); @endphp
         {{-- AT-230 — per-company demo watermark + page-view beacon. Renders
              NOTHING unless this is a demo instance with a resolved grant.
              This layout backs ~231 views — MORE than corex-app.blade.php. Leaving
@@ -93,10 +94,12 @@
              is pushed down, never overlapped. Empty banner = single flex child
              = exactly 100vh = identical to before (zero layout shift on live). --}}
         <div class="h-screen flex flex-col overflow-hidden">
+        @unless($__embed ?? false)
         @include('partials._env-banner')
         <x-outbound-mail-banner />
         {{-- CoreX Desk: the red "support is viewing this window" bar + Get help screen (hidden until used). Spec .ai/specs/corex-desk.md --}}
         @include('layouts.partials.desk-client')
+        @endunless
         {{-- Mobile sidebar toggle.
 
              CLICK-TO-TOGGLE, 2026-09-12 — Johan, live on QA1, after
@@ -150,6 +153,7 @@
              @rental-markup-view-toggled.window="markupModeActive = $event.detail.open"
              class="flex flex-1 min-h-0 overflow-hidden" style="background:var(--bg)">
 
+            @unless($__embed)
             {{-- Mobile overlay — unchanged; markup-mode's own aside width
                  toggle (below) is independent of this and never shows a
                  dark scrim, since an expanded aside in markup mode pushes
@@ -207,11 +211,13 @@
                     :title="markupSidebarExpanded ? 'Collapse menu' : 'Expand menu'">
                 <span x-text="markupSidebarExpanded ? '‹' : '›'" style="font-size: 13px; line-height: 1;"></span>
             </button>
+@endunless
 
             {{-- Main area --}}
             <div class="flex-1 flex flex-col overflow-hidden min-w-0">
                 {{-- AT-451 — one-line warning when this user has every alert switched off --}}
-                @include('layouts.partials._alerts-off-bar')
+                @unless($__embed)@include('layouts.partials._alerts-off-bar')@endunless
+@unless($__embed)
                 {{-- Mobile header --}}
                 <div class="corex-mobile-bar flex items-center lg:hidden px-4 py-2">
                     <button @click="sidebarOpen = true" type="button" style="color:var(--text-secondary)">
@@ -221,6 +227,7 @@
                     </button>
                     <span class="ml-3 text-sm font-bold" style="color:var(--text-primary)">CoreX <span style="color:var(--accent)">Os</span></span>
                 </div>
+@endunless
 
                 {{-- Content --}}
                 <main id="appScroll" class="flex-1 overflow-y-auto p-4 lg:p-6" style="background:var(--bg)">
@@ -252,6 +259,7 @@
         <x-toast-notifications />
 
         {{-- Combined Help Widget (Ellie + Feedback) — header-mounted panel --}}
+        @unless($__embed)
         @auth
             @include('layouts.partials.help-widget')
         @endauth
@@ -268,6 +276,8 @@
         {{-- Welcome pop-up — new agency Admin's first successful login.
              Spec: .ai/specs/agency-admin-rule.md §R1b --}}
         @include('layouts.partials.welcome-onboarding-modal')
+        @endunless
+        @includeWhen($__embed, 'layouts.partials._embed-done')
 
         {{-- Portal Leads real-time toast (P24 + PP). Spec: .ai/specs/portal-leads.md --}}
         @include('components.portal-lead-toast')

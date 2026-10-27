@@ -120,6 +120,12 @@ class ProspectService
                         'prospecting_listing_id' => $row->prospecting_listing_id ?: ($attrs['prospecting_listing_id'] ?? null),
                         'property_id'            => $row->property_id ?: ($attrs['property_id'] ?? null),
                     ]);
+                    // Offered again while still untouched (found, never called): it is a fresh offer, so the line and facts say why it is offered NOW.
+                    if ($row->stage === ProspectStages::FOUND && $row->last_outcome_id === null && ! empty($attrs['reason'])) {
+                        $fill['reason'] = mb_substr((string) $attrs['reason'], 0, 255);
+                        $fill['reason_facts'] = $attrs['reason_facts'] ?? null;
+                        $fill['selection'] = $attrs['selection'] ?? $row->selection;
+                    }
                     if ($fill !== []) {
                         $row->forceFill($fill)->save();
                     }
@@ -315,11 +321,50 @@ class ProspectService
     public function release(RtsProspect $p, ?User $actor = null, ?string $note = null): RtsProspect
     {
         if ($p->released_at === null && $p->closed_at === null) {
-            $p->forceFill(['released_at' => now(), 'released_by_user_id' => $actor?->id])->save();
+            $p->forceFill(['released_at' => now(), 'released_by_user_id' => $actor?->id, 'next_action_key' => null, 'next_action_label' => null, 'next_action_at' => null])->save();
             $this->log($p, RtsProspectEvent::RELEASE, $p->stage, $p->stage, $actor, ['note' => $note]);
+            $this->giveBackMarketIntelligence($p, $actor, $note);
+            // the agent's open rows for it are no longer theirs to work
+            \App\Models\RoadToSold\RtsListItem::withoutGlobalScopes()->where('agency_id', $p->agency_id)->where('track', $p->track)
+                ->where('user_id', $p->user_id)->where('tracked_property_id', $p->tracked_property_id)->where('status', \App\Models\RoadToSold\RtsListItem::STATUS_OPEN)
+                ->update(['status' => \App\Models\RoadToSold\RtsListItem::STATUS_MISSED, 'status_changed_at' => now()]);
         }
 
         return $p;
+    }
+
+    /**
+     * Giving a property back also hands back what the agent holds on it in Market Intelligence - their active claim on any of its adverts and
+     * their pitch lock on it - or the property would stay blocked for everyone else. Through the claim service's own release methods; a failure
+     * here is logged and never stops the release itself.
+     */
+    private function giveBackMarketIntelligence(RtsProspect $p, ?User $actor, ?string $note): void
+    {
+        try {
+            $claims = app(\App\Services\Prospecting\ProspectingClaimService::class);
+            $by = (int) ($actor?->id ?: $p->user_id);
+            $listingIds = DB::table('prospecting_listings')->where('agency_id', $p->agency_id)->where('tracked_property_id', $p->tracked_property_id)->pluck('id')->map(fn ($v) => (int) $v)->all();
+            if ($p->prospecting_listing_id) {
+                $listingIds[] = (int) $p->prospecting_listing_id;
+            }
+            $listingIds = array_values(array_unique($listingIds));
+
+            $locks = DB::table('prospecting_pitch_locks')->where('agency_id', $p->agency_id)->where('user_id', $p->user_id)->whereNull('released_at')
+                ->where(fn ($w) => $w->where('tracked_property_id', $p->tracked_property_id)->when($listingIds !== [], fn ($x) => $x->orWhereIn('prospecting_listing_id', $listingIds)))
+                ->pluck('id');
+            foreach ($locks as $lockId) {
+                $claims->releaseLock((int) $lockId, $by, $note);
+            }
+            if ($listingIds !== []) {
+                $open = DB::table('prospecting_claims')->where('agency_id', $p->agency_id)->where('user_id', $p->user_id)->where('is_active', 1)
+                    ->whereNull('released_at')->whereNull('deleted_at')->whereIn('prospecting_listing_id', $listingIds)->pluck('id');
+                foreach ($open as $claimId) {
+                    $claims->releaseClaim((int) $claimId, $by, 'Given back from Road to Sold' . ($note ? ': ' . $note : ''));
+                }
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Road to Sold could not hand back the Market Intelligence claim or lock (the release stands)', ['prospect_id' => $p->id, 'message' => $e->getMessage()]);
+        }
     }
 
     /** The prospect's story is over (registered, lost, do not contact). A property flagged do-not-contact stays closed for everyone. */

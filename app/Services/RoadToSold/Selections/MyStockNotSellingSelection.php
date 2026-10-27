@@ -95,8 +95,7 @@ final class MyStockNotSellingSelection extends OwnStockSelection
         $window = (int) $ctx->settings->stuckStockLookbackDays;
 
         return $this->toCandidates($rows, $ctx, $limit, function ($r) use ($window) {
-            return "{$r->days} days on the market, only {$r->views} views and {$r->leads} "
-                . ($r->leads === 1 ? 'enquiry' : 'enquiries') . " in the last {$window} days";
+            return \App\Services\RoadToSold\Reasons\ReasonLine::notSelling((int) $r->days, (int) $r->views, (int) $r->leads, $window);
         }, $this->key());
     }
 }

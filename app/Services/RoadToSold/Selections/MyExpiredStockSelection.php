@@ -43,11 +43,7 @@ final class MyExpiredStockSelection extends OwnStockSelection
             ->get();
 
         return $this->toCandidates($rows, $ctx, $limit, function ($row) {
-            $still = $row->status !== 'expired' ? ' (the listing is still showing as live)' : '';
-
-            return $row->expiry_date
-                ? 'Your mandate expired on ' . Carbon::parse($row->expiry_date)->format('j M Y') . $still . ' — pitch again'
-                : 'Your mandate has expired — pitch again';
+            return \App\Services\RoadToSold\Reasons\ReasonLine::myExpired($row->expiry_date ? Carbon::parse($row->expiry_date) : null, $row->status !== 'expired');
         }, $this->key());
     }
 }

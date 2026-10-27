@@ -51,6 +51,23 @@ final class OwnerKnownSelection extends MicPoolSelection
         $q->orderByDesc('pl.last_seen_at');
     }
 
+    protected function explain(object $row, SelectionContext $ctx): array
+    {
+        $name = null;
+        $tid = $row->tracked_property_id ? (int) $row->tracked_property_id : null;
+        if ($tid) {
+            $ownerId = \Illuminate\Support\Facades\DB::table('tracked_properties')->where('id', $tid)->value('owner_contact_id')
+                ?: \Illuminate\Support\Facades\DB::table('tracked_property_owners')->where('tracked_property_id', $tid)->whereNotNull('contact_id')->orderBy('id')->value('contact_id');
+            if ($ownerId) {
+                $c = \Illuminate\Support\Facades\DB::table('contacts')->where('id', $ownerId)->whereNull('deleted_at')->first(['first_name', 'last_name']);
+                $name = $c ? (trim($c->first_name . ' ' . $c->last_name) ?: null) : null;
+            }
+        }
+        $last = $tid ? \Illuminate\Support\Facades\DB::table('rts_contact_outcomes')->where('agency_id', $ctx->agencyId)->where('tracked_property_id', $tid)->whereNull('deleted_at')->max('occurred_at') : null;
+
+        return \App\Services\RoadToSold\Reasons\ReasonLine::ownerKnown($name, $last ? \Illuminate\Support\Carbon::parse($last) : null);
+    }
+
     protected function reason(object $row, SelectionContext $ctx): string
     {
         return 'We already have the owner on file';

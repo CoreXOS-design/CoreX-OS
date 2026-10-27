@@ -109,7 +109,9 @@ final class ThirdPartySaleExclusionsTest extends TestCase
         // stopped worker has stranded thousands of jobs on this system before.
         // A competitor's sale in the agency's own "recently sold" wall is the most
         // misleading thing the site could tell a prospective seller.
-        $this->assertContains('ZZZ-OurSale', $titles->all(), 'An agency still showcases its OWN sold stock.');
+        // AT-512: the agency's OWN sold stock is no longer served by /listings at all - the Sold showcase reads
+        // GET /api/v1/website/sold (sold_stock), so a status change can never turn a sale into a for-sale advert.
+        $this->assertNotContains('ZZZ-OurSale', $titles->all(), 'Sold stock is served from /sold, never from the for-sale feed.');
         $this->assertNotContains('ZZZ-TheirSale', $titles->all(), "A competitor's sale must never reach the website.");
 
         // Nor by asking for it explicitly.

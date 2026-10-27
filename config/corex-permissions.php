@@ -584,6 +584,8 @@ return [
         // AT-419 — separate from access_properties so Imported Stock visibility
         // can be toggled per role independently of the main Properties page.
         ['key' => 'access_imported_stock',       'label' => 'Access Imported Stock',       'section' => 'properties',       'type' => 'access',  'module' => 'properties',       'sort_order' => 1.1],
+        // Sold stock (AT-512, .ai/specs/sold-stock.md) - the agency's frozen sales; own/branch/agency per the Properties data scope.
+        ['key' => 'access_sold_stock',           'label' => 'Access Sold Stock',           'section' => 'properties',       'type' => 'access',  'module' => 'properties',       'sort_order' => 1.2],
         ['key' => 'create_properties',           'label' => 'Create & Edit Properties',    'section' => 'properties',       'type' => 'access',  'module' => 'properties',       'sort_order' => 2],
         ['key' => 'publish_properties',          'label' => 'Publish Properties',          'section' => 'properties',       'type' => 'access',  'module' => 'properties',       'sort_order' => 3],
         ['key' => 'delete_properties',           'label' => 'Delete Properties',           'section' => 'properties',       'type' => 'access',  'module' => 'properties',       'sort_order' => 4],
@@ -642,6 +644,9 @@ return [
         ['key' => 'road_to_sold.manage_recipe',    'label' => 'Manage the recipe (steps, tasks, levels)', 'section' => 'road-to-sold', 'type' => 'action', 'module' => 'road_to_sold', 'sort_order' => 14],
         ['key' => 'road_to_sold.view_funnel',      'label' => 'See the team funnel, training flags and suggested targets', 'section' => 'road-to-sold', 'type' => 'action', 'module' => 'road_to_sold', 'sort_order' => 17],
         ['key' => 'road_to_sold.signoff_levels',   'label' => 'Sign off agents\' levels (approve or send back)', 'section' => 'road-to-sold', 'type' => 'action', 'module' => 'road_to_sold', 'sort_order' => 16],
+        // Road to Sold v3 (spec 22.6): give a property an agent holds back to the pool, with a reason. Owner roles by the owner rule, admin by
+        // all-minus-exclude, branch managers by the list below; agents hold no key. Breadth is road_to_sold.view, applied in the query.
+        ['key' => 'road_to_sold.release_prospects', 'label' => 'Give an agent\'s property back to the pool (reason required)', 'section' => 'road-to-sold', 'type' => 'action', 'module' => 'road_to_sold', 'sort_order' => 18],
 
         // ── Core Matches ──
         ['key' => 'access_core_matches',        'label' => 'Access Core Matches',         'section' => 'core-matches',     'type' => 'access',  'module' => 'core_matches',     'sort_order' => 1],
@@ -1295,14 +1300,14 @@ return [
                 'access_pdf_splitter', 'access_pdf_suite', 'access_image_converter',
                 'access_deposit_calculator', 'access_deposit_calc_history',
                 'access_prospecting', 'access_evaluation',
-                'access_properties', 'access_imported_stock', 'create_properties', 'publish_properties', 'delete_properties',
+                'access_properties', 'access_sold_stock', 'access_imported_stock', 'create_properties', 'publish_properties', 'delete_properties',
                 'properties.view', 'properties.create', 'properties.edit', 'properties.ad_templates.manage', 'properties.share',
                 'access_contacts',
                 'contacts.view', 'contacts.create', 'contacts.edit', 'contacts.archive',
                 'contacts.delete', 'contacts.whatsapp', 'contacts.email', 'contacts.export',
                 'contacts.reassign_agent', // AT-118 hardening — managers reassign contact agents
                 // AT-454 — Road to Sold: branch managers see their branch and assign areas / set targets for it.
-                'access_road_to_sold', 'road_to_sold.view', 'road_to_sold.manage_areas', 'road_to_sold.manage_targets', 'road_to_sold.review_completions', 'road_to_sold.signoff_levels', 'road_to_sold.view_funnel',
+                'access_road_to_sold', 'road_to_sold.view', 'road_to_sold.manage_areas', 'road_to_sold.manage_targets', 'road_to_sold.review_completions', 'road_to_sold.signoff_levels', 'road_to_sold.view_funnel', 'road_to_sold.release_prospects',
                 'access_core_matches',
                 'core_matches.view', 'core_matches.create', 'core_matches.delete', 'core_matches.manage', 'core_matches.convert_to_deal',
                 'buyer_notes.view', // who may read notes on a buyer — own/branch/agency via scope_defaults + Role Manager
@@ -1472,7 +1477,7 @@ return [
                 'access_calculators', 'access_ad_manager', 'ad_manager.view', 'ad_manager.schedule_posts', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai', 'access_flow_map',
                 'access_pdf_splitter', 'access_pdf_suite', 'access_image_converter',
                 'access_prospecting', 'access_evaluation',
-                'access_properties', 'access_imported_stock', 'create_properties',
+                'access_properties', 'access_sold_stock', 'access_imported_stock', 'create_properties',
                 'properties.view', 'properties.create', 'properties.edit', 'properties.share',
                 'access_contacts',
                 'contacts.view', 'contacts.create', 'contacts.edit',
@@ -1597,7 +1602,7 @@ return [
                 'access_sales_documents', 'sales_docs.view',
                 'access_calculators', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai', 'access_flow_map',
                 'access_prospecting', 'access_evaluation',
-                'access_properties', 'access_imported_stock', 'properties.view',
+                'access_properties', 'access_sold_stock', 'access_imported_stock', 'properties.view',
                 'access_contacts', 'contacts.view', 'contacts.export',
                 'access_core_matches', 'core_matches.view',
                 'buyer_notes.view',
@@ -1732,7 +1737,7 @@ return [
                 'access_finance_engine', 'access_flow_map', 'access_franchise_admin', 'access_image_converter',
                 'access_import_listings', 'access_knowledge_base', 'access_listing_stock', 'access_my_portal',
                 'access_pdf_splitter', 'access_pdf_suite', 'access_policy', 'access_portal_leads',
-                'access_presentations', 'access_properties', 'access_prospecting', 'access_rmcp',
+                'access_presentations', 'access_properties', 'access_sold_stock', 'access_prospecting', 'access_rmcp',
                 'access_sales_documents', 'access_settings', 'access_shared_drive',
                 'access_soft_deletes', 'access_supervision', 'access_training', 'access_tv_messages',
                 'access_viewing_packs', 'access_worksheet_market', 'ad_manager.view', 'ad_manager.schedule_posts', 'ad_manager.company_ads', 'adjust_leave_balances',

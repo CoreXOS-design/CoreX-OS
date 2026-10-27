@@ -119,6 +119,7 @@ final class RealEstateMenuTabsTest extends TestCase
             'properties' => [
                 'properties' => fn (User $u) => $p($u, 'access_properties') && (bool) config('features.properties'),
                 'imported-stock' => fn (User $u) => $f($u, 'imported-stock') && $p($u, 'access_imported_stock'),
+                'sold-stock' => fn (User $u) => $p($u, 'access_sold_stock'),
                 'map' => fn (User $u) => $p($u, 'access_properties'),
             ],
             'buyers' => [
@@ -183,7 +184,7 @@ final class RealEstateMenuTabsTest extends TestCase
                 }
             }
         }
-        $this->assertSame(5 * 25, $checked);
+        $this->assertSame(5 * 26, $checked);
     }
 
     public function test_the_real_estate_menu_has_the_seven_items_and_none_of_the_old_ones(): void

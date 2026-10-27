@@ -614,18 +614,19 @@ class Phase2WebsiteApiTest extends TestCase
         $this->syndicate($active, true);
         $this->syndicate($sold, true);
 
-        // No filter → both (sold is showcased by default, per Johan's call).
+        // No filter → only the on-market one. Sold stock moved to GET /api/v1/website/sold (sold_stock) - AT-512, sold-stock.md 2C.
         $all = $this->withToken($this->token)->getJson('/api/v1/website/listings')->assertOk();
-        $this->assertEqualsCanonicalizing(['Live one', 'Sold one'], collect($all->json('data'))->pluck('title')->all());
+        $this->assertSame(['Live one'], collect($all->json('data'))->pluck('title')->all());
+        $this->withToken($this->token)->getJson('/api/v1/website/listings?status=sold')->assertOk()->assertJsonCount(0, 'data');
 
         // ?status=active → only the active one.
         $only = $this->withToken($this->token)->getJson('/api/v1/website/listings?status=active')->assertOk();
         $this->assertSame(['Live one'], collect($only->json('data'))->pluck('title')->all());
         $this->assertSame(1, $only->json('meta.total'));
 
-        // CSV honours multiple states.
+        // CSV honours multiple states, but a Sold one is never served by the for-sale feed (AT-512).
         $both = $this->withToken($this->token)->getJson('/api/v1/website/listings?status=active,sold')->assertOk();
-        $this->assertSame(2, $both->json('meta.total'));
+        $this->assertSame(1, $both->json('meta.total'));
     }
 
     public function test_status_filter_cannot_surface_a_never_public_status(): void

@@ -31,6 +31,9 @@ final class LaneFollowUpSource implements FollowUpSource
                 reason: $parked
                     ? 'Back from parked (' . ($p->park_reason_label ?: 'set aside') . '), due ' . $p->parked_until->format('j M')
                     : $this->describe($p),
+                facts: $parked
+                    ? ['kind' => 'back_from_parked', 'reason' => $p->park_reason_label, 'parked_on' => $p->parked_at?->toDateString(), 'due' => $p->parked_until->toDateString(), 'from_stage' => $p->parked_from_stage]
+                    : ['kind' => 'follow_up', 'action' => $p->next_action_label, 'due' => $p->next_action_at?->toDateString(), 'tries' => (int) $p->tries, 'stage' => $p->stage],
             );
         }
         foreach (app(OutcomeService::class)->followUpsDue($user, $date, $track) as $o) {
@@ -42,6 +45,7 @@ final class LaneFollowUpSource implements FollowUpSource
                 prospectingListingId: $o->prospecting_listing_id ? (int) $o->prospecting_listing_id : null,
                 propertyId: $o->property_id ? (int) $o->property_id : null,
                 reason: 'Follow-up: ' . ($o->outcome_label ?: 'call back') . ', due ' . $o->next_action_at->format('j M'),
+                facts: ['kind' => 'follow_up', 'outcome' => $o->outcome_label, 'due' => $o->next_action_at->toDateString(), 'tries' => (int) $o->no_answer_streak],
             );
         }
 

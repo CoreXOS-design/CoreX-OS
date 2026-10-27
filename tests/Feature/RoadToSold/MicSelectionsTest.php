@@ -71,8 +71,8 @@ final class MicSelectionsTest extends TestCase
         $c = BuyerSourcingSelection::mine()->candidates($this->ctx(), 50);
 
         $this->assertSame([$forBoth, $forMine], $this->listingIds($c), 'two of my buyers beats one; mate\'s, lost, cold, weak, dismissed are out');
-        $this->assertStringContainsString('2 of your buyers are looking', $c[0]->reason);
-        $this->assertStringContainsString('1 of your buyers is looking', $c[1]->reason);
+        $this->assertStringContainsString('2 of your buyers match: ', $c[0]->reason);
+        $this->assertStringContainsString('1 of your buyers matches: ', $c[1]->reason);
     }
 
     public function test_agency_buyers_sourcing_uses_every_agents_active_buyers(): void
@@ -91,7 +91,7 @@ final class MicSelectionsTest extends TestCase
         $c = BuyerSourcingSelection::agency()->candidates($this->ctx(), 50);
 
         $this->assertSame([$a, $b], $this->listingIds($c));
-        $this->assertStringContainsString('2 active buyers are looking', $c[0]->reason);
+        $this->assertStringContainsString('Agency has 2 buyers (', $c[0]->reason);
     }
 
     public function test_buyers_of_another_agency_never_count(): void
@@ -142,8 +142,8 @@ final class MicSelectionsTest extends TestCase
         $c = (new PriceDropSelection())->candidates($this->ctx(), 50);
 
         $this->assertSame([$recent, $bigger], $this->listingIds($c), 'most recent drop first');
-        $this->assertStringContainsString('Price dropped 5% on 12 Oct', $c[0]->reason);
-        $this->assertStringContainsString('R 2,000,000 to R 1,900,000', $c[0]->reason);
+        $this->assertSame('Price drop R100k on 12 Oct', $c[0]->reason);
+        $this->assertSame(5.0, (float) $c[0]->facts['pct']);
     }
 
     public function test_price_drop_window_is_the_agency_setting(): void
@@ -185,9 +185,9 @@ final class MicSelectionsTest extends TestCase
         foreach ([$stale, $oldReal, $seenOld] as $never) {
             $this->assertNotContains($never, $ids);
         }
-        $this->assertSame('Listed 1 day ago', $c[0]->reason);
-        $this->assertSame('First seen by us 2 days ago (listed date not known)', $c[1]->reason);
-        $this->assertSame('Listed 4 days ago', $c[2]->reason);
+        $this->assertSame('New on market 1 day', $c[0]->reason);
+        $this->assertSame('New on market 2 days (first seen by us)', $c[1]->reason);
+        $this->assertSame('New on market 4 days', $c[2]->reason);
     }
 
     public function test_new_on_market_window_is_the_agency_setting(): void
@@ -210,8 +210,8 @@ final class MicSelectionsTest extends TestCase
         $c = (new LongOnMarketSelection())->candidates($this->ctx(), 50);
 
         $this->assertSame([$realOld, $seenOld], $this->listingIds($c));
-        $this->assertSame('On the market for 166 days', $c[0]->reason);
-        $this->assertStringContainsString('at least 135 days (first seen by us; listed date not known)', $c[1]->reason);
+        $this->assertSame('Long on market 166 days', $c[0]->reason);
+        $this->assertStringContainsString('Long on market at least 135 days (first seen by us)', $c[1]->reason);
     }
 
     public function test_long_on_market_window_is_the_agency_setting(): void

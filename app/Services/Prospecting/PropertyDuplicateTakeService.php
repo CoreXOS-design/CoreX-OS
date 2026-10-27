@@ -36,6 +36,7 @@ class PropertyDuplicateTakeService
 
         $property->status = Property::STATUS_PROSPECTING;
         $property->agent_id = $capturingAgent->id;
+        $property->cycleStartReason = 'deeds'; // a Sold property starts a new listing cycle (sold-stock.md section 2D)
         $property->save();
 
         $this->auditService->log(

@@ -45,6 +45,21 @@ final class ComposerController extends Controller
 
         $linkedProperties = $this->loadLinkedProperties($agencyId, $contact);
 
+        // Road to Sold (road-to-sold.md 22.10 step 2): opened from a prospect's row on a contact with no property, the property is made from
+        // the MIC address now, so the agent never lands on "No property or address to pitch about". If none can be made, the address capture.
+        if ($linkedProperties->isEmpty() && $request->filled('rts_prospect')) {
+            $pitchPath = app(\App\Services\RoadToSold\PitchPathService::class);
+            $prospect = $pitchPath->prospectFor($request, $request->user());
+            if ($prospect && ! $contact->hasStructuredAddress()) {
+                if ($pitchPath->ready($prospect, $contact, $request->user())) {
+                    $linkedProperties = $this->loadLinkedProperties($agencyId, $contact);
+                } else {
+                    return redirect()->to($pitchPath->next($prospect, $request->user(), $pitchPath->carry($request))['url'])
+                        ->with('error', 'Add the property address first - there is nothing to pitch about yet.');
+                }
+            }
+        }
+
         // Other Agency Stock can never be pitched (spec other-agency-stock.md §5c): refuse a
         // direct address to it, and keep it out of the picker / the "first linked" default.
         // A contact may stay linked to it — that link is allowed, only the pitch is not.

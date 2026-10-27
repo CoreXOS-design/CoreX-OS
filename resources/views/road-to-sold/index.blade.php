@@ -36,7 +36,7 @@
     $listView = in_array($filters['view'], ['today', 'no_owner'], true);
 @endphp
 
-<div class="w-full space-y-4 rts-page" x-data="rtsPage(@js($pageConfig))">
+<div class="w-full rts-page rts-fit" x-data="rtsPage(@js($pageConfig))">
     @include('road-to-sold._controls')
 
     <div class="rounded-md px-6 py-3 corex-page-banner rts-sticky">
@@ -117,15 +117,32 @@
         </div>
     @endif
 
-    {{-- The Team view is about everyone: the viewer's own next action, summary tiles and tasks do not belong above it. --}}
+    {{-- What to do next and where the month stands stay in view on every block (the team view is about everyone, so not there). --}}
     @unless($isTeam)
-        @include('road-to-sold._recipe', ['part' => 'next'])
+        <div class="rts-top">
+            @include('road-to-sold._recipe', ['part' => 'next'])
 
-        @include('road-to-sold._summary-bar')
+            @include('road-to-sold._summary-bar')
+        </div>
+    @endunless
 
+    @include('road-to-sold._blocks-bar')
+
+    @if(($canRelease ?? false) && in_array($block, ['prospects', 'parked'], true))
+        @include('road-to-sold._release-modal')
+    @endif
+
+    <div class="rts-block-body {{ $block === 'progress' ? '' : 'is-fit' }}">
+    @if($block === 'progress')
+    @unless($isTeam)
         @include('road-to-sold._recipe', ['part' => 'tasks'])
     @endunless
 
+    @elseif($block === 'prospects')
+        @include('road-to-sold._block-prospects')
+    @elseif($block === 'parked')
+        @include('road-to-sold._block-parked')
+    @else
     {{-- Filters --}}
     <form method="GET" class="flex items-end gap-3 flex-wrap">
         @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
@@ -224,33 +241,20 @@
         @endif
     </form>
 
-    @if($listView && $counts['any'] > 0 && $canAddToDay && $date->isToday() && count($addChoices))
-        <div class="flex items-center justify-end text-xs">
-            <form method="POST" action="{{ route('road-to-sold.add-to-day') }}" class="flex items-center gap-2">
-                @csrf
-                @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
-                <select name="selection" aria-label="Selection to add from" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}">
-                    @foreach($addChoices as $k => $l)<option value="{{ $k }}">{{ $l }}</option>@endforeach
-                </select>
-                <input type="number" name="count" min="1" max="{{ $addMax ?? 100 }}" value="5" aria-label="How many to add" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }} width: 5rem;">
-                <button type="submit" class="corex-btn-outline corex-btn-xs">Add to my day</button>
-            </form>
-        </div>
-    @endif
 
     @if($isCaptures)
         @include('road-to-sold._captures')
     @else
-    {{-- The list --}}
-    <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
+    {{-- The list: fills the block under the filters; only IT scrolls (inside itself) when there are more rows than fit --}}
+    <div class="rounded-md rts-grow" style="background: var(--surface); border: 1px solid var(--border);" data-qa="intake-table">
         <table class="w-full text-xs ds-table">
             <thead>
                 <tr style="color: var(--text-muted);">
+                    <th class="px-3 py-2 text-left">Why - start here</th>
                     <th class="px-3 py-2 text-left">Address</th>
                     <th class="px-3 py-2 text-right">Price</th>
                     <th class="px-3 py-2 text-right">Days on market</th>
                     <th class="px-3 py-2 text-left">Listing agency</th>
-                    <th class="px-3 py-2 text-left">Why suggested</th>
                     <th class="px-3 py-2 text-left">Owner</th>
                     <th class="px-3 py-2 text-left">Last outcome</th>
                     <th class="px-3 py-2 text-right"></th>
@@ -260,18 +264,22 @@
             @forelse($rowsPage as $r)
                 @php $lo = $r['last_outcome']; @endphp
                 <tr style="border-top: 1px solid var(--border);">
+                    <td class="px-3 py-2 font-semibold" style="color: var(--text-primary); min-width: 14rem;" data-qa="intake-why">
+                        <div class="rts-clamp2" title="{{ $r['why'] }}">@if(($r['origin'] ?? null) === 'follow_up')<span class="rts-chip">Follow-up</span> @endif{{ $r['why'] ?: '-' }}</div>
+                    </td>
                     <td class="px-3 py-2" style="color: var(--text-primary);">
-                        <div class="font-semibold">{{ $r['street'] !== '' ? $r['street'] : $r['address'] }}</div>
-                        @if($r['street'] !== '' && $r['suburb'])<div style="color: var(--text-muted);">{{ $r['suburb'] }}</div>@endif
+                        <div class="font-semibold rts-nw" title="{{ $r['address'] }}">{{ $r['street'] !== '' ? $r['street'] : $r['address'] }}</div>
+                        @if($r['street'] !== '' && $r['suburb'])<div class="rts-nw" style="color: var(--text-muted);">{{ $r['suburb'] }}</div>@endif
                     </td>
                     <td class="px-3 py-2 text-right whitespace-nowrap" style="color: var(--text-primary);">{{ $money($r['price']) ?: '-' }}</td>
                     <td class="px-3 py-2 text-right" style="color: var(--text-primary);">{{ $r['dom'] !== null ? $r['dom'] : '-' }}</td>
                     <td class="px-3 py-2" style="color: var(--text-primary);">{{ $r['agency_name'] ?: '-' }}</td>
-                    <td class="px-3 py-2" style="color: var(--text-primary);">{{ $r['why'] ?: '-' }}</td>
                     <td class="px-3 py-2" style="color: var(--text-primary);">
                         @if($r['owner_name'])
                             <div class="font-semibold">{{ $r['owner_name'] }}</div>
                             @if($r['owner_phone'])<div style="color: var(--text-muted);">{{ $r['owner_phone'] }}</div>@endif
+                        @elseif($r['find_owner_url'] && ! empty($intakeProspects[$r['tracked_property_id']]))
+                            <span style="color: var(--text-muted);">Not known yet</span>
                         @elseif($r['find_owner_url'])
                             <a href="{{ $r['find_owner_url'] }}" class="corex-btn-outline corex-btn-xs">Find the owner</a>
                         @else
@@ -291,6 +299,13 @@
                             @if(! empty($history[$r['tracked_property_id']]))
                                 <button type="button" class="corex-btn-outline corex-btn-xs" data-tp="{{ $r['tracked_property_id'] }}" data-address="{{ $r['address'] }}"
                                         @click="openHistory($el.dataset)">History</button>
+                            @endif
+                            @if($viewingOwn && $r['status'] === 'open' && ! empty($intakeProspects[$r['tracked_property_id']]))
+                                @php $stepKey = $r['owner_name'] ? 'pitch' : 'find_owner'; @endphp
+                                <button type="button" class="corex-btn-outline corex-btn-xs" data-qa="intake-step"
+                                        data-step-url="{{ route('road-to-sold.prospects.step', [$intakeProspects[$r['tracked_property_id']], $stepKey]) }}"
+                                        data-step-label="{{ \App\Services\RoadToSold\ProspectStepService::LABELS[$stepKey] }} - {{ $r['address'] }}"
+                                        @click="$dispatch('rts-step', $el.dataset)">{{ \App\Services\RoadToSold\ProspectStepService::LABELS[$stepKey] }}</button>
                             @endif
                             @if($viewingOwn && ($r['status'] === 'open' || in_array($filters['view'], ['no_answer', 'wrong_number'], true)))
                                 <button type="button" class="corex-btn-primary corex-btn-xs"
@@ -360,30 +375,34 @@
         ];
     @endphp
     @if(! empty($feeds))
-    <div class="grid gap-4" style="grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));">
+    {{-- The three other-work panels as a compact strip of counters under the table; click one to open its list (it floats over the page, it never pushes the table). --}}
+    <div class="relative flex items-center gap-2 flex-wrap text-xs" x-data="{ open: null }" @click.outside="open = null" @keydown.escape.window="open = null" data-qa="feeds-strip">
+        <span class="font-bold uppercase tracking-widest" style="color: var(--text-muted);">Other work</span>
         @foreach($feedBlocks as $fb)
             @php $feed = $feeds[$fb['key']] ?? ['count' => 0, 'items' => []]; @endphp
-            <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
-                <div class="flex items-center justify-between px-4 py-3" style="border-bottom: 1px solid var(--border);">
-                    <h2 class="text-xs font-bold uppercase tracking-widest" style="color: var(--text-muted);">{{ $fb['title'] }}</h2>
-                    <span class="text-xs font-semibold" style="color: var(--text-primary);">{{ $feed['count'] }}</span>
+            <div class="relative">
+                <button type="button" class="corex-btn-outline corex-btn-xs" :aria-expanded="open === '{{ $fb['key'] }}'" @click="open = open === '{{ $fb['key'] }}' ? null : '{{ $fb['key'] }}'" data-feed="{{ $fb['key'] }}">{{ $fb['title'] }} <strong>{{ $feed['count'] }}</strong></button>
+                <div x-show="open === '{{ $fb['key'] }}'" x-cloak class="absolute left-0 rounded-md overflow-auto" style="bottom: 100%; margin-bottom: .25rem; width: 22rem; max-height: 16rem; z-index: 30; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 6px 18px rgba(0,0,0,.18);">
+                    @forelse($feed['items'] as $it)
+                        <div class="px-4 py-2" style="border-top: 1px solid var(--border);">
+                            @if($it['url'])<a href="{{ $it['url'] }}" class="font-semibold" style="color: var(--text-primary);">{{ $it['title'] }}</a>
+                            @else<span class="font-semibold" style="color: var(--text-primary);">{{ $it['title'] }}</span>@endif
+                            <div style="color: var(--text-muted);">{{ $it['sub'] }}</div>
+                        </div>
+                    @empty
+                        <div class="px-4 py-6 text-center" style="color: var(--text-muted);">{{ $fb['empty'] }}</div>
+                    @endforelse
+                    @if($fb['all'] && $feed['count'] > count($feed['items']))
+                        <div class="px-4 py-2" style="border-top: 1px solid var(--border);"><a href="{{ $fb['all'] }}" style="color: var(--text-primary);">See all {{ $feed['count'] }}</a></div>
+                    @endif
                 </div>
-                @forelse($feed['items'] as $it)
-                    <div class="px-4 py-2 text-xs" style="border-top: 1px solid var(--border);">
-                        @if($it['url'])<a href="{{ $it['url'] }}" class="font-semibold" style="color: var(--text-primary);">{{ $it['title'] }}</a>
-                        @else<span class="font-semibold" style="color: var(--text-primary);">{{ $it['title'] }}</span>@endif
-                        <div style="color: var(--text-muted);">{{ $it['sub'] }}</div>
-                    </div>
-                @empty
-                    <div class="px-4 py-6 text-xs text-center" style="color: var(--text-muted);">{{ $fb['empty'] }}</div>
-                @endforelse
-                @if($fb['all'] && $feed['count'] > count($feed['items']))
-                    <div class="px-4 py-2 text-xs" style="border-top: 1px solid var(--border);"><a href="{{ $fb['all'] }}" style="color: var(--text-primary);">See all {{ $feed['count'] }}</a></div>
-                @endif
             </div>
         @endforeach
     </div>
     @endif
+
+    @endif
+    </div>{{-- /rts-block-body --}}
 
     @if($captureTasks->isNotEmpty())
         @include('road-to-sold._capture-modal')

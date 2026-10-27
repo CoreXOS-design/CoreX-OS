@@ -5942,6 +5942,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/imported-stock', [\App\Http\Controllers\CoreX\PropertyController::class, 'importedStock'])->name('imported-stock');
     });
 
+    // Sold stock (AT-512, .ai/specs/sold-stock.md) - the agency's frozen sales, own/branch/agency scoped in the query.
+    Route::prefix('sold-stock')->middleware(['permission:access_sold_stock', 'agency.required'])->name('corex.sold-stock.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\SoldStockController::class, 'index'])->name('index');
+        Route::get('/{soldStock}', [\App\Http\Controllers\CoreX\SoldStockController::class, 'show'])->whereNumber('soldStock')->name('show');
+        Route::post('/{soldStock}/archive', [\App\Http\Controllers\CoreX\SoldStockController::class, 'archive'])->whereNumber('soldStock')->name('archive');
+        Route::post('/{soldStock}/restore', [\App\Http\Controllers\CoreX\SoldStockController::class, 'restore'])->whereNumber('soldStock')->name('restore');
+    });
+    Route::post('properties/{property}/listing-cycle/confirm', [\App\Http\Controllers\CoreX\SoldStockController::class, 'confirmSuggestion'])
+        ->middleware(['permission:access_properties', 'agency.required', 'deny_assistant_property_write'])->whereNumber('property')->name('corex.properties.cycle.confirm');
+    Route::post('properties/{property}/listing-cycle/dismiss', [\App\Http\Controllers\CoreX\SoldStockController::class, 'dismissSuggestion'])
+        ->middleware(['permission:access_properties', 'agency.required', 'deny_assistant_property_write'])->whereNumber('property')->name('corex.properties.cycle.dismiss');
+
     Route::prefix('properties')->middleware(['permission:access_properties', 'agency.required', 'deny_assistant_property_write'])->name('corex.properties.')->group(function () {
         // Marketing compliance — go live
         Route::post('/{property}/go-live', [\App\Http\Controllers\CoreX\PropertyController::class, 'goLive'])->name('go-live');
@@ -6606,6 +6618,20 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/add-to-day', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'addToDay'])->name('add-to-day');
             Route::post('/build-list', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'buildList'])->name('build-list');
 
+            // Road to Sold v3 (spec 22.4 / 22.9): what the agent does with a prospect from the page. The prospect is found through the
+            // viewer's breadth (own / branch / agency in the query, 404 outside it); every write needs it to be on the viewer's own list.
+            Route::prefix('prospects/{prospect}')->whereNumber('prospect')->name('prospects.')->group(function () {
+                $c = \App\Http\Controllers\RoadToSold\ProspectController::class;
+                Route::get('/step/{step}', [$c, 'step'])->name('step');
+                Route::get('/history', [$c, 'history'])->name('history');
+                Route::post('/park', [$c, 'park'])->name('park');
+                Route::post('/unpark', [$c, 'unpark'])->name('unpark');
+                Route::put('/next-action', [$c, 'nextAction'])->name('next-action');
+                Route::post('/capture', [$c, 'capture'])->name('capture');
+                // Give the property back to the pool (spec 22.6): needs its own key, a reason, and leaves an audit line.
+                Route::post('/release', [$c, 'release'])->middleware('permission:road_to_sold.release_prospects')->name('release');
+            });
+
             // Captured tasks (v2 phase 2): save, change the note, archive, restore, view a photo. Always the signed-in person's own list;
             // an id outside their breadth is a 404.
             Route::prefix('captures')->name('captures.')->group(function () {
@@ -6655,6 +6681,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::get('/report/print', [\App\Http\Controllers\RoadToSold\ReportController::class, 'print'])->name('report.print');
             Route::get('/report/pdf', [\App\Http\Controllers\RoadToSold\ReportController::class, 'pdf'])->name('report.pdf');
             Route::get('/report/xlsx', [\App\Http\Controllers\RoadToSold\ReportController::class, 'xlsx'])->name('report.xlsx');
+
+            // v3 pitch path from a row (22.10, R8): the owner is known -> the composer, else Find owner; "No owner found" is an outcome.
+            Route::get('/prospects/{prospect}/pitch-path', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'show'])
+                ->whereNumber('prospect')->name('prospects.pitch-path');
+            Route::post('/prospects/{prospect}/no-owner', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'noOwner'])
+                ->whereNumber('prospect')->name('prospects.no-owner');
 
             Route::prefix('settings/outcomes')
                 ->middleware('permission:road_to_sold.manage_settings')
