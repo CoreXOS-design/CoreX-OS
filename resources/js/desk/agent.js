@@ -45,7 +45,7 @@ export function start(ctx) {
 
     st = { cfg, session, api, ui, tab, echo, channel, channelName, timers: [], buffer: [], flushing: false, subscribed: false, live: false, registered: false,
         ctl: { state: 'none', asked: false, exec: null, reporter: null, idle: null }, stopRecord: null, recording: false, hl: null, ended: false, pointerTimer: null,
-        haveListener: false, pendingResync: false, lastSnap: 0, clockOffset: 0, bestRtt: Infinity };
+        haveListener: false, pendingResync: false, lastSnap: 0 };
 
     channel
         .listen('.desk.joined', (e) => { if (e.support_name) st.session.support_name = e.support_name; st.live = true; ui.joined(e.support_name); beginRecording(); registerTab('join'); })
@@ -68,7 +68,7 @@ export function start(ctx) {
             else if (forMe(e.tab)) { st.ctl.asked = true; beginControl(e.idle_seconds); }
         })
         .listenForWhisper('action', (a) => { if (forMe(a && a.t)) runAction(a); })
-        .listenForWhisper('tping', (p) => { if (st.cfg.timing && p) { try { st.channel.whisper('tpong', { id: p.id, c: p.c, t: st.tab }); } catch (e) { /* not subscribed */ } } })
+        .listenForWhisper('tping', (p) => { if (st.cfg.timing && p) { try { st.channel.whisper('tpong', { id: p.id, c: p.c, a: Date.now(), t: st.tab }); } catch (e) { /* not subscribed */ } } })
         .subscribed(() => {
             if (!st) return;
             st.subscribed = true;
@@ -80,16 +80,11 @@ export function start(ctx) {
 
     // Keep the session alive; learn if the other side (or a timeout) already ended it.
     const beat = async () => {
-        const t0 = Date.now();
         const r = await api('POST', cfg.urls.sessions + '/' + session.id + '/heartbeat', { page: location.pathname, tab: st.tab });
-        if (!st) return;
         if (r.ok && r.json.status === 'ended') finish(r.json.ended_by);
-        // timing overlay: the server's clock against this one (the best, i.e. quickest, round trip is the most trustworthy sample)
-        if (r.ok && r.json.server_ms && Date.now() - t0 < st.bestRtt) { st.bestRtt = Date.now() - t0; st.clockOffset = r.json.server_ms - (t0 + (Date.now() - t0) / 2); }
     };
     beat();
     st.timers.push(setInterval(beat, Math.max(5, cfg.heartbeatSeconds || 30) * 1000));
-    if (cfg.timing) [400, 900, 1600].forEach((ms) => st.timers.push(setTimeout(beat, ms)));
 
     // The page is closing or changing: say so, so the next page gets a short grace instead of the full timeout.
     window.addEventListener('pagehide', leaving);
@@ -284,7 +279,7 @@ async function flush() {
     const events = st.buffer;
     st.buffer = [];
     try {
-        const meta = st.cfg.timing ? { ts: Date.now(), off: Math.round(st.clockOffset), k: categoryOf(events), ev: events.length } : null;
+        const meta = st.cfg.timing ? { ts: Date.now(), k: categoryOf(events), ev: events.length } : null;
         const chunks = await encodeBatch(events, 'a', { t: st.tab, meta });
         for (const c of chunks) {
             if (!st) break;
