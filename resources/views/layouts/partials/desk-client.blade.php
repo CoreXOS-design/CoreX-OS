@@ -38,7 +38,12 @@
             'port' => $__deskPublic['port'],
             'scheme' => $__deskPublic['scheme'],
         ] : null,
-        'urls' => ['sessions' => url('api/v1/desk/sessions')],
+        'urls' => [
+            'sessions' => url('api/v1/desk/sessions'),
+            // The take-over executor: one source shared with the extension (public/chrome-extension/portal-capture/desk-exec.js).
+            'exec' => asset('chrome-extension/portal-capture/desk-exec.js') . '?v=' . (@filemtime(public_path('chrome-extension/portal-capture/desk-exec.js')) ?: 1),
+        ],
+        'controlIdleSeconds' => $__deskEnabled ? $__deskSvc->controlIdleMinutes($__deskUser->effectiveAgencyId()) * 60 : 300,
         'current' => $__deskCurrent?->toClientArray(),
     ];
 @endphp
@@ -49,6 +54,10 @@
     #corex-desk-bar[hidden], #corex-desk-modal[hidden], #corex-desk-pointer[hidden] { display: none; }
     #corex-desk-bar button { background: rgba(255,255,255,.18); color: #fff; border: 1px solid rgba(255,255,255,.55); border-radius: .25rem; padding: 0 .6rem; font-size: .7rem; font-weight: 700; cursor: pointer; }
     #corex-desk-bar button:hover { background: rgba(255,255,255,.3); }
+    #corex-desk-bar button[hidden] { display: none; }
+    #corex-desk-bar[data-mode="ask"] { background: #9a3412; }
+    #corex-desk-bar[data-mode="ask"] button[data-desk-allow] { background: #fff; color: #9a3412; border-color: #fff; }
+    #corex-desk-bar[data-mode="control"] { background: #7f1d1d; box-shadow: inset 0 -3px 0 #fbbf24; }
     #corex-desk-modal { position: fixed; inset: 0; z-index: 100001; display: flex; align-items: center; justify-content: center; background: rgba(11,42,74,.55); }
     #corex-desk-modal .cd-card { width: min(26rem, calc(100vw - 2rem)); background: var(--surface, #fff); color: var(--text-primary, #111827); border: 1px solid var(--border, rgba(0,0,0,.1)); border-radius: .5rem; padding: 1.5rem; box-shadow: 0 20px 50px -12px rgba(0,0,0,.35); text-align: center; }
     #corex-desk-modal .cd-code { font-size: 2.5rem; font-weight: 800; letter-spacing: .25em; font-variant-numeric: tabular-nums; margin: .75rem 0 .25rem; color: var(--brand-icon, #0ea5e9); }
@@ -63,8 +72,12 @@
     .corex-desk-popover { max-width: 18rem; }
 </style>
 
-<div id="corex-desk-bar" class="rr-block" role="status" hidden>
-    <span>CoreX Desk — <span id="cd-bar-name">CoreX support</span> is viewing this window</span>
+<div id="corex-desk-bar" class="rr-block" role="status" hidden data-mode="view">
+    {{-- One voice, three states: viewing (default), asking ("wants to take control" - Allow / Decline), in control ("Take back control"). --}}
+    <span>CoreX Desk — <span id="cd-bar-name">CoreX support</span> <span id="cd-bar-what">is viewing this window</span></span>
+    <button type="button" data-desk-allow hidden>Allow</button>
+    <button type="button" data-desk-decline hidden>Decline</button>
+    <button type="button" data-desk-takeback hidden>Take back control</button>
     <button type="button" data-desk-end>End session</button>
 </div>
 
@@ -75,6 +88,7 @@
             <div id="cd-code" class="cd-code" aria-live="polite"></div>
             <p class="text-sm" style="margin:.25rem 0 0; color:var(--text-secondary,#4b5563);">Read this code to CoreX support. They will see only this CoreX window.</p>
             <p id="cd-expires" class="text-xs" style="margin:.5rem 0 0; color:var(--text-muted,#6b7280);"></p>
+            <p class="text-xs" style="margin:.5rem 0 0; color:var(--text-muted,#6b7280);">Need to show a tab from another website too? Open the CoreX Chrome extension on that tab and choose <strong>Share this tab</strong>.</p>
             <button type="button" class="cd-btn" data-desk-cancel>Cancel</button>
         </div>
         <div data-state-only="creating">

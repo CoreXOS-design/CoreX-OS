@@ -28,6 +28,13 @@ class DeskSessionEvent extends Model
     public const TAB_JOIN = 'tab_join';
     public const TAB_LEAVE = 'tab_leave';
     public const TAB_UPDATE = 'tab_update';
+    // Phase 2 (take-over): the consent flow, and every action the agent's browser replayed (never a typed value).
+    public const CONTROL_REQUESTED = 'control_requested';
+    public const CONTROL_GRANTED = 'control_granted';
+    public const CONTROL_DECLINED = 'control_declined';
+    public const CONTROL_REVOKED = 'control_revoked';
+    public const CONTROL_ENDED = 'control_ended';
+    public const CONTROL_ACTION = 'control_action';
 
     protected $fillable = ['desk_session_id', 'agency_id', 'type', 'payload', 'actor_user_id', 'created_at'];
 

@@ -23,6 +23,10 @@ class DeskSession extends Model
     public const LIVE = 'live';
     public const ENDED = 'ended';
 
+    public const CONTROL_NONE = 'none';
+    public const CONTROL_REQUESTED = 'requested';
+    public const CONTROL_GRANTED = 'granted';
+
     public const ENDED_BY_AGENT = 'agent';
     public const ENDED_BY_SUPPORT = 'support';
     public const ENDED_BY_LOGOUT = 'logout';
@@ -34,6 +38,7 @@ class DeskSession extends Model
     protected $fillable = [
         'agency_id', 'user_id', 'support_user_id', 'status', 'otp_id', 'code_expires_at', 'started_at', 'joined_at', 'ended_at',
         'ended_by', 'ended_by_user_id', 'page_url_last', 'last_heartbeat_at', 'leaving_at', 'ip_address', 'user_agent',
+        'control_state', 'control_tab', 'control_requested_at', 'control_granted_at', 'control_last_action_at',
     ];
 
     protected $casts = [
@@ -43,6 +48,9 @@ class DeskSession extends Model
         'ended_at' => 'datetime',
         'last_heartbeat_at' => 'datetime',
         'leaving_at' => 'datetime',
+        'control_requested_at' => 'datetime',
+        'control_granted_at' => 'datetime',
+        'control_last_action_at' => 'datetime',
     ];
 
     public function agent(): BelongsTo
@@ -109,6 +117,7 @@ class DeskSession extends Model
             'started_at' => $this->started_at?->toIso8601String(),
             'joined_at' => $this->joined_at?->toIso8601String(),
             'code_expires_at' => $this->code_expires_at?->toIso8601String(),
+            'control' => ['state' => $this->control_state ?: self::CONTROL_NONE, 'tab' => $this->control_tab],
         ];
     }
 }

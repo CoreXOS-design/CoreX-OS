@@ -22,6 +22,7 @@ importScripts('desk-lib.js');
     tabs: new Map(),     // chrome tabId -> {key, host, title, url}
     ws: null, socketId: null, subscribed: false, channel: null,
     pending: [],         // chunks waiting for the channel
+    control: { state: 'none', tab: null }, idleSeconds: 300,
     hb: null, retry: 0, reconnect: null, titleTimers: new Map(), stopped: true,
   };
 
@@ -52,6 +53,8 @@ importScripts('desk-lib.js');
     var r = await api('GET', '/api/v1/desk/ext/session');
     if (!r.ok) return { error: r.json.message || 'CoreX said no (' + r.status + ').', status: r.status };
     D.status = r.json;
+    if (r.json.session && r.json.session.control) D.control = { state: r.json.session.control.state === 'granted' ? 'granted' : (r.json.session.control.state === 'requested' ? 'requested' : 'none'), tab: r.json.session.control.tab };
+    if (r.json.control_idle_seconds) D.idleSeconds = r.json.control_idle_seconds;
     return r.json;
   }
 
@@ -122,6 +125,16 @@ importScripts('desk-lib.js');
       var t4 = tabIdFor(m.data && m.data.tab); if (t4 !== null) toTab(t4, { type: 'desk.highlight_clear' });
     } else if (ev === 'desk.pointer_state') {
       var t5 = tabIdFor(m.data && m.data.tab); if (t5 !== null && m.data && !m.data.on) toTab(t5, { type: 'desk.pointer_hide' });
+    } else if (ev === 'client-action') {
+      // Take-over (protocol 1.2): an action for one of our tabs. The page replays it only if the agent has pressed Allow THERE.
+      var ta = tabIdFor(m.data && m.data.t); if (ta !== null) toTab(ta, { type: 'desk.action', a: m.data });
+    } else if (ev === 'desk.control_requested') {
+      var c1 = tabIdFor(m.data && m.data.tab); D.control = { state: c1 !== null ? 'requested' : 'none', tab: m.data && m.data.tab };
+      if (c1 !== null) toTab(c1, { type: 'desk.control_ask', support: m.data.support_name });
+    } else if (ev === 'desk.control_granted') {
+      var c2 = tabIdFor(m.data && m.data.tab); if (c2 !== null) { D.control = { state: 'granted', tab: m.data.tab }; D.idleSeconds = m.data.idle_seconds || D.idleSeconds; toTab(c2, { type: 'desk.control_on', idle: D.idleSeconds }); }
+    } else if (ev === 'desk.control_declined' || ev === 'desk.control_revoked' || ev === 'desk.control_ended') {
+      var c3 = tabIdFor(m.data && m.data.tab); if (c3 !== null) { D.control = { state: 'none', tab: null }; toTab(c3, { type: 'desk.control_off', why: ev.replace('desk.control_', '') }); }
     } else if (ev === 'desk.ended') {
       stopAll('session ended');
     }
@@ -161,8 +174,12 @@ importScripts('desk-lib.js');
   }
 
   async function inject(tabId, supportName) {
-    await chrome.scripting.executeScript({ target: { tabId: tabId }, files: ['desk-lib.js', 'vendor/rrweb-record.min.js', 'desk-content.js'] });
+    await chrome.scripting.executeScript({ target: { tabId: tabId }, files: ['desk-lib.js', 'vendor/rrweb-record.min.js', 'desk-exec.js', 'desk-content.js'] });
     toTab(tabId, { type: 'desk.start', key: Lib.tabKey(tabId), support: supportName || 'CoreX support' });
+    // A full page load discards the page's consent state: hand it back (a request still open, or a take-over in progress).
+    var key = Lib.tabKey(tabId);
+    if (D.control.tab === key && D.control.state === 'requested') toTab(tabId, { type: 'desk.control_ask', support: supportName });
+    if (D.control.tab === key && D.control.state === 'granted') toTab(tabId, { type: 'desk.control_on', idle: D.idleSeconds, resumed: true });
   }
 
   async function shareTab(tabId) {
@@ -260,6 +277,15 @@ importScripts('desk-lib.js');
     }
   });
 
+  // ── Take-over answers and the report of what ran, over the token ───────────────
+
+  async function controlCall(tabId, what, body) {
+    var st = D.status;
+    if (!st || !st.session || !D.tabs.has(tabId)) return { ok: false };
+    var r = await api('POST', '/api/v1/desk/ext/sessions/' + st.session.id + '/control/' + what, body);
+    return { ok: r.ok, message: r.json && r.json.message };
+  }
+
   // ── Persistence across a worker restart ─────────────────────────────────────────
 
   function persist() {
@@ -287,6 +313,9 @@ importScripts('desk-lib.js');
     if (!msg || typeof msg.type !== 'string' || msg.type.indexOf('desk.') !== 0) return false;
 
     if (msg.type === 'desk.frames' && sender.tab) { onFrames(sender.tab.id, msg.events); return false; }
+    if (msg.type === 'desk.controlRespond' && sender.tab) { controlCall(sender.tab.id, 'respond', { allow: !!msg.allow }).then(respond); return true; }
+    if (msg.type === 'desk.controlRevoke' && sender.tab) { controlCall(sender.tab.id, 'revoke', { reason: msg.reason === 'idle' ? 'idle' : 'agent' }).then(respond); return true; }
+    if (msg.type === 'desk.controlActions' && sender.tab) { controlCall(sender.tab.id, 'actions', { tab: Lib.tabKey(sender.tab.id), actions: msg.actions }).then(respond); return true; }
     if (msg.type === 'desk.stopMe' && sender.tab) { stopTab(sender.tab.id, false).then(function () { respond({ ok: true }); }); return true; }
 
     if (msg.type === 'desk.status') {

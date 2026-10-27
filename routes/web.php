@@ -521,6 +521,10 @@ Route::middleware('auth')->group(function () {
             Route::post('/{id}/heartbeat', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'heartbeat'])->whereNumber('id')->middleware('throttle:60,1')->name('heartbeat');
             Route::post('/{id}/leaving', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'leaving'])->whereNumber('id')->middleware('throttle:60,1')->name('leaving');
             Route::post('/{id}/end', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'end'])->whereNumber('id')->middleware('throttle:30,1')->name('end');
+            // Take-over (phase 2, spec section 14): the agent answers a request, takes control back, and reports what their browser replayed.
+            Route::post('/{id}/control/respond', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'controlRespond'])->whereNumber('id')->middleware('throttle:30,1')->name('control.respond');
+            Route::post('/{id}/control/revoke', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'controlRevoke'])->whereNumber('id')->middleware('throttle:30,1')->name('control.revoke');
+            Route::post('/{id}/control/actions', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'controlActions'])->whereNumber('id')->middleware('throttle:240,1')->name('control.actions');
         });
 
         // P24 importer gallery-completeness reconciliation — owner-only. The
@@ -2342,6 +2346,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/sessions/{id}/highlight/clear', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'clearHighlight'])->whereNumber('id')->middleware('throttle:120,1')->name('highlight.clear');
         Route::post('/sessions/{id}/pointer', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'pointer'])->whereNumber('id')->middleware('throttle:120,1')->name('pointer');
         Route::post('/sessions/{id}/end', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'end'])->whereNumber('id')->middleware('throttle:30,1')->name('end');
+        // Take-over (phase 2): needs desk.control as well as desk.support (the group's gate).
+        Route::post('/sessions/{id}/control/request', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'controlRequest'])->whereNumber('id')->middleware(['permission:desk.control', 'throttle:30,1'])->name('control.request');
+        Route::post('/sessions/{id}/control/end', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'controlEnd'])->whereNumber('id')->middleware('throttle:30,1')->name('control.end');
     });
 
     // AT-451 — "all alerts switched off": the warning bar's two buttons act on the LOGGED-IN user only (no id in the URL);

@@ -1586,6 +1586,17 @@ class SettingsController extends Controller
             ? redirect()->to(route('admin.company-settings') . '#desk')
             : redirect()->route('corex.settings');
 
+        // How long an unused take-over lasts before it ends by itself (phase 2). Same has() guard: the wizard step may not carry it.
+        if ($request->has('desk_control_idle_minutes')) {
+            $min = (int) config('desk.control_idle_minutes_min', 1);
+            $max = (int) config('desk.control_idle_minutes_max', 60);
+            $minutes = max($min, min($max, (int) $request->input('desk_control_idle_minutes')));
+            if ($minutes !== (int) $agency->desk_control_idle_minutes) {
+                $agency->update(['desk_control_idle_minutes' => $minutes]);
+                \Illuminate\Support\Facades\Log::info('agency_desk_control_idle_changed', ['agency_id' => $agency->id, 'minutes' => $minutes, 'by' => $user->id]);
+            }
+        }
+
         return $back
             ->with('success', $agency->fresh()->desk_enabled
                 ? 'CoreX Desk is ON. Your agents can press Get help to share their CoreX window with CoreX support.'

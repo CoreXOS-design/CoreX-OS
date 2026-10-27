@@ -465,6 +465,9 @@ return [
         // all-minus-exclude default so an agency chooses, in Role Manager, who may run Desk for its own agents (own-agency sessions only).
         ['key' => 'desk.request_help',       'label' => 'Get help (share my CoreX window with support)', 'section' => 'franchise-admin', 'type' => 'action', 'module' => 'desk', 'sort_order' => 1],
         ['key' => 'desk.support',            'label' => 'Run CoreX Desk (view agents\' CoreX windows)',   'section' => 'franchise-admin', 'type' => 'action', 'module' => 'desk', 'sort_order' => 2],
+        // desk.control: ask an agent to let you TAKE CONTROL of their CoreX page / a shared tab (phase 2). The agent still has to Allow each time.
+        // Owner roles via '*'; excluded from the admin all-minus-exclude default exactly like desk.support.
+        ['key' => 'desk.control',            'label' => 'Take control of an agent\'s window (with their OK)', 'section' => 'franchise-admin', 'type' => 'action', 'module' => 'desk', 'sort_order' => 3],
         ['key' => 'users.view',              'label' => 'View',                            'section' => 'franchise-admin',  'type' => 'action',  'module' => 'users',            'sort_order' => 10],
         ['key' => 'users.create',            'label' => 'Create',                          'section' => 'franchise-admin',  'type' => 'action',  'module' => 'users',            'sort_order' => 11],
         ['key' => 'users.edit',              'label' => 'Edit',                            'section' => 'franchise-admin',  'type' => 'action',  'module' => 'users',            'sort_order' => 12],
@@ -1099,7 +1102,7 @@ return [
             // manage_reference_sources is likewise platform-owner-only: it's a
             // global, not per-agency, allowlist (ellie-reference-sources spec).
             // desk.support (CoreX Desk console): granted to the owner role; an agency grants it to its own admin/role in Role Manager.
-            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track', 'manage_reference_sources', 'templates.transfer', 'desk.support'],
+            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track', 'manage_reference_sources', 'templates.transfer', 'desk.support', 'desk.control'],
             // Payroll: admin gets full payroll management
             'include' => [
                 'manage_payroll', 'run_payroll', 'view_payroll_reports', 'view_own_payslips',

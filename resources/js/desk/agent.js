@@ -33,7 +33,7 @@ export function start(ctx) {
     const echo = getEcho();
     const channel = echo.private(channelName);
 
-    st = { cfg, session, api, ui, echo, channel, channelName, timers: [], buffer: [], flushing: false, subscribed: false, stopRecord: null, recording: false, drv: null, ended: false, pointerTimer: null };
+    st = { cfg, session, api, ui, echo, channel, channelName, timers: [], buffer: [], flushing: false, subscribed: false, ctl: { state: 'none', asked: false, exec: null, reporter: null, idle: null }, stopRecord: null, recording: false, drv: null, ended: false, pointerTimer: null };
 
     channel
         .listen('.desk.joined', (e) => { ui.joined(e.support_name); beginRecording(); })
@@ -45,6 +45,13 @@ export function start(ctx) {
         .listen('.desk.pointer_state', (e) => { if (forMain(e.tab) && !e.on) hidePointer(); })
         .listenForWhisper('pointer', (p) => { if (forMain(p && p.t)) movePointer(p); })
         .listenForWhisper('resync', (r) => { if (forMain(r && r.t)) resync(); })
+        // Take-over (protocol 1.2): support asks, the agent answers, and only after the agent's own Allow does anything get replayed.
+        .listen('.desk.control_requested', (e) => { if (forMain(e.tab)) askControl(e.support_name); })
+        .listen('.desk.control_granted', (e) => { if (forMain(e.tab)) beginControl(e.idle_seconds); })
+        .listen('.desk.control_declined', (e) => { if (forMain(e.tab)) endControlLocal('declined'); })
+        .listen('.desk.control_revoked', (e) => { if (forMain(e.tab)) endControlLocal('revoked'); })
+        .listen('.desk.control_ended', (e) => { if (forMain(e.tab)) endControlLocal(e.reason || 'ended'); })
+        .listenForWhisper('action', (a) => { if (forMain(a && a.t)) runAction(a); })
         .subscribed(() => { if (st) { st.subscribed = true; if (st.buffer.length) scheduleFlush(); } })
         .error(() => ui.error('Could not open the live connection. Check your internet connection and try again.'));
 
@@ -62,6 +69,10 @@ export function start(ctx) {
     if (session.status === 'live') {
         ui.joined(session.support_name);
         beginRecording();
+        // A page change must not drop a take-over (or a pending request): pick it up again from the session.
+        const c = session.control || {};
+        if (forMain(c.tab) && c.state === 'requested') askControl(session.support_name);
+        if (forMain(c.tab) && c.state === 'granted') { st.ctl.asked = true; beginControl(cfg.controlIdleSeconds); }
     }
 
     return st;
@@ -86,6 +97,7 @@ function leaving() {
 function finish(by) {
     if (!st || st.ended) return;
     st.ended = true;
+    endControlLocal('session', true);
     stopRecording();
     clearHighlight();
     hidePointer();
@@ -153,6 +165,79 @@ async function flush() {
     } finally {
         if (st) { st.flushing = false; if (st.buffer.length) scheduleFlush(); }
     }
+}
+
+// ── Take-over (phase 2, spec section 14) ─────────────────────────────────────────
+
+/** What the recorder masks, the executor refuses to touch: passwords and [data-desk-mask]. */
+const blockedField = (el) => !!(el && ((el.type === 'password') || (el.closest && el.closest('[data-desk-mask]'))));
+
+function loadExec() {
+    if (window.CoreXDeskExec) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = st.cfg.urls.exec;
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error('executor failed to load'));
+        document.head.appendChild(s);
+    });
+}
+
+function controlUrl(what) { return st.cfg.urls.sessions + '/' + st.session.id + '/control/' + what; }
+
+/** Support asked: show "wants to take control - Allow / Decline" in the red bar. Nothing moves until Allow. */
+function askControl(supportName) {
+    if (!st || st.ctl.state === 'granted') return;
+    st.ctl.state = 'asking';
+    st.ctl.asked = true;
+    st.ui.controlAsk(supportName || st.session.support_name);
+}
+
+export async function controlRespond(allow) {
+    if (!st) return;
+    const r = await st.api('POST', controlUrl('respond'), { allow: !!allow });
+    if (!r.ok) { endControlLocal('lapsed'); return; }   // the request already lapsed or was withdrawn
+    if (!allow) endControlLocal('declined');
+    // Allow: the server's desk.control_granted event starts it (so the bar and the executor change together).
+}
+
+export async function controlRevoke() {
+    if (!st) return;
+    endControlLocal('agent');
+    await st.api('POST', controlUrl('revoke'), { reason: 'agent' });
+}
+
+async function beginControl(idleSeconds) {
+    if (!st || !st.ctl.asked) return;   // a "granted" nobody here asked for is ignored: only this page's own Allow can start control
+    await loadExec();
+    if (!st) return;
+    const c = st.ctl;
+    c.state = 'granted';
+    c.exec = window.CoreXDeskExec.create({ doc: document, win: window, isBlocked: blockedField });
+    c.reporter = window.CoreXDeskExec.createReporter((actions) => st && st.api('POST', controlUrl('actions'), { tab: 'main', actions }), 1500);
+    const secs = Math.max(60, idleSeconds || st.cfg.controlIdleSeconds || 300);
+    c.idle = window.CoreXDeskExec.createIdleTimer(secs, () => { if (st) { endControlLocal('idle'); st.api('POST', controlUrl('revoke'), { reason: 'idle' }); } });
+    c.idle.start();
+    st.ui.controlOn(st.session.support_name);
+}
+
+/** Control is over (any reason): stop replaying, flush the report, put the bar back to "viewing". */
+function endControlLocal(reason, quiet) {
+    if (!st) return;
+    const c = st.ctl;
+    const wasOn = c.state === 'granted' || c.state === 'asking';
+    if (c.reporter) c.reporter.flush();
+    if (c.idle) c.idle.stop();
+    st.ctl = { state: 'none', asked: false, exec: null, reporter: null, idle: null };
+    if (wasOn && !quiet) st.ui.controlOff(reason);
+}
+
+/** One action whispered by support. Only replayed while control is granted HERE; refusals are reported like anything else. */
+function runAction(a) {
+    if (!st || st.ctl.state !== 'granted' || !st.ctl.exec) return;
+    const res = st.ctl.exec.run(a);
+    st.ctl.reporter.add(res.report);
+    if (res.ok) st.ctl.idle.touch();
 }
 
 // ── Support's pointer ────────────────────────────────────────────────────────────

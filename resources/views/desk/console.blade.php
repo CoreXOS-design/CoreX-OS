@@ -29,10 +29,12 @@
             <div><span style="color:var(--text-muted);">Elapsed</span> <strong id="cdc-elapsed" style="color:var(--text-primary);">0:00</strong></div>
             <div class="flex items-center gap-2 ml-auto flex-wrap">
                 <input id="cdc-note" type="text" maxlength="{{ (int) config('desk.note_max', 200) }}" placeholder="Note for the highlight (optional)" class="list-header-filter" style="min-width:16rem;">
+                <button type="button" id="cdc-control" class="ds-btn" hidden>Request control</button>
                 <button type="button" id="cdc-clear" class="ds-btn">Clear highlight</button>
                 <button type="button" id="cdc-end" class="ds-btn">End session</button>
             </div>
         </div>
+        <p id="cdc-control-status" class="text-xs" style="color:var(--text-secondary); margin:0;"></p>
         <p class="text-xs" style="color:var(--text-muted); margin:0;">Move your mouse over the window below to point (the agent sees a “Support” cursor). Click anything to highlight it on their screen. The agent does the clicking.</p>
         {{-- Phase 3: when the agent has also shared Chrome tabs through the CoreX extension, one button per tab (title + site). --}}
         <div id="cdc-tabs" hidden class="flex flex-wrap gap-2" role="tablist" aria-label="Shared tabs"></div>

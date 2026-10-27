@@ -20,7 +20,7 @@ const EVENT_META = 4;
 const EVENT_FULL = 2;
 const MAIN = 'main';
 
-let cur = null; // { session, channel, name, tabs: Map(key -> tab), selected, started, tick, retry, pointerOn, lastPointer }
+let cur = null; // { session, channel, name, tabs: Map(key -> tab), selected, started, tick, retry, pointerOn, lastPointer, control: {state, tab}, focusSel, typed }
 
 async function api(method, url, body) {
     try {
@@ -67,7 +67,7 @@ function attach(session) {
     if (cur) detach(false);
     const name = 'desk.session.' + session.id;
     const channel = getEcho().private(name);
-    cur = { session, channel, name, tabs: new Map(), selected: MAIN, started: Date.parse(session.joined_at || session.started_at), pointerOn: false, lastPointer: 0 };
+    cur = { session, channel, name, tabs: new Map(), selected: MAIN, started: Date.parse(session.joined_at || session.started_at), pointerOn: false, lastPointer: 0, control: { state: (session.control && session.control.state) || 'none', tab: session.control && session.control.tab }, focusSel: null, typed: null };
     cur.tabs.set(MAIN, newTab(MAIN, 'CoreX page', ''));
     (session.tabs || []).forEach((t) => addExtTab(t));
 
@@ -81,6 +81,12 @@ function attach(session) {
         .listen('.desk.tab_joined', (e) => { addExtTab(e); askResync(e.tab); })
         .listen('.desk.tab_updated', (e) => updateExtTab(e))
         .listen('.desk.tab_left', (e) => removeExtTab(e.tab))
+        // Take-over (protocol 1.2)
+        .listen('.desk.control_requested', (e) => setControl('requested', e.tab))
+        .listen('.desk.control_granted', (e) => setControl('granted', e.tab))
+        .listen('.desk.control_declined', (e) => setControl('none', e.tab, e.reason === 'no_answer' ? 'The agent did not answer in time.' : 'The agent declined.'))
+        .listen('.desk.control_revoked', (e) => setControl('none', e.tab, 'The agent took back control.'))
+        .listen('.desk.control_ended', (e) => setControl('none', e.tab, { idle: 'Control ended - nothing was done for a while.', tab: 'Control ended - the tab was closed.', session: 'Control ended with the session.', support: 'You handed control back.' }[e.reason] || 'Control ended.'))
         .listen('.desk.ended', (e) => ended(e.by))
         .error(() => say('Could not open the live connection.', true));
 
@@ -97,6 +103,7 @@ function attach(session) {
     tickElapsed();
     renderTabs();
     showSelected();
+    paintControl();
     refreshList();
 }
 
@@ -108,6 +115,7 @@ function detach(callServer) {
     if (!cur) return;
     clearInterval(cur.tick);
     clearInterval(cur.retry);
+    clearTimeout(cur.typeTimer);
     if (callServer) api('POST', con.urls.sessions + '/' + cur.session.id + '/end');
     $('cdc-replay').innerHTML = '';
     $('cdc-tabs').innerHTML = '';
@@ -182,6 +190,7 @@ function selectTab(key) {
     cur.pointerOn = false;
     renderTabs();
     showSelected();
+    paintControl();
     askResync(key); // a fresh picture the moment you switch
 }
 
@@ -229,6 +238,7 @@ function startReplayer(tab) {
     hookReplayInput(tab);
     replayer.on('resize', () => { if (cur && cur.selected === tab.key) fit(); });
     showSelected();
+    paintControl();
 }
 
 /** Scale the selected tab's replayed page down to fit the console's pane (the agent's window is usually bigger). */
@@ -259,11 +269,18 @@ function hookReplayInput(tab) {
         const r = iframe.getBoundingClientRect();
         return { x: (ev.clientX - r.left) / r.width, y: (ev.clientY - r.top) / r.height };
     };
+    const scale = () => { const d = iframe.contentDocument; return d && d.documentElement.clientWidth ? iframe.getBoundingClientRect().width / d.documentElement.clientWidth : 1; };
+    const at = (r) => {
+        const d = iframe.contentDocument;
+        return d ? d.elementFromPoint(r.x * d.documentElement.clientWidth, r.y * d.documentElement.clientHeight) : null;
+    };
     // Mouse events land on the wrapper (the iframe itself does not deliver them to us while replaying).
     const target = tab.replayer.wrapper;
     target.style.pointerEvents = 'auto';
     iframe.style.pointerEvents = 'none';
     target.style.cursor = 'crosshair';
+    target.tabIndex = 0;   // so typing can be captured while support is in control
+    const controlling = () => cur && cur.selected === tab.key && cur.control.state === 'granted' && cur.control.tab === tab.key;
 
     target.addEventListener('mousemove', (ev) => {
         if (!cur || cur.selected !== tab.key) return;
@@ -285,15 +302,147 @@ function hookReplayInput(tab) {
     target.addEventListener('click', (ev) => {
         if (!cur || cur.selected !== tab.key) return;
         const r = ratio(ev);
-        const doc = iframe.contentDocument;
-        if (!doc) return;
-        const el = doc.elementFromPoint(r.x * doc.documentElement.clientWidth, r.y * doc.documentElement.clientHeight);
+        const el = at(r);
         const selector = el ? selectorFor(el) : null;
         if (!selector) return;
+        target.focus({ preventScroll: true });
+        // Plain click while in control = a real click on the agent's page. Shift+click (or no control) = the week-2 highlight.
+        if (controlling() && !ev.shiftKey) { controlClick(tab, el, selector, r); return; }
         const note = $('cdc-note').value.trim();
         api('POST', con.urls.sessions + '/' + cur.session.id + '/highlight', { selector, note: note || null, ...tabParam(tab) }).then((res) => {
             say(res.ok ? 'Highlighted: ' + selector : 'Could not send the highlight.', !res.ok);
         });
+    });
+    target.addEventListener('dblclick', (ev) => {
+        if (!controlling() || ev.shiftKey) return;
+        const r = ratio(ev); const el = at(r);
+        if (el && !isPrivate(el)) sendAction(tab, { type: 'dblclick', s: selectorFor(el), x: r.x, y: r.y });
+    });
+    target.addEventListener('keydown', (ev) => {
+        if (!controlling() || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+        if (ev.key.length === 1) { ev.preventDefault(); typeChar(tab, ev.key); return; }
+        if (['Enter', 'Tab', 'Escape', 'Backspace', 'Delete', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(ev.key)) {
+            ev.preventDefault();
+            flushTyped(tab);
+            sendAction(tab, { type: 'key', k: ev.key, sh: ev.shiftKey, s: cur.focusSel || '' });
+        }
+    });
+    target.addEventListener('paste', (ev) => {
+        if (!controlling() || !cur.focusSel) return;
+        const text = (ev.clipboardData && ev.clipboardData.getData('text')) || '';
+        if (text) { ev.preventDefault(); flushTyped(tab); sendAction(tab, { type: 'type', s: cur.focusSel, v: text.slice(0, 500) }); }
+    });
+    let wheel = null;
+    target.addEventListener('wheel', (ev) => {
+        if (!controlling()) return;
+        ev.preventDefault();
+        const r = ratio(ev); const el = at(r);
+        const sc = scale();
+        wheel = wheel || { dx: 0, dy: 0, sel: scrollerFor(el), timer: setTimeout(() => { const w = wheel; wheel = null; sendAction(tab, { type: 'scroll', s: w.sel, dx: Math.round(w.dx), dy: Math.round(w.dy) }); }, 60) };
+        wheel.dx += ev.deltaX / sc; wheel.dy += ev.deltaY / sc;
+    }, { passive: false });
+}
+
+// ── Take-over: capture and send (phase 2, spec section 14) ───────────────────────
+
+/** Best effort on the console side (the agent's browser is the real gate): a field the mirror shows as stars or that is a password. */
+function isPrivate(el) {
+    if (!el || !el.closest) return false;
+    const t = String(el.type || '').toLowerCase();
+    if (t === 'password' || el.closest('[data-desk-mask]')) return true;
+    const v = el.value || el.getAttribute('value') || '';
+    return /^(input|textarea)$/i.test(el.tagName) && v.length > 0 && /^\*+$/.test(v);
+}
+
+const isEditable = (el) => !!el && ((el.tagName === 'INPUT' && !['button', 'submit', 'reset', 'checkbox', 'radio', 'file', 'image', 'hidden', 'range', 'color', 'password'].includes(String(el.type || 'text').toLowerCase())) || el.tagName === 'TEXTAREA' || el.isContentEditable);
+
+function controlClick(tab, el, selector, r) {
+    if (isPrivate(el)) { say('That field is private - ask the agent to fill it in themselves.', true); return; }
+    if (el.tagName === 'SELECT') { chooseOption(tab, el, selector); return; }
+    cur.focusSel = isEditable(el) ? selector : null;
+    flushTyped(tab);
+    sendAction(tab, { type: 'click', s: selector, x: r.x, y: r.y });
+}
+
+/** A dropdown cannot open on a static mirror: offer its options in a small native list on top of it. */
+function chooseOption(tab, el, selector) {
+    const iframe = tab.replayer.iframe;
+    const sc = iframe.getBoundingClientRect().width / iframe.contentDocument.documentElement.clientWidth;
+    const rect = el.getBoundingClientRect();
+    const pane = $('cdc-replay');
+    const box = pane.getBoundingClientRect();
+    const sel = document.createElement('select');
+    sel.size = Math.min(8, Math.max(2, el.options.length));
+    sel.style.cssText = 'position:fixed;z-index:50;min-width:10rem;left:' + (iframe.getBoundingClientRect().left + rect.left * sc) + 'px;top:' + (iframe.getBoundingClientRect().top + (rect.bottom * sc)) + 'px;';
+    Array.from(el.options).forEach((o) => { const op = document.createElement('option'); op.value = o.value; op.textContent = o.textContent; sel.appendChild(op); });
+    const close = () => sel.remove();
+    sel.addEventListener('change', () => { sendAction(tab, { type: 'select', s: selector, v: sel.value }); close(); });
+    sel.addEventListener('blur', close);
+    document.body.appendChild(sel);
+    sel.focus();
+    void box;
+}
+
+/** The nearest scrollable ancestor of the element under the pointer, as a selector ('' = the page itself). */
+function scrollerFor(el) {
+    for (let n = el; n && n.nodeType === 1 && n.tagName !== 'BODY' && n.tagName !== 'HTML'; n = n.parentElement) {
+        const cs = n.ownerDocument.defaultView.getComputedStyle(n);
+        if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll') && n.scrollHeight > n.clientHeight + 4) return selectorFor(n);
+    }
+    return '';
+}
+
+/** Keystrokes are joined into one `type` action every ~120 ms (fewer whispers; the agent's report counts them as one line). */
+function typeChar(tab, ch) {
+    if (!cur.focusSel) { say('Click a text field in the window first.', true); return; }
+    cur.typed = (cur.typed || '') + ch;
+    clearTimeout(cur.typeTimer);
+    cur.typeTimer = setTimeout(() => flushTyped(tab), 120);
+}
+
+function flushTyped(tab) {
+    if (!cur || !cur.typed) return;
+    clearTimeout(cur.typeTimer);
+    const v = cur.typed; cur.typed = null;
+    sendAction(tab, { type: 'type', s: cur.focusSel, v, n: v.length });
+}
+
+/** One action, browser to browser (a whisper): the text never passes through CoreX. The AGENT's browser reports what it did, for the audit. */
+function sendAction(tab, a) {
+    if (!cur) return;
+    cur.channel.whisper('action', { t: tab.key, id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ...a });
+}
+
+function setControl(state, tabKey, note) {
+    if (!cur) return;
+    cur.control = { state, tab: state === 'none' ? null : tabKey };
+    if (state !== 'granted') { cur.typed = null; cur.focusSel = null; }
+    paintControl();
+    if (note) say(note);
+}
+
+/** The Request / Hand back button, the status line, and the amber frame while in control. */
+function paintControl() {
+    if (!cur) return;
+    const btn = $('cdc-control');
+    const status = $('cdc-control-status');
+    if (!btn) return;
+    btn.hidden = !con.canControl;
+    const c = cur.control;
+    const tab = cur.tabs.get(c.tab || cur.selected);
+    const name = tab ? tab.label : '';
+    if (c.state === 'none') {
+        btn.textContent = 'Request control';
+        status.textContent = 'Ask ' + (cur.session.agent_name || 'the agent') + ' to let you click and type for them in the selected window.';
+    } else if (c.state === 'requested') {
+        btn.textContent = 'Withdraw request';
+        status.textContent = 'Waiting for ' + (cur.session.agent_name || 'the agent') + ' to press Allow…';
+    } else {
+        btn.textContent = 'Hand back control';
+        status.textContent = 'You are in control of ' + name + '. Click, type and scroll in the window below. Shift+click highlights instead. Private fields are skipped.';
+    }
+    cur.tabs.forEach((t) => {
+        if (t.replayer) t.replayer.wrapper.style.outline = c.state === 'granted' && c.tab === t.key ? '3px solid #f59e0b' : '';
     });
 }
 
@@ -342,6 +491,15 @@ $('cdc-form').addEventListener('submit', (e) => {
     const code = $('cdc-code').value.replace(/\D/g, '');
     if (code.length !== 6) { say('Type the 6-digit code the agent reads out.', true); return; }
     join(code);
+});
+$('cdc-control').addEventListener('click', async () => {
+    if (!cur) return;
+    const url = con.urls.sessions + '/' + cur.session.id + '/control/';
+    const r = cur.control.state === 'none'
+        ? await api('POST', url + 'request', { tab: cur.selected })
+        : await api('POST', url + 'end');
+    if (!r.ok) say(r.json.message || 'Could not do that.', true);
+    else if (r.json.control) setControl(r.json.control.state, r.json.control.tab);
 });
 $('cdc-clear').addEventListener('click', () => {
     if (cur) api('POST', con.urls.sessions + '/' + cur.session.id + '/highlight/clear', cur.selected === MAIN ? {} : { tab: cur.selected });

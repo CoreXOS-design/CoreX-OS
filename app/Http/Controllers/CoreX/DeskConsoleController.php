@@ -4,6 +4,7 @@ namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
 use App\Models\DeskSession;
+use App\Services\Desk\DeskControlException;
 use App\Services\Desk\DeskRateLimitedException;
 use App\Services\Desk\DeskSessionService;
 use Illuminate\Http\JsonResponse;
@@ -28,7 +29,7 @@ class DeskConsoleController extends Controller
 
         return view('desk.console', [
             'sessions' => $this->visibleSessions($request)->open()->with('agent', 'agency', 'supportUser')->latest('id')->get(),
-            'consoleConfig' => ['urls' => [
+            'consoleConfig' => ['canControl' => (bool) $request->user()->hasPermission('desk.control'), 'urls' => [
                 'join' => route('corex.desk.join'),
                 'list' => route('corex.desk.sessions'),
                 'sessions' => url('corex/desk/sessions'),
@@ -99,6 +100,31 @@ class DeskConsoleController extends Controller
         $session = $this->desk->end($this->scoped($request, $id), DeskSession::ENDED_BY_SUPPORT, $request->user());
 
         return response()->json(['status' => $session->status]);
+    }
+
+    /** POST /corex/desk/sessions/{id}/control/request {tab} - ask the agent to let you take control of the CoreX page or a shared tab. */
+    public function controlRequest(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate(['tab' => ['nullable', 'string', 'max:12']]);
+
+        return $this->control(fn () => $this->desk->requestControl($this->scoped($request, $id), $request->user(), (string) ($data['tab'] ?? 'main')));
+    }
+
+    /** POST /corex/desk/sessions/{id}/control/end - hand control back (or withdraw a request nobody has answered). */
+    public function controlEnd(Request $request, int $id): JsonResponse
+    {
+        return $this->control(fn () => $this->desk->endControlBySupport($this->scoped($request, $id), $request->user()));
+    }
+
+    private function control(\Closure $do): JsonResponse
+    {
+        try {
+            $session = $do();
+        } catch (DeskControlException $e) {
+            return response()->json(['message' => $e->getMessage()], $e->status);
+        }
+
+        return response()->json(['control' => $session->toClientArray()['control']]);
     }
 
     /** A LIVE session this support user has joined (highlight / pointer need the joined user, not any support user). */

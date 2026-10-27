@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\DeskSession;
+use App\Services\Desk\DeskControlException;
 use App\Services\Desk\DeskNotLiveException;
 use App\Services\Desk\DeskSessionService;
 use Illuminate\Http\JsonResponse;
@@ -39,6 +40,7 @@ class DeskExtensionController extends Controller
             'heartbeat_seconds' => (int) config('desk.heartbeat_seconds', 30),
             'session' => $session?->load('agent', 'agency', 'supportUser')->toClientArray(),
             'tabs' => $session && $session->isLive() ? array_values($this->desk->openTabs($session)) : [],
+            'control_idle_seconds' => $this->desk->controlIdleMinutes($agencyId ? (int) $agencyId : null) * 60,
         ]);
     }
 
@@ -81,6 +83,49 @@ class DeskExtensionController extends Controller
         }
 
         return response()->json(['tabs' => array_values($tabs)]);
+    }
+
+    // ── Take-over on a shared extension tab (phase 2): same answers and the same report as the CoreX page, over the token ────────
+
+    /** POST /api/v1/desk/ext/sessions/{id}/control/respond {allow} */
+    public function controlRespond(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate(['allow' => ['required', 'boolean']]);
+
+        return $this->control(fn () => $this->desk->respondControl($this->mine($request, $id), $request->user(), (bool) $data['allow']));
+    }
+
+    /** POST /api/v1/desk/ext/sessions/{id}/control/revoke {reason?: agent|idle} */
+    public function controlRevoke(Request $request, int $id): JsonResponse
+    {
+        $reason = $request->input('reason') === 'idle' ? 'idle' : 'agent';
+
+        return $this->control(fn () => $this->desk->revokeControl($this->mine($request, $id), $request->user(), $reason));
+    }
+
+    /** POST /api/v1/desk/ext/sessions/{id}/control/actions {tab, actions: [...]} */
+    public function controlActions(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate(['tab' => ['required', 'string', 'regex:/^x\d{1,10}$/'], 'actions' => ['required', 'array', 'max:200']]);
+
+        try {
+            $n = $this->desk->recordControlActions($this->mine($request, $id), $request->user(), $data['tab'], $data['actions']);
+        } catch (DeskControlException $e) {
+            return response()->json(['message' => $e->getMessage()], $e->status);
+        }
+
+        return response()->json(['recorded' => $n]);
+    }
+
+    private function control(\Closure $do): JsonResponse
+    {
+        try {
+            $session = $do();
+        } catch (DeskControlException $e) {
+            return response()->json(['message' => $e->getMessage()], $e->status);
+        }
+
+        return response()->json(['control' => $session->toClientArray()['control']]);
     }
 
     private function mine(Request $request, int $id): DeskSession
