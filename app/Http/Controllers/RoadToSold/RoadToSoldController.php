@@ -7,6 +7,7 @@ use App\Models\RoadToSold\RtsListItem;
 use App\Models\RoadToSold\RtsOutcomeDefinition as Def;
 use App\Services\RoadToSold\CallListService;
 use App\Services\RoadToSold\CompletionListService;
+use App\Services\RoadToSold\EmptyListExplainer;
 use App\Services\RoadToSold\NextActionService;
 use App\Services\RoadToSold\RecipeProgressService;
 use App\Services\RoadToSold\TaskCaptureService;
@@ -60,7 +61,12 @@ class RoadToSoldController extends Controller
         $viewingOwn = $agentId === (int) $viewer->ownershipUserId();
 
         $date = $this->list->resolveDate($request->query('date'));
-        $this->buildIfMissing($viewer, $agentId, $date, $viewingOwn, $track);
+        $built = $this->buildIfMissing($viewer, $agentId, $date, $viewingOwn, $track);
+        // A build pressed on this agent's page a moment ago (the button redirects here) counts as tried, so an empty result is "nothing matches", not "not built".
+        $pressed = (array) session('rts_build', []);
+        $pressedHere = (int) ($pressed['agent'] ?? 0) === $agentId;
+        $buildTried = $built['tried'] || $pressedHere;
+        $buildFailed = $built['failed'] || ($pressedHere && ! empty($pressed['failed']));
 
         // 'team' is the captures list for every agent the viewer may see (managers and admins); with one agent it is just the captures.
         $isTeam = $request->query('view') === 'team' && $agents->count() > 1;
@@ -82,6 +88,10 @@ class RoadToSoldController extends Controller
             : $this->list->page($viewer, $agentId, $listFilters, $track);
 
         $agentUser = \App\Models\User::query()->find($agentId);
+        // Why the day is empty and the one thing to do about it (spec 10.5, empty states). Only when the call list itself has no rows at all.
+        $emptyState = (! $isCaptures && $agentUser && (int) ($data['counts']['any'] ?? 0) === 0)
+            ? app(EmptyListExplainer::class)->explain($viewer, $agentUser, $date, $track, $viewingOwn, $buildTried, $buildFailed)
+            : null;
         // The three feeds (buyers, enquiries, expiring mandates) are sales work; another track shows none.
         $feeds = ($agentUser && $track === 'sales') ? [
             'buyers'    => $this->feeds->buyerFollowUps($agentUser),
@@ -128,6 +138,7 @@ class RoadToSoldController extends Controller
 
         return view('road-to-sold.index', $data + [
             'feeds'          => $feeds,
+            'emptyState'     => $emptyState,
             'progress'       => $progress,
             'nextAction'     => $nextAction,
             'captureTasks'   => $captureTasks,
@@ -203,11 +214,16 @@ class RoadToSoldController extends Controller
         return ['open' => $open, 'first' => $first ? ['tracked_property_id' => $first['tracked_property_id'], 'list_item_id' => $first['list_item_id'], 'address' => $first['street'] !== '' ? $first['street'] : $first['address']] : null];
     }
 
-    /** The overnight build normally has today's list ready; if it is missing, build it when the page opens. */
-    private function buildIfMissing($viewer, int $agentId, $date, bool $viewingOwn, string $track): void
+    /**
+     * The overnight build normally has today's list ready; if it is missing, build it when the agent opens their own page.
+     * Nobody else's page builds: a manager gets the "Build" button instead (buildList).
+     *
+     * @return array{tried:bool,failed:bool} tried = a build was attempted now (or the list already exists); failed = it threw
+     */
+    private function buildIfMissing($viewer, int $agentId, $date, bool $viewingOwn, string $track): array
     {
         if (! $viewingOwn || ! $date->isToday()) {
-            return;
+            return ['tried' => false, 'failed' => false];
         }
         try {
             $has = RtsListItem::query()->visibleTo($viewer)->forDay($agentId, $date, $track)->exists();
@@ -218,7 +234,44 @@ class RoadToSoldController extends Controller
             // Never a silently empty page: log it, and tell the agent their list could not be built.
             report($e);
             session()->now('rts_error', 'We could not build your call list just now, so this list may be empty or short. Please try again in a minute or tell your manager.');
+
+            return ['tried' => true, 'failed' => true];
         }
+
+        return ['tried' => true, 'failed' => false];
+    }
+
+    /**
+     * "Build my list" / "Build <agent>'s list" - the empty-state button. Runs the SAME builder the overnight job and the page use
+     * (idempotent: it tops the day up to the target and adds nothing the second time). Own list, or an agent the viewer may look at
+     * (the same breadth the page uses; anyone else is a 404). Today only.
+     */
+    public function buildList(Request $request): RedirectResponse
+    {
+        $viewer = $request->user();
+        abort_if((int) ($viewer->effectiveAgencyId() ?: 0) <= 0, 403, 'Switch into an agency to build a list.');
+
+        $track = Track::fromRequest($request);
+        $data = $request->validate(['agent' => ['nullable', 'integer', 'min:1']]);
+        $agentId = (int) ($data['agent'] ?? $viewer->ownershipUserId());
+        abort_unless($this->list->viewableAgents($viewer)->contains('id', $agentId), 404);
+        $agent = \App\Models\User::query()->findOrFail($agentId);
+        $own = $agentId === (int) $viewer->ownershipUserId();
+        $back = redirect()->route('road-to-sold.index', ($own ? [] : ['agent' => $agentId]) + Track::params($track));
+
+        try {
+            $items = app(ListBuilderService::class)->buildFor($agent, now()->startOfDay(), $track);
+        } catch (Throwable $e) {
+            report($e);
+
+            return $back->with('rts_build', ['agent' => $agentId, 'failed' => true]);
+        }
+
+        $n = $items->count();
+        $who = $own ? 'your' : trim(explode(' ', (string) $agent->name)[0]) . "'s";
+
+        return $back->with('rts_build', ['agent' => $agentId, 'failed' => false])
+            ->with($n > 0 ? ['status' => "Built {$who} list for today: {$n} " . ($n === 1 ? 'property.' : 'properties.')] : []);
     }
 
     public function recordOutcome(Request $request): RedirectResponse

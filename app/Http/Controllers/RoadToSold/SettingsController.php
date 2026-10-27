@@ -55,7 +55,14 @@ class SettingsController extends Controller
 
         $settings = SettingsService::forAgency($agencyId, $this->track());
 
+        // The two "View" panels on "Where the call list comes from" (spec 21.5). Worked out only when asked for, by the same
+        // services the list builder and the training flags use - the view is the explanation, nothing is restated here.
+        $panel = in_array($request->query('view'), ['pockets', 'standards'], true) ? $request->query('view') : null;
+
         return view(Routing::base() . 'index', [
+            'panel'      => $panel,
+            'pockets'    => $panel === 'pockets' ? $this->pockets($user, $agencyId, $settings) : [],
+            'standards'  => $panel === 'standards' ? $this->standards($agencyId, $settings) : null,
             'settings'   => $settings,
             'defaults'   => RtsSetting::SCALAR_DEFAULTS,
             'canManage'  => $user->hasPermission('road_to_sold.manage_settings'),
@@ -68,6 +75,49 @@ class SettingsController extends Controller
             'listChoices'      => RtsSetting::listChoices(),
             'holidayCountries' => $this->countryNames(),
         ]);
+    }
+
+    /**
+     * The hottest sales pockets exactly as the list builder ranks them today: the same service, the same look-back, weights,
+     * buyer tiers and active buyer states from this agency's settings.
+     *
+     * @return array<string,array<string,mixed>>
+     */
+    private function pockets(\App\Models\User $user, int $agencyId, SettingsService $settings): array
+    {
+        return app(\App\Services\RoadToSold\HotPocketService::class)->rank(
+            $agencyId, $this->track(), now(), $settings->hotPocketLookbackDays(),
+            \App\Services\RoadToSold\Support\BuilderSettings::forUser($user, $this->track())
+        );
+    }
+
+    /**
+     * The agency's own standards the training flags measure against: the median of each funnel ratio over the agents who reach
+     * the minimum sample, in the flag window (FunnelService::snapshot - the same call the Training & flags screen makes).
+     *
+     * @return array{rows:array<int,array{label:string,median:?float,flagged_below:?float,agents:int}>,days:int,min_sample:int,below_pct:int}
+     */
+    private function standards(int $agencyId, SettingsService $settings): array
+    {
+        $funnel = app(\App\Services\RoadToSold\FunnelService::class);
+        $days   = $settings->flagWindowDays();
+        $snap   = $funnel->snapshot($agencyId, $funnel->windowPeriod($days), $this->track(), $settings);
+        $min    = $settings->flagMinSample();
+        $below  = $settings->flagBelowPct();
+
+        $rows = [];
+        foreach (\App\Services\RoadToSold\FunnelService::RATIOS as $key => $def) {
+            $median  = $snap['medians'][$key] ?? null;
+            $agents  = 0;
+            foreach ($snap['computed']['ratios'] as $r) {
+                if (($r[$key]['pct'] ?? null) !== null && $r[$key]['den'] >= $min) {
+                    $agents++;
+                }
+            }
+            $rows[] = ['label' => $def[0], 'median' => $median, 'flagged_below' => $median === null ? null : round($median * $below / 100, 1), 'agents' => $agents];
+        }
+
+        return ['rows' => $rows, 'days' => $days, 'min_sample' => $min, 'below_pct' => $below];
     }
 
     public function update(Request $request): RedirectResponse
@@ -169,7 +219,6 @@ class SettingsController extends Controller
             'area_refresh_warn_days'       => ['sometimes', 'integer', 'min:1', 'max:365'],
             'public_holiday_country'       => ['sometimes', 'string', 'size:2', \Illuminate\Validation\Rule::in($this->holidayCountries())],
             'add_to_day_max'               => ['sometimes', 'integer', 'min:1', 'max:500'],
-            'scan_page_size'               => ['sometimes', 'integer', 'min:10', 'max:2000'],
             'min_area_properties'          => ['sometimes', 'integer', 'min:1', 'max:1000'],
             'hot_pocket_weight_buyers'     => ['sometimes', 'integer', 'min:0', 'max:100'],
             'hot_pocket_weight_leads'      => ['sometimes', 'integer', 'min:0', 'max:100'],
@@ -189,7 +238,7 @@ class SettingsController extends Controller
             'summary_green_from_pct'       => ['sometimes', 'integer', 'min:1', 'max:100'],
             'summary_red_below_pct'        => ['sometimes', 'integer', 'min:1', 'max:100'],
             'summary_ahead_from_pct'       => ['sometimes', 'integer', 'min:100', 'max:500'],
-            'capture_back_date_hours'      => ['sometimes', 'integer', 'min:1', 'max:720'],
+            'capture_back_date_working_days' => ['sometimes', 'integer', 'min:1', 'max:60'],
             'capture_needs_review'         => ['sometimes', 'boolean'],
             'levels_signoff_required'      => ['sometimes', 'boolean'],
             'level_periods_required'       => ['sometimes', 'integer', 'min:1', 'max:52'],
@@ -524,7 +573,7 @@ class SettingsController extends Controller
         'summary_green_from_pct'  => 'Green from (%)',
         'summary_red_below_pct'   => 'Red below (%)',
         'summary_ahead_from_pct'  => 'Ahead from (%)',
-        'capture_back_date_hours' => 'Hours a captured task may be back-dated',
+        'capture_back_date_working_days' => 'Working days a captured task may be back-dated',
         'capture_needs_review'    => 'Captured tasks wait for a manager\'s approval',
         'levels_signoff_required' => 'A manager signs off each level',
         'level_periods_required'  => 'Weeks on target before a level is put forward',
@@ -536,7 +585,6 @@ class SettingsController extends Controller
         'missed_items_mode'       => 'Missed items',
         'public_holiday_country'  => 'Public holidays of',
         'add_to_day_max'          => 'Most properties one "Add to my day" adds',
-        'scan_page_size'          => 'Properties read per page',
         'min_area_properties'     => 'Smallest number of properties for a working area',
         'hot_pocket_weight_buyers' => 'Hottest pockets - weight of buyers',
         'hot_pocket_weight_leads'  => 'Hottest pockets - weight of leads',

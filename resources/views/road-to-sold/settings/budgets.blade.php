@@ -63,6 +63,9 @@
         @endif
     </div>
 
+    @if($split)
+        @include('road-to-sold.settings._split', ['split' => $split])
+    @else
     {{-- The agency --}}
     @if($canEditAgency || $agencyDetail['own'] > 0)
     <div class="rounded-md p-4" style="background:var(--surface); border:2px solid var(--brand-icon, #0ea5e9);">
@@ -121,6 +124,7 @@
             </tbody>
         </table>
     </div>
+    @endif
     @endif
 
     {{-- Filters --}}

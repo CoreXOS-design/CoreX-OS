@@ -492,7 +492,7 @@ Archive and restore are available on every settings entity (tasks, levels, steps
 | Capture form: zero records submitted but quantity > 0 | Prevent when `capture_kind ≠ none` |
 | Duplicate property/contact in a drive | Absorb: `matchOrCreate` matches and enriches; the completion lists it once |
 | Same real event completes a task twice | Absorb: idempotent (5.1) |
-| Backdated completion | Prevent beyond the agency's back-date limit (setting; reuse the calendar `back_date_limit_hours` concept) |
+| Backdated completion | Prevent beyond the agency's back-date limit, counted in WORKING days (weekends and the agency's public holidays do not count; default 5 - section 21.1) |
 | Assistant records on the agent's behalf | Absorb: completion belongs to the list owner; `recorded_by_user_id` = the assistant and `recorded_by_kind='assistant'` (v1 §11.1; Johan's answer 4); reports can split by who did it |
 | Level with no tasks / agent with no level | Absorb: show "no tasks set for this level yet" / create Level 1 lazily on first open (never on read) |
 | BM signs off self / out-of-scope agent | Prevent / 404 |
@@ -1270,7 +1270,7 @@ Sidebar link "Road to Sold" (Real Estate group, `@feature('road-to-sold')`). Ser
 * **Show:** Today's list (default) · No answer · Wrong number · No owner. *Today's list* and *No owner* read `rts_list_items` for the day; *No answer* and *Wrong number* read the agent's **current** outcomes across all days (so a property can be found when the owner phones back).
 * **Columns:** Address (street, suburb) · Price · Days on market · Listing agency · Why suggested · Owner + phone (or **Find the owner**) · Last outcome (label, date, who) · **History** (only when the property has outcomes the viewer may see) and **Contacted client**, side by side, same height.
 * **Search (named):** address, suburb, owner name, owner phone. **Filters:** selection (the nine + follow-up), status (Open default · Worked · Missed · All), Show (above). **Sort:** list order (default), address, price, days on market, last outcome date. Pagination 50 (the day's list is short; the other views are not).
-* **Empty states:** no list built yet / not a working day / no match for this filter — each says what to do.
+* **Empty states:** no list built yet / not a working day / no match for this filter — each says what to do. Built 27 Oct 2026 for the day's own list - see "Empty day: why, and the one next action" below. (A filter that matches nothing still says "Nothing matches this search.")
 * **Find the owner:** one link to the existing owner-capture screen for the tracked property (`seller-outreach.entry.from-tracked-property`), which carries the CMA Info (title-deed) link, the TVA ingest and the manual contact link — the three existing owner paths live on that one screen.
 * **Contacted client popup:** outcome list (active only, agency order); date picker only for outcomes that need one; "Evaluation booked" tick (conversations) → date-and-time; note; Save. Errors re-open the popup with the message.
 * **History popup:** the property's last 10 outcomes the viewer may see (own = own calls, branch = branch, agency = all): outcome, attempt or conversation, evaluation booked, date, who, back-on date, note. Read through `OutcomeService::historyForPage()` (one query for the whole page, `RtsContactOutcome::scopeVisibleTo`). The same outcome is also a note on the owner contact (Notes tab) - history on the property and on the contact.
@@ -1659,3 +1659,57 @@ Built section 14 phase 5 exactly as 9.2-9.5 and 13.1 define it.
 ### P14 - phase 6, the team funnel part (AT-454, QA1, 26 Oct 2026)
 
 The part of 10.2 / 10.3 that phases 4 and 5 unblocked: the team funnel grid by agent, the agency admin's roll-up by branch (grid view "By branch": agents, flagged agents and each branch's own ratios against the agency median), training flags, suggested targets, and the funnel and flags beside the sign-off decision (8.4). Scoping is proven for agent (no door), branch manager (branch), admin (agency) and a second agency's admin. **Not built:** the funnel in the interactive report and print / PDF / XLSX of the funnel and review lists - reported, not changed.
+
+### P15 - admin settings rulings from Johan's walk-through (AT-454, QA1, 27 Oct 2026) - section 21
+
+Six rulings on the Road to Sold settings screens, one general-page layout change. Everything below is on Settings -> Road to Sold; nothing else was touched.
+
+**21.1 Back-dating counts working days.** `rts_settings.capture_back_date_working_days` (default **5**, 1-60) replaces `capture_back_date_hours` (48). `WorkdayService::backDateLimit($now, $days, $country)` walks back from today skipping Saturdays, Sundays and the public holidays of the country the agency chose under "Public holidays of" (the same calendar the targets use); the capture refuses a time before the start of that day (and still refuses the future). An agent's own leave and weekday targets are NOT part of it - the rule is the agency's calendar, the same for everyone. Case: work done Friday, Monday out, Tuesday a public holiday, captured Wednesday - Tuesday is skipped, Monday is working day 1, Friday 2: allowed (proved in `CaptureBackDateWorkingDaysTest`). Old hour figures are not converted (hours do not map onto working days); every agency starts on 5. Migration `2026_12_13_100000` also drops `scan_page_size` (21.6). Not added to the Setup Wizard: it stays with the other phase settings (13.4, Johan 23 Oct).
+
+**21.2 Areas: Tick all / Untick all.** On the "Add suburbs for <agent>" picker (the only checkbox list on the tab) two buttons tick / untick every suburb the list is showing (the ones matching the search), plain JS over `input[name="add[]"]`; nothing posts until "Add ticked suburbs".
+
+**21.3 Totals split by percentage - Budgets and the monthly Targets.** One panel (`settings/_split.blade.php`, an Alpine component) used twice. The manager types the total, the branches get a slider and an editable % box each, and under each branch its agents get the same; the amounts are worked out live, the branches' total is shown against the typed total, and **Save stays off until every level adds up to 100%** (the server refuses the same, and writes nothing - the whole save is one transaction). A branch with one agent, or an agency with one branch, is 100% without being asked. The arithmetic is `SplitAllocator` (whole units - cents for money, 1 for counts - with the biggest remainders getting the leftover unit), run identically in the browser and on the server, so the parts always add up to the total exactly and what the screen shows is what is saved. Percentages within 0.01 of 100 pass (three thirds typed by hand).
+- *Budgets:* `PUT budgets/split` -> `BudgetService::saveSplit`. Agency total -> `rts_budgets` agency row; each branch's share -> its branch row; each branch's agents (the active people counted in the branch split, the same ones `requirementFor` divides by) -> `requirement` on their agent row for the month. An agent's own personal / business budget and planning figures are never touched; a row that only holds a share (`RtsBudget::isShareOnly()`) is not shown or counted as "their budget" and does not stop last month's figures carrying forward. `requirementFor(..., userId:)` returns the agent's own share as "required per agent" when there is one (My Portal passes the agent); otherwise the even split as before. Agency-wide managers split the whole agency; a branch manager their own branch only (agency level 403, other branch 404); an own-breadth viewer sees no panel. An agency with no branch keeps the old single agency box.
+- *Monthly targets:* `PUT targets/monthly/split` -> `TargetService::saveSplit`. The totals are points, deals, listings and sales value for the month; the same percentages apply to all four; the result is written as each agent's own monthly targets (the `targets` table, through the existing `saveMonthly`, so the zero-the-others bug stays fixed); no new table (the agency / branch totals are always the sum of the agents' numbers). The panel starts from what the visible agents already have for the month and how it is spread. Agents with no branch are left out. The old "Agency default monthly targets" box (a per-agent starting point) is unchanged.
+
+**21.4 Per-agent call target wording.** Targets -> "Calls per agent per day" (was "Daily call targets"), "Agency default: calls per agent per day" (was "Agency default week"), the grid column "Calls / week".
+
+**21.5 General -> "Where the call list comes from": two Views.** "View" on Hottest sales pockets opens a table (suburb, buyers matched, leads, sales over the look-back, score) from `HotPocketService::rank()` called with the same agency, track, look-back and `BuilderSettings` the list builder uses - the view is the explanation, nothing is restated. "Agency standards -> View" shows each funnel ratio's agency median, the line it is flagged below (median x flag %), and how many agents reach the minimum sample, from `FunnelService::snapshot()` over the flag window (a median needs three agents - otherwise "not enough data yet", never a guess). Both open as `?view=pockets|standards` (server-rendered, computed only when asked; Close or Esc returns).
+
+**21.6 "Properties read per window" is gone.** Removed from the screen, the saver and the table; `SettingsService::scanPageSize()` reads `config('road-to-sold.scan_page_size')` (default 200, env `RTS_SCAN_PAGE_SIZE`).
+
+**21.7 General page layout.** The long scroll is now a left menu inside the page (Areas, Targets and missed items, Where the call list comes from, Limits for those sources, Matching and list size, After a call, On-track bar and capture, Levels and sign-off, Recent changes): one group shows at a time, all in the same form so "Save settings" saves everything, and the page opens on the group with an error. No layout partial changed.
+
+**Tests:** `AdminSettingsRulingsTest` (allocator arithmetic, tally validation on Budgets and Targets, one-branch 100%, scoping, panels, wording, groups, Views, tick-all markup), `CaptureBackDateWorkingDaysTest`; the existing back-date, scan-size and wording assertions in `AgentViewAndCaptureTest`, `AuditFixesTest`, `AuditGapsTest`, `TargetsTest` and `BudgetsTargetsWithoutRoadToSoldTest` were updated to the new rules.
+
+## Empty day: why, and the one next action (27 Oct 2026, QA1)
+
+**What Johan saw:** `/corex/road-to-sold` said only "No list for today." for Andre Roets and for Johan (user 46) - no reason, no button - although the month target read "0 of 95".
+
+**Causes found:**
+1. **QA1 has no scheduler.** The only `schedule:run` cron on the box is the demo copy's, so the 04:30 `rts:build-lists` has never run on QA1 (§9.6 already says "run by hand on QA1"). Lists exist only for agents who opened their own page (22 Oct: 20 agents; 26 Oct: 3).
+2. **The page builds only the signed-in person's OWN list** (`buildIfMissing`: `$viewingOwn`). A manager or the platform owner looking at an agent's page therefore never triggered a build, and there was nothing to press. User 46 is a platform owner with no agency of his own, so he has no list of his own and is always looking at someone else's.
+3. **The empty state gave no reason and no action**, and "Add to my day" is (by design) shown only once the day has rows.
+Not a cause: areas. No agent has areas assigned, but the agency does not lock agents to areas, so every agent falls through to the agency pool (§9.8) and a rolled-back build for Andre produced a full list from "agency buyers sourcing".
+
+**Behaviour now** (`EmptyListExplainer`, read-only; the page asks it only for TODAY and only when the day has no rows at all). The headline "No list for today." stays; under it ONE plain sentence and at most ONE action, checked in this order:
+
+| Reason | Sentence | Action (only if the viewer may use it) |
+|---|---|---|
+| build failed | "Your list could not be built just now." | **Try again** (build button) |
+| not a working day | "Today is not a working day for you: weekend, public holiday or leave." | **Change working days** -> Targets (needs `road_to_sold.manage_targets`) |
+| every source off | "Every list source is switched off for your agency." | **Switch sources on** -> Settings (needs `road_to_sold.manage_settings`) |
+| locked to areas, none set | "Your agency gives each agent a list from their own areas, and you have none set." | **Set your areas** -> Areas (needs `road_to_sold.manage_areas`); without the key: "Ask your manager to set them." |
+| not built yet (someone else's page) | "<Name>'s list for today has not been built yet." | **Build <First>'s list** (build button) |
+| the build ran, nothing matched | "Nothing in your areas / your agency's market data matches the list rules today." | **Review areas** when the agent has areas and the viewer holds `manage_areas` |
+
+For someone else's page "you/your" becomes the agent's name. No agency is named in any sentence.
+
+**The build button** - `POST /corex/road-to-sold/build-list` (`road-to-sold.build-list`, same group and permission as the page): body `agent` (optional, default the signed-in person's list) and `track`. It runs `ListBuilderService::buildFor()` for today - the same builder as the overnight job and the page - so it is idempotent. Allowed for the viewer's own list or any agent in `CallListService::viewableAgents()` (the page's own/branch/agency breadth); anyone else is a 404. It redirects back to the agent's page; a flash (`rts_build`) tells the page the build was tried, so an empty result reads "nothing matches", not "not built", and a thrown build reads "could not be built" with Try again.
+
+**"Add to my day"** is unchanged: it is on the page for the agent's own list once the day has rows. There is no "Refresh my day" in this spec; the on-demand build is the build above plus the page's own build-on-open.
+
+**Setup Wizard (rule 10a):** no new setting.
+**Tests:** `tests/Feature/RoadToSold/EmptyListReasonTest.php` (each reason, who sees which action, the button builds with the real builder and is idempotent, 404 outside breadth/agency, 403 without the page key, a day other than today is not explained).
+**Open for Johan:** QA1 still has no scheduler. Installing one would also start the other QA1-only scheduled commands (see the supplier-invoice/scheduler note: lease month-to-month flips, inspection-reminder mail), so it was NOT done here.
+

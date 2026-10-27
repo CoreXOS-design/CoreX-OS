@@ -476,16 +476,17 @@ final class AgentViewAndCaptureTest extends TestCase
 
     public function test_back_dating_is_limited_by_the_agencys_setting(): void
     {
+        // "Now" is Wednesday 21 Oct 2026. Working days back from it (Mon-Fri, public holidays skipped): Tue 20 = 1, Mon 19 = 2, Fri 16 = 3, Thu 15 = 4, Wed 14 = 5.
         $task = $this->custom('none', 'week', 5);
-        $oneDayBack = Carbon::now()->subHours(20)->format('Y-m-d\TH:i');
-        $this->assertFalse($this->capture->capture($this->agent, $this->agent, $this->input($task, ['occurred_at' => $oneDayBack]))['duplicate']);
+        $fridayLastWeek = '2026-10-16T09:00';
+        $this->assertFalse($this->capture->capture($this->agent, $this->agent, $this->input($task, ['occurred_at' => $fridayLastWeek]))['duplicate']);
 
-        $threeDaysBack = Carbon::now()->subHours(60)->format('Y-m-d\TH:i');
-        $this->expectField('occurred_at', fn () => $this->capture->capture($this->agent, $this->agent, $this->input($task, ['occurred_at' => $threeDaysBack])));
+        $beyondFive = '2026-10-13T23:00';   // the sixth working day back
+        $this->expectField('occurred_at', fn () => $this->capture->capture($this->agent, $this->agent, $this->input($task, ['occurred_at' => $beyondFive])));
 
-        $this->actingAs($this->admin)->put(route('road-to-sold.settings.general.update'), ['capture_back_date_hours' => 100])->assertRedirect();
+        $this->actingAs($this->admin)->put(route('road-to-sold.settings.general.update'), ['capture_back_date_working_days' => 10])->assertRedirect();
         SettingsService::forget();
-        $this->assertFalse($this->capture->capture($this->agent, $this->agent, $this->input($task, ['occurred_at' => $threeDaysBack]))['duplicate']);
+        $this->assertFalse($this->capture->capture($this->agent, $this->agent, $this->input($task, ['occurred_at' => $beyondFive]))['duplicate']);
     }
 
     public function test_a_task_that_is_not_in_the_agents_recipe_is_refused(): void

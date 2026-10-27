@@ -8,6 +8,7 @@ use App\Models\RoadToSold\RtsBudget;
 use App\Models\User;
 use App\Services\PermissionService;
 use App\Services\RoadToSold\BudgetService;
+use App\Services\RoadToSold\SplitAllocator;
 use App\Services\RoadToSold\Support\Routing;
 use App\Services\RoadToSold\VisibleAgents;
 use App\View\Components\PeriodSelector;
@@ -64,6 +65,10 @@ class BudgetsController extends Controller
 
         $rows = $agents->map(function (User $u) use ($live, $archived, $period, $track) {
             $row = $live->get($u->id);
+            // A row that only holds the agent's share of a branch total (spec 21.3) is not their budget for the month.
+            if ($row && $row->isShareOnly()) {
+                $row = null;
+            }
             $carried = null;
             if (! $row) {
                 $f = $this->budgets->forUser($u, $period, $track);
@@ -117,6 +122,7 @@ class BudgetsController extends Controller
             'rows'       => $page,
             'canWrite'   => $this->canWrite($viewer),
             'canEditAgency' => $this->canWrite($viewer) && $scope === 'all',
+            'split'      => $this->splitConfig($viewer, $agencyId, $period, $track, $scope, $branches),
             'agencyDetail' => $this->budgets->agencyRequirementDetail($agencyId, $period, $track),
             'branchRows' => $branches->map(function (Branch $b) use ($reqs, $viewer, $agencyId, $period, $track) {
                 $r = $this->budgets->requirementFor($agencyId, (int) $b->id, $period, $track);
@@ -207,6 +213,123 @@ class BudgetsController extends Controller
         $this->budgets->saveRequirement($viewer, null, $period, (float) $data['requirement'], Routing::track());
 
         return $this->back($request, $period)->with('success', 'What the agency needs for ' . $this->monthLabel($period) . ' is saved.');
+    }
+
+    /**
+     * The "type the total, split it by percentage" panel (spec 21.3). An agency-wide manager types what the agency needs, splits it to
+     * the branches and each branch to its agents; a branch manager does the same for their own branch. The percentages start from what
+     * is saved (the saved branch / agent amounts as shares of their total), or an even split when nothing has been split yet; a single
+     * branch (or agent) is 100%. Null for someone who cannot write, or an agency with no branch.
+     *
+     * @param  Collection<int,Branch> $branches
+     * @return array<string,mixed>|null
+     */
+    private function splitConfig(User $viewer, int $agencyId, string $period, string $track, ?string $scope, Collection $branches): ?array
+    {
+        if (! $this->canWrite($viewer) || $branches->isEmpty()) {
+            return null;
+        }
+        $measures = [['key' => 'requirement', 'label' => 'Amount (rand)', 'decimals' => 2, 'money' => true]];
+        $reqs = $this->budgets->branchRequirements($agencyId, $period, $track);
+
+        $agentsOf = function (Branch $b) use ($agencyId, $period, $track) {
+            $ids = $this->budgets->splitAgentIds($agencyId, (int) $b->id);
+            $names = User::query()->withoutGlobalScopes()->whereIn('id', $ids)->pluck('name', 'id');
+            $pct = SplitAllocator::percentsOf(array_replace(array_fill_keys($ids, 0.0), $this->budgets->agentRequirements($agencyId, $ids, $period, $track)));
+
+            return array_map(fn ($id) => ['id' => $id, 'name' => (string) $names[$id], 'pct' => (float) $pct[$id]], $ids);
+        };
+
+        if ($scope === 'all') {
+            $detail = $this->budgets->agencyRequirementDetail($agencyId, $period, $track);
+            $branchPct = SplitAllocator::percentsOf(array_replace(array_fill_keys($branches->pluck('id')->all(), 0.0), array_intersect_key($reqs, array_flip($branches->pluck('id')->all()))));
+
+            return [
+                'id' => 'budget-split', 'action' => route(Routing::base() . 'budgets.split'), 'period' => $period, 'mode' => 'agency', 'branchId' => null,
+                'totalLabel' => 'What the agency needs for ' . $this->monthLabel($period), 'measures' => $measures,
+                'totals' => ['requirement' => (float) $detail['effective']], 'totalEditable' => true, 'canWrite' => true,
+                'branches' => $branches->map(fn (Branch $b) => ['id' => (int) $b->id, 'name' => (string) $b->name, 'pct' => (float) $branchPct[$b->id], 'agents' => $agentsOf($b)])->values()->all(),
+            ];
+        }
+
+        $mine = $branches->first(fn (Branch $b) => $this->mayWriteBranch($viewer, (int) $b->id));
+        if (! $mine) {
+            return null;
+        }
+
+        return [
+            'id' => 'budget-split', 'action' => route(Routing::base() . 'budgets.split'), 'period' => $period, 'mode' => 'branch', 'branchId' => (int) $mine->id,
+            'totalLabel' => 'What ' . $mine->name . ' needs for ' . $this->monthLabel($period), 'measures' => $measures,
+            'totals' => ['requirement' => (float) ($reqs[$mine->id] ?? 0)], 'totalEditable' => true, 'canWrite' => true,
+            'branches' => [['id' => (int) $mine->id, 'name' => (string) $mine->name, 'pct' => 100.0, 'agents' => $agentsOf($mine)]],
+        ];
+    }
+
+    /**
+     * Save the whole split in one go: the total, the branches' shares and each branch's agents (spec 21.3). Every level must add up
+     * to 100% or nothing is saved.
+     */
+    public function split(Request $request): RedirectResponse
+    {
+        $viewer = $request->user();
+        $this->assertCanWrite($viewer);
+        $agencyId = (int) ($viewer->effectiveAgencyId() ?: 0);
+        $period = $this->periodOrFail($request);
+        $level = $request->input('level') === 'branch' ? 'branch' : 'agency';
+
+        $all = $request->all();
+        if (isset($all['total']['requirement']) && is_string($all['total']['requirement'])) {
+            $all['total']['requirement'] = str_replace([' ', ','], '', $all['total']['requirement']);
+        }
+        $request->replace($all);
+        $data = $request->validate([
+            'level'          => ['required', 'in:agency,branch'],
+            'branch_id'      => ['nullable', 'integer'],
+            'total'          => ['required', 'array'],
+            'total.requirement' => ['required', 'numeric', 'min:0', 'max:' . RtsBudget::MAX_MONEY],
+            'branches'       => ['nullable', 'array'],
+            'branches.*'     => ['numeric', 'min:0', 'max:100'],
+            'agents'         => ['nullable', 'array'],
+            'agents.*'       => ['array'],
+            'agents.*.*'     => ['numeric', 'min:0', 'max:100'],
+        ], $this->moneyMessages() + [
+            'total.requirement.required' => 'The amount: enter an amount (0 if none).',
+            'total.requirement.numeric'  => 'The amount: enter an amount in rand, for example 450000 (no letters).',
+            'branches.*.numeric'         => 'Each branch percentage must be a number from 0 to 100.',
+            'branches.*.min'             => 'Each branch percentage must be a number from 0 to 100.',
+            'branches.*.max'             => 'Each branch percentage must be a number from 0 to 100.',
+            'agents.*.*.numeric'         => 'Each agent percentage must be a number from 0 to 100.',
+            'agents.*.*.min'             => 'Each agent percentage must be a number from 0 to 100.',
+            'agents.*.*.max'             => 'Each agent percentage must be a number from 0 to 100.',
+        ]);
+
+        $branchId = null;
+        if ($level === 'agency') {
+            abort_unless(PermissionService::getDataScope($viewer, 'road_to_sold') === 'all', 403, 'Only someone who manages Road to Sold for the whole agency can split what the agency needs.');
+        } else {
+            $branchId = (int) ($data['branch_id'] ?? 0);
+            $b = Branch::query()->where('agency_id', $agencyId)->find($branchId);
+            abort_unless($b && $this->mayWriteBranch($viewer, (int) $b->id), 404);
+        }
+
+        $agentPercents = [];
+        foreach ((array) ($data['agents'] ?? []) as $bid => $list) {
+            $agentPercents[(int) $bid] = array_combine(array_map('intval', array_keys($list)), array_values($list));
+        }
+        $branchPercents = [];
+        foreach ((array) ($data['branches'] ?? []) as $bid => $v) {
+            $branchPercents[(int) $bid] = $v;
+        }
+        if ($level === 'branch') {
+            // A branch manager may only split their own branch's agents.
+            $agentPercents = array_intersect_key($agentPercents, [$branchId => true]);
+        }
+
+        $this->budgets->saveSplit($viewer, $period, $branchId, (float) $data['total']['requirement'], $branchPercents, $agentPercents, Routing::track());
+
+        return $this->back($request, $period)->with('success', $level === 'agency'
+            ? 'What the agency needs for ' . $this->monthLabel($period) . ' is saved and split to the branches and agents.'
+            : 'What the branch needs for ' . $this->monthLabel($period) . ' is saved and split to its agents.');
     }
 
     /** Take an agent's budget for the month off (soft - it can be brought back). */

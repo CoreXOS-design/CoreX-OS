@@ -3,7 +3,7 @@
      to a property. Every field has an id of the form cap-<field name>, so an error message can link straight to it. --}}
 @php
     $capInput = 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);';
-    $backHours = \App\Services\RoadToSold\SettingsService::forUser(auth()->user(), $track)->captureBackDateHours();
+    $backDays = \App\Services\RoadToSold\SettingsService::forUser(auth()->user(), $track)->captureBackDateWorkingDays();
 @endphp
 <div x-show="capOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @keydown.escape.window="capOpen = false">
     <form method="POST" action="{{ route('road-to-sold.captures.store') }}" enctype="multipart/form-data" class="w-full max-w-3xl rounded-md p-5 space-y-4 overflow-y-auto"
@@ -26,7 +26,7 @@
             </div>
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="cap-occurred_at">When</label>
-                <input id="cap-occurred_at" type="datetime-local" name="occurred_at" x-model="capWhen" class="w-full rounded-md px-3 py-2 text-xs" style="{{ $capInput }}" title="Leave empty for now. Up to {{ $backHours }} hours back.">
+                <input id="cap-occurred_at" type="datetime-local" name="occurred_at" x-model="capWhen" class="w-full rounded-md px-3 py-2 text-xs" style="{{ $capInput }}" title="Leave empty for now. Up to {{ $backDays }} working days back.">
             </div>
             <div x-show="capTask && capTask.kind === 'none'">
                 <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="cap-quantity">How many</label>

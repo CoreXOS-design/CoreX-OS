@@ -109,6 +109,30 @@ class WorkdayService
         return null;
     }
 
+    /**
+     * The earliest moment a captured task may be dated: the start of the day that is $workingDays WORKING days before today
+     * (spec 10.5 "Backdated completion", Johan 27 Oct 2026). A working day is Monday to Friday that is not a public holiday of the
+     * agency's chosen country; weekends and holidays are skipped, never counted. Work done on Friday, the office out on Monday and
+     * a public holiday on Tuesday, captured on Wednesday: Tuesday is skipped, Monday is working day 1, Friday is 2 - well inside 5.
+     *
+     * An agent's own leave and weekday target are deliberately NOT part of this (a Saturday target does not make Saturday a
+     * working day here): the rule is the agency's calendar, the same for everyone.
+     */
+    public function backDateLimit(CarbonInterface|string $now, int $workingDays, string $country): Carbon
+    {
+        $cursor    = $this->day($now);
+        $remaining = max(1, $workingDays);
+        // 400 calendar days is more than any allowed setting needs even in a run of holidays; the loop can never spin.
+        for ($i = 0; $i < 400 && $remaining > 0; $i++) {
+            $cursor = $cursor->copy()->subDay();
+            if (! $cursor->isWeekend() && ! $this->isPublicHoliday($cursor, $country)) {
+                $remaining--;
+            }
+        }
+
+        return $cursor;
+    }
+
     // ── internals ─────────────────────────────────────────────────────────
 
     private function sum(User $user, Carbon $from, Carbon $to, string $track): int

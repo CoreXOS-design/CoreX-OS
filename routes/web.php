@@ -6601,6 +6601,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::get('/', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'index'])->name('index');
             Route::post('/outcomes', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'recordOutcome'])->name('outcomes.record');
             Route::post('/add-to-day', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'addToDay'])->name('add-to-day');
+            Route::post('/build-list', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'buildList'])->name('build-list');
 
             // Captured tasks (v2 phase 2): save, change the note, archive, restore, view a photo. Always the signed-in person's own list;
             // an id outside their breadth is a 404.

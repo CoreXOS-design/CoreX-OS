@@ -213,7 +213,7 @@ final class AuditFixesTest extends TestCase
     public function test_the_builder_settings_come_from_the_settings_service_with_no_fallback(): void
     {
         DB::table('rts_settings')->insert([
-            'agency_id' => $this->agency->id, 'track' => 'sales', 'owner_known_quantity' => 7, 'add_to_day_max' => 9, 'scan_page_size' => 50,
+            'agency_id' => $this->agency->id, 'track' => 'sales', 'owner_known_quantity' => 7, 'add_to_day_max' => 9,
             'created_at' => now(), 'updated_at' => now(),
         ]);
         SettingsService::forget();
@@ -221,7 +221,8 @@ final class AuditFixesTest extends TestCase
         $s = BuilderSettings::forUser($this->agent);
         $this->assertSame(7, $s->ownerKnownQuantity);
         $this->assertSame(9, $s->addToDayMax);
-        $this->assertSame(50, $s->scanPageSize);
+        // the read window is a config value now, not an agency setting (spec 21.6)
+        $this->assertSame(200, $s->scanPageSize);
         $this->assertSame(['perfect', 'strong'], $s->buyerMatchTiers);
     }
 
