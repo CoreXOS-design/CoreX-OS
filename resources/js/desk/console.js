@@ -80,6 +80,11 @@ function closeViewer() {
     clearTimeout(barTimer);
 }
 $('cdc-bar').addEventListener('mousemove', showBar);
+// Leaving the toolbar tucks it away at once (1.2 s), so it is not in the way of what you point at next.
+$('cdc-bar').addEventListener('mouseleave', () => {
+    clearTimeout(barTimer);
+    barTimer = setTimeout(() => { const b = $('cdc-bar'); if (!b.contains(document.activeElement) || document.activeElement === document.body) b.classList.add('cdc-away'); }, 1200);
+});
 $('cdc-bar').addEventListener('focusin', showBar);
 // The toolbar returns when the mouse touches the top edge (8 px) - no strip sits over the picture, so the top of the agent's window can be pointed at and clicked.
 $('cdc-pane').addEventListener('mousemove', (ev) => { if (ev.clientY <= 8) showBar(); });
@@ -159,7 +164,7 @@ function attach(session) {
     cur.retry = setInterval(() => { if (cur) cur.tabs.forEach((t) => { if (!t.replayer) askResync(t.key); }); }, 3000); // until a tab's first snapshot arrives
 
     $('cdc-form').hidden = true;
-    $('cdc-support').textContent = con.me || '';
+    $('cdc-support').textContent = con.me || ''; $('cdc-support').title = con.me || '';
     openViewer();
     layoutPane();
     $('cdc-agent').textContent = session.agent_name || '';
