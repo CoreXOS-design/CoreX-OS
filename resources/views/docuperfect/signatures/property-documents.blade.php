@@ -1,20 +1,26 @@
 @extends('layouts.corex')
 
-@section('content')
-<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
+@include('docuperfect.partials._dp-page-styles')
+<div class="rx-page dp-page w-full space-y-5">
 
-    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4">
-        <div class="flex items-center justify-between">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h2 class="text-xl font-bold text-white leading-tight">Property Documents</h2>
-                <div class="text-sm text-white/60">{{ $property->title ?? $property->address ?? 'Property #' . $property->id }}</div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Property Documents</h1>
+                <p class="text-xs" style="color: var(--text-muted);">{{ $property->title ?? $property->address ?? 'Property #' . $property->id }}</p>
             </div>
-            <a href="{{ url()->previous() }}" class="text-sm text-white/60 hover:text-white">&larr; Back</a>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ url()->previous() }}" class="corex-btn-outline text-xs shrink-0 inline-flex items-center gap-1.5"><svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>Back</a>
+            </div>
         </div>
     </div>
+    <div class="max-w-5xl space-y-5">
 
     @if($documentRows->isEmpty())
-        <div class="rounded-2xl border border-slate-200 bg-white p-8 text-center">
+        <div class="rounded-md border border-slate-200 bg-white p-8 text-center">
             <div class="text-slate-400 text-sm">No signing documents found for this property.</div>
         </div>
     @else
@@ -25,7 +31,7 @@
                     $tmpl = $row['template'];
                     $statuses = $row['party_statuses'];
                 @endphp
-                <div class="rounded-2xl border {{ $row['is_complete'] ? 'border-emerald-200 bg-emerald-50/30' : ($row['is_deferred'] ? 'border-amber-200 bg-amber-50/30' : 'border-slate-200 bg-white') }} p-4">
+                <div class="rounded-md border {{ $row['is_complete'] ? 'border-emerald-200 bg-emerald-50/30' : ($row['is_deferred'] ? 'border-amber-200 bg-amber-50/30' : 'border-slate-200 bg-white') }} p-4">
                     <div class="flex items-start justify-between mb-3">
                         <div>
                             <h3 class="font-semibold text-slate-800">{{ $doc->name }}</h3>
@@ -45,13 +51,13 @@
                         @foreach($statuses as $ps)
                             <div class="flex items-center gap-1.5">
                                 @if($ps['is_complete'])
-                                    <span class="text-emerald-500">&#10003;</span>
+                                    <span class="text-emerald-500 inline-flex"><svg class="dp-ico" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg></span>
                                 @elseif($ps['is_deferred'])
-                                    <span class="text-amber-500">&#9208;</span>
+                                    <span class="text-amber-500 inline-flex"><svg class="dp-ico" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></span>
                                 @elseif(in_array($ps['status'], ['pending', 'viewed', 'partially_signed']))
-                                    <span class="text-blue-500">&#9203;</span>
+                                    <span class="text-blue-500 inline-flex"><svg class="dp-ico" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></span>
                                 @else
-                                    <span class="text-slate-300">&#128274;</span>
+                                    <span class="text-slate-300 inline-flex"><svg class="dp-ico" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg></span>
                                 @endif
                                 <span class="capitalize {{ $ps['is_deferred'] ? 'text-amber-600' : ($ps['is_complete'] ? 'text-emerald-600' : 'text-slate-500') }}">
                                     {{ ucfirst(preg_replace('/_\d+$/', '', $ps['role_label'])) }}
@@ -77,7 +83,7 @@
                                     Resume Signing &mdash; Enter {{ ucfirst(preg_replace('/_\d+$/', '', $deferredStatus['role_label'])) }} Details
                                 </button>
 
-                                <dialog id="prop-resume-{{ $doc->id }}" class="rounded-2xl p-0 w-full max-w-md backdrop:bg-black/30">
+                                <dialog id="prop-resume-{{ $doc->id }}" class="rounded-md p-0 w-full max-w-md backdrop:bg-black/30">
                                     <form method="POST" action="{{ route('docuperfect.signatures.resumeDeferred', $doc) }}" class="p-6 space-y-4">
                                         @csrf
                                         <input type="hidden" name="request_id" value="{{ $deferredStatus['request_id'] }}">
@@ -126,5 +132,6 @@
             @endforeach
         </div>
     @endif
+</div>
 </div>
 @endsection

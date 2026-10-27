@@ -17,29 +17,22 @@
     $conditionBadgeClass = fn ($condition) => $condition === 'good' ? 'ds-badge-success' : 'ds-badge-danger';
 @endphp
 
-@section('content')
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
 {{-- AT-439 Part 3 — full-width (was max-w-3xl), matching the Lease Hub/Work
      Order show precedent: every line of space is data the agent needs or a
      control they act on. Two-column below the header: record + actions
      left, scans/signatures (the paperwork evidence trail) right. --}}
-<div class="p-6 max-w-7xl mx-auto space-y-4">
-    @if(session('success'))
-        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
-    @endif
-    @if(session('warning'))
-        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); color: var(--ds-amber);">{{ session('warning') }}</div>
-    @endif
-    @if($errors->any())
-        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); color: var(--ds-crimson);">{{ $errors->first() }}</div>
-    @endif
-
-    <div class="flex items-center justify-between">
+<div class="rx-page w-full space-y-4">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
-            <h1 class="text-lg font-semibold">{{ $inspection->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $inspection->property?->trashed() ? ' (archived)' : '' }}</h1>
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $inspection->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $inspection->property?->trashed() ? ' (archived)' : '' }}</h1>
             <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst(str_replace('_', ' ', $inspection->status)) }}</span>
             <span class="text-xs" style="color: var(--text-muted);">{{ \App\Models\RentalInspection::typeLabel($inspection->type) }} inspection</span>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
             {{-- The printable tick-box form — takes it to the property in wet
                  ink, scans it back in (OMR reader lane builds on this). --}}
             <a href="{{ route('corex.rental-inspections.form', $inspection) }}" target="_blank" rel="noopener" class="corex-btn-outline text-xs" data-qa="print-site-form">Print site form</a>
@@ -65,9 +58,20 @@
                 {{-- rental-inspection-form.md §7 — the in-vs-out deposit comparison. --}}
                 <a href="{{ route('corex.rental-inspections.deposit-comparison', $inspection) }}" class="corex-btn-outline text-xs">Move-out comparison</a>
             @endif
-            <a href="{{ route('corex.rental-inspections.index') }}" class="corex-btn-outline text-xs">&larr; All inspections</a>
+            <a href="{{ route('corex.rental-inspections.index') }}" class="corex-btn-outline text-xs inline-flex items-center gap-1.5"><svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>All inspections</a>
         </div>
     </div>
+    </div>
+    @if(session('success'))
+        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
+    @endif
+    @if(session('warning'))
+        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); color: var(--ds-amber);">{{ session('warning') }}</div>
+    @endif
+    @if($errors->any())
+        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); color: var(--ds-crimson);">{{ $errors->first() }}</div>
+    @endif
+
 
     <x-rental-context-bar :property="$inspection->property" :lease="$inspection->lease" current="inspections" />
 
@@ -215,7 +219,7 @@
             <div><span style="color: var(--text-muted);">Fault-report deadline:</span> {{ $inspection->fault_report_deadline_at?->format('Y-m-d H:i') ?? '—' }}</div>
             <div data-qa="signing-window"><span style="color: var(--text-muted);">Signing deadline:</span> {{ $inspection->signing_deadline_at?->format('Y-m-d H:i') ?? '—' }}
                 @if($windowStatus = $inspection->signingWindowStatus())
-                    <span class="font-semibold" style="color: {{ $windowStatus['closed'] ? '#b45309' : 'var(--text-secondary)' }};">— {{ \Illuminate\Support\Str::after($windowStatus['label'], 'Signing window: ') }}</span>
+                    <span class="font-semibold" style="color: {{ $windowStatus['closed'] ? 'var(--ds-amber, #b45309)' : 'var(--text-secondary)' }};">— {{ \Illuminate\Support\Str::after($windowStatus['label'], 'Signing window: ') }}</span>
                 @endif
             </div>
             @if($inspection->schedule_note)
@@ -439,7 +443,7 @@
              screen tonight). Replaces the flat list below entirely once a
              predecessor exists — §6, the FIRST inspection in a chain has
              none, and falls through to that flat list unchanged. --}}
-        <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md p-4 space-y-4" style="background: var(--surface); border: 1px solid var(--border);">
             <h2 class="text-sm font-semibold">
                 Compared against the {{ strtolower(\App\Models\RentalInspection::typeName($inspection->previousInspection->type)) }}
                 <span class="text-xs" style="color: var(--text-muted);">({{ $inspection->previousInspection->scheduled_for?->format('Y-m-d') ?? $inspection->previousInspection->created_at->format('Y-m-d') }})</span>
@@ -453,9 +457,24 @@
                     // the whole file. Block form has no such fragility.
                     $room = $roomRows->first()->room;
                 @endphp
-                <div class="space-y-1.5">
-                    <h3 class="text-xs font-bold uppercase tracking-wide" style="color: var(--text-secondary);">{{ $room?->label ?? 'General' }}</h3>
-                    <table class="w-full text-sm" style="border-collapse: collapse;">
+                {{-- Each room is its own bordered block with a shaded title bar, so where one room ends and the
+                     next begins is obvious at a glance. --}}
+                <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border);">
+                    <h3 class="flex items-center justify-between gap-2 px-3 py-2 text-xs font-bold uppercase tracking-wide"
+                        style="color: var(--text-primary); background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, var(--surface-2)); border-bottom: 1px solid var(--border); border-left: 3px solid var(--brand-icon, #0ea5e9);">
+                        <span>{{ $room?->label ?? 'General' }}</span>
+                        <span class="font-normal normal-case tracking-normal" style="color: var(--text-muted);">{{ $roomRows->count() }} {{ \Illuminate\Support\Str::plural('item', $roomRows->count()) }}</span>
+                    </h3>
+                    <div class="px-3 pb-1">
+                    {{-- Fixed layout + one shared set of column widths, so Item / Previous / Current line up
+                         from room to room (auto layout sized each room's table to its own text). --}}
+                    <table class="w-full text-sm" style="border-collapse: collapse; table-layout: fixed;">
+                        <colgroup>
+                            <col style="width: 26%;">
+                            <col style="width: 30%;">
+                            <col style="width: 30%;">
+                            <col style="width: 14%;">
+                        </colgroup>
                         <thead>
                             <tr class="text-xs" style="color: var(--text-muted);">
                                 <th class="text-left font-normal py-1">Item</th>
@@ -504,6 +523,7 @@
                             @endforeach
                         </tbody>
                     </table>
+                    </div>
                 </div>
             @endforeach
         </div>
@@ -602,7 +622,7 @@
                                     @endif
                                     {{-- §45.7a item 5 — out-inspection only: how this compares with move-in. Never preselects anything. --}}
                                     @if(!empty($followUpMarkers[$observation->id]['label']))
-                                        <span class="text-xs font-semibold" style="color: {{ ($followUpMarkers[$observation->id]['key'] ?? '') === 'same' ? 'var(--text-muted)' : '#b45309' }};" data-qa="follow-up-marker-{{ $observation->id }}">· {{ $followUpMarkers[$observation->id]['label'] }}</span>
+                                        <span class="text-xs font-semibold" style="color: {{ ($followUpMarkers[$observation->id]['key'] ?? '') === 'same' ? 'var(--text-muted)' : 'var(--ds-amber, #b45309)' }};" data-qa="follow-up-marker-{{ $observation->id }}">· {{ $followUpMarkers[$observation->id]['label'] }}</span>
                                     @endif
                                 </span>
                             </label>

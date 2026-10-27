@@ -369,3 +369,35 @@ embeds Inter, so letter widths differ slightly; the agent sheet is unchanged.
 The buyer-pack cover (name, phone, email, photo) is built from the buyer's
 CURRENT primary agent each time the PDF is generated, not the pack's stored
 `agent_id` (the agent it was prepared by), which remains the fallback only.
+
+## Whose details on the cover — when the buyer is another agent's (AT-509, Andre 27 Oct 2026)
+Found live: an agent built a pack for a buyer who sits under another agent, and the cover
+showed the OTHER agent (ruling D). Ruling D stays the default; the downloading agent now
+gets to choose.
+
+- **When it asks:** clicking **Download Buyer Pack** (pack page) or **Buyer Pack** (the Packs
+  list on the buyer / contact record) when the buyer's current primary agent
+  (`contacts.agent_id`) is someone other than the logged-in user. When the buyer is the
+  user's own, or has no agent, it is the plain download as before — no question.
+- **The question** (in-page dialog, the confirm-submit pattern — never a browser box):
+  "Whose details go on the buyer pack?" — **Show my details** · **Show <agent>'s details** ·
+  Cancel. The text names the buyer and their agent and says the agent will be told.
+- **Show <agent>'s details** = `?details=agent` = ruling D exactly; nobody is told. A link
+  with no `details` (old bookmark) behaves the same.
+- **Show my details** = `?details=mine`: the cover's name / phone / email / photo are the
+  downloader's, and the buyer's agent gets an in-app notification (bell, toast and the
+  Notifications page): title "<downloader> made a buyer pack for <buyer>", text "The pack
+  shows <downloader>'s contact details, not yours.", link = the buyer's contact record,
+  Viewings tab. Type key `buyer_pack.made_by_another_agent` (shown as "Buyer Pack Made By
+  Another Agent" in the type filter). In-app only, no e-mail. Sent after the PDF is built
+  (a failed build tells nobody); not sent to an inactive or archived agent. Every such
+  download sends one (each is a pack handed to their buyer).
+- Ignored when the downloader IS the buyer's agent (nothing to override, nobody to tell).
+- Only the cover changes; the comparison page's "Prepared by" line is untouched (it names
+  the pack's agent, as before).
+- Scope/tenancy unchanged: the same route, permission and row guard (`guardVisible`); the
+  buyer's agent is resolved from the pack's own contact.
+- Code: `ViewingPackBuyerPdfService::buyersAgent()` / `download($pack, $coverAgent)`,
+  `ViewingPackController::downloadBuyerPack`, `App\Notifications\BuyerPackMadeByAnotherAgentNotification`,
+  partial `command-center/viewing-packs/_buyer-pack-download.blade.php`.
+  Tests: `tests/Feature/ViewingPack/BuyerPackWhoseDetailsTest.php`.

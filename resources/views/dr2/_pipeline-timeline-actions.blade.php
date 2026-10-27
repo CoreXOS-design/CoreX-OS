@@ -12,9 +12,9 @@
 <div class="tacts">
   {{-- 1 · Complete / Reopen --}}
   @if(!$terminal && !$locked)
-    <button type="button" class="b go" @click="done=true" title="Mark done (set the actual date)">✓ Complete</button>
+    <button type="button" class="b go" @click="done=true" title="Mark done (set the actual date)"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>Complete</button>
   @elseif($isDone && !$locked)
-    <form method="POST" action="{{ route('deals-dr2.pipeline.step.reopen', [$deal, $s]) }}" onsubmit="return confirm('Reopen this step? It returns to Not started and downstream dates re-cascade.');">@csrf<input type="hidden" name="from" value="timeline"><button type="submit" class="b">↺ Reopen</button></form>
+    <form method="POST" action="{{ route('deals-dr2.pipeline.step.reopen', [$deal, $s]) }}" onsubmit="return confirm('Reopen this step? It returns to Not started and downstream dates re-cascade.');">@csrf<input type="hidden" name="from" value="timeline"><button type="submit" class="b">Reopen</button></form>
   @endif
   {{-- 2 · Edit dates — the ONE date control (start + end); opens the both-dates modal below. --}}
   @unless($locked)<button type="button" class="b" @click="ed=true" title="Set the start &amp; end (due) dates">Edit dates</button>@endunless
@@ -27,7 +27,7 @@
     <form method="POST" action="{{ route('deals-dr2.pipeline.step.reinstate', [$deal, $s]) }}">@csrf<input type="hidden" name="from" value="timeline"><button type="submit" class="b">Reinstate</button></form>
   @endif
   {{-- 5 · Comments --}}
-  <button type="button" class="b" @click="cm=true">💬 {{ $cc }}</button>
+  <button type="button" class="b" @click="cm=true" title="Comments"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.86 9.86 0 01-4-.84L3 20l1.4-3.72A7.6 7.6 0 013 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>{{ $cc }}</button>
   {{-- 6 · Remove --}}
   @unless($locked)<form method="POST" action="{{ route('deals-dr2.pipeline.step.remove', [$deal, $s]) }}" onsubmit="return confirm('Remove this step? It is archived, not deleted.');">@csrf<input type="hidden" name="from" value="timeline"><button type="submit" class="b rm">Remove</button></form>@endunless
 </div>

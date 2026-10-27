@@ -405,10 +405,7 @@
                                 <tr>
                                     <td class="px-4 py-3">
                                         <div class="font-semibold">
-                                            <a class="ds-agent-link"
-                                               href="{{ route('admin.agent.performance', ['userId' => $row['user_id'], 'period' => ($r['period'] ?? now()->format('Y-m'))]) }}">
-                                                {{ $row['name'] }}
-                                            </a>
+                                            <span>{{ $row['name'] }}</span>
                                             @if(!empty($row['is_archived']))
                                                 <span class="ds-badge ds-badge-pill ds-badge-default ml-1 align-middle" title="This team member has been archived. Their commission from this period still counts toward the branch total.">Archived</span>
                                             @endif

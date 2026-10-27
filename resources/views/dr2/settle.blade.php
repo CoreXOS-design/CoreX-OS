@@ -1,6 +1,10 @@
-<x-app-layout>
+@extends('layouts.corex')
+
+@section('corex-content')
     {{-- SETTLE_BLADE_FINGERPRINT: 2026-01-26_1602 --}}
-    <x-slot name="header">
+@include('dr2.partials._settle-styles')
+<div id="dr2-settle" class="w-full space-y-5">
+    {{-- Page header --}}
         <div class="rounded-md px-6 py-5 corex-page-banner">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
@@ -8,8 +12,9 @@
                     <p class="text-xs" style="color: var(--text-muted);">{{ $deal->property_address ?: 'No address' }}</p>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
-                    <a href="{{ route('deals-dr2.index') }}" class="corex-btn-outline text-xs shrink-0">
-                        &larr; Back
+                    <a href="{{ route('deals-dr2.index') }}" class="corex-btn-outline text-xs shrink-0 inline-flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+                        Back
                     </a>
                     <a href="{{ route('deals-dr2.settle.print', $deal) }}" target="_blank"
                        class="corex-btn-outline text-xs shrink-0">
@@ -21,16 +26,15 @@
                 </div>
             </div>
         </div>
-    </x-slot>
 
     <div class="space-y-6">
 
         @if (session('status'))
-            <div class="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">{{ session('status') }}</div>
+            <div class="rounded-md px-4 py-3 text-sm" style="background:color-mix(in srgb,var(--ds-green,#059669) 10%,transparent);border:1px solid color-mix(in srgb,var(--ds-green,#059669) 30%,transparent);color:var(--text-primary);">{{ session('status') }}</div>
         @endif
 
         @if($errors->any())
-            <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{{ $errors->first() }}</div>
+            <div class="rounded-md px-4 py-3 text-sm" style="background:color-mix(in srgb,var(--ds-red,#dc2626) 10%,transparent);border:1px solid color-mix(in srgb,var(--ds-red,#dc2626) 30%,transparent);color:var(--text-primary);">{{ $errors->first() }}</div>
         @endif
 
         {{-- Deal Summary --}}
@@ -558,4 +562,5 @@
 })();
 </script>
     </div>
-</x-app-layout>
+</div>
+@endsection

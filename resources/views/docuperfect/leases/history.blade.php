@@ -1,15 +1,23 @@
 @extends('layouts.corex')
 
-@section('content')
-<div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
+@include('docuperfect.partials._dp-page-styles')
+<div class="rx-page dp-page w-full space-y-5">
 
-    <div style="background:var(--brand-default);" class="rounded-2xl px-6 py-4 flex items-center justify-between">
-        <div>
-            <h2 class="text-xl font-bold text-white leading-tight">Lease History</h2>
-            <div class="text-sm text-white/60">{{ $currentLease->property_address }}</div>
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Lease History</h1>
+                <p class="text-xs" style="color: var(--text-muted);">{{ $currentLease->property_address }}</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('docuperfect.rental') }}" class="corex-btn-outline text-xs shrink-0 inline-flex items-center gap-1.5"><svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>Back to Dashboard</a>
+            </div>
         </div>
-        <a href="{{ route('docuperfect.rental') }}" class="text-sm text-white/80 hover:text-white">&larr; Back to Dashboard</a>
     </div>
+    <div class="max-w-4xl space-y-5">
 
     {{-- Current Lease --}}
     @php
@@ -20,7 +28,7 @@
 
     <div class="space-y-2">
         <h3 class="text-sm font-semibold uppercase tracking-wider" style="color:var(--text-secondary)">Current Lease (v{{ $versionNum }})</h3>
-        <div class="rounded-2xl p-5" style="border:1px solid var(--border);background:var(--surface-2)">
+        <div class="rounded-md p-5" style="border:1px solid var(--border);background:var(--surface-2)">
             <div class="grid grid-cols-2 gap-4 text-sm">
                 <div>
                     <span style="color:var(--text-muted)">Period:</span>
@@ -102,7 +110,7 @@
                         default => 'text-slate-500',
                     };
                 @endphp
-                <div class="rounded-xl p-4" style="border:1px solid var(--border);background:var(--surface)">
+                <div class="rounded-md p-4" style="border:1px solid var(--border);background:var(--surface)">
                     <div class="flex items-center justify-between">
                         <div>
                             <span class="font-medium" style="color:var(--text-secondary)">v{{ $vNum }}</span>
@@ -132,7 +140,7 @@
     @if($totalVersions > 1)
     <div class="space-y-2">
         <h3 class="text-sm font-semibold uppercase tracking-wider" style="color:var(--text-muted)">Rental History</h3>
-        <div class="rounded-2xl p-4" style="border:1px solid var(--border);background:var(--surface)">
+        <div class="rounded-md p-4" style="border:1px solid var(--border);background:var(--surface)">
             <div class="flex flex-wrap items-center gap-2 text-sm">
                 @foreach($versions as $idx => $version)
                     @php
@@ -160,5 +168,6 @@
     </div>
     @endif
 
+</div>
 </div>
 @endsection

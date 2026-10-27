@@ -49,6 +49,8 @@
                 'label' => 'Overrides',
                 'items' => [
                     ['key'=>'compliance', 'label'=>'Compliance Overrides', 'type'=>'section', 'keywords'=>'property compliance checks gates mandate fica photos marketing readiness syndication bulk import'],
+                    // AT-509 — .ai/specs/property-compliance-gate-settings.md §7.3.
+                    ['key'=>'compliance-switches', 'label'=>'Agency compliance switches', 'type'=>'link', 'href'=>route('admin.dev-settings.compliance-switches'), 'keywords'=>'agency compliance switches turned off fica mandate disclosure photos disclaimer accepted ip address history audit who when'],
                 ],
             ],
             [

@@ -33,7 +33,7 @@
         @unless($locked)<span class="dr2-tile__grip" title="Drag to relink" aria-hidden="true">⠿</span>@endunless
         <span class="dr2-tile__rag" title="{{ ucfirst($row['rag']) }}" style="background:{{ $row['colour'] }};"></span>
         <span class="dr2-tile__name {{ $isDone ? 'dr2-tile__name--done' : '' }} {{ $isNa ? 'dr2-tile__name--na' : '' }}">
-            @if($isDone)<span class="dr2-tile__check" title="Completed">✓</span>@endif
+            @if($isDone)<span class="dr2-tile__check" title="Completed"><svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg></span>@endif
             {{ $s->name }}
         </span>
     </div>
@@ -41,15 +41,15 @@
     {{-- tags row (offset · milestone · lock · custom) --}}
     <div class="dr2-tile__tags">
         @if((int) $s->days_offset > 0)<span class="dr2-tag dr2-tag--off" title="Offset after the step it follows">+{{ (int) $s->days_offset }}d</span>@endif
-        @if($s->is_milestone)<span class="dr2-tag dr2-tag--ms" title="Milestone">★</span>@endif
-        @if($s->is_locked)<span title="Locked">🔒</span>@endif
+        @if($s->is_milestone)<span class="dr2-tag dr2-tag--ms" title="Milestone"><svg width="12" height="12" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg></span>@endif
+        @if($s->is_locked)<span class="dr2-tag dr2-tag--lock" title="Locked"><svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg></span>@endif
         @if($s->is_custom)<span class="dr2-tag dr2-tag--custom" title="Custom step">+ custom</span>@endif
     </div>
 
     {{-- META: due (or actual-done) · status badge --}}
     <div class="dr2-tile__meta">
         @if($isDone && $actualDone)
-            <span class="dr2-tile__date" title="Actual completion date">✓ {{ \Illuminate\Support\Carbon::parse($actualDone)->format('d M Y') }}</span>
+            <span class="dr2-tile__date" title="Actual completion date"><svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>{{ \Illuminate\Support\Carbon::parse($actualDone)->format('d M Y') }}</span>
         @else
             <span class="dr2-tile__date">{{ $s->due_date ? \Illuminate\Support\Carbon::parse($s->due_date)->format('d M Y') : '—' }}</span>
         @endif
@@ -57,7 +57,7 @@
     </div>
 
     @if($variant === 'gate')<div class="dr2-tile__gatenote">Deal becomes unconditional once every condition is met.</div>@endif
-    @if($awaiting)<div class="dr2-tile__warnnote">⚠ Not sent — no supplier set.</div>@elseif($row['blocked'])<div class="dr2-tile__sub">{{ $row['blocked'] }}</div>@elseif($isNa && $s->na_reason)<div class="dr2-tile__sub">Excused: {{ $s->na_reason }}</div>@endif
+    @if($awaiting)<div class="dr2-tile__warnnote"><svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>Not sent — no supplier set.</div>@elseif($row['blocked'])<div class="dr2-tile__sub">{{ $row['blocked'] }}</div>@elseif($isNa && $s->na_reason)<div class="dr2-tile__sub">Excused: {{ $s->na_reason }}</div>@endif
 
     {{-- FIXED 3×2 ACTION GRID (pinned to the bottom of every tile) --}}
     <div class="dr2-tile__btns">

@@ -1,5 +1,9 @@
-<x-app-layout>
-    <x-slot name="header">
+@extends('layouts.corex')
+
+@section('corex-content')
+@include('dr2.partials._create-styles')
+<div id="dr2-create" class="w-full space-y-5">
+    {{-- Page header --}}
         <div class="rounded-md px-6 py-5 corex-page-banner">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
@@ -7,17 +11,17 @@
                     <p class="text-xs" style="color: var(--text-muted);">Capture the deal accurately so settlement + rollups reconcile end-to-end.</p>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
-                    <a href="{{ route('deals-dr2.index') }}" class="corex-btn-outline text-xs shrink-0">
-                        &larr; Back to Deal Register
+                    <a href="{{ route('deals-dr2.index') }}" class="corex-btn-outline text-xs shrink-0 inline-flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+                        Back to Deal Register
                     </a>
                 </div>
             </div>
         </div>
-    </x-slot>
 
 
     @if($errors->any())
-        <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 mb-4">
+        <div class="rounded-md px-4 py-3 text-sm" style="background:color-mix(in srgb,var(--ds-red,#dc2626) 10%,transparent);border:1px solid color-mix(in srgb,var(--ds-red,#dc2626) 30%,transparent);color:var(--text-primary);">
             {{ $errors->first() }}
         </div>
     @endif
@@ -191,7 +195,7 @@
                     <div id="dr2_property_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px var(--shadow, rgba(0,0,0,.08));max-height:16rem;overflow:auto;display:none;"></div>
                 </div>
                 <input type="hidden" name="property_address" id="dr2_property_address" value="{{ old('property_address', $deal->property_address) }}">
-                <div id="dr2_property_linked" class="text-xs mt-1" style="{{ old('property_id', $deal->property_id) ? '' : 'display:none;' }}color:#047857;">✓ Linked to property <span id="dr2_property_linked_id">#{{ old('property_id', $deal->property_id) }}</span> <button type="button" id="dr2_property_unlink" class="underline ml-1" style="color:var(--text-muted);{{ $dr2PrimaryLocked ? 'display:none;' : '' }}" {{ $dr2PrimaryLocked ? 'disabled' : '' }}>unlink</button></div>
+                <div id="dr2_property_linked" class="text-xs mt-1" style="{{ old('property_id', $deal->property_id) ? '' : 'display:none;' }}color:var(--ds-green,#059669);"><svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3" aria-hidden="true" style="display:inline;vertical-align:-1px;"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg> Linked to property <span id="dr2_property_linked_id">#{{ old('property_id', $deal->property_id) }}</span> <button type="button" id="dr2_property_unlink" class="underline ml-1" style="color:var(--text-muted);{{ $dr2PrimaryLocked ? 'display:none;' : '' }}" {{ $dr2PrimaryLocked ? 'disabled' : '' }}>unlink</button></div>
                 @if($dr2PrimaryLocked)
                 <div class="text-xs mt-1" style="color:var(--text-muted);">This deal has more than one property, so its primary property is locked here — use Add / Remove property in the Properties on this deal list to change which properties are on it.</div>
                 @endif
@@ -228,28 +232,28 @@
             @endphp
             <div class="field-full" id="dr2mp-picker-area">
                 @error('property_id')
-                    <div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 mb-2">{{ $message }}</div>
+                    <div class="rounded-md px-3 py-2 text-xs mb-2" style="background:color-mix(in srgb,var(--ds-red,#dc2626) 10%,transparent);border:1px solid color-mix(in srgb,var(--ds-red,#dc2626) 30%,transparent);color:var(--text-primary);">{{ $message }}</div>
                 @enderror
                 @error('add_property_id')
-                    <div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 mb-2">{{ $message }}</div>
+                    <div class="rounded-md px-3 py-2 text-xs mb-2" style="background:color-mix(in srgb,var(--ds-red,#dc2626) 10%,transparent);border:1px solid color-mix(in srgb,var(--ds-red,#dc2626) 30%,transparent);color:var(--text-primary);">{{ $message }}</div>
                 @enderror
                 @error('allocated_price')
-                    <div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 mb-2">{{ $message }}</div>
+                    <div class="rounded-md px-3 py-2 text-xs mb-2" style="background:color-mix(in srgb,var(--ds-red,#dc2626) 10%,transparent);border:1px solid color-mix(in srgb,var(--ds-red,#dc2626) 30%,transparent);color:var(--text-primary);">{{ $message }}</div>
                 @enderror
 
                 {{-- Removed properties — archive/restore, mirrors dr2/_removed-steps.blade.php --}}
                 @if($dr2RemovedProps->isNotEmpty())
                 <div x-data="{ dr2mpRm:false }" style="margin-bottom:.75rem;">
                     <button type="button" @click="dr2mpRm=!dr2mpRm"
-                            style="padding:.25rem .7rem;font-size:12px;font-weight:600;color:#b45309;background:#fff;border:1px solid #fcd34d;border-radius:999px;cursor:pointer;font-family:inherit;">
-                        <span x-text="dr2mpRm ? '▾' : '▸'"></span> Removed properties ({{ $dr2RemovedProps->count() }})
+                            style="display:inline-flex;align-items:center;gap:.3rem;padding:.25rem .7rem;font-size:12px;font-weight:600;color:var(--ds-amber,#f59e0b);background:var(--surface);border:1px solid color-mix(in srgb,var(--ds-amber,#f59e0b) 45%,transparent);border-radius:999px;cursor:pointer;font-family:inherit;box-shadow:none;">
+                        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true" style="transition:transform .18s;" :style="{ transform: dr2mpRm ? 'rotate(90deg)' : '' }"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg> Removed properties ({{ $dr2RemovedProps->count() }})
                     </button>
                     <div x-show="dr2mpRm" x-cloak style="margin-top:.5rem;display:flex;flex-direction:column;gap:.3rem;">
                         @foreach($dr2RemovedProps as $rp)
                             <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;padding:.3rem .1rem;font-size:12.5px;">
-                                <span style="text-decoration:line-through;color:#6b7280;">{{ $rp->address }}</span>
+                                <span style="text-decoration:line-through;color:var(--text-muted);">{{ $rp->address }}</span>
                                 {{-- Real form lives outside the main <form> — see "AT-398 standalone forms" below. --}}
-                                <button type="submit" form="dr2mp-restore-form-{{ $rp->id }}" style="padding:.15rem .7rem;font-size:11.5px;font-weight:600;color:#2563eb;background:#fff;border:1px solid #bfdbfe;border-radius:6px;cursor:pointer;font-family:inherit;">Restore</button>
+                                <button type="submit" form="dr2mp-restore-form-{{ $rp->id }}" style="padding:.15rem .7rem;font-size:11.5px;font-weight:600;color:var(--brand-button,#0ea5e9);background:var(--surface);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-family:inherit;box-shadow:none;">Restore</button>
                             </div>
                         @endforeach
                     </div>
@@ -308,7 +312,7 @@
                     <div id="dr2_seller_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px var(--shadow, rgba(0,0,0,.08));max-height:16rem;overflow:auto;display:none;"></div>
                 </div>
                 <div id="dr2_seller_offer" class="mt-1 flex flex-wrap gap-1.5" style="display:none;"></div>
-                <div class="mt-1"><button type="button" class="dr2-addnew text-xs underline" style="color:var(--text-muted)" data-kind="seller">＋ Add a new contact</button></div>
+                <div class="mt-1"><button type="button" class="dr2-addnew text-xs underline" style="color:var(--brand-icon)" data-kind="seller">+ Add a new contact</button></div>
                 <div id="dr2_seller_newform" class="mt-1" style="display:none;"></div>
             </div>
 
@@ -325,7 +329,7 @@
                     <div id="dr2_buyer_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px var(--shadow, rgba(0,0,0,.08));max-height:16rem;overflow:auto;display:none;"></div>
                 </div>
                 <div id="dr2_buyer_offer" class="mt-1 flex flex-wrap gap-1.5" style="display:none;"></div>
-                <div class="mt-1"><button type="button" class="dr2-addnew text-xs underline" style="color:var(--text-muted)" data-kind="buyer">＋ Add a new contact</button></div>
+                <div class="mt-1"><button type="button" class="dr2-addnew text-xs underline" style="color:var(--brand-icon)" data-kind="buyer">+ Add a new contact</button></div>
                 <div id="dr2_buyer_newform" class="mt-1" style="display:none;"></div>
             </div>
 
@@ -461,14 +465,14 @@
                             <div style="min-width:0;flex-shrink:0;">
                                 <span style="font-weight:600;color:var(--text-primary);">{{ $p->address }}</span>
                                 @if($p->pivot->is_primary)
-                                    <span title="Pick a different property as primary before removing this one" style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;padding:.05rem .35rem;border-radius:.35rem;color:#065f46;background:#ecfdf5;">Primary</span>
+                                    <span title="Pick a different property as primary before removing this one" style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;padding:.05rem .35rem;border-radius:.35rem;color:var(--ds-green,#059669);background:color-mix(in srgb,var(--ds-green,#059669) 14%,transparent);">Primary</span>
                                 @endif
                             </div>
                             <div style="display:flex;align-items:center;gap:.6rem;flex-shrink:0;flex-wrap:wrap;">
                                 <button type="button" class="dr2mp-edit-price text-xs underline" data-property="{{ $p->id }}" data-address="{{ $p->address }}" data-price="{{ $p->pivot->allocated_price }}" data-commission="{{ $p->pivot->allocated_commission }}" style="color:var(--text-muted);">R {{ number_format((float) ($p->pivot->allocated_price ?? 0), 2) }} selling price · R {{ number_format((float) ($p->pivot->allocated_commission ?? 0), 2) }} commission — edit</button>
                                 @if(!$p->pivot->is_primary)
                                     {{-- Real form lives outside the main <form> — see "AT-398 standalone forms" below. --}}
-                                    <button type="submit" form="dr2mp-remove-form-{{ $p->id }}" class="dr2mp-remove-trigger text-xs" data-address="{{ $p->address }}" style="color:#b91c1c;background:none;border:none;padding:0;cursor:pointer;font-family:inherit;">Remove</button>
+                                    <button type="submit" form="dr2mp-remove-form-{{ $p->id }}" class="dr2mp-remove-trigger text-xs" data-address="{{ $p->address }}" style="color:var(--ds-red,#dc2626);background:none;border:none;padding:0;cursor:pointer;font-family:inherit;box-shadow:none;">Remove</button>
                                 @endif
                             </div>
                         </div>
@@ -540,7 +544,7 @@
                     Add a second property above only when the SAME owner(s) are selling all of them together on this one deal.
                 </div>
 
-                <div id="dr2cp_owner_error" class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 mb-2" style="display:none;"></div>
+                <div id="dr2cp_owner_error" class="rounded-md px-3 py-2 text-xs mb-2" style="display:none;background:color-mix(in srgb,var(--ds-red,#dc2626) 10%,transparent);border:1px solid color-mix(in srgb,var(--ds-red,#dc2626) 30%,transparent);color:var(--text-primary);"></div>
 
                 <div id="dr2cp_list" class="flex flex-col gap-1.5 mb-2"></div>
 
@@ -650,9 +654,9 @@
                             <input type="hidden" name="listing_external_agency_contact_id" id="dr2_lext_contact_id" value="{{ old('listing_external_agency_contact_id', $deal->listing_external_agency_contact_id) }}">
                             <div style="position:relative;">
                                 <input type="text" id="dr2_lext_search" class="w-full" autocomplete="off" placeholder="Search an external agency firm or contact…" value="{{ old('listing_external_agency', $deal->listing_external_agency) }}">
-                                <div id="dr2_lext_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:16rem;overflow:auto;display:none;"></div>
+                                <div id="dr2_lext_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px var(--shadow, rgba(0,0,0,.08));max-height:16rem;overflow:auto;display:none;"></div>
                             </div>
-                            <button type="button" id="dr2_lext_addnew" class="text-xs text-blue-600 underline mt-1">+ Add a new external agency</button>
+                            <button type="button" id="dr2_lext_addnew" class="dr2-addlink text-xs underline mt-1">+ Add a new external agency</button>
                         </div>
                     </div>
                 </div>
@@ -711,9 +715,9 @@
                             <input type="hidden" name="selling_external_agency_contact_id" id="dr2_sext_contact_id" value="{{ old('selling_external_agency_contact_id', $deal->selling_external_agency_contact_id) }}">
                             <div style="position:relative;">
                                 <input type="text" id="dr2_sext_search" class="w-full" autocomplete="off" placeholder="Search an external agency firm or contact…" value="{{ old('selling_external_agency', $deal->selling_external_agency) }}">
-                                <div id="dr2_sext_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:#fff;border:1px solid #e5e7eb;border-radius:.5rem;box-shadow:0 8px 24px rgba(0,0,0,.08);max-height:16rem;overflow:auto;display:none;"></div>
+                                <div id="dr2_sext_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px var(--shadow, rgba(0,0,0,.08));max-height:16rem;overflow:auto;display:none;"></div>
                             </div>
-                            <button type="button" id="dr2_sext_addnew" class="text-xs text-blue-600 underline mt-1">+ Add a new external agency</button>
+                            <button type="button" id="dr2_sext_addnew" class="dr2-addlink text-xs underline mt-1">+ Add a new external agency</button>
                         </div>
                     </div>
                 </div>
@@ -788,9 +792,9 @@
 
                     row.innerHTML = `
                         <input type="hidden" name="${sideName}_agents[]" value="${id}">
-                        <div class="w-48 font-semibold" style="color:var(--text-primary, #0b2a4a)">${label}</div>
-                        <input type="number" step="0.01" name="${sideName}_override[${id}]" placeholder="% override" class="w-32 rounded-lg border" style="border-color:var(--border)" value="${initial ?? ''}">
-                        <button type="button" class="text-xs text-red-600">Remove</button>
+                        <div class="w-48 font-semibold" style="color:var(--text-primary)">${label}</div>
+                        <input type="number" step="0.01" name="${sideName}_override[${id}]" placeholder="% override" class="w-32" value="${initial ?? ''}">
+                        <button type="button" class="text-xs" style="color:var(--ds-red,#dc2626)">Remove</button>
                     `;
 
                     row.querySelector('button').addEventListener('click', () => {
@@ -967,7 +971,7 @@
             <div class="field-full"><label class="ds-label block mb-1">Email</label><input type="email" id="dr2_na_email" class="w-full"></div>
             <div class="field-full"><label class="ds-label block mb-1">Address</label><input type="text" id="dr2_na_address" class="w-full"></div>
         </div>
-        <div id="dr2_na_error" class="text-sm text-red-600 mt-2" style="display:none;"></div>
+        <div id="dr2_na_error" class="dr2-err text-sm mt-2" style="display:none;"></div>
         <div class="flex items-center justify-end gap-2 mt-4">
             <button type="button" id="dr2_na_cancel" class="corex-btn-outline px-4 py-2 text-sm">Cancel</button>
             <button type="button" id="dr2_na_save" class="corex-btn-primary px-4 py-2 text-sm">Save attorney</button>
@@ -987,7 +991,7 @@
             <div class="field-full"><label class="ds-label block mb-1">Email</label><input type="email" id="dr2_nb_email" class="w-full"></div>
             <div class="field-full"><label class="ds-label block mb-1">Address</label><input type="text" id="dr2_nb_address" class="w-full"></div>
         </div>
-        <div id="dr2_nb_error" class="text-sm text-red-600 mt-2" style="display:none;"></div>
+        <div id="dr2_nb_error" class="dr2-err text-sm mt-2" style="display:none;"></div>
         <div class="flex items-center justify-end gap-2 mt-4">
             <button type="button" id="dr2_nb_cancel" class="corex-btn-outline px-4 py-2 text-sm">Cancel</button>
             <button type="button" id="dr2_nb_save" class="corex-btn-primary px-4 py-2 text-sm">Save bond originator</button>
@@ -997,9 +1001,9 @@
 
 {{-- Note 2 — Add-new external agency modal (mirror of the attorney / bond add-new) --}}
 <div id="dr2_extagency_modal" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.4);align-items:center;justify-content:center;">
-    <div style="background:#fff;border-radius:.75rem;max-width:34rem;width:92%;padding:1.5rem;">
-        <h3 class="font-bold mb-1" style="color:#0b2a4a">Add a new external agency</h3>
-        <p class="text-xs text-gray-500 mb-3">A firm can have several people — add the agency and the person you deal with.</p>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;max-width:34rem;width:92%;padding:1.5rem;box-shadow:0 24px 64px rgba(0,0,0,.25);">
+        <h3 class="font-bold mb-1" style="color:var(--text-primary)">Add a new external agency</h3>
+        <p class="text-xs mb-3" style="color:var(--text-muted)">A firm can have several people — add the agency and the person you deal with.</p>
         <div class="deal-grid">
             <div class="field-full"><label class="ds-label block mb-1">Firm *</label><input type="text" id="dr2_nx_firm" class="w-full" placeholder="e.g. Seeff Hibiscus Coast"></div>
             <div><label class="ds-label block mb-1">Agent</label><input type="text" id="dr2_nx_attorney" class="w-full" placeholder="the agent"></div>
@@ -1007,9 +1011,9 @@
             <div class="field-full"><label class="ds-label block mb-1">Email</label><input type="email" id="dr2_nx_email" class="w-full"></div>
             <div class="field-full"><label class="ds-label block mb-1">Address</label><input type="text" id="dr2_nx_address" class="w-full"></div>
         </div>
-        <div id="dr2_nx_error" class="text-sm text-red-600 mt-2" style="display:none;"></div>
+        <div id="dr2_nx_error" class="dr2-err text-sm mt-2" style="display:none;"></div>
         <div class="flex items-center justify-end gap-2 mt-4">
-            <button type="button" id="dr2_nx_cancel" class="corex-btn-secondary px-4 py-2 text-sm">Cancel</button>
+            <button type="button" id="dr2_nx_cancel" class="corex-btn-outline px-4 py-2 text-sm">Cancel</button>
             <button type="button" id="dr2_nx_save" class="corex-btn-primary px-4 py-2 text-sm">Save external agency</button>
         </div>
     </div>
@@ -1166,10 +1170,10 @@
         // AT-453 — another agency's listing is selectable (we bring the buyer to a deal on it) but is
         // never shown as our own live green "on market" stock: its own amber "Other Agency Stock" badge.
         if (row.status === 'other_agency_stock') {
-            return '<span data-oas-badge style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;padding:.05rem .35rem;border-radius:.35rem;color:#92400e;background:#fffbeb;">Other Agency Stock</span>';
+            return '<span data-oas-badge style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;padding:.05rem .35rem;border-radius:.35rem;color:var(--ds-amber,#f59e0b);background:color-mix(in srgb,var(--ds-amber,#f59e0b) 14%,transparent);">Other Agency Stock</span>';
         }
-        const col = on ? '#065f46' : '#b91c1c';
-        const bg  = on ? '#ecfdf5' : '#fef2f2';
+        const col = on ? 'var(--ds-green,#059669)' : 'var(--ds-red,#dc2626)';
+        const bg  = on ? 'color-mix(in srgb,var(--ds-green,#059669) 14%,transparent)' : 'color-mix(in srgb,var(--ds-red,#dc2626) 14%,transparent)';
         return '<span style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;padding:.05rem .35rem;border-radius:.35rem;color:' + col + ';background:' + bg + ';">' + esc(label) + '</span>';
     };
     const runProp = debounce(() => {
@@ -1180,7 +1184,7 @@
             .then(r => r.ok ? r.json() : [])
             .then(rows => {
                 if (!Array.isArray(rows) || !rows.length) {
-                    pResults.innerHTML = '<div style="padding:.6rem .8rem;color:#9ca3af;font-size:.85rem;">No match — type the address to save without a link.</div>';
+                    pResults.innerHTML = '<div style="padding:.6rem .8rem;color:var(--text-muted);font-size:.85rem;">No match — type the address to save without a link.</div>';
                     pResults.style.display = 'block'; return;
                 }
                 pResults.innerHTML = rows.map(row => {
@@ -1190,16 +1194,16 @@
                     // Wave 2 resale guard — dates row: listed date, and sold date on off-market twins.
                     const dates = [row.listed_date ? ('Listed ' + row.listed_date) : '', row.sold_date ? ('Sold ' + row.sold_date) : ''].filter(Boolean).join(' · ');
                     const offMarket = row.on_market === false;
-                    return '<div class="dr2-prow" role="button" tabindex="0" data-id="' + row.id + '" data-address="' + esc(addr) + '" data-price="' + (row.price ?? '') + '" data-comm="' + (row.commission_percent ?? '') + '" data-onmarket="' + (offMarket ? '0' : '1') + '" data-status="' + esc(row.status || '') + '" data-sold="' + esc(row.sold_date || '') + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;' + (offMarket ? 'background:#fff7f7;' : '') + '">'
-                        + '<div style="display:flex;align-items:center;gap:.4rem;"><span style="font-weight:600;color:#0b2a4a;">' + addr + '</span>' + statusBadge(row) + '</div>'
-                        + (sub ? '<div style="font-size:.78rem;color:#6b7280;">' + sub + '</div>' : '')
-                        + (dates ? '<div style="font-size:.72rem;color:#6b7280;">' + dates + '</div>' : '')
-                        + (price ? '<div style="font-size:.78rem;color:#6b7280;">' + price + '</div>' : '') + '</div>';
+                    return '<div class="dr2-prow" role="button" tabindex="0" data-id="' + row.id + '" data-address="' + esc(addr) + '" data-price="' + (row.price ?? '') + '" data-comm="' + (row.commission_percent ?? '') + '" data-onmarket="' + (offMarket ? '0' : '1') + '" data-status="' + esc(row.status || '') + '" data-sold="' + esc(row.sold_date || '') + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid var(--border);' + (offMarket ? 'background:color-mix(in srgb,var(--ds-red,#dc2626) 6%,transparent);' : '') + '">'
+                        + '<div style="display:flex;align-items:center;gap:.4rem;"><span style="font-weight:600;color:var(--text-primary);">' + addr + '</span>' + statusBadge(row) + '</div>'
+                        + (sub ? '<div style="font-size:.78rem;color:var(--text-muted);">' + sub + '</div>' : '')
+                        + (dates ? '<div style="font-size:.72rem;color:var(--text-muted);">' + dates + '</div>' : '')
+                        + (price ? '<div style="font-size:.78rem;color:var(--text-muted);">' + price + '</div>' : '') + '</div>';
                 }).join('');
                 pResults.style.display = 'block';
                 pResults.querySelectorAll('.dr2-prow').forEach(el => {
-                    el.addEventListener('mouseover', () => el.style.background = el.dataset.onmarket === '0' ? '#fdecec' : '#f9fafb');
-                    el.addEventListener('mouseout', () => el.style.background = el.dataset.onmarket === '0' ? '#fff7f7' : '#fff');
+                    el.addEventListener('mouseover', () => el.style.background = el.dataset.onmarket === '0' ? 'color-mix(in srgb,var(--ds-red,#dc2626) 12%,transparent)' : 'var(--surface-2)');
+                    el.addEventListener('mouseout', () => el.style.background = el.dataset.onmarket === '0' ? 'color-mix(in srgb,var(--ds-red,#dc2626) 6%,transparent)' : '');
                     el.addEventListener('click', () => pickProp(el.dataset));
                 });
             }).catch(closeProp);
@@ -1376,8 +1380,8 @@
             tokens.forEach(t => {
                 const chip = document.createElement('span');
                 chip.className = 'inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded';
-                chip.style.cssText = 'border:1px solid #34d399;background:#ecfdf5;color:#065f46;';
-                chip.appendChild(document.createTextNode('🔗 ' + t.name));
+                chip.style.cssText = 'border:1px solid color-mix(in srgb,var(--ds-green,#059669) 45%,transparent);background:color-mix(in srgb,var(--ds-green,#059669) 10%,transparent);color:var(--ds-green,#059669);';
+                chip.appendChild(document.createTextNode(t.name));
                 const x = document.createElement('button');
                 x.type = 'button'; x.textContent = '×'; x.style.cssText = 'font-weight:700;line-height:1;margin-left:.15rem;';
                 x.addEventListener('click', () => { tokens = tokens.filter(z => z.id !== t.id); dropName(t.name); syncIds(); renderTokens(); renderOffer(); });
@@ -1399,7 +1403,7 @@
             remaining.forEach(o => {
                 const b = document.createElement('button');
                 b.type = 'button'; b.className = 'text-xs whitespace-nowrap px-2 py-0.5 rounded';
-                b.style.cssText = 'border:1px solid #cbd5e1;color:#0b2a4a;background:#f8fafc;';
+                b.style.cssText = 'border:1px solid var(--border);color:var(--text-primary);background:var(--surface-2);';
                 b.textContent = '+ ' + o.name;
                 b.addEventListener('click', () => addToken(o.id, o.name));
                 offerEl.appendChild(b);
@@ -1415,20 +1419,20 @@
                 .then(r => r.ok ? r.json() : [])
                 .then(rows => {
                     if (!Array.isArray(rows) || !rows.length) {
-                        resultsEl.innerHTML = '<div style="padding:.6rem .8rem;color:#9ca3af;font-size:.85rem;">No contact match — use “Add a new contact”.</div>';
+                        resultsEl.innerHTML = '<div style="padding:.6rem .8rem;color:var(--text-muted);font-size:.85rem;">No contact match — use “Add a new contact”.</div>';
                         resultsEl.style.display = 'block'; return;
                     }
                     resultsEl.innerHTML = rows.map(row => {
                         const nm = row.name || row.label || ('Contact #' + row.id);
                         const sub = [row.phone, row.email, row.type].filter(Boolean).join(' · ');
-                        return '<div class="dr2-crow" role="button" tabindex="0" data-id="' + row.id + '" data-name="' + esc(nm) + '" style="padding:.5rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;">'
-                            + '<div style="font-weight:600;color:#0b2a4a;">' + esc(nm) + '</div>'
-                            + (sub ? '<div style="font-size:.75rem;color:#6b7280;">' + esc(sub) + '</div>' : '') + '</div>';
+                        return '<div class="dr2-crow" role="button" tabindex="0" data-id="' + row.id + '" data-name="' + esc(nm) + '" style="padding:.5rem .8rem;cursor:pointer;border-bottom:1px solid var(--border);">'
+                            + '<div style="font-weight:600;color:var(--text-primary);">' + esc(nm) + '</div>'
+                            + (sub ? '<div style="font-size:.75rem;color:var(--text-muted);">' + esc(sub) + '</div>' : '') + '</div>';
                     }).join('');
                     resultsEl.style.display = 'block';
                     resultsEl.querySelectorAll('.dr2-crow').forEach(el => {
-                        el.addEventListener('mouseover', () => el.style.background = '#f9fafb');
-                        el.addEventListener('mouseout', () => el.style.background = '#fff');
+                        el.addEventListener('mouseover', () => el.style.background = 'var(--surface-2)');
+                        el.addEventListener('mouseout', () => el.style.background = '');
                         el.addEventListener('click', () => { addToken(el.dataset.id, el.dataset.name); searchEl.value = ''; closeRes(); });
                     });
                 }).catch(closeRes);
@@ -1441,17 +1445,17 @@
         let formBuilt = false;
         function buildForm() {
             newFormEl.innerHTML = ''
-                + '<div style="border:1px solid #e5e7eb;border-radius:.5rem;padding:.6rem;background:#f8fafc;">'
+                + '<div style="border:1px solid var(--border);border-radius:6px;padding:.6rem;background:var(--surface-2);">'
                 + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:.4rem;">'
                 + '<input type="text"  class="nf-first" placeholder="First name*">'
                 + '<input type="text"  class="nf-last"  placeholder="Last name">'
                 + '<input type="text"  class="nf-phone" placeholder="Phone">'
                 + '<input type="email" class="nf-email" placeholder="Email">'
                 + '</div>'
-                + '<div class="nf-msg" style="font-size:.75rem;color:#b91c1c;margin-top:.3rem;display:none;"></div>'
+                + '<div class="nf-msg" style="font-size:.75rem;color:var(--ds-red,#dc2626);margin-top:.3rem;display:none;"></div>'
                 + '<div style="margin-top:.4rem;display:flex;gap:.4rem;">'
-                + '<button type="button" class="nf-save text-xs px-3 py-1 rounded" style="background:#0b2a4a;color:#fff;">Create &amp; link</button>'
-                + '<button type="button" class="nf-cancel text-xs px-3 py-1 rounded" style="border:1px solid #cbd5e1;">Cancel</button>'
+                + '<button type="button" class="nf-save corex-btn-primary text-xs">Create &amp; link</button>'
+                + '<button type="button" class="nf-cancel corex-btn-outline text-xs">Cancel</button>'
                 + '</div></div>';
             const q = s => newFormEl.querySelector(s);
             const msg = q('.nf-msg');
@@ -1561,13 +1565,13 @@
                 aResults.innerHTML = rows.map((row, i) => {
                     const line1 = row.firm + (row.attorney ? ' — ' + row.attorney : '');
                     const sub = [row.contact ? 'via ' + row.contact : '', row.email].filter(Boolean).join(' · ');
-                    return '<div class="dr2-arow" data-i="' + i + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;"><div style="font-weight:600;color:#0b2a4a;">' + esc(line1) + '</div>' + (sub ? '<div style="font-size:.78rem;color:#6b7280;">' + esc(sub) + '</div>' : '') + '</div>';
+                    return '<div class="dr2-arow" data-i="' + i + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid var(--border);"><div style="font-weight:600;color:var(--text-primary);">' + esc(line1) + '</div>' + (sub ? '<div style="font-size:.78rem;color:var(--text-muted);">' + esc(sub) + '</div>' : '') + '</div>';
                 }).join('');
                 aResults.style.display = 'block';
                 aResults.querySelectorAll('.dr2-arow').forEach(el => {
                     const row = rows[parseInt(el.dataset.i, 10)];
-                    el.addEventListener('mouseover', () => el.style.background = '#f9fafb');
-                    el.addEventListener('mouseout', () => el.style.background = '#fff');
+                    el.addEventListener('mouseover', () => el.style.background = 'var(--surface-2)');
+                    el.addEventListener('mouseout', () => el.style.background = '');
                     el.addEventListener('click', () => {
                         aName.value = row.label; aSearch.value = row.label;
                         aProvId.value = row.provider_id || ''; aContactId.value = row.contact_id || '';
@@ -1628,7 +1632,7 @@
                     bResults.innerHTML = rows.map((row, i) => {
                         const line1 = row.firm + (row.attorney ? ' — ' + row.attorney : '');
                         const sub = [row.contact ? 'via ' + row.contact : '', row.email].filter(Boolean).join(' · ');
-                        return '<div class="dr2-brow" data-i="' + i + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;"><div style="font-weight:600;color:#0b2a4a;">' + esc(line1) + '</div>' + (sub ? '<div style="font-size:.78rem;color:#6b7280;">' + esc(sub) + '</div>' : '') + '</div>';
+                        return '<div class="dr2-brow" data-i="' + i + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid var(--border);"><div style="font-weight:600;color:var(--text-primary);">' + esc(line1) + '</div>' + (sub ? '<div style="font-size:.78rem;color:var(--text-muted);">' + esc(sub) + '</div>' : '') + '</div>';
                     }).join('');
                     bResults.style.display = 'block';
                     bResults.querySelectorAll('.dr2-brow').forEach(el => {
@@ -1722,7 +1726,7 @@
                         f.results.innerHTML = rows.map((row, i) => {
                             const line1 = row.firm + (row.attorney ? ' — ' + row.attorney : '');
                             const sub = [row.contact ? 'via ' + row.contact : '', row.email].filter(Boolean).join(' · ');
-                            return '<div class="dr2-xsrow" data-i="' + i + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;"><div style="font-weight:600;color:#0b2a4a;">' + esc(line1) + '</div>' + (sub ? '<div style="font-size:.78rem;color:#6b7280;">' + esc(sub) + '</div>' : '') + '</div>';
+                            return '<div class="dr2-xsrow" data-i="' + i + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid var(--border);"><div style="font-weight:600;color:var(--text-primary);">' + esc(line1) + '</div>' + (sub ? '<div style="font-size:.78rem;color:var(--text-muted);">' + esc(sub) + '</div>' : '') + '</div>';
                         }).join('');
                         f.results.style.display = 'block';
                         f.results.querySelectorAll('.dr2-xsrow').forEach(el => {
@@ -2022,8 +2026,8 @@
             const commDisplay = commissionIncl ? fmt(dr2ToDisplay(commissionIncl)) : '';
             row.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;margin-bottom:.4rem;">'
                 + '<div style="min-width:0;"><span style="font-weight:600;color:var(--text-primary);">' + esc(label) + '</span>'
-                + (isPrimary ? ' <span title="Pick a different property as primary before removing this one" style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;padding:.05rem .35rem;border-radius:.35rem;color:#065f46;background:#ecfdf5;">Primary</span>' : '') + '</div>'
-                + (isPrimary ? '' : '<button type="button" class="dr2-row-remove text-xs" style="color:#b91c1c;background:none;border:none;padding:0;cursor:pointer;font-family:inherit;flex-shrink:0;">Remove</button>')
+                + (isPrimary ? ' <span title="Pick a different property as primary before removing this one" style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;padding:.05rem .35rem;border-radius:.35rem;color:var(--ds-green,#059669);background:color-mix(in srgb,var(--ds-green,#059669) 14%,transparent);">Primary</span>' : '') + '</div>'
+                + (isPrimary ? '' : '<button type="button" class="dr2-row-remove text-xs" style="color:var(--ds-red,#dc2626);background:none;border:none;padding:0;cursor:pointer;font-family:inherit;box-shadow:none;flex-shrink:0;">Remove</button>')
                 + '</div>'
                 + '<div class="deal-grid deal-grid-tight">'
                 + '<div><label class="ds-label block mb-1 text-[11px]" style="color:var(--text-muted);">Selling price</label><input type="number" step="0.01" min="0" class="input-base money-input text-xs dr2-row-price" value="' + esc(priceDisplay) + '"></div>'
@@ -2218,4 +2222,5 @@
     }
 })();
 </script>
-</x-app-layout>
+</div>
+@endsection

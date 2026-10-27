@@ -2,20 +2,31 @@
 
 {{-- .ai/specs/rentals-faults-work-orders.md §2/§8.1 --}}
 
-@section('content')
-<div class="p-6 max-w-2xl space-y-4">
-    <h1 class="text-lg font-semibold">Edit Fault Type</h1>
+@section('corex-content')
+<div class="w-full space-y-5">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Edit Fault Type</h1>
+                <p class="text-xs" style="color: var(--text-muted);">{{ $faultType->name }}</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="max-w-2xl space-y-5">
 
     @if(session('success'))
-        <div class="rounded-md px-4 py-3 text-sm" style="background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46;">{{ session('success') }}</div>
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent); color: var(--text-primary);">{{ session('success') }}</div>
     @endif
     @if($errors->any())
-        <div class="rounded-md px-4 py-3 text-sm" style="background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;">{{ $errors->first() }}</div>
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-red, #dc2626) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-red, #dc2626) 30%, transparent); color: var(--text-primary);">{{ $errors->first() }}</div>
     @endif
 
-    <form method="POST" action="{{ route('corex.rental-fault-types.update', $faultType) }}" class="space-y-4">
+    <form method="POST" action="{{ route('corex.rental-fault-types.update', $faultType) }}" class="rounded-md px-5 pb-5 pt-1 space-y-4" style="background: var(--surface); border: 1px solid var(--border);">
         @csrf
         @method('PUT')
+        <div class="text-sm font-semibold" style="color: var(--text-primary);">Details</div>
         <div>
             <label class="prop-label">Name</label>
             <input type="text" name="name" value="{{ old('name', $faultType->name) }}" required maxlength="191" class="prop-input w-full">
@@ -34,7 +45,7 @@
         </div>
         <div>
             <label class="prop-label">Tenant first-aid steps</label>
-            <textarea name="first_aid_steps" rows="8" class="prop-input w-full">{{ old('first_aid_steps', $faultType->first_aid_steps) }}</textarea>
+            <textarea name="first_aid_steps" rows="8" class="prop-textarea">{{ old('first_aid_steps', $faultType->first_aid_steps) }}</textarea>
             <p class="text-xs mt-1" style="color: var(--text-muted);">Placeholders @{{main_water_valve_location}} and @{{db_board_location}} are replaced with the property's own recorded location.</p>
         </div>
         <div class="flex items-center gap-2">
@@ -50,8 +61,8 @@
 
     @include('corex.rental-fault-types._causes-panel')
 
-    <div class="pt-4 border-t space-y-3" style="border-color: var(--border);">
-        <h2 class="text-sm font-semibold">Documents</h2>
+    <div class="rounded-md p-5 space-y-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Documents</h2>
 
         <ul class="text-sm space-y-1">
             @forelse($faultType->documents as $doc)
@@ -69,7 +80,7 @@
                         <form method="POST" action="{{ route('corex.rental-fault-types.documents.destroy', [$faultType, $doc]) }}" data-confirm="Remove this document?" data-confirm-danger data-confirm-label="Remove">
                             @csrf
                             @method('DELETE')
-                            <button type="submit" class="text-xs" style="color: #991b1b;">Remove</button>
+                            <button type="submit" class="text-xs" style="color: var(--ds-red, #dc2626);">Remove</button>
                         </form>
                     </span>
                 </li>
@@ -94,6 +105,7 @@
             <input type="text" name="caption" maxlength="255" placeholder="Caption (optional)" class="prop-input w-full">
             <button type="submit" class="corex-btn-outline text-sm">Add document</button>
         </form>
+    </div>
     </div>
 </div>
 @endsection

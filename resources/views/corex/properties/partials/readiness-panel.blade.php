@@ -75,15 +75,30 @@
             @foreach($report->checklist as $gate => $check)
                 <div class="flex items-start justify-between gap-3">
                     <div class="flex items-start gap-2 min-w-0">
-                        @if($check['passed'])
+                        @if(!empty($check['switched_off']))
+                            {{-- AT-509 — a check the agency switched off (Settings → Compliance Switches) --}}
+                            <span class="text-xs mt-0.5" style="color:var(--text-muted);">&#8211;</span>
+                            <div>
+                                <div class="text-xs font-medium" style="color:var(--text-muted);">{{ $check['label'] }}</div>
+                                <div class="text-[10px]" style="color:var(--text-muted);">
+                                    @if($isLive)
+                                        This check was switched off when this listing went live{{ ($check['switched_off_on'] ?? null) || ($check['switched_off_by'] ?? null) ? ' (switched off' . (($check['switched_off_on'] ?? null) ? ' ' . $check['switched_off_on'] : '') . (($check['switched_off_by'] ?? null) ? ' by ' . $check['switched_off_by'] : '') . ')' : '' }}.
+                                    @else
+                                        {{ $check['detail'] }}
+                                    @endif
+                                </div>
+                            </div>
+                        @elseif($check['passed'])
                             <span class="text-xs mt-0.5" style="color:#10b981;">&#10003;</span>
                         @else
                             <span class="text-xs mt-0.5" style="color:#ef4444;">&#10007;</span>
                         @endif
+                        @if(empty($check['switched_off']))
                         <div>
                             <div class="text-xs font-medium" style="color:var(--text-primary);">{{ $check['label'] ?? ucfirst(str_replace('_', ' ', $gate)) }}</div>
                             <div class="text-[10px]" style="color:var(--text-muted);">{{ $check['detail'] }}</div>
                         </div>
+                        @endif
                     </div>
                     @if(!$check['passed'] && !$isLive && !empty($check['action_url']))
                         <a href="{{ $check['action_url'] }}"
@@ -97,6 +112,10 @@
         @if($isBlocked)
             <div class="px-5 pb-3">
                 <p class="text-[11px]" style="color:var(--text-muted);">Marketing is blocked until all gates are green.</p>
+            </div>
+        @elseif(!$isLive && isset($report->checklist['compliance_switched_off']))
+            <div class="px-5 pb-3">
+                <p class="text-[11px]" style="color:var(--text-muted);">Compliance checks are switched off for this agency. Marketing is not blocked.</p>
             </div>
         @endif
     </div>

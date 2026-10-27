@@ -158,7 +158,7 @@ class AgencySetupWizardController extends Controller
                 'permissionCount' => collect(config('corex-permissions.permissions', []))->count(),
                 'splitOn'         => (bool) $agency->split_branches_enabled,
             ],
-            'compliance' => [
+            'compliance' => array_merge([
                 'whistleblow' => [
                     'officer_email' => $agency->whistleblow_compliance_officer_email ?? null,
                     'approver_ids'  => (array) ($agency->whistleblow_approver_user_ids ?? []),
@@ -168,6 +168,11 @@ class AgencySetupWizardController extends Controller
                     ->whereIn('role', ['admin', 'branch_manager', 'agent'])
                     ->orderBy('name')->get(['id', 'name', 'email']),
             ],
+                // AT-509 — Compliance Switches (.ai/specs/property-compliance-gate-settings.md §11): the SAME
+                // data the Settings page renders, read from the same service.
+                \App\Http\Controllers\CoreX\ComplianceSwitchesController::formData(
+                    app(\App\Services\Compliance\ComplianceGateSettingsService::class), (int) $agency->id
+                )),
             // .ai/specs/rental-application-field-config.md — the shipped-field
             // tick grid (shown/required) for the Rentals step's inline partial.
             // rentalFieldSections drives the grid display via the ONE canonical

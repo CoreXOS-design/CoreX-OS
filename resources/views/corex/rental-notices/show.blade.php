@@ -6,7 +6,6 @@
     $tone = fn (string $st) => match ($st) { 'sent' => '--ds-green', 'failed' => '--ds-crimson', default => '--ds-amber' };
 @endphp
 <div class="w-full space-y-5">
-@include('corex.notices._tabs', ['active' => 'sent'])
 <div class="max-w-3xl space-y-4">
     <div class="flex flex-wrap items-center justify-between gap-3">
         <h1 class="text-lg font-semibold">{{ \App\Models\RentalNoticeTemplate::labelFor($notice->notice_type) }}{{ $notice->trashed() ? ' (archived)' : '' }}</h1>
@@ -35,6 +34,7 @@
             @endpermission
         </div>
     </div>
+    @include('corex.notices._tabs', ['active' => 'sent'])
     <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="flex justify-between"><span style="color:var(--text-muted);">Property</span><strong>{{ $notice->lease?->property?->buildDisplayAddress() }}{{ $notice->lease?->property?->trashed() ? ' (archived)' : '' }}</strong></div>
         <div class="flex justify-between"><span style="color:var(--text-muted);">Sent</span><strong>{{ $notice->sent_at?->format('d M Y H:i') }}</strong></div>

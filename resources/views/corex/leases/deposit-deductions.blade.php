@@ -4,19 +4,26 @@
     Audit 2026-10-19 B1/B3/B4 - the lease's Move-out charges / Deposit deductions summary (titled by the agency setting). What the move-out inspection recorded as charged to the tenant, with
     amounts only when the agency records them. CoreX only RECORDS these (Johan's ruling): the deposit itself is held, deducted and paid out in the agency's accounting system.
 --}}
-@section('content')
-<div class="p-6 max-w-4xl mx-auto space-y-4">
-    @if(session('success'))
-        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
-    @endif
-
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
+<div class="rx-page w-full space-y-4">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
     <div class="flex items-center justify-between gap-3 flex-wrap">
         <div>
-            <h1 class="text-lg font-semibold">{{ $summary['title'] }}</h1>
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $summary['title'] }}</h1>
             <span class="text-xs" style="color: var(--text-muted);">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }} — {{ $lease->tenantNames() ?? 'Unknown tenant' }}</span>
         </div>
         <a href="{{ route('corex.leases.show', $lease) }}" class="corex-btn-outline text-xs">&larr; Lease</a>
     </div>
+    </div>
+    <div class="max-w-4xl space-y-5">
+    @if(session('success'))
+        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
+    @endif
+
+
+
 
     <p class="text-xs" style="color: var(--text-muted);" data-qa="dd-note">
         @if($summary['record_amounts'])
@@ -29,7 +36,7 @@
     </p>
 
     @unless($summary['out_completed'])
-        <div class="rounded-md p-3 text-xs" style="background: color-mix(in srgb, #d97706 10%, transparent); color:#b45309;" data-qa="dd-out-open">
+        <div class="rounded-md p-3 text-xs" style="background: color-mix(in srgb, #d97706 10%, transparent); color: var(--ds-amber, #b45309);" data-qa="dd-out-open">
             The move-out inspection is not completed yet, so @if($summary['record_amounts'])these figures @else this list @endif can still change.
             <a href="{{ route('corex.rental-inspections.show', $summary['out']) }}" class="underline font-semibold">Open the move-out inspection</a>
         </div>
@@ -47,7 +54,7 @@
                 </div>
                 @if($summary['record_amounts'])
                 <div class="font-semibold whitespace-nowrap">
-                    @if($line['amount'] !== null) R{{ number_format($line['amount'], 2) }} @else <span class="text-xs" style="color:#b45309;">no amount recorded</span> @endif
+                    @if($line['amount'] !== null) R{{ number_format($line['amount'], 2) }} @else <span class="text-xs" style="color: var(--ds-amber, #b45309);">no amount recorded</span> @endif
                 </div>
                 @endif
             </div>
@@ -63,7 +70,7 @@
     </div>
 
     @if($summary['record_amounts'] && $summary['unpriced'] > 0)
-        <p class="text-xs" style="color:#b45309;" data-qa="dd-unpriced">{{ $summary['unpriced'] }} charge{{ $summary['unpriced'] === 1 ? ' has' : 's have' }} no amount recorded (classified before amounts were captured) - open the comparison to add one.</p>
+        <p class="text-xs" style="color: var(--ds-amber, #b45309);" data-qa="dd-unpriced">{{ $summary['unpriced'] }} charge{{ $summary['unpriced'] === 1 ? ' has' : 's have' }} no amount recorded (classified before amounts were captured) - open the comparison to add one.</p>
     @endif
     @if($summary['record_amounts'] && $summary['deposit'] !== null)
         <p class="text-xs" style="color: var(--text-muted);" data-qa="dd-deposit">Deposit held on this lease: R{{ number_format($summary['deposit'], 2) }}.</p>
@@ -89,5 +96,6 @@
             @endif
         @endif
     </div>
+</div>
 </div>
 @endsection

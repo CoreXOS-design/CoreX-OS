@@ -20515,6 +20515,49 @@ CREATE TABLE `training_progress` (
   CONSTRAINT `training_progress_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `training_video_groups`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `training_video_groups` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `name` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `created_by` bigint unsigned DEFAULT NULL,
+  `updated_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `training_video_groups_created_by_foreign` (`created_by`),
+  KEY `training_video_groups_updated_by_foreign` (`updated_by`),
+  CONSTRAINT `training_video_groups_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `training_video_groups_updated_by_foreign` FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `training_videos`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `training_videos` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `training_video_group_id` bigint unsigned DEFAULT NULL,
+  `title` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `youtube_url` varchar(500) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `youtube_video_id` char(11) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `created_by` bigint unsigned DEFAULT NULL,
+  `updated_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `training_videos_training_video_group_id_foreign` (`training_video_group_id`),
+  KEY `training_videos_created_by_foreign` (`created_by`),
+  KEY `training_videos_updated_by_foreign` (`updated_by`),
+  KEY `training_videos_youtube_video_id_index` (`youtube_video_id`),
+  CONSTRAINT `training_videos_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `training_videos_training_video_group_id_foreign` FOREIGN KEY (`training_video_group_id`) REFERENCES `training_video_groups` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `training_videos_updated_by_foreign` FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `tv_access_codes`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -24248,3 +24291,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1848,'2026_12_05_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1849,'2026_12_06_100000_add_lease_fee_label_to_lease_settings',1);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1850,'2026_12_07_100000_add_geocode_country_to_agencies_table',1);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1851,'2026_12_07_100000_turn_on_phone_push_for_agent_rental_alerts',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1852,'2026_12_05_100000_create_training_videos_tables_at509',1);

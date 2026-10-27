@@ -29,25 +29,19 @@
     $isOpen = ! in_array($faultReport->status, ['resolved', 'cancelled'], true);
 @endphp
 
-@section('content')
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
 @include('corex.rentals._stage-screen-style')
 {{-- AT-439 Part 3 — full-width (was max-w-3xl), matching the Lease Hub/Work
      Order show precedent: every line of space is data the agent needs or a
      control they act on. Two-column below the header: record + actions
      left, photos/history right. --}}
-<div class="p-6 max-w-7xl mx-auto space-y-4 cx-equal-btns">
-    {{-- (the success message is the layout's toast - J8: it is not repeated here as a second banner) --}}
-    {{-- §17.3.2 / §17.10.6 — a refused "Create work order" or a refused "repaired" outcome says WHY, in plain words. --}}
-    @if($errors->any())
-        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
-            @foreach ($errors->all() as $error)<div>{{ $error }}</div>@endforeach
-        </div>
-    @endif
-
-    {{-- AT-464 / section 28 - after an action the page lands on the Returned | Next bar (data-land-on-next), just under the tabs. --}}
+<div class="rx-page w-full space-y-4 cx-equal-btns">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
     <div class="flex items-center justify-between">
         <div>
-            <h1 class="text-lg font-semibold">{{ $faultReport->title }}</h1>
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $faultReport->title }}</h1>
             <span class="ds-badge {{ $statusBadgeClass }}">{{ $faultReport->statusLabel() }}</span>
             @if($faultReport->typeName())
                 <span class="ds-badge ds-badge-muted" @if($faultReport->isOtherType()) data-type-other @endif>{{ $faultReport->typeName() }}</span>
@@ -99,6 +93,18 @@
             <a href="{{ route('corex.rental-fault-reports.index') }}" class="corex-btn-outline text-xs">&larr; All fault reports</a>
         </div>
     </div>
+    </div>
+    {{-- (the success message is the layout's toast - J8: it is not repeated here as a second banner) --}}
+    {{-- §17.3.2 / §17.10.6 — a refused "Create work order" or a refused "repaired" outcome says WHY, in plain words. --}}
+    @if($errors->any())
+        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
+            @foreach ($errors->all() as $error)<div>{{ $error }}</div>@endforeach
+        </div>
+    @endif
+
+    {{-- AT-464 / section 28 - after an action the page lands on the Returned | Next bar (data-land-on-next), just under the tabs. --}}
+
+
     <form id="cancel-fault-report-form" method="POST" action="{{ route('corex.rental-fault-reports.cancel', $faultReport) }}" class="hidden space-y-2 rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         @csrf
         <label class="text-xs font-medium">Reason for cancellation (required)</label>

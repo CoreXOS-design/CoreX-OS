@@ -5,19 +5,26 @@
     only rows WITH an amount become a breach notice. Each is sent from the agent's own mailbox and the landlord is told.
 --}}
 
-@section('content')
-<div class="mb-4">@include('corex.notices._tabs', ['active' => 'breaches'])</div>
-<div class="p-6 space-y-4 max-w-6xl">
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
+<div class="rx-page w-full space-y-4">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
     <div class="flex items-center justify-between gap-3">
-        <h1 class="text-lg font-semibold">Breach notice - payment</h1>
+        <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Breach notice - payment</h1>
         @include('corex.breaches._templates-link')
     </div>
+    </div>
+    <div class="max-w-6xl space-y-5">
+
+
+    @include('corex.notices._tabs', ['active' => 'breaches'])
     {{-- this sheet is for arrears across many leases, so it lists the agency's PAYMENT breach templates only; any other breach is sent from the lease itself, where every template is offered --}}
     <p class="text-xs" style="color: var(--text-muted);" data-qa="bulk-templates-note">This sheet lists your <strong>payment</strong> breach templates. For any other kind of breach (an ad hoc template), open the lease and use its <strong>Breach notice</strong> button - every template you have is offered there.</p>
     <p class="text-sm" style="color: var(--text-muted);">Fill in the amount owing on each lease. <strong>Only leases with an amount get a breach notice</strong>; leave the rest blank. The tenant has {{ $remedyWindow }} to put it right, and the landlord is told.</p>
 
     @if($dropped > 0)
-        <p class="text-xs" style="color: #b45309;" data-qa="bulk-dropped">{{ $dropped }} ticked {{ $dropped === 1 ? 'lease was' : 'leases were' }} left out (not a running lease, or not one you can see).</p>
+        <p class="text-xs" style="color: var(--ds-amber, #b45309);" data-qa="bulk-dropped">{{ $dropped }} ticked {{ $dropped === 1 ? 'lease was' : 'leases were' }} left out (not a running lease, or not one you can see).</p>
     @endif
 
     @if($errors->any())
@@ -82,5 +89,6 @@
         </div>
     </form>
     @endif
+</div>
 </div>
 @endsection

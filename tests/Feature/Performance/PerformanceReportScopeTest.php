@@ -256,7 +256,7 @@ final class PerformanceReportScopeTest extends TestCase
         $this->get(route('admin.performance'))->assertForbidden();
         $this->get(route('admin.branch.performance', ['branchId' => $this->b1->id]))->assertForbidden();
         $this->get(route('admin.branch.performance', ['branchId' => $this->b2->id]))->assertForbidden();
-        $this->get(route('admin.agent.performance', ['userId' => $this->a2->id]))->assertForbidden();
+        $this->assertRetiredAgentPageShowsNothing($this->a2->id);
         $this->get(route('bm.agent.performance', ['userId' => $this->a2->id]))->assertForbidden();
         $this->get(route('bm.performance'))->assertForbidden();
     }
@@ -267,7 +267,7 @@ final class PerformanceReportScopeTest extends TestCase
 
         $this->get(route('admin.performance'))->assertForbidden();
         $this->get(route('admin.branch.performance', ['branchId' => $this->b2->id]))->assertForbidden();
-        $this->get(route('admin.agent.performance', ['userId' => $this->b2agent->id]))->assertForbidden();
+        $this->assertRetiredAgentPageShowsNothing($this->b2agent->id);
         $this->assertNotSame(403, $this->get(route('bm.performance'))->status());
         $this->assertNotSame(403, $this->get(route('bm.agent.performance', ['userId' => $this->a2->id]))->status());
         $this->assertNotSame(403, $this->get(route('admin.branch.performance', ['branchId' => $this->b1->id]))->status());
@@ -280,6 +280,21 @@ final class PerformanceReportScopeTest extends TestCase
         $this->assertNotSame(403, $this->get(route('admin.performance'))->status());
         $this->assertNotSame(403, $this->get(route('admin.branch.performance', ['branchId' => $this->b2->id]))->status());
         $this->assertNotSame(403, $this->get(route('admin.agent.performance', ['userId' => $this->b2agent->id]))->status());
+    }
+
+    /**
+     * The admin agent drill-down (/admin/agent/{id}/performance) was retired 2026-10-26 — the address now
+     * redirects to the Performance report, which applies its own scope. Either way the agent's figures are
+     * never rendered at that address: it is refused outright (403) or bounced to the report.
+     */
+    private function assertRetiredAgentPageShowsNothing(int $agentId): void
+    {
+        $response = $this->get(route('admin.agent.performance', ['userId' => $agentId]));
+
+        if ($response->status() === 403) {
+            return;
+        }
+        $response->assertRedirect(route('admin.performance'));
     }
 
     public function test_a_role_with_no_performance_report_scope_row_fails_closed_to_own(): void

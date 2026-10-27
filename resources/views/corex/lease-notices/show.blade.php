@@ -5,18 +5,20 @@
     with a corrected date / reject). Nothing reaches the other party until the agent accepts; acceptance tells them.
 --}}
 
-@section('content')
-<div class="mb-4">@include('corex.notices._tabs', ['active' => 'received'])</div>
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
 @php
     $address = $lease->property?->buildDisplayAddress() ?: ('Lease #' . $lease->id);
     $unit = fn ($v) => $v ?: 'not stated';
     $badge = $notice->isReceived() ? 'ds-badge-warning' : ($notice->isAccepted() ? 'ds-badge-success' : 'ds-badge-muted');
     $warnCount = collect($flags)->where('severity', 'warn')->count();
 @endphp
-<div class="p-6 space-y-5 max-w-6xl" data-qa="lease-notice-review">
+<div class="rx-page w-full space-y-5" data-qa="lease-notice-review">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
     <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
-            <h1 class="text-lg font-semibold">{{ $notice->givenByLabel() }}'s notice - {{ $address }}</h1>
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $notice->givenByLabel() }}'s notice - {{ $address }}</h1>
             <p class="text-xs" style="color: var(--text-muted);">
                 <span class="ds-badge {{ $badge }}" data-notice-status>{{ $notice->statusLabel() }}</span>
                 @if($notice->trashed()) <span class="ds-badge ds-badge-muted">Archived</span> @endif
@@ -30,6 +32,11 @@
             <a href="{{ route('corex.lease-notices.index') }}" class="corex-btn-outline text-xs">All notices</a>
         </div>
     </div>
+    </div>
+    <div class="max-w-6xl space-y-5">
+
+
+    @include('corex.notices._tabs', ['active' => 'received'])
 
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); border: 1px solid var(--ds-crimson);" data-qa="lease-notice-errors">
@@ -176,5 +183,6 @@
             <form method="POST" action="{{ route('corex.lease-notices.archive', $notice->id) }}" onsubmit="return confirm('Archive this notice? It can be restored.')">@csrf<button type="submit" class="corex-btn-outline text-xs">Archive</button></form>
         @endif
     </div>
+</div>
 </div>
 @endsection

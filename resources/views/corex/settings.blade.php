@@ -90,6 +90,10 @@
                     ($u && $u->hasPermission('manage_performance_settings'))
                         ? ['key'=>'company-other-agency-stock', 'label'=>'Other Agency Stock', 'type'=>'link', 'href'=>route('admin.company-settings') . '#other-agency-stock', 'keywords'=>'company settings imported stock another agency who can see consent wording import property24 private property']
                         : null,
+                    // AT-509 — .ai/specs/property-compliance-gate-settings.md §7.1.
+                    (!empty($complianceSwitches))
+                        ? ['key'=>'compliance-switches', 'label'=>'Compliance Switches', 'type'=>'section', 'keywords'=>'compliance checks gates marketing readiness fica mandate disclosure mdf photos listing details switch off turn off disclaimer popia ppra']
+                        : null,
                     ($u && $u->hasPermission('agency.manage_access_authorization'))
                         ? ['key'=>'remote-access', 'label'=>'Remote Access', 'type'=>'section', 'keywords'=>'system owner consent authorization cross-agency switch']
                         : null,
@@ -531,6 +535,27 @@
             @endif
 
         </div>
+
+        {{-- AT-509 — Compliance Switches (.ai/specs/property-compliance-gate-settings.md §7.1). The form fields are
+             the shared partial the Setup Wizard's Compliance step also renders. --}}
+        @if(!empty($complianceSwitches))
+        <div x-show="activeSection === 'compliance-switches'" x-cloak class="p-6 space-y-5">
+            <div>
+                <h2 class="text-lg font-bold" style="color:var(--text-primary);">Compliance Switches</h2>
+                <p class="text-sm mt-1" style="color:var(--text-secondary);">
+                    Choose which compliance checks a property must pass before it can be marketed.
+                </p>
+            </div>
+
+            <form method="POST" action="{{ route('corex.settings.compliance-switches.update') }}" class="space-y-4">
+                @csrf
+                @include('corex.settings.partials.compliance-switches-form', $complianceSwitches + ['csAutoSave' => true])
+                <div class="flex justify-end">
+                    <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save</button>
+                </div>
+            </form>
+        </div>
+        @endif
 
         {{-- ============================================================
              REMOTE ACCESS TAB — agency-side consent toggle

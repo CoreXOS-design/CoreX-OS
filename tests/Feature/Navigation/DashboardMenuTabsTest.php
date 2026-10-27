@@ -146,7 +146,7 @@ final class DashboardMenuTabsTest extends TestCase
         }
         PermissionService::clearCache();
 
-        $this->assertSame(['Today', 'Alerts', 'Calendar', 'Tasks', 'Performance', 'User Settings'], $this->dashboardItems($admin, route('command-center.calendar.invitations')));
+        $this->assertSame(['Today', 'Notifications', 'Calendar', 'Tasks', 'Performance', 'User Settings'], $this->dashboardItems($admin, route('command-center.calendar.invitations')));
 
         $this->actingAs($admin)->get(route('corex.hubs.calendar'))->assertRedirect(route('command-center.calendar'));
         $this->actingAs($admin)->get(route('corex.hubs.performance'))->assertRedirect(route('command-center.performance'));

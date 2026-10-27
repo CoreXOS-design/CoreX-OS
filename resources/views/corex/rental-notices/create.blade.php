@@ -2,9 +2,9 @@
 
 @section('corex-content')
 <div class="w-full space-y-5">
+<h1 class="text-lg font-semibold">Send Notice — {{ $lease->property?->buildDisplayAddress() }}</h1>
 @include('corex.notices._tabs', ['active' => 'sent'])
 <div class="max-w-2xl space-y-4 rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
-    <h1 class="text-lg font-semibold">Send Notice — {{ $lease->property?->buildDisplayAddress() }}</h1>
 
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm" style="background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;">

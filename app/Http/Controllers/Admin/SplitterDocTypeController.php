@@ -146,7 +146,6 @@ class SplitterDocTypeController extends Controller
             'types.*.is_active'           => 'required',
             'types.*.listing_types'       => 'nullable|array',
             'types.*.listing_types.*'     => 'in:sale,rental',
-            'types.*.compliance_required' => 'nullable',
             'types.*.save_to_property'    => 'nullable',
             'types.*.save_to_contact'     => 'nullable',
             'types.*.contact_roles'       => ['nullable', 'array'],
@@ -185,8 +184,9 @@ class SplitterDocTypeController extends Controller
             }
 
             if ($agencyId) {
-                $required = filter_var($data['compliance_required'] ?? false, FILTER_VALIDATE_BOOLEAN);
-                $this->compliance->setRequired($agencyId, (int) $data['id'], $required);
+                // AT-509 — "Required to market" is no longer written from this page: switching a
+                // compliance check on/off goes through Settings → Compliance Switches (disclaimer +
+                // permanent history). An absent field here must never switch a check off.
 
                 // AT-105 — persist the per-agency "Save To" destination. An
                 // unchecked box is absent from the payload, so each flag is set

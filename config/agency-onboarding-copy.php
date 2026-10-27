@@ -7,6 +7,7 @@ use App\Http\Controllers\Commission\CommissionSettingsController;
 use App\Http\Controllers\Compliance\FicaOfficerAppointmentsController;
 use App\Http\Controllers\CoreX\Auctions\AuctionSettingsController;
 use App\Http\Controllers\CoreX\AgencyTypeController;
+use App\Http\Controllers\CoreX\ComplianceSwitchesController;
 use App\Http\Controllers\CoreX\FeatureSettingsController;
 use App\Http\Controllers\CoreX\LeaseSettingsController;
 use App\Http\Controllers\CoreX\RentalInspectionSettingsController;
@@ -1847,9 +1848,15 @@ return [
                 . 'This step records who that person is and where those reports land, so CoreX can route them to '
                 . 'a human instead of an inbox nobody reads.',
         ],
-        'partial' => 'agency-setup.steps.compliance',
+        // AT-509 — Compliance Switches (.ai/specs/property-compliance-gate-settings.md §11) renders after the
+        // officers/whistleblow partial, inside the same form.
+        'partial' => ['agency-setup.steps.compliance', 'agency-setup.steps.compliance-switches'],
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'saveWhistleblowSettings'],
+            // AT-509 — same saver as Settings → Compliance Switches. Does nothing unless the partial's
+            // `compliance_switches_submitted` marker was posted, and only reads the switches it rendered (§6.1).
+            // Switching a check off needs the same disclaimer, enforced server-side.
+            ['controller' => ComplianceSwitchesController::class, 'method' => 'update'],
             // AT-236 — flagged 2026-07-14 as a deliberate-omission candidate pending
             // Johan's call; resolved 2026-08-04 to include it here rather than in
             // spec §5.1. Guarded internally by the 'fica_referral_settings_present'

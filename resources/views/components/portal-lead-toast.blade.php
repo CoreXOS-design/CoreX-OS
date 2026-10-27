@@ -103,7 +103,7 @@ window.portalLeadToast = function () {
                     this.seen.add(lead.id);
                     this.toasts.push(lead);
                     this.markNotified(lead.id);
-                    setTimeout(() => this.autoDismiss(lead.id), 20000);
+                    setTimeout(() => this.autoDismiss(lead.id), 5000);   // AT-509: every popup closes itself after 5 seconds
                     hadNew = true;
                 }
                 if (hadNew) this.chime();

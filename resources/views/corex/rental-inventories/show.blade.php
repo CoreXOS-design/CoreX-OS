@@ -40,17 +40,20 @@
     $agentPartyLabel = \App\Services\PartyRoleLabel::for($inventory->agency_id, \App\Models\RentalInventorySignature::PARTY_AGENT);
 @endphp
 
-@section('content')
-<div class="p-6 max-w-4xl mx-auto space-y-4" x-data="rentalInventoryShow({{ $inventory->id }})">
-    <div class="flex items-center justify-between">
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
+<div class="rx-page w-full space-y-4" x-data="rentalInventoryShow({{ $inventory->id }})">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
-            <h1 class="text-lg font-semibold">Inventory — {{ $inventory->property?->buildDisplayAddress() ?? 'Unknown property' }}</h1>
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Inventory — {{ $inventory->property?->buildDisplayAddress() ?? 'Unknown property' }}</h1>
             <p class="text-xs mt-0.5" style="color: var(--text-muted);">
                 <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst(str_replace('_', ' ', $inventory->status)) }}</span>
                 Started {{ $inventory->created_at?->format('Y-m-d') }} by {{ $inventory->createdBy?->name ?? '—' }}
             </p>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
             @if($inventory->status === \App\Models\RentalInventory::STATUS_COMPLETED && $inventory->lease_id)
                 <a href="{{ route('corex.rental-inventories.comparison', $inventory) }}" class="corex-btn-outline text-xs">Move-out comparison</a>
             @endif
@@ -65,6 +68,7 @@
             @endif
             <a href="{{ route('corex.rental-inventories.index') }}" class="corex-btn-outline text-xs">Back to list</a>
         </div>
+    </div>
     </div>
 
     {{-- §41-follow-up (Job 3, 2026-09-28) — "how do we print/share it now,"
@@ -430,7 +434,7 @@
                 </div>
             </template>
 
-            <div x-show="lifecycleError" x-cloak class="text-xs" style="color:#ef4444;">
+            <div x-show="lifecycleError" x-cloak class="text-xs" style="color: var(--ds-red, #ef4444);">
                 <p x-text="lifecycleError"></p>
                 {{-- Johan, 2026-09-28 — each unchecked room named, clickable
                      to the capture screen's own panel for that space
@@ -439,7 +443,7 @@
                 <template x-if="unvisitedRooms.length">
                     <ul class="mt-1 space-y-0.5" style="list-style: disc; padding-left: 1.25rem;">
                         <template x-for="room in unvisitedRooms" :key="room.id">
-                            <li><a :href="captureUrlFor(room.id)" class="underline" style="color:#ef4444;" x-text="room.label"></a></li>
+                            <li><a :href="captureUrlFor(room.id)" class="underline" style="color: var(--ds-red, #ef4444);" x-text="room.label"></a></li>
                         </template>
                     </ul>
                 </template>
@@ -491,7 +495,7 @@
                         x-text="sentTo.includes({{ $buyer->id }}) ? 'Sent' : (sending === {{ $buyer->id }} ? 'Sending…' : 'Send for acceptance')"></button>
             </div>
         @endforeach
-        <p x-show="error" x-text="error" class="text-xs" style="color:#ef4444;"></p>
+        <p x-show="error" x-text="error" class="text-xs" style="color: var(--ds-red, #ef4444);"></p>
         @endpermission
     </div>
     @endif

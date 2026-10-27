@@ -1,15 +1,17 @@
 @extends('layouts.corex')
 
-@section('content')
-<div class="mb-4">@include('corex.notices._tabs', ['active' => 'breaches'])</div>
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
 @php
     $address = $lease->property?->buildDisplayAddress() ?: ('Lease #' . $lease->id);
     $badge = $breach->status === 'issued' ? 'ds-badge-warning' : ($breach->status === 'remedied' ? 'ds-badge-success' : 'ds-badge-danger');
 @endphp
-<div class="p-6 space-y-5 max-w-5xl" data-qa="breach-screen">
+<div class="rx-page w-full space-y-5" data-qa="breach-screen">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
     <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
-            <h1 class="text-lg font-semibold">{{ $breach->kind === 'payment' ? 'Payment breach' : 'Breach' }} - {{ $address }}</h1>
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $breach->kind === 'payment' ? 'Payment breach' : 'Breach' }} - {{ $address }}</h1>
             <p class="text-xs" style="color: var(--text-muted);">
                 <span class="ds-badge {{ $badge }}" data-breach-status>{{ $breach->statusLabel() }}</span>
                 @if($breach->trashed()) <span class="ds-badge ds-badge-muted">Archived</span> @endif
@@ -23,6 +25,11 @@
             <a href="{{ route('corex.breaches.index') }}" class="corex-btn-outline text-xs">Breach register</a>
         </div>
     </div>
+    </div>
+    <div class="max-w-5xl space-y-5">
+
+
+    @include('corex.notices._tabs', ['active' => 'breaches'])
 
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); border: 1px solid var(--ds-crimson);" data-qa="breach-errors">
@@ -39,7 +46,7 @@
             <dt style="color: var(--text-muted);">Remedy by</dt>
             <dd class="col-span-2" data-qa="remedy-deadline">{{ $breach->remedy_deadline?->format('j F Y') ?? '—' }} ({{ $breach->remedyWindowLabel() }})
                 @if($breach->daysLeftText()) - <strong data-qa="days-left" style="color: {{ $breach->isOverdue() ? '#b91c1c' : ($breach->daysToRemedy() === 0 ? '#b45309' : 'inherit') }};">{{ $breach->daysLeftText() }}</strong>@endif
-                @if($breach->isIssued() && $breach->remedyDateReached()) - <strong style="color:#b91c1c;">date reached - was it fixed?</strong>@endif</dd>
+                @if($breach->isIssued() && $breach->remedyDateReached()) - <strong style="color: var(--ds-red, #b91c1c);">date reached - was it fixed?</strong>@endif</dd>
             <dt style="color: var(--text-muted);">Documents</dt>
             <dd class="col-span-2">
                 @if($breach->notice?->document)<a href="{{ route('corex.breaches.document', [$breach->id, 'breach']) }}" style="color: var(--brand-icon, #0ea5e9);">Breach notice (PDF)</a>@endif
@@ -132,5 +139,6 @@
         @endif
     </div>
     @endpermission
+</div>
 </div>
 @endsection

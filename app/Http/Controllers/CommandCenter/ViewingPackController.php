@@ -352,10 +352,27 @@ class ViewingPackController extends Controller
      * enforced by AgencyScope on the {viewingPack} binding. This is ONE file;
      * the agent sheet (Step 7) is a separate download.
      */
-    public function downloadBuyerPack(ViewingPack $viewingPack, ViewingPackBuyerPdfService $buyerPdf)
+    public function downloadBuyerPack(Request $request, ViewingPack $viewingPack, ViewingPackBuyerPdfService $buyerPdf)
     {
         $this->guardVisible($viewingPack);
-        return $buyerPdf->download($viewingPack);
+
+        // AT-509 — the buyer is under ANOTHER agent and the downloader chose "Show my details":
+        // their details go on the cover and the buyer's agent is told. Any other request keeps
+        // ruling D (the buyer's agent on the cover) and tells nobody.
+        $me = $request->user();
+        $buyersAgent = $buyerPdf->buyersAgent($viewingPack);
+        if ($request->query('details') !== 'mine' || ! $buyersAgent || (int) $buyersAgent->id === (int) $me->id) {
+            return $buyerPdf->download($viewingPack);
+        }
+
+        $response = $buyerPdf->download($viewingPack, $me);
+        if ($buyersAgent->is_active && ! (method_exists($buyersAgent, 'trashed') && $buyersAgent->trashed())) {
+            $contact = Contact::withoutGlobalScopes()->find($viewingPack->contact_id);
+            $buyerName = $contact ? trim((string) ($contact->full_name ?? trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')))) : '';
+            $buyersAgent->notify(new \App\Notifications\BuyerPackMadeByAnotherAgentNotification($viewingPack, $me, $buyerName));
+        }
+
+        return $response;
     }
 
     /**

@@ -350,10 +350,13 @@
                                     {{-- Compliance required (per-agency) --}}
                                     <div>
                                         <div class="dt-field-label">Compliance</div>
-                                        <label class="dt-pill dt-pill-green" x-data="{ on: {{ ($complianceMap[$t->id] ?? false) ? 'true':'false' }} }" :data-on="on"
-                                               title="Require a {{ $t->label }} on the property Drive before it can be marketed (this agency only).">
-                                            <input type="checkbox" name="types[{{ $i }}][compliance_required]" value="1" x-model="on">Required to market
-                                        </label>
+                                        {{-- AT-509 — read-only here. Switching a compliance check on/off needs the disclaimer
+                                             and is recorded, so it is done in Settings → Compliance Switches only. --}}
+                                        <span class="dt-pill dt-pill-green" data-on="{{ ($complianceMap[$t->id] ?? false) ? 'true' : 'false' }}"
+                                              title="Whether a {{ $t->label }} must be on file before a property can be marketed (this agency only).">
+                                            {{ ($complianceMap[$t->id] ?? false) ? 'Required to market' : 'Not required to market' }}
+                                        </span>
+                                        <a href="{{ route('corex.settings', ['s' => 'compliance-switches']) }}" class="block text-[11px] mt-1 underline" style="color:var(--text-muted);">Manage in Compliance Switches</a>
                                     </div>
 
                                     {{-- Buyer pack (catalogue default + per-agency override) --}}

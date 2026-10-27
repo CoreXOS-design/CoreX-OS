@@ -1,17 +1,28 @@
 @extends('layouts.corex')
 
-@section('content')
-<div class="mb-4">@include('corex.notices._tabs', ['active' => 'breaches'])</div>
-<div class="p-6 space-y-4 max-w-3xl">
-    <div class="flex items-center justify-between gap-3">
-        <h1 class="text-lg font-semibold">Breach notice - {{ $lease->property?->buildDisplayAddress() ?: ('Lease #' . $lease->id) }}</h1>
-        @include('corex.breaches._templates-link')
+@section('corex-content')
+<div class="w-full space-y-5">
+
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Breach notice</h1>
+                <p class="text-xs" style="color: var(--text-muted);">{{ $lease->property?->buildDisplayAddress() ?: ('Lease #' . $lease->id) }}</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('corex.breaches._templates-link')
+            </div>
+        </div>
     </div>
+    @include('corex.notices._tabs', ['active' => 'breaches'])
+
+    <div class="max-w-3xl space-y-4">
     {{-- rental-notices.md §7b - the agency's breach templates are listed here: a payment template asks for the amount outstanding, an ad hoc one for the party, the clause and the reason --}}
-    <p class="text-sm" style="color: var(--text-muted);">Choose the notice to send. A <strong>payment</strong> template asks for the amount outstanding; an <strong>ad hoc</strong> one for the clause and what the breach is. The notice is made from your own template, sent from your mailbox, and the other party is told. <span data-qa="breach-window">{{ $remedyWindow }}</span> are allowed to put it right.</p>
+    <p class="text-sm" style="color: var(--text-secondary);">Choose the notice to send. A <strong>payment</strong> template asks for the amount outstanding; an <strong>ad hoc</strong> one for the clause and what the breach is. The notice is made from your own template, sent from your mailbox, and the other party is told. <span data-qa="breach-window">{{ $remedyWindow }}</span> are allowed to put it right.</p>
 
     @if($errors->any())
-        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); border: 1px solid var(--ds-crimson);" data-qa="breach-errors">
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-red, #dc2626) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-red, #dc2626) 30%, transparent); color: var(--text-primary);" data-qa="breach-errors">
             <ul class="list-disc list-inside">@foreach($errors->all() as $e)<li>{{ $e }}</li>@endforeach</ul>
         </div>
     @endif
@@ -26,43 +37,43 @@
         @php
             $chosen = $templates->firstWhere('id', (int) old('rental_notice_template_id')) ?? $templates->firstWhere('id', (int) ($chosenTemplateId ?? 0)) ?? $templates->first();
         @endphp
-        <form method="POST" action="{{ route('corex.leases.breaches.store', $lease) }}" class="space-y-3" data-qa="breach-form">
+        <form method="POST" action="{{ route('corex.leases.breaches.store', $lease) }}" class="rounded-md px-5 pb-5 pt-1 space-y-4" style="background: var(--surface); border: 1px solid var(--border);" data-qa="breach-form">
             @csrf
             <div>
-                <label class="text-xs font-medium" for="breach-template">Template</label>
-                <select name="rental_notice_template_id" id="breach-template" required class="prop-input mt-1" style="max-width: 28rem;" data-qa="breach-template">
+                <label class="prop-label" for="breach-template">Template</label>
+                <select name="rental_notice_template_id" id="breach-template" required class="prop-select" style="max-width: 28rem;" data-qa="breach-template">
                     @foreach($templates as $t)
                         <option value="{{ $t->id }}" data-kind="{{ $t->notice_type === 'breach_payment' ? 'payment' : 'other' }}" data-window="{{ $windowByTemplate[$t->id] ?? '' }}" data-default-clause="{{ $t->default_clause }}" @selected($chosen && $chosen->id === $t->id)>{{ $t->name }}</option>
                     @endforeach
                 </select>
             </div>
             <div id="grp-payment" data-qa="breach-payment-fields">
-                <label class="text-xs font-medium" for="breach-amount">Amount outstanding (R)</label>
-                <input type="text" name="amount" id="breach-amount" value="{{ old('amount') }}" inputmode="decimal" class="prop-input mt-1" style="max-width: 12rem;" placeholder="e.g. 9 500.00" data-qa="breach-amount">
+                <label class="prop-label" for="breach-amount">Amount outstanding (R)</label>
+                <input type="text" name="amount" id="breach-amount" value="{{ old('amount') }}" inputmode="decimal" class="prop-input" style="max-width: 12rem;" placeholder="e.g. 9 500.00" data-qa="breach-amount">
                 <p class="text-xs mt-1" style="color: var(--text-muted);">A payment breach is always against the tenant.</p>
             </div>
             <div id="grp-other-party" data-qa="breach-party-field">
-                <label class="text-xs font-medium">Who is in breach</label>
-                <select name="breach_party" class="prop-input mt-1" style="max-width: 20rem;">
+                <label class="prop-label">Who is in breach</label>
+                <select name="breach_party" class="prop-select" style="max-width: 20rem;">
                     <option value="tenant" @selected(old('breach_party', 'tenant') === 'tenant')>The tenant ({{ $lease->tenantNames() }})</option>
                     <option value="landlord" @selected(old('breach_party') === 'landlord')>The landlord ({{ $lease->landlordNames() }})</option>
                 </select>
             </div>
             <div>
-                <label class="text-xs font-medium">Lease clause breached (quote it)</label>
+                <label class="prop-label">Lease clause breached (quote it)</label>
                 {{-- AT-462 - starts from the chosen template's saved clause block; the agent edits it to quote the clause actually breached --}}
-                <textarea name="clause" id="breach-clause" rows="6" maxlength="3000" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);" placeholder="e.g. 9.2 The tenant shall keep the swimming pool clean and in working order" data-qa="breach-clause">{{ old('clause', $chosen?->default_clause) }}</textarea>
+                <textarea name="clause" id="breach-clause" rows="6" maxlength="3000" class="prop-textarea" placeholder="e.g. 9.2 The tenant shall keep the swimming pool clean and in working order" data-qa="breach-clause">{{ old('clause', $chosen?->default_clause) }}</textarea>
             </div>
             <div id="grp-other-reason" data-qa="breach-reason-field">
-                <label class="text-xs font-medium">What the breach is</label>
-                <textarea name="reason" rows="3" maxlength="3000" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);" placeholder="e.g. The pool has not been maintained and is green">{{ old('reason') }}</textarea>
+                <label class="prop-label">What the breach is</label>
+                <textarea name="reason" rows="3" maxlength="3000" class="prop-textarea" placeholder="e.g. The pool has not been maintained and is green">{{ old('reason') }}</textarea>
             </div>
             <details class="text-xs" style="color: var(--text-muted);">
                 <summary class="cursor-pointer">Extra figures your template needs (one per line as name=value) and the placeholders filled for you</summary>
-                <textarea name="figures_raw" rows="3" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">{{ old('figures_raw') }}</textarea>
+                <textarea name="figures_raw" rows="3" class="prop-textarea mt-2">{{ old('figures_raw') }}</textarea>
                 <ul class="list-disc list-inside mt-1">@foreach($placeholders as $k => $label)<li><code>&#123;&#123;{{ $k }}&#125;&#125;</code> - {{ $label }}</li>@endforeach</ul>
             </details>
-            <div class="flex gap-2">
+            <div class="flex flex-wrap gap-2 pt-1">
                 <button type="submit" name="intent" value="preview" class="corex-btn-outline text-xs">Preview</button>
                 <button type="submit" name="intent" value="send" class="corex-btn-primary text-xs" onclick="return confirm('Send this breach notice now?')">Send breach notice</button>
                 <a href="{{ route('corex.leases.show', $lease) }}" class="corex-btn-outline text-xs">Cancel</a>
@@ -95,8 +106,8 @@
         @endfeature
 
         @if($preview)
-            <div class="rounded-md p-4 text-sm" style="border: 1px dashed var(--border); background: #fff; color: #111;" data-qa="breach-preview">
-                <p class="text-xs mb-2" style="color: #666;">Preview - {{ $preview['template'] }}</p>
+            <div class="rounded-md p-4 text-sm" style="border: 1px solid var(--border); background: #fff; color: #111;" data-qa="breach-preview">
+                <p class="text-xs mb-2" style="color: #6b7280;">Preview - {{ $preview['template'] }}</p>
                 @if(!empty($preview['missing']))
                     <p class="text-xs mb-2" style="color: #b91c1c;" data-qa="breach-preview-missing">Still to fill in before this can be sent: {{ implode(', ', $preview['missing']) }}</p>
                 @endif
@@ -104,5 +115,6 @@
             </div>
         @endif
     @endif
+    </div>
 </div>
 @endsection

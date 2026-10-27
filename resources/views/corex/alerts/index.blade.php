@@ -15,8 +15,8 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Alerts</h1>
-                <p class="text-xs" style="color: var(--text-muted);">Your alert inbox - newest first, with what is still unread.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Notifications</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Every notification you have been sent - newest first, with what is still unread.</p>
             </div>
             @if($hasAny)
                 <form method="POST" action="{{ route('corex.alerts.read-all') }}" class="m-0">
@@ -46,7 +46,7 @@
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Show</label>
             <select name="status" class="list-header-filter text-sm {{ ($filters['status'] ?? 'all') !== 'all' ? 'is-active' : '' }}">
-                <option value="all" @selected($filters['status'] === 'all')>All alerts</option>
+                <option value="all" @selected($filters['status'] === 'all')>All notifications</option>
                 <option value="unread" @selected($filters['status'] === 'unread')>Unread</option>
                 <option value="read" @selected($filters['status'] === 'read')>Read</option>
             </select>
@@ -80,7 +80,7 @@
             <thead>
                 <tr style="background: var(--surface-2); border-bottom: 1px solid var(--border);">
                     <th class="px-4 py-3 w-8"></th>
-                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Alert</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Notification</th>
                     <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Type</th>
                     <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Received</th>
                     <th class="px-4 py-3"></th>
@@ -122,7 +122,7 @@
             @empty
                 <tr>
                     <td colspan="5" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);" data-qa="alerts-empty">
-                        {{ $hasAny ? 'No alerts match these filters.' : 'No alerts yet.' }}
+                        {{ $hasAny ? 'No notifications match these filters.' : 'No notifications yet.' }}
                     </td>
                 </tr>
             @endforelse
