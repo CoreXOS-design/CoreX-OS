@@ -103,6 +103,41 @@ final class TemplateDemoViewTest extends TestCase
         $this->assertStringNotContainsString('signatures/external', $demoPart);
     }
 
+    public function test_internal_keys_never_show_only_the_plain_names_the_document_uses(): void
+    {
+        $a = $this->agency('Mega Real Estate');
+        $owner = $this->owner();
+        $t = $this->compiled($this->megaShaped($a, $owner));
+
+        $html = $this->actingAs($owner)->get($this->demoUrl($t))->assertOk()->getContent();
+        $side = substr($html, strpos($html, 'data-demo-side'));
+        $side = substr($side, 0, strpos($side, '<script'));
+        $visible = strip_tags(preg_replace('/<(script|style)\b.*?<\/\1>/si', '', $side));
+        $this->assertStringNotContainsString('owner_party', $visible);
+        $this->assertStringNotContainsString('acquiring_party', $visible);
+        $this->assertMatchesRegularExpression('/Lessor|Seller|Owner/', $visible);
+        $this->assertStringContainsString('Agent', $visible);
+        // The name printed beside each place in the page, and the label on the per-page initials strip, are plain too.
+        $this->assertMatchesRegularExpression('/data-marker-type="signature" data-demo-name="[A-Z][a-z]/', $html);
+        $this->assertStringNotContainsString('data-demo-name="owner_party"', $html);
+    }
+
+    public function test_the_page_header_is_pinned_and_the_shell_is_fitted_by_the_shared_partial(): void
+    {
+        $a = $this->agency('Mega Real Estate');
+        $owner = $this->owner();
+        $t = $this->megaShaped($a, $owner);
+
+        $html = $this->actingAs($owner)->get($this->demoUrl($t))->assertOk()->getContent();
+        $this->assertStringContainsString('data-fixed-shell', $html);
+        $this->assertStringContainsString('data-demo-header', $html);
+        $this->assertStringContainsString('position: sticky; top: 0', $html);
+        $this->assertStringContainsString("getElementById('appScroll')", $html);
+        foreach (['docuperfect.template-releases.index', 'docuperfect.template-approvals.index'] as $route) {
+            $this->assertStringContainsString('data-fixed-shell', $this->actingAs($owner)->get(route($route))->assertOk()->getContent());
+        }
+    }
+
     public function test_a_signature_place_naming_an_undeclared_signer_and_a_signer_with_no_place_are_called_out(): void
     {
         $a = $this->agency('Mega Real Estate');

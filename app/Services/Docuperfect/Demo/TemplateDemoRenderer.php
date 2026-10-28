@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Docuperfect\Demo;
 
 use App\Models\Docuperfect\Template;
+use App\Services\Docuperfect\Readiness\PartyLabels;
 use App\Services\Docuperfect\Readiness\TemplateReadinessReport;
 use App\Services\Docuperfect\WebTemplateBladeEnsurer;
 use App\Support\Docuperfect\DocumentAgencyContext;
@@ -37,11 +38,12 @@ final class TemplateDemoRenderer
     public function render(Template $t): array
     {
         $ctx = $this->readiness->context($t);
-        $places = $this->places($ctx);
-        $signers = $this->signers($ctx, $places);
+        $places = $this->places($ctx, $t);
+        $signers = $this->signers($ctx, $places, $t);
         $parties = [];
         foreach ($ctx['declared'] as $canon => $label) {
-            $parties[] = ['role' => (string) $label, 'label' => ucfirst(str_replace('_', ' ', (string) $label))];
+            // role stays the key the page's markers use; the label is the plain name the document uses (shown on the per-page initials strip)
+            $parties[] = ['role' => (string) $label, 'label' => PartyLabels::label($t, (string) $label)];
         }
         $base = ['places' => $places, 'signers' => $signers, 'parties' => $parties, 'notes' => []];
 
@@ -73,7 +75,7 @@ final class TemplateDemoRenderer
 
         // The signing flow draws the page's <body> plus its <style> blocks (never the whole HTML document): do the same here.
         $html = $this->bodyWithStyles($html);
-        [$html, $fields, $counts] = $this->annotate($html, $sample['fields']);
+        [$html, $fields, $counts] = $this->annotate($html, $sample['fields'], fn (string $tok) => PartyLabels::label($t, $tok));
 
         $base['notes'] = $notes;
 
@@ -99,12 +101,18 @@ final class TemplateDemoRenderer
     }
 
     /** Mark each blank's span with where its value came from; find the ones that rendered empty or are missing from the page. */
-    private function annotate(string $html, array $fields): array
+    private function annotate(string $html, array $fields, \Closure $label): array
     {
         $bySource = [];
         foreach ($fields as $f) {
             $bySource[$f['var']] = $f['source'];
         }
+        // The plain name of whoever signs at each place (the page's CSS prints it beside the place; never the internal key).
+        $html = (string) preg_replace_callback(
+            '/data-marker-party="([^"]+)" data-marker-type="signature"/',
+            fn ($m) => $m[0] . ' data-demo-name="' . e($label($m[1])) . '"',
+            $html
+        );
         $present = [];
         $emptyVars = [];
         $html = (string) preg_replace_callback(
@@ -146,14 +154,15 @@ final class TemplateDemoRenderer
     }
 
     /** The place list the readiness report reads, with each place resolved against the declared signers. */
-    private function places(array $ctx): array
+    private function places(array $ctx, Template $t): array
     {
         $out = [];
         foreach ($ctx['places'] as $p) {
             $resolved = [];
             foreach ($p['names'] as $n) {
                 $canon = $this->canon($n);
-                $resolved[] = ['written' => $n, 'declared' => $ctx['declared'][$canon] ?? null];
+                $decl = $ctx['declared'][$canon] ?? null;
+                $resolved[] = ['written' => $n, 'declared' => $decl, 'declared_name' => $decl !== null ? PartyLabels::label($t, (string) $decl) : null];
             }
             $out[] = ['kind' => $p['kind'], 'ref' => $p['ref'], 'names' => $resolved, 'ok' => $resolved !== [] && ! in_array(null, array_column($resolved, 'declared'), true)];
         }
@@ -162,7 +171,7 @@ final class TemplateDemoRenderer
     }
 
     /** Each declared signer with how many signature and initial places they have (0 signature places = red). */
-    private function signers(array $ctx, array $places): array
+    private function signers(array $ctx, array $places, Template $t): array
     {
         $out = [];
         foreach ($ctx['declared'] as $canon => $label) {
@@ -175,7 +184,7 @@ final class TemplateDemoRenderer
                     }
                 }
             }
-            $out[] = ['label' => (string) $label, 'canon' => $canon, 'signatures' => $sig, 'initials' => $ini, 'standard_block' => $ctx['block'] === \App\Support\Docuperfect\SignatureBlock::COREX];
+            $out[] = ['label' => (string) $label, 'name' => PartyLabels::label($t, (string) $label), 'canon' => $canon, 'signatures' => $sig, 'initials' => $ini, 'standard_block' => $ctx['block'] === \App\Support\Docuperfect\SignatureBlock::COREX];
         }
 
         return $out;
