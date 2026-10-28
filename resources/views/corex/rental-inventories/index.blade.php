@@ -27,17 +27,18 @@
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="rmnt-inv-intro">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Inventories</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Room-by-room counts of what is in a furnished rental, recorded at move-in and checked again at move-out.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <a href="{{ route('corex.rental-inventories.index', array_merge(request()->except('page'), ['archived' => $archived ? null : 1])) }}"
                    class="corex-btn-outline text-xs {{ $archived ? 'corex-tab-active' : '' }}">
                     {{ $archived ? 'Hide archived' : 'Show archived' }}
                 </a>
                 @permission('rental_inventories.create')
-                <a href="{{ route('corex.rental-inventories.create') }}" class="corex-btn-primary text-xs">Start Inventory</a>
+                <a href="{{ route('corex.rental-inventories.create') }}" class="corex-btn-primary text-xs" data-tour="rmnt-inv-new">Start Inventory</a>
                 @endpermission
             </div>
         </div>
@@ -64,7 +65,7 @@
             @endpermission
         </div>
     @else
-    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);" data-tour="rmnt-inv-filters">
     <form method="GET" action="{{ route('corex.rental-inventories.index') }}" class="flex flex-wrap items-end gap-3">
         @if($archived)
             <input type="hidden" name="archived" value="1">
@@ -101,7 +102,7 @@
     </form>
     </div>
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-inv-table">
         <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
@@ -137,7 +138,7 @@
                             </form>
                             @endpermission
                         @else
-                            <a href="{{ route('corex.rental-inventories.show', $inventory) }}" class="corex-btn-outline text-xs">View</a>
+                            <a href="{{ route('corex.rental-inventories.show', $inventory) }}" class="corex-btn-outline text-xs" @if($loop->first) data-tour="rmnt-inv-view" @endif>View</a>
                         @endif
                     </td>
                 </tr>

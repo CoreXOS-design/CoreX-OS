@@ -9,12 +9,15 @@
 <div class="rx-page w-full space-y-4">
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
-    <div class="flex items-center justify-between gap-3 flex-wrap">
+    <div class="flex items-center justify-between gap-3 flex-wrap" data-tour="rops-dd-intro">
         <div>
             <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $summary['title'] }}</h1>
             <span class="text-xs" style="color: var(--text-muted);">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }} — {{ $lease->tenantNames() ?? 'Unknown tenant' }}</span>
         </div>
-        <a href="{{ route('corex.leases.show', $lease) }}" class="corex-btn-outline text-xs">&larr; Lease</a>
+        <div class="flex items-center gap-2">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+            <a href="{{ route('corex.leases.show', $lease) }}" class="corex-btn-outline text-xs">&larr; Lease</a>
+        </div>
     </div>
     </div>
     <div class="max-w-4xl space-y-5">
@@ -25,7 +28,7 @@
 
 
 
-    <p class="text-xs" style="color: var(--text-muted);" data-qa="dd-note">
+    <p class="text-xs" style="color: var(--text-muted);" data-qa="dd-note" data-tour="rops-dd-note">
         @if($summary['record_amounts'])
             These are the amounts recorded against the tenant at the move-out inspection. CoreX only records them - the deposit itself is held, deducted
             and paid out in your accounting system, so carry these figures across there.
@@ -42,7 +45,7 @@
         </div>
     @endunless
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rops-dd-lines">
         @forelse($summary['lines'] as $line)
             <div class="flex items-start justify-between gap-3 px-4 py-3 text-sm" style="border-bottom: 1px solid var(--border);" data-qa="dd-line">
                 <div class="min-w-0">
@@ -62,7 +65,7 @@
             <div class="px-4 py-6 text-sm text-center" style="color: var(--text-muted);" data-qa="dd-empty">Nothing was charged to the tenant at the move-out inspection.</div>
         @endforelse
         @if($summary['record_amounts'] && $summary['lines']->isNotEmpty())
-            <div class="flex items-center justify-between gap-3 px-4 py-3 text-sm font-semibold" data-qa="dd-total">
+            <div class="flex items-center justify-between gap-3 px-4 py-3 text-sm font-semibold" data-qa="dd-total" data-tour="rops-dd-total">
                 <span>Total recorded</span>
                 <span>R{{ number_format($summary['total'], 2) }}</span>
             </div>
@@ -76,7 +79,7 @@
         <p class="text-xs" style="color: var(--text-muted);" data-qa="dd-deposit">Deposit held on this lease: R{{ number_format($summary['deposit'], 2) }}.</p>
     @endif
 
-    <div class="flex items-center gap-2 flex-wrap">
+    <div class="flex items-center gap-2 flex-wrap" data-tour="rops-dd-links">
         @if($summary['comparison_url'])
             <a href="{{ $summary['comparison_url'] }}" class="corex-btn-outline text-xs" data-qa="dd-comparison-link">Move-out comparison</a>
         @endif
@@ -90,7 +93,7 @@
                 @permission('rental_inspections.review_deposit_comparison')
                     <form method="POST" action="{{ route('corex.leases.deposit-deductions.reviewed', $lease) }}">
                         @csrf
-                        <button type="submit" class="corex-btn-primary text-xs" data-qa="dd-mark-reviewed">Mark as reviewed</button>
+                        <button type="submit" class="corex-btn-primary text-xs" data-qa="dd-mark-reviewed" data-tour="rops-dd-reviewed">Mark as reviewed</button>
                     </form>
                 @endpermission
             @endif

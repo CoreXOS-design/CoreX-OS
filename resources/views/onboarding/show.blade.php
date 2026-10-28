@@ -21,7 +21,7 @@
         ];
         $sc = $statusColors[$application->status] ?? 'var(--text-muted)';
     @endphp
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cop-aos-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $application->full_name }}</h1>
@@ -34,6 +34,7 @@
                 </div>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <a href="{{ route('onboarding.index') }}" class="corex-btn-outline text-xs no-underline flex-shrink-0">Back to Pipeline</a>
             </div>
         </div>
@@ -54,7 +55,7 @@
         {{-- ══════════════════════════════════════
              LEFT — Application Details
              ══════════════════════════════════════ --}}
-        <div class="space-y-4">
+        <div class="space-y-4" data-tour="cop-aos-details">
             {{-- Personal --}}
             <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
                 <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Personal</h3>
@@ -115,7 +116,7 @@
         {{-- ══════════════════════════════════════
              MIDDLE — Documents
              ══════════════════════════════════════ --}}
-        <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
+        <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);" data-tour="cop-aos-docs">
             <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Documents</h3>
 
             {{-- Upload form --}}
@@ -124,13 +125,13 @@
                   class="mb-4 p-3 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
                 @csrf
                 <div class="grid grid-cols-1 gap-2">
-                    <select name="document_type" required class="rounded-md px-2 py-1.5 text-xs"
+                    <select name="document_type" data-tour="cop-aos-doctype" required class="rounded-md px-2 py-1.5 text-xs"
                             style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                         @foreach(\App\Models\ApplicationDocument::TYPE_LABELS as $key => $label)
                             <option value="{{ $key }}">{{ $label }}</option>
                         @endforeach
                     </select>
-                    <input type="file" name="file" required class="text-xs" style="color:var(--text-secondary);">
+                    <input type="file" name="file" data-tour="cop-aos-file" required class="text-xs" style="color:var(--text-secondary);">
                     <button type="submit" class="corex-btn-primary text-xs px-3 py-1.5">Upload</button>
                 </div>
             </form>
@@ -139,7 +140,7 @@
             {{-- Document list --}}
             <div class="space-y-2">
                 @forelse($application->documents as $doc)
-                <div class="flex items-center gap-2 p-2 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
+                <div class="flex items-center gap-2 p-2 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);" data-tour="cop-aos-doc">
                     @if($doc->status === 'verified')
                         <span class="flex-shrink-0" style="color:var(--ds-green);"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clip-rule="evenodd" /></svg></span>
                     @elseif($doc->status === 'rejected')
@@ -181,7 +182,7 @@
         {{-- ══════════════════════════════════════
              RIGHT — Checklist
              ══════════════════════════════════════ --}}
-        <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
+        <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);" data-tour="cop-aos-checklist">
             <h3 class="text-xs font-bold uppercase tracking-wider mb-2" style="color:var(--text-muted);">Onboarding Checklist</h3>
 
             {{-- Progress bar --}}
@@ -193,7 +194,7 @@
                 <span class="text-xs font-bold" style="color:var(--text-primary);">{{ $pct }}%</span>
             </div>
 
-            <div class="space-y-1">
+            <div class="space-y-1" data-tour="cop-aos-checklist-items">
                 @foreach($application->checklist as $item)
                 <form method="POST" action="{{ route('onboarding.toggle-checklist', $item) }}" class="flex items-start gap-2 p-1.5 rounded-md transition-colors" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
                     @csrf
@@ -228,7 +229,7 @@
          STATUS ACTIONS
          ══════════════════════════════════════ --}}
     @if(!in_array($application->status, ['activated', 'rejected', 'withdrawn']))
-    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);" data-tour="cop-aos-actions">
         <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Actions</h3>
         <div class="flex items-center gap-3 flex-wrap">
             {{-- Advance --}}
@@ -238,7 +239,7 @@
                   onsubmit="return confirm('Advance to {{ \App\Models\AgentApplication::STATUS_LABELS[$next] }}?')">
                 @csrf
                 <input type="hidden" name="status" value="{{ $next }}">
-                <button type="submit" class="corex-btn-primary text-sm px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                <button type="submit" data-tour="cop-aos-advance" class="corex-btn-primary text-sm px-4 py-2 disabled:opacity-40 disabled:cursor-not-allowed"
                         {{ !$application->canAdvanceTo($next) ? 'disabled' : '' }}>
                     Advance to {{ \App\Models\AgentApplication::STATUS_LABELS[$next] }}
                 </button>
@@ -274,7 +275,7 @@
                 @csrf
                 <input type="hidden" name="status" value="rejected">
                 <input type="hidden" name="status_notes" value="">
-                <button type="submit" class="text-sm px-4 py-2 rounded-md font-medium" style="color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);">
+                <button type="submit" data-tour="cop-aos-reject" class="text-sm px-4 py-2 rounded-md font-medium" style="color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);">
                     Reject
                 </button>
             </form>

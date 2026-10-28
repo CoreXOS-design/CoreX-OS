@@ -3,13 +3,14 @@
 @section('corex-content')
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
-    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 flex items-center justify-between">
+    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 flex items-center justify-between" data-tour="rops-dt-intro">
         <div>
             <h2 class="text-xl font-bold text-white leading-tight">Document Types</h2>
             <div class="text-sm text-white/60">
                 <a href="{{ route('rental.settings') }}" class="text-white/60 hover:text-white">&larr; Rental Settings</a>
             </div>
         </div>
+        @include('layouts.partials.tour-header-launcher')
     </div>
 
     @if(session('success'))
@@ -28,7 +29,7 @@
 
         {{-- Existing types --}}
         @foreach($types as $type)
-        <div class="border rounded-lg p-4 flex items-center justify-between {{ !$type->is_active ? 'opacity-50' : '' }}" style="background:var(--surface); border-color:var(--border)">
+        <div class="border rounded-lg p-4 flex items-center justify-between {{ !$type->is_active ? 'opacity-50' : '' }}" style="background:var(--surface); border-color:var(--border)" @if($loop->first) data-tour="rops-dt-list" @endif>
             <div class="flex items-center gap-3">
                 <span class="w-4 h-4 rounded-full flex-shrink-0" style="background-color: {{ $type->color }}"></span>
                 <div>
@@ -45,12 +46,12 @@
                 </div>
             </div>
             <div class="flex items-center gap-2">
-                <button @click="editId = editId === {{ $type->id }} ? null : {{ $type->id }}"
+                <button @click="editId = editId === {{ $type->id }} ? null : {{ $type->id }}" data-tour="rops-dt-edit"
                         class="text-sm hover:opacity-80" style="color:var(--brand-icon)">Edit</button>
                 @if(!$type->is_system)
                 <form method="POST" action="{{ route('rental.settings.document-types.toggle', $type) }}">
                     @csrf
-                    <button type="submit" class="text-sm {{ $type->is_active ? 'text-orange-500' : 'text-green-600' }}">
+                    <button type="submit" data-tour="rops-dt-toggle" class="text-sm {{ $type->is_active ? 'text-orange-500' : 'text-green-600' }}">
                         {{ $type->is_active ? 'Deactivate' : 'Activate' }}
                     </button>
                 </form>
@@ -85,10 +86,10 @@
 
         {{-- Add new type --}}
         <div class="mt-6">
-            <button @click="showAdd = !showAdd" class="text-sm font-medium hover:opacity-80" style="color:var(--brand-icon)">
+            <button @click="showAdd = !showAdd" data-tour="rops-dt-add" class="text-sm font-medium hover:opacity-80" style="color:var(--brand-icon)">
                 + Add Document Type
             </button>
-            <div x-show="showAdd" x-collapse class="bg-green-50 border border-green-200 rounded-lg p-4 mt-2">
+            <div x-show="showAdd" x-collapse class="bg-green-50 border border-green-200 rounded-lg p-4 mt-2" data-tour="rops-dt-add-form">
                 <form method="POST" action="{{ route('rental.settings.document-types.store') }}" class="flex flex-wrap items-end gap-3">
                     @csrf
                     <div class="flex-1 min-w-[200px]">
@@ -96,19 +97,19 @@
                         <input type="text" name="name" required
                                class="w-full border rounded px-3 py-1.5 text-sm"
                                style="background:var(--surface); border-color:var(--border); color:var(--text-primary)"
-                               placeholder="e.g. Deposit Receipt">
+                               placeholder="e.g. Deposit Receipt" data-tour="rops-dt-add-name">
                     </div>
                     <div class="w-24">
                         <label class="block text-xs mb-1" style="color:var(--text-muted)">Color</label>
                         <input type="color" name="color" value="#6B7280"
                                class="w-full h-8 border rounded cursor-pointer" style="border-color:var(--border)">
                     </div>
-                    <label class="flex items-center gap-1.5 text-sm" style="color:var(--text-secondary)">
+                    <label class="flex items-center gap-1.5 text-sm" style="color:var(--text-secondary)" data-tour="rops-dt-add-lease">
                         <input type="checkbox" name="is_lease" value="1"
                                class="rounded border-gray-300 text-green-600">
                         Lease tracking
                     </label>
-                    <button type="submit" class="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700">Add</button>
+                    <button type="submit" data-tour="rops-dt-add-btn" class="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700">Add</button>
                 </form>
             </div>
         </div>

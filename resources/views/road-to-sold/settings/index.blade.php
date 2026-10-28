@@ -10,7 +10,7 @@
 @section('corex-content')
 <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
 
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="smk-rtg-intro">
         <div>
             <h1 class="text-xl font-bold text-white leading-tight">Road to Sold settings</h1>
         </div>
@@ -54,12 +54,12 @@
         <fieldset @disabled(! $canManage) class="space-y-4" style="border:0; padding:0; margin:0; min-width:0;">
 
         {{-- Areas --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;" data-tour="smk-rtg-areas">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">Areas</h3>
             </div>
             <div class="p-5 space-y-4">
-                <label class="flex items-start gap-3 text-sm" style="color:var(--text-primary);">
+                <label class="flex items-start gap-3 text-sm" style="color:var(--text-primary);" data-tour="smk-rtg-lock">
                     <input type="hidden" name="lock_agents_to_areas" value="0">
                     <input type="checkbox" name="lock_agents_to_areas" value="1" class="mt-1" @checked(old('lock_agents_to_areas', $settings->lockAgentsToAreas()))>
                     <span>
@@ -79,7 +79,7 @@
                         @endforeach
                     </div>
                 </div>
-                <div>
+                <div data-tour="smk-rtg-refresh">
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="area_refresh_warn_days">Ask for a refresh when nothing was captured for an area in</label>
                     <input id="area_refresh_warn_days" type="number" min="1" max="365" name="area_refresh_warn_days"
                            value="{{ old('area_refresh_warn_days', $settings->areaRefreshWarnDays()) }}"
@@ -110,7 +110,7 @@
                         <span style="color:var(--text-muted);">On: half-day leave halves that day's target. Off: the full target still applies.</span>
                     </span>
                 </label>
-                <div>
+                <div data-tour="smk-rtg-holidays">
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="public_holiday_country">Public holidays of</label>
                     <select id="public_holiday_country" name="public_holiday_country" class="w-56 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                         @foreach($holidayCountries as $code => $countryName)
@@ -118,7 +118,7 @@
                         @endforeach
                     </select>
                 </div>
-                <div>
+                <div data-tour="smk-rtg-missed">
                     <div class="text-xs font-semibold mb-2" style="color:var(--text-muted);">Properties not worked by the end of the day</div>
                     <label class="flex items-start gap-3 text-sm mb-2" style="color:var(--text-primary);">
                         <input type="radio" name="missed_items_mode" value="show_missed" class="mt-1" @checked(old('missed_items_mode', $settings->missedItemsMode()) === 'show_missed')>
@@ -133,7 +133,7 @@
         </div>
 
         {{-- Selections --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;" data-tour="smk-rtg-sources">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">Where the call list comes from</h3>
             </div>
@@ -154,7 +154,7 @@
         </div>
 
         {{-- Selection thresholds --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;" data-tour="smk-rtg-limits">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">Limits for those sources</h3>
             </div>
@@ -181,7 +181,7 @@
         </div>
 
         {{-- Matching rules and list limits (the values the list builder used to hard-code) --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;" data-tour="smk-rtg-matching">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">Matching and list size</h3>
             </div>
@@ -224,7 +224,7 @@
         </div>
 
         {{-- Outcomes --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;" data-tour="smk-rtg-aftercall">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">After a call</h3>
             </div>
@@ -244,7 +244,7 @@
         </div>
 
         {{-- Summary bar --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;" data-tour="smk-rtg-bar">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">The on-track bar</h3>
             </div>
@@ -279,7 +279,7 @@
 
         @if($canManage)
             <div class="flex items-center gap-3">
-                <button type="submit" class="inline-flex items-center justify-center h-10 px-5 rounded-md text-sm font-semibold text-white" style="background:var(--brand-icon, #0ea5e9); border:1px solid var(--brand-icon, #0ea5e9);">Save settings</button>
+                <button type="submit" data-tour="smk-rtg-save" class="inline-flex items-center justify-center h-10 px-5 rounded-md text-sm font-semibold text-white" style="background:var(--brand-icon, #0ea5e9); border:1px solid var(--brand-icon, #0ea5e9);">Save settings</button>
                 <button type="submit" form="rts-reset-form" class="inline-flex items-center justify-center h-10 px-5 rounded-md text-sm font-semibold" style="border:1px solid var(--border); color:var(--text-primary);">Put everything back to the defaults</button>
             </div>
         @endif
@@ -293,7 +293,7 @@
     @endif
 
     @if($recent->isNotEmpty())
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;" data-tour="smk-rtg-recent">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">Recent changes</h3>
             </div>

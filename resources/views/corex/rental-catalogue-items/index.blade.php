@@ -34,15 +34,16 @@
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="rmnt-cat-intro">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Parts &amp; Labour Catalogue</h1>
                 <p class="text-xs" style="color: var(--text-muted);">The labour and parts your maintenance team picks from when pricing a job card.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('admin.company-settings') }}#catalogue-item-types" class="corex-btn-outline text-xs">Manage types &amp; units</a>
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('admin.company-settings') }}#catalogue-item-types" class="corex-btn-outline text-xs" data-tour="rmnt-cat-types">Manage types &amp; units</a>
                 @permission('rental_catalogue.manage')
-                <a href="{{ route('corex.rental-catalogue-items.import.index') }}" class="corex-btn-outline text-xs">Import</a>
-                <a href="{{ route('corex.rental-catalogue-items.create') }}" class="corex-btn-primary text-xs">+ Add Item</a>
+                <a href="{{ route('corex.rental-catalogue-items.import.index') }}" class="corex-btn-outline text-xs" data-tour="rmnt-cat-import">Import</a>
+                <a href="{{ route('corex.rental-catalogue-items.create') }}" class="corex-btn-primary text-xs" data-tour="rmnt-cat-add">+ Add Item</a>
                 @endpermission
             </div>
         </div>
@@ -60,13 +61,13 @@
         </div>
     @endif
 
-    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);" data-tour="rmnt-cat-filters">
     <form method="GET" action="{{ route('corex.rental-catalogue-items.index') }}" class="flex flex-wrap items-end gap-3">
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-cat-search">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
             <input type="text" name="q" value="{{ request('q') }}" placeholder="Code or description" class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}">
         </div>
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-cat-type">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Type</label>
             <select name="type" class="list-header-filter text-sm {{ filled(request('type')) ? 'is-active' : '' }}">
                 <option value="">All types</option>
@@ -75,14 +76,14 @@
                 @endforeach
             </select>
         </div>
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-cat-status">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
             <select name="status" class="list-header-filter text-sm {{ $status !== 'active' ? 'is-active' : '' }}">
                 <option value="active" @selected($status === 'active')>Active</option>
                 <option value="archived" @selected($status === 'archived')>Archived</option>
             </select>
         </div>
-        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;" data-tour="rmnt-cat-filter-btn">Filter</button>
         <div class="flex-1"></div>
         <span class="ds-badge ds-badge-pill ds-badge-info">
             {{ number_format($items->total()) }} {{ \Illuminate\Support\Str::plural('item', $items->total()) }}
@@ -90,7 +91,7 @@
     </form>
     </div>
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-cat-table">
         <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
@@ -147,10 +148,10 @@
                                         <button type="submit" class="corex-btn-outline text-xs">Restore</button>
                                     </form>
                                 @else
-                                    <a href="{{ route('corex.rental-catalogue-items.edit', $item) }}" class="corex-btn-outline text-xs">Edit</a>
+                                    <a href="{{ route('corex.rental-catalogue-items.edit', $item) }}" class="corex-btn-outline text-xs" @if($loop->first) data-tour="rmnt-cat-edit" @endif>Edit</a>
                                     <form method="POST" action="{{ route('corex.rental-catalogue-items.archive', $item) }}" class="inline" data-confirm="Archive this item?" data-confirm-danger data-confirm-label="Archive">
                                         @csrf
-                                        <button type="submit" class="corex-btn-danger text-xs">Archive</button>
+                                        <button type="submit" class="corex-btn-danger text-xs" @if($loop->first) data-tour="rmnt-cat-archive" @endif>Archive</button>
                                     </form>
                                 @endif
                             @endpermission

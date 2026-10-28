@@ -32,17 +32,18 @@
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="rmnt-wo-intro">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Work Orders</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Repairs and maintenance jobs on your rental properties: who is doing the work, who pays and where each job stands.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @permission('rental_work_orders.create')
                 {{-- AT-442 fix #3 — forward the active lease_id/property_id filter
                      (e.g. arrived here via the rental context bar's "Work orders"
                      chip) into the create screen, same as every other "New X"
                      button that respects an already-applied context filter. --}}
-                <a href="{{ route('corex.rental-work-orders.create', request()->only(['property_id', 'lease_id'])) }}" class="corex-btn-primary text-xs">New Work Order</a>
+                <a href="{{ route('corex.rental-work-orders.create', request()->only(['property_id', 'lease_id'])) }}" class="corex-btn-primary text-xs" data-tour="rmnt-wo-new">New Work Order</a>
                 @endpermission
             </div>
         </div>
@@ -108,16 +109,16 @@
         :export-csv-url="route('corex.rental-work-orders.export', array_merge(request()->query(), ['format' => 'csv']))"
     />
 
-    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);" data-tour="rmnt-wo-filters">
     <form method="GET" action="{{ route('corex.rental-work-orders.index') }}" class="flex flex-wrap items-end gap-3">
         @if($showArchived)
             <input type="hidden" name="archived" value="1">
         @endif
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-wo-search">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
             <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Property, tenant, supplier, title" class="list-header-filter text-sm {{ filled($filters['q'] ?? '') ? 'is-active' : '' }}">
         </div>
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-wo-status">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
             <select name="status" class="list-header-filter text-sm {{ filled($filters['status'] ?? null) ? 'is-active' : '' }}">
                 <option value="">All statuses</option>
@@ -126,7 +127,7 @@
                 @endforeach
             </select>
         </div>
-        <div class="flex flex-col gap-1 relative">
+        <div class="flex flex-col gap-1 relative" data-tour="rmnt-wo-property">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Property</label>
             {{-- Only properties with a work order visible to this user —
                  never every rental property (that's the create form's own
@@ -143,7 +144,7 @@
                 </template>
             </div>
         </div>
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-wo-trade">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Trade type</label>
             <select name="trade_type" class="list-header-filter text-sm {{ filled($filters['trade_type'] ?? null) ? 'is-active' : '' }}">
                 <option value="">All trades</option>
@@ -161,7 +162,7 @@
                 @endforeach
             </select>
         </div>
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-wo-paidby">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Paid by</label>
             <select name="paid_by" class="list-header-filter text-sm {{ filled($filters['paid_by'] ?? null) ? 'is-active' : '' }}">
                 <option value="">All payers</option>
@@ -184,7 +185,7 @@
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Cause contains</label>
             <input type="text" name="cause" value="{{ $filters['cause'] ?? '' }}" maxlength="100" placeholder="e.g. roots" class="list-header-filter text-sm {{ filled($filters['cause'] ?? '') ? 'is-active' : '' }}">
         </div>
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-wo-dates">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Reported from</label>
             <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_from'] ?? '') ? 'is-active' : '' }}">
         </div>
@@ -193,7 +194,7 @@
             <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_to'] ?? '') ? 'is-active' : '' }}">
         </div>
         @if(!empty($filters['cc_scope']))<input type="hidden" name="cc_scope" value="{{ $filters['cc_scope'] }}">@endif
-        <label class="flex items-center gap-2 text-xs" style="height:2.25rem; color: var(--text-secondary);">
+        <label class="flex items-center gap-2 text-xs" style="height:2.25rem; color: var(--text-secondary);" data-tour="rmnt-wo-open">
             <input type="checkbox" name="open" value="1" @checked(($filters['open'] ?? false)) data-qa="wo-filter-open">
             Open only
         </label>
@@ -213,7 +214,7 @@
             <input type="checkbox" name="awaiting_check" value="1" @checked(($filters['awaiting_check'] ?? false))>
             Finished - awaiting agent check
         </label>
-        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;" data-tour="rmnt-wo-filter-btn">Filter</button>
         @if(request()->hasAny(['q', 'status', 'trade_type', 'priority', 'property_id', 'paid_by', 'who_pays', 'cause', 'date_from', 'date_to', 'overdue', 'awaiting_owner', 'variation_pending', 'awaiting_check', 'open']))
             <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>
         @endif
@@ -261,7 +262,7 @@
     </div>
     @endif
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-wo-table">
         <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
@@ -305,7 +306,7 @@
                             </form>
                             @endpermission
                         @else
-                            <a href="{{ route('corex.rental-work-orders.show', $workOrder) }}" class="corex-btn-outline text-xs">View</a>
+                            <a href="{{ route('corex.rental-work-orders.show', $workOrder) }}" class="corex-btn-outline text-xs" @if($loop->first) data-tour="rmnt-wo-view" @endif>View</a>
                         @endif
                     </td>
                 </tr>

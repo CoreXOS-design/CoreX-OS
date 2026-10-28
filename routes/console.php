@@ -651,3 +651,7 @@ Schedule::command('sold-stock:expire-portals')
     ->withoutOverlapping()
     ->onOneServer()
     ->name('sold-stock-expire-portals');
+
+// AT-478 — gradual feature rollout: release waves whose day and release time have come (weekdays /
+// holidays handled per plan by RolloutCalendar). Idempotent; spec .ai/specs/agency-feature-rollout.md §3.5.
+Schedule::command('rollout:release')->everyFifteenMinutes()->onOneServer()->withoutOverlapping(10);

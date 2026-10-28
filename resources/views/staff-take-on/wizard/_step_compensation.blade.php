@@ -4,7 +4,7 @@
     @csrf
     @method('PATCH')
 
-    <div class="p-4 rounded-md" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="p-4 rounded-md" style="background:var(--surface); border:1px solid var(--border);" data-tour="cop-stkw-step">
         <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-muted); letter-spacing:0.05em;">5. Compensation Setup</h4>
 
         @if(!$pe)
@@ -24,5 +24,5 @@
         @endif
     </div>
 
-    <button type="submit" class="corex-btn-primary mt-4">Save & Continue</button>
+    <button type="submit" class="corex-btn-primary mt-4" data-tour="cop-stkw-save">Save & Continue</button>
 </form>

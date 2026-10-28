@@ -16,7 +16,7 @@
      a genuine zero here IS a genuine zero, so it renders plainly, same as
      buyers_won/emails/WhatsApps. --}}
 @php $m = $report['company']; @endphp
-<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" data-tour="rpt-br-tiles">
     @foreach([
         ['buyers', 'Buyers held'],
         ['buyers_added', 'Buyers added'],

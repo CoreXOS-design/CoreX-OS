@@ -5,7 +5,7 @@
     @method('PATCH')
 
     <div class="space-y-4">
-        <div class="p-4 rounded-md" style="background:var(--surface); border:1px solid var(--border);">
+        <div class="p-4 rounded-md" style="background:var(--surface); border:1px solid var(--border);" data-tour="cop-stkw-step">
             <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-muted); letter-spacing:0.05em;">3. Tax Details</h4>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -53,6 +53,6 @@
             </div>
         </div>
 
-        <button type="submit" class="corex-btn-primary">Save & Continue</button>
+        <button type="submit" class="corex-btn-primary" data-tour="cop-stkw-save">Save & Continue</button>
     </div>
 </form>

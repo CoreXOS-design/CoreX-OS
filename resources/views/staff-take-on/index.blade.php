@@ -8,14 +8,15 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (branded — §2.4 Pattern A) --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cop-stk-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Staff Take-On</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Onboard new employees and capture their payroll, leave and compliance details.</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                <a href="{{ route('staff-take-on.create') }}" class="corex-btn-primary text-xs inline-flex items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('staff-take-on.create') }}" class="corex-btn-primary text-xs inline-flex items-center gap-2" data-tour="cop-stk-new">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                     Start New Take-On
                 </a>
@@ -44,7 +45,7 @@
     @endif
 
     {{-- Status filter tabs --}}
-    <div class="flex gap-1 flex-wrap" style="border-bottom:1px solid var(--border);">
+    <div class="flex gap-1 flex-wrap" style="border-bottom:1px solid var(--border);" data-tour="cop-stk-tabs">
         @foreach(['all' => 'All', 'in_progress' => 'In Progress', 'completed' => 'Completed', 'this_month' => 'This Month'] as $key => $label)
             <a href="{{ route('staff-take-on.index', ['status' => $key]) }}"
                class="px-3 py-1.5 text-xs font-semibold transition-colors duration-150"
@@ -93,7 +94,7 @@
                                 <td class="px-4 py-3 text-xs" style="color:var(--text-secondary);">{{ ucfirst(str_replace('_', ' ', $rec->take_on_type)) }}</td>
                                 <td class="px-4 py-3">
                                     <div class="flex items-center gap-2">
-                                        <div class="ds-progress-track" style="max-width:6rem;">
+                                        <div class="ds-progress-track" style="max-width:6rem;" @if($loop->first) data-tour="cop-stk-progress" @endif>
                                             <div class="ds-progress-bar" style="width:{{ $rec->progressPercentage() }}%; background:var(--brand-icon);"></div>
                                         </div>
                                         <span class="text-xs font-semibold" style="color:var(--text-secondary);">{{ number_format($rec->progressPercentage()) }}%</span>
@@ -109,9 +110,9 @@
                                 </td>
                                 <td class="px-4 py-3 text-right">
                                     @if($rec->isComplete())
-                                        <a href="{{ route('staff-take-on.wizard', [$rec, 'review']) }}" class="text-xs font-semibold" style="color:var(--brand-icon);">View</a>
+                                        <a href="{{ route('staff-take-on.wizard', [$rec, 'review']) }}" class="text-xs font-semibold" style="color:var(--brand-icon);" data-tour="cop-stk-open">View</a>
                                     @else
-                                        <a href="{{ route('staff-take-on.wizard', [$rec, $rec->nextStep() ?? 'review']) }}" class="text-xs font-semibold" style="color:var(--brand-icon);">Resume</a>
+                                        <a href="{{ route('staff-take-on.wizard', [$rec, $rec->nextStep() ?? 'review']) }}" class="text-xs font-semibold" style="color:var(--brand-icon);" data-tour="cop-stk-open">Resume</a>
                                     @endif
                                 </td>
                             </tr>

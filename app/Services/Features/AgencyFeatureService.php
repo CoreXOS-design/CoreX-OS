@@ -155,6 +155,23 @@ class AgencyFeatureService
         return $module !== null ? ($idx['modules'][$module] ?? null) : null;
     }
 
+    /**
+     * Every catalogued permission key owned by a feature (AT-478 access review).
+     *
+     * @return list<string>
+     */
+    public function permissionKeysFor(string $feature): array
+    {
+        $out = [];
+        foreach (array_keys($this->permissionIndex()['moduleOf']) as $key) {
+            if ($this->featureForPermission($key) === $feature) {
+                $out[] = $key;
+            }
+        }
+
+        return $out;
+    }
+
     /** True when the permission belongs to a feature that is switched OFF for the agency. */
     public function permissionBlockedByFeature(string $permissionKey, ?Agency $agency = null): bool
     {

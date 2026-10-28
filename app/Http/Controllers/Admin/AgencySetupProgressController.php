@@ -41,8 +41,24 @@ class AgencySetupProgressController extends Controller
             $setup->setRelation('admin', $setup->admin_user_id ? $adminsById->get($setup->admin_user_id) : null);
         });
 
+        // AT-478 Part 4 — each agency's gradual-introduction state (spec agency-feature-rollout.md §5.5):
+        // a Rollout column, a Rollout status filter and sort. Read unscoped, like the rest of this board.
+        $rollouts = app(\App\Services\FeatureRollout\FeatureRolloutService::class)->summaries($setups->pluck('agency_id')->unique()->all());
+        $filters = $request->validate([
+            'rollout' => 'nullable|in:on,paused,completed,none',
+            'sort'    => 'nullable|in:recent,rollout',
+        ]);
+        if (! empty($filters['rollout'])) {
+            $setups = $setups->filter(fn ($s) => ($rollouts[$s->agency_id]['key'] ?? 'none') === $filters['rollout'])->values();
+        }
+        if (($filters['sort'] ?? 'recent') === 'rollout') {
+            $setups = $setups->sortBy(fn ($s) => [$rollouts[$s->agency_id]['rank'] ?? 9, $rollouts[$s->agency_id]['next'] ?? '9999-12-31'])->values();
+        }
+
         return view('admin.agency-setup-progress.index', [
-            'setups' => $setups,
+            'setups'   => $setups,
+            'rollouts' => $rollouts,
+            'filters'  => $filters + ['rollout' => null, 'sort' => 'recent'],
         ]);
     }
 

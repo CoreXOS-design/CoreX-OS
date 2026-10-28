@@ -1,7 +1,7 @@
 {{-- AT-454 - the summary bar. Needs $bar (SummaryBarService::forAgent) and $drilldownBase. Clicking a step opens the rows behind it. --}}
 @if(! empty($bar['steps']))
 <div x-data="buyersReport({ drilldownBase: @js($drilldownBase) })">
-    <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));">
+    <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));" data-tour="smk-rts-summary">
         @foreach($bar['steps'] as $step)
             @php
                 $edge = match ($step['status']) {

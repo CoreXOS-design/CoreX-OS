@@ -6,13 +6,14 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (branded — Pattern A) --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rpt-cg-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Contact Governance</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Agency-wide sharing, duplicate, freshness and retention rules for contacts.</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <a href="{{ route('command-center.settings') }}" class="corex-btn-outline text-xs">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
                     Back to Settings
@@ -80,7 +81,7 @@
         </div>
 
         {{-- ═══════ BUYER PIPELINE DEFAULT SCOPE ═══════ --}}
-        <div class="corex-panel mb-6">
+        <div class="corex-panel mb-6" data-tour="rpt-cg-pipeline">
             <div class="corex-panel-header">
                 <h3 class="corex-panel-title">Buyer Pipeline Default View</h3>
             </div>
@@ -122,7 +123,7 @@
         </div>
 
         {{-- ═══════ DUPLICATE DETECTION ═══════ --}}
-        <div class="corex-panel mb-6">
+        <div class="corex-panel mb-6" data-tour="rpt-cg-duplicates">
             <div class="corex-panel-header">
                 <h3 class="corex-panel-title">Duplicate Detection</h3>
             </div>
@@ -160,7 +161,7 @@
                     </label>
                 </div>
 
-                <div class="pt-3 border-t" style="border-color:var(--border);">
+                <div class="pt-3 border-t" style="border-color:var(--border);" data-tour="rpt-cg-match">
                     <p class="text-xs font-medium mb-2" style="color:var(--text-secondary);">Match on these fields:</p>
                     <div class="flex flex-wrap gap-4">
                         @foreach(['phone' => 'Phone Number', 'email' => 'Email Address', 'id_number' => 'ID Number'] as $field => $label)
@@ -176,7 +177,7 @@
                 <div class="pt-3 border-t" style="border-color:var(--border);">
                     <p class="text-xs font-medium mb-1" style="color:var(--text-secondary);">Property address duplicate guard</p>
                     <p class="text-xs mb-2" style="color:var(--text-muted);">When an agent uses a contact's address to create a property, how aggressively should CoreX warn that a property at that address may already exist?</p>
-                    <select name="address_match_mode" class="w-full md:w-80 px-3 py-2 rounded-md text-sm" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
+                    <select name="address_match_mode" data-tour="rpt-cg-address" class="w-full md:w-80 px-3 py-2 rounded-md text-sm" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
                         <option value="off"      {{ ($settings->address_match_mode ?? 'standard') === 'off' ? 'selected' : '' }}>Off — never warn</option>
                         <option value="standard" {{ ($settings->address_match_mode ?? 'standard') === 'standard' ? 'selected' : '' }}>Standard — warn on any address match (recommended)</option>
                         <option value="strict"   {{ ($settings->address_match_mode ?? 'standard') === 'strict' ? 'selected' : '' }}>Strict — warn only on an exact street match</option>
@@ -216,7 +217,7 @@
         </div>
 
         {{-- ═══════ BUYER FRESHNESS ═══════ --}}
-        <div class="corex-panel mb-6">
+        <div class="corex-panel mb-6" data-tour="rpt-cg-freshness">
             <div class="corex-panel-header">
                 <h3 class="corex-panel-title">Buyer Freshness Windows</h3>
             </div>
@@ -256,7 +257,7 @@
         </p>
 
         {{-- ═══════ OUTREACH — NO-RESPONSE WINDOW (AT-81) ═══════ --}}
-        <div class="corex-panel mb-6">
+        <div class="corex-panel mb-6" data-tour="rpt-cg-outreach">
             <div class="corex-panel-header">
                 <h3 class="corex-panel-title">Seller Outreach</h3>
             </div>
@@ -274,7 +275,7 @@
         </div>
 
         {{-- ═══════ RETENTION POLICY ═══════ --}}
-        <div class="corex-panel mb-6">
+        <div class="corex-panel mb-6" data-tour="rpt-cg-retention">
             <div class="corex-panel-header">
                 <h3 class="corex-panel-title">Retention Policy</h3>
             </div>
@@ -311,7 +312,7 @@
             </div>
         </div>
 
-        <div class="flex justify-end">
+        <div class="flex justify-end" data-tour="rpt-cg-save">
             <button type="submit" class="corex-btn-primary text-sm">
                 Save Settings
             </button>

@@ -16,7 +16,7 @@
 <div class="rx-page w-full space-y-5" data-qa="lease-notice-review">
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
-    <div class="flex flex-wrap items-center justify-between gap-3">
+    <div class="flex flex-wrap items-center justify-between gap-3" data-tour="rops-lnd-head">
         <div>
             <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $notice->givenByLabel() }}'s notice - {{ $address }}</h1>
             <p class="text-xs" style="color: var(--text-muted);">
@@ -30,6 +30,7 @@
             <a href="{{ route('corex.leases.show', $lease) }}" class="corex-btn-outline text-xs">Open lease</a>
 @endfeature
             <a href="{{ route('corex.lease-notices.index') }}" class="corex-btn-outline text-xs">All notices</a>
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
         </div>
     </div>
     </div>
@@ -46,7 +47,7 @@
 
     <div class="grid gap-4 md:grid-cols-2">
         {{-- ── the notice ─────────────────────────────────────────────── --}}
-        <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);" data-qa="notice-details">
+        <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);" data-qa="notice-details" data-tour="rops-lnd-notice">
             <h2 class="text-sm font-semibold">The notice</h2>
             <dl class="grid grid-cols-3 gap-y-1 text-xs">
                 <dt style="color: var(--text-muted);">Given by</dt><dd class="col-span-2">{{ $notice->givenByLabel() }}{{ $notice->givenByContact ? ' - ' . $notice->givenByContact->full_name : '' }}</dd>
@@ -62,7 +63,7 @@
             </dl>
 
             @if($notice->isReceived())
-                <details class="pt-2">
+                <details class="pt-2" data-tour="rops-lnd-correct">
                     <summary class="text-xs cursor-pointer" style="color: var(--brand-icon, #0ea5e9);">Correct these details</summary>
                     <form method="POST" action="{{ route('corex.lease-notices.update', $notice->id) }}" class="space-y-2 pt-2">
                         @csrf @method('PUT')
@@ -78,7 +79,7 @@
         </div>
 
         {{-- ── the lease's terms ──────────────────────────────────────── --}}
-        <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);" data-qa="notice-terms">
+        <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);" data-qa="notice-terms" data-tour="rops-lnd-terms">
             <h2 class="text-sm font-semibold">What the lease says</h2>
             <dl class="grid grid-cols-3 gap-y-1 text-xs">
                 <dt style="color: var(--text-muted);">Lease term</dt>
@@ -103,7 +104,7 @@
     </div>
 
     {{-- ── flags ─────────────────────────────────────────────────────── --}}
-    <div class="rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);" data-qa="notice-flags">
+    <div class="rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);" data-qa="notice-flags" data-tour="rops-lnd-flags">
         <h2 class="text-sm font-semibold">Does it fit the lease and the law? {{ $warnCount ? '(' . $warnCount . ' to check)' : '' }}</h2>
         @forelse($flags as $f)
             <div class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border); background: {{ $f['severity'] === 'warn' ? 'color-mix(in srgb, var(--ds-amber, #d97706) 12%, transparent)' : 'var(--surface-2)' }};" data-flag="{{ $f['code'] }}" data-severity="{{ $f['severity'] }}">
@@ -118,36 +119,36 @@
 
     {{-- ── decide ────────────────────────────────────────────────────── --}}
     @if($notice->isReceived() && !$notice->trashed())
-        <div class="grid gap-4 md:grid-cols-2" data-qa="notice-decision">
-            <form method="POST" action="{{ route('corex.lease-notices.accept', $notice->id) }}" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);"
+        <div class="grid gap-4 md:grid-cols-2" data-qa="notice-decision" data-tour="rops-lnd-decision">
+            <form method="POST" action="{{ route('corex.lease-notices.accept', $notice->id) }}" data-tour="rops-lnd-accept" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);"
                   x-data="{ end: '{{ old('end_date', $notice->intended_end_date->toDateString()) }}', given: '{{ $notice->intended_end_date->toDateString() }}', suggested: @js($suggestedEnd) }">
                 @csrf
                 <h2 class="text-sm font-semibold">Accept</h2>
                 <p class="text-xs" style="color: var(--text-muted);">Sets the move-out date on the lease. Change the date to accept it with a corrected date.</p>
                 <div>
                     <label class="text-xs font-medium">Move-out / end date to record</label>
-                    <input type="date" name="end_date" x-model="end" required max="{{ now()->addYears(2)->toDateString() }}" class="prop-input mt-1">
+                    <input type="date" name="end_date" data-tour="rops-lnd-end-date" x-model="end" required max="{{ now()->addYears(2)->toDateString() }}" class="prop-input mt-1">
                     <template x-if="suggested && suggested !== end">
                         <button type="button" class="text-xs mt-1" style="color: var(--brand-icon, #0ea5e9);" @click="end = suggested">Use the earliest date that fits (<span x-text="suggested"></span>)</button>
                     </template>
                 </div>
                 <div>
                     <label class="text-xs font-medium"><span x-show="end !== given">Why the date was changed (required)</span><span x-show="end === given">Note {{ $hasWarning ? '- required while there are items to check above: why it is fine as given' : '(optional)' }}</span></label>
-                    <textarea name="note" maxlength="1000" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">{{ old('note') }}</textarea>
+                    <textarea name="note" maxlength="1000" data-tour="rops-lnd-note" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">{{ old('note') }}</textarea>
                 </div>
                 @include('corex.leases._notice-outcome-fields', ['isReopening' => old('notice_outcome') !== null, 'showAvailableFromOnPortals' => true])
-                <button type="submit" class="corex-btn-primary text-xs">Accept notice</button>
+                <button type="submit" class="corex-btn-primary text-xs" data-tour="rops-lnd-accept-btn">Accept notice</button>
             </form>
 
-            <form method="POST" action="{{ route('corex.lease-notices.reject', $notice->id) }}" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+            <form method="POST" action="{{ route('corex.lease-notices.reject', $notice->id) }}" data-tour="rops-lnd-reject" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
                 @csrf
                 <h2 class="text-sm font-semibold">Reject</h2>
                 <p class="text-xs" style="color: var(--text-muted);">The notice is not accepted. {{ $notice->via === 'portal' ? 'The person who gave it is told why, by email and in their portal.' : '' }} The other party is told nothing.</p>
                 <div>
                     <label class="text-xs font-medium">Reason (required)</label>
-                    <textarea name="reason" maxlength="1000" required class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">{{ old('reason') }}</textarea>
+                    <textarea name="reason" maxlength="1000" required data-tour="rops-lnd-reject-reason" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">{{ old('reason') }}</textarea>
                 </div>
-                <button type="submit" class="corex-btn-primary text-xs">Reject notice</button>
+                <button type="submit" class="corex-btn-primary text-xs" data-tour="rops-lnd-reject-btn">Reject notice</button>
             </form>
         </div>
     @endif
@@ -176,7 +177,7 @@
         </div>
     @endif
 
-    <div class="flex gap-2">
+    <div class="flex gap-2" data-tour="rops-lnd-archive">
         @if($notice->trashed())
             <form method="POST" action="{{ route('corex.lease-notices.restore', $notice->id) }}">@csrf<button type="submit" class="corex-btn-outline text-xs">Restore</button></form>
         @else

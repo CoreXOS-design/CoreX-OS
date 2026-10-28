@@ -35,7 +35,7 @@
             : ($mcQuote['within'] ? ["Inside the owner's repair limit - you can authorise it.", 'var(--ds-green)'] : ["Above the owner's repair limit - the owner must approve it.", 'var(--ds-crimson)']);
     }
 @endphp
-<section class="jc-card" id="jc-money" data-money-card>
+<section class="jc-card" id="jc-money" data-money-card data-tour="rmnt-jcd-money">
     <h2>Money &amp; approval</h2>
 
     <dl class="wo-facts">

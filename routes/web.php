@@ -706,6 +706,17 @@ Route::middleware('auth')->group(function () {
         Route::post('/system-updates/dismiss', \App\Http\Controllers\Api\V1\SystemUpdateDismissController::class)
             ->name('system-updates.dismiss');
 
+        // AT-478 Part 3 — gradual feature rollout pop-ups (server-rendered by
+        // layouts/partials/feature-rollout-popups, so no GET). seen = self-scoped like
+        // system-updates/dismiss; review = the admin's role-access decision.
+        // Spec: .ai/specs/agency-feature-rollout.md §5.3, §5.4
+        Route::post('/feature-rollout/announcements/seen', [\App\Http\Controllers\Api\V1\FeatureRolloutPopupController::class, 'seen'])
+            ->middleware('agency.required')
+            ->name('feature-rollout.announcements.seen');
+        Route::post('/feature-rollout/access-review', [\App\Http\Controllers\Api\V1\FeatureRolloutPopupController::class, 'review'])
+            ->middleware(['permission:manage_feature_rollout', 'agency.required'])
+            ->name('feature-rollout.access-review');
+
         // AT-448 — "Mandates expiring soon" pop-up: per-user "shown" record.
         // Same shape as system-updates/dismiss (self-scoped, idempotent, no GET
         // — the popup is server-rendered by the Properties page).
@@ -3860,6 +3871,26 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/features', [\App\Http\Controllers\CoreX\FeatureSettingsController::class, 'update'])->middleware('permission:agency_features.manage')->name('corex.settings.features.update');
     // What the agency does (sales / rentals / both) — seeds the feature switches. Shared with the wizard's identity step.
     Route::post('/settings/agency-type', [\App\Http\Controllers\CoreX\AgencyTypeController::class, 'update'])->middleware('permission:agency_features.manage')->name('corex.settings.agency-type.update');
+    // AT-478 §12.5 / §12.9 — "New and coming": what is still to switch on (ask for it early) and everything
+    // that already did. Every signed-in person in an agency on gradual rollout; own agency only, 404 otherwise.
+    Route::middleware('agency.required')->group(function () {
+        Route::get('/new-and-coming', [\App\Http\Controllers\CoreX\NewAndComingController::class, 'index'])->name('corex.new-and-coming.index');
+        Route::post('/new-and-coming/{item}/early', [\App\Http\Controllers\CoreX\NewAndComingController::class, 'requestEarly'])->whereNumber('item')->name('corex.new-and-coming.early');
+    });
+    // AT-478 — the agency's own gradual feature rollout (spec agency-feature-rollout.md §5.2). Own agency only:
+    // no agency/plan id in any URL; item ids are resolved inside the agency's plan.
+    Route::middleware(['permission:manage_feature_rollout', 'agency.required'])->prefix('feature-rollout')->name('corex.feature-rollout.')->group(function () {
+        $c = \App\Http\Controllers\CoreX\FeatureRolloutController::class;
+        Route::get('/',                    [$c, 'index'])->name('index');
+        Route::post('/settings',           [$c, 'saveChoice'])->name('settings');
+        Route::post('/pause',              [$c, 'pause'])->name('pause');
+        Route::post('/resume',             [$c, 'resume'])->name('resume');
+        Route::post('/release-next',       [$c, 'releaseNext'])->name('release-next');
+        Route::post('/finish',             [$c, 'finish'])->name('finish');
+        Route::post('/items/{item}/skip',  [$c, 'skipItem'])->whereNumber('item')->name('items.skip');
+        Route::post('/items/{item}/on',    [$c, 'switchOn'])->whereNumber('item')->name('items.on');
+        Route::post('/access',             [$c, 'saveAccess'])->name('access'); // §18 "Admin decides": who else sees these
+    });
     // AT-392 authoriser flow, 2026-09-08 — RO/CO decision actions. A
     // separate prefix/controller, gated on RO/CO tier membership
     // (User::isRentalApplicationRO()/isRentalApplicationCO()), not the
@@ -5729,6 +5760,28 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/{item}/restore',  [$c, 'restore'])->whereNumber('item')->name('restore');
         });
 
+        // Dev Settings → Feature rollout (AT-478): the default wave order + pace for gradual rollout.
+        // Same owner-only reasoning as timeline defaults; spec .ai/specs/agency-feature-rollout.md §5.1.
+        Route::prefix('admin/dev-settings/feature-rollout')->name('admin.feature-rollout-defaults.')->group(function () {
+            $c = \App\Http\Controllers\Admin\FeatureRolloutDefaultsController::class;
+            Route::get('/',                 [$c, 'index'])->name('index');
+            Route::put('/pace',             [$c, 'savePacing'])->name('pace');
+            // §20 — the wave planner board saves the whole ordered plan in one post.
+            Route::put('/layout',           [$c, 'saveLayout'])->name('layout');
+            // §19.4 — Feature wording & videos (what the rollout pop-ups say about each feature).
+            $w = \App\Http\Controllers\Admin\FeatureRolloutCopyController::class;
+            Route::get('/wording',                     [$w, 'index'])->name('copy.index');
+            Route::get('/wording/{feature}',           [$w, 'edit'])->where('feature', '[a-z0-9-]+')->name('copy.edit');
+            Route::put('/wording/{feature}',           [$w, 'update'])->where('feature', '[a-z0-9-]+')->name('copy.update');
+            Route::delete('/wording/{feature}',        [$w, 'destroy'])->where('feature', '[a-z0-9-]+')->name('copy.destroy');
+            Route::post('/wording/{feature}/restore',  [$w, 'restore'])->where('feature', '[a-z0-9-]+')->name('copy.restore');
+            Route::post('/',                [$c, 'store'])->name('store');
+            Route::put('/{wave}',           [$c, 'update'])->whereNumber('wave')->name('update');
+            Route::post('/{wave}/move',     [$c, 'move'])->whereNumber('wave')->name('move');
+            Route::delete('/{wave}',        [$c, 'destroy'])->whereNumber('wave')->name('destroy');
+            Route::post('/{wave}/restore',  [$c, 'restore'])->whereNumber('wave')->name('restore');
+        });
+
         // Agency Timeline
         Route::prefix('admin/agency-timelines')->name('admin.agency-timelines.')->group(function () {
             $c = \App\Http\Controllers\Admin\AgencyTimelineController::class;
@@ -5832,6 +5885,24 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // first-login trigger, e.g. the emailed link was lost or has expired.
     Route::middleware('owner_only')->post('/admin/agency-setup-progress/{setupId}/resend', [\App\Http\Controllers\Admin\AgencySetupProgressController::class, 'resend'])
         ->name('admin.agency-setup-progress.resend');
+    // AT-478 Part 4 — one agency's setup + gradual introduction, and the CoreX team's changes to its plan.
+    // Cross-agency owner tool: the agency is in the URL; group / feature ids resolve inside its plan only.
+    // Spec: .ai/specs/agency-feature-rollout.md §5.5
+    Route::middleware('owner_only')->prefix('admin/agency-setup-progress/agencies/{agency}')
+        ->whereNumber('agency')->name('admin.agency-setup-progress.')->group(function () {
+            $c = \App\Http\Controllers\Admin\AgencyRolloutAdminController::class;
+            Route::get('/',                                 [$c, 'show'])->name('show');
+            Route::post('/rollout/start',                   [$c, 'start'])->name('rollout.start');
+            Route::post('/rollout/pace',                    [$c, 'pace'])->name('rollout.pace');
+            Route::post('/rollout/{action}',                [$c, 'control'])->whereIn('action', ['pause', 'resume', 'release-next', 'finish', 'reset'])->name('rollout.control');
+            Route::post('/rollout/waves',                   [$c, 'storeWave'])->name('rollout.waves.store');
+            Route::put('/rollout/waves/{wave}',             [$c, 'updateWave'])->whereNumber('wave')->name('rollout.waves.update');
+            Route::post('/rollout/waves/{wave}/move',       [$c, 'moveWave'])->whereNumber('wave')->name('rollout.waves.move');
+            Route::delete('/rollout/waves/{wave}',          [$c, 'archiveWave'])->whereNumber('wave')->name('rollout.waves.archive');
+            Route::post('/rollout/waves/{wave}/restore',    [$c, 'restoreWave'])->whereNumber('wave')->name('rollout.waves.restore');
+            Route::post('/rollout/waves/{wave}/features',   [$c, 'addFeature'])->whereNumber('wave')->name('rollout.waves.features.store');
+            Route::post('/rollout/items/{item}/{action}',   [$c, 'itemAction'])->whereNumber('item')->whereIn('action', ['move', 'on', 'skip'])->name('rollout.items.action');
+        });
 
     // Agency edit/update — accessible to admins with manage_performance_settings.
     // Controller enforces own-agency scope unless the user is an owner.

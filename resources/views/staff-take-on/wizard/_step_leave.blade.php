@@ -5,7 +5,7 @@
     @method('PATCH')
 
     <div class="space-y-4">
-        <div class="p-3 text-xs rounded-md" style="background:color-mix(in srgb, var(--brand-icon) 5%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); color:var(--text-muted);">
+        <div data-tour="cop-stkw-step" class="p-3 text-xs rounded-md" style="background:color-mix(in srgb, var(--brand-icon) 5%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 15%, transparent); color:var(--text-muted);">
             Enter days already taken this cycle and any carryover from previous cycles. The system will calculate available balances based on the accrual engine.
         </div>
 
@@ -64,5 +64,5 @@
         @endif
     </div>
 
-    <button type="submit" class="corex-btn-primary mt-4">Save & Continue</button>
+    <button type="submit" class="corex-btn-primary mt-4" data-tour="cop-stkw-save">Save & Continue</button>
 </form>

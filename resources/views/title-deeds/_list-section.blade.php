@@ -25,7 +25,7 @@
             . '<a href="' . e($url) . '" class="no-underline hover:underline" style="color: inherit;">' . e($label) . $arrow . '</a></th>';
     };
 @endphp
-<section id="td-sec-{{ $key }}" class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-td-section="{{ $key }}"
+<section id="td-sec-{{ $key }}" class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-td-section="{{ $key }}" data-tour="rpt-td-section"
          x-data="tdSectionState({{ $userId }}, '{{ $key }}', {{ $defaultOpen ? 'true' : 'false' }}, {{ $forced ? 'true' : 'false' }})"
          @if($forced) x-init="$nextTick(() => $el.scrollIntoView({ block: 'start' }))" @endif>
     <button type="button" class="w-full flex items-center justify-between gap-3 px-4 py-3 text-left" style="color: var(--text-primary);" @click="toggle()" :aria-expanded="open ? 'true' : 'false'" aria-controls="td-sec-body-{{ $key }}">
@@ -56,7 +56,7 @@
                 </thead>
                 <tbody>
                     @forelse($deeds as $d)
-                    <tr style="border-top: 1px solid var(--border); cursor: pointer;" class="hover:opacity-90" data-td-row="{{ $d->id }}" @click="rowClick($event, @js(route('title-deeds.show', $d->id)))">
+                    <tr style="border-top: 1px solid var(--border); cursor: pointer;" class="hover:opacity-90" data-td-row="{{ $d->id }}" data-tour="rpt-td-row" @click="rowClick($event, @js(route('title-deeds.show', $d->id)))">
                         <td class="px-3 md:px-4 py-3 whitespace-nowrap font-semibold tabular-nums" style="color: var(--text-primary);" data-td-ref>{{ $d->reference ?: '—' }}</td>
                         <td class="px-4 py-3">
                             <a href="{{ route('title-deeds.show', $d->id) }}" class="font-medium no-underline hover:underline" style="color: var(--text-primary);">{{ $d->property_display }}</a>

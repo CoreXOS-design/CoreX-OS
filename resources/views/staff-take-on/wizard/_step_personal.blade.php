@@ -4,16 +4,16 @@
     @method('PATCH')
 
     <div class="space-y-4">
-        <div class="p-4 rounded-md" style="background:var(--surface); border:1px solid var(--border);">
+        <div class="p-4 rounded-md" style="background:var(--surface); border:1px solid var(--border);" data-tour="cop-stkw-step">
             <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-muted); letter-spacing:0.05em;">2. Personal Details</h4>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Date of Birth</label>
-                    <input type="date" name="date_of_birth" value="{{ old('date_of_birth', $takeOn->user->date_of_birth?->format('Y-m-d')) }}" class="w-full px-3 py-2 text-sm rounded-md focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    <input type="date" data-tour="cop-stkw-dob" name="date_of_birth" value="{{ old('date_of_birth', $takeOn->user->date_of_birth?->format('Y-m-d')) }}" class="w-full px-3 py-2 text-sm rounded-md focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                 </div>
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Phone</label>
-                    <input type="text" name="phone" value="{{ old('phone', $takeOn->user->phone) }}" maxlength="30" class="w-full px-3 py-2 text-sm rounded-md focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    <input type="text" data-tour="cop-stkw-phone" name="phone" value="{{ old('phone', $takeOn->user->phone) }}" maxlength="30" class="w-full px-3 py-2 text-sm rounded-md focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                 </div>
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Home Address</label>
@@ -35,7 +35,7 @@
             </div>
         </div>
 
-        <div class="p-4 rounded-md" style="background:var(--surface); border:1px solid var(--border);">
+        <div class="p-4 rounded-md" style="background:var(--surface); border:1px solid var(--border);" data-tour="cop-stkw-emergency">
             <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-muted); letter-spacing:0.05em;">Emergency Contact & Next of Kin</h4>
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 @foreach([['emergency_contact', 'Emergency Contact'], ['next_of_kin', 'Next of Kin']] as [$prefix, $label])
@@ -49,6 +49,6 @@
             </div>
         </div>
 
-        <button type="submit" class="corex-btn-primary">Save & Continue</button>
+        <button type="submit" class="corex-btn-primary" data-tour="cop-stkw-save">Save & Continue</button>
     </div>
 </form>

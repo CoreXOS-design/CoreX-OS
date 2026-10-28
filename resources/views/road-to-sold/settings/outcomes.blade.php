@@ -27,14 +27,15 @@
 
 <div class="w-full space-y-5 rts-page" x-data="rtsOutcomeForm(@js($formConfig))">
 
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="smk-rto-intro">
         <div class="flex items-center justify-between flex-wrap gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Road to Sold outcomes</h1>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <a href="{{ route('road-to-sold.index', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Back to Road to Sold</a>
-                <button type="button" class="corex-btn-primary corex-btn-xs" @click="openNew()">Add outcome</button>
+                <button type="button" class="corex-btn-primary corex-btn-xs" @click="openNew()" data-tour="smk-rto-add">Add outcome</button>
             </div>
         </div>
     </div>
@@ -48,11 +49,11 @@
         @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
         <div>
             <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-q">Search name</label>
-            <input id="rts-q" type="text" name="q" value="{{ $q }}" class="rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+            <input data-tour="smk-rto-search" id="rts-q" type="text" name="q" value="{{ $q }}" class="rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-status">Show</label>
-            <select id="rts-status" name="status" class="rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" onchange="this.form.submit()">
+            <select data-tour="smk-rto-status" id="rts-status" name="status" class="rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" onchange="this.form.submit()">
                 @foreach(['all' => 'All outcomes', 'active' => 'Switched on', 'off' => 'Switched off', 'archived' => 'Archived'] as $v => $l)
                     <option value="{{ $v }}" @selected($status === $v)>{{ $l }}</option>
                 @endforeach
@@ -60,7 +61,7 @@
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-sort">Sort by</label>
-            <select id="rts-sort" name="sort" class="rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" onchange="this.form.submit()">
+            <select data-tour="smk-rto-sort" id="rts-sort" name="sort" class="rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" onchange="this.form.submit()">
                 @foreach(['order' => 'Order shown to agents', 'name' => 'Name', 'kind' => 'Attempt or conversation'] as $v => $l)
                     <option value="{{ $v }}" @selected($sort === $v)>{{ $l }}</option>
                 @endforeach
@@ -69,7 +70,7 @@
         <button type="submit" class="corex-btn-outline corex-btn-xs">Search</button>
     </form>
 
-    <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);" data-tour="smk-rto-table">
         <table class="w-full text-xs ds-table">
             <thead>
                 <tr style="color: var(--text-muted);">
@@ -110,7 +111,7 @@
                                         <button type="submit" class="corex-btn-outline corex-btn-xs" title="Show later in the list" aria-label="Move down">Down</button>
                                     </form>
                                 @endif
-                                <button type="button" class="corex-btn-outline corex-btn-xs" @click="openEdit({{ $o->id }})">Edit</button>
+                                <button type="button" class="corex-btn-outline corex-btn-xs" @click="openEdit({{ $o->id }})" @if($loop->first) data-tour="smk-rto-edit" @endif>Edit</button>
                                 <form method="POST" action="{{ route('road-to-sold.settings.outcomes.toggle', $o->id) }}">@csrf
                                     <button type="submit" class="corex-btn-outline corex-btn-xs">{{ $o->is_active ? 'Switch off' : 'Switch on' }}</button>
                                 </form>
@@ -138,7 +139,7 @@
 
     {{-- Add / edit form --}}
     <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @keydown.escape.window="open = false">
-        <div class="w-full max-w-lg rounded-md p-5 space-y-4 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border); max-height: 90vh;" @click.outside="open = false">
+        <div class="w-full max-w-lg rounded-md p-5 space-y-4 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border); max-height: 90vh;" @click.outside="open = false" data-tour="smk-rto-form">
             <h2 class="text-sm font-bold" style="color: var(--text-primary);" x-text="editId ? 'Edit outcome' : 'Add outcome'"></h2>
 
             @if($errs->any())
@@ -154,12 +155,12 @@
 
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-f-label">Name</label>
-                    <input id="rts-f-label" type="text" name="label" maxlength="120" x-model="f.label" class="w-full rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    <input data-tour="smk-rto-label" id="rts-f-label" type="text" name="label" maxlength="120" x-model="f.label" class="w-full rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
 
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-f-kind">Counts as</label>
-                    <select id="rts-f-kind" name="kind" x-model="f.kind" class="w-full rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    <select data-tour="smk-rto-kind" id="rts-f-kind" name="kind" x-model="f.kind" class="w-full rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                         <option value="attempt">An attempt (no real conversation)</option>
                         <option value="conversation">A conversation</option>
                     </select>
@@ -167,7 +168,7 @@
 
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-f-next">What happens next</label>
-                    <select id="rts-f-next" name="next_action" x-model="f.next_action" class="w-full rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                    <select data-tour="smk-rto-next" id="rts-f-next" name="next_action" x-model="f.next_action" class="w-full rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                         @foreach($actions as $v => $l)<option value="{{ $v }}">{{ $l }}</option>@endforeach
                     </select>
                 </div>
@@ -194,7 +195,7 @@
 
                 <div class="flex items-center justify-end gap-2 pt-1">
                     <button type="button" class="corex-btn-outline corex-btn-xs" @click="open = false">Cancel</button>
-                    <button type="submit" class="corex-btn-primary corex-btn-xs">Save</button>
+                    <button type="submit" class="corex-btn-primary corex-btn-xs" data-tour="smk-rto-save">Save</button>
                 </div>
             </form>
         </div>

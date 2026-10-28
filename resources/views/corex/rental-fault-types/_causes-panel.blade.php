@@ -14,7 +14,7 @@
     $cpField = 'rounded-md px-2 py-1 text-sm';
     $cpBorder = 'border: 1px solid var(--border);';
 @endphp
-<div id="who-normally-pays" class="rounded-md p-5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+<div id="who-normally-pays" class="rounded-md p-5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-ftedit-causes">
     <div class="flex items-center justify-between">
         <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Who normally pays</h2>
         <a class="text-xs underline" href="{{ request()->fullUrlWithQuery(['archived_causes' => $cpArchived ? null : 1]) }}#who-normally-pays">{{ $cpArchived ? 'Hide archived' : 'Show archived' }}</a>
