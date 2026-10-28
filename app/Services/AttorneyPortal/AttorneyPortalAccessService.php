@@ -185,7 +185,7 @@ class AttorneyPortalAccessService
     /** Email a one-time code to the supplier contact's address on file. Returns null when sent, or 'cooldown'/'hourly'. */
     public function sendCode(AttorneyPortalAccess $access, Request $request): ?string
     {
-        $blocked = $this->otp->throttle('attorney_portal', $access->email, [
+        $blocked = $this->otp->throttle('attorney_portal', $this->throttleKey($access), [
             'cooldown_secs' => config('attorney-portal.otp.cooldown_secs'),
             'hourly_limit'  => config('attorney-portal.otp.hourly_limit'),
         ]);
@@ -205,6 +205,18 @@ class AttorneyPortalAccessService
         AttorneyPortalLogger::record($access, 'code_sent', [], $request);
 
         return null;
+    }
+
+    /** The sign-in code limits count per attorney CONTACT (one person at one firm), not per email address. */
+    public function throttleKey(AttorneyPortalAccess $access): string
+    {
+        return 'contact-' . (int) $access->service_provider_contact_id;
+    }
+
+    /** Seconds until the block returned by sendCode() ('cooldown' or 'hourly') lifts. */
+    public function retryAfter(AttorneyPortalAccess $access, string $blocked): int
+    {
+        return $this->otp->retryAfter('attorney_portal', $this->throttleKey($access), $blocked);
     }
 
     /** Check the code; on success start a session and return its raw cookie token. */

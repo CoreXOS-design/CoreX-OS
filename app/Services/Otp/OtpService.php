@@ -176,6 +176,16 @@ class OtpService
     }
 
     /**
+     * Seconds until a throttle() block ('cooldown' or 'hourly') on this bucket + destination lifts - for telling the person how long to wait.
+     */
+    public function retryAfter(string $bucket, string $destination, string $reason): int
+    {
+        $key = ($reason === 'hourly' ? 'otp.hourly:' : 'otp.cooldown:') . $bucket . ':' . strtolower(trim($destination));
+
+        return max(1, (int) RateLimiter::availableIn($key));
+    }
+
+    /**
      * The hardened generation primitive — zero-padded random_int of the
      * configured length. Rental-applications identity gate, 2026-09-13 —
      * $length is an optional per-call override (Johan: "OTP length...

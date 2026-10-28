@@ -12,6 +12,7 @@ use App\Services\AttorneyPortal\AttorneyPortalLogger;
 use App\Services\AttorneyPortal\AttorneyPortalScope;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -49,25 +50,14 @@ class AttorneyPortalController extends Controller
         return view('attorney-portal.link', $this->shell($access) + [
             'token'      => $token,
             'maskedMail' => $this->mask($access->email),
-            'codeSent'   => (bool) session('attorney_code_sent_' . $access->id),
-        ]);
+        ] + $this->codeState($access));
     }
 
     public function sendCode(Request $request, string $token)
     {
         $access = $this->accessOr404($token);
 
-        $blocked = $this->service->sendCode($access, $request);
-        if ($blocked) {
-            return redirect()->route('attorney.link', $token)->withErrors([
-                'code' => $blocked === 'cooldown'
-                    ? 'A code was only just sent. Please wait a minute and try again.'
-                    : 'Too many codes were requested. Please try again in an hour.',
-            ]);
-        }
-        session(['attorney_code_sent_' . $access->id => true]);
-
-        return redirect()->route('attorney.link', $token)->with('status', 'We emailed a code to ' . $this->mask($access->email) . '.');
+        return $this->afterSend($access, $this->service->sendCode($access, $request), route('attorney.link', $token));
     }
 
     public function verify(Request $request, string $token)
@@ -77,7 +67,7 @@ class AttorneyPortalController extends Controller
 
         $raw = $this->service->verifyCode($access, $data['code'], $request);
         if (! $raw) {
-            session(['attorney_code_sent_' . $access->id => true]);
+            session()->put('attorney_code_sent_' . $access->id, session('attorney_code_sent_' . $access->id) ?: true);
 
             return redirect()->route('attorney.link', $token)->withErrors(['code' => 'That code is not right, or it has expired. Check the latest email, or ask for a new code.']);
         }
@@ -106,10 +96,9 @@ class AttorneyPortalController extends Controller
         return view('attorney-portal.link', $this->shell($model) + [
             'token'      => null,
             'maskedMail' => $this->mask($model->email),
-            'codeSent'   => (bool) session('attorney_code_sent_' . $model->id),
             'codeUrl'    => $this->signedLike($request, 'attorney.open.code', $access, $deal),
             'verifyUrl'  => $this->signedLike($request, 'attorney.open.verify', $access, $deal),
-        ]);
+        ] + $this->codeState($model));
     }
 
     public function openCode(Request $request, int $access, int $deal)
@@ -117,16 +106,7 @@ class AttorneyPortalController extends Controller
         $model = $this->service->accessForId($access);
         abort_if(! $model, 404);
 
-        $blocked = $this->service->sendCode($model, $request);
-        $back = $this->signedLike($request, 'attorney.open', $access, $deal);
-        if ($blocked) {
-            return redirect($back)->withErrors(['code' => $blocked === 'cooldown'
-                ? 'A code was only just sent. Please wait a minute and try again.'
-                : 'Too many codes were requested. Please try again in an hour.']);
-        }
-        session(['attorney_code_sent_' . $model->id => true]);
-
-        return redirect($back)->with('status', 'We emailed a code to ' . $this->mask($model->email) . '.');
+        return $this->afterSend($model, $this->service->sendCode($model, $request), $this->signedLike($request, 'attorney.open', $access, $deal));
     }
 
     public function openVerify(Request $request, int $access, int $deal)
@@ -137,7 +117,7 @@ class AttorneyPortalController extends Controller
 
         $raw = $this->service->verifyCode($model, $data['code'], $request);
         if (! $raw) {
-            session(['attorney_code_sent_' . $model->id => true]);
+            session()->put('attorney_code_sent_' . $model->id, session('attorney_code_sent_' . $model->id) ?: true);
 
             return redirect($this->signedLike($request, 'attorney.open', $access, $deal))
                 ->withErrors(['code' => 'That code is not right, or it has expired. Check the latest email, or ask for a new code.']);
@@ -250,6 +230,54 @@ class AttorneyPortalController extends Controller
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────
+
+    /**
+     * Where the sign-in page stands for this person: was a code sent (and when), or is sending blocked right now.
+     * A blocked send never leaves the "we emailed a code" line standing.
+     */
+    private function codeState(AttorneyPortalAccess $access): array
+    {
+        $sent      = session('attorney_code_sent_' . $access->id);
+        $throttled = session('attorney_throttled');
+
+        return [
+            'codeSent'   => $throttled === 'hourly' ? false : (bool) $sent,
+            'codeSentAt' => is_numeric($sent) ? Carbon::createFromTimestamp((int) $sent, config('app.timezone')) : null,
+            'throttled'  => $throttled,
+        ];
+    }
+
+    /** After asking for a code: record the send time, or say plainly that it is blocked and for how long. */
+    private function afterSend(AttorneyPortalAccess $access, ?string $blocked, string $back)
+    {
+        $key = 'attorney_code_sent_' . $access->id;
+        if (! $blocked) {
+            session([$key => now()->timestamp]);
+
+            return redirect($back);
+        }
+
+        $wait = $this->waitText($this->service->retryAfter($access, $blocked));
+        if ($blocked === 'hourly') {
+            session()->forget($key);   // nothing was sent: the page must not say it was
+
+            return redirect($back)->with('attorney_throttled', 'hourly')
+                ->withErrors(['code' => 'Too many codes were requested. Please try again in ' . $wait . '.']);
+        }
+
+        return redirect($back)->with('attorney_throttled', 'cooldown')
+            ->withErrors(['code' => 'A code was only just sent. You can ask for another in ' . $wait . '.']);
+    }
+
+    private function waitText(int $seconds): string
+    {
+        if ($seconds <= 90) {
+            return $seconds . ' ' . ($seconds === 1 ? 'second' : 'seconds');
+        }
+        $minutes = (int) ceil($seconds / 60);
+
+        return $minutes . ' ' . ($minutes === 1 ? 'minute' : 'minutes');
+    }
 
     private function accessOr404(string $token): AttorneyPortalAccess
     {
