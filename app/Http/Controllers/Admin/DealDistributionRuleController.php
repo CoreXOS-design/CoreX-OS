@@ -30,6 +30,12 @@ class DealDistributionRuleController extends Controller
         'electrician_coc', 'entomologist', 'service_provider', 'external_agency', 'other',
     ];
 
+    /** Plain names for the roles the matrix does not carry (the matrix's own names win). */
+    private const EXTRA_LABELS = [
+        'co_seller' => 'Co-seller', 'co_buyer' => 'Co-buyer', 'originator' => 'Bond originator (other)', 'electrician_coc' => 'Electrician (COC)',
+        'entomologist' => 'Entomologist', 'service_provider' => 'Service provider', 'other' => 'Someone else',
+    ];
+
     public const MODES = [
         'secure_link'       => 'Secure link + PIN',
         'direct_attachment' => 'Email attachment',
@@ -250,7 +256,7 @@ class DealDistributionRuleController extends Controller
     {
         $out = [];
         foreach (self::PARTY_ROLES as $r) {
-            $out[$r] = DocumentDistributionMatrix::PARTY_ROLES[$r] ?? Str::headline($r);
+            $out[$r] = DocumentDistributionMatrix::PARTY_ROLES[$r] ?? self::EXTRA_LABELS[$r] ?? Str::headline($r);
         }
 
         return $out;
