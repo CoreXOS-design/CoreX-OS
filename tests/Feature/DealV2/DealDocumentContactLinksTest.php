@@ -76,6 +76,13 @@ class DealDocumentContactLinksTest extends TestCase
         $this->assertSame('seller', $this->partyRole($doc, $this->seller));
     }
 
+    public function test_a_proforma_is_seller_side_and_a_buyer_never_gets_the_commission_invoice(): void
+    {
+        $doc = $this->file('proforma_invoice', 'Proforma PF-0001.pdf');
+
+        $this->assertSame([$this->seller->id], $this->linked($doc));
+    }
+
     public function test_a_buyer_side_type_reaches_the_deal_buyer_only(): void
     {
         $doc = $this->file('bond_grant', 'Bond grant.pdf');
@@ -86,7 +93,7 @@ class DealDocumentContactLinksTest extends TestCase
 
     public function test_a_shared_type_reaches_both_deal_parties(): void
     {
-        foreach (['otp' => 'Offer to Purchase.pdf', 'proforma_invoice' => 'Proforma.pdf', 'work_authorisation' => 'Work order.pdf', null => 'Email from attorney.pdf'] as $slug => $name) {
+        foreach (['otp' => 'Offer to Purchase.pdf', 'work_authorisation' => 'Work order.pdf', null => 'Email from attorney.pdf'] as $slug => $name) {
             $doc = $this->file($slug ?: null, $name);
             $this->assertEqualsCanonicalizing([$this->seller->id, $this->buyer->id], $this->linked($doc), $name);
         }
@@ -136,7 +143,7 @@ class DealDocumentContactLinksTest extends TestCase
         $before = DB::table('document_contacts')->count();
 
         $this->artisan('deal-docs:fix-contact-links', ['--dry-run' => true])
-            ->expectsOutputToContain('To remove: 5 links, 3 contacts, 2 documents.')
+            ->expectsOutputToContain('To remove: 6 links, 3 contacts, 3 documents.')
             ->assertExitCode(0);
 
         $this->assertSame($before, DB::table('document_contacts')->count());
@@ -145,9 +152,12 @@ class DealDocumentContactLinksTest extends TestCase
 
     public function test_apply_removes_only_the_wrong_rows_backs_up_and_audits(): void
     {
-        [$otp, $sellerFica, $splitter, $signed] = $this->fanOutSet();
+        [$otp, $sellerFica, $splitter, $signed, $proforma] = $this->fanOutSet();
 
         $this->artisan('deal-docs:fix-contact-links', ['--apply' => true])->assertExitCode(0);
+
+        // Proforma: the seller keeps it, the buyer (wrong side) loses it.
+        $this->assertSame([$this->seller->id], $this->linked($proforma));
 
         // OTP: only the lead and the other buyer went. Seller and buyer keep theirs.
         $this->assertEqualsCanonicalizing([$this->seller->id, $this->buyer->id], $this->linked($otp));
@@ -160,15 +170,15 @@ class DealDocumentContactLinksTest extends TestCase
         $backups = glob(storage_path('app/backups/deal-docs-contact-links-*.json')) ?: [];
         $this->assertCount(1, $backups);
         $payload = json_decode(File::get($backups[0]), true);
-        $this->assertCount(5, $payload['rows']);
+        $this->assertCount(6, $payload['rows']);
         $this->assertEqualsCanonicalizing(['not_deal_party', 'wrong_side'], array_values(array_unique(array_column($payload['rows'], 'reason'))));
         foreach ($backups as $b) {
             File::delete($b);
         }
 
-        $this->assertSame(5, DB::table('contact_audit_log')->where('event_type', 'document_unlinked')->count());
-        $this->assertSame(1, DB::table('contact_audit_log')->where('event_type', 'document_unlinked')
-            ->where('contact_id', $this->buyer->id)->count(), 'the buyer lost only the seller FICA');
+        $this->assertSame(6, DB::table('contact_audit_log')->where('event_type', 'document_unlinked')->count());
+        $this->assertSame(2, DB::table('contact_audit_log')->where('event_type', 'document_unlinked')
+            ->where('contact_id', $this->buyer->id)->count(), 'the buyer lost the seller FICA and the proforma');
 
         // Idempotent.
         $this->artisan('deal-docs:fix-contact-links', ['--apply' => true])->expectsOutputToContain('Nothing to remove.')->assertExitCode(0);
@@ -202,6 +212,10 @@ class DealDocumentContactLinksTest extends TestCase
         $sellerFica = $this->documentFor($this->deal, 'fica', 'FICA - Seller.pdf');
         $this->fanOut($sellerFica, $everyone);
 
+        // The commission invoice also reached the deal's buyer - seller-side, so that is the wrong side.
+        $proforma = $this->documentFor($this->deal, 'proforma_invoice', 'Proforma.pdf', 'proforma_generated');
+        $this->fanOut($proforma, [$this->seller, $this->buyer]);
+
         // Not a deal filing — a splitter document linked to a lead on purpose.
         $splitter = $this->documentFor($this->deal, 'mandate', 'Mandate.pdf', 'pdf_splitter');
         $this->fanOut($splitter, [$this->lead]);
@@ -211,7 +225,7 @@ class DealDocumentContactLinksTest extends TestCase
         DB::table('document_contacts')->insert(['document_id' => $signed->id, 'contact_id' => $this->lead->id, 'party_role' => 'witness',
             'created_at' => $signed->created_at, 'updated_at' => $signed->created_at]);
 
-        return [$otp, $sellerFica, $splitter, $signed];
+        return [$otp, $sellerFica, $splitter, $signed, $proforma];
     }
 
     private function documentFor(Deal $deal, ?string $slug, string $name, string $source = 'deal'): Document
