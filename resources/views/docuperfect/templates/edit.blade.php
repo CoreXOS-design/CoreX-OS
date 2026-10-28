@@ -23,6 +23,7 @@
         <x-page-header title="Template: {{ $template->name }}" :back-route="route('docuperfect.templates.index')" :flush="true" :sticky="false">
             <x-slot:actions>
                 <a href="{{ route('docuperfect.templates.readiness', $template->id) }}" class="px-3 py-1.5 text-sm font-medium border border-slate-300 rounded-lg hover:bg-slate-50">Check readiness</a>
+                <a href="{{ route('docuperfect.templates.demo', $template->id) }}" class="px-3 py-1.5 text-sm font-medium border border-slate-300 rounded-lg hover:bg-slate-50">Demo view</a>
                 @if(auth()->user()->isOwnerRole() && auth()->user()->hasPermission('templates.transfer'))<a href="{{ route('docuperfect.templates.export', $template->id) }}" class="px-3 py-1.5 text-sm font-medium border border-slate-300 rounded-lg hover:bg-slate-50">Export package</a>@endif
                 <button type="button" id="dpSaveBtn" class="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700">Save</button>
             </x-slot:actions>

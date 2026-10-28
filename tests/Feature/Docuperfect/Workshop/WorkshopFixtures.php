@@ -95,7 +95,11 @@ trait WorkshopFixtures
             'tag-i1' => ['parties' => ['Lessor']],
             'tag-i2' => ['parties' => ['Lessee']],
         ];
-        $editor = array_merge(['tags' => $tags, 'mappings' => $mappings, 'tagged_html' => '<p>Lease wording</p>', 'document_look' => 'source', 'signature_block' => 'document'], $editorOver);
+        $tagged = '<p>Property: <span class="doc-tag" data-tag-id="tag-a">[INPUT 1]</span></p><p>Description: <span class="doc-tag" data-tag-id="tag-b">[INPUT 2]</span></p>'
+            . '<p>Pet deposit: <span class="doc-tag" data-tag-id="tag-c">[INPUT 3]</span></p><p>Lease wording.</p>'
+            . '<p>Lessor <span class="doc-tag doc-tag-sig" data-tag-id="tag-s1">[SIGNATURE 1]</span> Lessee <span class="doc-tag doc-tag-sig" data-tag-id="tag-s2">[SIGNATURE 2]</span> Agent <span class="doc-tag doc-tag-sig" data-tag-id="tag-s3">[SIGNATURE 3]</span></p>'
+            . '<p>Initials <span class="doc-tag doc-tag-ini" data-tag-id="tag-i1">[INITIAL 1]</span> <span class="doc-tag doc-tag-ini" data-tag-id="tag-i2">[INITIAL 2]</span></p>';
+        $editor = array_merge(['tags' => $tags, 'mappings' => $mappings, 'tagged_html' => $tagged, 'document_look' => 'source', 'signature_block' => 'document'], $editorOver);
         $cds = array_merge([
             'title' => 'Mega Lease', 'sections' => [['type' => 'table'], ['type' => 'page_break']],
             'page_header' => ['lines' => [['size' => 10, 'text' => 'Mega Rent Lease – {PROPERTY} – {SURNAME} – {YEAR}', 'align' => 'center']]],
@@ -113,6 +117,16 @@ trait WorkshopFixtures
             'cds_json' => $cds, 'editor_state' => $editor, 'field_mappings' => $mappings,
             'fields_json' => [['key' => '', 'type' => 'text', 'label' => 'Property Address', 'assignedTo' => 'agent']],
         ], $over));
+    }
+
+    /** Build the template's real page file (what saving it in the builder does), so the demo has a compiled page to draw. Tracked for clean-up. */
+    protected function compiled(Template $t): Template
+    {
+        app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->regenerate($t);
+        $t = $t->fresh();
+        $this->trackBlade($t);
+
+        return $t;
     }
 
     /** The row the readiness report must never change. */

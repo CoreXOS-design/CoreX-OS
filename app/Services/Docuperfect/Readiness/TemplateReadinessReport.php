@@ -97,8 +97,8 @@ final class TemplateReadinessReport
 
     // ───────────────────────────── data ─────────────────────────────
 
-    /** Everything the checks share, read once and decoded defensively. */
-    private function context(Template $t): array
+    /** Everything the checks share, read once and decoded defensively (also used by the demo view for its places and fields tables). */
+    public function context(Template $t): array
     {
         $editor = $this->col($t->getRawOriginal('editor_state'));
         $cds = $this->col($t->getRawOriginal('cds_json'));
