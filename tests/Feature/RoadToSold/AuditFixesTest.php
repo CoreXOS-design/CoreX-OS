@@ -229,7 +229,7 @@ final class AuditFixesTest extends TestCase
     public function test_a_failed_build_on_the_page_shows_a_visible_message_instead_of_an_empty_page(): void
     {
         $this->app->bind(ListBuilderService::class, fn () => new class extends ListBuilderService {
-            public function buildFor(User $user, CarbonInterface|string $date, string $track = 'sales'): \Illuminate\Support\Collection
+            public function buildFor(User $user, CarbonInterface|string $date, string $track = 'sales', ?int $limitNew = null): \Illuminate\Support\Collection
             {
                 throw new \RuntimeException('boom');
             }
@@ -436,7 +436,7 @@ final class AuditFixesTest extends TestCase
         $seen = new \ArrayObject();
         $this->app->bind(ListBuilderService::class, fn () => new class($seen) extends ListBuilderService {
             public function __construct(public \ArrayObject $seen) { parent::__construct(); }
-            public function buildFor(User $user, CarbonInterface|string $date, string $track = 'sales'): \Illuminate\Support\Collection
+            public function buildFor(User $user, CarbonInterface|string $date, string $track = 'sales', ?int $limitNew = null): \Illuminate\Support\Collection
             {
                 $this->seen->append($track);
 

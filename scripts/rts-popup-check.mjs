@@ -1,4 +1,4 @@
-// Pop-up check for Road to Sold (spec 22.9 / 22.23): every step a prospect row can open loads INSIDE the pop-up (an iframe of the real screen,
+// Pop-up check for Road to Sold (spec 22.9 / 22.22): every step a prospect row can open loads INSIDE the pop-up (an iframe of the real screen,
 // embed=1, no sidebar / header chrome), has the "Done - back to Road to Sold" bar, and pressing Done reaches the page. Reads only.
 //   node scripts/rts-popup-check.mjs [--base=https://qatesting1.corexos.co.za] [--user=24] [--prospect=11] [--prospect-with-property=20 --property-user=29]
 // Needs scripts/mint-session-cookie.php, puppeteer-core and /usr/bin/chromium.

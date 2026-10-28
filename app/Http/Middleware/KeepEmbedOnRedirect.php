@@ -9,7 +9,7 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Road to Sold pop-up (road-to-sold.md 22.9 / 22.23): a screen opened in the pop-up stays in the pop-up when it redirects.
+ * Road to Sold pop-up (road-to-sold.md 22.9 / 22.22): a screen opened in the pop-up stays in the pop-up when it redirects.
  *
  * A redirect that goes to another screen of this site gets the pop-up's own parameters (embed, rts_prospect, rts_stage) added when the
  * address does not already carry them, so the next screen is chrome-less with its Done bar even in a browser that does not say it is
