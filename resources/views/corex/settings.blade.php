@@ -134,6 +134,10 @@
                     $can('rental_portal.manage_settings')
                         ? ['key'=>'rental-portal-settings', 'label'=>'Rental Portal', 'type'=>'link', 'href'=>route('corex.settings.rental-portal.edit'), 'keywords'=>'tenant landlord contractor portal secure link access notification crew faq fault photo help tenant name phone contact crew contractor link']
                         : null,
+                    // attorney-portal.md §5 - attorney portal on/off, grace days, link life.
+                    $can('attorney_portal.manage_settings')
+                        ? ['key'=>'attorney-portal-settings', 'label'=>'Attorney Portal', 'type'=>'link', 'href'=>route('corex.settings.attorney-portal.edit'), 'keywords'=>'attorney conveyancer transfer bond portal link download documents deal access grace days']
+                        : null,
                     $can('rental_notice_templates.manage_settings')
                         ? ['key'=>'rental-notice-templates', 'label'=>'Rental Notice Templates', 'type'=>'link', 'href'=>route('corex.rental-notice-templates.index'), 'keywords'=>'breach notice vacate template notice templates payment breach ad hoc breach remedy days clause letter merge fields rentals']
                         : null,

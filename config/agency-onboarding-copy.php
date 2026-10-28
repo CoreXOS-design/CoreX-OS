@@ -1483,6 +1483,8 @@ return [
             ['controller' => SettingsController::class, 'method' => 'updateOtherAgencyStock'],
             // AT-450 — Title Deed Register. Same saver as Settings -> Title Deeds; every field is has()-guarded (§6.1).
             ['controller' => TitleDeedSettingsController::class, 'method' => 'save'],
+            // Attorney portal - .ai/specs/attorney-portal.md 5. Every field has()-guarded (onboarding 6.1).
+            ['controller' => \App\Http\Controllers\CoreX\AttorneyPortalSettingsController::class, 'method' => 'update'],
         ],
         // AT-450 round 2 - the agency's own list of title deed storage locations (a list editor, so it sits outside the form).
         'aux_partial' => 'agency-setup.steps.title-deed-locations',
@@ -1627,6 +1629,19 @@ return [
              'label' => "Extra check after an owner's email or phone changed (days, 0 = no extra check)",
              'explain' => "If an owner's email or phone changed within this many days, only someone with the override permission can hand the deed over, and must give a reason.",
              'affects' => 'Whether a deed can be handed over straight away when the details used to reach its owner changed very recently.'],
+            // Attorney portal (.ai/specs/attorney-portal.md 5). There is no Deals step in the wizard; this step already carries the deal-to-property settings.
+            ['key' => 'attorney_portal_enabled', 'source' => 'attorney_portal', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Attorney portal',
+             'explain' => 'Lets you send the transferring or bond attorney on a deal a personal link. They confirm with a code we email them, then see only the deals they are on and can download the documents your Document Distribution settings give their role. They cannot upload or change anything.',
+             'affects' => 'Whether the Send portal link buttons appear on the supplier directory and on the deal, and whether attorney links work at all. Off by default - nothing is shared outside your agency until you switch it on.'],
+            ['key' => 'attorney_portal_access_grace_days', 'source' => 'attorney_portal', 'type' => 'number', 'default' => 30, 'min' => 0, 'max' => 365,
+             'label' => 'Days an attorney keeps access after a deal registers or is cancelled',
+             'explain' => 'After a deal registers or is cancelled the attorney can still open it and download its documents for this many days, then it disappears from their page.',
+             'affects' => 'How long a finished deal stays visible to its attorney. 30 days by default.'],
+            ['key' => 'attorney_portal_link_valid_days', 'source' => 'attorney_portal', 'type' => 'number', 'default' => 30, 'min' => 1, 'max' => 365,
+             'label' => 'Days an emailed attorney link stays valid',
+             'explain' => 'The personal link you email an attorney stops working after this many days. You can send a fresh one from the deal at any time.',
+             'affects' => 'How often an attorney has to be sent a new link. 30 days by default.'],
 
         ],
     ],

@@ -386,10 +386,30 @@
                                             @if($c->email)<span class="text-[11px]" style="color: var(--text-muted);"> · {{ $c->email }}</span>@endif
                                             @if($c->phone)<span class="text-[11px]" style="color: var(--text-muted);"> · {{ $c->phone }}</span>@endif
                                         </span>
-                                        <form method="POST" action="{{ route('deals-v2.suppliers.contacts.deactivate', $c) }}" class="inline"
-                                              onsubmit="return confirm('Remove this contact? Historic deals keep resolving.');">
-                                            @csrf<button type="submit" class="text-[11px] no-underline hover:underline" style="color: var(--ds-crimson);">Remove</button>
-                                        </form>
+                                        <span class="flex items-center gap-3">
+                                            @php($isAttorneyFirm = in_array($p->specialty, ['transfer_attorney', 'bond_attorney', 'conveyancer'], true) || $p->is_transfer_attorney || $p->is_bond_attorney)
+                                            @if(($attorneyPortal['can'] ?? false) && $isAttorneyFirm && $c->is_active && $c->email)
+                                                @php($pa = $attorneyPortal['access'][$c->id] ?? null)
+                                                @if($pa && $pa->revoked_at === null)
+                                                    <span class="text-[11px]" style="color: var(--text-muted);" data-portal-state>
+                                                        Portal {{ $pa->status() === 'live' ? 'link sent' : 'link expired' }}@if($pa->last_login_at) &middot; last signed in {{ $pa->last_login_at->format('j M Y') }}@endif
+                                                    </span>
+                                                @endif
+                                                <form method="POST" action="{{ route('deals-v2.attorney-portal.invite', $c) }}" class="inline">
+                                                    @csrf<button type="submit" class="text-[11px] no-underline hover:underline" style="color: var(--brand-icon);" data-send-portal-link>{{ $pa && $pa->revoked_at === null ? 'Resend link' : 'Send portal link' }}</button>
+                                                </form>
+                                                @if($pa && $pa->revoked_at === null)
+                                                    <form method="POST" action="{{ route('deals-v2.attorney-portal.revoke', $pa) }}" class="inline"
+                                                          onsubmit="return confirm('Stop this person opening their deals? Their link and any open page stop working straight away.');">
+                                                        @csrf<button type="submit" class="text-[11px] no-underline hover:underline" style="color: var(--ds-crimson);" data-revoke-portal>Revoke access</button>
+                                                    </form>
+                                                @endif
+                                            @endif
+                                            <form method="POST" action="{{ route('deals-v2.suppliers.contacts.deactivate', $c) }}" class="inline"
+                                                  onsubmit="return confirm('Remove this contact? Historic deals keep resolving.');">
+                                                @csrf<button type="submit" class="text-[11px] no-underline hover:underline" style="color: var(--ds-crimson);">Remove</button>
+                                            </form>
+                                        </span>
                                     </div>
                                 @empty
                                     <div class="text-xs mb-2" style="color: var(--text-muted);">No contacts yet — add the attorney and the person you deal with.</div>

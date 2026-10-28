@@ -946,6 +946,13 @@ class AgencySetupWizardController extends Controller
                     'auction_guide_price_enabled' => (int) \App\Models\AgencyAuctionSettings::guidePriceEnabledFor($agency->id),
                     default                       => $control['default'] ?? null,
                 },
+                // attorney-portal.md §5 - read-time defaults on attorney_portal_settings (one row per agency).
+                'attorney_portal' => match ($key) {
+                    'attorney_portal_enabled'           => (int) \App\Models\AttorneyPortalSetting::forAgency($agency->id)->isEnabled(),
+                    'attorney_portal_access_grace_days' => \App\Models\AttorneyPortalSetting::forAgency($agency->id)->graceDays(),
+                    'attorney_portal_link_valid_days'   => \App\Models\AttorneyPortalSetting::forAgency($agency->id)->linkValidDays(),
+                    default                             => $control['default'] ?? null,
+                },
                 default     => $agency->{$key} ?? ($control['default'] ?? null),
             };
         }

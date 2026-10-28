@@ -54,6 +54,26 @@ Route::post('/buyer/portal/{token}/respond', [\App\Http\Controllers\BuyerPortalC
     ->middleware('throttle:30,1')
     ->name('buyer-portal.respond');
 
+// ── Attorney portal (public; the emailed link + an emailed one-time code is the sign-in) - .ai/specs/attorney-portal.md.
+// recipient.link runs the request as an anonymous visitor so a staff session in the same browser can never colour it.
+Route::prefix('attorney')->middleware(['recipient.link'])->group(function () {
+    Route::get('/p/{token}', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'link'])
+        ->middleware('throttle:30,1')->where('token', '[A-Za-z0-9]+')->name('attorney.link');
+    Route::post('/p/{token}/code', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'sendCode'])
+        ->middleware('throttle:10,1')->where('token', '[A-Za-z0-9]+')->name('attorney.code');
+    Route::post('/p/{token}/verify', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'verify'])
+        ->middleware('throttle:10,1')->where('token', '[A-Za-z0-9]+')->name('attorney.verify');
+    Route::get('/signed-out', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'signedOut'])->name('attorney.signed-out');
+
+    Route::middleware(['attorney.portal', 'throttle:120,1'])->group(function () {
+        Route::get('/deals', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'deals'])->name('attorney.deals');
+        Route::get('/deals/{deal}', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'show'])->whereNumber('deal')->name('attorney.deal');
+        Route::get('/deals/{deal}/documents/{document}/{mode?}', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'document'])
+            ->whereNumber(['deal', 'document'])->whereIn('mode', ['download', 'view'])->name('attorney.document');
+        Route::post('/sign-out', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'signOut'])->name('attorney.sign-out');
+    });
+});
+
 // ── "I do not agree with this" (public, SIGNED link in the owner's email) - rentals-faults-work-orders.md section 22.6. GET only asks; the POST records.
 Route::match(['get', 'post'], '/owner/fault-settings/{property}/{contact}/dispute', [\App\Http\Controllers\RentalFaultSettingsDisputeController::class, 'handle'])
     ->middleware(['signed', 'throttle:20,1'])->whereNumber(['property', 'contact'])->name('rentals.fault-settings.dispute');
@@ -1350,6 +1370,9 @@ Route::prefix('deals-v2/suppliers')->middleware(['auth'])->group(function () {
     // (DR2 respec) firm → contact persons management.
     Route::post('/{provider}/contacts', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'storeContact'])->name('deals-v2.suppliers.contacts.store')->middleware('permission:deals_v2.manage_suppliers');
     Route::post('/contacts/{contact}/deactivate', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'deactivateContact'])->name('deals-v2.suppliers.contacts.deactivate')->middleware('permission:deals_v2.manage_suppliers');
+    // attorney-portal.md §10 - send / resend / revoke an attorney's portal link (supplier contact row + the deal's Portal access panel).
+    Route::post('/contacts/{contact}/portal-link', [\App\Http\Controllers\DealV2\AttorneyPortalAccessController::class, 'invite'])->whereNumber('contact')->name('deals-v2.attorney-portal.invite')->middleware('permission:deals_v2.invite_attorney');
+    Route::post('/portal-access/{access}/revoke', [\App\Http\Controllers\DealV2\AttorneyPortalAccessController::class, 'revoke'])->whereNumber('access')->name('deals-v2.attorney-portal.revoke')->middleware('permission:deals_v2.invite_attorney');
     // Inline pick-or-create (used by the deal form) — gated to agents working a deal.
     Route::get('/search', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'search'])->name('deals-v2.suppliers.search')->middleware('permission:deals_v2.edit');
     Route::post('/inline', [\App\Http\Controllers\DealV2\SupplierDirectoryController::class, 'createInline'])->name('deals-v2.suppliers.inline')->middleware('permission:deals_v2.edit');
@@ -3631,6 +3654,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/rental-work-orders/show-costs-on-printed-job-card', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'updateShowCostsOnPrintedJobCard'])
         ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.show-costs-on-printed-job-card');
     // AT-445 — .ai/specs/rental-portal-access.md §7. Tenant/landlord/contractor portal on/off switches.
+    // attorney-portal.md §5 - per-agency on/off, grace days, link life. The Setup Wizard saves through the same POST.
+    Route::prefix('settings/attorney-portal')->middleware('permission:attorney_portal.manage_settings')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\AttorneyPortalSettingsController::class, 'edit'])->name('corex.settings.attorney-portal.edit');
+        Route::post('/', [\App\Http\Controllers\CoreX\AttorneyPortalSettingsController::class, 'update'])->name('corex.settings.attorney-portal.update');
+    });
     Route::prefix('settings/rental-portal')->middleware('permission:rental_portal.manage_settings')->group(function () {
         Route::get('/', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'edit'])->name('corex.settings.rental-portal.edit');
         Route::post('/', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'update'])->name('corex.settings.rental-portal.update');

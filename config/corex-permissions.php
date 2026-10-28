@@ -275,6 +275,8 @@ return [
 
         // ── Rental Portal Access (AT-445, .ai/specs/rental-portal-access.md §9) ──
         ['key' => 'rental_portal.manage_settings', 'label' => 'Manage Rental Portal Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_portal', 'sort_order' => 1],
+        // ── Attorney Portal (.ai/specs/attorney-portal.md §6) ──
+        ['key' => 'attorney_portal.manage_settings', 'label' => 'Manage Attorney Portal Settings', 'section' => 'deals-v2', 'type' => 'action', 'module' => 'attorney_portal', 'sort_order' => 1],
         ['key' => 'rental_notices.create', 'label' => 'Draft & Send Rental Notices', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_notices', 'sort_order' => 1],
         ['key' => 'rental_notices.view', 'label' => 'View Rental Notices Sent (history)', 'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_notices', 'sort_order' => 4],
         ['key' => 'rental_notices.review', 'label' => 'Review & Decide Notices Received, Send to the Other Party', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_notices', 'sort_order' => 3],
@@ -816,6 +818,7 @@ return [
         ['key' => 'deals_v2.override_dates',     'label' => 'Override Due Dates',          'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 15],
         ['key' => 'deals_v2.manage_suppliers',   'label' => 'Manage Supplier Directory',   'section' => 'deals-v2',         'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 16],
         ['key' => 'deals_v2.distribute_documents',   'label' => 'Distribute Documents',        'section' => 'deals-v2',     'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 17],
+        ['key' => 'deals_v2.invite_attorney',        'label' => 'Send / Revoke Attorney Portal Link', 'section' => 'deals-v2', 'type' => 'action', 'module' => 'deals_v2',         'sort_order' => 18],
         ['key' => 'deals_v2.manage_distribution_rules', 'label' => 'Manage Distribution Rules', 'section' => 'deals-v2',   'type' => 'action',  'module' => 'deals_v2',         'sort_order' => 18],
         // WS8 — the pipeline overview / dashboard-board surface. Branch_manager +
         // admin only (managers monitor the whole book; agents keep the register).
@@ -1325,7 +1328,8 @@ return [
                 'access_deal_register_v2',
                 'deals_v2.view', 'deals_v2.create', 'deals_v2.edit', 'deals_v2.archive',
                 'deals_v2.manage_pipeline', 'deals_v2.override_dates', 'deals_v2.manage_suppliers',
-                'deals_v2.distribute_documents', 'deals_v2.manage_distribution_rules',
+                'deals_v2.distribute_documents', 'deals_v2.invite_attorney', 'deals_v2.manage_distribution_rules',
+                'attorney_portal.manage_settings',
                 'deals_v2.view_overview',
                 'deal_comms_suspense.view', 'deal_comms_suspense.resolve', // AT-231 P2b
                 // Branches — can switch between branches of their own agency
