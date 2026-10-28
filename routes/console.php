@@ -660,3 +660,6 @@ Schedule::command('sold-stock:expire-portals')
     ->withoutOverlapping()
     ->onOneServer()
     ->name('sold-stock-expire-portals');
+
+// Attorney portal - the daily "new documents" note to attorneys (one per deal per day; each agency can switch it off).
+Schedule::command('attorney-portal:notify-new-documents')->dailyAt('07:30')->withoutOverlapping();

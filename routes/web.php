@@ -64,6 +64,10 @@ Route::prefix('attorney')->middleware(['recipient.link'])->group(function () {
     Route::post('/p/{token}/verify', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'verify'])
         ->middleware('throttle:10,1')->where('token', '[A-Za-z0-9]+')->name('attorney.verify');
     Route::get('/signed-out', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'signedOut'])->name('attorney.signed-out');
+    // attorney-portal.md 15 - the signed link in a "new documents" email: same code sign-in, then straight to that deal.
+    Route::get('/open/{access}/{deal}', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'open'])->middleware(['signed', 'throttle:30,1'])->whereNumber(['access', 'deal'])->name('attorney.open');
+    Route::post('/open/{access}/{deal}/code', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'openCode'])->middleware(['signed', 'throttle:10,1'])->whereNumber(['access', 'deal'])->name('attorney.open.code');
+    Route::post('/open/{access}/{deal}/verify', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'openVerify'])->middleware(['signed', 'throttle:10,1'])->whereNumber(['access', 'deal'])->name('attorney.open.verify');
 
     Route::middleware(['attorney.portal', 'throttle:120,1'])->group(function () {
         Route::get('/deals', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'deals'])->name('attorney.deals');
@@ -1235,6 +1239,8 @@ Route::prefix('deals-dr2')->middleware(['auth', 'deal.access'])->name('deals-dr2
     // Manual "Decline deal" — the canonical accepted_status → 'D' transition (locks the pipeline; re-grant from the register).
     Route::post('/{deal}/pipeline/decline',               [\App\Http\Controllers\Dr2\PipelineController::class, 'declineDeal'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.decline');
     // Feature 1 — capture the BOND ATTORNEY (appointed by the bank post-grant) on Email Parties.
+    // attorney-portal.md 10 - choose the attorney's CONTACT PERSON from the Portal access panel (a firm is chosen but no person yet).
+    Route::post('/{deal}/pipeline/attorney-contact',      [\App\Http\Controllers\DealV2\AttorneyPortalAccessController::class, 'chooseContact'])->whereNumber('deal')->middleware('permission:create_deals')->name('pipeline.attorney-contact');
     Route::post('/{deal}/pipeline/bond-attorney',         [\App\Http\Controllers\Dr2\PipelineController::class, 'captureBondAttorney'])->whereNumber('deal')->middleware('permission:view_deals')->name('pipeline.bond-attorney');
     // AT-334 P1 — reopen a completed step (composable deals): clears actual_date, back to not_started, re-cascades.
     Route::post('/{deal}/pipeline/steps/{step}/reopen',   [\App\Http\Controllers\Dr2\PipelineController::class, 'reopenStep'])->whereNumber(['deal', 'step'])->middleware('permission:view_deals')->name('pipeline.step.reopen');

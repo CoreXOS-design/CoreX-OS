@@ -52,6 +52,14 @@
                        class="corex-input mt-1" style="width:8rem;">
                 <p class="text-xs mt-1" style="color:var(--text-muted);">After this the attorney needs a new link (use Resend link on the deal). 30 by default.</p>
             </div>
+            <div>
+                <label for="notify" class="text-sm font-semibold" style="color:var(--text-primary);">Email attorneys when new documents are filed</label>
+                <select id="notify" name="attorney_portal_notify" class="corex-input mt-1" style="width:14rem;">
+                    <option value="daily" @selected($notify === 'daily')>Once a day, per deal</option>
+                    <option value="off" @selected($notify === 'off')>Never</option>
+                </select>
+                <p class="text-xs mt-1" style="color:var(--text-muted);">One short email per deal per day, listing the kinds of document and a link to their page. Documents are never attached. Once a day by default.</p>
+            </div>
         </div>
         <div class="px-5 py-3 flex justify-end" style="border-top:1px solid var(--border);">
             <button type="submit" class="corex-btn-primary text-sm">Save</button>

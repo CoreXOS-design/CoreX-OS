@@ -11,19 +11,19 @@
 
         @if(!$codeSent)
             <p>We will send a code to <strong>{{ $maskedMail }}</strong>.</p>
-            <form method="POST" action="{{ route('attorney.code', $token) }}">
+            <form method="POST" action="{{ ($codeUrl ?? route('attorney.code', $token)) }}">
                 @csrf
                 <button type="submit" class="btn">Email me a code</button>
             </form>
         @else
-            <form method="POST" action="{{ route('attorney.verify', $token) }}">
+            <form method="POST" action="{{ ($verifyUrl ?? route('attorney.verify', $token)) }}">
                 @csrf
                 <label for="code" style="display:block;margin-bottom:6px;">Enter the 6-digit code we emailed to {{ $maskedMail }}</label>
                 <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="12" required autofocus
                        style="font-size:1.6rem;letter-spacing:.35em;padding:10px 14px;width:100%;border:1px solid var(--line);border-radius:10px;text-align:center;">
                 <p style="margin:14px 0 0;"><button type="submit" class="btn">Open my deals</button></p>
             </form>
-            <form method="POST" action="{{ route('attorney.code', $token) }}" style="margin-top:14px;">
+            <form method="POST" action="{{ ($codeUrl ?? route('attorney.code', $token)) }}" style="margin-top:14px;">
                 @csrf
                 <button type="submit" class="btn ghost">Send me a new code</button>
             </form>

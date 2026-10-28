@@ -52,6 +52,7 @@ Link + emailed one-time code. No password.
 | `attorney_portal_enabled` | **off** | Nothing external is exposed until the agency turns it on. Off = no "Send portal link" action, and every link 404s. |
 | `access_grace_days` | 30 | Days after a deal is registered/cancelled that the attorney can still reach it. |
 | `link_valid_days` | 30 | How long a portal link stays valid before the agent must resend it. |
+| `attorney_portal_notify` | **daily** | `off` / `daily` - whether attorneys are emailed when new documents reach their portal (section 15). |
 
 Each reaches the Setup Wizard (rule 10a) on the **Properties & listings** step of `config/agency-onboarding-copy.php` (the wizard has no Deals step; that step already carries the deal-to-property settings) with an `explain` and an `affects`, saved by `AttorneyPortalSettingsController::update`, every field has()-guarded so a partial post never wipes another (onboarding §6.1). If Johan wants a Deals step later the three controls move with their saver; nothing else changes. A settings page lives at `/corex/settings/attorney-portal` (permission `attorney_portal.manage_settings`).
 
@@ -173,4 +174,35 @@ Edited: `routes/web.php`, `config/corex-permissions.php`, `config/agency-onboard
 - The cookie is HttpOnly, path `/attorney`, 12 hours (platform value in `config/attorney-portal.php`), never longer than the link.
 
 **Not built:** upload-back and milestone updates (R1); an "attorney has new documents" email; a conveyancer person column on deals (the role's defaults are seeded for when one exists); a Deals step in the wizard.
+
+## 15. "New documents" email, and the in-panel contact chooser (follow-up, 28 Oct 2026)
+
+### 15.1 The email
+
+When a document that is in an attorney's portal set (section 7.4) is filed on a deal they currently see, they get ONE short email for that deal - **at most one per deal per calendar day** - so they do not have to keep checking.
+
+- **Setting:** `attorney_portal_notify` = `daily` (default) or `off`, per agency. On the Attorney Portal settings page and in the Setup Wizard (Properties & listings step, with explain / affects). The portal switch must also be on.
+- **What triggers it:** documents in THAT attorney's set (the matrix for their role, narrowed to the deal as in 7.4) whose *filed* time is after the last time they were told about that deal. Filed time = the document's created time, or later when it was linked to the deal's property or one of the deal's own parties afterwards. The first time, "after" means after the access was created, so papers that already existed when the attorney was invited never produce an email (the invite is their start). A colleague's deals and documents outside the attorney's set never trigger anything.
+- **Wording (plain):** subject `New documents for <address>`. Body: "<Agency> has added new documents for <address> that you can download:" then the KINDS of document ("OTP (Offer to Purchase)", "FICA (2)") - never file names, never a person's name - and an **Open this deal** button. Footer: "We never attach documents to this email. You will be asked for a code we email you before anything opens. You get at most one of these a day for each deal."
+- **No attachments, ever.** The email carries no file and no download link of its own.
+- **The link:** a signed address (`/attorney/open/{access}/{deal}`, valid for the agency's link life, 30 days by default). It shows the same "email me a code" page, then lands on that deal; if the attorney is already signed in on that browser it goes straight to the deal. It is only for the person whose access it was made for; a revoked, expired or switched-off access makes it a 404, a tampered address a 403.
+- **When it runs:** `php artisan attorney-portal:notify-new-documents [--agency=ID] [--dry-run]`, scheduled daily at 07:30. Running it more often is harmless (the once-per-deal-per-day guard). State per (access, deal) in `attorney_portal_notices` (`notified_through`, `last_sent_at`). Each send is logged as `notified` in the audit log with the number of documents.
+- **QA1 has no scheduler**: run the command by hand there. Staging / live schedulers pick the schedule entry up on deploy.
+- Test mail rules apply: QA1's outbound guard catches the email in Mailpit; it never reaches a real attorney.
+
+### 15.2 The Portal access panel when no contact person is chosen
+
+A deal can name a firm without naming a person; the portal cannot open for a firm. The panel (Email Parties tab) therefore states the next action and puts the control right there:
+
+- **Choose the attorney contact for this deal** - with "the portal is opened for one person, so pick who at <firm> is handling this deal", a list of that firm's active contacts (with their email, or "no email yet"), and **Use this contact**.
+- Saving sets the deal-register column the portal scopes on (`attorney_contact_id` / `bond_attorney_contact_id`) through `POST deals-dr2/{deal}/pipeline/attorney-contact` (`permission:create_deals`, the same permission as editing the deal). The contact must be an active contact of THAT deal's firm and the deal's pipeline must not be locked; anything else is refused with a plain sentence.
+- If the user may invite but may not edit deals, the panel says "You can't edit this deal. Ask someone who can to choose the contact." and shows no control.
+- If the firm has no contacts: "<Firm> has no contacts yet. Add a contact in the Supplier Directory, then come back here."
+- After choosing, the same panel shows **Send portal link** for that person.
+
+### 15.3 Files
+
+New: `AttorneyPortalNotifier`, `AttorneyPortalNotifyNewDocuments` (command), `AttorneyPortalNewDocumentsMail` + view, migration `2026_12_29_110000`, tests `AttorneyPortalNotifyTest`. Edited: `AttorneyPortalDocuments::forDealWithFiledAt`, the signed `open` routes and controller methods, `AttorneyPortalAccessController::chooseContact`, the panel partial, the settings page / controller / wizard control, `routes/console.php`.
+
+**Not changed:** the agent's email-button document pool (still the wider pool, awaiting Johan).
 
