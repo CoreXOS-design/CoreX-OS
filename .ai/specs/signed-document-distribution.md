@@ -173,3 +173,27 @@ source_type/id returns the same Document, so this never double-writes). See
 | Reference consumer (settings) | `app/Models/RentalInspectionSetting.php` — `auto_send_report_enabled` / `autoSendReportEnabledFor()` |
 | Reference consumer (UI) | `resources/views/corex/properties/show.blade.php` — the "Resend report" popover, and `resources/views/corex/properties/partials/rental-inspection-recording.blade.php` for where it's anchored |
 | One-off filing consumer (2026-09-29) | `RentalInventoryRecordingController::fileInventoryWetInkScan()` / `RentalInspectionRecordingController::fileInspectionWetInkScan()` — per-party wet-ink scan filing, via `FileableDocumentAdapter` |
+
+## The settings screen - Deal Document Distribution (28 Oct 2026, Johan)
+
+**One source of truth.** `/admin/settings/document-distribution` (Deals menu -> Deal Document Distribution; permission `deals_v2.manage_distribution_rules`) decides, per agency, **which parties may receive / download which kinds of document**. The same table drives:
+- the deal's "Email Parties" button (`Dr2DistributionComposer::defaultDocumentsForParty` -> `DocumentDistributionMatrix::typesForParty`),
+- the attorney portal (`AttorneyPortalDocuments::forDeal` -> the same `typesForParty`),
+- signed-document completion distribution (`partyRolesForType`).
+
+There is no second list. (What the portal and the email button add on top is only *deal scoping* - see below - never a different permission.)
+
+**The screen.** A plain matrix: document types down the left, the parties the matrix supports across the top (Seller, Buyer, Transferring Attorney, Bond Attorney, Bond Originator, Conveyancer, External Agency - `DocumentDistributionMatrix::PARTY_ROLES`), a tick box per cell meaning "this party may receive / download this kind of document".
+- **Page standard:** left menu and the header block stay put; the matrix is the content block and fits 1366x768 and 1920x1080 without scrolling the page. If there are more document types than the height, the matrix scrolls inside its own frame, with the party row and the document column pinned (sticky). Proven by `scripts/doc-distribution-fit-check.mjs` (real Chromium, both sizes, screenshots) and a structure test.
+- **Search / filter:** find a document type by name; show All / only those someone can receive / only those nobody can receive; count "N of M document types".
+- **Save with a change summary:** edits are held on the page (changed cells are highlighted, the count shows); **Review & save** opens a dialog listing every addition and removal; **Save changes** commits; **Discard changes** drops them.
+- **Restore standard set-up:** puts the shipped defaults (`DocumentDistributionDefaults`, the two seeders' tables merged) back on screen as pending changes; nothing is saved until Save.
+- **Audit:** every save writes one append-only row (`document_distribution_audit_entries`: agency, user, summary "2 added, 1 removed", the lines "Added: FICA - Conveyancer"); the header shows "Last changed ... by ..." and a History dialog lists the last 15.
+- **Wording** is plain: no rule, stage or step vocabulary on this page.
+
+**Stored model - unchanged.** A tick = an active TYPE-level `deal_stage_document_rules` row (`pipeline_step_id` NULL) for (agency, document type, party role). Save adds / restores / soft-deletes those rows only (never a hard delete); an existing row keeps its delivery mode (secure link or attachment), a new one is a secure link. **Stage-scoped rules** (documents that are also sent automatically when a pipeline stage is ticked) are never changed by this page: a cell that has one shows a small dot with the stage name in its tooltip, and they are managed on **Deal Distribution Rules** (`admin.settings.deal-distribution-rules`). The old per-party checklist with a delivery column and a stage pin was replaced by this matrix; the per-document delivery mode is now decided by the contact's own preference, then the document's existing rule, then a secure link (as `Dr2DistributionComposer::defaultDeliveryFor` already did).
+
+**Deal scoping (not a permission).** Whatever the matrix allows is offered only when the document is *filed on that deal*: on the deal itself, on the deal's property, or - for personal papers - on the deal's own buyer and seller. The attorney portal further treats deal-specific types (offer to purchase, sale agreement, bond grant, addendum, proforma) as filed-on-this-deal only, so an earlier failed offer's paper on the same property never reaches this deal's attorney. See `attorney-portal.md` 7.4.
+
+Files: `DocumentDistributionMatrixController`, `DocumentDistributionMatrix` (`typeLevelCells`, `stageAutoCells`, `applyCells`), `DocumentDistributionDefaults`, `DocumentDistributionAuditEntry`, view `admin/settings/document-distribution.blade.php`, tests `DocumentDistributionMatrixPageTest`.
+

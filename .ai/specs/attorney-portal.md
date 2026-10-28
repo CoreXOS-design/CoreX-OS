@@ -96,7 +96,7 @@ Names of buyer and seller; no ID numbers, phone numbers or emails of the parties
 
 ### 7.4 Documents: what the attorney gets (R5)
 
-The set is exactly what `Dr2DistributionComposer::defaultDocumentsForParty($deal, <their role on this deal>)` returns: the **matrix** document types for that party role, **filtered to what is actually filed on that deal** (deal, property, linked contacts), de-duplicated. The portal never offers a document the matrix does not name, and one document type removed from the matrix disappears from the portal at once. The matrix is the single source; this feature adds no second list.
+The set is exactly what `Dr2DistributionComposer::defaultDocumentsForParty($deal, <their role on this deal>)` returns: the **matrix** document types for that party role, **filtered to what is actually filed on that deal** (deal, property, linked contacts), de-duplicated. The portal never offers a document the matrix does not name, and one document type removed from the matrix disappears from the portal at once. The matrix is the single source; this feature adds no second list. **Johan's ruling (28 Oct 2026): the portal's document set IS the Deal Document Distribution matrix** (`/admin/settings/document-distribution`, one table for email and portal - see `signed-document-distribution.md` "The settings screen"). The only things the portal adds are *deal scoping*, not permissions: filed on this deal / this deal's property, and for personal papers this deal's own buyer and seller (7.4); deal-specific types count only when filed on the deal itself. A tick in the matrix is the only thing that can make a document type appear to an attorney; unticking removes it from the portal at once. The portal carries no document-type list of its own except that deal-scoping set (`DEAL_ONLY_SLUGS`).
 
 **Defaults seeded for every agency (the matrix is editable per agency afterwards).** A default is added only where that agency has **never** had a rule for that exact (document type, role), including a soft-deleted one — so an agency that deliberately removed one is never overridden:
 
@@ -206,3 +206,4 @@ New: `AttorneyPortalNotifier`, `AttorneyPortalNotifyNewDocuments` (command), `At
 
 **Not changed:** the agent's email-button document pool (still the wider pool, awaiting Johan).
 
+**Update 28 Oct 2026:** the defaults table in 7.4 now lives in `DocumentDistributionDefaults` (merged with the older seeded defaults) and is editable as a tick matrix on the Deal Document Distribution page; the agent's email-button document pool question is unchanged and still awaits Johan.

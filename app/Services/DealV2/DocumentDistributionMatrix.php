@@ -250,4 +250,85 @@ class DocumentDistributionMatrix
             }
         }
     }
+
+    /**
+     * The simple-matrix view: which (document type, party role) cells are ticked - the type-level rules only.
+     * @return array<int,array<string,bool>> [document_type_id => [party_role => true]]
+     */
+    public function typeLevelCells(int $agencyId): array
+    {
+        $out = [];
+        foreach ($this->baseQuery($agencyId)->get(['document_type_id', 'party_role']) as $r) {
+            if (array_key_exists($r->party_role, self::PARTY_ROLES)) {
+                $out[(int) $r->document_type_id][$r->party_role] = true;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Cells that ALSO send automatically at a pipeline stage (stage-scoped rules). Shown as a small dot; managed on the
+     * Deal Distribution Rules page, never touched by the matrix.
+     * @return array<int,array<string,string[]>> [document_type_id => [party_role => [stage names]]]
+     */
+    public function stageAutoCells(int $agencyId): array
+    {
+        $rows = DealStageDocumentRule::query()->withoutGlobalScope(AgencyScope::class)
+            ->where('agency_id', $agencyId)->whereNotNull('pipeline_step_id')->where('is_active', true)
+            ->with('pipelineStep:id,name')->get();
+
+        $out = [];
+        foreach ($rows as $r) {
+            if (array_key_exists($r->party_role, self::PARTY_ROLES) && $r->pipelineStep) {
+                $out[(int) $r->document_type_id][$r->party_role][] = $r->pipelineStep->name;
+            }
+        }
+
+        return array_map(fn ($roles) => array_map(fn ($names) => array_values(array_unique($names)), $roles), $out);
+    }
+
+    /**
+     * Save the matrix: for every type listed in $desired, tick exactly the roles given and untick the rest. TYPE-level rules only
+     * (stage rules are never touched); an existing row keeps its delivery mode, a restored one keeps its old one, a new one is a secure link.
+     * Types not listed are untouched. Returns what changed so the caller can summarise and audit it.
+     *
+     * @param array<int,string[]> $desired [document_type_id => [party_role, ...]]
+     * @return list<array{type_id:int, role:string, change:'added'|'removed'}>
+     */
+    public function applyCells(int $agencyId, array $desired, ?int $actorId = null): array
+    {
+        $changes = [];
+        foreach ($desired as $typeId => $roles) {
+            $typeId = (int) $typeId;
+            $want   = collect($roles)->filter(fn ($r) => array_key_exists($r, self::PARTY_ROLES))->unique()->values();
+
+            $existing = DealStageDocumentRule::withTrashed()->withoutGlobalScope(AgencyScope::class)
+                ->where('agency_id', $agencyId)->whereNull('pipeline_step_id')->where('document_type_id', $typeId)
+                ->get()->keyBy('party_role');
+
+            foreach (array_keys(self::PARTY_ROLES) as $role) {
+                $rule   = $existing->get($role);
+                $active = $rule && ! $rule->trashed() && $rule->is_active;
+
+                if ($want->contains($role) && ! $active) {
+                    if ($rule) {
+                        $rule->fill(['is_active' => true, 'deleted_at' => null])->save();
+                    } else {
+                        DealStageDocumentRule::create([
+                            'agency_id' => $agencyId, 'pipeline_step_id' => null, 'document_type_id' => $typeId, 'party_role' => $role,
+                            'delivery_mode' => DealStageDocumentRule::MODE_SECURE_LINK, 'auto_on_stage_tick' => false, 'is_active' => true, 'created_by_id' => $actorId,
+                        ]);
+                    }
+                    $changes[] = ['type_id' => $typeId, 'role' => $role, 'change' => 'added'];
+                } elseif (! $want->contains($role) && $active) {
+                    $rule->delete();
+                    $changes[] = ['type_id' => $typeId, 'role' => $role, 'change' => 'removed'];
+                }
+            }
+        }
+
+        return $changes;
+    }
 }
+
