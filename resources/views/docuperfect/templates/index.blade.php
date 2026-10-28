@@ -254,6 +254,7 @@
                                 @csrf
                                 <button class="corex-btn-outline text-xs px-3 py-1.5">Copy</button>
                             </form>
+                            <a href="{{ route('docuperfect.templates.readiness', $tpl->id) }}" class="corex-btn-outline text-xs px-3 py-1.5">Readiness</a>
                             @if($canTransfer)<a href="{{ route('docuperfect.templates.export', $tpl->id) }}" class="corex-btn-outline text-xs px-3 py-1.5">Export package</a>@endif
                             <form method="POST" action="{{ route('docuperfect.templates.archive', $tpl->id) }}" class="inline" onsubmit="return confirm('Archive this template?');">
                                 @csrf
@@ -346,6 +347,7 @@
                                                 @csrf
                                                 <button class="corex-btn-outline text-xs px-2 py-1">Copy</button>
                                             </form>
+                                            <a href="{{ route('docuperfect.templates.readiness', $tpl->id) }}" class="corex-btn-outline text-xs px-2 py-1">Readiness</a>
                                             @if($canTransfer)<a href="{{ route('docuperfect.templates.export', $tpl->id) }}" class="corex-btn-outline text-xs px-2 py-1">Export</a>@endif
                                         @endif
                                         <form method="POST" action="{{ route('docuperfect.templates.destroy', $tpl->id) }}" class="inline" onsubmit="return confirm('Delete this template? It will be removed from your lists. Nothing is erased — it moves to Archived, where you can restore it yourself any time.');">
