@@ -106,7 +106,22 @@ class SupplierDirectoryController extends Controller
             'groups' => \App\Models\DealV2\AgencyServiceTypeGroup::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->orderBy('sort_order')->orderBy('id')->get(['id', 'label']),
             'roleLabels' => AgencyServiceType::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNotNull('legacy_specialty')->whereNull('deleted_at')->pluck('label', 'legacy_specialty'),
             'returnFault' => $this->returnFault($request, $agencyId),
+            // attorney-portal.md 10 - the Send portal link action on a contact row
+            'attorneyPortal' => $this->attorneyPortalState($request, $agencyId, $providers),
         ]);
+    }
+
+    /** Is the attorney portal on for this agency, may this user invite, and which contacts already have access. */
+    private function attorneyPortalState(Request $request, int $agencyId, $providers): array
+    {
+        $enabled = \App\Models\AttorneyPortalSetting::forAgency($agencyId)->isEnabled();
+        $can     = $enabled && (bool) $request->user()?->hasPermission('deals_v2.invite_attorney');
+        $access  = $can
+            ? \App\Models\AttorneyPortalAccess::withoutGlobalScopes()->where('agency_id', $agencyId)
+                ->whereIn('service_provider_id', collect($providers)->pluck('id'))->get()->keyBy('service_provider_contact_id')
+            : collect();
+
+        return ['enabled' => $enabled, 'can' => $can, 'access' => $access];
     }
 
     /** @return array{q:string, status:string, kind:string, callout:string, sort:string, dir:string} the directory's search / filter / sort, whitelisted */

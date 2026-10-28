@@ -87,6 +87,8 @@ class DocumentTypesCatalogueSeeder extends Seeder implements SyncableReferenceSe
         'inventory_list' => ['Inventory List', 33, 'shared', null, 'none', true],
         'inventory_exclusion_list' => ['Inventory Exclusion List', 34, 'shared', null, 'none', false],
         'market_analysis_report' => ['Market Analysis Report', 35, 'shared', [], 'none', true],
+        // attorney-portal.md 7.4 - the bank's grant letter, offered to the bond attorney.
+        'bond_grant' => ['Bond Grant', 36, 'shared', null, 'none', false],
         'coc_request' => ['COC Request', 900, 'shared', null, 'none', false],
         'proforma_invoice' => ['Proforma Invoice', 901, 'deal', ['seller_owner'], 'none', false],
         'work_authorisation' => ['Work Authorisation', 905, 'shared', null, 'none', false],

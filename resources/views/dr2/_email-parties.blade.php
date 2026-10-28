@@ -265,3 +265,6 @@
         </p>
     </div>
 @endif
+
+{{-- attorney-portal.md 10 - who has portal access on this deal (renders nothing unless the portal is on and the user may invite). --}}
+@include('dr2._attorney-portal-access', ['deal' => $deal])
