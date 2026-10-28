@@ -5,7 +5,7 @@
  * Usage: node scripts/print-shell-pdf.mjs <in.html> <out.pdf>
  */
 import fs from 'node:fs';
-import puppeteer from '/corex-qa1/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js';
+import puppeteer from 'puppeteer-core';
 
 const [input, output] = process.argv.slice(2);
 const browser = await puppeteer.launch({executablePath: '/usr/bin/chromium', headless: true, args: ['--no-sandbox', '--disable-gpu']});

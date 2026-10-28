@@ -9,7 +9,7 @@
  * Output (stdout) : JSON {pages, headers, footers, pageNumbers[], corexPageNumbers, initialsRows, firstPageHasHeader, pdfShellHtml}
  */
 import fs from 'node:fs';
-import puppeteer from '/corex-qa1/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js';
+import puppeteer from 'puppeteer-core';
 
 const cfg = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const browser = await puppeteer.launch({executablePath: '/usr/bin/chromium', headless: true, args: ['--no-sandbox', '--disable-gpu']});
