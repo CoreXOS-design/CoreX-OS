@@ -81,6 +81,9 @@ class RecipeService
                         'label' => $def['label'], 'type' => RtsTask::TYPE_CORE, 'event_key' => $def['event'],
                         'event_filter' => $def['filter'] ?: null, 'recurrence_unit' => $def['unit'], 'capture_kind' => 'none',
                         'evidence_required' => 'none', 'is_system' => true, 'is_active' => true, 'sort_order' => $sort,
+                        'mapping_default' => app(TaskMappingService::class)->defaultPayload([
+                            'step_id' => $stepIds[$def['step']], 'event_key' => $def['event'], 'event_filter' => $def['filter'] ?: null, 'needs_step' => false,
+                        ]),
                     ]);
                     $made['tasks']++;
 
@@ -211,7 +214,12 @@ class RecipeService
 
         return DB::transaction(function () use ($agencyId, $track, $task, $attributes) {
             if ($task) {
-                $task->fill($attributes)->save();
+                // Saving the form means someone chose the step (it is a required field), so "not mapped" ends here. Any change to the
+                // step or what credits the task is one audit row (22.25).
+                $mapping = app(TaskMappingService::class);
+                $before  = $mapping->snapshot($task);
+                $task->fill($attributes + ['needs_step' => false])->save();
+                $mapping->recordChange($task, $before, auth()->id() ? (int) auth()->id() : null);
 
                 return $task;
             }

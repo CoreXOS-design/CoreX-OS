@@ -33,11 +33,13 @@ class RtsTask extends Model
 
     protected $fillable = [
         'agency_id', 'track', 'step_id', 'key', 'label', 'type', 'event_key', 'event_filter', 'recurrence_unit',
-        'capture_kind', 'evidence_required', 'is_system', 'is_active', 'sort_order', 'legacy_activity_definition_id',
+        'capture_kind', 'evidence_required', 'is_system', 'is_active', 'sort_order', 'legacy_activity_definition_id', 'mapping_default', 'needs_step',
     ];
 
     protected $casts = [
         'event_filter' => 'array',
+        'mapping_default' => 'array',
+        'needs_step'   => 'boolean',
         'is_system'    => 'boolean',
         'is_active'    => 'boolean',
         'sort_order'   => 'integer',
