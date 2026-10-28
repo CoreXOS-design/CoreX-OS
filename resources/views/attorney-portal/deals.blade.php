@@ -82,7 +82,7 @@
     <div class="ap-frame" data-ap-frame>
         <table class="ap-grid" data-ap-grid>
             <colgroup>
-                <col style="width:34px"><col style="width:76px"><col><col style="width:140px"><col style="width:140px"><col style="width:225px"><col style="width:195px"><col style="width:128px"><col style="width:100px"><col style="width:56px">
+                <col style="width:30px"><col style="width:66px"><col><col style="width:130px"><col style="width:130px"><col style="width:200px"><col style="width:178px"><col style="width:140px"><col style="width:92px"><col style="width:50px">
             </colgroup>
             <thead><tr>
                 <th></th>
@@ -105,7 +105,7 @@
                     <td title="{{ $r['seller'] }}">{{ $r['seller'] }}</td>
                     <td title="{{ $r['buyer'] }}">{{ $r['buyer'] }}</td>
                     <td title="{{ $r['agent'] }}{{ $r['agent_phone'] ? ' - ' . $r['agent_phone'] : '' }}">{{ $r['agent'] ?: '—' }}@if($r['agent_phone']) <span class="muted">&middot; {{ $r['agent_phone'] }}</span>@endif</td>
-                    <td><span class="pill {{ $r['stage'] === 'Cancelled' ? 'bad' : ($r['finished'] ? 'done' : '') }}">{{ $r['stage'] }}</span></td>
+                    <td title="{{ $r['stage'] }}"><span class="pill {{ $r['stage'] === 'Cancelled' ? 'bad' : ($r['finished'] ? 'done' : '') }}">{{ $r['stage'] }}</span></td>
                     <td>{{ $r['latest_document'] ? $r['latest_document']->format('j M Y') : '—' }}</td>
                     <td>{{ $r['document_count'] }}</td>
                     <td><a href="{{ route('attorney.deal', $r['id']) }}" style="color:var(--brand);text-decoration:none;font-weight:600;" title="Open this deal on its own page">Open</a></td>
