@@ -5773,6 +5773,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             $c = \App\Http\Controllers\Admin\FeatureRolloutDefaultsController::class;
             Route::get('/',                 [$c, 'index'])->name('index');
             Route::put('/pace',             [$c, 'savePacing'])->name('pace');
+            // §22 — several rollout plans: create / copy / edit / default / archive / restore.
+            Route::post('/plans',                  [$c, 'storePlan'])->name('plans.store');
+            Route::put('/plans/{plan}',            [$c, 'updatePlan'])->whereNumber('plan')->name('plans.update');
+            Route::post('/plans/{plan}/default',   [$c, 'makeDefaultPlan'])->whereNumber('plan')->name('plans.default');
+            Route::delete('/plans/{plan}',         [$c, 'archivePlan'])->whereNumber('plan')->name('plans.archive');
+            Route::post('/plans/{plan}/restore',   [$c, 'restorePlan'])->whereNumber('plan')->name('plans.restore');
             // §20 — the wave planner board saves the whole ordered plan in one post.
             Route::put('/layout',           [$c, 'saveLayout'])->name('layout');
             // §19.4 — Feature wording & videos (what the rollout pop-ups say about each feature).

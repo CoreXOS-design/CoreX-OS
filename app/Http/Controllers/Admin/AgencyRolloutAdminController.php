@@ -102,6 +102,8 @@ class AgencyRolloutAdminController extends Controller
         $setup = AgencyOnboardingSetup::queryWithoutAgencyScope()->where('agency_id', $agency->id)->latest('id')->first();
         $plan = $this->rollout->forAgency((int) $agency->id);
         $isBoth = AgencyTypeFeatureSeeder::normalise($agency->agency_type) === 'both';
+        // §22.1 — the plan the Start dropdown offers first: the one picked, else the best match for this agency.
+        $startPlanId = $plan ? null : $this->rollout->resolvePlanId($agency, $request->integer('plan') ?: null);
 
         $waves = collect();
         $totals = ['features' => 0, 'released' => 0];
@@ -151,7 +153,10 @@ class AgencyRolloutAdminController extends Controller
             'intervals' => (array) config('feature-rollout.interval_choices', []),
             'intervalMax' => $this->rollout->intervalMax(),
             'defaults'  => $this->rollout->defaults(),
-            'preview'   => $plan ? [] : $this->rollout->holdPreview($agency),
+            'preview'   => $plan ? [] : $this->rollout->holdPreview($agency, false, $startPlanId),
+            'startPlans'  => $plan ? collect() : \App\Models\FeatureRollout\FeatureRolloutPlan::orderByDesc('is_default')->orderBy('name')->get(),
+            'startPlanId' => $startPlanId,
+            'sourcePlan'  => $plan && $plan->source_plan_id ? \App\Models\FeatureRollout\FeatureRolloutPlan::withTrashed()->find($plan->source_plan_id) : null,
             'usage'     => $plan ? \App\Http\Controllers\CoreX\FeatureRolloutController::usageFor($agency, $paged->getCollection()) : [],
             'lowUse'    => $plan ? app(\App\Services\FeatureRollout\FeatureRolloutUsage::class)->lowUse($plan) : null,
         ]);
@@ -172,11 +177,15 @@ class AgencyRolloutAdminController extends Controller
 
         $data = $request->validate([
             'interval_days' => 'required|integer|min:1|max:' . $this->rollout->intervalMax(),
+            'plan_id'       => ['required', 'integer', \Illuminate\Validation\Rule::exists('feature_rollout_plans', 'id')->whereNull('deleted_at')],
             'confirm'       => 'accepted',
-        ], ['confirm.accepted' => 'Tick the box to confirm these features switch off for everyone at this agency now.']);
+        ], [
+            'plan_id.required' => 'Choose which rollout to start this agency on.',
+            'plan_id.exists'   => 'That rollout is no longer available. Pick another.','confirm.accepted' => 'Tick the box to confirm these features switch off for everyone at this agency now.']);
 
         $this->rollout->start($agency, [
             'interval_days' => (int) $data['interval_days'],
+            'plan_id'       => (int) $data['plan_id'],
             'weekdays_only' => $request->boolean('weekdays_only'),
             'skip_holidays' => $request->boolean('skip_holidays'),
             'side_by_side'  => $request->boolean('side_by_side'),

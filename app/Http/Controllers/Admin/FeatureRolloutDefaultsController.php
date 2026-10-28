@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\FeatureRollout\FeatureRolloutPlan;
 use App\Models\FeatureRollout\FeatureRolloutWave;
 use App\Services\FeatureRollout\FeatureRolloutAccess;
 use App\Services\FeatureRollout\FeatureRolloutService;
@@ -46,7 +47,10 @@ class FeatureRolloutDefaultsController extends Controller
             'to'     => 'nullable|date',
             'sort'   => ['nullable', Rule::in(self::SORTS)],
             'dir'    => 'nullable|in:asc,desc',
+            'plan'   => 'nullable|integer',
         ]);
+        $plan = $this->currentPlan($request, $filters['plan'] ?? null);
+        $planId = (int) $plan->id;
 
         $waveable = $this->rollout->waveableFeatures();
         $archivedView = ($filters['status'] ?? 'active') === 'archived';
@@ -58,7 +62,7 @@ class FeatureRolloutDefaultsController extends Controller
         // ordered, dated board (spec §20): its order IS the sort, so it is never filtered or paginated.
         $archived = null;
         if ($archivedView) {
-            $query = FeatureRolloutWave::onlyTrashed();
+            $query = FeatureRolloutWave::onlyTrashed()->inPlan($planId);
             if (! empty($filters['q'])) {
                 $q = $filters['q'];
                 // A search matches the wave title or the NAME of any feature in it.
@@ -104,13 +108,17 @@ class FeatureRolloutDefaultsController extends Controller
             'intervalMax'=> $this->rollout->intervalMax(),
             'tracks'     => FeatureRolloutWave::TRACKS,
             'labels'     => $waveable,
-            'checks'     => $this->checks($waveable),
-            'tourGap'    => $this->tourGap($waveable, $tourCoverage),
+            'checks'     => $this->checks($waveable, $planId),
+            'tourGap'    => $this->tourGap($waveable, $tourCoverage, $planId),
             'tourCoverage' => $tourCoverage,
-            'archivedCount' => FeatureRolloutWave::onlyTrashed()->count(),
+            'archivedCount' => FeatureRolloutWave::onlyTrashed()->inPlan($planId)->count(),
+            'plan'          => $plan,
+            'planList'      => $this->planList($request),
+            'planTypes'     => FeatureRolloutPlan::TYPES,
+            'activePlans'   => FeatureRolloutPlan::orderByDesc('is_default')->orderBy('name')->get(['id', 'name']),
             'overview'      => $overviewPage,
             'overviewFilters' => $o,
-            'board'         => $archivedView ? null : $this->board($waveable, $tourCoverage, $defaults, $request),
+            'board'         => $archivedView ? null : $this->board($waveable, $tourCoverage, $defaults, $request, $planId),
         ]);
     }
 
@@ -134,7 +142,8 @@ class FeatureRolloutDefaultsController extends Controller
     {
         $this->owner($request);
         $data = $this->validated($request);
-        $data['position'] = (int) FeatureRolloutWave::withTrashed()->max('position') + 10;
+        $data['plan_id'] = (int) $this->currentPlan($request, $request->integer('plan_id') ?: null)->id;
+        $data['position'] = (int) FeatureRolloutWave::withTrashed()->inPlan($data['plan_id'])->max('position') + 10;
         FeatureRolloutWave::create($data);
 
         return back()->with('success', 'Wave added. New plans will include it; running plans are unchanged.');
@@ -153,7 +162,7 @@ class FeatureRolloutDefaultsController extends Controller
         $this->owner($request);
         $request->validate(['direction' => 'required|in:up,down']);
         $wave = FeatureRolloutWave::findOrFail($wave);
-        $all = FeatureRolloutWave::orderBy('position')->orderBy('id')->get()->values();
+        $all = FeatureRolloutWave::inPlan((int) $wave->plan_id)->orderBy('position')->orderBy('id')->get()->values();
         $i = $all->search(fn ($w) => $w->id === $wave->id);
         $j = $request->direction === 'up' ? $i - 1 : $i + 1;
         if ($i !== false && isset($all[$j])) {
@@ -196,9 +205,10 @@ class FeatureRolloutDefaultsController extends Controller
             throw ValidationException::withMessages(['layout' => 'The plan could not be read. Reload the page and try again.']);
         }
 
+        $planId = (int) $this->currentPlan($request, $request->integer('plan_id') ?: null)->id;
         $waveable = $this->rollout->waveableFeatures();
         $access = app(FeatureRolloutAccess::class);
-        $existing = FeatureRolloutWave::pluck('id')->map(fn ($id) => (int) $id)->all();
+        $existing = FeatureRolloutWave::inPlan($planId)->pluck('id')->map(fn ($id) => (int) $id)->all();
         $fail = fn (string $message) => throw ValidationException::withMessages(['layout' => $message]);
 
         // An empty plan archives every wave (a new agency would then get every feature at once): only on purpose.
@@ -263,26 +273,151 @@ class FeatureRolloutDefaultsController extends Controller
         // "Admin decides" waves always come last, whatever order they arrived in.
         usort($rows, fn ($a, $b) => (int) $a['admin'] <=> (int) $b['admin']);
 
-        $archived = DB::transaction(function () use ($rows, $known) {
-            $existing = FeatureRolloutWave::lockForUpdate()->pluck('id')->map(fn ($id) => (int) $id)->all();
+        $archived = DB::transaction(function () use ($rows, $known, $planId) {
+            $existing = FeatureRolloutWave::inPlan($planId)->lockForUpdate()->pluck('id')->map(fn ($id) => (int) $id)->all();
             $keep = [];
             foreach ($rows as $n => $r) {
                 $data = $r['data'] + ['position' => ($n + 1) * 10];
                 if ($r['id'] !== null) {
-                    FeatureRolloutWave::findOrFail($r['id'])->update($data);
+                    FeatureRolloutWave::inPlan($planId)->findOrFail($r['id'])->update($data);
                     $keep[] = $r['id'];
                 } else {
-                    $keep[] = FeatureRolloutWave::create($data)->id;
+                    $keep[] = FeatureRolloutWave::create($data + ['plan_id' => $planId])->id;
                 }
             }
             $gone = array_values(array_diff($known === null ? $existing : array_intersect($existing, $known), $keep));
-            FeatureRolloutWave::whereIn('id', $gone)->get()->each->delete();
+            FeatureRolloutWave::inPlan($planId)->whereIn('id', $gone)->get()->each->delete();
 
             return count($gone);
         });
 
-        return redirect()->route('admin.feature-rollout-defaults.index')
+        return redirect()->route('admin.feature-rollout-defaults.index', ['plan' => $planId])
             ->with('success', 'Plan saved. New plans use it; running plans are unchanged.' . ($archived ? " {$archived} " . ($archived === 1 ? 'wave was' : 'waves were') . ' archived.' : ''));
+    }
+
+    // ── Plans (spec §22) ───────────────────────────────────────────────────────
+
+    /** The plan being edited: the one asked for if it is active, else the default, else the first one. */
+    private function currentPlan(Request $request, ?int $requested = null): FeatureRolloutPlan
+    {
+        $requested ??= $request->old('plan_id') ? (int) $request->old('plan_id') : null;
+        $plan = $requested ? FeatureRolloutPlan::find($requested) : null;
+
+        return $plan ?? FeatureRolloutPlan::where('is_default', true)->first() ?? FeatureRolloutPlan::orderBy('id')->firstOrFail();
+    }
+
+    /** The plan list screen: search, filter, sort, paginate (spec §22.2). Own query names (p_*, ppage). */
+    private function planList(Request $request)
+    {
+        $f = $request->validate([
+            'p_q'      => 'nullable|string|max:100',
+            'p_type'   => ['nullable', Rule::in(array_keys(FeatureRolloutPlan::TYPES))],
+            'p_status' => 'nullable|in:active,archived',
+            'p_from'   => 'nullable|date',
+            'p_to'     => 'nullable|date',
+            'p_sort'   => 'nullable|in:name,agency_type,groups,updated_at',
+            'p_dir'    => 'nullable|in:asc,desc',
+        ]);
+        $query = ($f['p_status'] ?? 'active') === 'archived' ? FeatureRolloutPlan::onlyTrashed() : FeatureRolloutPlan::query();
+        $query->withCount(['waves as groups_count']);
+        if (! empty($f['p_q'])) {
+            $q = '%' . $f['p_q'] . '%';
+            $query->where(fn ($w) => $w->where('name', 'like', $q)->orWhere('note', 'like', $q));
+        }
+        if (! empty($f['p_type'])) {
+            $query->where('agency_type', $f['p_type']);
+        }
+        if (! empty($f['p_from'])) {
+            $query->whereDate('updated_at', '>=', $f['p_from']);
+        }
+        if (! empty($f['p_to'])) {
+            $query->whereDate('updated_at', '<=', $f['p_to']);
+        }
+        $sort = $f['p_sort'] ?? null;
+        if ($sort === null) {
+            $query->orderByDesc('is_default')->orderBy('name');
+        } else {
+            $dir = $f['p_dir'] ?? ($sort === 'updated_at' ? 'desc' : 'asc');
+            $query->orderBy($sort === 'groups' ? 'groups_count' : $sort, $dir)->orderBy('id');
+        }
+
+        return ['rows' => $query->paginate(10, ['*'], 'ppage')->withQueryString(), 'filters' => $f];
+    }
+
+    private function planData(Request $request): array
+    {
+        return $request->validate([
+            'name'        => 'required|string|max:120',
+            'note'        => 'nullable|string|max:500',
+            'agency_type' => ['required', Rule::in(array_keys(FeatureRolloutPlan::TYPES))],
+        ], ['name.required' => 'Give the rollout a name.']);
+    }
+
+    /** New blank plan, or — with copy_of — an exact duplicate (groups, order, wording, features) named "<name> (copy)". */
+    public function storePlan(Request $request)
+    {
+        $this->owner($request);
+        $data = $this->planData($request);
+        $source = $request->filled('copy_of') ? FeatureRolloutPlan::findOrFail((int) $request->input('copy_of')) : null;
+
+        $plan = DB::transaction(function () use ($data, $source, $request) {
+            $plan = FeatureRolloutPlan::create($data + ['is_default' => false, 'created_by' => $request->user()->id]);
+            if ($source) {
+                foreach (FeatureRolloutWave::inPlan($source->id)->orderBy('position')->orderBy('id')->get() as $w) {
+                    FeatureRolloutWave::create([
+                        'plan_id' => $plan->id, 'track' => $w->track, 'position' => $w->position,
+                        'title' => $w->title, 'intro_text' => $w->intro_text, 'feature_keys' => $w->feature_keys,
+                    ]);
+                }
+            }
+
+            return $plan;
+        });
+
+        return redirect()->route('admin.feature-rollout-defaults.index', ['plan' => $plan->id])
+            ->with('success', $source ? "Copied. “{$plan->name}” has the same groups as “{$source->name}” — change it freely." : "“{$plan->name}” created. Add its groups below.");
+    }
+
+    public function updatePlan(Request $request, int $plan)
+    {
+        $this->owner($request);
+        $plan = FeatureRolloutPlan::findOrFail($plan);
+        $plan->update($this->planData($request));
+
+        return redirect()->route('admin.feature-rollout-defaults.index', ['plan' => $plan->id])->with('success', 'Rollout details saved.');
+    }
+
+    public function makeDefaultPlan(Request $request, int $plan)
+    {
+        $this->owner($request);
+        $plan = FeatureRolloutPlan::findOrFail($plan);
+        DB::transaction(function () use ($plan) {
+            FeatureRolloutPlan::where('is_default', true)->update(['is_default' => false]);
+            $plan->update(['is_default' => true]);
+        });
+
+        return redirect()->route('admin.feature-rollout-defaults.index', ['plan' => $plan->id])->with('success', "“{$plan->name}” is now the default rollout.");
+    }
+
+    public function archivePlan(Request $request, int $plan)
+    {
+        $this->owner($request);
+        $plan = FeatureRolloutPlan::findOrFail($plan);
+        if ($plan->is_default) {
+            return back()->with('error', 'The default rollout cannot be archived. Make another one the default first.');
+        }
+        $plan->delete();
+
+        return redirect()->route('admin.feature-rollout-defaults.index')->with('success', "“{$plan->name}” archived. Agencies already using it are unchanged; restore it from the archived list.");
+    }
+
+    public function restorePlan(Request $request, int $plan)
+    {
+        $this->owner($request);
+        $plan = FeatureRolloutPlan::onlyTrashed()->findOrFail($plan);
+        $plan->restore();
+
+        return redirect()->route('admin.feature-rollout-defaults.index', ['plan' => $plan->id])->with('success', "“{$plan->name}” restored.");
     }
 
     // ── helpers ────────────────────────────────────────────────────────────────
@@ -318,7 +453,7 @@ class FeatureRolloutDefaultsController extends Controller
      * Everything the wave planner board needs, as one JSON-able array (spec §20). Dates are worked out in the
      * browser with the same rule as RolloutCalendar, from this holiday list and the live pace fields.
      */
-    private function board(array $waveable, array $tourCoverage, array $defaults, Request $request): array
+    private function board(array $waveable, array $tourCoverage, array $defaults, Request $request, int $planId): array
     {
         $catalogue = $this->features->catalogue();
         $access = app(FeatureRolloutAccess::class);
@@ -335,7 +470,7 @@ class FeatureRolloutDefaultsController extends Controller
         }
 
         $calendar = app(RolloutCalendar::class);
-        $saved = FeatureRolloutWave::orderBy('position')->orderBy('id')->get()
+        $saved = FeatureRolloutWave::inPlan($planId)->orderBy('position')->orderBy('id')->get()
             ->map(fn ($w) => ['id' => $w->id, 'title' => $w->title, 'track' => $w->track, 'intro' => (string) $w->intro_text, 'keys' => array_values((array) $w->feature_keys)])
             ->all();
 
@@ -361,7 +496,7 @@ class FeatureRolloutDefaultsController extends Controller
      *
      * @return array{notLimitable: list<array{feature:string,wave:string}>, shared: list<array{feature:string,other:string,otherWave:string}>}
      */
-    private function checks(array $waveable): array
+    private function checks(array $waveable, int $planId): array
     {
         // §19.1 — "Admin decides" problems: a feature that cannot be kept to some roles (left on from day one
         // for new agencies), and a feature whose way in is shared with a feature in another group.
@@ -369,7 +504,7 @@ class FeatureRolloutDefaultsController extends Controller
         $notLimitable = [];
         $shared = [];
         $waveOf = [];   // key => [wave id, is admin]
-        foreach (FeatureRolloutWave::orderBy('position')->orderBy('id')->get() as $w) {
+        foreach (FeatureRolloutWave::inPlan($planId)->orderBy('position')->orderBy('id')->get() as $w) {
             foreach ((array) $w->feature_keys as $key) {
                 $waveOf[$key] ??= [$w->id, $w->track === 'admin', $w->title];
                 if ($w->track === 'admin' && ! $access->canBeLimited($key)) {
@@ -400,13 +535,13 @@ class FeatureRolloutDefaultsController extends Controller
      *
      * @return array{missing: list<array{key:string,label:string,wave:string}>, waved:int, covered:int}
      */
-    private function tourGap(array $waveable, array $byFeature): array
+    private function tourGap(array $waveable, array $byFeature, int $planId): array
     {
         $seen = [];
         $missing = [];
         $covered = 0;
 
-        foreach (FeatureRolloutWave::orderBy('position')->orderBy('id')->get() as $w) {
+        foreach (FeatureRolloutWave::inPlan($planId)->orderBy('position')->orderBy('id')->get() as $w) {
             foreach ((array) $w->feature_keys as $key) {
                 if (isset($seen[$key])) {
                     continue;

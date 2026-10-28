@@ -30,6 +30,96 @@
     </div>
     @include('admin.partials.platform-flash')
 
+    {{-- Rollout plans (spec §22): several complete sets of groups; the one opened below is the one the board edits. --}}
+    @php
+        $pl = $planList['rows']; $pf = $planList['filters'];
+        $pArchived = ($pf['p_status'] ?? 'active') === 'archived';
+        $pSort = fn (string $col) => request()->fullUrlWithQuery(['p_sort' => $col, 'p_dir' => (($pf['p_sort'] ?? '') === $col && ($pf['p_dir'] ?? 'asc') === 'asc') ? 'desc' : 'asc', 'ppage' => null]);
+    @endphp
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" id="rollout-plans">
+        <div class="px-5 py-4" style="border-bottom: 1px solid var(--border);">
+            <div class="ds-section-header">Rollout plans</div>
+            <div class="ds-section-sub">Each plan is its own complete list of waves — for example one for rentals-only agencies, one for sales-only, one for both. When you start an agency you choose which plan it follows. Copy a plan to make a variation without touching the original. Agencies already on a rollout are never changed.</div>
+        </div>
+        <form method="GET" action="{{ route('admin.feature-rollout-defaults.index') }}" class="px-5 py-3 flex flex-wrap items-end gap-3" style="border-bottom: 1px solid var(--border);">
+            <input type="hidden" name="plan" value="{{ $plan->id }}">
+            <label class="block text-xs" style="color:var(--text-secondary);">Search<input type="text" name="p_q" value="{{ $pf['p_q'] ?? '' }}" placeholder="Name or note" class="block mt-1 {{ $input }}" style="{{ $inputStyle }}"></label>
+            <label class="block text-xs" style="color:var(--text-secondary);">Agency type
+                <select name="p_type" class="block mt-1 {{ $input }}" style="{{ $inputStyle }}"><option value="">All</option>@foreach($planTypes as $v => $l)<option value="{{ $v }}" @selected(($pf['p_type'] ?? '') === $v)>{{ $l }}</option>@endforeach</select></label>
+            <label class="block text-xs" style="color:var(--text-secondary);">Show
+                <select name="p_status" class="block mt-1 {{ $input }}" style="{{ $inputStyle }}"><option value="active" @selected(! $pArchived)>Active</option><option value="archived" @selected($pArchived)>Archived</option></select></label>
+            <label class="block text-xs" style="color:var(--text-secondary);">Changed from<input type="date" name="p_from" value="{{ $pf['p_from'] ?? '' }}" class="block mt-1 {{ $input }}" style="{{ $inputStyle }}"></label>
+            <label class="block text-xs" style="color:var(--text-secondary);">to<input type="date" name="p_to" value="{{ $pf['p_to'] ?? '' }}" class="block mt-1 {{ $input }}" style="{{ $inputStyle }}"></label>
+            <button class="corex-btn-primary" type="submit">Filter</button>
+            <a href="{{ route('admin.feature-rollout-defaults.index', ['plan' => $plan->id]) }}" class="corex-btn-outline">Clear</a>
+        </form>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead><tr style="border-bottom:1px solid var(--border); color:var(--text-muted);">
+                    <th class="{{ $th }}"><a href="{{ $pSort('name') }}">Name</a></th>
+                    <th class="{{ $th }}"><a href="{{ $pSort('agency_type') }}">For</a></th>
+                    <th class="{{ $th }}"><a href="{{ $pSort('groups') }}">Waves</a></th>
+                    <th class="{{ $th }}"><a href="{{ $pSort('updated_at') }}">Last changed</a></th>
+                    <th class="{{ $th }}">Actions</th>
+                </tr></thead>
+                <tbody>
+                @forelse($pl as $row)
+                    <tr style="border-bottom:1px solid var(--border);{{ $row->id === $plan->id ? ' background: color-mix(in srgb, var(--brand-button) 8%, transparent);' : '' }}">
+                        <td class="px-5 py-2.5"><span class="font-semibold" style="color:var(--text-primary);">{{ $row->name }}</span>
+                            @if($row->is_default)<span class="ds-badge ds-badge-muted ml-1">Default</span>@endif
+                            @if($row->id === $plan->id)<span class="ds-badge ds-badge-muted ml-1">Editing below</span>@endif
+                            @if($row->note)<div class="text-xs" style="color:var(--text-muted);">{{ $row->note }}</div>@endif</td>
+                        <td class="px-5 py-2.5">{{ $planTypes[$row->agency_type] ?? $row->agency_type }}</td>
+                        <td class="px-5 py-2.5">{{ $row->groups_count }}</td>
+                        <td class="px-5 py-2.5">{{ $row->updated_at?->format('j M Y') }}</td>
+                        <td class="px-5 py-2.5"><div class="flex flex-wrap gap-2">
+                            @if($pArchived)
+                                <form method="POST" action="{{ route('admin.feature-rollout-defaults.plans.restore', $row->id) }}">@csrf<button class="corex-btn-outline corex-btn-xs">Restore</button></form>
+                            @else
+                                <a href="{{ route('admin.feature-rollout-defaults.index', ['plan' => $row->id]) }}" class="corex-btn-outline corex-btn-xs">Open</a>
+                                <form method="POST" action="{{ route('admin.feature-rollout-defaults.plans.store') }}">@csrf
+                                    <input type="hidden" name="copy_of" value="{{ $row->id }}"><input type="hidden" name="name" value="{{ \Illuminate\Support\Str::limit($row->name, 110, '') }} (copy)">
+                                    <input type="hidden" name="agency_type" value="{{ $row->agency_type }}"><input type="hidden" name="note" value="{{ $row->note }}">
+                                    <button class="corex-btn-outline corex-btn-xs">Copy</button></form>
+                                @unless($row->is_default)
+                                    <form method="POST" action="{{ route('admin.feature-rollout-defaults.plans.default', $row->id) }}">@csrf<button class="corex-btn-outline corex-btn-xs">Make default</button></form>
+                                    <form method="POST" action="{{ route('admin.feature-rollout-defaults.plans.archive', $row->id) }}" onsubmit="return confirm('Archive this rollout? Agencies already using it are not changed.');">@csrf @method('DELETE')<button class="corex-btn-outline corex-btn-xs">Archive</button></form>
+                                @endunless
+                            @endif
+                        </div></td>
+                    </tr>
+                @empty
+                    <tr><td colspan="5" class="px-5 py-8 text-center" style="color:var(--text-muted);">{{ $pArchived ? 'No archived rollout plans.' : 'No rollout plans match. Create one below or copy another.' }}</td></tr>
+                @endforelse
+                </tbody>
+            </table>
+        </div>
+        @if($pl->hasPages())<div class="px-5 py-3">{{ $pl->links() }}</div>@endif
+        <div class="px-5 py-4 grid md:grid-cols-2 gap-5" style="border-top:1px solid var(--border);">
+            <form method="POST" action="{{ route('admin.feature-rollout-defaults.plans.store') }}" class="space-y-2">
+                @csrf
+                <div class="font-semibold text-sm" style="color:var(--text-primary);">New rollout plan</div>
+                <div class="flex flex-wrap gap-2">
+                    <input type="text" name="name" required maxlength="120" placeholder="Name, e.g. Rentals only" class="{{ $input }}" style="{{ $inputStyle }}">
+                    <select name="agency_type" class="{{ $input }}" style="{{ $inputStyle }}">@foreach($planTypes as $v => $l)<option value="{{ $v }}">{{ $l }}</option>@endforeach</select>
+                    <select name="copy_of" class="{{ $input }}" style="{{ $inputStyle }}"><option value="">Start blank</option>@foreach($activePlans as $ap)<option value="{{ $ap->id }}">Copy of {{ $ap->name }}</option>@endforeach</select>
+                </div>
+                <input type="text" name="note" maxlength="500" placeholder="Note (optional)" class="w-full {{ $input }}" style="{{ $inputStyle }}">
+                <button class="corex-btn-primary" type="submit">Create plan</button>
+            </form>
+            <form method="POST" action="{{ route('admin.feature-rollout-defaults.plans.update', $plan->id) }}" class="space-y-2">
+                @csrf @method('PUT')
+                <div class="font-semibold text-sm" style="color:var(--text-primary);">Editing: {{ $plan->name }}</div>
+                <div class="flex flex-wrap gap-2">
+                    <input type="text" name="name" required maxlength="120" value="{{ old('name', $plan->name) }}" class="{{ $input }}" style="{{ $inputStyle }}">
+                    <select name="agency_type" class="{{ $input }}" style="{{ $inputStyle }}">@foreach($planTypes as $v => $l)<option value="{{ $v }}" @selected($plan->agency_type === $v)>{{ $l }}</option>@endforeach</select>
+                </div>
+                <input type="text" name="note" maxlength="500" value="{{ old('note', $plan->note) }}" placeholder="Note (optional)" class="w-full {{ $input }}" style="{{ $inputStyle }}">
+                <button class="corex-btn-outline" type="submit">Save details</button>
+            </form>
+        </div>
+    </div>
+
     {{-- Pace --}}
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="px-5 py-4" style="border-bottom: 1px solid var(--border);">
@@ -146,7 +236,7 @@
             <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="px-5 py-4 flex flex-wrap items-center justify-between gap-3" style="border-bottom: 1px solid var(--border);">
                     <div>
-                        <div class="ds-section-header">Waves, in order</div>
+                        <div class="ds-section-header">Waves, in order — {{ $plan->name }}</div>
                         <div class="ds-section-sub">Drag a feature into a wave, or drag a wave up or down. Each wave's date is when a new agency that starts on the date below would get it, using the pace above (public holidays follow the saved country, {{ $defaults['holiday_country'] }}). It shows one list in order (sales and rentals together). Nothing here is saved until you press Save plan; the pace has its own Save pace.</div>
                     </div>
                     <div class="flex flex-wrap items-end gap-3">
@@ -154,7 +244,7 @@
                             <span class="text-[11px] font-semibold" style="color:var(--text-muted);">If an agency starts on</span>
                             <input type="date" id="wp-start" value="{{ $board['today'] }}" class="block mt-1 {{ $input }}" style="{{ $inputStyle }}">
                         </label>
-                        <a href="{{ route('admin.feature-rollout-defaults.index', ['status' => 'archived']) }}" class="corex-btn-outline">Archived waves ({{ $archivedCount }})</a>
+                        <a href="{{ route('admin.feature-rollout-defaults.index', ['status' => 'archived', 'plan' => $plan->id]) }}" class="corex-btn-outline">Archived waves ({{ $archivedCount }})</a>
                     </div>
                 </div>
                 <div class="px-5 py-3 flex flex-wrap gap-x-8 gap-y-2" id="wp-summary" aria-live="polite"></div>
@@ -187,6 +277,7 @@
 
             <form method="POST" action="{{ route('admin.feature-rollout-defaults.layout') }}" id="wp-form">
                 @csrf @method('PUT')
+                <input type="hidden" name="plan_id" value="{{ $plan->id }}">
                 <input type="hidden" name="layout" id="wp-layout">
                 <input type="hidden" name="known" id="wp-known" value="{{ json_encode(array_column($board['waves'], 'id')) }}">
                 <input type="hidden" name="confirm_empty" id="wp-confirm-empty" value="0">
@@ -200,11 +291,12 @@
                     <div class="ds-section-header">Archived waves <span class="ds-badge ds-badge-muted ml-1">{{ $waves->total() }}</span></div>
                     <div class="ds-section-sub">New plans do not include these. Restore one to put it back at the end of the order.</div>
                 </div>
-                <a href="{{ route('admin.feature-rollout-defaults.index') }}" class="corex-btn-outline">← Back to the wave planner</a>
+                <a href="{{ route('admin.feature-rollout-defaults.index', ['plan' => $plan->id]) }}" class="corex-btn-outline">← Back to the wave planner</a>
             </div>
 
             <form method="GET" class="px-5 py-3 flex flex-wrap items-end gap-3" style="border-bottom: 1px solid var(--border); background: var(--surface-2);">
                 <input type="hidden" name="status" value="archived">
+                <input type="hidden" name="plan" value="{{ $plan->id }}">
                 <label class="block">
                     <span class="text-[11px] font-semibold" style="color:var(--text-muted);">Search wave or feature</span>
                     <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" class="block mt-1 {{ $input }}" style="{{ $inputStyle }}">
@@ -226,7 +318,7 @@
                 </label>
                 <input type="hidden" name="sort" value="{{ $filters['sort'] }}"><input type="hidden" name="dir" value="{{ $filters['dir'] }}">
                 <button type="submit" class="corex-btn-outline">Apply</button>
-                <a href="{{ route('admin.feature-rollout-defaults.index', ['status' => 'archived']) }}" class="corex-btn-outline">Clear</a>
+                <a href="{{ route('admin.feature-rollout-defaults.index', ['status' => 'archived', 'plan' => $plan->id]) }}" class="corex-btn-outline">Clear</a>
             </form>
 
             <div class="overflow-x-auto">
