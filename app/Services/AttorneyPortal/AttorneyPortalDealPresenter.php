@@ -25,21 +25,32 @@ class AttorneyPortalDealPresenter
     public function row(Deal $deal, AttorneyPortalAccess $access): array
     {
         $roles = $this->scope->rolesOn($deal, $access);
-        $docs  = $this->documents->forDeal($deal, $roles);
+        $docs  = $this->documents->forDealWithFiledAt($deal, $roles);
         $until = $this->scope->visibleUntil($deal);
+        $agent = $this->agent($deal);
+        $filed = $docs->max('filed_at');
 
         return [
             'id'              => (int) $deal->id,
+            'number'          => $this->number($deal),
             'address'         => $this->address($deal),
+            'suburb'          => $this->suburb($deal),
             'reference'       => $this->reference($deal),
             'buyer'           => $this->partyNames($deal, 'buyer'),
             'seller'          => $this->partyNames($deal, 'seller'),
-            'agent'           => $this->agent($deal)['name'] ?? null,
+            'agent'           => $agent['name'] ?? null,
+            'agent_phone'     => $agent['phone'] ?? null,
             'stage'           => $this->stage($deal),
             'finished'        => $until !== null,
             'visible_until'   => $until,
-            'latest_document' => $docs->max('created_at') ? Carbon::parse($docs->max('created_at')) : null,
+            'latest_document' => $filed ? Carbon::parse($filed) : null,
             'document_count'  => $docs->count(),
+            'files'           => $docs->map(fn ($d) => [
+                'id'    => (int) $d->id,
+                'type'  => $d->documentType?->label ?: 'Document',
+                'name'  => (string) $d->original_name,
+                'filed' => $d->filed_at ? Carbon::parse($d->filed_at) : null,
+            ])->sortByDesc(fn ($f) => $f['filed']?->timestamp ?? 0)->values()->all(),
             'roles'           => $roles,
         ];
     }
@@ -73,6 +84,23 @@ class AttorneyPortalDealPresenter
         }
 
         return $address !== '' ? $address : 'Address not captured yet';
+    }
+
+    /** The agency's own deal number, as the deal register shows it ("#123"); the file number when a deal has no number. */
+    private function number(Deal $deal): string
+    {
+        if (! empty($deal->deal_no)) {
+            return '#' . $deal->deal_no;
+        }
+
+        return trim((string) $deal->file_no) !== '' ? trim((string) $deal->file_no) : '—';
+    }
+
+    private function suburb(Deal $deal): string
+    {
+        $property = $deal->property_id ? Property::withoutGlobalScopes()->find($deal->property_id) : null;
+
+        return trim((string) ($property?->suburb ?? ''));
     }
 
     private function reference(Deal $deal): ?string
