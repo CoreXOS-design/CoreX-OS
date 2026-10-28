@@ -64,7 +64,7 @@
     .rts-linebox { padding: 0; }
     .rts-grid18 { display: grid; grid-template-columns: repeat(18, minmax(0, 1fr)); column-gap: .25rem; }
     .rts-line { position: sticky; top: 0; z-index: 3; background: var(--surface); padding: .2rem 0 .3rem; border-bottom: 1px solid var(--border); }
-    .rts-phase { display: flex; align-items: center; justify-content: space-between; gap: .25rem; min-width: 0; padding: 0 .2rem .1rem; border-bottom: 2px solid var(--brand-icon, #0ea5e9); font-size: .625rem; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); white-space: nowrap; overflow: hidden; }
+    .rts-phase { display: flex; align-items: center; justify-content: space-between; gap: .25rem; min-width: 0; padding: 0 .2rem .1rem; border-bottom: 2px solid var(--brand-icon, #0ea5e9); font-size: .625rem; font-weight: 800; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; overflow: hidden; }
     .rts-phase-name { overflow: hidden; text-overflow: ellipsis; }
     .rts-flow { display: inline-flex; gap: .3rem; font-size: .6875rem; font-weight: 700; text-transform: none; letter-spacing: 0; flex-shrink: 0; }
     .rts-flow a, .rts-flow span { color: var(--text-primary); text-decoration: none; padding: 0 .2rem; border-radius: 4px; }
@@ -76,11 +76,12 @@
     .rts-st:hover { border-color: var(--brand-icon, #0ea5e9); }
     .rts-st.is-on { background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 20%, var(--surface)); border-color: var(--brand-icon, #0ea5e9); box-shadow: 0 0 0 1px var(--brand-icon, #0ea5e9); }
     .rts-st.is-empty .n { color: var(--text-muted); font-weight: 600; }
-    .rts-st .nm { font-size: .625rem; font-weight: 600; line-height: 1.1; text-align: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rts-st .nm { font-size: .5625rem; font-weight: 600; line-height: 1.1; text-align: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .rts-st .rts-st-full { display: none; white-space: normal; display: none; }
     .rts-st .n { position: relative; font-size: 1rem; font-weight: 800; line-height: 1.1; white-space: nowrap; }
     .rts-st .bad { margin-left: .2rem; padding: 0 .25rem; border-radius: 999px; font-size: .625rem; font-weight: 800; color: #fff; background: var(--ds-crimson, #dc2626); vertical-align: middle; }
     @media (min-width: 1700px) {
+        .rts-st .nm { font-size: .625rem; }
         .rts-st .rts-st-short { display: none; }
         .rts-st .rts-st-full { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
         .rts-st .nm { white-space: normal; min-height: 2.2em; }

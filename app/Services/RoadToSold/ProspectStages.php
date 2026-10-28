@@ -75,9 +75,9 @@ final class ProspectStages
     public const SHORT = [
         self::FOUND => 'Found', self::CONTACTED => 'Contacted', self::APPOINTMENT_SET => 'Appt set', self::EVALUATION_DONE => 'Eval done',
         self::PRESENTATION_GIVEN => 'Presented', self::PRESENTATION_FEEDBACK => 'Feedback', self::MANDATE_SIGNED => 'Mandate',
-        self::LISTING_LIVE => 'Live', self::ADVERTISING => 'Advertising',
-        self::LEAD => 'Lead', self::LEAD_CONTACTED => 'Lead called', self::CORE_MATCH => 'Core Match', self::VIEWING_SCHEDULED => 'Viewing set',
-        self::VIEWING_PACK => 'Pack sent', self::VIEWING_FEEDBACK => 'Viewing fb', self::OFFER => 'Offer',
+        self::LISTING_LIVE => 'Live', self::ADVERTISING => 'Adverts',
+        self::LEAD => 'Lead', self::LEAD_CONTACTED => 'Called', self::CORE_MATCH => 'Match', self::VIEWING_SCHEDULED => 'View set',
+        self::VIEWING_PACK => 'Pack sent', self::VIEWING_FEEDBACK => 'View fb', self::OFFER => 'Offer',
         self::DEAL => 'Deal', self::REGISTERED => 'Registered',
     ];
 

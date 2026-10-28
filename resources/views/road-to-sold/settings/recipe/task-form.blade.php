@@ -43,7 +43,8 @@
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="step_id">Step</label>
                 <select id="step_id" name="step_id" required class="w-full rounded-md px-3 py-2 text-sm" style="{{ $fieldStyle }}">
-                    @foreach($steps as $s)<option value="{{ $s->id }}" @selected(old('step_id', $task->step_id ?? null) == $s->id)>{{ $s->label }}</option>@endforeach
+                    @if($task?->needs_step)<option value="">Not mapped - choose a step</option>@endif
+                    @foreach($steps as $s)<option value="{{ $s->id }}" @selected(! $task?->needs_step && old('step_id', $task->step_id ?? null) == $s->id)>{{ $s->label }}</option>@endforeach
                 </select>
             </div>
             <div>
