@@ -4,6 +4,7 @@ namespace App\Services\RoadToSold;
 
 use App\Models\RoadToSold\RtsProspect;
 use App\Models\User;
+use App\Services\RoadToSold\Support\CurrentAskingPrice;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -124,7 +125,9 @@ class ProspectListService
 
         $page = max(1, (int) ($f['page'] ?? 1));
         $total = (clone $q)->reorder()->count('rts_prospects.id');
-        $items = $q->forPage($page, self::PER_PAGE)->get()->map(fn ($r) => $this->row($r, $today));
+        $rows = $q->forPage($page, self::PER_PAGE)->get();
+        $prices = CurrentAskingPrice::forTracked($rows->pluck('tracked_property_id')->all());
+        $items = $rows->map(fn ($r) => $this->row($r, $today, $prices));
 
         return [
             'rows'   => new LengthAwarePaginator($items->values(), $total, self::PER_PAGE, $page, ['path' => request()->url(), 'query' => request()->query()]),
@@ -175,7 +178,9 @@ class ProspectListService
 
         $page = max(1, (int) ($f['page'] ?? 1));
         $total = (clone $q)->reorder()->count('rts_prospects.id');
-        $items = $q->forPage($page, self::PER_PAGE)->get()->map(fn ($r) => $this->row($r, $today->toDateString()));
+        $rows = $q->forPage($page, self::PER_PAGE)->get();
+        $prices = CurrentAskingPrice::forTracked($rows->pluck('tracked_property_id')->all());
+        $items = $rows->map(fn ($r) => $this->row($r, $today->toDateString(), $prices));
 
         return [
             'rows'      => new LengthAwarePaginator($items->values(), $total, self::PER_PAGE, $page, ['path' => request()->url(), 'query' => request()->query()]),
@@ -183,8 +188,13 @@ class ProspectListService
         ];
     }
 
-    /** One row as the page shows it. @return array<string,mixed> */
-    private function row($r, string $today): array
+    /**
+     * One row as the page shows it. The price is the property's current asking price, the same figure Today's intake shows.
+     *
+     * @param  array<int,int>  $prices  tracked property id => current asking price
+     * @return array<string,mixed>
+     */
+    private function row($r, string $today, array $prices = []): array
     {
         $address = trim(implode(' ', array_filter([$r->street_number, $r->street_name])));
         $due = $r->next_action_at?->toDateString();
@@ -197,7 +207,7 @@ class ProspectListService
             'agent_name'          => $r->agent_name,
             'address'             => $address !== '' ? $address : '(no address)',
             'suburb'              => $r->tp_suburb,
-            'price'               => $r->last_known_asking_price ? (int) $r->last_known_asking_price : null,
+            'price'               => $prices[(int) $r->tracked_property_id] ?? ($r->last_known_asking_price ? (int) $r->last_known_asking_price : null),
             'owner_name'          => trim(($r->owner_first ?? '') . ' ' . ($r->owner_last ?? '')) ?: null,
             'owner_phone'         => $r->owner_phone,
             'stage'               => $r->stage,

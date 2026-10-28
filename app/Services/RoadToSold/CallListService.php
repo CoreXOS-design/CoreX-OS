@@ -8,6 +8,7 @@ use App\Models\ProspectingListing;
 use App\Models\RoadToSold\RtsContactOutcome;
 use App\Models\RoadToSold\RtsListItem;
 use App\Models\User;
+use App\Services\RoadToSold\Support\CurrentAskingPrice;
 use Carbon\Carbon;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -228,12 +229,17 @@ class CallListService
 
     private function listingOf(?TrackedProperty $tp): ?ProspectingListing
     {
-        if (! $tp) {
-            return null;
-        }
-        $listings = $tp->relationLoaded('prospectingListings') ? $tp->prospectingListings : $tp->prospectingListings()->get();
+        return CurrentAskingPrice::pick($this->listingsOf($tp));
+    }
 
-        return $listings->sortByDesc(fn ($l) => [(int) $l->is_active, $l->last_seen_at?->timestamp ?? 0])->first();
+    /** @return Collection<int,ProspectingListing> */
+    private function listingsOf(?TrackedProperty $tp): Collection
+    {
+        if (! $tp) {
+            return new Collection();
+        }
+
+        return $tp->relationLoaded('prospectingListings') ? $tp->prospectingListings : $tp->prospectingListings()->get();
     }
 
     /**
@@ -243,7 +249,7 @@ class CallListService
     private function row(?TrackedProperty $tp, ?ProspectingListing $listing, $property, ?RtsContactOutcome $current, array $base, int $agencyId): array
     {
         $owner = $this->ownerOf($tp);
-        $price = $listing?->price ?: ($property?->price ?: $tp?->last_known_asking_price);
+        $price = CurrentAskingPrice::pick($this->listingsOf($tp))?->price ?: ($listing?->price ?: ($property?->price ?: $tp?->last_known_asking_price));
         $dom = $listing ? $listing->daysOnMarket() : ($property?->listed_date ? (int) Carbon::parse($property->listed_date)->diffInDays(now()->startOfDay()) : null);
 
         return $base + [

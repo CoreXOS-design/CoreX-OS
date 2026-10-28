@@ -266,7 +266,7 @@ final class ProspectScreenTest extends TestCase
         $this->assertStringContainsString('data-qa="read-only"', $html);
         $this->assertStringContainsString('5 Alpha Road', $html);
         $this->assertStringContainsString('data-qa="stage-counts"', $html, 'per-stage counts');
-        $this->assertStringContainsString('On track', $html);
+        $this->assertStringContainsString('this month', $html, 'each tile says how many came in this month');
         $this->assertStringNotContainsString('data-qa="prospect-step"', $html, 'no step buttons for a manager');
         $this->assertStringNotContainsString('@click="openPark(', $html);
         $this->assertStringNotContainsString('@click="openNext(', $html);
@@ -372,6 +372,53 @@ final class ProspectScreenTest extends TestCase
         $this->assertSame('https://example.com/a', $loc('/__t/hop-out?embed=1'), 'another site is never touched');
         $this->assertStringEndsWith('/corex/file?signature=abc', $loc('/__t/hop-signed?embed=1'), 'a signed address is never touched');
         $this->assertStringEndsWith('/corex/somewhere?embed=1', $loc('/__t/hop-has?embed=1'), 'already carrying it: left alone');
+    }
+
+    // ── 28 Oct: one current price, plain stage-tile wording ───────────────────────────────────────────────
+
+    public function test_intake_and_prospects_show_the_same_current_price_when_a_property_has_two_live_listings(): void
+    {
+        $tp = $this->tp(['street_number' => '64', 'street_name' => 'Jacana', 'last_known_asking_price' => 2_995_000]);
+        $seen = now()->subDay();
+        $old = $this->listing(['price' => 595_000, 'last_seen_at' => $seen], $tp);
+        $new = $this->listing(['price' => 2_995_000, 'last_seen_at' => $seen], $tp);   // seen at the very same moment: the newer record wins
+        $this->prospects->place($this->agent, $tp->id);
+        \Illuminate\Support\Facades\DB::table('rts_list_items')->insert([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'user_id' => $this->agent->id, 'list_date' => self::WED, 'track' => 'sales',
+            'tracked_property_id' => $tp->id, 'prospecting_listing_id' => $old, 'selection' => 'new_listings', 'origin' => 'auto', 'position' => 1,
+            'status' => 'open', 'reason' => 'Listed 3 days ago', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $intake = $this->page($this->agent)->assertOk()->getContent();
+        $prospects = $this->page($this->agent, ['block' => 'prospects'])->assertOk()->getContent();
+
+        $this->assertStringContainsString('R 2,995,000', $intake, 'intake shows the current price');
+        $this->assertStringNotContainsString('595,000', $intake, 'not the older duplicate listing');
+        $this->assertStringContainsString('R 2,995,000', $prospects, 'prospects shows the same figure');
+        $this->assertStringNotContainsString('595,000', $prospects);
+    }
+
+    public function test_the_current_price_prefers_a_live_listing_then_the_latest_seen_and_falls_back_to_the_tracked_figure(): void
+    {
+        $tp = $this->tp(['street_name' => 'Pick Road', 'last_known_asking_price' => 900_000]);
+        $this->assertSame([], \App\Services\RoadToSold\Support\CurrentAskingPrice::forTracked([$tp->id]), 'no listing: the caller falls back to the tracked figure');
+
+        $this->listing(['price' => 1_000_000, 'is_active' => 0, 'last_seen_at' => now()], $tp);
+        $this->listing(['price' => 1_200_000, 'is_active' => 1, 'last_seen_at' => now()->subDays(5)], $tp);
+        $this->assertSame([$tp->id => 1_200_000], \App\Services\RoadToSold\Support\CurrentAskingPrice::forTracked([$tp->id]), 'live beats gone, even when the gone one was seen later');
+
+        $this->listing(['price' => 1_250_000, 'is_active' => 1, 'last_seen_at' => now()->subDay()], $tp);
+        $this->assertSame([$tp->id => 1_250_000], \App\Services\RoadToSold\Support\CurrentAskingPrice::forTracked([$tp->id]), 'between live ones, the latest seen');
+    }
+
+    public function test_the_stage_tile_subtitle_is_plain_words_and_never_says_no_target(): void
+    {
+        $this->owned($this->agent, 'Alpha Road');
+
+        $html = $this->page($this->manager, ['block' => 'prospects', 'agent' => $this->agent->id])->assertOk()->getContent();
+        $this->assertMatchesRegularExpression('/data-qa="stage-sub"[^>]*>\d+ this month · avg [\d.]+ days?/u', $html);
+        $this->assertStringNotContainsString('no target</div>', $html);
+        $this->assertStringNotContainsString(' in ·', $html);
     }
 
     private function normalise(?string $url): string
