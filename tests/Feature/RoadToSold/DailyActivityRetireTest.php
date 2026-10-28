@@ -205,7 +205,7 @@ final class DailyActivityRetireTest extends TestCase
         $res->assertOk();
         $this->assertFalse($res->viewData('isTeam'));
         $this->assertSame([], $res->viewData('teamTotals'));
-        $this->actingAs($this->agent)->get(route('road-to-sold.index', ['agent' => $this->agentSouth->id, 'view' => 'team']))->assertNotFound();
+        $this->actingAs($this->agent)->get(route('road-to-sold.index', ['agent' => $this->agentSouth->id, 'view' => 'team']))->assertOk();   // the other id is ignored, no dead page
     }
 
     public function test_the_team_list_searches_filters_sorts_pages_and_has_an_empty_state(): void

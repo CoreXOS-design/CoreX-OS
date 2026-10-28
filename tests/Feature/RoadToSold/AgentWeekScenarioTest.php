@@ -225,8 +225,8 @@ final class AgentWeekScenarioTest extends TestCase
         // The manager's own page is empty: no target, no list.
         $this->actingAs($this->mo)->get(route('road-to-sold.index'))->assertOk()->assertSee('No list for today.');
 
-        // An agent cannot open a colleague's list by id; the admin can open anyone's.
-        $this->actingAs($this->anna)->get(route('road-to-sold.index', ['agent' => $this->ben->id]))->assertNotFound();
+        // An agent who types a colleague's id gets their own page (never a dead page, never the colleague's list); the admin can open anyone's.
+        $this->actingAs($this->anna)->get(route('road-to-sold.index', ['agent' => $this->ben->id]))->assertOk()->assertDontSee('Central Ave 01');
         $this->actingAs($this->adi)->get(route('road-to-sold.index', ['agent' => $this->ben->id]))->assertOk()->assertSee('Central Ave 01');
     }
 
@@ -643,7 +643,7 @@ final class AgentWeekScenarioTest extends TestCase
         $page = $this->actingAs($bAgent)->get(route('road-to-sold.index'))->assertOk();
         $page->assertSee($secondTp->street_name)->assertDontSee('Uvongo Ave')->assertDontSee('Manaba Ave');   // the first was called, so it is no longer "open"
         $this->actingAs($bAgent)->get(route('road-to-sold.index', ['status' => 'all']))->assertOk()->assertSee($firstTp->street_name);
-        $this->actingAs($bAgent)->get(route('road-to-sold.index', ['agent' => $this->anna->id]))->assertNotFound();
+        $this->actingAs($bAgent)->get(route('road-to-sold.index', ['agent' => $this->anna->id]))->assertOk()->assertDontSee('Manaba Ave')->assertDontSee('Uvongo Ave');
         $this->actingAs($bMgr)->get(route('road-to-sold.index', ['agent' => $this->anna->id]))->assertNotFound();
 
         $rep = $this->actingAs($bMgr)->get(route('road-to-sold.report', ['period' => 'today']))->assertOk();

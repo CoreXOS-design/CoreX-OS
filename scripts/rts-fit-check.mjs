@@ -33,8 +33,17 @@ async function lineChecks(page, vh) {
         const gb = grow.getBoundingClientRect();
         const stations = [...line.querySelectorAll('[data-station]')];
         const stationsOut = stations.filter((el) => { const b = el.getBoundingClientRect(); return b.left < gb.left - 1 || b.right > gb.right + 1; }).length;
-        const chips = [...document.querySelectorAll('[data-chips-for] .rts-ch')];
-        const chipsOut = chips.filter((el) => { const b = el.getBoundingClientRect(), c = el.parentElement.getBoundingClientRect(); return b.right > c.right + 1 || b.left < c.left - 1; }).length;
+        const chips = [...document.querySelectorAll('[data-qa="chips"] .rts-ch')];
+        const chipBox = document.querySelector('[data-qa="chips"]')?.getBoundingClientRect();
+        const chipsOut = chipBox ? chips.filter((el) => { const b = el.getBoundingClientRect(); return b.right > chipBox.right + 1 || b.left < chipBox.left - 1; }).length : 0;
+        // the all-stations view is readable cards (not 18 narrow columns): each wide enough to read, several to a row, a slim heading only for stations that have properties
+        const narrow = chips.filter((el) => el.getBoundingClientRect().width < 200).length;
+        const firstTop = chips.length ? Math.round(chips[0].getBoundingClientRect().top) : 0;
+        const perRow = chips.filter((el) => Math.abs(Math.round(el.getBoundingClientRect().top) - firstTop) <= 2).length;
+        const cut = chips.filter((el) => { const a = el.querySelector('.a'); return a && a.scrollWidth - a.clientWidth > 1 && chips.length > 0 && a.clientWidth < 120; }).length;
+        const headings = [...document.querySelectorAll('[data-qa="station-heading"]')].map((h) => h.dataset.chipsFor);
+        const headingsWithout = headings.filter((k) => !document.querySelector(`[data-qa="chips"] .rts-ch[data-stage="${k}"]`)).length;
+        const gridCols = chipBox ? getComputedStyle(document.querySelector('[data-qa="chips"]')).gridTemplateColumns.split(' ').length : 0;
         const phases = [...line.querySelectorAll('.rts-phase')];
         const phasesClipped = phases.filter((el) => el.scrollWidth - el.clientWidth > 1).length;
         const names = stations.filter((el) => { const n = el.querySelector('.nm'); return n && n.scrollWidth - n.clientWidth > 1 && getComputedStyle(n).whiteSpace === 'nowrap'; }).length;
@@ -42,7 +51,7 @@ async function lineChecks(page, vh) {
         const pinned = Math.abs(line.getBoundingClientRect().top - gb.top) <= 1;
         const scrolls = grow.scrollHeight - grow.clientHeight;
         grow.scrollTop = 0;
-        return { stations: stations.length, stationsOut, sideways: grow.scrollWidth - grow.clientWidth, chipsOut, chips: chips.length, phases: phases.length, phasesClipped, shortNamesCut: names, pinned, scrolls, flows: line.querySelectorAll('[data-flow]').length };
+        return { stationView: !!document.querySelector('a[data-qa=all-stations]'), narrow, perRow, cut, headings: headings.length, headingsWithout, gridCols, vw: window.innerWidth, stations: stations.length, stationsOut, sideways: grow.scrollWidth - grow.clientWidth, chipsOut, chips: chips.length, phases: phases.length, phasesClipped, shortNamesCut: names, pinned, scrolls, flows: line.querySelectorAll('[data-flow]').length };
     });
     if (g.missing) return ['the production line is missing'];
     if (g.stations !== 18) fails.push(`${g.stations} stations drawn, expected 18`);
@@ -52,9 +61,15 @@ async function lineChecks(page, vh) {
     if (g.chipsOut > 0) fails.push(`${g.chipsOut} chips stick out of their column`);
     if (g.phasesClipped > 0) fails.push(`${g.phasesClipped} phase headers clip their flow figures`);
     if (g.shortNamesCut > 0) fails.push(`${g.shortNamesCut} station names are cut off`);
+    if (g.narrow > 0) fails.push(`${g.narrow} property cards are narrower than 200px`);
+    if (g.cut > 0) fails.push(`${g.cut} property cards cut the address to nothing`);
+    if (g.gridCols > 8) fails.push(`the properties are laid out in ${g.gridCols} columns`);
+    if (g.chips >= 4 && g.vw <= 1400 && g.perRow < 4) fails.push(`only ${g.perRow} cards in a row at ${g.vw}px wide, expected 4`);
+    if (g.headingsWithout > 0) fails.push(`${g.headingsWithout} station headings have no properties under them`);
+    if (g.chips > 0 && !g.stationView && g.headings === 0) fails.push('the all-stations view has no station headings');
     if (g.scrolls > 1 && !g.pinned) fails.push('the line does not stay put while the chips scroll');
     if (g.chips > 0) {
-        await page.click('[data-chips-for] .rts-ch');
+        await page.click('[data-qa="chips"] .rts-ch');
         await sleep(300);
         const card = await page.evaluate((vh) => {
             const c = document.querySelector('[data-qa="prospect-card"] > div');

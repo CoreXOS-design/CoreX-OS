@@ -52,10 +52,17 @@ class RoadToSoldController extends Controller
 
         $track = Track::fromRequest($request);
         $agents = $this->list->viewableAgents($viewer);
-        $agentId = (int) ($request->query('agent') ?: $viewer->ownershipUserId());
+        $ownId = (int) $viewer->ownershipUserId();
+        $askedAgent = (int) $request->query('agent');
+        // An agent (someone who may see only their own list) who opens another agent's address is shown their own page, not a dead page.
+        // The other agent's id is never used, so nothing of theirs is read.
+        if ($askedAgent > 0 && $askedAgent !== $ownId && $agents->count() === 1 && $agents->contains('id', $ownId)) {
+            $askedAgent = 0;
+        }
+        $agentId = $askedAgent ?: $ownId;
         // A platform owner switched into an agency belongs to no agency, so their own id is never one of the agency's agents: with no
-        // ?agent= in the address they land on the first agent they may look at instead of a 404. A named ?agent= outside their breadth still 404s.
-        if (! $request->query('agent') && ! $agents->contains('id', $agentId) && $agents->isNotEmpty()) {
+        // ?agent= in the address they land on the first agent they may look at instead of a 404. A manager's named ?agent= outside their breadth still 404s.
+        if (! $askedAgent && ! $agents->contains('id', $agentId) && $agents->isNotEmpty()) {
             $agentId = (int) $agents->first()->id;
         }
         abort_unless($agents->contains('id', $agentId), 404);

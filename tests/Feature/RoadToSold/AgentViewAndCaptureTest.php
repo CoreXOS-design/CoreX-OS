@@ -693,7 +693,7 @@ final class AgentViewAndCaptureTest extends TestCase
         $res = $this->actingAs($this->agent)->get(route('road-to-sold.index', ['view' => 'captures']));
         $this->assertSame([], $res->viewData('captures')->items(), 'a colleague\'s captures are not in the agent\'s list');
         $res->assertSee('Nothing has been recorded yet.');
-        $this->actingAs($this->agent)->get(route('road-to-sold.index', ['view' => 'captures', 'agent' => $this->agentSouth->id]))->assertNotFound();
+        $this->actingAs($this->agent)->get(route('road-to-sold.index', ['view' => 'captures', 'agent' => $this->agentSouth->id]))->assertOk()->assertSee('Nothing has been recorded yet.');   // the other id is ignored
     }
 
     public function test_a_refused_capture_links_each_message_to_the_field_to_fix(): void

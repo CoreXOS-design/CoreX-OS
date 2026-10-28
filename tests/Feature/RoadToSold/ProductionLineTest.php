@@ -88,12 +88,15 @@ final class ProductionLineTest extends TestCase
         return $this->actingAs($as)->get(route('road-to-sold.index', ['block' => 'prospects'] + $q));
     }
 
-    /** The HTML of one station's column of chips (all stations view). */
+    /** The HTML of one station's cards: from its heading to the next heading (all stations view). */
     private function column(string $html, string $stage): string
     {
-        $this->assertSame(1, preg_match('/data-chips-for="' . $stage . '">(.*?)<\/div>\s*(?:<div class="rts-col18"|<\/div>)/s', $html, $m), "no column for {$stage}");
+        $at = strpos($html, 'data-chips-for="' . $stage . '"');
+        $this->assertNotFalse($at, "no heading for {$stage}");
+        $rest = substr($html, $at);
+        $next = strpos($rest, 'class="rts-gh"');
 
-        return $m[1];
+        return $next === false ? $rest : substr($rest, 0, $next);
     }
 
     // ── the line ────────────────────────────────────────────────────────
@@ -164,6 +167,47 @@ final class ProductionLineTest extends TestCase
         $this->assertStringContainsString('Sat 10', $appt, 'the due date');
         $this->assertStringContainsString('3d', $appt, 'days at this station (it moved on the 14th, today is the 17th)');
         $this->assertStringContainsString('3 days here', $appt);
+    }
+
+    public function test_all_stations_view_is_readable_cards_under_a_slim_heading_per_station_in_line_order(): void
+    {
+        $a = $this->owned($this->agent, 'Alpha Road', 'Uvongo');
+        $b = $this->owned($this->agent, 'Beta Road', 'Margate');
+        $c = $this->owned($this->agent, 'Gamma Road', 'Shelly');
+        $this->move($b, S::APPOINTMENT_SET, null, 'Do the evaluation', '2026-10-20');
+        $this->move($c, S::LISTING_LIVE, null, 'Share the advert', '2026-10-21');
+
+        $html = $this->page($this->agent)->assertOk()->getContent();
+
+        // one heading per station that has properties, in the order of the line, with its count; empty stations get none
+        preg_match_all('/data-chips-for="([a-z_]+)"[^>]*><span>([^<]+)<\/span>/', $html, $m);
+        $this->assertSame([S::FOUND, S::APPOINTMENT_SET, S::LISTING_LIVE], $m[1]);
+        $this->assertSame(['Found · 1', 'Appointment set · 1', 'Listing live · 1'], array_map(fn ($t) => html_entity_decode($t), $m[2]));
+
+        // the same readable card as the single-station view: suburb, owner line and the due words are all there; no 18-column chip grid
+        $this->assertStringNotContainsString('rts-col18', $html);
+        $this->assertStringNotContainsString('rts-cols', $html);
+        $this->assertMatchesRegularExpression('/<div class="rts-wide" data-qa="chips">/', $html);
+        $found = $this->column($html, S::FOUND);
+        $this->assertStringContainsString('5 Alpha Road', $found);
+        $this->assertStringContainsString('Uvongo', $found);
+        $this->assertStringContainsString('<span class="x rts-sub">', $found, 'the owner line is on the card');
+
+        // every card still opens the property card
+        $this->assertSame(3, substr_count($html, '@click="openCard('));
+    }
+
+    public function test_an_agent_who_types_a_colleagues_address_gets_their_own_page_not_a_404(): void
+    {
+        $this->owned($this->agent, 'Alpha Road');
+        $this->owned($this->mate, 'Mate Road');
+
+        $res = $this->page($this->agent, ['agent' => $this->mate->id])->assertOk();
+        $this->assertStringContainsString('5 Alpha Road', $res->getContent());
+        $this->assertStringNotContainsString('5 Mate Road', $res->getContent(), 'the colleague\'s properties are never read for an agent');
+        $this->page($this->agent, ['agent' => 999999])->assertOk();
+        // a manager asking for someone outside their reach still gets nothing of theirs
+        $this->assertNotSame(200, $this->page($this->manager, ['agent' => 999999])->getStatusCode());
     }
 
     public function test_clicking_a_station_shows_only_that_stations_chips_wider_and_all_stations_is_the_default(): void
@@ -358,7 +402,10 @@ final class ProductionLineTest extends TestCase
         $this->assertStringContainsString('5 Alpha Road', $html);
         $this->assertStringNotContainsString('5 Mate Road', $html);
         $this->assertStringNotContainsString('data-qa="line-who"', $html);
-        $this->page($this->agent, ['agent' => $this->mate->id])->assertNotFound();   // an agent of the same branch is outside an own-level breadth
+        // an agent of the same branch is outside an own-level breadth: the address is not a dead page, it just shows the agent's own line
+        $same = $this->page($this->agent, ['agent' => $this->mate->id])->assertOk()->getContent();
+        $this->assertStringContainsString('5 Alpha Road', $same);
+        $this->assertStringNotContainsString('5 Mate Road', $same);
         $this->page($this->agent, ['p_who' => 'agency'])->assertOk();
     }
 
@@ -385,7 +432,7 @@ final class ProductionLineTest extends TestCase
         $phases = collect(app(PipelineLineService::class)->phases($this->agent, null, null, Carbon::parse('2026-10-01'), Carbon::parse(self::WED)))->keyBy('key');
         $this->assertSame(0, $phases['get_stock']['moved'], 'the other agency\'s movement is not in the figures');
         $this->assertSame(0, $phases['market']['total']);
-        $this->page($this->agent, ['agent' => $stranger->id])->assertNotFound();
+        $this->page($this->agent, ['agent' => $stranger->id])->assertOk()->assertDontSee('Hidden Road');   // an unknown agent id is ignored for an agent, never a 404
     }
 
     // ── moving by hand ──────────────────────────────────────────────────

@@ -143,21 +143,24 @@
         @elseif($lineTotal === 0)
             <div class="rounded-md px-6 py-8 text-center text-sm font-semibold" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" data-qa="prospects-empty">Nothing matches this search.</div>
         @else
-            <div class="{{ $pf['stage'] !== '' ? 'rts-wide' : 'rts-grid18 rts-cols' }}" data-qa="chips">
-                @php $chipGroups = $pf['stage'] !== '' ? [$pf['stage'] => $byStage[$pf['stage']] ?? collect()] : collect(array_keys($stageMeta))->mapWithKeys(fn ($k) => [$k => $byStage[$k] ?? collect()])->all(); @endphp
+            {{-- One readable card per property, whichever view: all stations grouped under a slim heading in line order, or the chosen station on its own --}}
+            <div class="rts-wide" data-qa="chips">
+                @php $chipGroups = $pf['stage'] !== '' ? [$pf['stage'] => $byStage[$pf['stage']] ?? collect()] : collect(array_keys($stageMeta))->mapWithKeys(fn ($k) => [$k => $byStage[$k] ?? collect()])->filter(fn ($g) => $g->isNotEmpty())->all(); @endphp
                 @foreach($chipGroups as $stageKey => $group)
-                    @if($pf['stage'] === '')<div class="rts-col18" data-chips-for="{{ $stageKey }}">@endif
+                    @if($pf['stage'] === '')
+                        @php $late = $group->where('due_state', 'overdue')->count(); @endphp
+                        <div class="rts-gh" data-chips-for="{{ $stageKey }}" data-qa="station-heading"><span>{{ $stageMeta[$stageKey]['label'] ?? $stageKey }} &middot; {{ $group->count() }}</span>@if($late > 0)<span class="rts-gh-late" title="{{ $late }} overdue">{{ $late }} overdue</span>@endif</div>
+                    @endif
                     @foreach($group as $r)
                         <button type="button" class="rts-ch {{ $r['due_state'] === 'overdue' ? 'is-overdue' : '' }}" data-prospect="{{ $r['id'] }}" data-stage="{{ $r['stage'] }}" data-due="{{ $r['due_state'] }}"
                                 title="{{ $r['address'] }}{{ $r['suburb'] ? ', ' . $r['suburb'] : '' }} - {{ $r['stage_label'] }}, {{ $r['days_in_stage'] ?? 0 }} {{ ($r['days_in_stage'] ?? 0) === 1 ? 'day' : 'days' }} here. Next: {{ $r['next_action'] ?: 'decide what happens next' }} ({{ $r['due_words'] }}). Click for the full card."
                                 @click="openCard({{ $r['id'] }})">
-                            <span class="a">{{ $r['address'] }}@if($pf['stage'] !== '' && $r['suburb'])<span class="rts-sub"> &middot; {{ $r['suburb'] }}</span>@endif</span>
+                            <span class="a">{{ $r['address'] }}@if($r['suburb'])<span class="rts-sub"> &middot; {{ $r['suburb'] }}</span>@endif</span>
                             <span class="x" data-qa="next-action">{{ $r['next_action'] ?: 'Decide what happens next' }}</span>
-                            <span class="x rts-due-{{ $r['due_state'] }}" data-due="{{ $r['due_state'] }}">{{ $pf['stage'] !== '' ? $r['due_words'] : $r['due_compact'] }}<span class="rts-days" style="color: var(--text-muted);"> &middot; {{ $r['days_in_stage'] ?? 0 }}d</span></span>
-                            @if($pf['stage'] !== '')<span class="x rts-sub">{{ $r['owner_name'] ?: 'Owner not known yet' }}@if($moneyFmt($r['price'])) &middot; {{ $moneyFmt($r['price']) }}@endif</span>@endif
+                            <span class="x rts-due-{{ $r['due_state'] }}" data-due="{{ $r['due_state'] }}">{{ $r['due_words'] }}<span class="rts-days" style="color: var(--text-muted);"> &middot; {{ $r['days_in_stage'] ?? 0 }}d</span></span>
+                            <span class="x rts-sub">{{ $r['owner_name'] ?: 'Owner not known yet' }}@if($moneyFmt($r['price'])) &middot; {{ $moneyFmt($r['price']) }}@endif</span>
                         </button>
                     @endforeach
-                    @if($pf['stage'] === '')</div>@endif
                 @endforeach
             </div>
             @if($lineLimited)<div class="text-xs mt-1" style="color: var(--text-muted);" data-qa="line-limited">Showing the first {{ count($lineChips) }} of {{ $lineTotal }} - narrow the search to see the rest.</div>@endif
