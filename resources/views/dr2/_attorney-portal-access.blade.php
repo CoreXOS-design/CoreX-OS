@@ -25,7 +25,25 @@
                 <div style="font-weight:600;color:var(--text-primary,#111827);">{{ $row['label'] }}: {{ $row['person'] ?: ($row['firm'] ?: '—') }}@if($row['person'] && $row['firm']) <span style="font-weight:400;color:var(--text-muted,#6b7280);">at {{ $row['firm'] }}</span>@endif</div>
 
                 @if(! $row['contact'])
-                    <div style="color:#92400e;">Choose the attorney's contact person on this deal (not just the firm) to give them portal access.</div>
+                    {{-- A firm is on the deal but no person: say the next action and put the control right here (first-time-user rule). --}}
+                    <div style="color:#92400e;font-weight:600;">Choose the attorney contact for this deal</div>
+                    <div style="color:var(--text-secondary,#4b5563);margin-bottom:.3rem;">The portal is opened for one person, so pick who at {{ $row['firm'] ?: 'the firm' }} is handling this deal.</div>
+                    @if(! auth()->user()?->hasPermission('create_deals'))
+                        <div style="color:var(--text-muted,#6b7280);">You can't edit this deal. Ask someone who can to choose the contact.</div>
+                    @elseif($row['candidates']->isEmpty())
+                        <div style="color:var(--text-secondary,#4b5563);">{{ $row['firm'] ?: 'This firm' }} has no contacts yet. <a href="{{ route('deals-v2.suppliers.index') }}" style="color:var(--brand-icon,#0ea5e9);">Add a contact in the Supplier Directory</a>, then come back here.</div>
+                    @else
+                        <form method="POST" action="{{ route('deals-dr2.pipeline.attorney-contact', $deal) }}" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;" data-choose-attorney-contact>@csrf
+                            <input type="hidden" name="role" value="{{ $row['role'] }}">
+                            <select name="contact_id" required class="corex-input" style="font-size:.78rem;min-width:14rem;">
+                                <option value="">Choose a contact&hellip;</option>
+                                @foreach($row['candidates'] as $c)
+                                    <option value="{{ $c->id }}">{{ $c->label }}{{ $c->email ? ' - ' . $c->email : ' - no email yet' }}</option>
+                                @endforeach
+                            </select>
+                            <button type="submit" class="corex-btn-primary" style="font-size:.75rem;padding:.3rem .8rem;">Use this contact</button>
+                        </form>
+                    @endif
                 @elseif(! $row['has_email'])
                     <div style="color:#92400e;">This contact has no email address. Add one in the Supplier Directory first.</div>
                 @else

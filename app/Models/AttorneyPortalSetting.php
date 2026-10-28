@@ -18,10 +18,13 @@ class AttorneyPortalSetting extends Model
     public const DEFAULT_ENABLED = false;
     public const DEFAULT_ACCESS_GRACE_DAYS = 30;
     public const DEFAULT_LINK_VALID_DAYS = 30;
+    public const NOTIFY_OFF = 'off';
+    public const NOTIFY_DAILY = 'daily';
+    public const DEFAULT_NOTIFY = self::NOTIFY_DAILY;
 
     protected $table = 'attorney_portal_settings';
 
-    protected $fillable = ['agency_id', 'attorney_portal_enabled', 'access_grace_days', 'link_valid_days'];
+    protected $fillable = ['agency_id', 'attorney_portal_enabled', 'access_grace_days', 'link_valid_days', 'attorney_portal_notify'];
 
     protected $casts = [
         'attorney_portal_enabled' => 'boolean',
@@ -49,5 +52,11 @@ class AttorneyPortalSetting extends Model
     public function linkValidDays(): int
     {
         return max(1, (int) ($this->link_valid_days ?? self::DEFAULT_LINK_VALID_DAYS));
+    }
+
+    /** 'off' | 'daily' - whether attorneys are emailed when new documents reach their portal. */
+    public function notifyMode(): string
+    {
+        return in_array($this->attorney_portal_notify, [self::NOTIFY_OFF, self::NOTIFY_DAILY], true) ? $this->attorney_portal_notify : self::DEFAULT_NOTIFY;
     }
 }

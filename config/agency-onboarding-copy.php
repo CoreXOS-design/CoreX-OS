@@ -1642,6 +1642,11 @@ return [
              'label' => 'Days an emailed attorney link stays valid',
              'explain' => 'The personal link you email an attorney stops working after this many days. You can send a fresh one from the deal at any time.',
              'affects' => 'How often an attorney has to be sent a new link. 30 days by default.'],
+            ['key' => 'attorney_portal_notify', 'source' => 'attorney_portal', 'type' => 'select', 'default' => 'daily',
+             'options' => ['daily' => 'Once a day, per deal', 'off' => 'Never'],
+             'label' => 'Email attorneys when new documents are filed',
+             'explain' => 'When a document that belongs in an attorney\'s portal is filed on a deal they are on, CoreX emails them one short note for that deal, at most once a day. It names the kinds of document and links to their page. Documents are never attached.',
+             'affects' => 'Whether attorneys hear about new documents without checking. Once a day by default; "Never" means they only see new documents when they next open their page.'],
 
         ],
     ],
