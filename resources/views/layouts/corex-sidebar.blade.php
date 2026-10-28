@@ -347,6 +347,7 @@
         // ...and the four deal-settings doors at the bottom of the same menu.
         'deals-v2.suppliers.*',
         'deals-v2.pipeline.*',
+        'deals-v2.attorney-portal.*',
         'admin.settings.deal-property-sync.*',
         'admin.settings.deal-distribution-rules.*',
         'admin.settings.document-distribution*'
@@ -1633,7 +1634,7 @@
              SidebarFeatureCoverage::CORE_ROUTES instead. The old Deal Register (DR1) has no entry:
              its URLs redirect to the Deal Register.
              ═══════════════════════════════════════════ --}}
-        @if($user && $user->hasAnyPermission(['view_deals', 'deals_v2.manage_suppliers', 'deals_v2.manage_pipeline', 'access_settings', 'deals_v2.manage_distribution_rules']))
+        @if($user && $user->hasAnyPermission(['view_deals', 'deals_v2.manage_suppliers', 'deals_v2.manage_pipeline', 'access_settings', 'deals_v2.manage_distribution_rules', 'deals_v2.invite_attorney']))
         <div>
             <button type="button" @click="push('deals')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'deals' ? 'active' : '' }}">
@@ -1691,6 +1692,13 @@
                 @endif
                 @endpermission
 
+                {{-- 3b. Attorney Portal (attorney-portal.md 16) - who has an attorney link, send / resend / revoke. Gated like the invite itself. --}}
+                @permission('deals_v2.invite_attorney')
+                @if(\Illuminate\Support\Facades\Route::has('deals-v2.attorney-portal.index'))
+                <a href="{{ route('deals-v2.attorney-portal.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.attorney-portal.*') ? 'active' : '' }}">Attorney Portal</a>
+                @endif
+                @endpermission
+
                 {{-- 4. Deal settings — bottom of the menu, admin-only. Each door keeps its OWN page permission (and its
                      route middleware, so a direct URL is refused for anyone without it); the block shows only when the
                      user can open at least one door. By default only admin / super_admin hold these keys. --}}
@@ -1700,6 +1708,7 @@
                 @permission('deals_v2.manage_distribution_rules')
                 @if(\Illuminate\Support\Facades\Route::has('admin.settings.deal-distribution-rules.index'))
                 <a href="{{ route('admin.settings.document-distribution') }}" class="corex-nav-subitem {{ request()->routeIs('admin.settings.document-distribution*') ? 'active' : '' }}">Deal Document Distribution</a>
+                <a href="{{ route('admin.settings.deal-distribution-rules.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.settings.deal-distribution-rules.*') ? 'active' : '' }}">Deal Distribution Rules</a>
                 @endif
                 @endpermission
 

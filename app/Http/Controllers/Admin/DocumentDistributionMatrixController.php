@@ -38,7 +38,7 @@ class DocumentDistributionMatrixController extends Controller
             }
         }
 
-        $history = DocumentDistributionAuditEntry::query()->where('agency_id', $agencyId)->with('user:id,name')->latest('id')->limit(15)->get();
+        $history = DocumentDistributionAuditEntry::query()->where('agency_id', $agencyId)->where('area', DocumentDistributionAuditEntry::AREA_MATRIX)->with('user:id,name')->latest('id')->limit(15)->get();
 
         return view('admin.settings.document-distribution', [
             'types'    => $types,

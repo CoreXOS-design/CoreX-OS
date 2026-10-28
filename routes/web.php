@@ -54,6 +54,10 @@ Route::post('/buyer/portal/{token}/respond', [\App\Http\Controllers\BuyerPortalC
     ->middleware('throttle:30,1')
     ->name('buyer-portal.respond');
 
+// attorney-portal.md 16 - the staff overview page (Deals menu -> Attorney Portal): switch status, how it works, who has access.
+Route::middleware(['auth'])->get('/deals-v2/attorney-portal', [\App\Http\Controllers\DealV2\AttorneyPortalOverviewController::class, 'index'])
+    ->middleware('permission:deals_v2.invite_attorney')->name('deals-v2.attorney-portal.index');
+
 // ── Attorney portal (public; the emailed link + an emailed one-time code is the sign-in) - .ai/specs/attorney-portal.md.
 // recipient.link runs the request as an anonymous visitor so a staff session in the same browser can never colour it.
 Route::prefix('attorney')->middleware(['recipient.link'])->group(function () {
@@ -1844,7 +1848,9 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/admin/settings/deal-distribution-rules', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'store'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.store');
     // Feature 2 — toggle the agency-level ad-hoc distribution switch.
     Route::post('/admin/settings/deal-distribution-rules/adhoc-toggle', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'toggleAdhoc'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.adhoc-toggle');
-    Route::delete('/admin/settings/deal-distribution-rules/{rule}', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'destroy'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.destroy');
+    Route::delete('/admin/settings/deal-distribution-rules/{rule}', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'destroy'])->whereNumber('rule')->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.destroy');
+    Route::put('/admin/settings/deal-distribution-rules/{rule}', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'update'])->whereNumber('rule')->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.update');
+    Route::post('/admin/settings/deal-distribution-rules/{rule}/restore', [\App\Http\Controllers\Admin\DealDistributionRuleController::class, 'restore'])->whereNumber('rule')->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.deal-distribution-rules.restore');
 
     // DR2 Wave 2 — Deal → Property → Portal status sync settings (agency-configurable).
     Route::get('/admin/settings/deal-property-sync', [\App\Http\Controllers\Admin\DealPropertySyncSettingsController::class, 'index'])->middleware('permission:access_settings')->name('admin.settings.deal-property-sync.index');
