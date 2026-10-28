@@ -41,12 +41,13 @@ class DealDocumentService
      * DR2 BRIDGE (AT-226 docs lane) — file a Document uploaded on the canonical DR2
      * deal view, which is the DR1-faithful twin on the `deals` table (m3's rebuild),
      * NOT deals_v2. `documents.deal_id` FKs to `deals_v2`, so we bridge via the DR1
-     * deal's twin pointer (`deals.deal_v2_id`), and — because a DR1 deal has no direct
-     * contacts row — we file the CONTACT pillar from the property's linked contacts
-     * (the source the AT-217 capture uses). One upload → 3 pillars: deal (twin) +
-     * property + property-contacts. Idempotent; every missing link is a safe skip.
+     * deal's twin pointer (`deals.deal_v2_id`), and file the CONTACT pillar from the DR1
+     * deal's own parties (`deal_contacts`) — the sellers, the buyers, or both, by what the
+     * document is (DealDocumentPartyResolver). One upload → 3 pillars: deal (twin) +
+     * property + the deal's parties. Idempotent; every missing link is a safe skip.
+     * `party_side` (seller|buyer|both) overrides the side the resolver would infer.
      *
-     * @param array{original_name:string,storage_path:string,disk?:string,mime_type?:string,size?:int,document_type_id?:int,source_type?:string,pipeline_step_id?:int} $attrs
+     * @param array{original_name:string,storage_path:string,disk?:string,mime_type?:string,size?:int,document_type_id?:int,source_type?:string,pipeline_step_id?:int,party_side?:string} $attrs
      */
     public function fileDealDocumentFromDeal(Deal $dr1Deal, array $attrs, User $uploader): Document
     {
@@ -71,13 +72,16 @@ class DealDocumentService
                 $doc->properties()->syncWithoutDetaching([$dr1Deal->property_id]);
             }
 
-            // Contact pillar — the property's linked contacts (owner/seller).
-            $property = $dr1Deal->property;
-            if ($property) {
-                $contactIds = $property->contacts()->pluck('contacts.id')->all();
-                if (!empty($contactIds)) {
-                    $doc->contacts()->syncWithoutDetaching($contactIds);
-                }
+            // Contact pillar — the deal's OWN parties (deal_contacts), on the side the document
+            // belongs to. Never the property's wider contact list: a lead or another buyer linked to
+            // the property is not a party to this deal and must not see its offer or FICAs.
+            $parties  = app(DealDocumentPartyResolver::class);
+            $typeSlug = ! empty($attrs['document_type_id'])
+                ? \App\Models\DocumentType::query()->whereKey($attrs['document_type_id'])->value('slug')
+                : null;
+            $side = $parties->sideFor($typeSlug, $attrs['original_name'] ?? null, $attrs['party_side'] ?? null);
+            foreach ($parties->targets((int) $dr1Deal->id, $side) as $contactId => $role) {
+                $doc->contacts()->syncWithoutDetaching([$contactId => ['party_role' => $role]]);
             }
 
             // Per-step attach (optional) — record on deal_step_documents when a step
