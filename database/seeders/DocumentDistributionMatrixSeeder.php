@@ -21,7 +21,7 @@ use Illuminate\Support\Facades\DB;
 class DocumentDistributionMatrixSeeder extends Seeder
 {
     /** slug => party roles that receive it by default. */
-    private const DEFAULTS = [
+    public const DEFAULTS = [
         'otp'               => ['seller', 'buyer', 'bond_originator', 'transfer_attorney'],
         'ids'               => ['bond_originator', 'transfer_attorney'],
         'por'               => ['bond_originator', 'transfer_attorney'],
