@@ -21,6 +21,73 @@ const people = [
 const viewports = arg('viewports', '1366x768,1920x1080').split(',').map((v) => v.split('x').map(Number));
 const blocks = ['intake', 'prospects', 'parked'];
 const results = [];
+
+// The production line (spec 22.24): 18 stations on screen with no sideways scroll, the line pinned while the chips scroll, chips inside their
+// columns, the flow figures not clipped, a station click that filters, a chip that opens the card with the whole line, Escape that closes it.
+async function lineChecks(page, vh) {
+    const fails = [];
+    const g = await page.evaluate(() => {
+        const grow = document.querySelector('[data-qa="prospect-board"]');
+        const line = document.querySelector('[data-qa="production-line"]');
+        if (!grow || !line) return { missing: true };
+        const gb = grow.getBoundingClientRect();
+        const stations = [...line.querySelectorAll('[data-station]')];
+        const stationsOut = stations.filter((el) => { const b = el.getBoundingClientRect(); return b.left < gb.left - 1 || b.right > gb.right + 1; }).length;
+        const chips = [...document.querySelectorAll('[data-chips-for] .rts-ch')];
+        const chipsOut = chips.filter((el) => { const b = el.getBoundingClientRect(), c = el.parentElement.getBoundingClientRect(); return b.right > c.right + 1 || b.left < c.left - 1; }).length;
+        const phases = [...line.querySelectorAll('.rts-phase')];
+        const phasesClipped = phases.filter((el) => el.scrollWidth - el.clientWidth > 1).length;
+        const names = stations.filter((el) => { const n = el.querySelector('.nm'); return n && n.scrollWidth - n.clientWidth > 1 && getComputedStyle(n).whiteSpace === 'nowrap'; }).length;
+        grow.scrollTop = grow.scrollHeight;
+        const pinned = Math.abs(line.getBoundingClientRect().top - gb.top) <= 1;
+        const scrolls = grow.scrollHeight - grow.clientHeight;
+        grow.scrollTop = 0;
+        return { stations: stations.length, stationsOut, sideways: grow.scrollWidth - grow.clientWidth, chipsOut, chips: chips.length, phases: phases.length, phasesClipped, shortNamesCut: names, pinned, scrolls, flows: line.querySelectorAll('[data-flow]').length };
+    });
+    if (g.missing) return ['the production line is missing'];
+    if (g.stations !== 18) fails.push(`${g.stations} stations drawn, expected 18`);
+    if (g.phases !== 5) fails.push(`${g.phases} phases drawn, expected 5`);
+    if (g.sideways > 1) fails.push(`the line scrolls sideways by ${g.sideways}px`);
+    if (g.stationsOut > 0) fails.push(`${g.stationsOut} stations stick out of the line`);
+    if (g.chipsOut > 0) fails.push(`${g.chipsOut} chips stick out of their column`);
+    if (g.phasesClipped > 0) fails.push(`${g.phasesClipped} phase headers clip their flow figures`);
+    if (g.shortNamesCut > 0) fails.push(`${g.shortNamesCut} station names are cut off`);
+    if (g.flows !== 10) fails.push(`${g.flows} flow figures, expected 10`);
+    if (g.scrolls > 1 && !g.pinned) fails.push('the line does not stay put while the chips scroll');
+    if (g.chips > 0) {
+        await page.click('[data-chips-for] .rts-ch');
+        await sleep(300);
+        const card = await page.evaluate((vh) => {
+            const c = document.querySelector('[data-qa="prospect-card"] > div');
+            if (!c) return null;
+            const b = c.getBoundingClientRect();
+            return { minis: document.querySelectorAll('[data-qa="card-line"] [data-mini]').length, lit: document.querySelectorAll('[data-qa="card-line"] .is-here').length, here: (document.querySelector('[data-qa="card-here"]')?.textContent || '').replace(/\s+/g, ' ').trim(), top: Math.round(b.top), bottom: Math.round(b.bottom), inside: b.top >= 0 && b.bottom <= vh + 1, sideways: c.scrollWidth - c.clientWidth };
+        }, vh);
+        if (!card) fails.push('clicking a chip did not open the card');
+        else {
+            if (card.minis !== 18) fails.push(`the card draws ${card.minis} stations, expected 18`);
+            if (card.lit !== 1) fails.push(`the card lights ${card.lit} stations, expected 1`);
+            if (!/Here:.*next:/.test(card.here)) fails.push(`the card line reads "${card.here}"`);
+            if (!card.inside) fails.push(`the card is off screen (${card.top}-${card.bottom} of ${vh})`);
+            if (card.sideways > 1) fails.push('the card scrolls sideways');
+        }
+        await page.keyboard.press('Escape');
+        await sleep(200);
+        if (await page.$('[data-qa="prospect-card"]')) fails.push('Escape did not close the card');
+    }
+    const station = await page.$('[data-station][data-count]:not([data-count="0"])');
+    if (station) {
+        const key = await station.evaluate((el) => el.dataset.station);
+        await Promise.all([page.waitForNavigation({ waitUntil: 'networkidle2' }), station.click()]);
+        await sleep(300);
+        const one = await page.evaluate((key) => ({ lit: document.querySelectorAll('.rts-st.is-on').length, onlyThis: [...document.querySelectorAll('[data-prospect]')].every((el) => el.dataset.stage === key), wide: !!document.querySelector('.rts-wide'), back: !!document.querySelector('[data-qa="all-stations"]'), pageOverflow: (() => { const sc = document.querySelector('#appScroll'); return sc.scrollHeight - sc.clientHeight; })() }), key);
+        if (one.lit !== 1 || !one.onlyThis || !one.wide || !one.back) fails.push(`a station click did not filter to ${key} (${JSON.stringify(one)})`);
+        if (one.pageOverflow > 1) fails.push(`the page scrolls by ${one.pageOverflow}px after a station click`);
+        await page.goBack({ waitUntil: 'networkidle2' });
+    }
+    return fails;
+}
+
 const browser = await puppeteer.launch({ executablePath: '/usr/bin/chromium', headless: true, args: ['--no-sandbox', '--disable-gpu'] });
 
 for (const person of people) {
@@ -62,7 +129,7 @@ for (const person of people) {
             const fails = [];
             if ((g.pageOverflow ?? 0) > 1) fails.push(`page scrolls by ${g.pageOverflow}px`);
             if ((g.bodyOverflow ?? 0) > 1) fails.push(`block scrolls by ${g.bodyOverflow}px`);
-            if ((g.growOverflow ?? 0) > 1) fails.push(`the list scrolls by ${g.growOverflow}px (${g.rows ?? g.cards ?? g.parkedRows} rows)`);
+            if (block !== 'prospects' && (g.growOverflow ?? 0) > 1) fails.push(`the list scrolls by ${g.growOverflow}px (${g.rows ?? g.cards ?? g.parkedRows} rows)`);
             if (block === 'intake') {
                 if ((g.growOverflowX ?? 0) > 1) fails.push(`the intake table scrolls sideways by ${g.growOverflowX}px`);
                 if (g.actionCellsClipped > 0) fails.push(`${g.actionCellsClipped} of ${g.actionCells} rows have their actions off the right edge`);
@@ -70,10 +137,11 @@ for (const person of people) {
                 else if (g.table.bottom > g.vh + 1 || g.table.top < 0) fails.push(`intake table is off screen (${g.table.top}-${g.table.bottom} of ${g.vh})`);
                 if (g.formBottom !== null && g.table && g.table.top - g.formBottom > 60) fails.push('the table is not right under the filters');
             }
-            if (block === 'prospects' && g.cards > 0 && (!g.growBox || g.growBox.bottom > g.vh + 1)) fails.push('the prospect board runs off the screen');
+            if (block === 'prospects' && (!g.growBox || g.growBox.bottom > g.vh + 1)) fails.push('the production line runs off the screen');
+            if (block === 'prospects') fails.push(...await lineChecks(page, g.vh));
             results.push({ label, pass: fails.length === 0, fails, g });
             console.log(`${fails.length ? 'FAIL' : 'PASS'}  ${label}  table=${JSON.stringify(g.table)} rows=${g.rows} cards=${g.cards} parked=${g.parkedRows}${fails.length ? '  - ' + fails.join('; ') : ''}`);
-            if (block === 'intake' || fails.length) await page.screenshot({ path: `${OUT}/${person.who}-${w}x${h}-${block}.png` });
+            if (block === 'intake' || block === 'prospects' || fails.length) await page.screenshot({ path: `${OUT}/${person.who}-${w}x${h}-${block}.png` });
         }
         if (errors.length) { results.push({ label: `${person.who} ${w}x${h} script errors`, pass: false, fails: [...new Set(errors)].slice(0, 3) }); console.log('FAIL  script errors: ' + [...new Set(errors)].slice(0, 3).join(' | ')); }
         await page.close();

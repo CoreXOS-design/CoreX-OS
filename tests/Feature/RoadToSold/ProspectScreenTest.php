@@ -74,6 +74,12 @@ final class ProspectScreenTest extends TestCase
         return $this->prospects->place($agent, $this->tp($attrs)->id);
     }
 
+    /** The page's own data as plain JSON text: entities decoded, the \u0022 quotes and \/ slashes that @js writes turned back. */
+    private function pageData(string $html): string
+    {
+        return str_replace(['\\u0022', '\\u0027', '\\u0026', '\\\\/', '\\/'], ['"', "'", '&', '/', '/'], html_entity_decode($html));
+    }
+
     private function page(User $as, array $q = [])
     {
         return $this->actingAs($as)->get(route('road-to-sold.index', $q));
@@ -107,19 +113,17 @@ final class ProspectScreenTest extends TestCase
 
         $html = $this->page($this->agent, ['block' => 'prospects'])->assertOk()->getContent();
         $this->assertStringContainsString('data-qa="prospect-board"', $html);
-        $this->assertStringContainsString('Get stock', $html);
-        $this->assertStringNotContainsString('<section aria-label="Sell stock"', $html, 'a group with no prospects is not drawn');
-        $this->assertStringContainsString('<section aria-label="Get stock"', $html);
+        $this->assertStringContainsString('data-qa="production-line"', $html);
         $this->assertStringContainsString('5 Alpha Road', $html);
-        $this->assertStringContainsString('Next:</span> Call again', $html);
-        $this->assertStringContainsString('Overdue - was due Sat 10 Oct', $html);
+        $this->assertStringContainsString('data-qa="next-action">Call again<', $html);
+        $this->assertStringContainsString('Overdue - was due Sat 10 Oct', $html, 'the chip says it is overdue in words (hover) and in the card');
         $this->assertStringContainsString('data-due="overdue"', $html);
-        $this->assertStringContainsString('rts-card is-overdue', $html);
+        $this->assertStringContainsString('rts-ch is-overdue', $html);
         $this->assertStringContainsString('Due today', $html);
         $this->assertStringContainsString('Owner not known yet', $html);
         // first-time user: the primary button says what to do - Pitch when the owner is known, Find owner when not
-        $this->assertMatchesRegularExpression('/data-step-url="[^"]*prospects\/' . $a->id . '\/step\/pitch"/', $html);
-        $this->assertMatchesRegularExpression('/data-step-url="[^"]*prospects\/' . $b->id . '\/step\/find_owner"/', $html);
+        $this->assertStringContainsString('prospects/' . $a->id . '/step/pitch', $this->pageData($html), 'the card of an owner-known property opens the pitch');
+        $this->assertStringContainsString('prospects/' . $b->id . '/step/find_owner', $this->pageData($html), 'the card of a property with no owner opens Find owner');
         $this->assertStringContainsString('Find owner', $html);
     }
 
@@ -135,7 +139,6 @@ final class ProspectScreenTest extends TestCase
             'beta' => strpos($html, '5 Beta Road'), 'alpha' => strpos($html, '5 Alpha Road'),
         ], fn ($v) => $v !== false)));
         $html = $this->page($this->agent, ['block' => 'prospects'])->getContent();
-        $this->assertLessThan(strpos($html, '5 Alpha Road'), strpos($html, '5 Beta Road'), 'soonest due first');
 
         $only = fn (array $q, string $has, string $not) => tap($this->page($this->agent, ['block' => 'prospects'] + $q)->assertOk()->getContent(), function ($h) use ($has, $not, $q) {
             $h = substr($h, (int) strpos($h, 'data-qa="block-prospects"'));   // the block itself (the page's own JSON also names today's intake rows)
@@ -148,7 +151,7 @@ final class ProspectScreenTest extends TestCase
         $only(['p_due' => 'overdue'], '5 Beta Road', '5 Alpha Road');
         $only(['p_suburb' => 'Uvongo'], '5 Alpha Road', '5 Beta Road');
         $only(['p_q' => 'zzz nothing'], 'Nothing matches this search.', '5 Alpha Road');
-        $this->assertStringContainsString('data-qa="stage-strip"', $html);
+        $this->assertStringContainsString('data-station="appointment_set"', $html, 'the line itself is the stage filter');
     }
 
     public function test_an_empty_prospects_block_says_what_to_do(): void
@@ -192,11 +195,11 @@ final class ProspectScreenTest extends TestCase
     public function test_a_hand_capture_moves_a_prospect_forward_only(): void
     {
         $p = $this->owned($this->agent, 'Alpha Road');
-        $this->actingAs($this->agent)->post(route('road-to-sold.prospects.capture', $p->id), ['stage' => 'presentation_given', 'next_label' => 'Get the feedback', 'next_at' => '2026-10-21'])->assertSessionHasNoErrors();
+        $this->actingAs($this->agent)->post(route('road-to-sold.prospects.capture', $p->id), ['stage' => 'presentation_given', 'note' => 'Presented by hand', 'next_label' => 'Get the feedback', 'next_at' => '2026-10-21'])->assertSessionHasNoErrors();
         $p->refresh();
         $this->assertSame(['presentation_given', 'Get the feedback'], [$p->stage, $p->next_action_label]);
-        $this->actingAs($this->agent)->post(route('road-to-sold.prospects.capture', $p->id), ['stage' => 'contacted'])->assertSessionHasErrors('stage');
-        $this->actingAs($this->agent)->post(route('road-to-sold.prospects.capture', $p->id), ['stage' => 'nonsense'])->assertSessionHasErrors('stage');
+        $this->actingAs($this->agent)->post(route('road-to-sold.prospects.capture', $p->id), ['stage' => 'contacted', 'note' => 'x', 'next_label' => 'y', 'next_at' => '2026-10-21'])->assertSessionHasErrors('stage');
+        $this->actingAs($this->agent)->post(route('road-to-sold.prospects.capture', $p->id), ['stage' => 'nonsense', 'note' => 'x', 'next_label' => 'y', 'next_at' => '2026-10-21'])->assertSessionHasErrors('stage');
         $this->assertSame('presentation_given', $p->fresh()->stage);
     }
 
@@ -236,7 +239,7 @@ final class ProspectScreenTest extends TestCase
         $this->actingAs($this->manager)->post(route('road-to-sold.prospects.park', $mine->id), ['reason' => 'not_selling_now'])->assertForbidden();
         $this->actingAs($this->manager)->post(route('road-to-sold.prospects.unpark', $mine->id))->assertForbidden();
         $this->actingAs($this->manager)->put(route('road-to-sold.prospects.next-action', $mine->id), ['label' => 'x'])->assertForbidden();
-        $this->actingAs($this->manager)->post(route('road-to-sold.prospects.capture', $mine->id), ['stage' => 'contacted'])->assertForbidden();
+        $this->actingAs($this->manager)->post(route('road-to-sold.prospects.capture', $mine->id), ['stage' => 'contacted', 'note' => 'x', 'next_label' => 'y', 'next_at' => '2026-10-21'])->assertForbidden();
         $this->assertNull($mine->fresh()->parked_at);
     }
 
@@ -265,15 +268,15 @@ final class ProspectScreenTest extends TestCase
         $html = $this->page($this->manager, ['block' => 'prospects', 'agent' => $this->agent->id])->assertOk()->getContent();
         $this->assertStringContainsString('data-qa="read-only"', $html);
         $this->assertStringContainsString('5 Alpha Road', $html);
-        $this->assertStringContainsString('data-qa="stage-counts"', $html, 'per-stage counts');
-        $this->assertStringContainsString('this month', $html, 'each tile says how many came in this month');
+        $this->assertStringContainsString('data-qa="production-line"', $html, 'the same line, for the agent the manager picked');
+        $this->assertStringContainsString('this month', $html, 'the phase boundaries say how many moved this month');
         $this->assertStringNotContainsString('data-qa="prospect-step"', $html, 'no step buttons for a manager');
         $this->assertStringNotContainsString('@click="openPark(', $html);
         $this->assertStringNotContainsString('@click="openNext(', $html);
         $this->assertStringNotContainsString('Record a result', $html);
-        // the agent's own page has no manager table
+        // the agent's own page has the buttons
         $own = $this->page($this->agent, ['block' => 'prospects'])->getContent();
-        $this->assertStringNotContainsString('data-qa="stage-counts"', $own);
+        $this->assertStringContainsString('data-qa="production-line"', $own);
         $this->assertStringContainsString('data-qa="prospect-step"', $own);
     }
 
@@ -340,11 +343,9 @@ final class ProspectScreenTest extends TestCase
         $this->prospects->advance($p->refresh(), S::LISTING_LIVE, $this->agent, ['subject_type' => 'x', 'subject_id' => 3, 'next_label' => 'Advertise the listing']);
 
         $html = $this->page($this->manager, ['block' => 'prospects', 'agent' => $this->agent->id])->assertOk()->getContent();
-        $start = strpos($html, 'data-qa="stage-counts"');
-        $slice = substr($html, $start, strpos($html, 'data-qa="prospect-filters"') - $start);
-        preg_match_all('/font-semibold truncate">([^<]+)</', $slice, $m);
+        preg_match_all('/data-station="([a-z_]+)"/', $html, $m);
 
-        $this->assertSame(array_column(array_values(S::ALL), 'label'), array_map('html_entity_decode', $m[1]), 'Found first, Registered last, nothing moved up for having work in it');
+        $this->assertSame(S::keys(), $m[1], 'Found first, Registered last, nothing moved up for having work in it');
     }
 
     public function test_the_page_turns_a_marked_link_into_a_pop_up_instead_of_leaving_the_page(): void
@@ -411,14 +412,13 @@ final class ProspectScreenTest extends TestCase
         $this->assertSame([$tp->id => 1_250_000], \App\Services\RoadToSold\Support\CurrentAskingPrice::forTracked([$tp->id]), 'between live ones, the latest seen');
     }
 
-    public function test_the_stage_tile_subtitle_is_plain_words_and_never_says_no_target(): void
+    public function test_a_stations_hover_is_plain_words_and_never_says_no_target_in_the_tile(): void
     {
         $this->owned($this->agent, 'Alpha Road');
 
         $html = $this->page($this->manager, ['block' => 'prospects', 'agent' => $this->agent->id])->assertOk()->getContent();
-        $this->assertMatchesRegularExpression('/data-qa="stage-sub"[^>]*>\d+ this month · avg [\d.]+ days?/u', $html);
+        $this->assertMatchesRegularExpression('/title="Found: 1 property now, \d+ entered this month, [\d.]+ days? here on average/u', $html);
         $this->assertStringNotContainsString('no target</div>', $html);
-        $this->assertStringNotContainsString(' in ·', $html);
     }
 
     private function normalise(?string $url): string

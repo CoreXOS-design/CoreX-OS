@@ -1,67 +1,38 @@
-{{-- Road to Sold v3 block 2 - MY PROSPECTS (spec 22.4): every property the agent has touched, by stage, each with its NEXT ACTION and DUE DATE.
-     Two columns (Get stock | Sell stock) of cards. A manager sees the same read-only, with the per-stage counts and the on-track bar (R9). --}}
+{{-- Road to Sold v3 block 2 - MY PROSPECTS = THE PRODUCTION LINE (spec 22.24): 18 stations in 5 phases across the top, every active property as a chip
+     under its station (address, days there, next action, due date), the month's flow between phases on the phase boundaries. A station click filters
+     the chips; a chip opens the property's card with the whole line drawn and the property's place lit. Everything but the chip area stays put. --}}
 @php
     $pf = $prospectFilters;
+    $agentName = $agents->firstWhere('id', $agentId)?->name;
     $keepAgent = $viewingOwn ? [] : ['agent' => $agentId];
     $inputStyle = 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);';
     $stageMeta = \App\Services\RoadToSold\ProspectStages::ALL;
-    $groups = ['get_stock' => 'Get stock', 'sell_stock' => 'Sell stock'];
-    $byGroup = collect($prospectRows->items())->groupBy('group');
-    $dueWords = fn (array $r) => match ($r['due_state']) {
-        'overdue' => 'Overdue - was due ' . \Illuminate\Support\Carbon::parse($r['next_action_at'])->format('D j M'),
-        'today'   => 'Due today',
-        'later'   => 'Due ' . \Illuminate\Support\Carbon::parse($r['next_action_at'])->format('D j M'),
-        default   => 'No date set',
-    };
     $moneyFmt = fn ($v) => $v ? 'R ' . number_format((int) $v, 0, '.', ',') : null;
+    $base = ['block' => 'prospects'] + $keepAgent + \App\Services\RoadToSold\Track::params($track);
+    $keep = array_filter(['p_q' => $pf['q'], 'p_due' => $pf['due'], 'p_suburb' => $pf['suburb'], 'p_sort' => $pf['sort'] !== 'due' ? $pf['sort'] : null, 'p_who' => $lineWho !== 'agent' ? $lineWho : null], fn ($v) => $v !== null && $v !== '');
+    $lineUrl = fn (array $over = []) => route('road-to-sold.index', array_filter($base + $keep + $over, fn ($v) => $v !== null && $v !== ''));
+    $searching = $pf['q'] !== '' || $pf['due'] !== '' || $pf['suburb'] !== '';
+    $byStage = collect($lineChips)->groupBy('stage');
+    $stationList = collect($stageMeta)->map(fn ($m, $k) => ['key' => $k, 'label' => $m['label'], 'short' => \App\Services\RoadToSold\ProspectStages::short($k), 'phase' => \App\Services\RoadToSold\ProspectStages::phaseOf($k)])->values()->all();
+    $cards = collect($lineChips)->mapWithKeys(fn ($c) => [$c['id'] => [
+        'id' => $c['id'], 'tp' => $c['tracked_property_id'], 'address' => $c['address'], 'suburb' => $c['suburb'], 'owner' => $c['owner_name'], 'phone' => $c['owner_phone'],
+        'price' => $moneyFmt($c['price']), 'stage' => $c['stage'], 'stage_label' => $c['stage_label'], 'agent' => $c['agent_name'], 'next' => $c['next_action'],
+        'due_state' => $c['due_state'], 'due_words' => $c['due_words'], 'next_at' => $c['next_action_at'], 'days' => $c['days_in_stage'], 'reason' => $c['reason'], 'journey' => (object) $c['journey'],
+        'step_url' => route('road-to-sold.prospects.step', [$c['id'], $c['primary']['key']]), 'step_label' => $c['primary']['label'],
+        'history_url' => route('road-to-sold.prospects.history', [$c['id'], 'embed' => 1]),
+    ]]);
 @endphp
-<div class="rts-col" x-data="rtsProspectActions(@js($parkReasons))" data-qa="block-prospects">
+<div class="rts-col" x-data="rtsProspectActions(@js($parkReasons), @js($cards), @js($stationList))" data-qa="block-prospects">
 
-    {{-- Stage strip: where everything sits; a stage is a filter --}}
-    <div class="flex items-center gap-2 flex-wrap text-xs {{ $stageCounts ? 'hidden' : '' }}" data-qa="stage-strip">
-        @foreach($stageMeta as $key => $meta)
-            @if(($stageStrip[$key] ?? 0) > 0)
-                <a href="{{ route('road-to-sold.index', ['block' => 'prospects', 'p_stage' => $key] + $keepAgent + \App\Services\RoadToSold\Track::params($track)) }}" class="rts-chip" style="{{ $pf['stage'] === $key ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : '' }}">{{ $meta['label'] }} {{ $stageStrip[$key] }}</a>
-            @endif
-        @endforeach
-        @if(array_sum($stageStrip) === 0)<span style="color: var(--text-muted);">Nothing here yet.</span>@endif
-    </div>
-
-    @if($stageCounts)
-        {{-- R9: the manager's per-stage figures, one small tile per stage: how many now, how many entered this month, average days, stalled, and the recipe step's own on-track state. --}}
-        <div data-qa="stage-counts" style="display: grid; gap: .3rem; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));">
-            {{-- always the pipeline order, Found to Registered; a stage with nothing in it is just a thinner tile --}}
-            @foreach($stageCounts as $sc)
-                @php $st = $sc['step_state']; $edge = match ($st) { 'achieved', 'ahead', 'on_track' => 'var(--ds-green, #059669)', 'needs_a_push' => 'var(--ds-amber, #f59e0b)', 'behind' => 'var(--ds-red, #f87171)', default => 'var(--border)' }; $quiet = $sc['now'] === 0 && $sc['entered'] === 0; @endphp
-                <div class="rounded-md px-2 text-[11px]" style="padding-top: .15rem; padding-bottom: .15rem; background: var(--surface); border: 1px solid var(--border); border-left: 4px solid {{ $edge }}; color: var(--text-primary);" title="{{ $sc['label'] }}: {{ $sc['now'] }} now, {{ $sc['entered'] }} entered this month{{ $sc['avg_days'] !== null ? ', ' . $sc['avg_days'] . ' days on average' : '' }}{{ $sc['stalled'] > 0 ? ', ' . $sc['stalled'] . ' stalled' : '' }}. {{ $st ? 'On track: ' . ucfirst(str_replace('_', ' ', $st)) : 'No target set for this step' }}">
-                    <div class="flex items-center justify-between gap-1"><span class="font-semibold truncate">{{ $sc['label'] }}</span><strong>{{ $sc['now'] }}</strong></div>
-                    @unless($quiet)
-                        <div style="color: var(--text-muted);" data-qa="stage-sub">{{ $sc['entered'] }} this month{{ $sc['avg_days'] !== null ? ' · avg ' . rtrim(rtrim(number_format($sc['avg_days'], 1), '0'), '.') . ($sc['avg_days'] == 1 ? ' day' : ' days') : '' }}@if($sc['stalled'] > 0) · <span class="rts-due-overdue">{{ $sc['stalled'] }} stalled</span>@endif{{ $st ? ' · ' . ucfirst(str_replace('_', ' ', $st)) : '' }}</div>
-                    @endunless
-                </div>
-            @endforeach
-        </div>
-    @endif
-
-    {{-- Filters: stage, due, suburb; search; sort by due --}}
+    {{-- Search / filters / sort; the station is chosen on the line itself --}}
     <form method="GET" class="flex items-end gap-3 flex-wrap" data-qa="prospect-filters">
         <input type="hidden" name="block" value="prospects">
         @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
         @if(! $viewingOwn)<input type="hidden" name="agent" value="{{ $agentId }}">@endif
+        @if($pf['stage'] !== '')<input type="hidden" name="p_stage" value="{{ $pf['stage'] }}">@endif
         <div>
             <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="p-q">Search</label>
             <input id="p-q" type="text" name="p_q" value="{{ $pf['q'] }}" placeholder="Address, suburb, owner, phone or next action" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }} width: 17rem;">
-        </div>
-        <div>
-            <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="p-stage">Stage</label>
-            <select id="p-stage" name="p_stage" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
-                <option value="">All stages</option>
-                @foreach($groups as $g => $gl)
-                    <optgroup label="{{ $gl }}">
-                        @foreach(\App\Services\RoadToSold\ProspectStages::inGroup($g) as $k)<option value="{{ $k }}" @selected($pf['stage'] === $k)>{{ $stageMeta[$k]['label'] }}</option>@endforeach
-                    </optgroup>
-                @endforeach
-            </select>
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="p-due">Due</label>
@@ -80,75 +51,182 @@
             </div>
         @endif
         <div>
-            <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="p-sort">Sort</label>
+            <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="p-sort">Sort each station by</label>
             <select id="p-sort" name="p_sort" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
-                @foreach(['due' => 'Due date (soonest first)', 'stage' => 'Stage', 'address' => 'Address', 'days_in_stage' => 'Days in stage', 'last_outcome' => 'Last outcome'] as $v => $l)<option value="{{ $v }}" @selected($pf['sort'] === $v)>{{ $l }}</option>@endforeach
+                @foreach(['due' => 'Due date (soonest first)', 'days_in_stage' => 'Days at the station', 'address' => 'Address'] as $v => $l)<option value="{{ $v }}" @selected($pf['sort'] === $v)>{{ $l }}</option>@endforeach
             </select>
         </div>
+        @if(count($lineWhoOptions) > 1)
+            <div data-qa="line-who">
+                <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="p-who">Show</label>
+                <select id="p-who" name="p_who" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
+                    <option value="agent" @selected($lineWho === 'agent')>{{ $viewingOwn ? 'My properties' : $agentName }}</option>
+                    @if(isset($lineWhoOptions['branch']))<option value="branch" @selected($lineWho === 'branch')>Whole branch - {{ $lineWhoOptions['branch'] }}</option>@endif
+                    @if(isset($lineWhoOptions['agency']))<option value="agency" @selected($lineWho === 'agency')>{{ $lineWhoOptions['agency'] }}</option>@endif
+                </select>
+            </div>
+        @endif
         <button type="submit" class="corex-btn-outline corex-btn-xs">Search</button>
-        @if($pf['q'] !== '' || $pf['stage'] !== '' || $pf['due'] !== '' || $pf['suburb'] !== '' || $pf['sort'] !== 'due')
-            <a href="{{ route('road-to-sold.index', ['block' => 'prospects'] + $keepAgent + \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Clear</a>
+        @if($searching || $pf['stage'] !== '' || $pf['sort'] !== 'due' || $flowView)
+            <a href="{{ route('road-to-sold.index', array_filter($base + ['p_who' => $lineWho !== 'agent' ? $lineWho : null])) }}" class="corex-btn-outline corex-btn-xs">Clear</a>
+        @endif
+        @if($pf['stage'] !== '')
+            <span class="text-xs" style="color: var(--text-muted);" data-qa="station-note">Showing <strong style="color: var(--text-primary);">{{ $stageMeta[$pf['stage']]['label'] ?? $pf['stage'] }}</strong> only - <a href="{{ $lineUrl(['p_stage' => null]) }}" class="underline" data-qa="all-stations">All stations</a></span>
+        @endif
+        @if(! $viewingOwn || $lineWho !== 'agent')
+            <span class="text-xs ml-auto" style="color: var(--text-muted);" data-qa="line-scope">{{ $lineWho === 'agent' ? $agentName : ($lineWho === 'branch' ? 'Whole branch - ' . $lineWhoOptions['branch'] : 'Whole agency') }} - read only</span>
         @endif
     </form>
 
-    @if($prospectRows->total() === 0)
-        <div class="rounded-md px-6 py-12 text-center" style="background: var(--surface); border: 1px solid var(--border);" data-qa="prospects-empty">
-            <div class="text-base font-semibold" style="color: var(--text-primary);">
-                @if($pf['q'] !== '' || $pf['stage'] !== '' || $pf['due'] !== '' || $pf['suburb'] !== '')Nothing matches this search.@else No prospects yet - they start when you work today's intake.@endif
-            </div>
-            @if($pf['q'] === '' && $pf['stage'] === '' && $pf['due'] === '' && $pf['suburb'] === '')
-                <a href="{{ route('road-to-sold.index', $keepAgent + \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-primary corex-btn-xs mt-4 inline-flex">Go to today's intake</a>
-            @endif
-        </div>
-    @else
-        @php $shown = collect($groups)->filter(fn ($gl, $g) => ($byGroup[$g] ?? collect())->isNotEmpty()); @endphp
-        <div class="rts-grow" data-qa="prospect-board">
-          <div class="rts-board" style="grid-template-columns: repeat({{ max(1, $shown->count()) }}, minmax(0, 1fr));">
-            @foreach($shown as $g => $gl)
-                <section aria-label="{{ $gl }}" class="space-y-1">
-                    <h2 class="text-xs font-bold uppercase tracking-widest" style="color: var(--text-muted);">{{ $gl }} <span class="rts-chip">{{ $byGroup[$g]->count() }}</span></h2>
-                    <div class="rts-cards">
-                    @foreach($byGroup[$g] as $r)
-                        <article class="rts-card {{ $r['due_state'] === 'overdue' ? 'is-overdue' : '' }}" data-prospect="{{ $r['id'] }}" data-stage="{{ $r['stage'] }}">
-                            <div class="flex items-start justify-between gap-2">
-                                <div class="min-w-0">
-                                    <div class="text-xs font-semibold truncate" style="color: var(--text-primary);" title="{{ $r['address'] }}">{{ $r['address'] }}@if($r['suburb'])<span class="font-normal" style="color: var(--text-muted);"> &middot; {{ $r['suburb'] }}</span>@endif</div>
-                                    <div class="text-[11px] truncate" style="color: var(--text-muted);">
-                                        @if($r['owner_name']){{ $r['owner_name'] }}@if($r['owner_phone']) &middot; {{ $r['owner_phone'] }}@endif @else Owner not known yet @endif
-                                        @if($moneyFmt($r['price'])) &middot; {{ $moneyFmt($r['price']) }}@endif
-                                    </div>
-                                </div>
-                                <span class="rts-chip shrink-0" title="{{ $r['days_in_stage'] !== null ? $r['days_in_stage'] . ' days at this stage' : '' }}{{ $r['reason'] ? ' - started: ' . $r['reason'] : '' }}">{{ $r['stage_label'] }}</span>
-                            </div>
-                            <div class="mt-1 text-xs" style="color: var(--text-primary);" data-qa="next-action">
-                                <span class="font-semibold">Next:</span> {{ $r['next_action'] ?: 'Decide what happens next' }}
-                                <span class="rts-due-{{ $r['due_state'] }}" data-due="{{ $r['due_state'] }}">&middot; {{ $dueWords($r) }}</span>
-                            </div>
-                            <div class="mt-1 flex items-center gap-1 flex-wrap">
-                                @if($canWriteProspects)
-                                    <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="prospect-step"
-                                            data-step-url="{{ route('road-to-sold.prospects.step', [$r['id'], $r['primary']['key']]) }}" data-step-label="{{ $r['primary']['label'] }} - {{ $r['address'] }}"
-                                            @click="$dispatch('rts-step', $el.dataset)">{{ $r['primary']['label'] }}</button>
-                                    <button type="button" class="corex-btn-outline corex-btn-xs" data-tp="{{ $r['tracked_property_id'] }}" data-address="{{ $r['address'] }}" @click="openContact($el.dataset)">Record a result</button>
-                                    <button type="button" class="corex-btn-outline corex-btn-xs" @click="openNext({{ $r['id'] }}, @js($r['next_action']), @js($r['next_action_at']))">Next action</button>
-                                    <button type="button" class="corex-btn-outline corex-btn-xs" @click="openPark({{ $r['id'] }}, @js($r['address']))">Set aside</button>
-                                @endif
-                                <button type="button" class="corex-btn-outline corex-btn-xs"
-                                        data-step-url="{{ route('road-to-sold.prospects.history', [$r['id'], 'embed' => 1]) }}" data-step-label="History - {{ $r['address'] }}"
-                                        @click="$dispatch('rts-step', $el.dataset)">History</button>
-                                @if($canRelease ?? false)
-                                    <button type="button" class="corex-btn-outline corex-btn-xs" data-qa="prospect-release" @click="$dispatch('rts-release', { id: {{ $r['id'] }}, address: @js($r['address']) })">Release</button>
-                                @endif
-                            </div>
-                        </article>
-                    @endforeach
+    @php $nothing = $lineTotal === 0 && array_sum(array_column($linePhases, 'total')) === 0; @endphp
+    <div class="rts-grow rts-linebox" data-qa="prospect-board">
+      <div class="rts-inner">
+        {{-- THE LINE: pinned while the chips scroll under it --}}
+        <div class="rts-line" data-qa="production-line">
+            <div class="rts-grid18 rts-phases">
+                @foreach($linePhases as $ph)
+                    <div class="rts-phase" style="grid-column: span {{ count($ph['stations']) }};" data-phase="{{ $ph['key'] }}">
+                        <span class="rts-phase-name" title="{{ $ph['label'] }}: {{ $ph['total'] }} {{ $ph['total'] === 1 ? 'property' : 'properties' }} now">{{ $ph['label'] }}</span>
+                        <span class="rts-flow" data-qa="flow-{{ $ph['key'] }}">
+                            @php
+                                $movedTitle = $ph['last'] ? $ph['moved'] . ' registered this month' : $ph['moved'] . ' moved on from ' . $ph['label'] . ' this month';
+                                $outTitle = $ph['out'] . ' fell out of ' . $ph['label'] . ' this month (set aside, not selling or lost)';
+                            @endphp
+                            @if($ph['moved'] > 0)<a href="{{ $lineUrl(['p_flow' => 'moved', 'p_flow_phase' => $ph['key']]) }}" title="{{ $movedTitle }} - click to see them" data-flow="moved" class="{{ $flowView && $flowView['kind'] === 'moved' && $flowView['phase'] === $ph['key'] ? 'is-on' : '' }}">{{ $ph['last'] ? '✓' : '→' }}{{ $ph['moved'] }}</a>@else<span title="{{ $movedTitle }}" data-flow="moved">{{ $ph['last'] ? '✓' : '→' }}0</span>@endif
+                            @if($ph['out'] > 0)<a href="{{ $lineUrl(['p_flow' => 'out', 'p_flow_phase' => $ph['key']]) }}" title="{{ $outTitle }} - click to see them" data-flow="out" class="rts-out {{ $flowView && $flowView['kind'] === 'out' && $flowView['phase'] === $ph['key'] ? 'is-on' : '' }}">✕{{ $ph['out'] }}</a>@else<span title="{{ $outTitle }}" data-flow="out">✕0</span>@endif
+                        </span>
                     </div>
-                </section>
-            @endforeach
-          </div>
+                @endforeach
+            </div>
+            <div class="rts-grid18 rts-stations">
+                @foreach($linePhases as $ph)
+                    @foreach($ph['stations'] as $st)
+                        @php
+                            $on = $pf['stage'] === $st['stage'];
+                            $edge = match ($st['step_state']) { 'achieved', 'ahead', 'on_track' => 'var(--ds-green, #059669)', 'needs_a_push' => 'var(--ds-amber, #f59e0b)', 'behind' => 'var(--ds-red, #f87171)', default => 'var(--border)' };
+                            $tip = $st['label'] . ': ' . $st['now'] . ($st['now'] === 1 ? ' property' : ' properties') . ' now, ' . $st['entered'] . ' entered this month'
+                                . ($st['avg_days'] !== null ? ', ' . rtrim(rtrim(number_format($st['avg_days'], 1), '0'), '.') . ' days here on average' : '')
+                                . ($st['behind'] > 0 ? '. Needs attention: ' . $st['overdue'] . ' overdue, ' . $st['stalled'] . ' with no movement for a while' : '')
+                                . '. ' . ($st['step_state'] ? 'On track: ' . ucfirst(str_replace('_', ' ', $st['step_state'])) : 'No target set for this step') . '. Click to show only these.';
+                        @endphp
+                        <a href="{{ $lineUrl(['p_stage' => $on ? null : $st['stage']]) }}" class="rts-st {{ $on ? 'is-on' : '' }} {{ $st['now'] === 0 ? 'is-empty' : '' }}" style="border-top-color: {{ $edge }};" title="{{ $tip }}" data-station="{{ $st['stage'] }}" data-count="{{ $st['now'] }}" aria-pressed="{{ $on ? 'true' : 'false' }}">
+                            <span class="nm"><span class="rts-st-short">{{ $st['short'] }}</span><span class="rts-st-full">{{ $st['label'] }}</span></span>
+                            <span class="n">{{ $st['now'] }}@if($st['behind'] > 0)<span class="bad" data-qa="station-behind" title="{{ $st['overdue'] }} overdue, {{ $st['stalled'] }} stalled">!{{ $st['behind'] }}</span>@endif</span>
+                        </a>
+                    @endforeach
+                @endforeach
+            </div>
         </div>
-        {{ $prospectRows->links() }}
-    @endif
+
+        {{-- UNDER THE LINE --}}
+        @if($flowView)
+            <div class="rts-flowlist" data-qa="flow-list">
+                <div class="text-xs mb-1" style="color: var(--text-primary);"><strong>{{ $flowView['kind'] === 'moved' ? ($flowView['phase'] === 'close' ? 'Registered this month' : 'Moved on from ' . $flowView['label'] . ' this month') : 'Fell out of ' . $flowView['label'] . ' this month' }}</strong> ({{ count($flowView['rows']) }}) - <a href="{{ $lineUrl(['p_flow' => null, 'p_flow_phase' => null]) }}" class="underline" data-qa="back-to-line">Back to the line</a></div>
+                @if(count($flowView['rows']) === 0)
+                    <div class="text-xs" style="color: var(--text-muted);">Nobody this month.</div>
+                @else
+                    <table class="w-full text-xs"><thead><tr style="color: var(--text-muted);"><th class="text-left">Property</th><th class="text-left">Owner</th><th class="text-left">Agent</th><th class="text-left">Where it is now</th><th class="text-left">When</th></tr></thead>
+                    <tbody>
+                    @foreach($flowView['rows'] as $fr)
+                        <tr data-flow-row="{{ $fr['id'] }}" style="border-top: 1px solid var(--border);"><td class="py-1">{{ $fr['address'] }}@if($fr['suburb'])<span style="color: var(--text-muted);"> &middot; {{ $fr['suburb'] }}</span>@endif</td><td>{{ $fr['owner'] ?: 'Owner not known yet' }}</td><td>{{ $fr['agent'] }}</td><td>{{ $fr['now'] }}</td><td>{{ $fr['when'] ? \Illuminate\Support\Carbon::parse($fr['when'])->format('j M') : '' }}</td></tr>
+                    @endforeach
+                    </tbody></table>
+                @endif
+            </div>
+        @elseif($nothing)
+            <div class="rounded-md px-6 py-8 text-center" style="background: var(--surface); border: 1px solid var(--border);" data-qa="prospects-empty">
+                <div class="text-base font-semibold" style="color: var(--text-primary);">No prospects yet - they start when you work today's intake.</div>
+                <a href="{{ route('road-to-sold.index', $keepAgent + \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-primary corex-btn-xs mt-4 inline-flex">Go to today's intake</a>
+            </div>
+        @elseif($lineTotal === 0)
+            <div class="rounded-md px-6 py-8 text-center text-sm font-semibold" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);" data-qa="prospects-empty">Nothing matches this search.</div>
+        @else
+            <div class="{{ $pf['stage'] !== '' ? 'rts-wide' : 'rts-grid18 rts-cols' }}" data-qa="chips">
+                @php $chipGroups = $pf['stage'] !== '' ? [$pf['stage'] => $byStage[$pf['stage']] ?? collect()] : collect(array_keys($stageMeta))->mapWithKeys(fn ($k) => [$k => $byStage[$k] ?? collect()])->all(); @endphp
+                @foreach($chipGroups as $stageKey => $group)
+                    @if($pf['stage'] === '')<div class="rts-col18" data-chips-for="{{ $stageKey }}">@endif
+                    @foreach($group as $r)
+                        <button type="button" class="rts-ch {{ $r['due_state'] === 'overdue' ? 'is-overdue' : '' }}" data-prospect="{{ $r['id'] }}" data-stage="{{ $r['stage'] }}" data-due="{{ $r['due_state'] }}"
+                                title="{{ $r['address'] }}{{ $r['suburb'] ? ', ' . $r['suburb'] : '' }} - {{ $r['stage_label'] }}, {{ $r['days_in_stage'] ?? 0 }} {{ ($r['days_in_stage'] ?? 0) === 1 ? 'day' : 'days' }} here. Next: {{ $r['next_action'] ?: 'decide what happens next' }} ({{ $r['due_words'] }}). Click for the full card."
+                                @click="openCard({{ $r['id'] }})">
+                            <span class="a">{{ $r['address'] }}@if($pf['stage'] !== '' && $r['suburb'])<span class="rts-sub"> &middot; {{ $r['suburb'] }}</span>@endif</span>
+                            <span class="x" data-qa="next-action">{{ $r['next_action'] ?: 'Decide what happens next' }}</span>
+                            <span class="x rts-due-{{ $r['due_state'] }}" data-due="{{ $r['due_state'] }}">{{ $pf['stage'] !== '' ? $r['due_words'] : $r['due_compact'] }}<span class="rts-days" style="color: var(--text-muted);"> &middot; {{ $r['days_in_stage'] ?? 0 }}d</span></span>
+                            @if($pf['stage'] !== '')<span class="x rts-sub">{{ $r['owner_name'] ?: 'Owner not known yet' }}@if($moneyFmt($r['price'])) &middot; {{ $moneyFmt($r['price']) }}@endif</span>@endif
+                        </button>
+                    @endforeach
+                    @if($pf['stage'] === '')</div>@endif
+                @endforeach
+            </div>
+            @if($lineLimited)<div class="text-xs mt-1" style="color: var(--text-muted);" data-qa="line-limited">Showing the first {{ count($lineChips) }} of {{ $lineTotal }} - narrow the search to see the rest.</div>@endif
+        @endif
+      </div>
+    </div>
+
+    {{-- The property's card: the whole line with its place lit, then where it is and what happens next --}}
+    <template x-if="card">
+        <div class="fixed inset-0 z-40 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @click.self="cardId = null" @keydown.escape.window="cardId = null" data-qa="prospect-card" role="dialog" aria-modal="true">
+            <div class="w-full rounded-md p-4 space-y-3" style="max-width: 58rem; background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <div class="text-sm font-bold truncate" x-text="card.address + (card.suburb ? ' - ' + card.suburb : '')"></div>
+                        <div class="text-xs" style="color: var(--text-muted);" x-text="(card.owner ? card.owner + (card.phone ? ' - ' + card.phone : '') : 'Owner not known yet') + (card.price ? ' - ' + card.price : '') + (card.agent ? ' - ' + card.agent : '')"></div>
+                    </div>
+                    <button type="button" class="corex-btn-outline corex-btn-xs" @click="cardId = null" aria-label="Close the card">Close</button>
+                </div>
+                <div class="rts-grid18 rts-miniline" data-qa="card-line">
+                    <template x-for="s in stations" :key="s.key">
+                        <div class="rts-mini" :class="{ 'is-here': s.key === card.stage, 'is-done': s.key !== card.stage && !!card.journey[s.key] }" :title="s.label + (card.journey[s.key] ? ' - reached ' + card.journey[s.key] : '')" :data-mini="s.key">
+                            <span class="dot"></span><span class="nm" x-text="s.short"></span>
+                        </div>
+                    </template>
+                </div>
+                <div class="text-sm rounded-md px-3 py-2" style="background: var(--bg-muted, rgba(127,127,127,.08));" data-qa="card-here">
+                    <strong>Here:</strong> <span x-text="card.stage_label"></span>
+                    <span style="color: var(--text-muted);" x-text="card.days !== null ? '(' + card.days + (card.days === 1 ? ' day' : ' days') + ')' : ''"></span>
+                    &rarr; <strong>next:</strong> <span x-text="card.next || 'decide what happens next'"></span>,
+                    <span :class="'rts-due-' + card.due_state" x-text="card.due_words.charAt(0).toLowerCase() + card.due_words.slice(1)"></span>
+                </div>
+                <div class="text-xs" style="color: var(--text-muted);" x-show="card.reason" x-text="card.reason ? 'Started: ' + card.reason : ''"></div>
+                <div class="flex items-center gap-1 flex-wrap">
+                    @if($canWriteProspects)
+                        <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="prospect-step" :data-step-url="card.step_url" :data-step-label="card.step_label + ' - ' + card.address"
+                                @click="cardId = null; $dispatch('rts-step', $el.dataset)" x-text="card.step_label"></button>
+                        <button type="button" class="corex-btn-outline corex-btn-xs" :data-tp="card.tp" :data-address="card.address" @click="cardId = null; openContact($el.dataset)">Record a result</button>
+                        <button type="button" class="corex-btn-outline corex-btn-xs" @click="openNext(card.id, card.next, card.next_at)">Next action</button>
+                        <button type="button" class="corex-btn-outline corex-btn-xs" data-qa="prospect-move" @click="openMove()">Move to...</button>
+                        <button type="button" class="corex-btn-outline corex-btn-xs" @click="openPark(card.id, card.address)">Set aside</button>
+                    @endif
+                    <button type="button" class="corex-btn-outline corex-btn-xs" :data-step-url="card.history_url" :data-step-label="'History - ' + card.address" @click="cardId = null; $dispatch('rts-step', $el.dataset)">History</button>
+                    @if($canRelease ?? false)
+                        <button type="button" class="corex-btn-outline corex-btn-xs" data-qa="prospect-release" @click="$dispatch('rts-release', { id: card.id, address: card.address }); cardId = null">Release</button>
+                    @endif
+                </div>
+            </div>
+        </div>
+    </template>
+
+    {{-- Move to a later station by hand (only for work CoreX has no screen for): what happened, the next action and its date are all required --}}
+    <div x-show="moveOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @keydown.escape.window="moveOpen = false" data-qa="move-modal">
+        <form method="POST" :action="'{{ url('road-to-sold/prospects') }}/' + (card ? card.id : 0) + '/capture'" class="w-full max-w-md rounded-md p-5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+            @csrf
+            @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
+            <h2 class="text-sm font-bold" style="color: var(--text-primary);">Move to a later station</h2>
+            <p class="text-xs" style="color: var(--text-muted);">Use this only for work CoreX does not see. When you do the work in CoreX, the property moves by itself.</p>
+            <div><label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="mv-stage">It has reached</label>
+                <select id="mv-stage" name="stage" required class="w-full rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}">
+                    <option value="">Pick a station</option>
+                    <template x-for="s in laterStations" :key="s.key"><option :value="s.key" x-text="s.label"></option></template>
+                </select></div>
+            <div><label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="mv-note">What happened?</label>
+                <input id="mv-note" name="note" required maxlength="255" class="w-full rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}"></div>
+            <div><label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="mv-next">What will you do next?</label>
+                <input id="mv-next" name="next_label" required maxlength="120" class="w-full rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}"></div>
+            <div><label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="mv-at">When</label>
+                <input id="mv-at" type="date" name="next_at" required class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}"></div>
+            <div class="flex items-center justify-end gap-2"><button type="button" class="corex-btn-outline corex-btn-xs" @click="moveOpen = false">Cancel</button><button type="submit" class="corex-btn-primary corex-btn-xs">Save</button></div>
+        </form>
+    </div>
 
     {{-- Change next action --}}
     <div x-show="nextOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @keydown.escape.window="nextOpen = false">
@@ -185,9 +263,18 @@
     </div>
 </div>
 <script>
-function rtsProspectActions(reasons) {
+function rtsProspectActions(reasons, cards, stations) {
     return {
-        reasons: reasons, id: null, address: '', label: '', at: '', reason: '', until: '', nextOpen: false, parkOpen: false,
+        reasons: reasons, cards: cards, stations: stations, cardId: null, moveOpen: false,
+        id: null, address: '', label: '', at: '', reason: '', until: '', nextOpen: false, parkOpen: false,
+        get card() { return this.cardId !== null ? (this.cards[this.cardId] || null) : null; },
+        get laterStations() {
+            var c = this.card; if (!c) return [];
+            var i = this.stations.findIndex(s => s.key === c.stage);
+            return this.stations.slice(i + 1);
+        },
+        openCard(id) { this.cardId = id; },
+        openMove() { this.moveOpen = true; },
         openNext(id, label, at) { this.id = id; this.label = label || ''; this.at = at || ''; this.nextOpen = true; },
         openPark(id, address) { this.id = id; this.address = address; this.reason = ''; this.until = ''; this.parkOpen = true; },
         pickReason() {
