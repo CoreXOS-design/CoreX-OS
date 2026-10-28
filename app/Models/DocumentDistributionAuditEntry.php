@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\StampsOnBehalfOf;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use LogicException;
@@ -9,6 +10,8 @@ use LogicException;
 /** One save of the Deal Document Distribution matrix: who, when, and the cells added / removed. Append-only. */
 class DocumentDistributionAuditEntry extends Model
 {
+    use StampsOnBehalfOf;
+
     public const UPDATED_AT = null;
 
     protected $table = 'document_distribution_audit_entries';
