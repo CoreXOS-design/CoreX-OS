@@ -1,6 +1,6 @@
 // Geometry check for the Road to Sold page (spec 22.20): at each viewport and for each person, every block fits without a page scrollbar,
 // the intake table is the first thing under the filters and is on screen, and nothing inside the block overflows.
-//   node scripts/rts-fit-check.mjs [--base=https://qatesting1.corexos.co.za] [--out=/tmp/rts-fit] [--agent=24] [--manager=25] [--owner=46]
+//   node scripts/rts-fit-check.mjs [--base=https://qatesting1.corexos.co.za] [--out=/tmp/rts-fit] [--agent=24] [--manager=25] [--owner=46] [--viewports=1366x768,1920x1080]
 // Needs a minted session cookie (scripts/mint-session-cookie.php), puppeteer-core and /usr/bin/chromium. Reads only: it never presses Save.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -18,7 +18,7 @@ const people = [
     { who: 'manager', user: MANAGER, query: `&agent=${AGENT}`, switchAgency: false },
     { who: 'owner', user: OWNER, query: `&agent=${AGENT}`, switchAgency: true },
 ];
-const viewports = [[1523, 784], [1366, 768]];
+const viewports = arg('viewports', '1366x768,1920x1080').split(',').map((v) => v.split('x').map(Number));
 const blocks = ['intake', 'prospects', 'parked'];
 const results = [];
 const browser = await puppeteer.launch({ executablePath: '/usr/bin/chromium', headless: true, args: ['--no-sandbox', '--disable-gpu'] });

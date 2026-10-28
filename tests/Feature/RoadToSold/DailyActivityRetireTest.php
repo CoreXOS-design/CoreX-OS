@@ -262,7 +262,7 @@ final class DailyActivityRetireTest extends TestCase
     {
         $this->cutOver();
 
-        $page = $this->actingAs($this->agent)->get(route('road-to-sold.index'));
+        $page = $this->actingAs($this->agent)->get(route('road-to-sold.index', ['block' => 'progress']));
         $page->assertOk()->assertSee('No targets are set for Level 1.')->assertDontSee('0 a day');
         $this->assertCount(2, $page->viewData('progress')['tasks'], 'both migrated tasks exist and can be captured, they just carry no progress row');
 

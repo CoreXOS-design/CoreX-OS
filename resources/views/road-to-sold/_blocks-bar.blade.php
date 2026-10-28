@@ -65,7 +65,7 @@
         <a href="{{ route('road-to-sold.index', $tabParams($key)) }}" role="tab" aria-selected="{{ $block === $key ? 'true' : 'false' }}" class="{{ $block === $key ? 'is-on' : '' }}" data-block="{{ $key }}">{{ $label }}@if($badge !== null)<small>{{ $badge }}</small>@endif</a>
     @endforeach
     @if($block === 'intake' && $listView && $counts['any'] > 0 && $canAddToDay && $date->isToday() && count($addChoices))
-        <form method="POST" action="{{ route('road-to-sold.add-to-day') }}" class="flex items-center gap-1 ml-auto text-xs" data-qa="add-to-day">
+        <form method="POST" action="{{ route('road-to-sold.add-to-day') }}" class="flex items-center gap-1 ml-4 text-xs" data-qa="add-to-day">
                 @csrf
                 @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
                 <select name="selection" aria-label="Selection to add from" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}">
@@ -78,6 +78,24 @@
     @unless($viewingOwn)
         <span class="text-xs ml-2" style="color: var(--text-muted);" data-qa="read-only">Looking at {{ $agentName }} - read only</span>
     @endunless
+    {{-- Report / Outcomes / Recipe / Settings sit on the tabs row (22.22): the page header stays on one line at 1366 wide. --}}
+    <div class="flex items-center gap-2 ml-auto" data-qa="rts-tools">
+            @if(\Illuminate\Support\Facades\Route::has('road-to-sold.report'))
+                <a href="{{ route('road-to-sold.report', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Report</a>
+            @endif
+            @if($canManageOutcomes)
+                <a href="{{ route('road-to-sold.settings.outcomes.index', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Outcomes</a>
+            @endif
+            @if($canManageRecipe && \Illuminate\Support\Facades\Route::has('road-to-sold.settings.recipe.index'))
+                <a href="{{ route('road-to-sold.settings.recipe.index', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Recipe</a>
+            @endif
+            {{-- .ai/specs/real-estate-menu-tabs.md - the "Road to Sold settings" menu item moved here (it is also on the Settings page).
+                 Same check the menu item had; sales track only, as the menu item only ever opened the sales settings. --}}
+            @if($track === \App\Models\RoadToSold\RtsSetting::TRACK_SALES && \Illuminate\Support\Facades\Route::has('road-to-sold.settings.index')
+                && auth()->user()?->hasAnyPermission(['road_to_sold.manage_settings', 'road_to_sold.manage_areas', 'road_to_sold.manage_targets']))
+                <a href="{{ route('road-to-sold.settings.index') }}" class="corex-btn-outline corex-btn-xs">Settings</a>
+            @endif
+    </div>
 </div>
 
 {{-- The step pop-up: the real CoreX screen in an iframe (embed mode, same origin only). Done / X / Escape close it and reload the page so the card shows the result. --}}
