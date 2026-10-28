@@ -21,7 +21,8 @@
         .card { background:#fff; border:1px solid var(--line); border-radius:14px; padding:20px; margin-bottom:18px; }
         .card h2 { font-size:1.05rem; margin:0 0 12px; }
         table { width:100%; border-collapse:collapse; }
-        th, td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); vertical-align:top; font-size:.93rem; }
+        th, td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); vertical-align:top; font-size:.93rem; overflow-wrap:anywhere; }
+        td.act { white-space:nowrap; overflow-wrap:normal; text-align:right; }
         th { color:var(--muted); font-weight:600; font-size:.8rem; text-transform:uppercase; letter-spacing:.03em; white-space:nowrap; }
         th a { color:inherit; text-decoration:none; }
         tr:last-child td { border-bottom:0; }

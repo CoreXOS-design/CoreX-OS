@@ -30,7 +30,7 @@
                     <td class="hide-sm muted">{{ $doc->documentType?->label ?? '—' }}</td>
                     <td>{{ $doc->created_at?->format('j M Y') }}</td>
                     <td class="hide-sm muted">{{ \Illuminate\Support\Number::fileSize((int) $doc->size) }}</td>
-                    <td style="white-space:nowrap;text-align:right;">
+                    <td class="act">
                         @if($doc->inlineMimeType())<a class="btn ghost" href="{{ route('attorney.document', [$d['id'], $doc->id, 'view']) }}" target="_blank" rel="noopener">View</a>@endif
                         <a class="btn" href="{{ route('attorney.document', [$d['id'], $doc->id, 'download']) }}">Download</a>
                     </td>
