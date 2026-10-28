@@ -153,6 +153,12 @@ final class TemplatePackageExporter
             'removed_identifiers' => array_values(array_unique($removed)),
             'warnings'          => array_values(array_unique($warnings)),
         ];
+        // The lease-agreement link and field map travel with the document (esign-template-transfer.md §13.8). Optional and additive: format
+        // version stays 1. The importer reports it; it is applied only when a release is APPROVED, never by an import on its own.
+        $leaseLink = $this->leaseLink($template);
+        if ($leaseLink !== null) {
+            $data['lease_link'] = $leaseLink;
+        }
 
         $built = TemplatePackage::build($data, $files, (string) $template->name, $this->sourceLabel());
 
@@ -180,6 +186,17 @@ final class TemplatePackageExporter
             'checksum' => $built['checksum'],
             'warnings' => $data['warnings'],
         ];
+    }
+
+    /** The template's active lease-agreement link as plain data (category, name, default flag, field map), or null when it is not linked. */
+    private function leaseLink(Template $template): ?array
+    {
+        $row = \App\Models\RentalLeaseTemplate::withoutGlobalScopes()->where('docuperfect_template_id', $template->id)->where('is_active', true)->orderByDesc('id')->first();
+        if (! $row) {
+            return null;
+        }
+
+        return ['category' => (string) $row->category, 'name' => (string) $row->name, 'is_default' => (bool) $row->is_default, 'field_map' => is_array($row->field_map) ? $row->field_map : []];
     }
 
     /** @throws TemplateTransferException */

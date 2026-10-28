@@ -12,7 +12,7 @@
 @endphp
 <style>
     /* Fixed-shell page: menu and header stay put, the page itself does not scroll; the document pane and the side panel scroll inside themselves. */
-    .demo-fit { height: calc(100vh - 54px - 32px); display: flex; flex-direction: column; overflow: hidden; }
+    .demo-fit { height: calc(100vh - 54px - 48px); display: flex; flex-direction: column; overflow: hidden; }
     .demo-main { flex: 1 1 auto; min-height: 0; display: flex; gap: 12px; }
     .demo-doc { flex: 1 1 auto; min-width: 0; overflow: auto; background: #e2e8f0; border-radius: 6px; padding: 16px 0; }
     .demo-side { flex: 0 0 25rem; min-width: 0; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }

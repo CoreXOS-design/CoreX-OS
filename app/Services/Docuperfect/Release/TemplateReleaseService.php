@@ -15,6 +15,7 @@ use App\Models\RentalLeaseTemplate;
 use App\Models\User;
 use App\Services\Docuperfect\Readiness\TemplateReadinessReport;
 use App\Services\Docuperfect\TemplateAgencyCopier;
+use App\Services\Docuperfect\TemplateTransfer\TemplatePackageImporter;
 use App\Services\Docuperfect\TemplateTransfer\TemplateTransferException;
 use App\Services\Rentals\LeaseAgreementTemplateGuard;
 use Illuminate\Support\Facades\DB;
@@ -37,6 +38,7 @@ final class TemplateReleaseService
         private readonly TemplateAgencyCopier $copier,
         private readonly TemplateReadinessReport $readiness,
         private readonly LeaseAgreementTemplateGuard $leaseGuard,
+        private readonly TemplatePackageImporter $importer,
     ) {
     }
 
@@ -133,6 +135,69 @@ final class TemplateReleaseService
                     'previous_release_id' => $previous?->id,
                 ]);
                 $this->log('released', $release, $copy, $actor, null, ['version' => $version, 'source_template_id' => $source->id, 'renamed' => (bool) ($copied['renamed'] ?? false)]);
+
+                return $release;
+            });
+        } catch (TemplateTransferException $e) {
+            throw new TemplateReleaseException(trim($e->getMessage() . ' ' . implode(' ', $e->details)), 422, $e->details);
+        }
+
+        $this->afterCommit(fn () => event(new TemplateReleased((int) $release->id, (int) $release->template_id, (int) $release->agency_id, (int) $actor->id)));
+
+        return $release->fresh();
+    }
+
+    // ───────────────────────────── release from a package (a move between systems) ─────────────────────────────
+
+    /**
+     * The cross-system way in (php artisan templates:import --release): a package made on another system (QA1 -> live) lands in the agency NOT
+     * live, exactly like a release made here — a release row, the lease link carried by the package, the log, the authorisers told. It was
+     * verified where it was made; here the readiness check is recorded on the row and re-run at approval (a failing copy cannot be approved).
+     * A later package of the same document name lands as the next version of that lineage and replaces the older live copy when approved.
+     *
+     * @param array<string,mixed> $pkg one entry of TemplatePackageImporter::load()
+     */
+    public function releaseFromPackage(array $pkg, Agency $target, User $actor, bool $allowMissingDocumentType = false): TemplateRelease
+    {
+        $this->assertOwner($actor);
+        $name = (string) ($pkg['data']['template']['name'] ?? '');
+        $previews = $this->importer->preview([$pkg], $target);
+        $choices = ! empty($previews[0]['clash']['exists']) ? [0 => TemplatePackageImporter::CHOICE_NEW_VERSION] : [];
+
+        try {
+            $release = DB::transaction(function () use ($pkg, $target, $actor, $choices, $allowMissingDocumentType, $name) {
+                $created = $this->importer->import([$pkg], $target, $actor, $choices, $allowMissingDocumentType);
+                /** @var Template $copy */
+                $copy = $created[0];
+                DB::table('docuperfect_templates')->where('id', $copy->id)->update(['release_status' => Template::RELEASE_AWAITING]);
+                $copy = $copy->fresh();
+
+                // Same document, earlier release in this agency? Then this is the next version of it.
+                $like = addcslashes($name, '%_\\') . ' v%';
+                $prev = TemplateRelease::withoutGlobalScopes()->where('agency_id', $target->id)
+                    ->whereHas('template', fn ($q) => $q->withTrashed()->where(fn ($w) => $w->where('name', $name)->orWhere('name', 'like', $like)))
+                    ->orderByDesc('version')->first();
+                $sourceId = $prev ? (int) $prev->source_template_id : (int) $copy->id;
+                $last = TemplateRelease::withoutGlobalScopes()->withTrashed()->where('source_template_id', $sourceId)->where('agency_id', $target->id)->lockForUpdate()->orderByDesc('version')->first();
+                $previousLive = TemplateRelease::withoutGlobalScopes()->where('source_template_id', $sourceId)->where('agency_id', $target->id)->where('state', TemplateRelease::STATE_LIVE)->orderByDesc('version')->first();
+                $result = $this->readiness->forTemplate($copy);
+
+                $release = TemplateRelease::withoutGlobalScopes()->create([
+                    'source_template_id' => $sourceId,
+                    'template_id' => $copy->id,
+                    'agency_id' => $target->id,
+                    'version' => $last ? $last->version + 1 : 1,
+                    'state' => TemplateRelease::STATE_AWAITING,
+                    'readiness_verdict' => $result['verdict'],
+                    'readiness_snapshot' => ['verdict' => $result['verdict'], 'counts' => $result['counts'], 'checks' => $result['checks']],
+                    'source_content_sha' => $copy->contentSha(),
+                    'package_sha256' => (string) ($pkg['checksum'] ?? ''),
+                    'lease_link' => TemplatePackageImporter::leaseLinkOf((array) $pkg['data']),
+                    'released_by' => $actor->id,
+                    'released_at' => now(),
+                    'previous_release_id' => $previousLive?->id,
+                ]);
+                $this->log('released', $release, $copy, $actor, null, ['via' => 'package', 'version' => $release->version, 'source_label' => $pkg['manifest']['source_label'] ?? null, 'package_sha256' => $release->package_sha256]);
 
                 return $release;
             });
