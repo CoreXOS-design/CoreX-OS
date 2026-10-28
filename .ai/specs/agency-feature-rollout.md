@@ -717,3 +717,68 @@ labels moved to the shared `RoleManagerLabels` class).
 
 **Files:** `FeatureRolloutAccess` (`settingsFor`, `applySettings`), `FeatureRolloutPopupController::review`, `feature-rollout-popups.blade.php`,
 `FeatureRolloutHistory`, `RoleManagerController` and new `RoleManagerLabels` (labels only). **Tests:** `tests/Feature/Features/FeatureRolloutAccessSettingsTest.php`.
+
+## 22. Several rollout plans, copies, and a plan dropdown at Start — 2026-10-28 (DRAFT — awaiting Johan's approval)
+
+Johan, 2026-10-28: "there needs to be an option to create multiple types of waves and make copies … so that I can create a wave
+for an agency that does rentals only, an agency that does both or only does sales and then when I go to start it there should be
+a dropdown to choose the feature rollout for the agency." Confirmed: a copy starts as an exact duplicate to edit.
+
+**Why:** today there is ONE platform list of groups (§4 `feature_rollout_waves`); the agency type only filters it by track
+(§ `lanesFor`). The owner cannot keep a tailored plan per kind of agency, or try a variation without disturbing the one list.
+
+### 22.1 Business behaviour
+- Dev Settings → Feature rollout gets a **plan list**. Each plan is a complete, separate set of groups (today's board, per plan).
+  Every plan has a **name**, an optional **note**, and an **agency type** label (Sales, Rentals, Sales and rentals, Any) that
+  only decides which plan is suggested when you start an agency. It never blocks a choice.
+- Owner can **create** a blank plan, **copy** a plan (exact duplicate: same groups, order, wording, features; named
+  "<name> (copy)"), **rename/edit**, **archive** and **restore** a plan, and **make one the default**. Hard delete never exists.
+- Exactly one plan is the **default** (used where nobody chooses: the agency's own wizard "gradual introduction" choice picks the
+  plan matching its type, else the default). The default plan cannot be archived while it is the default.
+- **Start gradual introduction** (Admin → Agency Setup Progress → agency) gets a **"Which rollout"** dropdown listing active plans,
+  pre-selected = the plan whose type matches the agency (else the default). Changing it refreshes the "these N features switch off"
+  list for that plan before anything is confirmed. Confirm box and pace options are unchanged.
+- An agency already on a rollout is unaffected by anything done to plans: it holds its own copy (§3.4). The agency page shows which
+  plan it was started from ("Started from: Rentals only").
+- Start stays available for an agency with every feature on (that is the case it is built for) — unchanged.
+
+### 22.2 List screen (NN: list-screen completeness)
+Plan list on the Dev Settings page: **search** by name and note; **sort** by name, agency type, groups, last changed (default:
+default plan first, then name); **filter** by agency type and status (active/archived) plus last-changed date range; 25 per page;
+empty state "No rollout plans yet — create one or copy another." Columns: name, type, groups, features, default badge, last changed.
+Row actions: Open (edit board), Copy, Make default, Archive/Restore.
+
+### 22.3 Data model
+- New `feature_rollout_plans`: `id`, `name`, `note` null, `agency_type` (`sales|rentals|both|any`), `is_default` bool,
+  `created_by`, timestamps, `deleted_at`. Platform-level (no `agency_id`), owner-only, like `feature_rollout_waves`.
+- `feature_rollout_waves` gains `plan_id` (FK). Migration backfills ONE plan, "Standard" (type `any`, default), and points every
+  existing wave (including archived ones) at it, so nothing changes for anyone until a second plan exists.
+- `agency_feature_rollouts` gains `source_plan_id` null (record only; the agency's own waves remain the snapshot).
+- Copy = new plan row + duplicate of its waves in one transaction. `schema:dump` + DEFINER strip (NN #12a).
+
+### 22.4 Engine
+- `FeatureRolloutService::planFor / start / lanesFor` take a `planId`; waves are read from that plan only. Track logic
+  (`general/sales/rentals/admin`, side-by-side, §18 admin lane) is unchanged inside the chosen plan.
+- `start()` with no plan given resolves: plan matching agency type → default plan (so the wizard path and any caller keep working).
+- Owner Start action validates `plan_id` (must be an active plan); unknown/archived → validation error, nothing started.
+- Dev Settings board (§20) and its routes gain the plan in scope; the per-plan layout save is the §20.2 save, scoped to `plan_id`,
+  with the same safety rules (stale-page protection per plan).
+
+### 22.5 Permissions / scoping / multi-agency
+Owner-only everywhere (route group + `isOwnerRole()`), same as §20.3. No agency data on the plan screens. Plan names and starter
+content are neutral: nothing HFC-specific is seeded other than today's existing groups carried into "Standard" (NN multi-agency).
+No new agency-level setting → nothing added to the Setup Wizard (NN #10a); the wizard's self-start uses the type-matched/default plan.
+No new API endpoint (NN #7): web forms on existing owner-only pages. Plan changes emit no cross-pillar event.
+
+### 22.6 Acceptance
+1. After migrating, Dev Settings shows one plan, "Standard", default, with every existing group; running agencies unchanged.
+2. Copy produces an identical plan; editing the copy leaves the original untouched.
+3. Start page shows the dropdown, pre-selects the type match, and the "switch off" preview follows the selected plan.
+4. Starting from plan B holds exactly B's features, and the agency page says "Started from: B".
+5. Archiving a plan never changes a running agency; the default plan cannot be archived; archived plans cannot be started.
+6. Plan list search/sort/filter/paging/empty state work; non-owner gets 403 on every plan route.
+
+### 22.7 Files (expected)
+New migration(s) + `FeatureRolloutPlan` model + `FeatureRolloutPlanController` (owner); edits to `FeatureRolloutService`,
+`FeatureRolloutDefaultsController`, `AgencyRolloutAdminController::start/show`, the Dev Settings board view, `agency-setup-progress/show.blade.php`,
+`routes/web.php`, schema snapshot; tests under `tests/Feature/FeatureRollout/`.
