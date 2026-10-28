@@ -64,22 +64,33 @@ Each reaches the Setup Wizard (rule 10a) on the **Properties & listings** step o
 
 ## 7. Screens
 
-### 7.1 The attorney's "My deals" (`/attorney/deals`)
+### 7.1 The attorney's "My deals" (`/attorney/deals`) - rebuilt 28 Oct 2026 (Johan: "think excel and single lines... make it user friendly to find a deal")
 
 First-time-user clear, plain words, no CoreX jargon. Header: agency name + "Hello Sipho" + Sign out.
 
+**ONE grid, one line per deal, no cards, no separate deal page needed.** Columns, in this order:
+
 | Column | Source |
 |---|---|
-| Property | deal address |
-| Buyer and seller | names |
-| Agent | name |
+| (chevron) | opens / closes the deal's documents in place |
+| Deal no. | the agency's own deal number as the deal register shows it ("#123"; the file number when a deal has none) |
+| Property | deal address (suburb is searchable and in the tooltip) |
+| Seller | names |
+| Buyer | names |
+| Agent | agent's name and phone (the person to call) |
 | Where it is | plain stage: "Offer accepted", "Bond granted", "Lodged at the Deeds Office", "Registered", "Cancelled" |
-| Latest document | date of the newest document they can download |
+| Last document | date the newest document in their set reached the deal ("filed at") |
+| Documents | how many documents they can download on that deal |
+| Open | link to the plain deal page (7.2), kept as a fallback |
 
-- **Search** (named fields): property address, buyer name, seller name, deal reference.
-- **Sort**: every column; default **latest document first** (deals with nothing yet last).
-- **Filter**: *Open* / *Finished* (registered or cancelled, still inside the grace days), and a date range on the latest-document date.
-- **Pagination**: 20 per page. **Empty states**: "No deals yet. When <agency> adds you to a deal, it appears here." vs "No deals match your search." with a Clear link.
+- **Documents in place:** clicking a row (or its chevron, or Enter on the focused row) opens a sub-grid under it, one line per document: **document type - file name - date filed - Download**. No navigation, works without a second page load; a deal with none says "No documents have been shared on this deal yet. You will get an email when there are some."; a finished deal adds "This deal is registered. You can still use it until <date>." Download is the existing logged route (`document_downloaded`).
+- **Find a deal fast - one search box**: matches deal number (with or without #), file number, property address, suburb, buyer, seller and agent name; several words must all match. Placed first and focused on load.
+- **Sort**: every column (header links, arrow shows direction); default **last document, newest first** (deals with nothing yet last).
+- **Filter**: All my deals / *Still open* / *Finished* (registered or cancelled, still inside the grace days). The earlier "documents from / to" date pickers were removed on Johan's brief (one search box, Open/Finished only).
+- **Pagination**: 25 per page, "Showing 1-25 of N", Previous / Next. **Empty states**: "No deals yet. When <agency> adds you to a deal, it appears here." vs "No deals match your search." with a Clear link.
+- **Layout:** dense excel-style rows (single line, text truncated with the full text in the tooltip), header row pinned (sticky); full-width page; on a laptop screen (1366x768) and a large one (1920x1080) the page itself does not scroll - the grid scrolls inside its own frame. On a phone the page flows normally and the grid scrolls sideways.
+- **Logging:** the page load writes one `deals_listed` row (how many deals matched, the search text, how many documents were listed on the page); each Download writes `document_downloaded`.
+- Proof: `AttorneyPortalHttpTest` (grid columns / one row per deal / documents inside the row / search fields / sorts) and `scripts/attorney-grid-fit-check.mjs` (real Chromium at both sizes, screenshots).
 
 ### 7.2 The deal view (`/attorney/deals/{deal}`)
 
