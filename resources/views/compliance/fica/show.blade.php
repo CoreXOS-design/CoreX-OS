@@ -150,6 +150,11 @@
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {{-- LEFT PANEL: Submitted Data --}}
         <div class="lg:col-span-2 space-y-4">
+            {{-- Who may take a document off this review, and while it is still open — one rule for paper and online intake. --}}
+            @php
+                $canRemove = in_array($submission->status, ['submitted', 'under_review', 'corrections_requested'])
+                    && ($submission->requested_by === auth()->id() || auth()->user()->isOwnerRole() || auth()->user()->hasPermission('manage_compliance'));
+            @endphp
             @if($submission->isWetInk())
                 {{-- Wet-ink: contact basics + uploaded documents --}}
                 <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
@@ -167,10 +172,6 @@
                 {{-- Uploaded documents --}}
                 <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
                     <h3 class="text-sm font-bold mb-3 pb-2" style="color:var(--text-primary); border-bottom:1px solid var(--border);">Uploaded Documents</h3>
-                    @php
-                        $canRemove = in_array($submission->status, ['submitted', 'under_review', 'corrections_requested'])
-                            && ($submission->requested_by === auth()->id() || auth()->user()->isOwnerRole() || auth()->user()->hasPermission('manage_compliance'));
-                    @endphp
                     @if($submission->documents->isEmpty())
                         <p class="text-sm" style="color:var(--text-muted);">No documents uploaded.</p>
                     @else
@@ -216,7 +217,7 @@
                     <div class="flex-1">Client data captured on signed paper form &mdash; see uploaded FICA form above for full client responses.</div>
                 </div>
             @else
-                @include('compliance.fica.partials.submitted-data', ['submission' => $submission, 'personal' => $personal, 'entity' => $entity, 'service' => $service, 'pepData' => $pepData, 'principalData' => $principalData, 'repData' => $repData, 'declData' => $declData])
+                @include('compliance.fica.partials.submitted-data', ['submission' => $submission, 'personal' => $personal, 'entity' => $entity, 'service' => $service, 'pepData' => $pepData, 'principalData' => $principalData, 'repData' => $repData, 'declData' => $declData, 'canRemoveDocs' => $canRemove])
             @endif
 
             {{-- Agent Upload Panel --}}
