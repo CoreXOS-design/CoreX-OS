@@ -2016,7 +2016,7 @@ Three lanes build from this section in parallel; the conductor assigns people. *
 
 ### 22.18 Appendix - HFC's 70 tasks to events, for Johan's sign-off (AT-454, lane D, 27 Oct 2026)
 
-**Status: PROPOSED. Nothing is applied. Johan signs this off, then `database/data/rts/hfc-event-mapping.json` is corrected to match and `rts:bind-tasks --agency=1 --apply` (not built yet) is the only thing that changes HFC's tasks.** The rows below are HFC's real tasks, read from QA1 on 27 Oct 2026 (agency 1, 70 tasks, all active). "Bind" = the task is credited by the CoreX event and its old detector or calendar mapping is switched off for HFC in the same step. History is never rewritten.
+**Status (28 Oct 2026): the five parked questions are CLOSED with defaults, see 22.24. The rest is still PROPOSED. Nothing in the table below is applied except the three step moves in 22.24. Johan signs this off, then `database/data/rts/hfc-event-mapping.json` is corrected to match and `rts:bind-tasks --agency=1 --apply` (not built yet) is the only thing that changes HFC's tasks.** The rows below are HFC's real tasks, read from QA1 on 27 Oct 2026 (agency 1, 70 tasks, all active). "Bind" = the task is credited by the CoreX event and its old detector or calendar mapping is switched off for HFC in the same step. History is never rewritten.
 
 | Decision | Tasks |
 |---|---|
@@ -2181,3 +2181,28 @@ Decisions: buyer names are **first names only** (the owning agent's first name b
 - **Intake actions on screen at 1366 (28 Oct, 22.22).** The intake table needed a sideways scroll at 1366 wide (255px for an agent), so Pitch / Find owner and Contacted client were off the right edge. Price, days on market and the listing agency now share one two-line cell ("R 1,650,000" over "224 days · Alpha Estates"; the full text is in the hover), cell padding is tighter and the lower-value columns are capped at 12rem. `scripts/rts-fit-check.mjs` now fails when the intake table scrolls sideways or any row's actions end past the table's right edge.
 
 - **One current price, plain tile wording (28 Oct, 22.23).** 64 Jacana, Margate showed R 595,000 on Today's intake and R 2,995,000 on its Prospects card. The property carries two live listings seen at the same moment (an old R 595,000 sighting and the newer R 2,995,000 one); the intake read whichever the sort happened to put first (or the listing its row was pinned to) and Prospects read the tracked property's own last-known price. Both now read `Support\CurrentAskingPrice`: a live listing before a gone one, then the most recently seen, then the newest record; the tracked property's last-known price is only the fallback when no listing has one. The row's days on market and agency still come from the listing the row was built from. The manager's stage tiles now read "N this month · avg D days · S stalled", plus the on-track word only when the recipe step has a target (the "no target" text is gone; the tile's hover says so instead).
+
+### 22.24 The parked HFC questions, closed with defaults, and the task-to-step mapping screen (28 Oct 2026)
+
+Johan: "you'll see them in Settings and can change any". Each answer below is a default, not a lock: every task's step is changeable under **Road to Sold > Settings > Recipe > Tasks**, and put back with **Restore default**.
+
+| Question (22.18) | Default | Why |
+|---|---|---|
+| **Prospecting - Lead** | Moves to the **Buyers** step (the stage list's *Lead* stage is the first Sell-stock stage and belongs to Buyers). Stays hand-ticked, no event bound. | A Lead is an enquiry the agent has found. All 304 entries so far (3 Feb - 14 Oct 2026) are hand-entered counts with no property or contact attached, so nothing can credit it automatically. |
+| **Feedback to Sellers - EATS** | Moves to **Listing live**. Stays hand-ticked, no event bound. | Read from the tracker data and CoreX itself: EATS is the *Exclusive Authority To Sell*, the mandate document a seller signs (the e-sign pack and its regression walk name it that way). The task is the agent giving sellers feedback on a property they hold on that mandate, i.e. a live listing. All 99 entries (3 Feb - 20 Oct 2026) are manual with no property attached. This is an inference from the document name, flagged as such in the task's note; Johan can move it. |
+| **Rcr submitted** | **Not mapped - choose a step.** It stays credited exactly as before (its own compliance detector, definition 63 `rcr.submitted`, 0 entries so far). | RCR is the annual **Regulatory Compliance Report** an agency files with the PPRA (CoreX's Compliance > RCR module raises `RcrSubmissionSubmitted`). It is not a report to a seller or a CMA, so it is not Presentation given or any other prospecting step. 22.18 already treats the other compliance tasks (Fica submitted / approved / reviewed) as "not a stage". Nothing stops an agency choosing a step for it. |
+| **A fallen deal** | **Back to Advertising / social shares** (the listing is live again). Already how the engine behaves: a deal closed with any outcome other than won puts the property's prospects back on Advertising (`AdvanceProspectsFromDomainEvent`, tested in `ProspectEventsTest`). | Johan's ruling; no code change needed. |
+| **Viewing pack credit** | Stays at **creation** (`ViewingPackCreated` moves the prospect to *Viewing pack sent*; sending is not a separate credit). Already built and tested (`SellStockStageWiringTest`). | Johan's ruling; no code change needed. |
+
+**Property captured** (the fifth open answer in 22.18) was not in the brief and is left where it is: in Find, still on its old detector, until Johan says what he wants.
+
+**The mapping screen.** The per-agency screen is the existing Recipe > Tasks list (search by task or step name, filters, sort, pagination, empty state), now with:
+- **A recorded default per task.** `rts_tasks.mapping_default` (JSON: step, event, filter, "not mapped", and the reason) is filled when an agency's standard recipe starts and by `rts:apply-task-mapping` for tasks migrated from the old daily activities. A task with no recorded default has nothing to restore.
+- **Step choice filter:** *All tasks / Not mapped - choose a step / Changed from the default*; a row shows *Changed from the default* and the reason for its default (*Why: ...*).
+- **Restore default** (one press, confirm, keeps every completion). It puts back the step, the event and filter, and the "not mapped" flag.
+- **Not mapped.** `rts_tasks.needs_step`: the row reads "Not mapped - choose a step", the edit form offers a blank first choice, and saving with a step ends it. The task stays listed under its old step meanwhile and keeps being credited as before.
+- **Audit.** `rts_task_mapping_audit` (append-only): one row for every change to a task's step / event / filter / not-mapped flag (who, from, to), every restore, and every default recorded by the command; the last 8 show under the list ("Recent step changes").
+- **`rts:apply-task-mapping --agency=1 [--dry-run]`** applies `database/data/rts/hfc-task-decisions.json` (the three decisions above) and records every other task's current step as its default. Idempotent; never touches completions or history. HFC's file is data, not code: another agency has its own file or none.
+
+`rts:bind-tasks --apply` (binding tasks to events and retiring their old detectors) is still not built; it needs the other answers in 22.18.
+

@@ -151,10 +151,7 @@
     "Liase with Attorneys"
   ],
   "johan_to_say": [
-    "Property captured",
-    "Rcr submitted",
-    "Prospecting - Lead",
-    "Feedback to Sellers - EATS"
+    "Property captured"
   ],
   "rentals_later": [
     "Rentals - In and Out Inspection",
@@ -175,5 +172,11 @@
     "Fica reviewed",
     "Property published",
     "Property compliance passed"
-  ]
+  ],
+  "decided_28_oct": {
+    "Prospecting - Lead": "moved to the Buyers step (hand-ticked)",
+    "Feedback to Sellers - EATS": "moved to Listing live (hand-ticked)",
+    "Rcr submitted": "not mapped - compliance filing, still credited by its own detector"
+  },
+  "_note_28_oct": "The three decisions above are in database/data/rts/hfc-task-decisions.json and apply with rts:apply-task-mapping (road-to-sold.md 22.24). Binding to events is still not applied."
 }

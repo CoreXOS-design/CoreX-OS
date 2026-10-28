@@ -9,6 +9,8 @@ use App\Models\RoadToSold\RtsStep;
 use App\Models\RoadToSold\RtsTask;
 use App\Services\RoadToSold\RecipeCatalogue;
 use App\Services\RoadToSold\RecipeService;
+use App\Services\RoadToSold\TaskMappingService;
+use App\Models\RoadToSold\RtsTaskMappingAuditEntry;
 use App\Services\RoadToSold\Support\Routing;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -126,6 +128,17 @@ class RecipeController extends Controller
         return $this->back('tasks', "Task \"{$task->label}\" archived. You can bring it back from the archived list.");
     }
 
+    /** Put a task back on the step / event it started on. One audit row; credit already recorded is never touched. */
+    public function taskRestoreDefault(Request $request, RtsTask $task): RedirectResponse
+    {
+        $task = $this->own($task, $request);
+        if (! app(TaskMappingService::class)->restoreDefault($task, $request->user()?->id)) {
+            return $this->back('tasks', "\"{$task->label}\" has no default to go back to.");
+        }
+
+        return $this->back('tasks', "\"{$task->label}\" is back on its default step.");
+    }
+
     public function taskRestore(Request $request, RtsTask $task): RedirectResponse
     {
         $this->recipe->restoreTask($this->own($task, $request));
@@ -222,6 +235,7 @@ class RecipeController extends Controller
         $unit   = array_key_exists((string) $request->query('unit'), RtsTask::UNITS) ? $request->query('unit') : 'all';
         $status = in_array($request->query('status'), ['on', 'off', 'archived', 'all'], true) ? $request->query('status') : 'live';
         $sort   = in_array($request->query('sort'), ['step', 'label', 'unit', 'type'], true) ? $request->query('sort') : 'step';
+        $mapping = in_array($request->query('mapping'), ['unmapped', 'changed'], true) ? $request->query('mapping') : 'all';
 
         $query = RtsTask::query()
             ->join('rts_steps', 'rts_steps.id', '=', 'rts_tasks.step_id')
@@ -238,6 +252,16 @@ class RecipeController extends Controller
         if ($q !== '') {
             $like = '%' . $this->like($q) . '%';
             $query->where(fn ($w) => $w->where('rts_tasks.label', 'like', $like)->orWhere('rts_steps.label', 'like', $like));
+        }
+        if ($mapping === 'unmapped') {
+            $query->where('rts_tasks.needs_step', true);
+        } elseif ($mapping === 'changed') {
+            // moved off the step / event / filter it started on (a task with no recorded default is never "changed")
+            $query->whereNotNull('rts_tasks.mapping_default')->where(fn ($w) => $w
+                ->whereRaw("rts_tasks.step_id <> JSON_EXTRACT(rts_tasks.mapping_default, '$.step_id')")
+                ->orWhereRaw("NOT (rts_tasks.event_key <=> JSON_UNQUOTE(JSON_EXTRACT(rts_tasks.mapping_default, '$.event_key')))")
+                ->orWhereRaw("NOT (rts_tasks.event_filter <=> JSON_EXTRACT(rts_tasks.mapping_default, '$.event_filter'))")
+                ->orWhereRaw("rts_tasks.needs_step <> COALESCE(JSON_EXTRACT(rts_tasks.mapping_default, '$.needs_step'), 0)"));
         }
         if ($type !== 'all') {
             $query->where('rts_tasks.type', $type);
@@ -265,8 +289,10 @@ class RecipeController extends Controller
             'rows'         => $page,
             'levelsByTask' => $levelsByTask,
             'steps'        => $this->steps($agencyId, $track),
-            'filters'      => compact('q', 'type', 'unit', 'status', 'sort') + ['stepId' => $stepId],
-            'emptyFiltered' => $page->total() === 0 && ($q !== '' || $type !== 'all' || $stepId > 0 || $unit !== 'all' || $status !== 'live'),
+            'filters'      => compact('q', 'type', 'unit', 'status', 'sort', 'mapping') + ['stepId' => $stepId],
+            'emptyFiltered' => $page->total() === 0 && ($q !== '' || $type !== 'all' || $stepId > 0 || $unit !== 'all' || $status !== 'live' || $mapping !== 'all'),
+            'mappingSvc'   => app(TaskMappingService::class),
+            'mappingLog'   => RtsTaskMappingAuditEntry::query()->where('agency_id', $agencyId)->where('track', $track)->with('changedBy')->latest('id')->limit(8)->get(),
         ];
     }
 

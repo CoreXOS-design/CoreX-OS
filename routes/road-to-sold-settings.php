@@ -97,6 +97,7 @@ return function () {
         Route::put('/tasks/{task}', [$c, 'taskUpdate'])->whereNumber('task')->name('tasks.update');
         Route::delete('/tasks/{task}', [$c, 'taskArchive'])->whereNumber('task')->name('tasks.archive');
         Route::post('/tasks/{task}/restore', [$c, 'taskRestore'])->whereNumber('task')->withTrashed()->name('tasks.restore');
+        Route::post('/tasks/{task}/restore-default', [$c, 'taskRestoreDefault'])->whereNumber('task')->name('tasks.restore-default');
 
         Route::put('/steps/{step}', [$c, 'stepUpdate'])->whereNumber('step')->name('steps.update');
         Route::delete('/steps/{step}', [$c, 'stepArchive'])->whereNumber('step')->name('steps.archive');

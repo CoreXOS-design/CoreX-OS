@@ -118,6 +118,14 @@
                         @foreach(\App\Models\RoadToSold\RtsTask::UNITS as $u => $uLabel)<option value="{{ $u }}" @selected($f['unit'] === $u)>{{ $uLabel }}</option>@endforeach
                     </select>
                 </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="mapping">Step choice</label>
+                    <select class="list-header-filter {{ ($f['mapping'] ?? 'all') !== 'all' ? 'is-active' : '' }} w-full" id="mapping" name="mapping" data-qa="mapping-filter">
+                        <option value="all">All tasks</option>
+                        <option value="unmapped" @selected(($f['mapping'] ?? 'all') === 'unmapped')>Not mapped - choose a step</option>
+                        <option value="changed" @selected(($f['mapping'] ?? 'all') === 'changed')>Changed from the default</option>
+                    </select>
+                </div>
             @endif
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="status">Show</label>
@@ -163,7 +171,16 @@
                                     {{ $t->trashed() ? 'archived' : ($t->is_active ? 'on' : 'switched off') }}
                                 </div>
                             </td>
-                            <td class="px-3 py-2">{{ $t->step_label }}</td>
+                            <td class="px-3 py-2" data-qa="task-step">
+                                @if($t->needs_step)
+                                    <span class="font-semibold" style="color:var(--ds-amber, #b45309);" data-qa="not-mapped">Not mapped - choose a step</span>
+                                    <div class="text-xs" style="color:var(--text-muted);">Listed under {{ $t->step_label }} meanwhile</div>
+                                @else
+                                    {{ $t->step_label }}
+                                    @if($mappingSvc->isChanged($t))<div class="text-xs" style="color:var(--text-muted);" data-qa="changed-from-default">Changed from the default</div>@endif
+                                @endif
+                                @if(! empty($t->mapping_default['note']))<div class="text-xs" style="color:var(--text-muted);" title="{{ $t->mapping_default['note'] }}">Why: {{ \Illuminate\Support\Str::limit($t->mapping_default['note'], 110) }}</div>@endif
+                            </td>
                             <td class="px-3 py-2">
                                 @if($t->isCore()){{ \App\Services\RoadToSold\RecipeCatalogue::eventLabel($t->event_key) }}@if($t->event_filter) ({{ collect($t->event_filter)->map(fn ($v, $k) => "$k = $v")->implode(', ') }})@endif
                                 @else The agent, with a form @endif
@@ -175,7 +192,11 @@
                                     @if($t->trashed())
                                         <form method="POST" action="{{ route($rb . 'recipe.tasks.restore', $t->id) }}">@csrf <button type="submit" class="corex-btn-primary">Bring back</button></form>
                                     @else
-                                        <a href="{{ route($rb . 'recipe.tasks.edit', $t->id) }}" class="corex-btn-outline">Edit</a>
+                                        <a href="{{ route($rb . 'recipe.tasks.edit', $t->id) }}" class="corex-btn-outline">{{ $t->needs_step ? 'Choose step' : 'Edit' }}</a>
+                                        @if($mappingSvc->isChanged($t))
+                                            <form method="POST" action="{{ route($rb . 'recipe.tasks.restore-default', $t->id) }}">@csrf
+                                                <button type="submit" class="corex-btn-outline" data-qa="restore-default" onclick="return confirm('Put this task back on the step it started on? Completions already recorded are kept.');">Restore default</button></form>
+                                        @endif
                                         <form method="POST" action="{{ route($rb . 'recipe.tasks.archive', $t->id) }}">@csrf @method('DELETE')
                                             <button type="submit" class="corex-btn-outline" onclick="return confirm('Archive this task? Completions already recorded are kept, and you can bring the task back.');">Archive</button></form>
                                     @endif
@@ -191,6 +212,24 @@
                     </tbody>
                 </table>
             </div>
+            @if($mappingLog->isNotEmpty())
+                <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);" data-qa="mapping-log">
+                    <div class="text-xs uppercase tracking-wide font-semibold mb-2" style="color:var(--text-muted);">Recent step changes</div>
+                    <ul class="text-sm space-y-1" style="color:var(--text-primary);">
+                        @foreach($mappingLog as $e)
+                            @php
+                                $stepName = fn ($id) => $steps->firstWhere('id', $id)?->label ?? '-';
+                                $what = match($e->action) {
+                                    'restored'    => 'put back on ' . $stepName($e->new_values['step_id'] ?? null),
+                                    'default_set' => 'default recorded: ' . (($e->new_values['needs_step'] ?? false) ? 'not mapped' : $stepName($e->new_values['step_id'] ?? null)),
+                                    default       => (($e->new_values['needs_step'] ?? false) ? 'not mapped' : 'moved to ' . $stepName($e->new_values['step_id'] ?? null)),
+                                };
+                            @endphp
+                            <li><strong>{{ $e->task_label }}</strong> {{ $what }} - {{ $e->changedBy?->name ?? 'the system' }}, {{ $e->changed_at?->format('j M Y H:i') }}@if($e->note) <span style="color:var(--text-muted);">({{ \Illuminate\Support\Str::limit($e->note, 90) }})</span>@endif</li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
         @elseif($section === 'steps')
             <div class="rounded-md overflow-x-auto" style="background:var(--surface); border:1px solid var(--border);">
                 <table class="w-full text-sm" style="color:var(--text-primary);">
