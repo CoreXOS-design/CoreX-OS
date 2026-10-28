@@ -49,7 +49,7 @@ class Property24ListingMapper
             'expiryDate'        => $property->expiry_date?->format('Y-m-d\TH:i:s')
                                    ?? now()->addYear()->format('Y-m-d\TH:i:s'),
             'description'       => $property->description ?? '',
-            'descriptionHeader' => $property->headline ?? $property->title ?? '',
+            'descriptionHeader' => $this->resolveDescriptionHeader($property),
             'propertyInfo'      => $this->buildPropertyInfo($property, $suburbId, $propertyTypeId),
             'propertyFeatures'  => $this->buildPropertyFeatures($property),
             'youTubeVideoId'    => $this->extractYouTubeId($property->youtube_video_id),
@@ -775,6 +775,15 @@ class Property24ListingMapper
         'Closet'        => 'Closet',
         'Outbuilding'   => 'Outbuilding',
     ];
+
+    /**
+     * P24's listing title is the CoreX title the agent sees on the property page.
+     * The headline is only a fallback for stock that has no title.
+     */
+    private function resolveDescriptionHeader(Property $property): string
+    {
+        return (string) ($property->title ?: $property->headline ?: '');
+    }
 
     /**
      * Top-level P24 `tags[]` per the contract (.ai/specs/p24-featuretags-contract.md):
