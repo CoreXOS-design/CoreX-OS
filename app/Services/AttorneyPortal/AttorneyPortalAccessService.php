@@ -132,7 +132,13 @@ class AttorneyPortalAccessService
                     ->whereIn('event', ['document_downloaded', 'document_viewed'])->max('created_at')
                 : null;
 
+            $candidates = (! $contact)
+                ? AgencyServiceProviderContact::withoutGlobalScopes()->where('agency_id', $agencyId)->where('service_provider_id', $firmId)
+                    ->where('is_active', true)->orderBy('attorney_name')->get()
+                : collect();
+
             $rows[] = [
+                'candidates'    => $candidates,
                 'role'          => $role,
                 'label'         => $label,
                 'firm'          => $firm?->name,
@@ -161,6 +167,19 @@ class AttorneyPortalAccessService
             ->where('token_hash', AttorneyPortalAccess::hashToken($token))->first();
 
         return $this->usable($access) ? $access : null;
+    }
+
+    /** The access for a signed "open this deal" link from an email, or null when unusable (revoked, expired, switched off). */
+    public function accessForId(int $id): ?AttorneyPortalAccess
+    {
+        $access = AttorneyPortalAccess::withoutGlobalScope(AgencyScope::class)->find($id);
+
+        return $this->usable($access) ? $access : null;
+    }
+
+    public function isUsable(?AttorneyPortalAccess $access): bool
+    {
+        return $this->usable($access);
     }
 
     /** Email a one-time code to the supplier contact's address on file. Returns null when sent, or 'cooldown'/'hourly'. */

@@ -77,6 +77,33 @@ class AttorneyPortalDocuments
             ->unique('id')->values();
     }
 
+    /**
+     * forDeal() plus a `filed_at` on each document: when it reached THIS deal's set - its own created time, or later if it was
+     * linked to the deal's property / one of the deal's parties after it was made. Drives the "new documents" digest.
+     */
+    public function forDealWithFiledAt(Deal $deal, array $roles): Collection
+    {
+        $docs = $this->forDeal($deal, $roles);
+        if ($docs->isEmpty()) {
+            return $docs;
+        }
+        $ids   = $docs->pluck('id');
+        $props = $deal->property_id
+            ? DB::table('document_properties')->whereIn('document_id', $ids)->where('property_id', $deal->property_id)
+                ->groupBy('document_id')->selectRaw('document_id, max(created_at) as at')->pluck('at', 'document_id')
+            : collect();
+        $party = $this->partyContactIds($deal);
+        $cons  = $party
+            ? DB::table('document_contacts')->whereIn('document_id', $ids)->whereIn('contact_id', $party)
+                ->groupBy('document_id')->selectRaw('document_id, max(created_at) as at')->pluck('at', 'document_id')
+            : collect();
+
+        return $docs->each(function (Document $d) use ($props, $cons) {
+            $times = array_filter([$d->created_at, $props[$d->id] ?? null, $cons[$d->id] ?? null]);
+            $d->setAttribute('filed_at', collect($times)->map(fn ($t) => \Illuminate\Support\Carbon::parse($t))->max());
+        });
+    }
+
     /** One offered document, or null - so a guessed id answers 404 and learns nothing. */
     public function find(Deal $deal, array $roles, int $documentId): ?Document
     {

@@ -98,7 +98,7 @@ class AttorneyPortalAgentSideTest extends TestCase
         $this->assertStringContainsString('data-attorney-portal-panel', $html);
         $this->assertStringContainsString('Resend link', $html);
         $this->assertStringContainsString('Revoke access', $html);
-        $this->assertStringContainsString("Choose the attorney's contact person", $html);
+        $this->assertStringContainsString('Choose the attorney contact for this deal', $html);
     }
 
     public function test_the_panel_is_silent_when_the_portal_is_off(): void
@@ -131,10 +131,10 @@ class AttorneyPortalAgentSideTest extends TestCase
         $this->post(route('corex.settings.attorney-portal.update'), ['attorney_portal_link_valid_days' => 0])->assertSessionHasErrors('attorney_portal_link_valid_days');
     }
 
-    public function test_the_setup_wizard_carries_the_three_settings(): void
+    public function test_the_setup_wizard_carries_the_four_settings(): void
     {
         $controls = collect(config('agency-onboarding-copy.properties.controls'))->where('source', 'attorney_portal')->pluck('key')->all();
-        $this->assertEqualsCanonicalizing(['attorney_portal_enabled', 'attorney_portal_access_grace_days', 'attorney_portal_link_valid_days'], $controls);
+        $this->assertEqualsCanonicalizing(['attorney_portal_enabled', 'attorney_portal_access_grace_days', 'attorney_portal_link_valid_days', 'attorney_portal_notify'], $controls);
         $savers = collect(config('agency-onboarding-copy.properties.savers'))->pluck('controller')->all();
         $this->assertContains(\App\Http\Controllers\CoreX\AttorneyPortalSettingsController::class, $savers);
         foreach (config('agency-onboarding-copy.properties.controls') as $c) {

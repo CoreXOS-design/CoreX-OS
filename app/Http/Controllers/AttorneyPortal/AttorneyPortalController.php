@@ -87,6 +87,74 @@ class AttorneyPortalController extends Controller
         return redirect()->route('attorney.deals')->withCookie($cookie);
     }
 
+    // ── the signed link in a "new documents" email: the same code sign-in, then straight to that deal ──
+
+    public function open(Request $request, int $access, int $deal)
+    {
+        $model = $this->service->accessForId($access);
+        abort_if(! $model, 404);
+        $model->loadMissing(['supplierContact', 'firm']);
+
+        $existing = $this->service->sessionFor($request->cookie(config('attorney-portal.cookie')));
+        if ($existing && (int) $existing->access_id === (int) $model->id) {
+            return redirect()->route('attorney.deal', $deal);
+        }
+
+        AttorneyPortalLogger::record($model, 'link_opened', ['deal_id' => $deal, 'meta' => ['via' => 'email_notice']], $request);
+
+        return view('attorney-portal.link', $this->shell($model) + [
+            'token'      => null,
+            'maskedMail' => $this->mask($model->email),
+            'codeSent'   => (bool) session('attorney_code_sent_' . $model->id),
+            'codeUrl'    => $this->signedLike($request, 'attorney.open.code', $access, $deal),
+            'verifyUrl'  => $this->signedLike($request, 'attorney.open.verify', $access, $deal),
+        ]);
+    }
+
+    public function openCode(Request $request, int $access, int $deal)
+    {
+        $model = $this->service->accessForId($access);
+        abort_if(! $model, 404);
+
+        $blocked = $this->service->sendCode($model, $request);
+        $back = $this->signedLike($request, 'attorney.open', $access, $deal);
+        if ($blocked) {
+            return redirect($back)->withErrors(['code' => $blocked === 'cooldown'
+                ? 'A code was only just sent. Please wait a minute and try again.'
+                : 'Too many codes were requested. Please try again in an hour.']);
+        }
+        session(['attorney_code_sent_' . $model->id => true]);
+
+        return redirect($back)->with('status', 'We emailed a code to ' . $this->mask($model->email) . '.');
+    }
+
+    public function openVerify(Request $request, int $access, int $deal)
+    {
+        $model = $this->service->accessForId($access);
+        abort_if(! $model, 404);
+        $data = $request->validate(['code' => ['required', 'string', 'max:12']]);
+
+        $raw = $this->service->verifyCode($model, $data['code'], $request);
+        if (! $raw) {
+            session(['attorney_code_sent_' . $model->id => true]);
+
+            return redirect($this->signedLike($request, 'attorney.open', $access, $deal))
+                ->withErrors(['code' => 'That code is not right, or it has expired. Check the latest email, or ask for a new code.']);
+        }
+
+        $cookie = cookie(config('attorney-portal.cookie'), $raw, (int) config('attorney-portal.session_hours', 12) * 60, '/attorney', null, $request->isSecure(), true, false, 'lax');
+
+        return redirect()->route('attorney.deal', $deal)->withCookie($cookie);
+    }
+
+    /** A signed URL for another of the open routes, expiring when the one in hand does (so a code page never outlives its email link). */
+    private function signedLike(Request $request, string $route, int $access, int $deal): string
+    {
+        $expires = (int) $request->query('expires', 0);
+
+        return \Illuminate\Support\Facades\URL::temporarySignedRoute($route, $expires > time() ? \Illuminate\Support\Carbon::createFromTimestamp($expires) : now()->addHour(), ['access' => $access, 'deal' => $deal]);
+    }
+
     public function signOut(Request $request)
     {
         $this->service->signOut($request->attributes->get('attorney_session'), $request);

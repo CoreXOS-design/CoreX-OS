@@ -15,7 +15,7 @@ class AttorneyPortalLog extends Model
 
     public const EVENTS = [
         'invited', 'resent', 'revoked', 'link_opened', 'code_sent', 'code_failed', 'signed_in', 'signed_out',
-        'deals_listed', 'deal_viewed', 'document_viewed', 'document_downloaded', 'refused', 'session_expired',
+        'deals_listed', 'deal_viewed', 'document_viewed', 'document_downloaded', 'refused', 'session_expired', 'notified',
     ];
 
     protected $table = 'attorney_portal_logs';

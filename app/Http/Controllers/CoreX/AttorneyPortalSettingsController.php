@@ -22,6 +22,7 @@ class AttorneyPortalSettingsController extends Controller
             'enabled'   => $s->isEnabled(),
             'graceDays' => $s->graceDays(),
             'linkDays'  => $s->linkValidDays(),
+            'notify'    => $s->notifyMode(),
         ]);
     }
 
@@ -32,6 +33,7 @@ class AttorneyPortalSettingsController extends Controller
             'attorney_portal_enabled'           => ['sometimes', 'boolean'],
             'attorney_portal_access_grace_days' => ['sometimes', 'integer', 'min:0', 'max:365'],
             'attorney_portal_link_valid_days'   => ['sometimes', 'integer', 'min:1', 'max:365'],
+            'attorney_portal_notify'            => ['sometimes', 'in:off,daily'],
         ]);
 
         $write = [];
@@ -43,6 +45,10 @@ class AttorneyPortalSettingsController extends Controller
         }
         if ($request->has('attorney_portal_link_valid_days')) {
             $write['link_valid_days'] = (int) $data['attorney_portal_link_valid_days'];
+        }
+
+        if ($request->has('attorney_portal_notify')) {
+            $write['attorney_portal_notify'] = $data['attorney_portal_notify'];
         }
 
         if ($write) {
