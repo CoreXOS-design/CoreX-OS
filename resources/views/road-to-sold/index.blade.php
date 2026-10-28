@@ -281,7 +281,7 @@
                         @elseif($r['find_owner_url'] && ! empty($intakeProspects[$r['tracked_property_id']]))
                             <span style="color: var(--text-muted);">Not known yet</span>
                         @elseif($r['find_owner_url'])
-                            <a href="{{ $r['find_owner_url'] }}" class="corex-btn-outline corex-btn-xs">Find the owner</a>
+                            <a href="{{ $r['find_owner_url'] }}" class="corex-btn-outline corex-btn-xs" data-rts-popup data-step-label="Find the owner - {{ $r['address'] }}">Find the owner</a>
                         @else
                             -
                         @endif
@@ -343,7 +343,7 @@
                             <div class="mt-2 text-xs" style="color: var(--text-muted);" data-empty-reason="{{ $emptyState['code'] }}">{{ $emptyState['line'] }}</div>
                             @php $act = $emptyState['action'] ?? null; @endphp
                             @if(($act['kind'] ?? null) === 'link')
-                                <a href="{{ $act['url'] }}" class="corex-btn-primary corex-btn-xs mt-4 inline-flex">{{ $act['label'] }}</a>
+                                <a href="{{ $act['url'] }}" class="corex-btn-primary corex-btn-xs mt-4 inline-flex" data-rts-popup data-step-label="{{ $act['label'] }}">{{ $act['label'] }}</a>
                             @elseif(($act['kind'] ?? null) === 'build')
                                 <form method="POST" action="{{ route('road-to-sold.build-list') }}" class="mt-4">
                                     @csrf
@@ -385,7 +385,7 @@
                 <div x-show="open === '{{ $fb['key'] }}'" x-cloak class="absolute left-0 rounded-md overflow-auto" style="bottom: 100%; margin-bottom: .25rem; width: 22rem; max-height: 16rem; z-index: 30; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 6px 18px rgba(0,0,0,.18);">
                     @forelse($feed['items'] as $it)
                         <div class="px-4 py-2" style="border-top: 1px solid var(--border);">
-                            @if($it['url'])<a href="{{ $it['url'] }}" class="font-semibold" style="color: var(--text-primary);">{{ $it['title'] }}</a>
+                            @if($it['url'])<a href="{{ $it['url'] }}" class="font-semibold" style="color: var(--text-primary);" data-rts-popup data-step-label="{{ $it['title'] }}">{{ $it['title'] }}</a>
                             @else<span class="font-semibold" style="color: var(--text-primary);">{{ $it['title'] }}</span>@endif
                             <div style="color: var(--text-muted);">{{ $it['sub'] }}</div>
                         </div>
@@ -393,7 +393,7 @@
                         <div class="px-4 py-6 text-center" style="color: var(--text-muted);">{{ $fb['empty'] }}</div>
                     @endforelse
                     @if($fb['all'] && $feed['count'] > count($feed['items']))
-                        <div class="px-4 py-2" style="border-top: 1px solid var(--border);"><a href="{{ $fb['all'] }}" style="color: var(--text-primary);">See all {{ $feed['count'] }}</a></div>
+                        <div class="px-4 py-2" style="border-top: 1px solid var(--border);"><a href="{{ $fb['all'] }}" style="color: var(--text-primary);" data-rts-popup data-step-label="{{ $fb['title'] }}">See all {{ $feed['count'] }}</a></div>
                     @endif
                 </div>
             </div>

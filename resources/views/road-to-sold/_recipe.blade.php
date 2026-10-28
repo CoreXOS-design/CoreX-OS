@@ -25,7 +25,7 @@
     @if($na['action'])
         @php $act = $na['action']; @endphp
         @if($act['type'] === 'link')
-            <a href="{{ $act['url'] }}" class="corex-btn-primary corex-btn-xs">{{ $act['label'] }}</a>
+            <a href="{{ $act['url'] }}" class="corex-btn-primary corex-btn-xs" data-rts-popup data-step-label="{{ $act['label'] }}">{{ $act['label'] }}</a>
         @elseif($act['type'] === 'contact')
             <button type="button" class="corex-btn-primary corex-btn-xs"
                     @click="openContact(@js(['tp' => (string) $act['tp'], 'item' => (string) $act['item'], 'address' => $act['address']]))">{{ $act['label'] }}</button>
@@ -87,7 +87,7 @@
                             @if($t['is_custom'] && $captureTasks->contains('id', $t['task_id']))
                                 <button type="button" class="corex-btn-outline corex-btn-xs" @click="openCapture({{ (int) $t['task_id'] }})">Capture</button>
                             @elseif(! $t['is_custom'] && ($url = \App\Services\RoadToSold\RecipeCatalogue::screenUrl($t['event_key'])))
-                                <a href="{{ $url }}" class="corex-btn-outline corex-btn-xs">Go</a>
+                                <a href="{{ $url }}" class="corex-btn-outline corex-btn-xs" data-rts-popup data-step-label="{{ $t['label'] ?? 'Go' }}">Go</a>
                             @endif
                         @endif
                     </td>

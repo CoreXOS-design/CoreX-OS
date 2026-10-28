@@ -67,6 +67,8 @@ return Application::configure(basePath: dirname(__DIR__))
             // per-group `feature:` middleware only covers groups someone remembered to decorate,
             // and a toggle that hides the sidebar link while the URL still opens is a silent no-op.
             \App\Http\Middleware\EnforceFeatureRoutes::class,
+            // Road to Sold pop-up (22.23) — a screen opened in the pop-up stays in it across redirects (adds embed=1 to a same-site redirect).
+            \App\Http\Middleware\KeepEmbedOnRedirect::class,
         ]);
 
         // AT-321 — attribute API-driven property writes (mobile app etc.) too.

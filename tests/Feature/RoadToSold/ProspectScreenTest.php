@@ -323,4 +323,51 @@ final class ProspectScreenTest extends TestCase
         $this->assertLessThan($addr, $why, 'the reason column comes before the address');
         $this->assertStringNotContainsString('Why suggested', $html);
     }
+
+    // ── leftovers 28 Oct: pipeline order, links stay in the pop-up, a redirect keeps the pop-up on ────────
+
+    public function test_the_managers_stage_tiles_run_in_pipeline_order_whatever_is_in_them(): void
+    {
+        $p = $this->owned($this->agent, 'Alpha Road');
+        $this->prospects->advance($p->refresh(), S::LISTING_LIVE, $this->agent, ['subject_type' => 'x', 'subject_id' => 3, 'next_label' => 'Advertise the listing']);
+
+        $html = $this->page($this->manager, ['block' => 'prospects', 'agent' => $this->agent->id])->assertOk()->getContent();
+        $start = strpos($html, 'data-qa="stage-counts"');
+        $slice = substr($html, $start, strpos($html, 'data-qa="prospect-filters"') - $start);
+        preg_match_all('/font-semibold truncate">([^<]+)</', $slice, $m);
+
+        $this->assertSame(array_column(array_values(S::ALL), 'label'), array_map('html_entity_decode', $m[1]), 'Found first, Registered last, nothing moved up for having work in it');
+    }
+
+    public function test_the_page_turns_a_marked_link_into_a_pop_up_instead_of_leaving_the_page(): void
+    {
+        $html = $this->page($this->agent)->assertOk()->getContent();
+        $this->assertStringContainsString('@click.window="link($event)"', $html);
+        $this->assertStringContainsString("a[data-rts-popup]", $html);
+        $this->assertStringContainsString("searchParams.set('embed', '1')", $html);
+    }
+
+    public function test_a_redirect_from_a_pop_up_screen_keeps_the_pop_up_parameters(): void
+    {
+        \Illuminate\Support\Facades\Route::middleware('web')->group(function () {
+            \Illuminate\Support\Facades\Route::get('/__t/hop', fn () => redirect('/corex/somewhere?x=1#top'));
+            \Illuminate\Support\Facades\Route::get('/__t/hop-out', fn () => redirect('https://example.com/a'));
+            \Illuminate\Support\Facades\Route::get('/__t/hop-signed', fn () => redirect('/corex/file?signature=abc'));
+            \Illuminate\Support\Facades\Route::get('/__t/hop-has', fn () => redirect('/corex/somewhere?embed=1'));
+        });
+
+        $this->actingAs($this->agent);
+        $loc = fn (string $url) => $this->get($url)->headers->get('Location');
+
+        $this->assertSame('http://localhost/corex/somewhere?x=1&embed=1&rts_prospect=7&rts_stage=found#top', $this->normalise($loc('/__t/hop?embed=1&rts_prospect=7&rts_stage=found')));
+        $this->assertSame('http://localhost/corex/somewhere?x=1#top', $this->normalise($loc('/__t/hop')), 'outside the pop-up nothing is added');
+        $this->assertSame('https://example.com/a', $loc('/__t/hop-out?embed=1'), 'another site is never touched');
+        $this->assertStringEndsWith('/corex/file?signature=abc', $loc('/__t/hop-signed?embed=1'), 'a signed address is never touched');
+        $this->assertStringEndsWith('/corex/somewhere?embed=1', $loc('/__t/hop-has?embed=1'), 'already carrying it: left alone');
+    }
+
+    private function normalise(?string $url): string
+    {
+        return (string) preg_replace('#^https?://[^/]+#', 'http://localhost', (string) $url);
+    }
 }

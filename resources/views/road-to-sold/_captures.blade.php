@@ -61,7 +61,7 @@
                 <td class="px-3 py-2 text-right" style="color: var(--text-primary);">{{ rtrim(rtrim(number_format((float) $c->points_awarded, 2), '0'), '.') }}</td>
                 <td class="px-3 py-2" style="color: var(--text-primary);">
                     @forelse($links[$c->id] ?? [] as [$label, $url])
-                        <div>@if($url)<a href="{{ $url }}" class="underline">{{ $label }}</a>@else{{ $label }}@endif</div>
+                        <div>@if($url)<a href="{{ $url }}" class="underline" data-rts-popup data-step-label="{{ $label }}">{{ $label }}</a>@else{{ $label }}@endif</div>
                     @empty
                         -
                     @endforelse

@@ -81,7 +81,7 @@
 </div>
 
 {{-- The step pop-up: the real CoreX screen in an iframe (embed mode, same origin only). Done / X / Escape close it and reload the page so the card shows the result. --}}
-<div x-data="rtsStepModal()" x-cloak @rts-step.window="open($event.detail)" @message.window="onMessage($event)" @keydown.escape.window="close()">
+<div x-data="rtsStepModal()" x-cloak @rts-step.window="open($event.detail)" @message.window="onMessage($event)" @click.window="link($event)" @keydown.escape.window="close()">
     <div x-show="isOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" role="dialog" aria-modal="true" :aria-label="label" data-qa="step-modal">
         <div class="flex flex-col w-full rounded-md overflow-hidden" style="max-width: 72rem; height: 90vh; background: var(--surface); border: 1px solid var(--border);">
             <div class="flex items-center justify-between px-4 py-2" style="border-bottom: 1px solid var(--border);">
@@ -102,6 +102,16 @@ function rtsStepModal() {
             this.opener = document.activeElement;
             this.isOpen = true; this.touched = false;
             this.$nextTick(() => { this.$refs.frame.src = d.stepUrl; this.$refs.closeBtn.focus(); });
+        },
+        // a link marked data-rts-popup opens its screen in the pop-up (embed mode) instead of leaving Road to Sold
+        link(e) {
+            var a = e.target && e.target.closest ? e.target.closest('a[data-rts-popup]') : null;
+            if (!a || e.button || e.ctrlKey || e.metaKey || e.shiftKey) { return; }
+            var u = new URL(a.href, window.location.href);
+            if (u.origin !== window.location.origin) { return; }
+            e.preventDefault();
+            u.searchParams.set('embed', '1');
+            this.open({ stepUrl: u.toString(), stepLabel: a.dataset.stepLabel || (a.textContent || '').trim() });
         },
         onMessage(e) {
             if (e.origin !== window.location.origin || !e.data || e.data.rts !== 'done') { return; }
