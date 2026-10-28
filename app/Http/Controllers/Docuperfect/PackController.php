@@ -331,7 +331,7 @@ class PackController extends Controller
     private function createDocumentFromTemplate($templateId, Pack $pack, $user, $packInstanceId, $customName = null)
     {
         $template = Template::find($templateId);
-        if (!$template) {
+        if (!$template || $template->isHeldBack()) {   // a released copy awaiting approval is never used (esign-template-transfer.md §13.6)
             return;
         }
 

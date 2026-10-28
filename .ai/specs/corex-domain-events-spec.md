@@ -574,3 +574,7 @@ If the audit listener (Prompt 01) ever has a critical bug, set the env flag `COR
 ---
 
 **End of spec.**
+
+## E-sign document workshop events (28 Oct 2026)
+
+Three events in `App\Events\Docuperfect\` (`TemplateReleased`, `TemplateReleaseApproved`, `TemplateReleaseDeclined`), each carrying `releaseId`, `templateId`, the TARGET agency and the actor; subject `docuperfect_template_releases`. Fired after the transaction that made the change has finished. `TemplateReleased` is the one an agency's authorisers are told by (listener `NotifyDocumentAuthorisers`: in-app + the agency's normal mail); the others are facts for the audit log. The release log itself is `docuperfect_template_release_events` (insert-only). Spec: `esign-template-transfer.md` §13.

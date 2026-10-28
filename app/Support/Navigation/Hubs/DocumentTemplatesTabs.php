@@ -2,7 +2,9 @@
 
 namespace App\Support\Navigation\Hubs;
 
+use App\Models\Docuperfect\TemplateRelease;
 use App\Models\User;
+use App\Services\Docuperfect\Release\AgencyDocumentAuthorisers;
 use App\Support\Navigation\TabHub;
 
 /**
@@ -34,11 +36,32 @@ final class DocumentTemplatesTabs extends TabHub
                 'feature' => $f, 'permissions' => $manage],
             'packages' => ['label' => 'Template Packages', 'route' => 'docuperfect.template-transfer.index', 'old' => 'Template Packages',
                 'feature' => $f, 'permissions' => ['templates.transfer']],
+            // E-sign document workshop (.ai/specs/esign-template-transfer.md §13.4).
+            'releases' => ['label' => 'Releases', 'route' => 'docuperfect.template-releases.index', 'old' => 'Releases', 'match' => ['docuperfect.template-releases.*'],
+                'feature' => $f, 'permissions' => ['templates.release']],
+            'approvals' => ['label' => 'Approvals', 'route' => 'docuperfect.template-approvals.index', 'old' => 'Approvals', 'match' => ['docuperfect.template-approvals.*'],
+                'feature' => $f, 'permissions' => ['templates.approve_release']],
         ];
     }
 
     protected static function allows(string $key, User $user): bool
     {
-        return $key !== 'packages' || $user->isOwnerRole();
+        return match ($key) {
+            'packages', 'releases' => $user->isOwnerRole(),
+            // The agency's authorisers, and the owner (who sees it read-only).
+            'approvals' => $user->isOwnerRole() || AgencyDocumentAuthorisers::canAuthorise($user, (int) $user->effectiveAgencyId()),
+            default => true,
+        };
+    }
+
+    /** Documents waiting for approval at the viewer's agency (authorisers only). */
+    public static function badge(string $key, User $user): ?int
+    {
+        if ($key !== 'approvals' || $user->isOwnerRole()) {
+            return null;
+        }
+        $n = TemplateRelease::query()->where('agency_id', (int) $user->effectiveAgencyId())->where('state', TemplateRelease::STATE_AWAITING)->count();
+
+        return $n > 0 ? $n : null;
     }
 }

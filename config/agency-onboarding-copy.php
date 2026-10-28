@@ -1889,6 +1889,8 @@ return [
             ['controller' => FicaOfficerAppointmentsController::class, 'method' => 'saveWindowSettings'],
             // E-sign signing modes (esign-signing-modes.md, ruling 5) — has()-guarded; 403 before any write without esign.settings.
             ['controller' => \App\Http\Controllers\Docuperfect\EsignSigningModeSettingsController::class, 'method' => 'saveFromWizard'],
+            // Who may authorise documents (esign-template-transfer.md §13.3) — has()-guarded per list; 403 before any write without esign.settings.
+            ['controller' => \App\Http\Controllers\Docuperfect\DocumentAuthoriserSettingsController::class, 'method' => 'saveFromWizard'],
         ],
         'controls' => [
             ['key' => 'financial_year_start_month', 'source' => 'agency', 'type' => 'select', 'default' => 3,
@@ -1961,6 +1963,15 @@ return [
              'label' => 'How my signers sign',
              'explain' => 'How people who sign by link (tenants, landlords, sellers, buyers, directors, witnesses) put their signature and initials on a document you send them. Your own agents keep their saved signature either way.',
              'affects' => 'What a signer does on the signing page: sign every place themselves, or adopt once and apply it place by place or to all their places at once. Documents already out for signing finish the way they were sent; only documents sent from now on follow this choice. Condition and amendment initials and disclosure answers are always done one by one, whichever you pick.'],
+            // Who may authorise documents (esign-template-transfer.md §13.3, Johan's ruling R2) - the same two lists as E-Sign -> Who may authorise documents.
+            ['key' => 'document_authoriser_user_ids', 'source' => 'document_authorisers', 'type' => 'user_multiselect', 'default' => [], 'heading' => 'Documents CoreX prepares for you',
+             'label' => 'People who may approve documents',
+             'explain' => 'When CoreX prepares a document for your agency - a lease, a mandate, a disclosure form - it is not live until one of the people you choose approves it. Tick the people who may approve. Until you choose anyone, your administrators can.',
+             'affects' => 'Who can open the Approvals screen and make a prepared document live for your agents. Nobody else can, however senior - and CoreX itself cannot approve on your behalf.'],
+            ['key' => 'document_authoriser_roles', 'source' => 'document_authorisers', 'type' => 'role_multiselect', 'default' => [],
+             'label' => 'Roles that may approve documents',
+             'explain' => 'Tick a whole role instead of (or as well as) naming people: everyone who holds a ticked role may approve a document CoreX has prepared for your agency.',
+             'affects' => 'The same as the people above, for everyone who holds the role - including people who join later. A role also needs the "Approve documents released to your agency" permission in Role Manager.'],
         ],
     ],
 

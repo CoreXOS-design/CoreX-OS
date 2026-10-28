@@ -32,6 +32,7 @@ class LeaseAgreementTemplateGuard
     public const SHARED = 'This is a shared template. Your agency needs its own copy of its lease agreement before it can be used here.';
     public const ARCHIVED = 'This template is archived.';
     public const NOT_ESIGN = 'This document is not an e-sign document.';
+    public const AWAITING = 'This document is waiting for your agency to approve it, so it cannot be used yet.';
 
     public const STATE_READY = 'ready';
     public const STATE_NEEDS_MAP = 'needs_map';
@@ -93,6 +94,9 @@ class LeaseAgreementTemplateGuard
         }
 
         $refusals = [];
+        if ($template->isHeldBack()) {
+            $refusals[] = self::AWAITING;
+        }
         if ($template->archived_at !== null) {
             $refusals[] = self::ARCHIVED;
         }

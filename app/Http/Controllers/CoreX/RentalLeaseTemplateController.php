@@ -310,6 +310,7 @@ class RentalLeaseTemplateController extends Controller
             ->where('agency_id', $agencyId)
             ->where('is_esign', true)
             ->whereNull('archived_at')
+            ->where(fn ($q) => $q->whereNull('release_status')->orWhereNotIn('release_status', Template::RELEASE_HELD_BACK))   // not a released copy awaiting approval
             ->orderBy('name')
             ->get(['id', 'name', 'render_type']);
     }

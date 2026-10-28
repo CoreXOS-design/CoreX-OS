@@ -631,6 +631,10 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\MarketReports\MarketReportSpotCheckFlagged::class,
             \App\Listeners\MarketReports\NotifyOnMarketReportParseFailure::class,
         );
+        // E-sign document workshop (esign-template-transfer.md §13.4): a document released to an agency tells that agency's authorisers.
+        // Explicit because discovery is off (AT-261 above). The three release events are audited by the wildcard RecordDomainEvent.
+        Event::listen(\App\Events\Docuperfect\TemplateReleased::class, \App\Listeners\Docuperfect\NotifyDocumentAuthorisers::class);
+
         // Report recogniser (mic-complete-spec §8.9): the same listener tells the uploader
         // when a report was read by AI (check the figures) or could not be read at all.
         foreach ([

@@ -134,6 +134,9 @@ class LeaseSigningLauncher
         $tenants = $newTerm->tenants()->with('contact')->get();
 
         $template = Template::findOrFail($templateId);
+        if ($template->isHeldBack()) {   // a released copy awaiting approval is never used (esign-template-transfer.md §13.6)
+            throw \Illuminate\Validation\ValidationException::withMessages(['template' => LeaseAgreementTemplateGuard::AWAITING]);
+        }
         $fields = $this->wizardFieldsFor($template);
 
         $stepData = [

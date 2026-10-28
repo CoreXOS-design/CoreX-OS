@@ -62,7 +62,8 @@ final class TabHubSwitchAuditTest extends TestCase
     ];
 
     /** Tabs no agency switch controls: System-Owner-only, or gated by a role name / a named-person setting rather than a permission. */
-    private const NOT_A_SWITCH = ['doc-templates' => ['packages'], 'compliance-agents' => ['agents']];
+    // releases = owner only; approvals = the agency's named authorisers (esign-template-transfer.md §13.4) - neither is a plain feature/permission switch.
+    private const NOT_A_SWITCH = ['doc-templates' => ['packages', 'releases', 'approvals'], 'compliance-agents' => ['agents']];
 
     private Agency $agency;
 

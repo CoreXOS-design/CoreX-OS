@@ -12,8 +12,8 @@
 | 2 | E-Sign Document | *(unchanged plain link — it starts something)* |
 | 3 | **My Documents** | My Documents · My E-Sign Documents · Authorise Documents · Agency Documents · Shared Drive |
 | 4 | **Library** | Packs · Web Packs · Clause Library · Compile Studio |
-| 5 | **Templates** | Template Management · Field Groups · Named Fields · Document Types · Import Document · Template Packages |
-| 6 | **E-Sign Settings** | Recipient Presets · Recipient Templates · Finalisation Settings |
+| 5 | **Templates** | Template Management · Field Groups · Named Fields · Document Types · Import Document · Template Packages · Releases · Approvals |
+| 6 | **E-Sign Settings** | Recipient Presets · Recipient Templates · Finalisation Settings · Who may authorise documents |
 
 Every label is unchanged. "Authorise Documents" is the My E-Sign Documents screen with `?filter=authorisation` (as its old menu
 item was): the two tabs share a route and the filter decides which is lit.
@@ -32,7 +32,9 @@ item was): the two tabs share a route and the filter decides which is lit.
 | Library | Compile Studio | `docuperfect.compiler.index` | `esign.compiler.view` |
 | Templates | Template Management · Field Groups · Named Fields · Document Types · Import Document | `docuperfect.templates.index` · `.field-groups.index` · `.settings.namedFields` · `.settings.types` · `.import.index` | `manage_templates` AND `access_docuperfect` |
 | Templates | Template Packages | `docuperfect.template-transfer.index` | System Owner only AND `templates.transfer` |
-| E-Sign Settings | Recipient Presets · Recipient Templates · Finalisation Settings | `docuperfect.esign.recipient-presets.index` · `docuperfect.recipient-templates.index` · `docuperfect.esign.settings.finalization` | `esign.settings` |
+| Templates | Releases (28 Oct 2026, workshop) | `docuperfect.template-releases.index` | System Owner only AND `templates.release` (`esign-template-transfer.md` §13.4) |
+| Templates | Approvals (28 Oct 2026, workshop) | `docuperfect.template-approvals.index` | `templates.approve_release` AND the agency's named authorisers (admins until it names anyone); the owner sees it read-only; carries the count of documents waiting |
+| E-Sign Settings | Recipient Presets · Recipient Templates · Finalisation Settings · Who may authorise documents | `docuperfect.esign.recipient-presets.index` · `docuperfect.recipient-templates.index` · `docuperfect.esign.settings.finalization` · `docuperfect.esign.settings.document-authorisers` | `esign.settings` |
 
 ## 2. No data, settings or new list screens
 
