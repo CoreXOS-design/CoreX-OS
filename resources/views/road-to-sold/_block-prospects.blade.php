@@ -73,8 +73,10 @@
         @if($pf['stage'] !== '')
             <span class="text-xs" style="color: var(--text-muted);" data-qa="station-note">Showing <strong style="color: var(--text-primary);">{{ $stageMeta[$pf['stage']]['label'] ?? $pf['stage'] }}</strong> only - <a href="{{ $lineUrl(['p_stage' => null]) }}" class="underline" data-qa="all-stations">All stations</a></span>
         @endif
-        @if(! $viewingOwn || $lineWho !== 'agent')
-            <span class="text-xs ml-auto" style="color: var(--text-muted);" data-qa="line-scope">{{ $lineWho === 'agent' ? $agentName : ($lineWho === 'branch' ? 'Whole branch - ' . $lineWhoOptions['branch'] : 'Whole agency') }} - read only</span>
+        @if($lineWho !== 'agent')
+            <span class="text-xs ml-auto" style="color: var(--text-muted);" data-qa="line-scope">{{ $lineWho === 'branch' ? 'Whole branch - ' . $lineWhoOptions['branch'] : 'Whole agency' }} - read only</span>
+        @elseif($pf['stage'] === '')
+            <span class="text-xs ml-auto" style="color: var(--text-muted);" data-qa="line-hint">Click a station to see just those properties, or a property for its card.</span>
         @endif
     </form>
 
@@ -92,8 +94,8 @@
                                 $movedTitle = $ph['last'] ? $ph['moved'] . ' registered this month' : $ph['moved'] . ' moved on from ' . $ph['label'] . ' this month';
                                 $outTitle = $ph['out'] . ' fell out of ' . $ph['label'] . ' this month (set aside, not selling or lost)';
                             @endphp
-                            @if($ph['moved'] > 0)<a href="{{ $lineUrl(['p_flow' => 'moved', 'p_flow_phase' => $ph['key']]) }}" title="{{ $movedTitle }} - click to see them" data-flow="moved" class="{{ $flowView && $flowView['kind'] === 'moved' && $flowView['phase'] === $ph['key'] ? 'is-on' : '' }}">{{ $ph['last'] ? '✓' : '→' }}{{ $ph['moved'] }}</a>@else<span title="{{ $movedTitle }}" data-flow="moved">{{ $ph['last'] ? '✓' : '→' }}0</span>@endif
-                            @if($ph['out'] > 0)<a href="{{ $lineUrl(['p_flow' => 'out', 'p_flow_phase' => $ph['key']]) }}" title="{{ $outTitle }} - click to see them" data-flow="out" class="rts-out {{ $flowView && $flowView['kind'] === 'out' && $flowView['phase'] === $ph['key'] ? 'is-on' : '' }}">✕{{ $ph['out'] }}</a>@else<span title="{{ $outTitle }}" data-flow="out">✕0</span>@endif
+                            @if($ph['moved'] > 0)<a href="{{ $lineUrl(['p_flow' => 'moved', 'p_flow_phase' => $ph['key']]) }}" title="{{ $movedTitle }} - click to see them" data-flow="moved" class="{{ $flowView && $flowView['kind'] === 'moved' && $flowView['phase'] === $ph['key'] ? 'is-on' : '' }}">{{ $ph['last'] ? '✓' : '→' }}{{ $ph['moved'] }}</a>@endif
+                            @if($ph['out'] > 0)<a href="{{ $lineUrl(['p_flow' => 'out', 'p_flow_phase' => $ph['key']]) }}" title="{{ $outTitle }} - click to see them" data-flow="out" class="rts-out {{ $flowView && $flowView['kind'] === 'out' && $flowView['phase'] === $ph['key'] ? 'is-on' : '' }}">✕{{ $ph['out'] }}</a>@endif
                         </span>
                     </div>
                 @endforeach

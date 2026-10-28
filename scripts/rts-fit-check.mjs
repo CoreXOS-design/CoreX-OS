@@ -52,7 +52,6 @@ async function lineChecks(page, vh) {
     if (g.chipsOut > 0) fails.push(`${g.chipsOut} chips stick out of their column`);
     if (g.phasesClipped > 0) fails.push(`${g.phasesClipped} phase headers clip their flow figures`);
     if (g.shortNamesCut > 0) fails.push(`${g.shortNamesCut} station names are cut off`);
-    if (g.flows !== 10) fails.push(`${g.flows} flow figures, expected 10`);
     if (g.scrolls > 1 && !g.pinned) fails.push('the line does not stay put while the chips scroll');
     if (g.chips > 0) {
         await page.click('[data-chips-for] .rts-ch');
@@ -138,10 +137,10 @@ for (const person of people) {
                 if (g.formBottom !== null && g.table && g.table.top - g.formBottom > 60) fails.push('the table is not right under the filters');
             }
             if (block === 'prospects' && (!g.growBox || g.growBox.bottom > g.vh + 1)) fails.push('the production line runs off the screen');
-            if (block === 'prospects') fails.push(...await lineChecks(page, g.vh));
+            if (block === 'prospects') { await page.screenshot({ path: `${OUT}/${person.who}-${w}x${h}-prospects.png` }); fails.push(...await lineChecks(page, g.vh)); }
             results.push({ label, pass: fails.length === 0, fails, g });
             console.log(`${fails.length ? 'FAIL' : 'PASS'}  ${label}  table=${JSON.stringify(g.table)} rows=${g.rows} cards=${g.cards} parked=${g.parkedRows}${fails.length ? '  - ' + fails.join('; ') : ''}`);
-            if (block === 'intake' || block === 'prospects' || fails.length) await page.screenshot({ path: `${OUT}/${person.who}-${w}x${h}-${block}.png` });
+            if (block === 'intake' || (fails.length && block !== 'prospects')) await page.screenshot({ path: `${OUT}/${person.who}-${w}x${h}-${block}.png` });
         }
         if (errors.length) { results.push({ label: `${person.who} ${w}x${h} script errors`, pass: false, fails: [...new Set(errors)].slice(0, 3) }); console.log('FAIL  script errors: ' + [...new Set(errors)].slice(0, 3).join(' | ')); }
         await page.close();
