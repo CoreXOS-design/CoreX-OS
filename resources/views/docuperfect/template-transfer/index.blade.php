@@ -29,7 +29,7 @@
     {{-- Upload --}}
     <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Import a template package</h2>
-        <p class="text-xs mb-3" style="color: var(--text-muted);">Choose a package file (.cxpkg), or the .zip made by "Export selected". You will see exactly what will be created, and pick the agency, before anything happens. Nothing existing is ever replaced.</p>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">Choose a package file (.cxpkg), or the .zip made by "Export selected". You will see exactly what will be sent, and pick the agency, before anything happens. It then waits for that agency to approve it — it is not live until they do. Nothing existing is ever replaced.</p>
         <form method="POST" action="{{ route('docuperfect.template-transfer.upload') }}" enctype="multipart/form-data" class="flex flex-wrap items-center gap-3">
             @csrf
             <input type="file" name="package" accept=".cxpkg,.zip" required class="text-xs">

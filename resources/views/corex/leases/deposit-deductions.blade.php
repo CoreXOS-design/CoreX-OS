@@ -31,7 +31,7 @@
     @unless($summary['out_completed'])
         <div class="rounded-md p-3 text-xs" style="background: color-mix(in srgb, #d97706 10%, transparent); color:#b45309;" data-qa="dd-out-open">
             The move-out inspection is not completed yet, so @if($summary['record_amounts'])these figures @else this list @endif can still change.
-            <a href="{{ route('corex.rental-inspections.show', $summary['out']) }}" class="underline font-semibold">Open the move-out inspection</a>
+            @feature('rental-inspections')<a href="{{ route('corex.rental-inspections.show', $summary['out']) }}" class="underline font-semibold">Open the move-out inspection</a>@endfeature
         </div>
     @endunless
 

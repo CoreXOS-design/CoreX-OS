@@ -279,6 +279,7 @@
         'market-intelligence.*',
         'corex.properties.*',
         'corex.map.*',
+        'corex.sold-stock.*',        // AT-512 - Sold stock is a tab of the Properties item, so its pages open the Real Estate panel
         'admin.p24.*',
         'corex.contacts.*',
         'corex.core-matches.*',
@@ -985,7 +986,7 @@
                      (corex.lens.properties) lens lights Rentals instead, as before. --}}
                 @php $_propTabs = \App\Support\Navigation\Hubs\PropertiesTabs::forUser($user); @endphp
                 @if($_propTabs !== [])
-                <a href="{{ route('corex.hubs.properties') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\PropertiesTabs::searchEntries($_propTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ (request()->routeIs('corex.hubs.properties', 'corex.properties.*', 'corex.map.*') && ! session('corex.lens.properties', false)) ? 'active' : '' }}">Properties</a>
+                <a href="{{ route('corex.hubs.properties') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\PropertiesTabs::searchEntries($_propTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ (request()->routeIs('corex.hubs.properties', 'corex.properties.*', 'corex.map.*', 'corex.sold-stock.*') && ! session('corex.lens.properties', false)) ? 'active' : '' }}">Properties</a>
                 @endif
 
                 @permission('access_contacts')
@@ -1017,7 +1018,7 @@
                 @feature('road-to-sold')
                 @permission('access_road_to_sold')
                 @if(\Illuminate\Support\Facades\Route::has('road-to-sold.index'))
-                <a href="{{ route('road-to-sold.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.index', 'road-to-sold.drilldown', 'road-to-sold.report', 'road-to-sold.report.*', 'road-to-sold.add-to-day', 'road-to-sold.outcomes.*', 'road-to-sold.settings.index', 'road-to-sold.settings.general.*', 'road-to-sold.settings.areas.*', 'road-to-sold.settings.outcomes.*', 'road-to-sold.settings.recipe.*', 'road-to-sold.settings.flags.*', 'road-to-sold.settings.task-targets.*') ? 'active' : '' }}">Road to Sold</a>
+                <a href="{{ route('road-to-sold.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.index', 'road-to-sold.drilldown', 'road-to-sold.report', 'road-to-sold.report.*', 'road-to-sold.add-to-day', 'road-to-sold.outcomes.*', 'road-to-sold.settings.index', 'road-to-sold.settings.general.*', 'road-to-sold.settings.areas.*', 'road-to-sold.settings.outcomes.*', 'road-to-sold.settings.recipe.*', 'road-to-sold.settings.flags.*', 'road-to-sold.settings.task-targets.*', 'road-to-sold.prospects.*') ? 'active' : '' }}">Road to Sold</a>
                 @endif
                 @endpermission
                 @endfeature
@@ -1822,13 +1823,13 @@
                 {{-- Templates: Template Management | Field Groups | Named Fields | Document Types | Import Document | Template Packages (System Owner only) --}}
                 @php $_doctemplatesTabs = \App\Support\Navigation\Hubs\DocumentTemplatesTabs::forUser($user); @endphp
                 @if($_doctemplatesTabs !== [])
-                <a href="{{ route('corex.hubs.doc-templates') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\DocumentTemplatesTabs::searchEntries($_doctemplatesTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.doc-templates', 'docuperfect.templates.*', 'docuperfect.field-groups.*', 'docuperfect.settings.namedFields*', 'docuperfect.settings.types*', 'docuperfect.import.*', 'docuperfect.template-transfer.*') ? 'active' : '' }}">Templates</a>
+                <a href="{{ route('corex.hubs.doc-templates') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\DocumentTemplatesTabs::searchEntries($_doctemplatesTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.doc-templates', 'docuperfect.templates.*', 'docuperfect.field-groups.*', 'docuperfect.settings.namedFields*', 'docuperfect.settings.types*', 'docuperfect.import.*', 'docuperfect.template-transfer.*', 'docuperfect.template-releases.*', 'docuperfect.template-approvals.*') ? 'active' : '' }}">Templates</a>
                 @endif
 
                 {{-- E-Sign Settings: Recipient Presets | Recipient Templates | Finalisation Settings --}}
                 @php $_esignsettingsTabs = \App\Support\Navigation\Hubs\ESignSettingsTabs::forUser($user); @endphp
                 @if($_esignsettingsTabs !== [])
-                <a href="{{ route('corex.hubs.esign-settings') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\ESignSettingsTabs::searchEntries($_esignsettingsTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.esign-settings', 'docuperfect.esign.recipient-presets.*', 'docuperfect.recipient-templates.*', 'docuperfect.esign.settings.finalization*', 'docuperfect.esign.settings.signing-mode*') ? 'active' : '' }}">E-Sign Settings</a>
+                <a href="{{ route('corex.hubs.esign-settings') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\ESignSettingsTabs::searchEntries($_esignsettingsTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.esign-settings', 'docuperfect.esign.recipient-presets.*', 'docuperfect.recipient-templates.*', 'docuperfect.esign.settings.finalization*', 'docuperfect.esign.settings.signing-mode*', 'docuperfect.esign.settings.document-authorisers*') ? 'active' : '' }}">E-Sign Settings</a>
                 @endif
             </div>
         </div>

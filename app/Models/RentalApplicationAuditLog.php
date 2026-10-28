@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\StampsOnBehalfOf;
 use App\Models\Concerns\BelongsToAgency;
 use App\Models\Concerns\BelongsToBranch;
 use App\Models\Concerns\InheritsBranchFromParent;
@@ -20,7 +21,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class RentalApplicationAuditLog extends Model
 {
-    use BelongsToAgency, BelongsToBranch, InheritsBranchFromParent, SoftDeletes;
+    use BelongsToAgency, BelongsToBranch, InheritsBranchFromParent, SoftDeletes, StampsOnBehalfOf;
 
     public $timestamps = false;
 

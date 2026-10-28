@@ -11,7 +11,7 @@
 
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Check before importing</h1>
-        <p class="text-xs" style="color: var(--text-muted);">From "{{ $original }}". Nothing has been created yet. Below is exactly what will be created if you confirm.</p>
+        <p class="text-xs" style="color: var(--text-muted);">From "{{ $original }}". Nothing has been created yet. Below is exactly what will be sent if you confirm. It will wait for the agency's approval and will NOT be live until a person the agency has chosen approves it.</p>
     </div>
 
     @if($errors->any())
@@ -66,8 +66,8 @@
             @if($target && $p['clash']['exists'])
                 <div class="mt-4 rounded-md px-3 py-3 text-xs" style="border: 1px solid var(--border);">
                     <p class="font-semibold mb-2" style="color: var(--text-primary);">{{ $target->name }} already has a template called "{{ $p['name'] }}"{{ $p['clash']['archived'] ? ' (archived)' : '' }}. It will NOT be replaced. What should happen?</p>
-                    <label class="flex items-center gap-2 mb-1"><input type="radio" name="choice[{{ $p['index'] }}]" value="new_version" form="confirmForm" required> Import as a new version (name gets a version number)</label>
-                    <label class="flex items-center gap-2"><input type="radio" name="choice[{{ $p['index'] }}]" value="new_copy" form="confirmForm" required> Import as a new copy (name gets today's date)</label>
+                    <label class="flex items-center gap-2 mb-1"><input type="radio" name="choice[{{ $p['index'] }}]" value="new_version" form="confirmForm" required> Send as a new version (name gets a version number)</label>
+                    <label class="flex items-center gap-2"><input type="radio" name="choice[{{ $p['index'] }}]" value="new_copy" form="confirmForm" required> Send as a new copy (name gets today's date)</label>
                 </div>
             @endif
         </div>
@@ -82,9 +82,9 @@
             @if($anyAck)
                 <label class="flex items-start gap-2 text-xs" style="color: var(--text-primary);"><input type="checkbox" name="allow_missing_document_type" value="1" class="mt-0.5"> I understand the document type is missing here and the template will be imported without one.</label>
             @endif
-            <label class="flex items-start gap-2 text-xs" style="color: var(--text-primary);"><input type="checkbox" name="confirmed" value="1" class="mt-0.5"> I have read the preview above and want to create {{ count($previews) === 1 ? 'this template' : 'these ' . count($previews) . ' templates' }}@if($target) in {{ $target->name }}@endif.</label>
+            <label class="flex items-start gap-2 text-xs" style="color: var(--text-primary);"><input type="checkbox" name="confirmed" value="1" class="mt-0.5"> I have read the preview above and want to send {{ count($previews) === 1 ? 'this template' : 'these ' . count($previews) . ' templates' }}@if($target) to {{ $target->name }}@endif for their approval.</label>
             <div class="flex flex-wrap items-center gap-3">
-                <button type="submit" class="corex-btn-primary text-xs px-4 py-2" @disabled(! $target || $anyBlocking)>Create {{ count($previews) === 1 ? 'template' : 'templates' }}</button>
+                <button type="submit" class="corex-btn-primary text-xs px-4 py-2" @disabled(! $target || $anyBlocking)>Send for approval</button>
                 @if(! $target)<span class="text-xs" style="color: var(--text-muted);">Choose an agency first.</span>@endif
                 @if($anyBlocking)<span class="text-xs" style="color: var(--text-muted);">Something above blocks this import.</span>@endif
             </div>

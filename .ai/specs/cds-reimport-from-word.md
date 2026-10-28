@@ -46,9 +46,12 @@ above, set up the new ones, then press Save. Until you Save, the template stays 
 In the builder's owner bar, beside **Export package**: pick an agency, optionally tick **Also copy the rental lease link
 and field map**, press **Copy to another agency**. It creates a **new template id in the target agency** with
 sections, fields, tags/bindings, settings, look and signing parties intact; the original is untouched. Name already
-taken in the target → `"<name> v2"` (never replaces). A lease link + `field_map` is copied **only if ticked**: a row is
-created in the target agency pointing at the new template, `field_map` as it was, re-checked by
-`LeaseAgreementTemplateGuard`, and becomes the target agency's default for that category only when it has none yet.
+taken in the target → `"<name> v2"` (never replaces). **Amended 28 Oct 2026 (Johan: an agency must approve a template before it
+is live; `esign-template-transfer.md` §13.1):** the copy is NOT live — it lands as a release waiting for the target agency's
+approval (log row, authorisers told) and no one can use it until a person that agency named approves it; the CoreX owner has no
+override. A lease link + `field_map` is carried **only if ticked**, kept on the release row and applied **at approval** (a row in the
+target agency pointing at the new template, `field_map` as it was, re-checked by `LeaseAgreementTemplateGuard`; the older copy's link
+is moved, an agency's own other link is left alone) — never at copy time.
 
 ## 2. Already existed (found before building) — reused, not rebuilt
 

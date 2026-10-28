@@ -181,17 +181,14 @@ final class TemplatePackageImporter
     // ── 2. IMPORT (one transaction) ────────────────────────────────────────
 
     /**
-     * @param list<array> $loaded               from load()
-     * @param array<int,string> $choices        package index => new_version|new_copy (needed only on a name clash)
-     * @param bool $allowMissingDocumentType    the user ticked "import without a document type"
-     * @param Template|null $copiedFrom         set by TemplateAgencyCopier: the audit row is then a 'copy' row
-     *                                          carrying the source agency and a "copied from template #n" note
-     * @return list<Template> the NEW templates
+     * Refuse everything up front if any package is blocked or needs a choice nobody made. Returns the previews so a caller does not
+     * compute them twice. Shared by import() and the release route (TemplateReleaseService::releasePackages).
+     *
+     * @return list<array<string,mixed>>
      * @throws TemplateTransferException
      */
-    public function import(array $loaded, Agency $target, User $actor, array $choices, bool $allowMissingDocumentType, ?Template $copiedFrom = null): array
+    public function assertImportable(array $loaded, Agency $target, array $choices, bool $allowMissingDocumentType): array
     {
-        // Refuse everything up front if any package is blocked or needs a choice nobody made.
         $previews = $this->preview($loaded, $target);
         foreach ($previews as $p) {
             if ($p['blocking']) {
@@ -204,6 +201,22 @@ final class TemplatePackageImporter
                 throw new TemplateTransferException('The agency already has a template called "' . $p['name'] . '". Choose "new version" or "new copy" (or cancel) — nothing is ever replaced.');
             }
         }
+
+        return $previews;
+    }
+
+    /**
+     * @param list<array> $loaded               from load()
+     * @param array<int,string> $choices        package index => new_version|new_copy (needed only on a name clash)
+     * @param bool $allowMissingDocumentType    the user ticked "import without a document type"
+     * @param Template|null $copiedFrom         set by TemplateAgencyCopier: the audit row is then a 'copy' row
+     *                                          carrying the source agency and a "copied from template #n" note
+     * @return list<Template> the NEW templates
+     * @throws TemplateTransferException
+     */
+    public function import(array $loaded, Agency $target, User $actor, array $choices, bool $allowMissingDocumentType, ?Template $copiedFrom = null): array
+    {
+        $previews = $this->assertImportable($loaded, $target, $choices, $allowMissingDocumentType);
 
         $written = [];     // absolute file paths / storage paths to remove on failure
         $storedPaths = []; // storage disk paths

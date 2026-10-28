@@ -193,7 +193,7 @@ final class TemplateTransferCommandsTest extends TestCase
         $this->assertSame($before, $this->counts());
     }
 
-    public function test_a_real_import_creates_a_live_template_and_release_lands_it_awaiting_approval(): void
+    public function test_a_real_import_always_lands_awaiting_approval_and_never_live(): void
     {
         $w = $this->agency('CoreX Workshop');
         $client = $this->agency('Cape Town Lettings');
@@ -201,22 +201,28 @@ final class TemplateTransferCommandsTest extends TestCase
         $t = $this->megaShaped($w, $owner);
         $file = $this->packageFile($t, $owner);
 
+        // No flag: an import is a release. There is no way to import straight to live.
         [$code, $out] = $this->runCmd(['file' => $file, '--agency' => $client->id, '--actor' => $owner->id], 'templates:import');
         $this->assertSame(0, $code, $out);
-        $this->assertStringContainsString('(live)', $out);
-        $live = Template::withoutGlobalScopes()->where('agency_id', $client->id)->first();
-        $this->trackBlade($live);
-        $this->assertNull($live->release_status);
+        $this->assertStringContainsString('waiting for approval', $out);
+        $this->assertStringNotContainsString('(live)', $out);
+        $first = TemplateRelease::withoutGlobalScopes()->where('agency_id', $client->id)->first();
+        $this->assertSame('awaiting_approval', $first->state);
+        $firstCopy = Template::withoutGlobalScopes()->find($first->template_id);
+        $this->trackBlade($firstCopy);
+        $this->assertSame('awaiting_approval', $firstCopy->release_status);
+        $this->assertSame(1, \DB::table('docuperfect_template_release_events')->where('release_id', $first->id)->where('event', 'released')->count(), 'the release log has its row');
 
+        // The older --release flag is still accepted and changes nothing: a second package of the same document is the next version.
         [$code, $out] = $this->runCmd(['file' => $file, '--agency' => $client->id, '--actor' => $owner->id, '--release' => true], 'templates:import');
         $this->assertSame(0, $code, $out);
         $this->assertStringContainsString('waiting for approval', $out);
-        $release = TemplateRelease::withoutGlobalScopes()->where('agency_id', $client->id)->first();
-        $this->assertSame('awaiting_approval', $release->state);
-        $copy = Template::withoutGlobalScopes()->find($release->template_id);
+        $second = TemplateRelease::withoutGlobalScopes()->where('agency_id', $client->id)->orderByDesc('id')->first();
+        $this->assertNotSame($first->id, $second->id);
+        $this->assertSame(2, (int) $second->version);
+        $copy = Template::withoutGlobalScopes()->find($second->template_id);
         $this->trackBlade($copy);
         $this->assertSame('awaiting_approval', $copy->release_status);
-        $this->assertStringContainsString(' v2', $copy->name, 'the name was taken, so the release is "v2" and the live one is untouched');
-        $this->assertNull($live->fresh()->release_status);
+        $this->assertSame(0, Template::withoutGlobalScopes()->where('agency_id', $client->id)->whereNull('release_status')->count(), 'nothing is live at the agency');
     }
 }

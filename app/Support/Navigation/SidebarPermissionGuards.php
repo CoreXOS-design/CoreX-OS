@@ -9,7 +9,7 @@ namespace App\Support\Navigation;
  * links showed for a minimal agent role and opened a 403). A dead link is a worse
  * experience than no link, so every sidebar link whose page is protected by a
  * `permission:` route middleware must sit inside a Blade guard that holds the SAME key
- * (`@permission('k')`, `@if($user->hasPermission('k'))`, `@if($user->hasAnyPermission([...]))`).
+ * (`@permission('<key>')`, `@if($user->hasPermission('<key>'))`, `@if($user->hasAnyPermission([...]))`).
  *
  * Same shape as SidebarNavAuditor / SidebarFeatureCoverage: pure string work over the
  * Blade source plus a routes array supplied by the caller, so the PHPUnit test and any
