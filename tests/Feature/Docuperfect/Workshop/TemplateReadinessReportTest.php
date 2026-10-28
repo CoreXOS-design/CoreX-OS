@@ -88,7 +88,8 @@ final class TemplateReadinessReportTest extends TestCase
         $this->assertStringContainsString('Witness', implode(' ', $r05['items']));
         $r04 = $this->check($r, 'R04');
         $this->assertSame('fail', $r04['status']);
-        $this->assertStringContainsString('acquiring_party', implode(' ', $r04['items']));
+        $this->assertStringContainsString('Lessee', implode(' ', $r04['items']));
+        $this->assertStringNotContainsString('acquiring_party', json_encode($r04), 'internal keys never show');
     }
 
     public function test_a_declared_agent_with_no_place_is_a_warning_not_a_fail(): void

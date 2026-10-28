@@ -234,7 +234,7 @@ final class TemplateReadinessReport
     private function r03Signers(Template $t, array $c): array
     {
         if ($c['declared'] !== []) {
-            return $this->check('R03', 'Who signs is declared', self::PASS, 'Signers: ' . implode(', ', $c['declared']) . '.');
+            return $this->check('R03', 'Who signs is declared', self::PASS, 'Signers: ' . implode(', ', array_map(fn ($tok) => PartyLabels::label($t, (string) $tok), $c['declared'])) . '.');
         }
 
         return $t->is_esign
@@ -260,7 +260,7 @@ final class TemplateReadinessReport
         $agentOnly = true;
         foreach ($c['declared'] as $canon => $label) {
             if (! $standard && empty($have[$canon])) {
-                $missing[] = "Place a signature for {$label}.";
+                $missing[] = 'Place a signature for ' . PartyLabels::label($t, (string) $label) . '.';
                 $agentOnly = $agentOnly && $canon === 'agent';
             }
         }
@@ -295,7 +295,7 @@ final class TemplateReadinessReport
 
         return $bad === []
             ? $this->check('R05', 'Every signature and initial place names a declared signer', self::PASS, count($c['places']) . ' place(s) checked.')
-            : $this->check('R05', 'Every signature and initial place names a declared signer', self::FAIL, count($bad) . ' place(s) do not match a declared signer.', 'Change each place to one of: ' . implode(', ', $c['declared']) . '.', $bad);
+            : $this->check('R05', 'Every signature and initial place names a declared signer', self::FAIL, count($bad) . ' place(s) do not match a declared signer.', 'Change each place to one of: ' . implode(', ', array_map(fn ($tok) => PartyLabels::label($t, (string) $tok), $c['declared'])) . '.', $bad);
     }
 
     private function r06Initials(Template $t, array $c): array

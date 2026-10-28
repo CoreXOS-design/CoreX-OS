@@ -16,7 +16,7 @@
     .ws-pane { flex: 1 1 auto; min-height: 0; overflow: auto; }
     .ws-th a { color: inherit; text-decoration: none; }
 </style>
-<div class="w-full ws-fit gap-3" data-releases-page data-view="{{ $view }}">
+<div class="w-full ws-fit gap-3" data-fixed-shell data-releases-page data-view="{{ $view }}">
 
     <div class="rounded-md px-6 py-4 corex-page-banner flex-shrink-0">
         <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Releases</h1>
@@ -191,4 +191,5 @@
         <div class="flex-shrink-0">{{ $releases->links() }}</div>
     @endif
 </div>
+@include('docuperfect.partials._fixed-shell')
 @endsection

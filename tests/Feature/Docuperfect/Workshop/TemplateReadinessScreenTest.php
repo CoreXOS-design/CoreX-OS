@@ -44,6 +44,22 @@ final class TemplateReadinessScreenTest extends TestCase
         $this->assertLessThan(strpos($html, 'data-check="R01"'), strpos($html, 'data-status="fail"'));
     }
 
+    public function test_the_readiness_page_shows_plain_party_names_never_internal_keys(): void
+    {
+        $mega = $this->agency('Mega Real Estate');
+        $owner = $this->owner();
+        $t = $this->megaShaped($mega, $owner);
+        $editor = $t->editor_state;
+        $editor['mappings']['tag-s2']['parties'] = ['Witness'];   // makes R04 and R05 list signers
+        $t->update(['editor_state' => $editor]);
+
+        $html = $this->actingAs($owner)->get(route('docuperfect.templates.readiness', $t->id))->assertOk()->getContent();
+        $visible = strip_tags($html);
+        $this->assertStringNotContainsString('owner_party', $visible);
+        $this->assertStringNotContainsString('acquiring_party', $visible);
+        $this->assertStringContainsString('Place a signature for', $visible);
+    }
+
     public function test_another_agencys_manager_gets_404_by_direct_url_and_no_permission_gets_403(): void
     {
         $mega = $this->agency('Mega Real Estate');

@@ -24,16 +24,16 @@
     [data-demo-document] [data-marker-party^="landlord"], [data-demo-document] [data-marker-party^="seller"], [data-demo-document] [data-marker-party^="owner"], [data-demo-document] [data-marker-party^="lessor"] { outline-color: #2563eb; }
     [data-demo-document] [data-marker-party^="tenant"], [data-demo-document] [data-marker-party^="buyer"], [data-demo-document] [data-marker-party^="acquiring"], [data-demo-document] [data-marker-party^="lessee"], [data-demo-document] [data-marker-party^="purchaser"] { outline-color: #059669; }
     [data-demo-document] [data-marker-party^="agent"] { outline-color: #ea580c; }
-    [data-demo-document] [data-marker-type="signature"]::after { content: "Signs: " attr(data-marker-party); position: absolute; left: 0; top: -13px; font: 600 8px/1 sans-serif; color: #334155; white-space: nowrap; }
+    [data-demo-document] [data-marker-type="signature"]::after { content: "Signs: " attr(data-demo-name); position: absolute; left: 0; top: -13px; font: 600 8px/1 sans-serif; color: #334155; white-space: nowrap; }
     [data-demo-document] .initials-inline-line { outline: 2px dashed #0d9488; outline-offset: 1px; }
     /* Blanks: red = came out empty, amber = a guessed or placeholder value. */
     [data-demo-document] [data-demo-source="empty"] { outline: 2px solid #dc2626; background: #fee2e2; min-width: 40pt; display: inline-block; }
     [data-demo-document] [data-demo-source="guessed"], [data-demo-document] [data-demo-source="placeholder"] { outline: 1px dashed #d97706; background: #fffbeb; }
     .demo-sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
 </style>
-<div class="w-full demo-fit gap-3" data-demo-view data-template-id="{{ $template->id }}" x-data="{ tab: 'places' }">
+<div class="w-full demo-fit gap-3" data-fixed-shell data-demo-view data-template-id="{{ $template->id }}" x-data="{ tab: 'places' }">
 
-    <div class="rounded-md px-6 py-3 corex-page-banner flex-shrink-0">
+    <div class="rounded-md px-6 py-3 corex-page-banner flex-shrink-0" style="position: sticky; top: 0; z-index: 5;" data-demo-header>
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Demo view: {{ $template->name }}</h1>
@@ -89,7 +89,7 @@
                         <table class="w-full text-xs mb-3" data-demo-signers>
                             @foreach($demo['signers'] as $s)
                                 <tr style="border-top: 1px solid var(--border);" data-signer="{{ $s['label'] }}">
-                                    <td class="py-1 font-semibold" style="color: var(--text-primary);">{{ $s['label'] }}</td>
+                                    <td class="py-1 font-semibold" style="color: var(--text-primary);">{{ $s['name'] }}</td>
                                     <td class="py-1 text-right" style="color: {{ ($s['signatures'] === 0 && ! $s['standard_block']) ? 'var(--ds-crimson)' : 'var(--text-secondary)' }};">
                                         {{ $s['signatures'] }} signature, {{ $s['initials'] }} initial place(s)@if($s['signatures'] === 0 && $s['standard_block']) · CoreX standard block signs here @elseif($s['signatures'] === 0) · NOWHERE TO SIGN @endif
                                     </td>
@@ -109,7 +109,7 @@
                                     <td class="py-1" style="color: var(--text-secondary);">{{ implode(', ', array_column($p['names'], 'written')) ?: 'nobody' }}</td>
                                     <td class="py-1 font-semibold" style="color: {{ $p['ok'] ? 'var(--ds-green)' : 'var(--ds-crimson)' }};">
                                         @if($p['names'] === [])not a declared signer
-                                        @else{{ implode(', ', array_map(fn ($n) => $n['declared'] ?? 'not a declared signer', $p['names'])) }}@endif
+                                        @else{{ implode(', ', array_map(fn ($n) => $n['declared_name'] ?? 'not a declared signer', $p['names'])) }}@endif
                                     </td>
                                 </tr>
                             @endforeach
@@ -176,6 +176,7 @@
     </div>
 </div>
 
+@include('docuperfect.partials._fixed-shell')
 @unless($isPdf)
     {{-- The signing link's own paginator (CSS + paginateDocument), run on the sample-filled document in this browser. --}}
     @include('docuperfect.signatures.partials.a4-page-styles')
