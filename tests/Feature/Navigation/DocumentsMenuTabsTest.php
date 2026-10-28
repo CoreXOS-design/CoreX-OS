@@ -163,7 +163,9 @@ final class DocumentsMenuTabsTest extends TestCase
         foreach ((new \DOMXPath($dom))->query('//div[contains(@class,"corex-nav-panel") and contains(@*[name()=":class"], "inStack(\'documents\')")][div[contains(@class,"corex-nav-panel-title") and normalize-space(.)="Documents"]]/a[contains(@class,"corex-nav-subitem")]') as $a) {
             $items[] = trim($a->textContent);
         }
-        $this->assertSame(['Create Document', 'E-Sign Document', 'My Documents', 'Library', 'Templates', 'E-Sign Settings'], $items);
+        // The six tabbed items, plus "Approve documents" (28 Oct 2026, esign-template-transfer.md 13.4a): this admin holds templates.approve_release and,
+        // with nobody named yet, is one of the agency's authorisers. The owner's "Document workshop" is not shown to an agency admin.
+        $this->assertSame(['Create Document', 'E-Sign Document', 'My Documents', 'Library', 'Templates', 'Approve documents', 'E-Sign Settings'], $items);
 
         $this->get(route('corex.hubs.doc-templates'))->assertRedirect(route('docuperfect.templates.index'));
 

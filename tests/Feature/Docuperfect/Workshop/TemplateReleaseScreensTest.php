@@ -77,7 +77,7 @@ final class TemplateReleaseScreensTest extends TestCase
         $owner = $this->owner();
         $t = $this->megaShaped($w, $owner, ['name' => 'Cape Lease 2026']);
 
-        $html = $this->actingAs($owner)->get(route('docuperfect.template-releases.index', ['view' => 'workshop', 'wq' => 'Cape Lease']))->assertOk()->getContent();
+        $html = $this->actingAs($owner)->get(route('docuperfect.workshop.index', ['q' => 'Cape Lease']))->assertOk()->getContent();
         $this->assertStringContainsString('data-workshop-row="' . $t->id . '"', $html);
         $this->assertStringContainsString('data-verified-state="workshop"', $html);
 
@@ -87,7 +87,7 @@ final class TemplateReleaseScreensTest extends TestCase
 
         $this->actingAs($owner)->post(route('docuperfect.templates.verify', $t->id), ['i_have_looked' => 1])->assertSessionHasNoErrors();
         $this->assertTrue($t->fresh()->isVerifiedAndCurrent());
-        $this->assertStringContainsString('data-verified-state="verified"', $this->actingAs($owner)->get(route('docuperfect.template-releases.index', ['view' => 'workshop', 'wq' => 'Cape Lease']))->getContent());
+        $this->assertStringContainsString('data-verified-state="verified"', $this->actingAs($owner)->get(route('docuperfect.workshop.index', ['q' => 'Cape Lease']))->getContent());
 
         // Missing agency -> plain message; the same agency -> refused; the client -> released, held back.
         $this->actingAs($owner)->post(route('docuperfect.templates.release', $t->id), [])->assertSessionHasErrors('agency_id');
@@ -102,7 +102,7 @@ final class TemplateReleaseScreensTest extends TestCase
         $this->assertSame('awaiting_approval', $release->state);
     }
 
-    public function test_the_workshop_search_finds_nothing_politely_and_hides_held_back_copies(): void
+    public function test_the_workshop_hub_finds_nothing_politely_and_hides_held_back_copies(): void
     {
         $w = $this->agency('CoreX Workshop');
         $client = $this->agency('Cape Town Lettings');
@@ -110,10 +110,10 @@ final class TemplateReleaseScreensTest extends TestCase
         $this->megaShaped($w, $owner, ['name' => 'Zebra Lease']);
         $this->releasedCopy($this->megaShaped($w, $owner, ['name' => 'Giraffe Lease']), $client, $owner);
 
-        $this->assertStringContainsString('No templates match', $this->actingAs($owner)->get(route('docuperfect.template-releases.index', ['view' => 'workshop', 'wq' => 'Nothing like this']))->getContent());
-        $html = $this->actingAs($owner)->get(route('docuperfect.template-releases.index', ['view' => 'workshop', 'wq' => 'Giraffe']))->getContent();
+        $this->assertStringContainsString('No documents match', $this->actingAs($owner)->get(route('docuperfect.workshop.index', ['q' => 'Nothing like this']))->getContent());
+        $html = $this->actingAs($owner)->get(route('docuperfect.workshop.index', ['q' => 'Giraffe']))->getContent();
         $this->assertSame(1, substr_count($html, 'data-workshop-row='), 'the verified source is listed; the held-back copy is not');
-        $this->assertStringContainsString('Type part of a template', $this->actingAs($owner)->get(route('docuperfect.template-releases.index', ['view' => 'workshop']))->getContent());
+        $this->actingAs($owner)->get(route('docuperfect.template-releases.index', ['view' => 'workshop']))->assertRedirect(route('docuperfect.workshop.index'));
     }
 
     // ── the owner's list and log ──────────────────────────────────────────────
