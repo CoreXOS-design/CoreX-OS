@@ -12,6 +12,8 @@
     appointed officer) before this partial is reached.
 
     Needs only $submission (documents + requestedBy loaded by both controllers).
+    Optional $canRemoveDocs (bool, default false): shows a Remove next to each uploaded document and an
+    Unlink on linked contact documents. Only the record page passes it, so the CO screen stays read-only.
 --}}
 @php
     $isWetInk = $submission->isWetInk();
@@ -20,6 +22,7 @@
     $completedBy = trim((string) data_get($answers, 'personal.full_name'));
     $rowStyle = 'display:grid; grid-template-columns:minmax(0,5fr) minmax(0,6fr); column-gap:12px; padding:3px 12px; border-top:1px solid var(--border);';
     $docLink = fn ($doc) => route('compliance.fica.documents.view', [$submission, $doc]);
+    $canRemoveDocs = (bool) ($canRemoveDocs ?? false);
 @endphp
 
 <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);" data-fica-qa>
@@ -85,7 +88,13 @@
                         @if($row['type'] === 'doc')
                             @forelse($row['docs'] as $doc)
                                 <div>{{ $doc->file_name }}
-                                    <a href="{{ $docLink($doc) }}" target="_blank" rel="noopener" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);" aria-label="View {{ $row['label'] }}">View</a></div>
+                                    <a href="{{ $docLink($doc) }}" target="_blank" rel="noopener" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);" aria-label="View {{ $row['label'] }}">View</a>
+                                    @if($canRemoveDocs)
+                                    <form method="POST" action="{{ route('compliance.fica.documents.remove', [$submission, $doc]) }}" onsubmit="return confirm('Remove this document? It will be archived — an admin can recover it.');" style="display:inline;">
+                                        @csrf
+                                        <button type="submit" class="text-xs font-medium" style="color:var(--ds-crimson,#c41e3a); background:none; border:none; cursor:pointer; padding:0; margin-left:8px;">Remove</button>
+                                    </form>
+                                    @endif</div>
                             @empty
                                 <span class="text-xs italic" style="color:var(--text-muted);">not uploaded</span>
                             @endforelse
@@ -137,10 +146,16 @@
             <div style="{{ $rowStyle }}">
                 <div class="text-xs" style="color:var(--text-secondary);">{{ $doc->document_type_label }}</div>
                 <div class="text-sm break-words" style="color:var(--text-primary);">{{ $doc->file_name }}
-                    <a href="{{ $docLink($doc) }}" target="_blank" rel="noopener" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);" aria-label="View {{ $doc->document_type_label }}">View</a></div>
+                    <a href="{{ $docLink($doc) }}" target="_blank" rel="noopener" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);" aria-label="View {{ $doc->document_type_label }}">View</a>
+                    @if($canRemoveDocs)
+                    <form method="POST" action="{{ route('compliance.fica.documents.remove', [$submission, $doc]) }}" onsubmit="return confirm('Remove this document? It will be archived — an admin can recover it.');" style="display:inline;">
+                        @csrf
+                        <button type="submit" class="text-xs font-medium" style="color:var(--ds-crimson,#c41e3a); background:none; border:none; cursor:pointer; padding:0; margin-left:8px;">Remove</button>
+                    </form>
+                    @endif</div>
             </div>
         @endforeach
     @endif
 </div>
 
-@include('compliance.fica.partials._linked-contact-documents', ['submission' => $submission])
+@include('compliance.fica.partials._linked-contact-documents', ['submission' => $submission, 'canManageLinks' => $canRemoveDocs])

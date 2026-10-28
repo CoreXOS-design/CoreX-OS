@@ -1,0 +1,35 @@
+; ============================================================================
+; CoreX — queue worker for ONE lane, on ANY box (template)
+; ============================================================================
+;
+; DEPLOY ARTIFACT, NOT AN INSTALLED FILE. Render it with
+;
+;     bash scripts/render-queue-lane-conf.sh <lane> <env> <app_path>
+;     e.g. bash scripts/render-queue-lane-conf.sh thumbnails demo /mnt/HC_Volume_103099143/corex-demo
+;
+; which prints the filled-in file on stdout (it installs nothing). Review it, then
+; whoever manages that box saves it as /etc/supervisor/conf.d/corex-worker-<env>-<lane>.conf
+; and runs `supervisorctl reread && supervisorctl update`. See docs/DEPLOY.md, "Queue lanes".
+;
+; Why a template: corex-worker-thumbnails.conf is the LIVE file (program name and path hard-coded to /corex). The demo and
+; Staging boxes never got a thumbnails worker, so every DownloadListingThumbnail job dispatched there (780 of them on the demo
+; box) sat on the queue for ever with nothing red. The program name carries the environment, because staging, demo and QA1
+; share one box and one supervisor, and AT-357 pool isolation relies on each environment restarting only its own workers.
+;
+; Placeholders: __ENV__ (staging | demo | live), __APP_PATH__ (the checkout, no trailing slash), __LANE__ (the queue name),
+; __NUMPROCS__ and __WORKER_OPTS__ (from the lane table in scripts/render-queue-lane-conf.sh).
+; ============================================================================
+
+[program:corex-worker-__ENV__-__LANE__]
+process_name=%(program_name)s_%(process_num)02d
+command=php __APP_PATH__/artisan queue:work --queue=__LANE__ __WORKER_OPTS__
+autostart=true
+autorestart=true
+startretries=60
+stopasgroup=true
+killasgroup=true
+user=www-data
+numprocs=__NUMPROCS__
+redirect_stderr=true
+stdout_logfile=__APP_PATH__/storage/logs/worker-__LANE__.log
+stopwaitsecs=90

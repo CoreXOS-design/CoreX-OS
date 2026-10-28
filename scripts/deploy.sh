@@ -56,7 +56,7 @@
 #     currently-unprovisioned direct-SFTP path) and is the one that actually
 #     gates production — see STEP 1f below.
 #   - Passwordless sudo for the deploy user on:
-#       /bin/systemctl reload php8.2-fpm
+#       /bin/systemctl reload php<version>-fpm   (the version the box actually runs: 8.2 on staging/demo, 8.3 on live - detected, see STEP 8d)
 #       /bin/systemctl reload nginx
 #       /usr/bin/supervisorctl
 #       /bin/systemctl restart hfc-queue* / corex-worker* (if present)
@@ -208,7 +208,7 @@ print_rollback_help() {
         if [[ -n "$PREV_SHA" && -n "$NEW_SHA" && "$PREV_SHA" != "$NEW_SHA" ]]; then
             log "    git reset --hard $PREV_SHA"
             log "    composer install --no-dev --optimize-autoloader"
-            log "    sudo systemctl reload php8.2-fpm"
+            log "    sudo systemctl reload ${PHP_FPM_UNIT_HINT:-php<version>-fpm}"
         fi
         log "    php artisan up"
         log ""
@@ -773,8 +773,27 @@ php -r "if (function_exists('opcache_reset')) { opcache_reset(); echo 'CLI opcac
 # above does NOT flush the FPM SAPI's shared-memory opcache — they are
 # separate instances. `systemctl reload` is graceful (in-flight requests
 # finish; new workers spin up with the fresh code on disk).
-sudo systemctl reload php8.2-fpm
-ok "PHP-FPM opcache flushed (sudo systemctl reload php8.2-fpm)"
+# The unit name is NOT a constant: live runs php8.3-fpm, staging/demo/QA1 run php8.2-fpm. A hard-coded name reloads the wrong
+# pool (or none) and leaves the real one serving stale opcache. Detect what is running; PHP_FPM_SERVICE=<unit> overrides.
+detect_php_fpm_unit() {
+    if [[ -n "${PHP_FPM_SERVICE:-}" ]]; then echo "$PHP_FPM_SERVICE"; return 0; fi
+    local running count cli
+    running="$(systemctl list-units --type=service --state=running --no-legend --plain 'php*-fpm.service' 2>/dev/null \
+        | awk '{print $1}' | sed 's/\.service$//' | grep -E '^php[0-9]+\.[0-9]+-fpm$' || true)"
+    count=0; [[ -n "$running" ]] && count="$(printf '%s\n' "$running" | wc -l)"
+    cli="$(php -r 'echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION;' 2>/dev/null || true)"
+    [[ "$cli" =~ ^[0-9]+\.[0-9]+$ ]] || cli=""
+    if [[ "$count" -eq 1 ]]; then echo "$running"; return 0; fi
+    if [[ "$count" -gt 1 && -n "$cli" ]] && printf '%s\n' "$running" | grep -qx "php${cli}-fpm"; then echo "php${cli}-fpm"; return 0; fi
+    if [[ "$count" -eq 0 && -n "$cli" ]]; then echo "php${cli}-fpm"; return 0; fi   # nothing reported running: the CLI's own version is the best evidence left
+    return 1
+}
+if PHP_FPM_UNIT_HINT="$(detect_php_fpm_unit)"; then
+    sudo systemctl reload "$PHP_FPM_UNIT_HINT"
+    ok "PHP-FPM opcache flushed (sudo systemctl reload $PHP_FPM_UNIT_HINT)"
+else
+    fail "could not tell which php-fpm service this box runs (running: $(systemctl list-units --type=service --state=running --no-legend --plain 'php*-fpm.service' 2>/dev/null | awk '{print $1}' | tr '\n' ' ')). Set PHP_FPM_SERVICE=php<version>-fpm and re-run, or reload it by hand: sudo systemctl reload php<version>-fpm"
+fi
 
 # 8e. Nginx reload — usually a no-op but resolves the edge case where the
 # upstream pool needs to re-read FPM's PID. Cheap, graceful.

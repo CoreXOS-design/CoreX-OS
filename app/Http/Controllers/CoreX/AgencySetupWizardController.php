@@ -951,6 +951,7 @@ class AgencySetupWizardController extends Controller
                     'attorney_portal_enabled'           => (int) \App\Models\AttorneyPortalSetting::forAgency($agency->id)->isEnabled(),
                     'attorney_portal_access_grace_days' => \App\Models\AttorneyPortalSetting::forAgency($agency->id)->graceDays(),
                     'attorney_portal_link_valid_days'   => \App\Models\AttorneyPortalSetting::forAgency($agency->id)->linkValidDays(),
+                    'attorney_portal_notify'            => \App\Models\AttorneyPortalSetting::forAgency($agency->id)->notifyMode(),
                     default                             => $control['default'] ?? null,
                 },
                 default     => $agency->{$key} ?? ($control['default'] ?? null),

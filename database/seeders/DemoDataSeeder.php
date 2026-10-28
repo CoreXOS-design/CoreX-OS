@@ -476,6 +476,12 @@ class DemoDataSeeder extends Seeder
             $this->safeSeed(class_basename($seeder), fn () => $this->call([$seeder]));
         }
 
+        // WebTemplateSeeder inserts the web lease templates with an EMPTY field list (fields_json = []); the list is read from
+        // each template's blade file by this command. Without it the e-sign wizard has no fields to map on the web templates
+        // (template 26 on the demo box). Must run AFTER the seeder loop above, so it also covers a refresh (demo:refresh seeds
+        // through this class) and a hand-run seed. Idempotent: it rewrites fields_json from the blade file each time.
+        $this->safeSeed('populate:web-template-fields', fn () => \Artisan::call('populate:web-template-fields'));
+
         // Stage-0 backfills for reference tables that have no canonical
         // seeder file. The exact rows are taken from local nexus_os —
         // do NOT invent. Idempotent: find-or-create by natural key.

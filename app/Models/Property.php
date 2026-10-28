@@ -17,7 +17,7 @@ use Illuminate\Support\Str;
 
 class Property extends Model
 {
-    use SoftDeletes, BelongsToAgency, BelongsToBranch;
+    use SoftDeletes, BelongsToAgency, BelongsToBranch, \App\Models\Concerns\FlagsDemoRows;
 
     /**
      * Transient (NOT persisted) flag set by bulk importers before save. When

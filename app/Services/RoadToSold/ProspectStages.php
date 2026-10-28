@@ -57,6 +57,61 @@ final class ProspectStages
         self::REGISTERED            => ['label' => 'Registered',                  'step' => 'deal',              'group' => RtsStep::GROUP_SELL_STOCK, 'next' => null],
     ];
 
+    /**
+     * The production line (road-to-sold.md 22.24): five phases, 18 stations. Phase key => label and its stations in order. The two-way
+     * `group` above (recipe step groups) is unchanged.
+     *
+     * @var array<string,array{label:string,stages:string[]}>
+     */
+    public const PHASES = [
+        'get_stock' => ['label' => 'Get stock',       'stages' => [self::FOUND, self::CONTACTED, self::APPOINTMENT_SET, self::EVALUATION_DONE]],
+        'win'       => ['label' => 'Win the mandate', 'stages' => [self::PRESENTATION_GIVEN, self::PRESENTATION_FEEDBACK, self::MANDATE_SIGNED]],
+        'market'    => ['label' => 'Market it',       'stages' => [self::LISTING_LIVE, self::ADVERTISING]],
+        'sell'      => ['label' => 'Sell it',         'stages' => [self::LEAD, self::LEAD_CONTACTED, self::CORE_MATCH, self::VIEWING_SCHEDULED, self::VIEWING_PACK, self::VIEWING_FEEDBACK, self::OFFER]],
+        'close'     => ['label' => 'Close it',        'stages' => [self::DEAL, self::REGISTERED]],
+    ];
+
+    /** Names for a narrow screen; the full label is always in the hover. */
+    public const SHORT = [
+        self::FOUND => 'Found', self::CONTACTED => 'Contacted', self::APPOINTMENT_SET => 'Appt set', self::EVALUATION_DONE => 'Eval done',
+        self::PRESENTATION_GIVEN => 'Presented', self::PRESENTATION_FEEDBACK => 'Feedback', self::MANDATE_SIGNED => 'Mandate',
+        self::LISTING_LIVE => 'Live', self::ADVERTISING => 'Advertising',
+        self::LEAD => 'Lead', self::LEAD_CONTACTED => 'Lead called', self::CORE_MATCH => 'Core Match', self::VIEWING_SCHEDULED => 'Viewing set',
+        self::VIEWING_PACK => 'Pack sent', self::VIEWING_FEEDBACK => 'Viewing fb', self::OFFER => 'Offer',
+        self::DEAL => 'Deal', self::REGISTERED => 'Registered',
+    ];
+
+    public static function short(string $key): string
+    {
+        return self::SHORT[$key] ?? self::label($key);
+    }
+
+    /** The phase key a station belongs to (null for an unknown key). */
+    public static function phaseOf(string $key): ?string
+    {
+        foreach (self::PHASES as $phase => $meta) {
+            if (in_array($key, $meta['stages'], true)) {
+                return $phase;
+            }
+        }
+
+        return null;
+    }
+
+    /** @return string[] phase keys in order */
+    public static function phaseKeys(): array
+    {
+        return array_keys(self::PHASES);
+    }
+
+    /** Position of a phase in the line (0 = Get stock); -1 for an unknown key. */
+    public static function phaseIndex(?string $phase): int
+    {
+        $i = array_search($phase, self::phaseKeys(), true);
+
+        return $i === false ? -1 : $i;
+    }
+
     /** @return string[] keys in pipeline order */
     public static function keys(): array
     {

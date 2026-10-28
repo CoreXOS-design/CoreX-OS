@@ -241,26 +241,67 @@ class RoadToSoldController extends Controller
 
         $steps = app(\App\Services\RoadToSold\ProspectStepService::class);
         if ($block === 'prospects') {
+            // the production line (22.24): one agent, the agent's whole branch, or everyone the viewer may see (sums, read only)
+            $me = $agents->firstWhere('id', $agentId);
+            $branchId = $me && $me->branch_id && $agents->where('branch_id', $me->branch_id)->count() > 1 ? (int) $me->branch_id : null;
+            $whoOptions = ['agent' => null];
+            if ($branchId !== null) {
+                $whoOptions['branch'] = (string) (\App\Models\Branch::query()->withoutGlobalScopes()->whereKey($branchId)->value('name') ?: 'Branch');
+            }
+            if ($agents->count() > 1 && \App\Services\RoadToSold\Scope::level($viewer) === 'all') {
+                $whoOptions['agency'] = 'Whole agency';
+            }
+            $who = (string) $request->query('p_who', 'agent');
+            $who = array_key_exists($who, $whoOptions) ? $who : 'agent';
+            $lineAgent = $who === 'agent' ? $agentId : null;
+            $lineBranch = $who === 'branch' ? $branchId : null;
             $f = [
-                'q' => (string) $request->query('p_q', ''), 'stage' => (string) $request->query('p_stage', ''), 'group' => (string) $request->query('p_group', ''),
-                'due' => (string) $request->query('p_due', ''), 'suburb' => (string) $request->query('p_suburb', ''),
-                'sort' => (string) $request->query('p_sort', 'due'), 'dir' => (string) $request->query('p_dir', 'asc'), 'page' => (int) $request->query('page', 1),
+                'q' => (string) $request->query('p_q', ''), 'stage' => (string) $request->query('p_stage', ''), 'due' => (string) $request->query('p_due', ''),
+                'suburb' => (string) $request->query('p_suburb', ''), 'sort' => (string) $request->query('p_sort', 'due'), 'dir' => (string) $request->query('p_dir', 'asc'),
             ];
-            $list = app(\App\Services\RoadToSold\ProspectListService::class)->prospects($viewer, $agentId, $f, $track);
-            $owners = $steps->ownersOf($list['rows']->pluck('tracked_property_id')->all());
-            $rows = $list['rows']->through(function (array $r) use ($steps, $owners) {
-                $r['owner_contact_id'] = $owners[$r['tracked_property_id']] ?? null;
-                $r['primary'] = $steps->primary($r, $r['owner_contact_id'] !== null);
-
-                return $r;
-            });
+            $pipeline = app(\App\Services\RoadToSold\PipelineLineService::class);
+            $from = $date->copy()->startOfMonth();
+            $flowPhase = (string) $request->query('p_flow_phase', '');
+            $flowKind = (string) $request->query('p_flow', '');
+            $flowView = in_array($flowKind, ['moved', 'out'], true) && \App\Services\RoadToSold\ProspectStages::phaseIndex($flowPhase) >= 0
+                ? ['kind' => $flowKind, 'phase' => $flowPhase, 'label' => \App\Services\RoadToSold\ProspectStages::PHASES[$flowPhase]['label'],
+                   'rows' => $pipeline->flowList($viewer, $lineAgent, $lineBranch, $flowPhase, $flowKind, $from, $date, $track)]
+                : null;
+            $line = app(\App\Services\RoadToSold\ProspectListService::class)->line($viewer, $lineAgent, $f, $track, $lineBranch);
+            $chips = $line['rows'];
+            $owners = $steps->ownersOf(array_column($chips, 'tracked_property_id'));
+            $journeys = $pipeline->journeys(array_column($chips, 'id'));
+            foreach ($chips as &$c) {
+                $c['owner_contact_id'] = $owners[$c['tracked_property_id']] ?? null;
+                $c['primary'] = $steps->primary($c, $c['owner_contact_id'] !== null);
+                $c['journey'] = $journeys[$c['id']] ?? [];
+                $c['due_short'] = match ($c['due_state']) {
+                    'overdue', 'later' => \Illuminate\Support\Carbon::parse($c['next_action_at'])->format('D j M'),
+                    'today' => 'Today',
+                    default => 'No date',
+                };
+                $c['due_compact'] = match ($c['due_state']) {
+                    'overdue', 'later' => \Illuminate\Support\Carbon::parse($c['next_action_at'])->format('D j'),
+                    'today' => 'Today',
+                    default => 'No date',
+                };
+                $c['due_words'] = match ($c['due_state']) {
+                    'overdue' => 'Overdue - was due ' . $c['due_short'],
+                    'today' => 'Due today',
+                    'later' => 'Due ' . $c['due_short'],
+                    default => 'No date set',
+                };
+            }
+            unset($c);
             $out += [
-                'prospectRows' => $rows, 'stageStrip' => $list['counts'], 'prospectFilters' => $f,
+                'lineWho' => $who, 'lineWhoOptions' => $whoOptions,
+                'linePhases' => $pipeline->phases($viewer, $lineAgent, $lineBranch, $from, $date, $track),
+                'lineChips' => $chips, 'lineTotal' => $line['total'], 'lineLimited' => $line['limited'], 'flowView' => $flowView,
+                'prospectFilters' => $f,
                 'suburbChoices' => $own()->activeStage()->join('tracked_properties as sp', 'sp.id', '=', 'rts_prospects.tracked_property_id')
                     ->whereNotNull('sp.suburb')->where('sp.suburb', '<>', '')->distinct()->orderBy('sp.suburb')->pluck('sp.suburb')->all(),
-                // R9: the manager's read-only view - per stage now / entered / days / on-track bar (the recipe step's own state).
-                'stageCounts' => $viewingOwn ? null : app(\App\Services\RoadToSold\StageCountService::class)->forStages($viewer, $agentId, $date->copy()->startOfMonth(), $date, $track),
             ];
+            $out['canWriteProspects'] = $viewingOwn && $who === 'agent';
         } elseif ($block === 'parked') {
             $everyone = $request->query('who') === 'all' && $agents->count() > 1;
             $f = [

@@ -83,7 +83,10 @@ EOF
     cat > "$b/systemctl" <<'EOF'
 #!/usr/bin/env bash
 case "${1:-}" in
-  list-units) exit 0 ;;
+  list-units) # the php-fpm units this fake box "runs" (FAKE_FPM_UNITS, default the staging/demo one); any other pattern lists nothing
+              case "$*" in *php*fpm*) for u in ${FAKE_FPM_UNITS-php8.2-fpm}; do echo "$u.service loaded active running PHP FastCGI"; done ;; esac
+              exit 0 ;;
+  reload)     echo "$2" >> "$SB/state/systemctl.reloads"; exit 0 ;;
   is-active)  exit "${FAKE_SYSTEMD_ACTIVE_RC:-0}" ;;
   *)          exit 0 ;;
 esac
@@ -299,6 +302,21 @@ expect_log "names the shortfall" "MISSING — only 12 of 13 programs listed"
 echo "== 12. supervisor unreachable (status fails): treated as 'no manager', never fatal =="
 make_sandbox s12; run_scenario blind
 expect_eq "exit code" "$RC" 0; expect_eq "maintenance" "$(maint_state)" OFF
+
+echo "== 13. php-fpm reload targets the version the box runs (live = php8.3-fpm), never a hard-coded 8.2 =="
+make_sandbox s13a; run_scenario clean
+expect_eq "staging/demo box (8.2) exit code" "$RC" 0
+expect_eq "reloaded php8.2-fpm" "$(grep -c '^php8.2-fpm$' "$SB/state/systemctl.reloads")" 1
+make_sandbox s13b; run_scenario clean FAKE_FPM_UNITS=php8.3-fpm
+expect_eq "live box (8.3) exit code" "$RC" 0
+expect_eq "reloaded php8.3-fpm" "$(grep -c '^php8.3-fpm$' "$SB/state/systemctl.reloads")" 1
+expect_eq "did NOT reload php8.2-fpm" "$(grep -c '^php8.2-fpm$' "$SB/state/systemctl.reloads" || true)" 0
+expect_log "log names the unit" "sudo systemctl reload php8.3-fpm"
+make_sandbox s13c; run_scenario clean FAKE_FPM_UNITS=php8.3-fpm PHP_FPM_SERVICE=php8.4-fpm
+expect_eq "explicit override wins" "$(grep -c '^php8.4-fpm$' "$SB/state/systemctl.reloads")" 1
+make_sandbox s13d; run_scenario clean "FAKE_FPM_UNITS=php8.1-fpm php8.3-fpm"
+if [[ "$RC" != 0 ]]; then pass "two pools running and no way to tell which: refuses (exit $RC) instead of guessing"; else bad "guessed between two php-fpm pools"; fi
+expect_log "says how to fix it" "Set PHP_FPM_SERVICE=php<version>-fpm"
 
 echo
 echo "RESULT: $PASS passed, $FAIL failed"

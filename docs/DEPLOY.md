@@ -214,6 +214,42 @@ running somewhere (a screen/tmux session, a long-running cron, etc.).
 Talk to Johan before deploying — workers need a proper home before
 shipping more queued jobs.
 
+### Queue lanes — every lane that jobs are sent to needs a worker on EVERY box
+
+A "lane" is a queue name (`->onQueue('thumbnails')`). A worker only runs the lanes named in its own `--queue=` list, so a
+lane nobody started a worker for is not slow, it is **dead**: its jobs sit in the `jobs` table for ever and nothing turns red.
+That is exactly what happened to the `thumbnails` lane on the demo and Staging boxes (780 jobs idle): live had a worker
+(`docs/infra/supervisor/corex-worker-thumbnails.conf`, hard-wired to `/corex`), the other boxes never got one.
+
+| Lane | Sent by | Live worker (per `config/queue_alerting.php`) |
+|---|---|---|
+| `default`, `bg_removal` | most jobs | `corex-worker-live` |
+| `mail` | every mail send | `corex-worker-live-mail` |
+| `matching`, `buyer-matching`, `webhooks`, `transcription` | matching / webhook / voice-note jobs | `corex-worker-live-<lane>` |
+| `p24import`, `p24images` | Property24 sync | `docs/infra/supervisor/corex-worker-p24.conf` (narrow on purpose) |
+| **`thumbnails`** | `DownloadListingThumbnail` (prospecting photos, sent in bulk) | `corex-worker-live-thumbnails` |
+| `ai` | AI jobs | no lane entry in `config/queue_alerting.php`; check its worker exists on each box |
+
+**Adding a lane's worker on a box (staging, demo):** render the program for that box, review it, and have whoever manages the
+box's supervisor install it. The deploy scripts and this repo never edit supervisor.
+
+```bash
+bash scripts/render-queue-lane-conf.sh thumbnails demo /mnt/HC_Volume_103099143/corex-demo   # prints the conf, installs nothing
+# save the output as /etc/supervisor/conf.d/corex-worker-demo-thumbnails.conf, then:
+sudo supervisorctl reread && sudo supervisorctl update && sudo supervisorctl status | grep thumbnails
+```
+
+The program name carries the environment (`corex-worker-<env>-<lane>`) because staging, demo and QA1 share one box and one
+supervisor, and each environment's deploy restarts only its own `corex-worker-<env>*` programs. QA1 uses systemd units under
+`scripts/qa1/systemd/` instead; a new lane there is one more `--queue=` name on that unit.
+
+**How a missing worker is caught:** `corex:queue-worker-coverage` runs every 5 minutes on the scheduler and reads the box's
+process table. Any queue that has runnable jobs older than 2 minutes and is not named by some `artisan queue:work` of THIS
+checkout is logged `critical` ("Queue [x] has NO WORKER on this host") and emailed to the Dev Settings queue-alert recipients
+(throttled to once per 15 minutes per queue). It is independent of `corex:queue-healthcheck` (job age) and
+`corex:queue-worker-liveness-alert` (supervisor programs that already exist): neither of them can notice a lane that was never
+given a program. Run it by hand any time: `php artisan corex:queue-worker-coverage`.
+
 ---
 
 ## 3. PRE-DEPLOY CHECKLIST (3 minutes)

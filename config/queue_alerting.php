@@ -127,4 +127,16 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Worker coverage (corex:queue-worker-coverage)
+    |--------------------------------------------------------------------------
+    |
+    | A queue with runnable jobs and no `queue:work` on this host naming it is a fault, whatever the age checks say. Jobs
+    | younger than `grace_seconds` are ignored so a worker restart during a deploy is not an alarm.
+    */
+    'coverage' => [
+        'grace_seconds' => 120,
+    ],
+
 ];

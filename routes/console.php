@@ -237,6 +237,14 @@ Schedule::command('corex:queue-healthcheck')
     ->onOneServer()
     ->name('queue-healthcheck');
 
+// A queue with jobs waiting and no worker process on this host naming it (the `thumbnails` lane sat idle on the demo box with
+// 780 jobs because nobody had installed its worker). Reads the process table, not supervisor, so it works on every box.
+Schedule::command('corex:queue-worker-coverage')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->name('queue-worker-coverage');
+
 // Queue worker liveness alert — runs every minute so a FATAL/STOPPED
 // corex-worker-* process (e.g. one that lost its supervisor restart budget
 // during a MySQL blip, 2026-08-19) emails the configured Dev Settings
@@ -652,3 +660,6 @@ Schedule::command('sold-stock:expire-portals')
     ->withoutOverlapping()
     ->onOneServer()
     ->name('sold-stock-expire-portals');
+
+// Attorney portal - the daily "new documents" note to attorneys (one per deal per day; each agency can switch it off).
+Schedule::command('attorney-portal:notify-new-documents')->dailyAt('07:30')->withoutOverlapping();
