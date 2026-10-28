@@ -24,12 +24,12 @@
     .ap-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
     .ap-head .sub { margin: 0; font-size: .85rem; }
     .ap-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
-    .ap-bar input[type=search] { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: .9rem; width: 24rem; max-width: 100%; background: #fff; }
+    .ap-bar input[type=search] { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: .9rem; width: 32rem; max-width: 100%; background: #fff; }
     .ap-bar select { padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; font-size: .9rem; background: #fff; }
     .ap-bar .btn { padding: 6px 14px; font-size: .88rem; }
     .ap-bar .count { color: var(--muted); font-size: .85rem; margin-left: auto; }
     .ap-frame { overflow: auto; background: #fff; border: 1px solid var(--line); border-radius: 8px; }
-    table.ap-grid { table-layout: fixed; min-width: 1120px; border-collapse: separate; border-spacing: 0; }
+    table.ap-grid { table-layout: fixed; min-width: 1180px; border-collapse: separate; border-spacing: 0; }
     .ap-grid th, .ap-grid td { padding: 5px 8px; font-size: .85rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-bottom: 1px solid var(--line); vertical-align: middle; }
     .ap-grid thead th { position: sticky; top: 0; z-index: 2; background: #f3f4f6; font-size: .72rem; border-bottom: 1px solid #d1d5db; }
     .ap-grid tr.deal { cursor: pointer; }
@@ -82,7 +82,7 @@
     <div class="ap-frame" data-ap-frame>
         <table class="ap-grid" data-ap-grid>
             <colgroup>
-                <col style="width:34px"><col style="width:80px"><col><col style="width:150px"><col style="width:150px"><col style="width:200px"><col style="width:150px"><col style="width:105px"><col style="width:80px"><col style="width:62px">
+                <col style="width:34px"><col style="width:76px"><col><col style="width:140px"><col style="width:140px"><col style="width:225px"><col style="width:195px"><col style="width:128px"><col style="width:100px"><col style="width:56px">
             </colgroup>
             <thead><tr>
                 <th></th>
