@@ -100,7 +100,8 @@ final class TabHubSwitchesTest extends TestCase
     }
 
     /** Tabs an agency admin never sees whatever the switches: Template Packages and Agent Compliance are System-Owner-only (their old menu items were too). */
-    private const OWNER_ONLY = ['doc-templates' => ['packages'], 'compliance-agents' => ['agents']];
+    // releases = owner only (esign-template-transfer.md §13.4); Approvals shows to an agency admin until the agency names its authorisers.
+    private const OWNER_ONLY = ['doc-templates' => ['packages', 'releases'], 'compliance-agents' => ['agents']];
 
     /** @return list<string> */
     private function adminTabs(string $hub, string $class): array

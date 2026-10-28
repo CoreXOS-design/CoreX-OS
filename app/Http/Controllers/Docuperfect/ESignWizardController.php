@@ -161,6 +161,7 @@ class ESignWizardController extends Controller
             $selectedTemplate = Template::find($templateId);
             if ($selectedTemplate) {
                 $selectedTemplate->assertAccessibleBy($request->user());
+                abort_if($selectedTemplate->isHeldBack(), 404);   // released copy awaiting approval (esign-template-transfer.md §13.6)
             }
             if ($selectedTemplate && $selectedTemplate->esignAwaitingAcknowledgement()) {
                 return response()->json([
@@ -295,6 +296,8 @@ class ESignWizardController extends Controller
 
             $template = Template::findOrFail($request->template_id);
             $template->assertAccessibleBy($request->user());
+            // A released copy waiting for its agency's approval can never start a document (esign-template-transfer.md §13.6).
+            abort_if($template->isHeldBack(), 404);
 
             // Copy template fields into flow step_data
             // For web templates with field_mappings, build proper fields instead of copying

@@ -7226,6 +7226,23 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
             Route::post('/preview/{token}/cancel', [$c, 'cancel'])->name('cancel');
         });
     });
+    // E-sign document workshop — release a verified template to an agency (owner only). Spec: .ai/specs/esign-template-transfer.md §13.
+    Route::middleware(['owner_only', 'permission:templates.release'])->group(function () {
+        $c = \App\Http\Controllers\Docuperfect\TemplateReleaseController::class;
+        Route::get('/template-releases', [$c, 'index'])->name('docuperfect.template-releases.index');
+        Route::get('/template-releases/{id}', [$c, 'show'])->whereNumber('id')->name('docuperfect.template-releases.show');
+        Route::post('/templates/{id}/verify', [$c, 'verify'])->whereNumber('id')->name('docuperfect.templates.verify');
+        Route::post('/templates/{id}/release', [$c, 'release'])->whereNumber('id')->name('docuperfect.templates.release');
+        Route::post('/template-releases/{id}/withdraw', [$c, 'withdraw'])->whereNumber('id')->name('docuperfect.template-releases.withdraw');
+    });
+    // …and the agency's side: the people it named in "Who may authorise documents" approve or decline. Own agency only (query-layer scope).
+    Route::middleware(['permission:templates.approve_release'])->group(function () {
+        $c = \App\Http\Controllers\Docuperfect\TemplateApprovalController::class;
+        Route::get('/template-approvals', [$c, 'index'])->name('docuperfect.template-approvals.index');
+        Route::get('/template-approvals/{id}', [$c, 'show'])->whereNumber('id')->name('docuperfect.template-approvals.show');
+        Route::post('/template-approvals/{id}/approve', [$c, 'approve'])->whereNumber('id')->name('docuperfect.template-approvals.approve');
+        Route::post('/template-approvals/{id}/decline', [$c, 'decline'])->whereNumber('id')->name('docuperfect.template-approvals.decline');
+    });
     Route::delete('/templates/{id}', [\App\Http\Controllers\Docuperfect\TemplateController::class, 'destroy'])->name('docuperfect.templates.destroy');
 
     // Template Wizard Config
@@ -7289,6 +7306,14 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
         ->group(function () {
             Route::get('/', [\App\Http\Controllers\Docuperfect\EsignSigningModeSettingsController::class, 'edit'])->name('docuperfect.esign.settings.signing-mode');
             Route::post('/', [\App\Http\Controllers\Docuperfect\EsignSigningModeSettingsController::class, 'update'])->name('docuperfect.esign.settings.signing-mode.update');
+        });
+
+    // Who may authorise documents (esign-template-transfer.md §13.3) — agency-scoped, same gate as the screens above.
+    Route::middleware(['permission:esign.settings', 'agency.required'])
+        ->prefix('esign/settings/document-authorisers')
+        ->group(function () {
+            Route::get('/', [\App\Http\Controllers\Docuperfect\DocumentAuthoriserSettingsController::class, 'edit'])->name('docuperfect.esign.settings.document-authorisers');
+            Route::post('/', [\App\Http\Controllers\Docuperfect\DocumentAuthoriserSettingsController::class, 'update'])->name('docuperfect.esign.settings.document-authorisers.update');
         });
 
     // Page images (authenticated)

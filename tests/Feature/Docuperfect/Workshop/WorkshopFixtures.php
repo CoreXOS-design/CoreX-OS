@@ -42,8 +42,33 @@ trait WorkshopFixtures
             RolePermission::updateOrCreate(['role' => $role, 'permission_key' => $key, 'agency_id' => $agency->id], []);
         }
         PermissionService::clearCache();
+        Role::clearCache();
 
         return User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => $role, 'is_active' => true]);
+    }
+
+    /** An agency's administrator who may open the approval and settings screens (the keys a real admin role carries). */
+    protected function agencyAdmin(Agency $agency): User
+    {
+        return $this->agencyManager($agency, ['templates.approve_release', 'esign.settings'], 'admin');
+    }
+
+    /** A user of $agency holding $role with the approval key (so the setting, not the role grant, decides). */
+    protected function agencyUserWithRole(Agency $agency, string $role, array $keys = ['templates.approve_release']): User
+    {
+        return $this->agencyManager($agency, $keys, $role);
+    }
+
+    /** Verified, then released to $client by $owner. Returns [release, copy]. */
+    protected function releasedCopy(\App\Models\Docuperfect\Template $source, Agency $client, User $owner): array
+    {
+        $svc = app(\App\Services\Docuperfect\Release\TemplateReleaseService::class);
+        $svc->verify($source, $owner, true);
+        $release = $svc->release($source->fresh(), $client, $owner);
+        $copy = Template::withoutGlobalScopes()->find($release->template_id);
+        $this->trackBlade($copy);
+
+        return [$release, $copy];
     }
 
     /** A Mega-shaped web template: 2 bound blanks, 1 typed-by-hand blank, 3 signature places (Lessor, Lessee, Agent), 2 initial places. */

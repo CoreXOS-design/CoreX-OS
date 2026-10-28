@@ -167,6 +167,9 @@ class AgencySetupWizardController extends Controller
                     ->where('agency_id', $agency->id)
                     ->whereIn('role', ['admin', 'branch_manager', 'agent'])
                     ->orderBy('name')->get(['id', 'name', 'email']),
+                // Who may authorise documents (esign-template-transfer.md §13.3): this agency's own people and roles for the two pickers.
+                'agencyUsers' => \App\Models\User::withoutGlobalScopes()->where('agency_id', $agency->id)->where('is_active', true)->orderBy('name')->get(['id', 'name', 'email']),
+                'agencyRoles' => \App\Services\Docuperfect\Release\AgencyDocumentAuthorisers::assignableRoles($agency->id),
             ],
             // .ai/specs/rental-application-field-config.md — the shipped-field
             // tick grid (shown/required) for the Rentals step's inline partial.
@@ -631,6 +634,12 @@ class AgencySetupWizardController extends Controller
                         ?: \App\Models\Role::allRoles($agency->id)->pluck('name')->all(),
                     'other_agency_stock_consent_wording' => $agency->other_agency_stock_consent_wording,
                     default => $control['default'] ?? null,
+                },
+                // Who may authorise documents — the two stored lists, explicit per-key arm (spec §6.2).
+                'document_authorisers' => match ($key) {
+                    'document_authoriser_user_ids' => \App\Services\Docuperfect\Release\AgencyDocumentAuthorisers::settings($agency->id)['user_ids'],
+                    'document_authoriser_roles' => \App\Services\Docuperfect\Release\AgencyDocumentAuthorisers::settings($agency->id)['roles'],
+                    default => $control['default'] ?? [],
                 },
                 // E-sign signing modes — the agency's current mode (sign_each when it never chose). Explicit per-key arm (spec §6.2).
                 'esign' => match ($key) {

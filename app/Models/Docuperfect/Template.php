@@ -60,6 +60,10 @@ class Template extends Model
         'owner_id',
         'agency_id',
         'archived_at',
+        'release_status',
+        'workshop_verified_at',
+        'workshop_verified_by',
+        'workshop_verified_sha',
     ];
 
     protected $casts = [
@@ -75,7 +79,57 @@ class Template extends Model
         'is_esign' => 'boolean',
         'esign_acknowledged_at' => 'datetime',
         'archived_at' => 'datetime',
+        'workshop_verified_at' => 'datetime',
     ];
+
+    // ── Release states (.ai/specs/esign-template-transfer.md §13) ────────────────────────────────────────────────────────────────────────
+    // null = an ordinary template, exactly as before. A copy the owner released to an agency is NOT live until that agency approves it.
+    public const RELEASE_AWAITING = 'awaiting_approval';
+    public const RELEASE_DECLINED = 'declined';
+    public const RELEASE_LIVE = 'live';
+    public const RELEASE_SUPERSEDED = 'superseded';
+    /** release_status values that hide a template from every picker, launcher and agent screen. */
+    public const RELEASE_HELD_BACK = [self::RELEASE_AWAITING, self::RELEASE_DECLINED];
+
+    /** True while a released copy waits for (or was refused by) the agency's authorisers: nobody may start a document from it. */
+    public function isHeldBack(): bool
+    {
+        return in_array($this->release_status, self::RELEASE_HELD_BACK, true);
+    }
+
+    /**
+     * SHA-256 of what a verification vouches for: the document's content, signers, letterhead setting and fields. Key order never matters
+     * (MySQL reorders JSON keys). A change to any of these makes a stored `workshop_verified_sha` stale.
+     */
+    public function contentSha(): string
+    {
+        $norm = function ($v) use (&$norm) {
+            if (! is_array($v)) {
+                return $v;
+            }
+            $isList = array_is_list($v);
+            $out = array_map($norm, $v);
+            if (! $isList) {
+                ksort($out);
+            }
+
+            return $out;
+        };
+        $payload = [];
+        foreach (['cds_json', 'editor_state', 'field_mappings', 'signing_parties', 'fields_json'] as $col) {
+            $payload[$col] = $norm($this->getAttribute($col));
+        }
+        $payload['header_display'] = (string) $this->header_display;
+
+        return hash('sha256', json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PARTIAL_OUTPUT_ON_ERROR));
+    }
+
+    /** Verified by the owner AND unchanged since (the stored hash still matches the content). */
+    public function isVerifiedAndCurrent(): bool
+    {
+        return $this->workshop_verified_at !== null && $this->workshop_verified_sha !== null
+            && hash_equals((string) $this->workshop_verified_sha, $this->contentSha());
+    }
 
     public function owner()
     {
@@ -305,6 +359,11 @@ class Template extends Model
         if ($user->isOwnerRole()) {
             return;
         }
+        // A released copy waiting for its agency's approval is not the agency's to open, edit or use (§13.6); its authorisers reach it
+        // only through the release screens (demo, readiness).
+        if ($this->isHeldBack()) {
+            abort(404);
+        }
         $agencyId = $user->effectiveAgencyId();
 
         // A global template ignores branch narrowing — but ONLY inside the agency
@@ -356,7 +415,10 @@ class Template extends Model
 
     public function scopeActive($query)
     {
-        return $query->whereNull('archived_at');
+        return $query->whereNull('archived_at')
+            ->where(function ($q) {
+                $q->whereNull('release_status')->orWhereNotIn('release_status', self::RELEASE_HELD_BACK);
+            });
     }
 
     public function scopeArchived($query)
@@ -366,6 +428,11 @@ class Template extends Model
 
     public function scopeVisibleTo($query, User $user)
     {
+        // Released copies awaiting approval (or declined) are invisible to every list and picker (§13.6).
+        $query->where(function ($q) {
+            $q->whereNull('release_status')->orWhereNotIn('release_status', self::RELEASE_HELD_BACK);
+        });
+
         $scope = \App\Services\PermissionService::getDataScope($user, 'templates');
 
         // 2026-08-15 — 'all' used to mean "every template on the entire

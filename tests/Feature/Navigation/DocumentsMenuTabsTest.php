@@ -100,9 +100,14 @@ final class DocumentsMenuTabsTest extends TestCase
             DocumentTemplatesTabs::class => [
                 'templates' => $manage, 'field-groups' => $manage, 'named-fields' => $manage, 'types' => $manage, 'import' => $manage,
                 'packages' => fn (User $u) => $dp($u) && $u->isOwnerRole() && $p($u, 'templates.transfer'),
+                // E-sign document workshop (esign-template-transfer.md §13.4) - new tabs with no old menu link: the owner's Releases, and the
+                // agency's Approvals (its named authorisers; the owner sees it read-only).
+                'releases' => fn (User $u) => $dp($u) && $u->isOwnerRole() && $p($u, 'templates.release'),
+                'approvals' => fn (User $u) => $dp($u) && $p($u, 'templates.approve_release')
+                    && ($u->isOwnerRole() || \App\Services\Docuperfect\Release\AgencyDocumentAuthorisers::canAuthorise($u, (int) $u->effectiveAgencyId())),
             ],
             ESignSettingsTabs::class => [
-                'presets' => $esign, 'recipient-templates' => $esign, 'finalisation' => $esign, 'signing-mode' => $esign,
+                'presets' => $esign, 'recipient-templates' => $esign, 'finalisation' => $esign, 'signing-mode' => $esign, 'document-authorisers' => $esign,
             ],
         ];
     }

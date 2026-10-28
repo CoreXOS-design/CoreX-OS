@@ -492,6 +492,10 @@ return [
         ['key' => 'templates.edit',              'label' => 'Edit',                        'section' => 'docuperfect',      'type' => 'action',  'module' => 'templates',        'sort_order' => 16],
         ['key' => 'templates.archive',           'label' => 'Archive',                     'section' => 'docuperfect',      'type' => 'action',  'module' => 'templates',        'sort_order' => 17],
         ['key' => 'templates.transfer',          'label' => 'Export / Import Template Packages (owner)', 'section' => 'docuperfect', 'type' => 'action', 'module' => 'templates', 'sort_order' => 18],
+        // E-sign document workshop (.ai/specs/esign-template-transfer.md §13.5). release = CoreX owner only (admin is excluded below);
+        // approve_release is the floor for "Who may authorise documents" — the agency's own setting says WHO, this key says a role CAN.
+        ['key' => 'templates.release',           'label' => 'Verify and release e-sign templates to agencies (owner)', 'section' => 'docuperfect', 'type' => 'action', 'module' => 'templates', 'sort_order' => 18],
+        ['key' => 'templates.approve_release',   'label' => 'Approve documents released to your agency (only people named in Company Settings → Who may authorise documents)', 'section' => 'docuperfect', 'type' => 'action', 'module' => 'templates', 'sort_order' => 18],
         ['key' => 'clauses.view',                'label' => 'View',                        'section' => 'docuperfect',      'type' => 'action',  'module' => 'clauses',          'sort_order' => 18],
         ['key' => 'clauses.create',              'label' => 'Create',                      'section' => 'docuperfect',      'type' => 'action',  'module' => 'clauses',          'sort_order' => 19],
         ['key' => 'clauses.edit',                'label' => 'Edit',                        'section' => 'docuperfect',      'type' => 'action',  'module' => 'clauses',          'sort_order' => 20],
@@ -1108,7 +1112,7 @@ return [
             // manage_reference_sources is likewise platform-owner-only: it's a
             // global, not per-agency, allowlist (ellie-reference-sources spec).
             // desk.support (CoreX Desk console): granted to the owner role; an agency grants it to its own admin/role in Role Manager.
-            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track', 'manage_reference_sources', 'templates.transfer', 'desk.support', 'desk.control'],
+            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track', 'manage_reference_sources', 'templates.transfer', 'templates.release', 'desk.support', 'desk.control'],
             // Payroll: admin gets full payroll management
             'include' => [
                 'manage_payroll', 'run_payroll', 'view_payroll_reports', 'view_own_payslips',
