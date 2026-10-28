@@ -12,7 +12,6 @@ use App\Services\AttorneyPortal\AttorneyPortalLogger;
 use App\Services\AttorneyPortal\AttorneyPortalScope;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -22,7 +21,9 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class AttorneyPortalController extends Controller
 {
-    private const PER_PAGE = 20;
+    private const PER_PAGE = 25;
+
+    private const SORTS = ['number', 'property', 'seller', 'buyer', 'agent', 'stage', 'latest', 'docs'];
 
     public function __construct(
         private AttorneyPortalAccessService $service,
@@ -178,24 +179,16 @@ class AttorneyPortalController extends Controller
 
         $q      = trim((string) $request->query('q', ''));
         $filter = in_array($request->query('show'), ['open', 'finished'], true) ? $request->query('show') : 'all';
-        $from   = $this->parseDate($request->query('from'));
-        $to     = $this->parseDate($request->query('to'));
-        $sort   = in_array($request->query('sort'), ['property', 'parties', 'agent', 'stage', 'latest'], true) ? $request->query('sort') : 'latest';
-        $dir    = $request->query('dir') === 'asc' ? 'asc' : ($request->query('dir') === 'desc' ? 'desc' : ($sort === 'latest' ? 'desc' : 'asc'));
+        $sort   = in_array($request->query('sort'), self::SORTS, true) ? $request->query('sort') : 'latest';
+        $dir    = $request->query('dir') === 'asc' ? 'asc' : ($request->query('dir') === 'desc' ? 'desc' : (in_array($sort, ['latest', 'docs'], true) ? 'desc' : 'asc'));
 
-        $rows = $rows->filter(function (array $r) use ($q, $filter, $from, $to) {
+        $rows = $rows->filter(function (array $r) use ($q, $filter) {
             if ($filter === 'open' && $r['finished']) return false;
             if ($filter === 'finished' && ! $r['finished']) return false;
-            if ($from || $to) {
-                $d = $r['latest_document'];
-                if (! $d) return false;
-                if ($from && $d->lt($from->copy()->startOfDay())) return false;
-                if ($to && $d->gt($to->copy()->endOfDay())) return false;
-            }
             if ($q !== '') {
-                $hay = mb_strtolower(implode(' ', [$r['address'], $r['buyer'], $r['seller'], $r['reference'] ?? '']));
-                foreach (preg_split('/\s+/', mb_strtolower($q)) as $term) {
-                    if ($term !== '' && ! str_contains($hay, $term)) return false;
+                $hay = mb_strtolower(implode(' ', [$r['number'], $r['reference'] ?? '', $r['address'], $r['suburb'], $r['buyer'], $r['seller'], $r['agent'] ?? '']));
+                foreach (preg_split('/\s+/', mb_strtolower(ltrim($q, '#'))) as $term) {
+                    if ($term !== '' && ! str_contains($hay, ltrim($term, '#'))) return false;
                 }
             }
             return true;
@@ -209,11 +202,10 @@ class AttorneyPortalController extends Controller
             ['path' => route('attorney.deals'), 'query' => $request->query()]
         );
 
-        AttorneyPortalLogger::record($access, 'deals_listed', ['meta' => ['shown' => $rows->count(), 'q' => $q ?: null]], $request);
+        AttorneyPortalLogger::record($access, 'deals_listed', ['meta' => ['shown' => $rows->count(), 'q' => $q ?: null, 'documents_listed' => $slice->getCollection()->sum('document_count')]], $request);
 
         return view('attorney-portal.deals', $this->shell($access) + [
-            'deals' => $slice, 'q' => $q, 'show' => $filter, 'sort' => $sort, 'dir' => $dir,
-            'from' => $request->query('from'), 'to' => $request->query('to'), 'hasAny' => $total > 0,
+            'deals' => $slice, 'q' => $q, 'show' => $filter, 'sort' => $sort, 'dir' => $dir, 'hasAny' => $total > 0,
         ]);
     }
 
@@ -308,22 +300,16 @@ class AttorneyPortalController extends Controller
         return mb_substr($local, 0, 1) . str_repeat('*', max(2, mb_strlen($local) - 1)) . '@' . $domain;
     }
 
-    private function parseDate($value): ?Carbon
-    {
-        try {
-            return $value ? Carbon::parse((string) $value) : null;
-        } catch (\Throwable) {
-            return null;
-        }
-    }
-
     private function sorted(Collection $rows, string $sort, string $dir): Collection
     {
         $key = match ($sort) {
+            'number'   => fn ($r) => (int) preg_replace('/\D+/', '', (string) $r['number']),
             'property' => fn ($r) => mb_strtolower($r['address']),
-            'parties'  => fn ($r) => mb_strtolower($r['buyer'] . ' ' . $r['seller']),
+            'seller'   => fn ($r) => mb_strtolower($r['seller']),
+            'buyer'    => fn ($r) => mb_strtolower($r['buyer']),
             'agent'    => fn ($r) => mb_strtolower((string) $r['agent']),
             'stage'    => fn ($r) => mb_strtolower($r['stage']),
+            'docs'     => fn ($r) => $r['document_count'],
             default    => fn ($r) => $r['latest_document']?->timestamp ?? 0,
         };
 

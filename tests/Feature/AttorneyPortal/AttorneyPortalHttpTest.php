@@ -153,7 +153,7 @@ class AttorneyPortalHttpTest extends TestCase
     public function test_search_sort_filter_pagination_and_empty_states(): void
     {
         $w = $this->world();
-        foreach (range(1, 23) as $i) {
+        foreach (range(1, 28) as $i) {
             $this->deal($w, $this->transferTo($w, $w['a']), ['address' => sprintf('%02d Pageway', $i)]);
         }
         $this->deal($w, $this->transferTo($w, $w['a']), ['address' => '99 Findme Lane', 'registration_date' => now()->subDays(3)->toDateString()]);
@@ -164,9 +164,60 @@ class AttorneyPortalHttpTest extends TestCase
         $this->withUnencryptedCookies($jar)->get(route('attorney.deals'))->assertOk()->assertSee('Page 1 of 2');
         $this->withUnencryptedCookies($jar)->get(route('attorney.deals', ['page' => 2]))->assertOk()->assertSee('Page 2 of 2');
         $this->withUnencryptedCookies($jar)->get(route('attorney.deals', ['q' => 'findme']))->assertOk()->assertSee('99 Findme Lane')->assertDontSee('01 Pageway');
-        $this->withUnencryptedCookies($jar)->get(route('attorney.deals', ['show' => 'finished']))->assertOk()->assertSee('99 Findme Lane')->assertSee('Available until');
+        $this->withUnencryptedCookies($jar)->get(route('attorney.deals', ['show' => 'finished']))->assertOk()->assertSee('99 Findme Lane')->assertSee('You can still use it until');
         $this->withUnencryptedCookies($jar)->get(route('attorney.deals', ['q' => 'nothing-like-this']))->assertOk()->assertSee('No deals match your search.');
-        $this->withUnencryptedCookies($jar)->get(route('attorney.deals', ['sort' => 'property', 'dir' => 'desc']))->assertOk()->assertSeeInOrder(['99 Findme Lane', '23 Pageway']);
+        $this->withUnencryptedCookies($jar)->get(route('attorney.deals', ['sort' => 'property', 'dir' => 'desc']))->assertOk()->assertSeeInOrder(['99 Findme Lane', '28 Pageway']);
+    }
+
+    public function test_my_deals_is_one_grid_one_line_per_deal_with_the_documents_inside_each_row(): void
+    {
+        $w = $this->world();
+        $this->matrix($w['agency']->id, 'otp', ['transfer_attorney']);
+        $this->matrix($w['agency']->id, 'mandate', ['transfer_attorney']);
+        $d1 = $this->deal($w, $this->transferTo($w, $w['a']), ['address' => '7 Kingfisher Road']);
+        $d2 = $this->deal($w, $this->transferTo($w, $w['a']), ['address' => '88 Dolphin Crescent']);
+        \DB::table('deal_user')->insert(['deal_id' => $d1['deal']->id, 'user_id' => $w['agent']->id, 'side' => 'listing', 'created_at' => now(), 'updated_at' => now()]);
+        $w['agent']->forceFill(['cell' => '082 555 0101'])->save();
+        $otp = $this->filedDoc($d1, 'otp');
+        $this->filedDoc($d1, 'mandate');
+
+        [, $cookie] = $this->signIn($w['a'], $w['agent']);
+        $jar  = $this->jar($cookie);
+        $page = $this->withUnencryptedCookies($jar)->get(route('attorney.deals'));
+
+        // the eight columns, in Johan's order, and one grid row per deal
+        $page->assertOk()->assertSeeInOrder(['Deal no.', 'Property', 'Seller', 'Buyer', 'Agent', 'Where it is', 'Last document', 'Documents']);
+        $this->assertSame(2, substr_count($page->getContent(), 'class="deal"'));
+        $page->assertSee('#' . $d1['deal']->deal_no, false)->assertSee('Annelise vd Merwe')->assertSee('Pieter Buyer')->assertSee('Agent Smith')->assertSee($w['agent']->fresh()->cell);
+        // the documents sit under their own deal as single lines with a Download link - no page change needed
+        $page->assertSee('OTP.pdf')->assertSee('MANDATE.pdf')->assertSee(route('attorney.document', [$d1['deal']->id, $otp->id, 'download']), false);
+        $page->assertSee('No documents have been shared on this deal yet');
+        // the plain deal page stays as a fallback link
+        $page->assertSee(route('attorney.deal', $d2['deal']->id), false);
+        // the document count is a number per deal
+        $this->assertMatchesRegularExpression('/<td>2<\/td>/', $page->getContent());
+    }
+
+    public function test_one_search_box_finds_a_deal_by_number_address_suburb_party_or_agent(): void
+    {
+        $w = $this->world();
+        $d1 = $this->deal($w, $this->transferTo($w, $w['a']), ['address' => '7 Kingfisher Road']);
+        $this->deal($w, $this->transferTo($w, $w['a']), ['address' => '88 Dolphin Crescent']);
+        \DB::table('deal_user')->insert(['deal_id' => $d1['deal']->id, 'user_id' => $w['agent']->id, 'side' => 'listing', 'created_at' => now(), 'updated_at' => now()]);
+        [, $cookie] = $this->signIn($w['a'], $w['agent']);
+        $jar = $this->jar($cookie);
+        $get = fn (string $q) => $this->withUnencryptedCookies($jar)->get(route('attorney.deals', ['q' => $q]))->assertOk();
+
+        $get('#' . $d1['deal']->deal_no)->assertSee('7 Kingfisher Road')->assertDontSee('88 Dolphin Crescent');
+        $get('kingfisher')->assertSee('7 Kingfisher Road')->assertDontSee('88 Dolphin Crescent');
+        $get('shelly')->assertSee('7 Kingfisher Road')->assertSee('88 Dolphin Crescent');   // suburb is on both
+        $get('pieter')->assertSee('7 Kingfisher Road')->assertSee('88 Dolphin Crescent');   // buyer on both
+        $get('smith')->assertSee('7 Kingfisher Road')->assertDontSee('88 Dolphin Crescent'); // agent only on the first
+        $get('smith dolphin')->assertSee('No deals match your search.');
+
+        foreach (['number', 'property', 'seller', 'buyer', 'agent', 'stage', 'latest', 'docs'] as $col) {
+            $this->withUnencryptedCookies($jar)->get(route('attorney.deals', ['sort' => $col, 'dir' => 'asc']))->assertOk()->assertSee('7 Kingfisher Road');
+        }
     }
 
     public function test_a_person_with_no_deals_sees_the_friendly_empty_state(): void
