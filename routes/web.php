@@ -7196,6 +7196,8 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::get('/templates/{id}/web-preview', [\App\Http\Controllers\Docuperfect\TemplateController::class, 'webPreview'])->name('docuperfect.templates.webPreview');
     // E-sign document workshop (.ai/specs/esign-template-readiness.md) — read-only readiness check of one template.
     Route::get('/templates/{id}/readiness', [\App\Http\Controllers\Docuperfect\TemplateReadinessController::class, 'show'])->whereNumber('id')->name('docuperfect.templates.readiness');
+    // ...and its demo view: the document with sample data, every place to sign marked per signer (read only; .ai/specs/esign-template-demo-preview.md).
+    Route::get('/templates/{id}/demo', [\App\Http\Controllers\Docuperfect\TemplateDemoController::class, 'show'])->whereNumber('id')->name('docuperfect.templates.demo');
     Route::post('/templates/{id}/fields', [\App\Http\Controllers\Docuperfect\TemplateController::class, 'saveFields'])->name('docuperfect.templates.saveFields');
     // Other-conditions insert (2026-08-20) — Content tab on the web template
     // editor: save the document body (incl. any newly-inserted
