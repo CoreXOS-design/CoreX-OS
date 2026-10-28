@@ -313,7 +313,7 @@ final class DeskCoreXTabsTest extends DeskTestCase
         $this->assertStringContainsString("fd.append('tab', st.tab);", $agent);
         $this->assertStringContainsString("fd.append('at', String(Date.now()));", $agent, 'a leaving carries the tab\'s own clock so a late one is told from a real one');
         $this->assertStringContainsString("registerTab('join');", $agent);
-        $this->assertStringContainsString("{ page: location.pathname, tab: st.tab }", $agent);
+        $this->assertStringContainsString("{ page: location.pathname, tab: st.tab, active }", $agent);
         $this->assertStringContainsString("'.desk.control_moved'", $agent);
         $this->assertStringContainsString("localStorage.setItem(REPLAY_KEY", $agent);
         // the page's inline script claims the key and sends the join call as the page starts; the loader uses it
