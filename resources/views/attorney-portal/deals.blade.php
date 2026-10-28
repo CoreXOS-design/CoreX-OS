@@ -82,7 +82,7 @@
     <div class="ap-frame" data-ap-frame>
         <table class="ap-grid" data-ap-grid>
             <colgroup>
-                <col style="width:30px"><col style="width:66px"><col><col style="width:130px"><col style="width:130px"><col style="width:200px"><col style="width:178px"><col style="width:140px"><col style="width:92px"><col style="width:50px">
+                <col style="width:28px"><col style="width:86px"><col><col style="width:130px"><col style="width:130px"><col style="width:200px"><col style="width:176px"><col style="width:150px"><col style="width:108px"><col style="width:60px">
             </colgroup>
             <thead><tr>
                 <th></th>
