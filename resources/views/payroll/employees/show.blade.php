@@ -109,9 +109,9 @@
                                 <option value="{{ $bank }}" {{ ($banking->bank_name ?? '') === $bank ? 'selected' : '' }}>{{ $bank }}</option>
                             @endforeach
                         </select>
-                        <input type="text" name="branch_code" value="{{ old('branch_code', $banking->branch_code ?? '') }}" required maxlength="10" placeholder="Branch code"
+                        <input type="text" name="branch_code" data-desk-mask value="{{ old('branch_code', $banking->branch_code ?? '') }}" required maxlength="10" placeholder="Branch code"
                                class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; color:var(--text-primary);">
-                        <input type="text" name="account_number" value="{{ $banking->account_number ?? '' }}" required maxlength="30" placeholder="Account number"
+                        <input type="text" name="account_number" data-desk-mask value="{{ $banking->account_number ?? '' }}" required maxlength="30" placeholder="Account number"
                                class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; color:var(--text-primary);">
                         <select name="account_type" required class="w-full px-2 py-1.5 text-xs focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; color:var(--text-primary);">
                             @foreach(['cheque' => 'Cheque', 'savings' => 'Savings', 'transmission' => 'Transmission'] as $val => $lbl)

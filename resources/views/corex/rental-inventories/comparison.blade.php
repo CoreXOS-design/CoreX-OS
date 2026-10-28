@@ -25,7 +25,7 @@
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="rmnt-invc-title">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Move-out comparison — {{ $inventory->property?->buildDisplayAddress() ?? 'Unknown property' }}</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Always against the ORIGINAL move-in record. Nothing on this page is a deposit figure — it is what was found, for an agent to review.</p>
             </div>
@@ -33,7 +33,8 @@
             {{-- §14 — "that is the view an agent hands a tenant." Client-side
                  only (the data is already fully rendered; no extra request
                  needed to filter what's already on the page). --}}
-                <label class="flex items-center gap-1.5 text-xs whitespace-nowrap" style="color: var(--text-secondary);">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <label class="flex items-center gap-1.5 text-xs whitespace-nowrap" style="color: var(--text-secondary);" data-tour="rmnt-invc-only">
                     <input type="checkbox" x-model="onlyDifferences">
                     Only differences
                 </label>
@@ -49,7 +50,7 @@
         $moveOutState = $inventory->moveOutSignOffState();
         $missingMoveOut = $inventory->isMoveOutCompleted() ? collect() : $inventory->linesWithoutMoveOutFinding();
     @endphp
-    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-qa="move-out-check">
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-qa="move-out-check" data-tour="rmnt-invc-check">
         @if(session('success'))
             <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
         @endif
@@ -69,14 +70,14 @@
                 @permission('rental_inventories.create')
                     <form method="POST" action="{{ route('corex.rental-inventories.move-out.complete', $inventory) }}">
                         @csrf
-                        <button type="submit" class="corex-btn-primary text-xs" data-qa="move-out-complete" @disabled($missingMoveOut->isNotEmpty())>Complete move-out check</button>
+                        <button type="submit" class="corex-btn-primary text-xs" data-qa="move-out-complete" data-tour="rmnt-invc-complete" @disabled($missingMoveOut->isNotEmpty())>Complete move-out check</button>
                     </form>
                 @endpermission
             @endif
         </div>
 
         @if($inventory->isMoveOutCompleted())
-            <div class="space-y-2" data-qa="move-out-signoffs">
+            <div class="space-y-2" data-qa="move-out-signoffs" data-tour="rmnt-invc-signoffs">
                 @foreach($moveOutState['parties'] as $party)
                     <div class="flex items-start justify-between gap-3 flex-wrap text-sm" style="border-top: 1px solid var(--border); padding-top: .5rem;">
                         <div>
@@ -108,7 +109,7 @@
         @endif
     </div>
 
-    <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border); overflow:hidden;">
+    <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border); overflow:hidden;" data-tour="rmnt-invc-rows">
         @forelse($rows as $row)
             @php
                 // §14 — the two visual shapes this screen has: a genuinely
@@ -154,7 +155,7 @@
                                 <p class="text-sm font-semibold">{{ $row['description'] }}</p>
                             </div>
                             @permission('rental_inventories.create')
-                            <button type="button" @click="openFor({{ $row['line_id'] }})" class="text-xs font-semibold px-3 py-1.5 rounded-md shrink-0" style="background:var(--surface-2);">
+                            <button type="button" @click="openFor({{ $row['line_id'] }})" class="text-xs font-semibold px-3 py-1.5 rounded-md shrink-0" style="background:var(--surface-2);" data-tour="rmnt-invc-record">
                                 {{ $row['outstanding'] ? 'Record' : 'Correct' }}
                             </button>
                             @endpermission
@@ -169,7 +170,7 @@
                              read as one consistent voice. Quantities on
                              BOTH sides of one line, always, not just when
                              something's wrong. --}}
-                        <div class="text-sm font-semibold">{{ $row['quantity_at_move_in'] }} at move-in, {{ $row['quantity_found'] ?? '—' }} today</div>
+                        <div class="text-sm font-semibold" data-tour="rmnt-invc-qty">{{ $row['quantity_at_move_in'] }} at move-in, {{ $row['quantity_found'] ?? '—' }} today</div>
 
                         @if($row['outstanding'])
                             <span class="ds-badge ds-badge-muted text-xs">Not yet checked</span>
@@ -216,7 +217,7 @@
                                  session; a full reload after success is the
                                  SAME pattern this page's own disposition Save
                                  already uses, not a new mechanism. --}}
-                            <div>
+                            <div data-tour="rmnt-invc-today">
                                 <p class="text-[11px] font-semibold uppercase" style="color: var(--text-muted);">Today</p>
                                 @if(count($row['move_out_photos']))
                                     <div class="flex items-center gap-1 pt-1 flex-wrap">
@@ -265,7 +266,7 @@
 
                 {{-- The record/correct panel — reachable from BOTH the
                      collapsed and full row shapes above. --}}
-                <div x-show="activeLine === {{ $row['line_id'] }}" x-cloak class="mt-2 p-3 rounded-md" style="background:var(--surface-2);">
+                <div x-show="activeLine === {{ $row['line_id'] }}" x-cloak class="mt-2 p-3 rounded-md" style="background:var(--surface-2);" data-tour="rmnt-invc-panel">
                     <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
                         <select x-model="field({{ $row['line_id'] }}).disposition_key" class="prop-input">
                             <option value="">Select…</option>

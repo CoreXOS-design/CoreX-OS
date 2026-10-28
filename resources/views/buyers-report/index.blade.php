@@ -18,7 +18,7 @@
 @endphp
 
 <div class="w-full space-y-5" x-data="buyersReport({ drilldownBase: @js($drilldownBase) })">
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rpt-br-intro">
         <div class="flex items-center justify-between flex-wrap gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Buyers Report</h1>
@@ -29,6 +29,7 @@
                 </p>
             </div>
             <div class="flex items-end gap-3 flex-wrap">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @include('buyers-report._print-buttons')
                 @include('buyers-report._type-selector', ['type' => $type, 'types' => $types])
                 @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes])

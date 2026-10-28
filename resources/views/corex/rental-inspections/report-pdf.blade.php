@@ -77,22 +77,15 @@
         <div class="for-signature-banner">For signature — this document is not yet complete</div>
     @endif
     @if(! empty($branding))
-        {{-- §52 — the agency's name and logo (same source as the portal header) and the inspecting agent's contact details. --}}
-        <table style="width:100%; border-collapse:collapse; margin-bottom:8pt;"><tr>
-            <td style="vertical-align:middle; width:55%;">
-                @if(! empty($branding['logo_data_uri']))
-                    <img src="{{ $branding['logo_data_uri'] }}" alt="" style="max-height:38pt; max-width:150pt; vertical-align:middle;">
-                @endif
-                <span style="font-size:11pt; font-weight:bold; vertical-align:middle; margin-left:4pt;">{{ $branding['agency_name'] }}</span>
-            </td>
-            <td style="vertical-align:middle; text-align:right; font-size:8pt; color:#444;">
-                @if(! empty($branding['agent']))
-                    <strong>{{ $branding['agent']['name'] }}</strong>@if($branding['agent']['designation']), {{ $branding['agent']['designation'] }}@endif<br>
-                    @if($branding['agent']['phone']){{ $branding['agent']['phone'] }}<br>@endif
-                    @if($branding['agent']['email']){{ $branding['agent']['email'] }}@endif
-                @endif
-            </td>
-        </tr></table>
+        {{-- The shared agency letterhead (spec agency-letterhead.md), shown unless the agency switched report branding off (§52,
+             report_shows_agency_branding - $branding is null then). The inspecting agent's contact details sit under it. --}}
+        <x-agency-letterhead-footer :agency-id="$inspection->agency_id" :fixed="true" />
+        <x-agency-letterhead :agency-id="$inspection->agency_id" />
+        @if(! empty($branding['agent']))
+            <p style="font-size:8pt; color:#444; margin:0 0 8pt 0;">Inspected by <strong>{{ $branding['agent']['name'] }}</strong>@if($branding['agent']['designation']), {{ $branding['agent']['designation'] }}@endif
+                @if($branding['agent']['phone']) &middot; {{ $branding['agent']['phone'] }}@endif
+                @if($branding['agent']['email']) &middot; {{ $branding['agent']['email'] }}@endif</p>
+        @endif
     @endif
     <div class="cover">
         <p class="muted" style="text-transform:uppercase; font-size:7.5pt; letter-spacing:0.5pt;">{{ \App\Models\RentalInspection::typeName($inspection->type) }} report</p>

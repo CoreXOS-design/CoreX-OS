@@ -319,7 +319,7 @@ class SignatureController extends Controller
                 if (!empty($docTemplate->signing_parties)) {
                     $viewData['signing_parties'] = $docTemplate->signing_parties;
                 }
-                $fullHtml = view(app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->ensure($docTemplate), $viewData)->render();
+                $fullHtml = view(app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->ensure($docTemplate), $viewData + $docTemplate->headerDisplayViewData())->render();
                 $bodyHtml = $fullHtml;
                 if (preg_match('/<body[^>]*>(.*)<\/body>/si', $fullHtml, $m)) {
                     $bodyHtml = trim($m[1]);
@@ -996,7 +996,7 @@ class SignatureController extends Controller
                     if (!empty($docTemplate->signing_parties)) {
                         $webTemplateData['signing_parties'] = $docTemplate->signing_parties;
                     }
-                    $fullHtml = view(app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->ensure($docTemplate), $webTemplateData)->render();
+                    $fullHtml = view(app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->ensure($docTemplate), $webTemplateData + $docTemplate->headerDisplayViewData())->render();
                     $styles = '';
                     preg_match_all('/<style[^>]*>.*?<\/style>/si', $fullHtml, $styleMatches);
                     if (!empty($styleMatches[0])) {

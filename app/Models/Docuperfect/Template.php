@@ -773,4 +773,26 @@ class Template extends Model
         }
         return in_array($partyRole, $allowed, true);
     }
+
+    /**
+     * The view data that carries this template's "header_display" setting (all_pages / first_page / none) to the compiled
+     * page, so the agency letterhead block prints - or does not - as the TEMPLATE says on every surface that renders it
+     * (wizard, agent review, signing page, the freshness re-render, the print-and-sign route). A template with no setting adds nothing: the page's
+     * own default applies, exactly as before. An imported Word file that carries its own letterhead (Mega's) is set to
+     * "none": its letterhead is the document, not a generic agency block above it.
+     *
+     * @return array<string,string>
+     */
+    public function headerDisplayViewData(): array
+    {
+        if (! in_array($this->header_display, ['all_pages', 'first_page', 'none'], true)) {
+            return [];
+        }
+
+        // 'first_page' is counted per document render: each call hands this render its own key, so rendering several templates
+        // of a pack in one request cannot make templates 2..n lose their letterhead (LetterheadPrintCounter).
+        return $this->header_display === 'first_page'
+            ? ['header_display' => 'first_page', 'header_render_key' => \Illuminate\Support\Str::random(16)]
+            : ['header_display' => $this->header_display];
+    }
 }

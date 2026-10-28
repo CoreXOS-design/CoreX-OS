@@ -5,7 +5,7 @@
 <div class="w-full space-y-6">
 
     {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="smk-vps-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $pack->title ?: ('Viewing Pack #' . $pack->id) }}</h1>
@@ -16,6 +16,7 @@
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <a href="{{ route('corex.viewing-packs.index') }}" class="corex-btn-outline text-xs">&larr; All packs</a>
                 @if(optional($pack->contact))
                     @feature('buyer-pipeline')
@@ -24,9 +25,9 @@
                 @endif
                 {{-- Two SEPARATE files, two SEPARATE buttons (compliance spine §1) — never a combined download. --}}
                 @if($pack->viewingPackProperties->isNotEmpty())
-                    @include('command-center.viewing-packs._buyer-pack-download', ['pack' => $pack, 'class' => 'corex-btn-primary text-xs no-underline'])
+                    <span class="inline-flex" data-tour="smk-vps-buyer-pack">@include('command-center.viewing-packs._buyer-pack-download', ['pack' => $pack, 'class' => 'corex-btn-primary text-xs no-underline'])</span>
                     <a href="{{ route('corex.viewing-packs.agent-sheet', $pack) }}" class="corex-btn-outline text-xs no-underline"
-                       target="_blank" rel="noopener"
+                       target="_blank" rel="noopener" data-tour="smk-vps-agent-sheet"
                        style="color:#fff; border-color: var(--ds-crimson); background: var(--ds-crimson);"
                        title="Confidential — agent eyes only. A separate file from the buyer pack; never hand this to the buyer.">Download Agent Sheet 🔒</a>
                 @endif
@@ -43,19 +44,19 @@
     {{-- AT-110 layout — Pack details as a compact horizontal banner (moved out of the
          right column). Title/Status/Save + Archive are independent of property selection,
          so they live outside #vp-content (no need to re-render on add/remove). --}}
-    <div class="rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);" data-tour="smk-vps-details">
         <div class="flex flex-col lg:flex-row lg:items-end gap-3">
             <form method="POST" action="{{ route('corex.viewing-packs.update', $pack) }}"
                   class="flex-1 flex flex-col sm:flex-row sm:items-end gap-3">
                 @csrf
                 @method('PUT')
-                <div class="flex-1 min-w-0">
+                <div class="flex-1 min-w-0" data-tour="smk-vps-title">
                     <label for="vp-title" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Title</label>
                     <input id="vp-title" type="text" name="title" value="{{ old('title', $pack->title) }}"
                            class="w-full rounded-md px-3 py-1.5 text-sm"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                 </div>
-                <div class="sm:w-44">
+                <div class="sm:w-44" data-tour="smk-vps-status">
                     <label for="vp-status" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
                     <select id="vp-status" name="status" class="w-full rounded-md px-3 py-1.5 text-sm"
                             style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
@@ -64,7 +65,7 @@
                         @endforeach
                     </select>
                 </div>
-                <button type="submit" class="corex-btn-primary flex-shrink-0">Save</button>
+                <button type="submit" class="corex-btn-primary flex-shrink-0" data-tour="smk-vps-save">Save</button>
             </form>
             <form method="POST" action="{{ route('corex.viewing-packs.destroy', $pack) }}" class="flex-shrink-0"
                   onsubmit="return confirm('Archive this viewing pack? You can recover it later.');">
@@ -111,7 +112,7 @@
                 $cmMinPrice  = (int) ($coreMatches->min('price') ?? 0);
                 $cmMaxPrice  = (int) ($coreMatches->max('price') ?? 0);
             @endphp
-            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="smk-vps-matches"
                  x-data="coreMatchesUx(@js($cmData), {{ $cmScoreFloor }})">
                 <div class="flex items-center justify-between mb-1">
                     <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Core Matches</h3>
@@ -199,7 +200,7 @@
             </div>
 
             {{-- Ad-hoc search --}}
-            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="smk-vps-adhoc"
                  x-data="adhocPropertySearch('{{ route('corex.viewing-packs.properties.search', $pack) }}')">
                 <h3 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Add any property</h3>
                 <p class="text-xs mb-3" style="color: var(--text-muted);">Search by address, suburb or reference. Properties that aren't a Core Match are still added — the system notes the miss silently.</p>
@@ -234,7 +235,7 @@
         <div class="lg:col-span-2 lg:sticky lg:top-4 self-start space-y-4">
 
             {{-- Selected properties (relocated here so it stays visible while scrolling the match list) --}}
-            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="smk-vps-selected"
                  x-data="viewingPackOrder(@js($orderedItems), '{{ route('corex.viewing-packs.properties.reorder', $pack) }}', '{{ $removeBase }}', '{{ csrf_token() }}')">
                 <div class="flex items-center justify-between mb-3">
                     <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Selected properties</h3>
@@ -280,7 +281,7 @@
                  sits ALONGSIDE the selection, visible while working the match list. Internals
                  unchanged: per-property eligible docs, Redact/Re-redact, INCLUDED/NEEDS
                  REDACTION badges, VIEW REDACTED, add/remove via the in-place vpAction). --}}
-            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="smk-vps-docs">
                 <h3 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Buyer-pack documents</h3>
                 <p class="text-xs mb-3" style="color: var(--text-muted);">Only documents whose type is eligible for the buyer pack are shown. Identity / compliance documents never appear here. Documents are optional.</p>
 
@@ -362,7 +363,7 @@
                  Schedule Viewing modal, fed with THIS pack's selected properties in
                  sort_order + the buyer as attendee + class=viewing. Drops the agent
                  into the pre-filled Calendar New Event screen (no parallel scheduler). --}}
-            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="smk-vps-appointment">
                 <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Viewing appointment</h3>
                 @php
                     $buyer = $pack->contact;

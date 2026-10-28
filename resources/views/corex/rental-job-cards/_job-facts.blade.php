@@ -13,7 +13,7 @@
         return e($contact->full_name) . ($tel ? ' · <a href="tel:' . e($tel) . '" class="underline">' . e($contact->phone) . '</a>' : '');
     };
 @endphp
-<div class="jc-card" id="jc-job" x-data="{ editing: false }" data-job-facts>
+<div class="jc-card" id="jc-job" x-data="{ editing: false }" data-job-facts data-tour="rmnt-jcd-job">
     <div class="jc-card-head">
         <h2>The job</h2>
         @permission('rental_job_cards.create')

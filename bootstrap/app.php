@@ -14,6 +14,7 @@ return Application::configure(basePath: dirname(__DIR__))
         web: __DIR__.'/../routes/web.php',
         api: __DIR__.'/../routes/api.php',
         commands: __DIR__.'/../routes/console.php',
+        channels: __DIR__.'/../routes/channels.php',
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
@@ -66,6 +67,9 @@ return Application::configure(basePath: dirname(__DIR__))
             // per-group `feature:` middleware only covers groups someone remembered to decorate,
             // and a toggle that hides the sidebar link while the URL still opens is a silent no-op.
             \App\Http\Middleware\EnforceFeatureRoutes::class,
+            // AT-478 — first time a person opens a feature their agency's gradual rollout switched on
+            // (usage for the admin + CoreX team). Inert (one cached lookup) for an agency not on a rollout.
+            \App\Http\Middleware\RecordRolloutFeatureUse::class,
         ]);
 
         // AT-321 — attribute API-driven property writes (mobile app etc.) too.

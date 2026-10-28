@@ -42,14 +42,10 @@ final class SidebarFeatureCoverage
         'corex.properties.index'            => 'properties',
         'corex.map.index'                   => 'properties',
         'corex.contacts.index'               => 'contacts',
-        'deals-v2.*'                        => 'deals',
-        // The Deals main menu (agency-tracker-rehome.md §8.2, step 6): Deal Register, My Deals, Unfiled deal emails
-        // and the old-register routes that still answer (settlement pages). Deals is core, so these are not toggled.
-        'deals-dr2.*'                       => 'deals',
-        'agent.deals.*'                     => 'deals',
-        'admin.deals*'                      => 'deals',
-        'admin.settings.deal-*'             => 'deals',
-        'admin.settings.document-distribution*' => 'deals',
+        // The Supplier Directory is shared by Deals and Rentals and owned by neither (agency-feature-rollout.md §13 point 8), so the
+        // Maintenance menu's "Suppliers & contractors" tab stays available whichever of the two an agency runs — a directory of
+        // businesses the agency works with, like Contacts.
+        'deals-v2.suppliers.index'           => 'contacts',
         'corex.settings'                    => 'settings',
         // Budgets and monthly Targets (AT-454, Johan 23 Oct 2026): agency planning settings, reachable with Road to Sold switched off
         // (they are outside that feature's `route_names_except`), so their menu door (one "Budgets & Targets" link to the Budgets screen, which carries both tabs) is settings, not a feature to switch.
@@ -57,11 +53,15 @@ final class SidebarFeatureCoverage
         // The Settings sub menu (Staging, 12 Oct): the Features page is the on/off switch itself and Users is core people
         // management — neither can be switched off from the page that does the switching.
         'corex.features.*'                  => 'settings',
+        // AT-478 — the gradual feature rollout panel switches features on; like Features it cannot itself be switched off.
+        'corex.feature-rollout.*'           => 'settings',
         'admin.users*'                      => 'settings',
         'admin.company-settings*'           => 'company-settings',
         'corex.role-manager*'               => 'role-manager',
         // Release notes for the CoreX platform itself — shown to everyone, not a module an agency runs.
         'corex.whats-new.index'              => 'dashboard',
+        // AT-478 — the guide to what a gradual rollout is switching on; shown only to agencies on one.
+        'corex.new-and-coming.index'         => 'dashboard',
     ];
 
     /**

@@ -9,7 +9,7 @@
 @section('corex-content')
 <div class="w-full space-y-5">
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rops-tml-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Saved column mappings</h1>
@@ -17,6 +17,7 @@
             </div>
             <div class="flex items-center gap-2 flex-wrap">
                 <a href="{{ route('corex.rentals.take-on-import.index') }}" class="corex-btn-outline text-xs">Back to take-on import</a>
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             </div>
         </div>
     </div>
@@ -30,10 +31,10 @@
             <input type="hidden" name="archived" value="{{ $showArchived ? 1 : 0 }}">
             <div class="flex flex-col gap-1">
                 <label class="text-xs font-medium" style="color: var(--text-secondary);">Search by name</label>
-                <input type="text" name="q" value="{{ request('q') }}" class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}">
+                <input type="text" name="q" data-tour="rops-tml-search" value="{{ request('q') }}" class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}">
             </div>
-            <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
-            <a href="{{ route('corex.rentals.take-on-import.mappings.index', ['archived' => $showArchived ? 0 : 1]) }}" class="corex-btn-outline text-sm" style="height:2.25rem;">
+            <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;" data-tour="rops-tml-filter-btn">Filter</button>
+            <a href="{{ route('corex.rentals.take-on-import.mappings.index', ['archived' => $showArchived ? 0 : 1]) }}" class="corex-btn-outline text-sm" style="height:2.25rem;" data-tour="rops-tml-archived">
                 {{ $showArchived ? 'Back to active mappings' : 'View archived mappings' }}
             </a>
         <div class="flex-1"></div>
@@ -43,7 +44,7 @@
         </form>
     </div>
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rops-tml-list">
         @if ($mappings->isEmpty())
             <div class="ds-empty-state px-6 py-12 text-center text-sm text-muted">
                 @if ($showArchived)
@@ -80,7 +81,7 @@
                                 @else
                                     <form method="POST" action="{{ route('corex.rentals.take-on-import.mappings.archive', $mapping) }}" class="inline" data-confirm="Archive this mapping?" data-confirm-danger data-confirm-label="Archive">
                                         @csrf
-                                        <button type="submit" class="corex-btn-danger-outline text-xs">Archive</button>
+                                        <button type="submit" class="corex-btn-danger-outline text-xs" data-tour="rops-tml-archive">Archive</button>
                                     </form>
                                 @endif
                             </td>

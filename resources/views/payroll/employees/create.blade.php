@@ -169,13 +169,13 @@
                         </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Branch Code</label>
-                            <input type="text" name="branch_code" value="{{ old('branch_code', '') }}" maxlength="10"
+                            <input type="text" name="branch_code" data-desk-mask value="{{ old('branch_code', '') }}" maxlength="10"
                                    class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:6px;"
                                    placeholder="e.g. 250655">
                         </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Account Number</label>
-                            <input type="text" name="account_number" value="{{ old('account_number', '') }}" maxlength="30"
+                            <input type="text" name="account_number" data-desk-mask value="{{ old('account_number', '') }}" maxlength="30"
                                    class="w-full px-3 py-2 text-sm focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); border-radius:6px;">
                         </div>
                         <div>

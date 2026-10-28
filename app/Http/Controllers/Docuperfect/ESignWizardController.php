@@ -2973,7 +2973,7 @@ class ESignWizardController extends Controller
                 }
 
                 // Render the template and extract styles + body
-                $fullHtml = view(app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->ensure($tpl), $tplData)->render();
+                $fullHtml = view(app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->ensure($tpl), $tplData + $tpl->headerDisplayViewData())->render();
                 $bodyHtml = $fullHtml;
                 if (preg_match('/<body[^>]*>(.*)<\/body>/si', $fullHtml, $m)) {
                     $bodyHtml = trim($m[1]);
@@ -3176,7 +3176,7 @@ class ESignWizardController extends Controller
                 $viewData['authorising_designation'] = 'Authorising Practitioner';
                 $viewData['authorising_identity']    = 'supervisor';
             }
-            $fullHtml = view(app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->ensure($template), $viewData)->render();
+            $fullHtml = view(app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->ensure($template), $viewData + $template->headerDisplayViewData())->render();
 
             // Extract body HTML (between <body> and </body>)
             preg_match('/<body[^>]*>(.*)<\/body>/si', $fullHtml, $bodyMatch);
@@ -7154,7 +7154,7 @@ class ESignWizardController extends Controller
         // while the preview, which regenerates it, still worked). Regenerate when missing; a genuine render failure
         // still throws — a printed legal document never silently becomes a "preview" fallback.
         $bladeView = app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->ensure($tpl);
-        $fullHtml = view($bladeView, $viewData)->render();
+        $fullHtml = view($bladeView, $viewData + $tpl->headerDisplayViewData())->render();
 
         preg_match('/<body[^>]*>(.*)<\/body>/si', $fullHtml, $bodyMatch);
         $bodyHtml = $bodyMatch[1] ?? $fullHtml;

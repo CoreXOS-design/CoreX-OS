@@ -1204,8 +1204,8 @@ class FicaController extends Controller
 
     /**
      * Soft-delete (archive) a supporting document. Per CoreX no-hard-delete
-     * rule, FicaDocument uses SoftDeletes — the row is archived and remains
-     * admin-recoverable; the documents() relation excludes it thereafter.
+     * rule, FicaDocument uses SoftDeletes — the row is archived and can be
+     * restored (restoreDocument); the documents() relation excludes it thereafter.
      */
     public function removeDocument(Request $request, FicaSubmission $submission, FicaDocument $document)
     {
@@ -1224,14 +1224,17 @@ class FicaController extends Controller
             'Only the requesting agent or an admin can remove documents.'
         );
 
-        $document->delete(); // SoftDeletes — archived, admin-recoverable. Never a hard delete.
+        // One transaction: the archive and its audit row land together or not at all.
+        DB::transaction(function () use ($document, $submission, $user) {
+            $document->delete(); // SoftDeletes — archived, admin-recoverable. Never a hard delete.
 
-        // Audit ledger — who took which document off the review, and when. Status is unchanged.
-        FicaStatusHistory::record($submission, 'document_removed', $submission->status, $submission->status, $user, null, [
-            'fica_document_id' => $document->id,
-            'document_type'    => $document->document_type,
-            'file_name'        => $document->file_name,
-        ]);
+            // Audit ledger — who took which document off the review, and when. Status is unchanged.
+            FicaStatusHistory::record($submission, 'document_removed', $submission->status, $submission->status, $user, null, [
+                'fica_document_id' => $document->id,
+                'document_type'    => $document->document_type,
+                'file_name'        => $document->file_name,
+            ]);
+        });
 
         Log::info('FICA agent removed (soft-deleted) document', [
             'submission_id' => $submission->id,
@@ -1239,7 +1242,49 @@ class FicaController extends Controller
             'agent_id'      => $user->id,
         ]);
 
-        return back()->with('success', 'Document removed (archived — an admin can recover it).');
+        return back()->with('success', 'Document removed (archived). You can restore it from "Removed documents" on this record.');
+    }
+
+    /**
+     * Restore a supporting document that was removed (archived) from this review. Same agency / own-branch-agency scope
+     * (authorizeAgency -> visibleTo), same who-and-when gate as Remove, and an audit row (document_restored).
+     */
+    public function restoreDocument(Request $request, FicaSubmission $submission, int $document)
+    {
+        $this->authorizeAgency($submission);
+        // An archived row is invisible to route-model binding, so it is looked up here (still inside the agency scope, and only
+        // one that belongs to THIS submission).
+        $document = FicaDocument::onlyTrashed()->where('fica_submission_id', $submission->id)->findOrFail($document);
+        abort_unless(
+            in_array($submission->status, ['submitted', 'under_review', 'corrections_requested']),
+            400,
+            'Cannot restore documents at this stage.'
+        );
+
+        $user = Auth::user();
+        abort_unless(
+            $submission->requested_by === $user->id || $user->isOwnerRole() || $user->hasPermission('manage_compliance'),
+            403,
+            'Only the requesting agent or an admin can restore documents.'
+        );
+
+        DB::transaction(function () use ($document, $submission, $user) {
+            $document->restore();
+
+            FicaStatusHistory::record($submission, 'document_restored', $submission->status, $submission->status, $user, null, [
+                'fica_document_id' => $document->id,
+                'document_type'    => $document->document_type,
+                'file_name'        => $document->file_name,
+            ]);
+        });
+
+        Log::info('FICA agent restored document', [
+            'submission_id' => $submission->id,
+            'document_id'   => $document->id,
+            'agent_id'      => $user->id,
+        ]);
+
+        return back()->with('success', 'Document restored to this FICA.');
     }
 
     /**
@@ -1348,16 +1393,19 @@ class FicaController extends Controller
         );
 
         $slot = $submission->linkedDocuments()->where('documents.id', $contactDocument->id)->first()?->pivot?->document_type;
-        $detached = $submission->linkedDocuments()->detach($contactDocument->id);
+        // One transaction: the unlink and its audit row land together or not at all.
+        DB::transaction(function () use ($submission, $contactDocument, $slot, $user) {
+            $detached = $submission->linkedDocuments()->detach($contactDocument->id);
 
-        // Audit ledger — only when a link was actually removed. Status is unchanged.
-        if ($detached > 0) {
-            FicaStatusHistory::record($submission, 'document_unlinked', $submission->status, $submission->status, $user, null, [
-                'document_id'   => $contactDocument->id,
-                'document_type' => $slot,
-                'file_name'     => $contactDocument->original_name,
-            ]);
-        }
+            // Audit ledger — only when a link was actually removed. Status is unchanged.
+            if ($detached > 0) {
+                FicaStatusHistory::record($submission, 'document_unlinked', $submission->status, $submission->status, $user, null, [
+                    'document_id'   => $contactDocument->id,
+                    'document_type' => $slot,
+                    'file_name'     => $contactDocument->original_name,
+                ]);
+            }
+        });
 
         return back()->with('success', 'Contact document unlinked (the document itself was not deleted).');
     }

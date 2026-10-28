@@ -9,6 +9,26 @@ use DOMXPath;
 class CdsParserService
 {
     /**
+     * Coverage bookkeeping for ONE parse() call (the parser is reset at the top of parse()).
+     * Bug class "nothing the Word file prints may be dropped silently": every w:t the paragraph reader
+     * consumed is recorded here; whatever the file holds beyond it is counted and reported (parse_report).
+     *
+     * @var array<string,int> w:t node path => characters
+     */
+    private array $readTextNodes = [];
+
+    /** @var array<string,array{src:string,w:float,h:float}> rId => embedded picture (data URI) read from the .docx */
+    private array $media = [];
+
+    /** Pictures placed into the CDS during this parse (the rest are reported as not carried over). */
+    private int $picturesImported = 0;
+
+    /** @var array<string,array<int,int>> numId => [ilvl => current value] for numbered paragraphs INSIDE table cells */
+    private array $cellNumState = [];
+
+    private array $numberingMapForCells = [];
+
+    /**
      * AT-262-marker — the ONE TRUTH for marker syntax.
      *
      * This list is the only place the accepted markers are defined. `detectMarkers()`
@@ -101,10 +121,23 @@ class CdsParserService
             throw new \RuntimeException("Cannot open .docx file: {$filePath}");
         }
 
+        $this->assertZipWithinLimits($zip);
+
         // 2. Extract the key XML files
-        $documentXml = $zip->getFromName('word/document.xml');
-        $stylesXml = $zip->getFromName('word/styles.xml');
-        $numberingXml = $zip->getFromName('word/numbering.xml');
+        $documentXml = $this->readPart($zip, 'word/document.xml');
+        $stylesXml = $this->readPart($zip, 'word/styles.xml');
+        $numberingXml = $this->readPart($zip, 'word/numbering.xml');
+        $relsXml = (string) $this->readPart($zip, 'word/_rels/document.xml.rels');
+        $this->media = $this->readMedia($zip, $relsXml);
+        $this->picturesImported = 0;
+        $this->cellNumState = [];
+        $partXml = [];
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $name = (string) $zip->getNameIndex($i);
+            if (preg_match('#^word/(header|footer)\d*\.xml$#', $name)) {
+                $partXml[$name] = (string) $this->readPart($zip, $i);
+            }
+        }
         $zip->close();
 
         if (!$documentXml) {
@@ -117,11 +150,19 @@ class CdsParserService
         // 4. Parse numbering definitions
         $numberingMap = $this->parseNumbering($numberingXml);
 
+        // Header / footer parts are never read into the body; count their text for the parse report.
+        $this->readTextNodes = [];
+        $headerFooterChars = $this->headerFooterChars($partXml);
+        $this->numberingMapForCells = $numberingMap;
+
         // 5. Parse the document body into CDS sections
         $sections = $this->parseDocument($documentXml, $styleMap, $numberingMap);
 
         // 6. Extract original plain text for validation comparison
         $plainText = $this->extractFullPlainText($sections);
+
+        // 6b. The running page header / footer (text, alignment, page number, rule) - kept, not substituted.
+        $pageFrame = $this->readPageFrame($documentXml, $relsXml, $partXml);
 
         // 7. Return the CDS structure
         return [
@@ -129,7 +170,190 @@ class CdsParserService
             'title' => $this->detectTitle($sections),
             'extracted_at' => now()->toIso8601String(),
             'original_text' => $plainText,
+            'parse_report' => $this->parseReport($documentXml, $headerFooterChars, $pageFrame['read_chars'] ?? 0),
             'sections' => $sections,
+        ] + $this->imageStore() + ($pageFrame['frame'] ?? []);
+    }
+
+    /** Zip-bomb guards: what a Word file may declare before anything is inflated. */
+    private const MAX_ZIP_ENTRIES = 5000;
+
+    private const MAX_PART_BYTES = 25_000_000;
+
+    private const MAX_TOTAL_UNCOMPRESSED_BYTES = 250_000_000;
+
+    /** libxml flags for every Word part: never touch the network. (Never NOENT / DTDLOAD: no entity or DTD loading.) */
+    private const XML_FLAGS = LIBXML_NONET;
+
+    /** Refuse a container that declares too many entries, or more uncompressed bytes in total than the importer will take. */
+    private function assertZipWithinLimits(ZipArchive $zip): void
+    {
+        if ($zip->numFiles > self::MAX_ZIP_ENTRIES) {
+            throw new DocxTooLargeException('That Word file is too complex to import (too many parts inside it). Save a simplified copy and try again.');
+        }
+        $total = 0;
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $stat = $zip->statIndex($i);
+            $total += (int) ($stat['size'] ?? 0);
+            if ($total > self::MAX_TOTAL_UNCOMPRESSED_BYTES) {
+                throw new DocxTooLargeException('That Word file is too large once unpacked to import. Save a smaller copy and try again.');
+            }
+        }
+    }
+
+    /**
+     * Read one XML part (by name or index) of the .docx, checking its DECLARED uncompressed size first so a tiny archive
+     * claiming a huge part is refused before it is inflated.
+     *
+     * @return string|false false when the part is absent
+     */
+    private function readPart(ZipArchive $zip, string|int $entry): string|false
+    {
+        $stat = is_int($entry) ? $zip->statIndex($entry) : $zip->statName($entry);
+        if ($stat === false) {
+            return false;
+        }
+        if (($stat['size'] ?? 0) > self::MAX_PART_BYTES) {
+            throw new DocxTooLargeException('That Word file has a section that is too large to import. Save a smaller copy and try again.');
+        }
+
+        return is_int($entry) ? $zip->getFromIndex($entry) : $zip->getFromName($entry);
+    }
+
+    /**
+     * Pictures the document embeds (word/media via the document relationships), as data URIs so the builder, the
+     * signing page and both PDF routes draw them with no file or login of their own. One picture is stored once
+     * (cds_json 'images') and referenced by relationship id.
+     *
+     * @return array<string,array{src:string,w:float,h:float}>
+     */
+    private function readMedia(ZipArchive $zip, string $relsXml): array
+    {
+        $out = [];
+        if ($relsXml === '') {
+            return $out;
+        }
+        $mimes = ['png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'gif' => 'image/gif'];
+        $total = 0;
+        if (preg_match_all('#<Relationship\s[^>]*>#', $relsXml, $all)) {
+            foreach ($all[0] as $tag) {
+                if (! str_contains($tag, '/image"') || ! preg_match('#Id="([^"]+)"#', $tag, $id) || ! preg_match('#Target="([^"]+)"#', $tag, $target)) {
+                    continue;
+                }
+                $ext = strtolower(pathinfo($target[1], PATHINFO_EXTENSION));
+                $bytes = false;
+                if (isset($mimes[$ext])) {
+                    // Declared size first: a picture over the cap is never inflated at all.
+                    $stat = $zip->statName('word/' . ltrim($target[1], '/'));
+                    if ($stat !== false && ($stat['size'] ?? PHP_INT_MAX) <= 2_500_000) {
+                        $bytes = $zip->getFromName('word/' . ltrim($target[1], '/'));
+                    }
+                }
+                if ($bytes === false || $bytes === '' || strlen($bytes) > 2_500_000 || $total + strlen($bytes) > 6_000_000) {
+                    continue;
+                }
+                $total += strlen($bytes);
+                $out[$id[1]] = ['src' => 'data:' . $mimes[$ext] . ';base64,' . base64_encode($bytes), 'w' => 0.0, 'h' => 0.0];
+            }
+        }
+
+        return $out;
+    }
+
+    /** The pictures actually used, keyed by relationship id, for cds_json. */
+    private function imageStore(): array
+    {
+        $used = array_filter($this->media, fn ($m) => ! empty($m['used']));
+
+        return $used === [] ? [] : ['images' => array_map(fn ($m) => ['src' => $m['src']], $used)];
+    }
+
+    /** Characters of text in the header / footer parts (the parser reads the body only). */
+    private function headerFooterChars(array $partXml): int
+    {
+        $n = 0;
+        foreach ($partXml as $xml) {
+            if (preg_match_all('#<w:t(?:\s[^>]*)?>([^<]*)</w:t>#u', $xml, $m)) {
+                foreach ($m[1] as $t) {
+                    $n += mb_strlen(html_entity_decode($t, ENT_QUOTES | ENT_XML1, 'UTF-8'));
+                }
+            }
+        }
+
+        return $n;
+    }
+
+    /**
+     * "Nothing the Word file prints may be dropped silently." Counts what the body holds that the
+     * parser did not carry over, so the importer can say so instead of staying quiet:
+     * text it never read (nested tables, text boxes, content controls, ...), pictures, text boxes,
+     * nested tables, footnote references, symbols and header / footer text.
+     *
+     * @return array{text_chars:int,read_chars:int,unread_chars:int,dropped:array<string,int>,line:string}
+     */
+    private function parseReport(string $documentXml, int $headerFooterChars, int $importedHeaderFooterChars = 0): array
+    {
+        $dom = new DOMDocument();
+        $dom->loadXML($documentXml, self::XML_FLAGS);
+        $x = new DOMXPath($dom);
+        $x->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
+        $x->registerNamespace('mc', 'http://schemas.openxmlformats.org/markup-compatibility/2006');
+
+        $total = 0;
+        $read = 0;
+        foreach ($x->query('//w:body//w:t[not(ancestor::mc:Fallback)]') as $t) {
+            $len = mb_strlen($t->textContent);
+            $total += $len;
+            if (isset($this->readTextNodes[$t->getNodePath()])) {
+                $read += $len;
+            }
+        }
+
+        $noFb = '[not(ancestor::mc:Fallback)]';
+        $textBoxes = $x->query('//w:txbxContent' . $noFb)->length;
+        // Pictures: only those that are NOT placed into the template count as dropped.
+        $pictureCount = $x->query('//w:drawing' . $noFb . '[not(.//w:txbxContent)] | //w:pict' . $noFb . '[not(.//w:txbxContent)]')->length;
+        $pictures = max(0, $pictureCount - $this->picturesImported);
+        $dropped = array_filter([
+            'pictures' => $pictures,
+            'text_boxes' => $textBoxes,
+            'nested_tables' => $x->query('//w:tc//w:tbl')->length,
+            'footnote_references' => $x->query('//w:footnoteReference | //w:endnoteReference')->length,
+            'symbols' => $x->query('//w:sym')->length,
+            'content_controls' => $x->query('//w:body/w:sdt | //w:tc/w:sdt')->length,
+            'header_footer_text_chars' => max(0, $headerFooterChars - $importedHeaderFooterChars),
+        ]);
+
+        $unread = max(0, $total - $read);
+        if ($dropped === [] && $unread === 0) {
+            $line = 'Everything the Word file prints was carried over (' . number_format($total) . ' characters of text read).';
+        } else {
+            $labels = [
+                'pictures' => ['picture', 'pictures'], 'text_boxes' => ['text box', 'text boxes'],
+                'nested_tables' => ['table inside a table cell', 'tables inside table cells'],
+                'footnote_references' => ['footnote or endnote', 'footnotes or endnotes'],
+                'symbols' => ['special symbol', 'special symbols'], 'content_controls' => ['content control', 'content controls'],
+            ];
+            $parts = [];
+            foreach ($labels as $key => [$one, $many]) {
+                if (! empty($dropped[$key])) {
+                    $parts[] = $dropped[$key] . ' ' . ($dropped[$key] === 1 ? $one : $many);
+                }
+            }
+            if (! empty($dropped['header_footer_text_chars'])) {
+                $parts[] = 'header / footer text (' . number_format($dropped['header_footer_text_chars']) . ' characters)';
+            }
+            $line = 'Not carried over from the Word file: ' . ($parts === [] ? 'some text' : implode(', ', $parts))
+                . ($unread > 0 ? '; ' . number_format($unread) . ' of ' . number_format($total) . ' characters of body text were not read' : '')
+                . '. Check these in the Word file before relying on this template.';
+        }
+
+        return [
+            'text_chars' => $total,
+            'read_chars' => $read,
+            'unread_chars' => $unread,
+            'dropped' => $dropped,
+            'line' => $line,
         ];
     }
 
@@ -143,7 +367,7 @@ class CdsParserService
         if (!$xml) return $map;
 
         $dom = new DOMDocument();
-        $dom->loadXML($xml);
+        $dom->loadXML($xml, self::XML_FLAGS);
         $xpath = new DOMXPath($dom);
         $xpath->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
 
@@ -205,7 +429,7 @@ class CdsParserService
         if (!$xml) return $map;
 
         $dom = new DOMDocument();
-        $dom->loadXML($xml);
+        $dom->loadXML($xml, self::XML_FLAGS);
         $xpath = new DOMXPath($dom);
         $xpath->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
 
@@ -220,10 +444,14 @@ class CdsParserService
                 $numFmt = $xpath->query('w:numFmt', $lvl)->item(0);
                 $lvlText = $xpath->query('w:lvlText', $lvl)->item(0);
                 $startNode = $xpath->query('w:start', $lvl)->item(0);
+                $indNode = $xpath->query('w:pPr/w:ind', $lvl)->item(0);
                 $levels[(int)$ilvl] = [
                     'format' => $numFmt ? $numFmt->getAttribute('w:val') : 'decimal',
                     'text' => $lvlText ? $lvlText->getAttribute('w:val') : '%1.',
                     'start' => $startNode ? (int) $startNode->getAttribute('w:val') : 1,
+                    // The list level's own indent: a numbered paragraph with none of its own uses it.
+                    'left' => $indNode && $indNode->hasAttribute('w:left') ? (int) $indNode->getAttribute('w:left') : null,
+                    'hanging' => $indNode && $indNode->hasAttribute('w:hanging') ? (int) $indNode->getAttribute('w:hanging') : null,
                 ];
             }
             $map['abstract'][$id] = $levels;
@@ -237,6 +465,13 @@ class CdsParserService
             if ($abstractRef) {
                 $map['num'][$numId] = $abstractRef->getAttribute('w:val');
             }
+            // A list that restarts part-way (w:lvlOverride/w:startOverride): "1.2" really is the first item.
+            foreach ($xpath->query('w:lvlOverride', $num) as $ov) {
+                $so = $xpath->query('w:startOverride', $ov)->item(0);
+                if ($so) {
+                    $map['override'][$numId][(int) $ov->getAttribute('w:ilvl')] = (int) $so->getAttribute('w:val');
+                }
+            }
         }
 
         return $map;
@@ -248,9 +483,12 @@ class CdsParserService
     private function parseDocument(string $xml, array $styleMap, array $numberingMap): array
     {
         $dom = new DOMDocument();
-        $dom->loadXML($xml);
+        $dom->loadXML($xml, self::XML_FLAGS);
         $xpath = new DOMXPath($dom);
         $xpath->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
+        $xpath->registerNamespace('a', 'http://schemas.openxmlformats.org/drawingml/2006/main');
+        $xpath->registerNamespace('wp', 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing');
+        $xpath->registerNamespace('r', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships');
 
         $sections = [];
         $body = $xpath->query('//w:body')->item(0);
@@ -263,6 +501,11 @@ class CdsParserService
                 $section = $this->parseParagraph($node, $xpath, $styleMap, $numberingMap);
                 if ($section) {
                     $sections[] = $section;
+                }
+                // A hard page break (Ctrl+Enter) in a paragraph of its own is how a Word document starts its
+                // next box on a new page; kept, so the pages break where the source's do.
+                if ($xpath->query('.//w:br[@w:type="page"]', $node)->length > 0) {
+                    $sections[] = ['type' => 'page_break'];
                 }
             } elseif ($node->nodeName === 'w:tbl') {
                 $sections[] = $this->parseTable($node, $xpath, $styleMap, $textWidth);
@@ -753,19 +996,51 @@ class CdsParserService
     private function extractRuns($paragraph, DOMXPath $xpath): array
     {
         $content = [];
-        $runs = $xpath->query('w:r', $paragraph);
+        // A run can sit directly in the paragraph OR inside a hyperlink, a tracked insertion, a smart tag, a simple
+        // field or a content control. Reading only direct children silently dropped every hyperlinked word
+        // (the agency e-mail address). One union keeps them in document order.
+        $runs = $xpath->query('w:r | w:hyperlink//w:r | w:ins//w:r | w:smartTag//w:r | w:fldSimple//w:r | w:sdt/w:sdtContent//w:r', $paragraph);
 
         foreach ($runs as $run) {
             $text = '';
-            $textNodes = $xpath->query('w:t', $run);
-            foreach ($textNodes as $t) {
-                $text .= $t->textContent;
+            $images = [];
+            // Children in document order: text, tab and line break land where Word put them.
+            foreach ($run->childNodes as $child) {
+                switch ($child->nodeName) {
+                    case 'w:drawing':
+                        if (($img = $this->imageFromDrawing($child, $xpath)) !== null) {
+                            $images[] = ['at' => mb_strlen($text)] + $img;
+                        }
+                        break;
+                    case 'w:t':
+                        $text .= $child->textContent;
+                        $this->readTextNodes[$child->getNodePath()] = mb_strlen($child->textContent);
+                        break;
+                    case 'w:tab':
+                        $text .= "\t";
+                        break;
+                    case 'w:br':
+                    case 'w:cr':
+                        // A page / column break is layout, not a line of text; a plain line break is one line.
+                        if (! in_array($child->getAttribute('w:type'), ['page', 'column'], true)) {
+                            $text .= "\n";
+                        }
+                        break;
+                    case 'w:noBreakHyphen':
+                        $text .= '-';
+                        break;
+                }
             }
 
-            // Also check for tab, break, etc.
-            $tabs = $xpath->query('w:tab', $run);
-            if ($tabs->length > 0) {
-                $text .= "\t";
+            // A picture in a run: the text before it, the picture, then the text after it.
+            foreach ($images as $img) {
+                $at = $img['at'];
+                unset($img['at']);
+                if ($at > 0) {
+                    $content[] = ['type' => 'text', 'value' => mb_substr($text, 0, $at)];
+                    $text = mb_substr($text, $at);
+                }
+                $content[] = $img;
             }
 
             if ($text === '') continue;
@@ -786,6 +1061,300 @@ class CdsParserService
         }
 
         return $content;
+    }
+
+    /**
+     * An inline picture (w:drawing) as a CDS content item: relationship id into cds_json 'images' and its printed
+     * size in points. Null when the relationship has no embedded picture we could read (counted as not carried over).
+     */
+    private function imageFromDrawing($drawing, DOMXPath $xpath): ?array
+    {
+        $blip = $xpath->query('.//a:blip', $drawing)->item(0);
+        if (! $blip) {
+            return null;
+        }
+        $rid = $blip->getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'embed');
+        if ($rid === '' || ! isset($this->media[$rid])) {
+            return null;
+        }
+        $ext = $xpath->query('.//wp:extent', $drawing)->item(0);
+        $w = $ext ? round((int) $ext->getAttribute('cx') / 12700, 1) : 0.0;
+        $h = $ext ? round((int) $ext->getAttribute('cy') / 12700, 1) : 0.0;
+        $this->media[$rid]['used'] = true;
+        $this->picturesImported++;
+
+        return ['type' => 'image', 'ref' => $rid, 'w' => $w, 'h' => $h];
+    }
+
+    /**
+     * The label Word prints for a numbered paragraph inside a table cell ("1.", "3.1", "a.", a bullet). Counters live per
+     * list (numId), a level that is first used starts at its start value - or at the list's restart value
+     * (w:startOverride) - and a deeper level restarts when a shallower one advances.
+     */
+    private function cellNumberLabel(string $numId, int $ilvl): ?string
+    {
+        $map = $this->numberingMapForCells;
+        $abstractId = $map['num'][$numId] ?? null;
+        if ($numId === '0' || $abstractId === null) {
+            return null;
+        }
+        $levelDef = $map['abstract'][$abstractId][$ilvl] ?? null;
+        if ($levelDef === null) {
+            return null;
+        }
+        $start = fn (int $lvl) => (int) ($map['override'][$numId][$lvl] ?? $map['abstract'][$abstractId][$lvl]['start'] ?? 1);
+
+        $state = &$this->cellNumState[$numId];
+        $state ??= [];
+        $state[$ilvl] = isset($state[$ilvl]) ? $state[$ilvl] + 1 : $start($ilvl);
+        foreach (array_keys($state) as $lvl) {
+            if ($lvl > $ilvl) {
+                unset($state[$lvl]);
+            }
+        }
+
+        if (($levelDef['format'] ?? '') === 'bullet') {
+            return '•';
+        }
+        $label = (string) ($levelDef['text'] ?? '%1.');
+        for ($lvl = 0; $lvl <= $ilvl; $lvl++) {
+            $val = $state[$lvl] ?? $start($lvl);
+            $label = str_replace('%' . ($lvl + 1), $this->formatNumber($val, $map['abstract'][$abstractId][$lvl]['format'] ?? 'decimal'), $label);
+        }
+
+        return $label;
+    }
+
+    /**
+     * One paragraph of a table cell as the CDS keeps it: its runs (bold / italic / underline / pictures), the list
+     * number Word prints, its indents, spacing and alignment. Only what the source states is stored.
+     *
+     * @return array{text:string,runs:array,num?:string,left?:float,hang?:float,first?:float,before?:float,after?:float,align?:string}
+     */
+    private function readCellParagraph($cp, DOMXPath $xpath, array $styleMap): array
+    {
+        $runs = $this->extractRuns($cp, $xpath);
+        $text = rtrim($this->contentToPlainText($runs), " \t");
+        $para = ['text' => $text, 'runs' => $runs];
+
+        $numPr = $xpath->query('w:pPr/w:numPr', $cp)->item(0);
+        $levelDef = null;
+        if ($numPr) {
+            $numId = (string) $xpath->query('w:numId', $numPr)->item(0)?->getAttribute('w:val');
+            $ilvl = (int) $xpath->query('w:ilvl', $numPr)->item(0)?->getAttribute('w:val');
+            $label = $this->cellNumberLabel($numId, $ilvl);
+            if ($label !== null) {
+                $para['num'] = $label;
+                // The tab Word puts after the number is the gap the hanging indent draws, not text.
+                if (isset($runs[0]['value'])) {
+                    $runs[0]['value'] = ltrim($runs[0]['value'], "\t");
+                    $para['runs'] = $runs;
+                    $para['text'] = ltrim($para['text'], "\t");
+                }
+                $levelDef = $this->numberingMapForCells['abstract'][$this->numberingMapForCells['num'][$numId] ?? ''][$ilvl] ?? null;
+            }
+        }
+
+        $ind = $xpath->query('w:pPr/w:ind', $cp)->item(0);
+        $left = $ind && $ind->hasAttribute('w:left') ? (int) $ind->getAttribute('w:left') : ($ind && $ind->hasAttribute('w:start') ? (int) $ind->getAttribute('w:start') : ($levelDef['left'] ?? null));
+        $hang = $ind && $ind->hasAttribute('w:hanging') ? (int) $ind->getAttribute('w:hanging') : ($ind && $ind->hasAttribute('w:left') ? null : ($levelDef['hanging'] ?? null));
+        $first = $ind && $ind->hasAttribute('w:firstLine') ? (int) $ind->getAttribute('w:firstLine') : null;
+        if ($left) {
+            $para['left'] = round($left / 20, 1);
+        }
+        if ($hang) {
+            $para['hang'] = round($hang / 20, 1);
+        }
+        if ($first && ! $hang) {
+            $para['first'] = round($first / 20, 1);
+        }
+        $sp = $xpath->query('w:pPr/w:spacing', $cp)->item(0);
+        if ($sp) {
+            if ((int) $sp->getAttribute('w:after') > 0) {
+                $para['after'] = round((int) $sp->getAttribute('w:after') / 20, 1);
+            }
+            if ((int) $sp->getAttribute('w:before') > 0) {
+                $para['before'] = round((int) $sp->getAttribute('w:before') / 20, 1);
+            }
+        }
+        $psNode = $xpath->query('w:pPr/w:pStyle', $cp)->item(0);
+        $look = $this->extractParagraphLook($cp, $xpath, $psNode ? $psNode->getAttribute('w:val') : null, $styleMap);
+        if (! empty($look['align'])) {
+            $para['align'] = $look['align'];
+        }
+
+        return $para;
+    }
+
+    /**
+     * The running page header / footer: the text, its alignment, a right-hand part after a tab (the page number is
+     * kept as the {PAGE} token), whether the first page has its own footer, and a rule line under / over the text.
+     *
+     * @return array{frame:array,read_chars:int}
+     */
+    private function readPageFrame(string $documentXml, string $relsXml, array $partXml): array
+    {
+        $dom = new DOMDocument();
+        $dom->loadXML($documentXml, self::XML_FLAGS);
+        $x = new DOMXPath($dom);
+        $x->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
+        $x->registerNamespace('r', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships');
+        $sect = $x->query('//w:body/w:sectPr')->item(0);
+        if (! $sect) {
+            return ['frame' => [], 'read_chars' => 0];
+        }
+        $targets = [];
+        if (preg_match_all('#<Relationship\s[^>]*>#', $relsXml, $all)) {
+            foreach ($all[0] as $tag) {
+                if (preg_match('#Id="([^"]+)"#', $tag, $id) && preg_match('#Target="([^"]+)"#', $tag, $t)) {
+                    $targets[$id[1]] = 'word/' . ltrim($t[1], '/');
+                }
+            }
+        }
+        $frame = [];
+        $chars = 0;
+        $refs = ['header' => [], 'footer' => []];
+        foreach ($x->query('w:headerReference | w:footerReference', $sect) as $ref) {
+            $kind = str_starts_with($ref->nodeName, 'w:header') ? 'header' : 'footer';
+            $part = $targets[$ref->getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id')] ?? null;
+            if ($part && isset($partXml[$part])) {
+                $refs[$kind][$ref->getAttribute('w:type') ?: 'default'] = $part;
+            }
+        }
+        foreach (['header' => ['default', 'first'], 'footer' => ['default', 'first']] as $kind => $types) {
+            foreach ($types as $type) {
+                if (empty($refs[$kind][$type])) {
+                    continue;
+                }
+                $read = $this->readFramePart($partXml[$refs[$kind][$type]]);
+                if ($read['lines'] !== [] || $read['rule']) {
+                    $key = 'page_' . $kind . ($type === 'first' ? '_first' : '');
+                    $frame[$key] = ['lines' => $read['lines']] + ($read['rule'] ? ['rule' => true] : []);
+                    $chars += $read['chars'];
+                }
+            }
+        }
+        if ($frame !== [] && $x->query('w:titlePg', $sect)->length > 0) {
+            $frame['page_first_different'] = true;
+        }
+
+        return ['frame' => $frame, 'read_chars' => $chars];
+    }
+
+    /**
+     * A running header that carries DOCUMENT-SPECIFIC text - Mega's Word file prints "Mega Rent Lease - 50d Madeira Crescent -
+     * Arendse - 2026" on every page, the previous tenant's details - must not be printed verbatim on every future document made
+     * from the template. The title part stays; the property, surname and year parts become the {PROPERTY} / {SURNAME} / {YEAR}
+     * merge tokens (the {PAGE} precedent), which the renderer turns into merge fields filled from each document's own data.
+     *
+     * Only a line that clearly is that shape is touched (a leading title, then a street-numbered address segment and a year):
+     * an ordinary header ("Mega Rent Lease - Confidential") is left exactly as the Word file has it.
+     */
+    private function frameMergeFields(string $text): string
+    {
+        if ($text === '' || ! preg_match('/\s[\x{2013}\x{2014}-]\s/u', $text)) {
+            return $text;
+        }
+        $parts = preg_split('/\s+[\x{2013}\x{2014}-]\s+/u', $text) ?: [];
+        if (count($parts) < 3) {
+            return $text;
+        }
+        $year = $address = null;
+        foreach ($parts as $i => $part) {
+            $part = trim($part);
+            if ($i === 0) {
+                continue; // the document title stays as written
+            }
+            if (preg_match('/^(19|20)\d{2}$/', $part)) {
+                $year = $i;
+            } elseif ($address === null && preg_match('/^\d+\s*[A-Za-z]?\s+\p{L}/u', $part)) {
+                $address = $i;
+            }
+        }
+        if ($year === null || $address === null) {
+            return $text;
+        }
+        $parts[$address] = '{PROPERTY}';
+        $parts[$year] = '{YEAR}';
+        foreach ($parts as $i => $part) {
+            // a single capitalised word between the address and the year is the tenant's surname
+            if ($i > $address && $i < $year && preg_match("/^\p{Lu}[\p{L}'\x{2019}-]+$/u", trim($part))) {
+                $parts[$i] = '{SURNAME}';
+            }
+        }
+
+        return implode(' – ', array_map('trim', $parts));
+    }
+
+    /** @return array{lines:array,rule:bool,chars:int} */
+    private function readFramePart(string $xml): array
+    {
+        $dom = new DOMDocument();
+        @$dom->loadXML($xml, self::XML_FLAGS);
+        $x = new DOMXPath($dom);
+        $x->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
+        $lines = [];
+        $chars = 0;
+        foreach ($x->query('//w:p') as $p) {
+            $left = '';
+            $right = null;
+            $field = false;      // inside a PAGE field's instruction
+            $skipResult = false; // inside its cached result (a stale page number)
+            foreach ($x->query('.//w:r', $p) as $r) {
+                foreach ($r->childNodes as $c) {
+                    switch ($c->nodeName) {
+                        case 'w:fldChar':
+                            $type = $c->getAttribute('w:fldCharType');
+                            $skipResult = $type === 'separate' && $field ? true : ($type === 'end' ? false : $skipResult);
+                            if ($type === 'end') {
+                                $field = false;
+                            }
+                            break;
+                        case 'w:instrText':
+                            if (stripos($c->textContent, 'PAGE') !== false) {
+                                $field = true;
+                                $piece = '{PAGE}';
+                                $right === null ? $left .= $piece : $right .= $piece;
+                            }
+                            break;
+                        case 'w:tab':
+                            $right ??= '';
+                            break;
+                        case 'w:t':
+                            $chars += mb_strlen($c->textContent);
+                            if ($skipResult) {
+                                break; // the cached page number: replaced by the {PAGE} token, read all the same
+                            }
+                            $right === null ? $left .= $c->textContent : $right .= $c->textContent;
+                            break;
+                    }
+                }
+            }
+            $left = $this->frameMergeFields(trim($left));
+            $right = $right === null ? null : trim($right);
+            if ($left === '' && ($right === null || $right === '')) {
+                continue;
+            }
+            $jc = (string) $x->query('w:pPr/w:jc', $p)->item(0)?->getAttribute('w:val');
+            $line = ['text' => $left];
+            if ($right !== null && $right !== '') {
+                $line['right'] = $right;
+            }
+            if (in_array($jc, ['center', 'right'], true)) {
+                $line['align'] = $jc;
+            }
+            if ($x->query('w:r/w:rPr/w:i | w:pPr/w:rPr/w:i', $p)->length > 0) {
+                $line['italic'] = true;
+            }
+            $sz = $x->query('w:r/w:rPr/w:sz', $p)->item(0)?->getAttribute('w:val');
+            if ($sz) {
+                $line['size'] = round((int) $sz / 2, 1);
+            }
+            $lines[] = $line;
+        }
+        $rule = str_contains($xml, 'prst="line"') || str_contains($xml, '<v:line') || str_contains($xml, '<w:pBdr>');
+
+        return ['lines' => $lines, 'rule' => $rule, 'chars' => $chars];
     }
 
     /**
@@ -830,32 +1399,49 @@ class CdsParserService
     private function parseTable($tableNode, DOMXPath $xpath, array $styleMap = [], int $textWidth = 9026): array
     {
         $rows = [];
+        $paras = [];     // [row][cell] => list of cell paragraphs (see readCellParagraph)
         $meta = [];
+        $raw = [];       // [row][cell] => geometry facts used after the loop (start column, borders, merge, fill)
         $rowNodes = $xpath->query('w:tr', $tableNode);
         $rowTcWidths = [];
+        $rowGrid = [];
 
-        foreach ($rowNodes as $rowNode) {
+        foreach ($rowNodes as $rowIndex => $rowNode) {
             $cells = [];
             $cellMeta = [];
+            $cellParas = [];
+            $rawRow = [];
             $tcWidths = [];
             $cellNodes = $xpath->query('w:tc', $rowNode);
 
+            // A row may start (w:gridBefore) or end (w:gridAfter) a number of grid columns in. Word leaves those
+            // columns empty; without them the first cell of the row lands in grid column 1 - a label column that
+            // is a hairline wide. Kept beside the cells (not as cells) so `rows` still reads label, value, ...
+            $before = (int) ($xpath->query('w:trPr/w:gridBefore', $rowNode)->item(0)?->getAttribute('w:val') ?? 0);
+            $after = (int) ($xpath->query('w:trPr/w:gridAfter', $rowNode)->item(0)?->getAttribute('w:val') ?? 0);
+            if ($before > 0 || $after > 0) {
+                $rowGrid[$rowIndex] = ['before' => max(0, $before), 'after' => max(0, $after)];
+            }
+            $startCol = max(0, $before);
+
             foreach ($cellNodes as $cellNode) {
-                // Get all paragraph text from the cell
-                $cellText = '';
+                // Every paragraph of the cell, one line each: a cell that holds a whole clause list keeps its
+                // clauses apart (with their numbers, indents and bold / underline), and a line break inside a
+                // paragraph is a line too. Joined with nothing, the old code ran "...has been signed." into
+                // "MONTH TO MONTH: ..." and lost every break.
+                $lines = [];
+                $plain = [];
                 $cellAlign = null;
-                $cellParagraphs = $xpath->query('w:p', $cellNode);
-                foreach ($cellParagraphs as $cp) {
-                    $runs = $this->extractRuns($cp, $xpath);
-                    $paraText = $this->contentToPlainText($runs);
-                    $cellText .= $paraText;
-                    if ($cellAlign === null && trim($paraText) !== '') {
-                        $psNode = $xpath->query('w:pPr/w:pStyle', $cp)->item(0);
-                        $look = $this->extractParagraphLook($cp, $xpath, $psNode ? $psNode->getAttribute('w:val') : null, $styleMap);
-                        $cellAlign = $look['align'] ?? '';
+                foreach ($xpath->query('w:p', $cellNode) as $cp) {
+                    $para = $this->readCellParagraph($cp, $xpath, $styleMap);
+                    $lines[] = $para;
+                    $plain[] = isset($para['num']) ? trim($para['num'] . ' ' . $para['text']) : $para['text'];
+                    if ($cellAlign === null && trim($para['text']) !== '') {
+                        $cellAlign = $para['align'] ?? '';
                     }
                 }
-                $cells[] = trim($cellText);
+                $cells[] = trim(implode("\n", $plain));
+                $cellParas[] = $lines;
 
                 $info = [];
                 $spanNode = $xpath->query('w:tcPr/w:gridSpan', $cellNode)->item(0);
@@ -868,6 +1454,25 @@ class CdsParserService
                 }
                 $cellMeta[] = $info;
 
+                $vm = $xpath->query('w:tcPr/w:vMerge', $cellNode)->item(0);
+                $tcB = $xpath->query('w:tcPr/w:tcBorders', $cellNode)->item(0);
+                $tcBorders = [];
+                if ($tcB) {
+                    foreach (['top' => 't', 'right' => 'r', 'bottom' => 'b', 'left' => 'l'] as $name => $k) {
+                        $side = $xpath->query('w:' . $name, $tcB)->item(0);
+                        if ($side) {
+                            $tcBorders[$k] = $this->borderIsDrawn($side);
+                        }
+                    }
+                }
+                $fill = strtolower((string) $xpath->query('w:tcPr/w:shd', $cellNode)->item(0)?->getAttribute('w:fill'));
+                $rawRow[] = [
+                    'start' => $startCol, 'span' => $span, 'tc' => $tcBorders,
+                    'shaded' => $fill !== '' && ! in_array($fill, ['auto', 'ffffff'], true),
+                    'vmerge' => $vm ? ($vm->getAttribute('w:val') === 'restart' ? 'restart' : 'cont') : null,
+                ];
+                $startCol += $span;
+
                 $tcw = $xpath->query('w:tcPr/w:tcW', $cellNode)->item(0);
                 $tcWidths[] = ($tcw && in_array($tcw->getAttribute('w:type'), ['dxa', ''], true))
                     ? ['span' => $span, 'w' => (int) $tcw->getAttribute('w:w')]
@@ -875,18 +1480,39 @@ class CdsParserService
             }
 
             $rows[] = $cells;
+            $paras[] = $cellParas;
             $meta[] = $cellMeta;
+            $raw[] = $rawRow;
             $rowTcWidths[] = $tcWidths;
         }
 
-        // Detect if first row is a header
+        // A merged-down cell (the logo beside three lines of contact details): the first cell says how many rows it
+        // covers, the cells under it are placeholders the renderer leaves out.
+        $rowCount = count($rows);
+        foreach ($raw as $ri => $rawRow) {
+            foreach ($rawRow as $ci => $c) {
+                if ($c['vmerge'] === 'restart') {
+                    $n = 1;
+                    while ($ri + $n < $rowCount && $this->rawCellAt($raw[$ri + $n], $c['start'])['vmerge'] === 'cont') {
+                        $n++;
+                    }
+                    if ($n > 1) {
+                        $meta[$ri][$ci]['rowspan'] = $n;
+                    }
+                } elseif ($c['vmerge'] === 'cont') {
+                    $meta[$ri][$ci]['vcont'] = true;
+                }
+            }
+        }
+
+        // Detect if first row is a header (never when its cells are merged down into the body rows)
         $hasHeader = false;
         if (count($rows) > 1) {
             // Simple heuristic: if first row has different formatting
             // or all cells are short/label-like, treat as header
             $firstRow = $rows[0] ?? [];
             $allShort = collect($firstRow)->every(fn($c) => mb_strlen($c) < 50);
-            $hasHeader = $allShort;
+            $hasHeader = $allShort && ! collect($meta[0] ?? [])->contains(fn ($m) => isset($m['rowspan']));
         }
 
         $result = [
@@ -900,8 +1526,8 @@ class CdsParserService
             $grid[] = (int) $g->getAttribute('w:w');
         }
         $gridCount = 0;
-        foreach ($meta as $rowMeta) {
-            $n = 0;
+        foreach ($meta as $rowIndex => $rowMeta) {
+            $n = ($rowGrid[$rowIndex]['before'] ?? 0) + ($rowGrid[$rowIndex]['after'] ?? 0);
             foreach ($rowMeta as $info) {
                 $n += $info['span'] ?? 1;
             }
@@ -931,11 +1557,11 @@ class CdsParserService
         $tblW = $xpath->query('w:tblPr/w:tblW', $tableNode)->item(0);
         if ($tblW) {
             $type = $tblW->getAttribute('w:type');
-            $raw = trim($tblW->getAttribute('w:w'));
-            if ($type === 'dxa' && (int) $raw > 0) {
-                $tableTwips = (int) $raw;
-            } elseif ($type === 'pct' && (float) $raw > 0) {
-                $tableTwips = (str_ends_with($raw, '%') ? (float) $raw / 100 : (float) $raw / 5000) * $textWidth;
+            $raw_ = trim($tblW->getAttribute('w:w'));
+            if ($type === 'dxa' && (int) $raw_ > 0) {
+                $tableTwips = (int) $raw_;
+            } elseif ($type === 'pct' && (float) $raw_ > 0) {
+                $tableTwips = (str_ends_with($raw_, '%') ? (float) $raw_ / 100 : (float) $raw_ / 5000) * $textWidth;
             }
         }
         if ($tableTwips > 0 && $textWidth > 0) {
@@ -951,6 +1577,45 @@ class CdsParserService
             $result['align'] = $tblJc === 'center' ? 'center' : 'right';
         }
 
+        // ── Borders and shading ── (a box stays a box; a shaded band stays a band)
+        $tbl = [];
+        $tblBorders = $xpath->query('w:tblPr/w:tblBorders', $tableNode)->item(0);
+        if ($tblBorders) {
+            foreach (['top' => 't', 'bottom' => 'b', 'left' => 'l', 'right' => 'r', 'insideH' => 'h', 'insideV' => 'v'] as $name => $k) {
+                $side = $xpath->query('w:' . $name, $tblBorders)->item(0);
+                $tbl[$k] = $side ? $this->borderIsDrawn($side) : false;
+            }
+        }
+        $anyBorder = false;
+        foreach ($raw as $ri => $rawRow) {
+            foreach ($rawRow as $ci => $c) {
+                $span = $meta[$ri][$ci]['rowspan'] ?? 1;
+                $sides = [
+                    't' => $ri === 0 ? ($tbl['t'] ?? false) : ($tbl['h'] ?? false),
+                    'b' => $ri + $span >= $rowCount ? ($tbl['b'] ?? false) : ($tbl['h'] ?? false),
+                    'l' => $c['start'] === 0 ? ($tbl['l'] ?? false) : ($tbl['v'] ?? false),
+                    'r' => $c['start'] + $c['span'] >= $gridCount ? ($tbl['r'] ?? false) : ($tbl['v'] ?? false),
+                ];
+                foreach ($c['tc'] as $k => $on) {
+                    $sides[$k] = $on;
+                }
+                $flags = '';
+                foreach (['t', 'r', 'b', 'l'] as $k) {
+                    $flags .= $sides[$k] ? $k : '';
+                }
+                if ($flags !== '') {
+                    $meta[$ri][$ci]['borders'] = $flags;
+                    $anyBorder = true;
+                }
+                if ($c['shaded']) {
+                    $meta[$ri][$ci]['band'] = true;
+                }
+            }
+        }
+        if ($anyBorder) {
+            $result['src_borders'] = true;
+        }
+
         $hasMeta = false;
         foreach ($meta as $rowMeta) {
             foreach ($rowMeta as $info) {
@@ -959,6 +1624,29 @@ class CdsParserService
                 }
             }
         }
+        // Paragraph detail is kept only when it carries something the one-line text cannot say.
+        $hasParas = false;
+        foreach ($paras as $rowParas) {
+            foreach ($rowParas as $cellParas) {
+                foreach ($cellParas as $para) {
+                    if (count($cellParas) > 1 || isset($para['num']) || count(array_filter($para['runs'], fn ($r) => ($r['type'] ?? '') !== 'text' || ! empty($r['bold']) || ! empty($r['italic']) || ! empty($r['underline']))) > 0
+                        || array_intersect_key($para, array_flip(['left', 'hang', 'first', 'after', 'before']))) {
+                        $hasParas = true;
+                        break 3;
+                    }
+                }
+            }
+        }
+        $paraStore = $hasParas ? array_map(fn ($rowParas) => array_map(fn ($cell) => array_map(function ($para) {
+            unset($para['text']);
+            $para['runs'] = array_map(function ($r) {
+                return ($r['type'] ?? '') === 'image'
+                    ? ['img' => $r['ref'], 'w' => $r['w'], 'h' => $r['h']]
+                    : array_filter(['t' => (string) ($r['value'] ?? ''), 'b' => $r['bold'] ?? null, 'i' => $r['italic'] ?? null, 'u' => $r['underline'] ?? null], fn ($v) => $v !== null);
+            }, $para['runs']);
+
+            return $para;
+        }, $cell), $rowParas), $paras) : [];
 
         if ($hasHeader && count($rows) > 0) {
             $result['headers'] = array_shift($result['rows']);
@@ -966,12 +1654,52 @@ class CdsParserService
             if ($hasMeta) {
                 $result['header_meta'] = $headerMeta;
             }
+            if (isset($rowGrid[0])) {
+                $result['header_grid'] = $rowGrid[0];
+            }
+            if ($hasParas) {
+                $result['header_paras'] = array_shift($paraStore);
+            }
+            // Row indices shift by one once the header row is taken out.
+            $rowGrid = array_combine(
+                array_map(fn ($i) => $i - 1, array_keys(array_diff_key($rowGrid, [0 => true]))),
+                array_values(array_diff_key($rowGrid, [0 => true]))
+            ) ?: [];
         }
         if ($hasMeta) {
             $result['cell_meta'] = $meta;
         }
+        if ($hasParas) {
+            $result['cell_paras'] = $paraStore;
+        }
+        if ($rowGrid !== []) {
+            $result['row_grid'] = $rowGrid;
+        }
 
         return $result;
+    }
+
+    /** A border side Word actually draws (not "nil" / "none", and wider than nothing). */
+    private function borderIsDrawn($side): bool
+    {
+        $val = strtolower($side->getAttribute('w:val'));
+        if ($val === '' || in_array($val, ['nil', 'none'], true)) {
+            return false;
+        }
+
+        return $side->getAttribute('w:sz') === '' || (int) $side->getAttribute('w:sz') > 0;
+    }
+
+    /** The cell of a row that starts at a given grid column (for merged-down cells). */
+    private function rawCellAt(array $rawRow, int $startCol): array
+    {
+        foreach ($rawRow as $c) {
+            if ($c['start'] === $startCol) {
+                return $c;
+            }
+        }
+
+        return ['vmerge' => null];
     }
 
     /**

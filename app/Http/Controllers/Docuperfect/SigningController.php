@@ -404,7 +404,7 @@ class SigningController extends Controller
                 if (!empty($docTemplate->signing_parties)) {
                     $viewData['signing_parties'] = $docTemplate->signing_parties;
                 }
-                $fullHtml = view(app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->ensure($docTemplate), $viewData)->render();
+                $fullHtml = view(app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->ensure($docTemplate), $viewData + $docTemplate->headerDisplayViewData())->render();
                 $styles = '';
                 preg_match_all('/<style[^>]*>.*?<\/style>/si', $fullHtml, $styleMatches);
                 if (!empty($styleMatches[0])) {
@@ -3205,9 +3205,14 @@ class SigningController extends Controller
             // Signature images should be visible
             . '.web-sig-signed-img { display: block; max-height: 50px; }'
             . '.corex-page-initials .initial-placeholder { font-size: 8px; color: #666; }'
+            // The Word source's running page header / footer, repeated on every page (a document without one is untouched).
+            . ((str_contains($mergedHtml, 'corex-page-header') || str_contains($mergedHtml, 'corex-page-footer')) ? \App\Services\Docuperfect\CdsRendererService::PDF_PAGE_FRAME_CSS : '')
             . '</style>'
             . '</head><body>';
 
+        // The source's running header / footer are lifted to the top level of <body>, where dompdf repeats them per page.
+        [$pageFrame, $mergedHtml] = \App\Services\Docuperfect\CdsRendererService::hoistPageFrame($mergedHtml);
+        $html .= $pageFrame;
         $html .= $mergedHtml;
         $html .= '</body></html>';
 
@@ -3615,6 +3620,18 @@ CSS;
    its bottom onto a near-blank next page (docs 455/454: 5 logical → 7 physical).
    Absolute-positioned it consumes no flow height, so the box the paginator
    measured (content + initials strip, no footer) IS the box that prints. */
+/* The Word source's own running header / footer, one per captured page (a4-page-styles _paginateWrapper): out of flow in the
+   page's top / bottom padding, its page-number token already filled. */
+.corex-a4-page .corex-page-header, .corex-a4-page .corex-page-footer {
+    position: absolute !important;
+    left: 18mm !important;
+    right: 18mm !important;
+    margin: 0 !important;
+}
+.corex-a4-page .corex-page-header { top: 8mm !important; }
+.corex-a4-page .corex-page-footer { bottom: 8mm !important; }
+.corex-page-number.is-set::before { content: none !important; }
+.corex-a4-page table.corex-split-table { margin: 0 !important; }
 .corex-a4-page .page-number {
     position: absolute !important;
     bottom: 10mm !important;
@@ -3917,6 +3934,11 @@ CSS;
     private function getPdfCleanupCss(): string
     {
         return <<<'CSS'
+/* The paginator (a4-page-styles) puts the source's header / footer on every captured page with the page number filled in;
+   the document-level fixed copies of the frame (for an un-paginated print) are not drawn on top of them. An un-paginated
+   print cannot count pages from content in this engine (counter(page) prints 0), so there the number part stays off. */
+.corex-page-footer .corex-page-right { display: none !important; }
+.corex-a4-page .corex-page-footer .corex-page-right { display: inline !important; }
 /* Hide interactive signing UI elements */
 .web-sig-prompt { display: none !important; }
 .init-prompt { display: none !important; }

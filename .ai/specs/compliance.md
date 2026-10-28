@@ -205,6 +205,19 @@ A submission cannot tell you what it was asked, so `FicaQuestionnaire` is the re
 
 **Reported, not changed.** The Command Centre "RO Approvals" quick link (`CommandCentreService::ficaRoApprovals`, whole `agent_approved` pool) and the Compliance list RO queue count still include an officer's own FICA; the click-through now lands on the disabled record page.
 
+## FICA review — removing a wrongly attached document (2026-10-28, hotfix 3a7369b61; live bug on `/corex/compliance/fica/9908`)
+
+An agent attached the wrong documents to an online FICA and had no way to take them off. The remove / unlink actions existed server-side (`FicaController::removeDocument`, `unlinkContactDocument`) but since the 6 Oct questions-and-answers rewrite (`ecd7f3e19`) the buttons were only drawn for paper (wet-ink) intakes.
+
+**The rule (same on every kind of FICA, paper or online):**
+- **Who:** the requesting agent, an owner-role user, or anyone holding `manage_compliance` - the same gate as upload and link. The route needs `access_compliance` and the usual own / branch / agency scope (`authorizeAgency`). No new permission key.
+- **When:** only in the stage-1 statuses `submitted`, `under_review`, `corrections_requested` (`FicaSubmission::STAGE_ONE_STATUSES`). From `agent_approved` on (RO queue, referred to the Compliance Officer, approved, rejected, cancelled) the action is refused (400) and no button is drawn. A wrong document found later goes back through "Request corrections", which reopens it to `corrections_requested`; the agent removes it, uploads the right one and resubmits.
+- **What it does:** an uploaded document (`fica_documents`) is soft-deleted - archived, never a hard delete - and can be put back with **Restore** (below). A linked contact document (`fica_submission_documents` pivot) is only unlinked: the contact's own document stays on the contact's documents. The FICA status does not change.
+- **Audit:** each action writes an append-only `fica_status_history` row (status from = to) with the actor, officer tier and `meta` = the document id, type and file name: `action = document_removed` (uploaded document), `document_unlinked` (linked contact document) or `document_restored` (a removed document put back). The soft delete / unlink and its audit row are written in one DB transaction.
+- **Restore:** `FicaController::restoreDocument` (`POST compliance.fica.documents.restore`, inside the `access_compliance` group). Same gate as Remove - requesting agent, owner-role or `manage_compliance`; same `authorizeAgency` / `visibleTo` own-branch-agency scope; only in the stage-1 statuses (400 otherwise); only a document that is archived and belongs to THIS submission (404 otherwise). Removed documents are listed under "Removed documents" on the record page (`partials/_archived-documents.blade.php`), visible only to those who may restore, each with a Restore button; the list is not on the read-only Compliance Officer screen.
+- **Where:** a Remove link beside View on each document in the "Questions and answers" review (`partials/submitted-data.blade.php`: question-row documents and "Other documents") and Unlink on the "Linked contact documents" panel; the paper-intake block already had them. The screen passes `canRemoveDocs` to the partial, off by default, so the Compliance Officer screen (`compliance-review`) stays read-only.
+- **Test:** `tests/Feature/Compliance/FicaDocumentRemoveTest.php`.
+
 ## The FICA gate — one rule, shared by sales and rentals (2026-10-08, cc3; Johan's rulings of 7–8 Oct as relayed by the conductor)
 
 **The bug (Johan's rentals test on QA1, 7 Oct).** FICA stopped the agent from continuing with the tenant where it should have warned (as reported by the conductor, paraphrased). His ruling of 8 Oct (a paraphrase relayed by the conductor, not a verbatim quote): the FICA gate lifts on **SUBMITTED**, not only on approved — that is the designed behaviour for sales, and rentals must work the same.

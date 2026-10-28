@@ -10,7 +10,7 @@
 
     {{-- Header --}}
     @php $cancelUrl = auth()->user()?->isOwnerRole() ? route('agencies.index') : route('admin.company-settings'); @endphp
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="smk-web-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $agency ? 'Edit Agency' : 'Create Agency' }}</h1>
@@ -19,6 +19,7 @@
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <a href="{{ $cancelUrl }}" class="corex-btn-outline text-xs">&larr; Back</a>
             </div>
         </div>
@@ -54,7 +55,7 @@
         if ($agency && auth()->user()?->hasPermission('agency_api.view')) { $tabs['api-access'] = 'API Access'; }
         if (!$agency) { $tabs['admin'] = 'Branch & Admin'; }
     @endphp
-    <div class="flex gap-1 rounded-md p-1 flex-wrap" style="background: var(--surface); border:1px solid var(--border);">
+    <div class="flex gap-1 rounded-md p-1 flex-wrap" style="background: var(--surface); border:1px solid var(--border);" data-tour="smk-web-tabs">
         @foreach($tabs as $key => $label)
             <button type="button" @click="activeTab = '{{ $key }}'"
                     data-tab-btn="{{ $key }}"
@@ -136,7 +137,7 @@
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">VAT No</label>
-                    <input type="text" name="vat_no" value="{{ old('vat_no', $agency?->vat_no) }}"
+                    <input data-desk-mask type="text" name="vat_no" value="{{ old('vat_no', $agency?->vat_no) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="e.g. 4123456789">
@@ -672,7 +673,7 @@
                 <h3 class="ds-section-header">Copy your API key now</h3>
                 <p class="text-xs" style="color:var(--ds-crimson);">This secret is shown only once. Store it in “{{ session('new_api_key')['name'] }}”’s environment config — you will not be able to see it again.</p>
                 <div class="flex items-center gap-2">
-                    <input type="text" readonly value="{{ session('new_api_key')['plaintext'] }}" id="new-key-secret"
+                    <input data-desk-mask type="text" readonly value="{{ session('new_api_key')['plaintext'] }}" id="new-key-secret"
                            class="flex-1 rounded-md px-3 py-2 text-sm font-mono"
                            style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
                     <button type="button" class="corex-btn-outline text-xs"
@@ -682,14 +683,14 @@
         @endif
 
         {{-- Master "website is live" switch --}}
-        <div class="ds-status-card p-4 space-y-3">
+        <div class="ds-status-card p-4 space-y-3" data-tour="smk-web-switch">
             <h3 class="ds-section-header">Website</h3>
             <p class="text-xs" style="color:var(--text-muted);">Master switch for this agency's website integration. When off, no website receives data and no webhooks fire — even with valid, active keys.</p>
             @if(auth()->user()?->hasPermission('agency_api.manage'))
             <form method="POST" action="{{ route('agencies.website.toggle', $agency) }}" class="flex items-center gap-3">
                 @csrf
                 <input type="hidden" name="website_enabled" value="{{ $agency->website_enabled ? 0 : 1 }}">
-                <button type="submit" class="corex-btn-{{ $agency->website_enabled ? 'outline' : 'primary' }} text-sm">
+                <button type="submit" class="corex-btn-{{ $agency->website_enabled ? 'outline' : 'primary' }} text-sm" data-tour="smk-web-toggle">
                     {{ $agency->website_enabled ? 'Take website offline' : 'Make website live' }}
                 </button>
                 <span class="text-xs font-semibold px-2 py-1 rounded-md"
@@ -702,7 +703,7 @@
             @endif
 
             @if(auth()->user()?->hasPermission('agency_api.manage'))
-            <div class="pt-3" style="border-top:1px solid var(--border);">
+            <div class="pt-3" style="border-top:1px solid var(--border);" data-tour="smk-web-agents">
                 <p class="text-xs mb-2" style="color:var(--text-muted);">Show all active agents on the website(s). Applies agency-wide (agents appear on every site). Refine individual agents with the “Show on website” toggle on each user.</p>
                 <form method="POST" action="{{ route('agencies.agents.publish-all', $agency) }}"
                       onsubmit="return confirm('Show all active agents on the website? You can hide individual agents afterwards.');">
@@ -714,7 +715,7 @@
         </div>
 
         {{-- Existing keys --}}
-        <div class="ds-status-card p-4 space-y-4">
+        <div class="ds-status-card p-4 space-y-4" data-tour="smk-web-keys">
             <h3 class="ds-section-header">Websites / API keys</h3>
             <p class="text-xs" style="color:var(--text-muted);">Each website gets its own key. The key's name is the label shown as its Syndication Portal on every property.</p>
 
@@ -741,7 +742,7 @@
                     <div class="text-xs" style="color:var(--text-muted);">
                         <button type="button" @click="showSecret = !showSecret" class="underline" x-text="showSecret ? 'Hide webhook secret' : 'Reveal webhook signing secret'"></button>
                         <div x-show="showSecret" x-cloak class="flex items-center gap-2 mt-1">
-                            <input type="text" readonly value="{{ $key->webhook_secret }}" id="whsec-{{ $key->id }}"
+                            <input data-desk-mask type="text" readonly value="{{ $key->webhook_secret }}" id="whsec-{{ $key->id }}"
                                    class="flex-1 rounded-md px-2 py-1 text-xs font-mono"
                                    style="background: var(--surface); border:1px solid var(--border); color: var(--text-primary);">
                             <button type="button" class="corex-btn-outline text-xs"
@@ -862,11 +863,11 @@
 
         {{-- Generate a new key --}}
         @if(auth()->user()?->hasPermission('agency_api.manage'))
-        <div class="ds-status-card p-4 space-y-4">
+        <div class="ds-status-card p-4 space-y-4" data-tour="smk-web-newkey">
             <h3 class="ds-section-header">Generate API key</h3>
             <form method="POST" action="{{ route('agencies.api-keys.store', $agency) }}" class="space-y-4">
                 @csrf
-                <div>
+                <div data-tour="smk-web-name">
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">What is this website called? <span style="color:var(--ds-crimson);">*</span></label>
                     <input type="text" name="name" required maxlength="100" value="{{ old('name') }}"
                            class="rounded-md px-3 py-2 text-sm w-full max-w-md"
@@ -874,7 +875,7 @@
                            placeholder="e.g. Your Agency">
                     @error('name')<p class="text-xs mt-1" style="color:var(--ds-crimson);">{{ $message }}</p>@enderror
                 </div>
-                <div>
+                <div data-tour="smk-web-scopes">
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Scopes</label>
                     <div class="flex flex-col gap-1">
                         @foreach(\App\Models\AgencyApiKey::SCOPES as $scopeKey => $scopeLabel)
@@ -888,7 +889,7 @@
                         @endforeach
                     </div>
                 </div>
-                <div>
+                <div data-tour="smk-web-webhook">
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Webhook URL (optional)</label>
                     <input type="url" name="webhook_url" value="{{ old('webhook_url') }}"
                            class="rounded-md px-3 py-2 text-sm w-full max-w-md"
@@ -896,13 +897,13 @@
                            placeholder="https://your-site.co.za/api/corex-webhook">
                     @error('webhook_url')<p class="text-xs mt-1" style="color:var(--ds-crimson);">{{ $message }}</p>@enderror
                 </div>
-                <button type="submit" class="corex-btn-primary text-sm">Generate API Key</button>
+                <button type="submit" class="corex-btn-primary text-sm" data-tour="smk-web-generate">Generate API Key</button>
             </form>
         </div>
         @endif
 
         {{-- Connecting a website — setup & operations note --}}
-        <div class="ds-status-card p-4 space-y-3" x-data="{ open: false }">
+        <div class="ds-status-card p-4 space-y-3" x-data="{ open: false }" data-tour="smk-web-setup">
             <button type="button" @click="open = !open" class="flex items-center justify-between w-full text-left">
                 <h3 class="ds-section-header" style="margin:0;">Connecting a website — setup &amp; operations</h3>
                 <span class="text-xs" style="color:var(--text-muted);" x-text="open ? 'Hide' : 'Show'"></span>
@@ -1058,7 +1059,7 @@
                             </div>
                             <div>
                                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">VAT No Override</label>
-                                <input class="w-full rounded-md px-3 py-2 text-sm"
+                                <input data-desk-mask class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
                                        name="vat_no" value="{{ old('vat_no', $branch->vat_no) }}">
                             </div>

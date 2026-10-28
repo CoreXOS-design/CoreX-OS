@@ -460,6 +460,15 @@ return [
         ['key' => 'manage_branches',         'label' => 'Manage Branches',                 'section' => 'franchise-admin',  'type' => 'access',  'module' => 'franchise_admin',  'sort_order' => 2],
                 ['key' => 'view_financial_reports',  'label' => 'View Financial Reports',          'section' => 'franchise-admin',  'type' => 'access',  'module' => 'franchise_admin',  'sort_order' => 4],
         ['key' => 'impersonate_users',       'label' => 'Impersonate Users',               'section' => 'franchise-admin',  'type' => 'access',  'module' => 'franchise_admin',  'sort_order' => 5],
+        // ── CoreX Desk (.ai/specs/corex-desk.md section 6) ──
+        // desk.request_help: "Get help" - share this CoreX window with support. Every role by default.
+        // desk.support: run the Desk console - see an agent's CoreX window live. Owner roles via '*'; excluded from the admin
+        // all-minus-exclude default so an agency chooses, in Role Manager, who may run Desk for its own agents (own-agency sessions only).
+        ['key' => 'desk.request_help',       'label' => 'Get help (share my CoreX window with support)', 'section' => 'franchise-admin', 'type' => 'action', 'module' => 'desk', 'sort_order' => 1],
+        ['key' => 'desk.support',            'label' => 'Run CoreX Desk (view agents\' CoreX windows)',   'section' => 'franchise-admin', 'type' => 'action', 'module' => 'desk', 'sort_order' => 2],
+        // desk.control: ask an agent to let you TAKE CONTROL of their CoreX page / a shared tab (phase 2). The agent still has to Allow each time.
+        // Owner roles via '*'; excluded from the admin all-minus-exclude default exactly like desk.support.
+        ['key' => 'desk.control',            'label' => 'Take control of an agent\'s window (with their OK)', 'section' => 'franchise-admin', 'type' => 'action', 'module' => 'desk', 'sort_order' => 3],
         ['key' => 'users.view',              'label' => 'View',                            'section' => 'franchise-admin',  'type' => 'action',  'module' => 'users',            'sort_order' => 10],
         ['key' => 'users.create',            'label' => 'Create',                          'section' => 'franchise-admin',  'type' => 'action',  'module' => 'users',            'sort_order' => 11],
         ['key' => 'users.edit',              'label' => 'Edit',                            'section' => 'franchise-admin',  'type' => 'action',  'module' => 'users',            'sort_order' => 12],
@@ -837,6 +846,9 @@ return [
         ['key' => 'agency_setup.run',            'label' => 'Run Agency Setup Wizard',     'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 5],
         ['key' => 'agency_setup.track',          'label' => 'Track Agency Setup Progress (owner)', 'section' => 'settings', 'type' => 'access',  'module' => 'settings',         'sort_order' => 6],
         ['key' => 'agency_features.manage',      'label' => 'Manage Features (module on/off)', 'section' => 'settings',     'type' => 'access',  'module' => 'settings',         'sort_order' => 6],
+        // AT-478 gradual feature rollout — the agency's own plan (Settings → Feature rollout) and the onboarding
+        // choice. Not in any role's role_defaults include list: admin / super_admin hold it through the all-minus-exclude rule.
+        ['key' => 'manage_feature_rollout',      'label' => 'Manage Feature Rollout (gradual introduction)', 'section' => 'settings', 'type' => 'access', 'module' => 'settings', 'sort_order' => 6],
         // Users page (/admin/users) + its Settings sub-menu link. Key unchanged (every role grant and route keeps working);
         // only its Role Manager home moved from Franchise Admin to Settings, as its own on/off switch beside Access Settings.
         ['key' => 'manage_users',                'label' => 'Users',                       'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 7],
@@ -1094,7 +1106,8 @@ return [
             // board — owner-only, so admin is excluded from the all-minus rule.
             // manage_reference_sources is likewise platform-owner-only: it's a
             // global, not per-agency, allowlist (ellie-reference-sources spec).
-            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track', 'manage_reference_sources', 'templates.transfer'],
+            // desk.support (CoreX Desk console): granted to the owner role; an agency grants it to its own admin/role in Role Manager.
+            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track', 'manage_reference_sources', 'templates.transfer', 'desk.support', 'desk.control'],
             // Payroll: admin gets full payroll management
             'include' => [
                 'manage_payroll', 'run_payroll', 'view_payroll_reports', 'view_own_payslips',
@@ -1139,6 +1152,7 @@ return [
 
         'branch_manager' => [
             'include' => [
+                'desk.request_help', // CoreX Desk - Get help (every role by default)
                 // Edinburgh erf 364 remediation — deeds_capture.promote (same reasoning
                 // as admin's include above), PLUS .access itself: found while wiring
                 // this that branch_manager had no deeds_capture.access grant on this
@@ -1369,6 +1383,7 @@ return [
 
         'agent' => [
             'include' => [
+                'desk.request_help', // CoreX Desk - Get help (every role by default)
                 // AT-432 (.ai/specs/auctions.md §20) — Agent's stated subset.
                 'access_auctions', 'auctions.view', 'auctions.create', 'auctions.edit',
                 'auctions.bidders.view', 'auctions.results.view',
@@ -1559,6 +1574,7 @@ return [
 
         'viewer' => [
             'include' => [
+                'desk.request_help', // CoreX Desk - Get help (every role by default)
                 'access_my_portal',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity',
@@ -1686,6 +1702,7 @@ return [
             // excluded here, so the reconcile strips its stale access_deal_register /
             // _v2 / settle_deals grants as over-grants.
             'include' => [
+                'desk.request_help', // CoreX Desk - Get help (every role by default)
                 'communications.view',
                 'communication_mailboxes.view', // AT-395 — not in scope_defaults, falls to 'own'
                 // 2026-09-22, Johan's ruling: "it should be a role setting but all

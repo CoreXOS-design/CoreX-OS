@@ -523,7 +523,7 @@
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                     <div>
                         <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">ID Number</label>
-                        <input type="text" name="id_number" value="{{ old('id_number', $isEdit ? $user->id_number : '') }}" placeholder="SA ID number"
+                        <input data-desk-mask type="text" name="id_number" value="{{ old('id_number', $isEdit ? $user->id_number : '') }}" placeholder="SA ID number"
                                autocomplete="off"
                                class="w-full rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"

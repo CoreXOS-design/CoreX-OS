@@ -8,7 +8,7 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Edit Fault Type</h1>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);" data-tour="rmnt-ftedit-intro">Edit Fault Type</h1>
                 <p class="text-xs" style="color: var(--text-muted);">{{ $faultType->name }}</p>
             </div>
         </div>
@@ -27,15 +27,15 @@
         @csrf
         @method('PUT')
         <div class="text-sm font-semibold" style="color: var(--text-primary);">Details</div>
-        <div>
+        <div data-tour="rmnt-ftedit-name">
             <label class="prop-label">Name</label>
             <input type="text" name="name" value="{{ old('name', $faultType->name) }}" required maxlength="191" class="prop-input w-full">
         </div>
-        <div>
+        <div data-tour="rmnt-ftedit-category">
             <label class="prop-label">Category</label>
             <input type="text" name="category" value="{{ old('category', $faultType->category) }}" maxlength="100" class="prop-input w-full">
         </div>
-        <div>
+        <div data-tour="rmnt-ftedit-urgency">
             <label class="prop-label">Urgency</label>
             <select name="urgency" required class="prop-select w-full">
                 @foreach(['routine' => 'Routine', 'urgent' => 'Urgent', 'emergency' => 'Emergency'] as $val => $label)
@@ -43,25 +43,25 @@
                 @endforeach
             </select>
         </div>
-        <div>
+        <div data-tour="rmnt-ftedit-firstaid">
             <label class="prop-label">Tenant first-aid steps</label>
             <textarea name="first_aid_steps" rows="8" class="prop-textarea">{{ old('first_aid_steps', $faultType->first_aid_steps) }}</textarea>
             <p class="text-xs mt-1" style="color: var(--text-muted);">Placeholders @{{main_water_valve_location}} and @{{db_board_location}} are replaced with the property's own recorded location.</p>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2" data-tour="rmnt-ftedit-active">
             <input type="checkbox" id="is_active" name="is_active" value="1" @checked(old('is_active', $faultType->is_active)) class="rounded">
             <label for="is_active" class="prop-label !mb-0">Active (shown to tenants)</label>
         </div>
 
         <div class="flex gap-2">
-            <button type="submit" class="corex-btn-primary text-sm">Save</button>
+            <button type="submit" class="corex-btn-primary text-sm" data-tour="rmnt-ftedit-save">Save</button>
             <a href="{{ route('corex.rental-fault-types.index') }}" class="corex-btn-outline text-sm">Cancel</a>
         </div>
     </form>
 
     @include('corex.rental-fault-types._causes-panel')
 
-    <div class="rounded-md p-5 space-y-4" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-5 space-y-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-ftedit-docs">
         <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Documents</h2>
 
         <ul class="text-sm space-y-1">
@@ -89,7 +89,7 @@
             @endforelse
         </ul>
 
-        <form method="POST" action="{{ route('corex.rental-fault-types.documents.store', $faultType) }}" enctype="multipart/form-data" class="space-y-2">
+        <form method="POST" action="{{ route('corex.rental-fault-types.documents.store', $faultType) }}" enctype="multipart/form-data" class="space-y-2" data-tour="rmnt-ftedit-adddoc">
             @csrf
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>

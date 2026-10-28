@@ -5,10 +5,18 @@
 {{-- Re-import from Word — the match report is the FIRST thing on the screen after an upload: what
      came back, then the next action, with a link to every field that still needs a decision.
      Spec: .ai/specs/cds-reimport-from-word.md. --}}
+@if(empty($reimportReport) && !empty($cds['parse_report']['dropped'] ?? []))
+    <div id="cdsParseReport" data-testid="parse-report-line" class="mx-4 mt-3 rounded-md px-4 py-2 text-sm" style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber) 40%, transparent); color: var(--text-primary);">
+        {{ $cds['parse_report']['line'] }}
+    </div>
+@endif
 @if(!empty($reimportReport))
     @php($rr = $reimportReport)
     <div id="cdsReimportReport" class="mx-4 mt-3 rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--brand-icon) 8%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent); color: var(--text-primary);">
         <p class="font-semibold mb-1">Word file read: {{ $reimportFileName }}</p>
+        @if(!empty($rr['parse_line']))
+            <p class="mb-2 text-xs" data-testid="parse-report-line" style="color: var(--text-muted);">{{ $rr['parse_line'] }}</p>
+        @endif
         <p class="mb-2">
             {{ $rr['matched_count'] }} of the {{ $rr['old_count'] }} {{ \Illuminate\Support\Str::plural('field', $rr['old_count']) }} in the old template
             {{ $rr['matched_count'] === 1 ? 'was' : 'were' }} found again in the new file by name
@@ -224,6 +232,7 @@
                             <input type="hidden" name="category" :value="templateCategory">
                             <input type="hidden" name="document_type_id" :value="templateDocumentTypeId">
                             <input type="hidden" name="document_look" :value="documentLook">
+                            <input type="hidden" name="signature_block" :value="signatureBlock">
                             <button type="submit"
                                     class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4 py-2 rounded-lg transition-colors font-semibold">
                                 Save Template &rarr;
@@ -250,6 +259,7 @@
                             <input type="hidden" name="category" :value="templateCategory">
                             <input type="hidden" name="document_type_id" :value="templateDocumentTypeId">
                             <input type="hidden" name="document_look" :value="documentLook">
+                            <input type="hidden" name="signature_block" :value="signatureBlock">
                             <button type="submit"
                                     class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4 py-2 rounded-lg transition-colors font-semibold">
                                 Save Template &rarr;
@@ -428,6 +438,19 @@
                             </select>
                             <p class="text-[10px] text-gray-400 pt-1">
                                 Match source document keeps the Word file's centred titles and alignment, draws section headings as a light-grey band and uses greyscale only. It shows in this preview, the signing view and the signed PDF. Alignment is read from the Word file when it is imported, so a template imported before this setting existed keeps its original alignment until it is re-imported.
+                            </p>
+                        </div>
+
+                        {{-- Signature block --}}
+                        <div>
+                            <label class="text-[10px] font-semibold text-gray-500 uppercase block mb-1">Signature block</label>
+                            <select x-model="signatureBlock" data-testid="signature-block-select"
+                                    class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 bg-white text-gray-700 focus:ring-teal-400 focus:border-teal-400">
+                                <option value="corex">CoreX standard</option>
+                                <option value="document">From document</option>
+                            </select>
+                            <p class="text-[10px] text-gray-400 pt-1">
+                                From document: the Word file's own signature table carries the signature and date places, so CoreX's Lessor / Lessee / Agent block is not added after it.
                             </p>
                         </div>
 
@@ -1114,6 +1137,9 @@ function cdsEditor() {
         templateDocumentTypeId: '',
         // Document look ('standard' | 'source') — see App\Support\Docuperfect\DocumentLook.
         documentLook: @json(\App\Support\Docuperfect\DocumentLook::fromState($savedSettings ?? [])),
+        // Signature block ('corex' | 'document') - see App\Support\Docuperfect\SignatureBlock. A draft that never chose one
+        // shows what a save would give it: "from document" when the document already carries signature places of its own.
+        signatureBlock: @json(isset($savedSettings['signature_block']) ? \App\Support\Docuperfect\SignatureBlock::normalise($savedSettings['signature_block']) : \App\Support\Docuperfect\SignatureBlock::resolve(null, $savedTaggedHtml ?? '')),
         settingsExpanded: false,
 
         get isSalesContext() {
@@ -1344,6 +1370,7 @@ function cdsEditor() {
                             category: this.templateCategory || null,
                             document_type_id: this.templateDocumentTypeId || null,
                             document_look: this.documentLook,
+                            signature_block: this.signatureBlock,
                         },
                     }),
                 });

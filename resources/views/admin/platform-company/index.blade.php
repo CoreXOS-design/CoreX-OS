@@ -282,8 +282,8 @@
                 <div class="p-5 grid sm:grid-cols-2 gap-4">
                     <div><label class="ds-label block mb-1" for="pc-bn">Bank</label><input id="pc-bn" name="bank_details[bank_name]" maxlength="100" value="{{ $bank['bank_name'] ?? '' }}" class="ds-field w-full"></div>
                     <div><label class="ds-label block mb-1" for="pc-bh">Account holder</label><input id="pc-bh" name="bank_details[account_holder]" maxlength="150" value="{{ $bank['account_holder'] ?? '' }}" class="ds-field w-full"></div>
-                    <div><label class="ds-label block mb-1" for="pc-ba">Account number</label><input id="pc-ba" name="bank_details[account_number]" inputmode="numeric" maxlength="24" value="{{ $bank['account_number'] ?? '' }}" class="ds-field w-full"></div>
-                    <div><label class="ds-label block mb-1" for="pc-bb">Branch code</label><input id="pc-bb" name="bank_details[branch_code]" inputmode="numeric" maxlength="10" value="{{ $bank['branch_code'] ?? '' }}" class="ds-field w-full"></div>
+                    <div><label class="ds-label block mb-1" for="pc-ba">Account number</label><input id="pc-ba" data-desk-mask name="bank_details[account_number]" inputmode="numeric" maxlength="24" value="{{ $bank['account_number'] ?? '' }}" class="ds-field w-full"></div>
+                    <div><label class="ds-label block mb-1" for="pc-bb">Branch code</label><input id="pc-bb" data-desk-mask name="bank_details[branch_code]" inputmode="numeric" maxlength="10" value="{{ $bank['branch_code'] ?? '' }}" class="ds-field w-full"></div>
                     <div><label class="ds-label block mb-1" for="pc-bt">Account type</label>
                         <select id="pc-bt" name="bank_details[account_type]" class="ds-field w-full">
                             <option value="">—</option>

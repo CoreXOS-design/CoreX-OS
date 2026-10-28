@@ -188,8 +188,11 @@ final class FicaDocumentRemoveTest extends TestCase
         $this->assertSame('Wrong person ID.pdf', $meta['file_name']);
 
         $html = $this->actingAs($this->requester)->get(route('compliance.fica.show', $s))->assertOk()->getContent();
-        $this->assertStringNotContainsString('Wrong person ID.pdf', $html);
-        $this->assertStringContainsString('Right proof.pdf', $html);
+        // Gone from the review itself; it now appears only under "Removed documents" (with its Restore button).
+        [$review, $archived] = array_pad(explode('data-fica-archived-documents', $html, 2), 2, '');
+        $this->assertStringNotContainsString('Wrong person ID.pdf', $review);
+        $this->assertStringContainsString('Wrong person ID.pdf', $archived);
+        $this->assertStringContainsString('Right proof.pdf', $review);
     }
 
     public function test_unlink_drops_only_the_link_keeps_the_contact_document_and_writes_an_audit_row(): void
@@ -209,6 +212,69 @@ final class FicaDocumentRemoveTest extends TestCase
         $this->assertSame($doc->id, (int) $meta['document_id']);
         $this->assertSame('id_copy', $meta['document_type']);
         $this->assertSame('Linked wrong ID.pdf', $meta['file_name']);
+    }
+
+    // ── Restore ─────────────────────────────────────────────────────────
+
+    public function test_a_removed_document_is_listed_and_can_be_restored_with_an_audit_row(): void
+    {
+        $s = $this->submission('under_review');
+        $doc = $this->document($s, 'id_copy', 'Wrong person ID.pdf');
+        $this->actingAs($this->requester)->post($this->removeUrl($s, $doc))->assertRedirect();
+
+        $restoreUrl = route('compliance.fica.documents.restore', [$s, $doc]);
+        $html = $this->actingAs($this->requester)->get(route('compliance.fica.show', $s))->assertOk()->getContent();
+        $this->assertStringContainsString('Removed documents', $html);
+        $this->assertStringContainsString($restoreUrl, $html);
+
+        $this->actingAs($this->requester)->post($restoreUrl)->assertRedirect();
+
+        $this->assertDatabaseHas('fica_documents', ['id' => $doc, 'deleted_at' => null]);
+        $this->assertSame('under_review', $s->fresh()->status);
+        $row = DB::table('fica_status_history')->where('fica_submission_id', $s->id)->where('action', 'document_restored')->sole();
+        $this->assertSame((int) $this->requester->id, (int) $row->actor_user_id);
+        $meta = json_decode((string) $row->meta, true);
+        $this->assertSame($doc, (int) $meta['fica_document_id']);
+        $this->assertSame('Wrong person ID.pdf', $meta['file_name']);
+
+        $html = $this->actingAs($this->requester)->get(route('compliance.fica.show', $s))->assertOk()->getContent();
+        $this->assertStringNotContainsString($restoreUrl, $html);
+        $this->assertStringContainsString('Wrong person ID.pdf', $html);
+    }
+
+    public function test_restore_is_refused_once_the_stage_has_passed_and_for_a_live_document(): void
+    {
+        $s = $this->submission('under_review');
+        $doc = $this->document($s, 'id_copy', 'ID.pdf');
+        $live = $this->document($s, 'proof_of_address', 'Live.pdf');
+        $this->actingAs($this->requester)->post($this->removeUrl($s, $doc))->assertRedirect();
+
+        // A document that is not archived cannot be "restored".
+        $this->actingAs($this->requester)->post(route('compliance.fica.documents.restore', [$s, $live]))->assertNotFound();
+
+        $s->forceFill(['status' => 'agent_approved'])->save();
+        $this->actingAs($this->requester)->post(route('compliance.fica.documents.restore', [$s, $doc]))->assertStatus(400);
+        $this->assertSoftDeleted('fica_documents', ['id' => $doc]);
+        $this->assertSame(1, DB::table('fica_status_history')->where('fica_submission_id', $s->id)->count(), 'only the removal is on the ledger');
+    }
+
+    public function test_restore_is_refused_for_another_branch_and_another_agency(): void
+    {
+        $s = $this->submission();
+        $doc = $this->document($s, 'id_copy', 'ID.pdf');
+        // Created BEFORE anyone is signed in: the agency trait stamps a new user into the signed-in user's agency.
+        $outsider = User::factory()->create(['agency_id' => $this->agency(), 'role' => 'branch_manager']);
+        $this->actingAs($this->requester)->post($this->removeUrl($s, $doc))->assertRedirect();
+
+        foreach ([$this->branchMgrB, $outsider] as $user) {
+            // Refused by the scope check (403) or, for another agency, by the agency scope on the route binding (404).
+            $this->flushSession();
+            $res = $this->actingAs($user)->post(route('compliance.fica.documents.restore', [$s, $doc]));
+            $this->assertContains($res->status(), [403, 404]);
+        }
+
+        $this->assertSoftDeleted('fica_documents', ['id' => $doc]);
+        $this->assertSame(0, DB::table('fica_status_history')->where('fica_submission_id', $s->id)->where('action', 'document_restored')->count());
     }
 
     // ── Scope ───────────────────────────────────────────────────────────

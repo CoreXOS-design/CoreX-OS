@@ -121,3 +121,7 @@ and without an extra column, and the cell text-align rule.
 `app/Http/Controllers/Docuperfect/TemplateController.php`, `app/Support/Docuperfect/DocumentLook.php`,
 `resources/views/docuperfect/templates/cds-builder.blade.php`, `public/css/corex-document.css`;
 tests `tests/Unit/CdsDocumentLookTest.php`, `tests/Unit/CdsTableGeometryTest.php`, `tests/Feature/Docuperfect/CdsDocumentLookBladeTest.php`.
+
+## Fidelity to the Word source (26 Oct 2026)
+
+Structure is drawn in both looks: paragraph blocks inside cells, hanging list numbers, pictures, the running page header / footer, hard page breaks, column widths (including the empty grid columns of a row that starts columns in). The "Match source document" look adds what the source styled: table / cell borders (`data-src-bt/br/bb/bl`, only for a table the importer marked `data-src-borders`) and shaded cells (`data-src-band`, light grey). Cell alignment is the source's (never justified unless the source is). Full table of classes, limits and tests: `cds-reimport-from-word.md` section 10.

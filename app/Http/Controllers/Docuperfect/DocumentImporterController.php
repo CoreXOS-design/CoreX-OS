@@ -89,10 +89,17 @@ class DocumentImporterController extends Controller
         // client-supplied extension for this reason; this brings the CDS import into
         // line with it. `extensions:docx` checks getClientOriginalExtension(), immune
         // to the sniffing gotcha; the parser fails gracefully on a non-docx anyway.
-        $request->validate(['document' => 'required|file|extensions:docx']);
+        $request->validate(['document' => 'required|file|extensions:docx|max:20480'], [
+            'document.max' => 'That Word file is too large to import (20 MB limit). Save a smaller copy (compress or remove large pictures) and try again.',
+        ]);
 
         $parser = app(CdsParserService::class);
-        $cds = $parser->parse($request->file('document')->getPathname());
+        try {
+            $cds = $parser->parse($request->file('document')->getPathname());
+        } catch (\App\Services\Docuperfect\DocxTooLargeException $e) {
+            // A zip that declares far more than it should (zip-bomb guard): refused before it is inflated, with the reason shown.
+            return back()->withErrors(['document' => $e->getMessage()]);
+        }
 
         // Create a CDS draft (DB-backed, no session)
         $draft = CdsDraft::create([

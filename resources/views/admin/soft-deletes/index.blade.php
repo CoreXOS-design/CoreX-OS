@@ -5,7 +5,7 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (Pattern A) --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rpt-sd-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Soft Deletes</h1>
@@ -14,7 +14,8 @@
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                <span class="ds-badge ds-badge-pill ds-badge-info" title="Total archived records you can restore">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <span class="ds-badge ds-badge-pill ds-badge-info" data-tour="rpt-sd-count" title="Total archived records you can restore">
                     {{ number_format($totalArchived) }} archived
                 </span>
             </div>
@@ -40,7 +41,7 @@
     @endif
 
     @forelse($categories as $group)
-        <div class="space-y-2">
+        <div class="space-y-2" data-tour="rpt-sd-group">
             <div class="flex items-center gap-2">
                 <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">{{ $group['category'] }}</h2>
                 <span class="text-xs" style="color: var(--text-muted);">·</span>
@@ -49,7 +50,7 @@
 
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 @foreach($group['models'] as $model)
-                    <a href="{{ route('admin.soft-deletes.show', $model['key']) }}"
+                    <a href="{{ route('admin.soft-deletes.show', $model['key']) }}" data-tour="rpt-sd-model"
                        class="rounded-md px-4 py-3 flex items-center justify-between transition-colors"
                        style="background: var(--surface); border: 1px solid var(--border);"
                        onmouseover="this.style.background='var(--surface-2)'"

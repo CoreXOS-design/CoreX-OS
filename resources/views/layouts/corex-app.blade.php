@@ -102,6 +102,8 @@
         <div class="h-screen flex flex-col overflow-hidden">
         @include('partials._env-banner')
         <x-outbound-mail-banner />
+        {{-- CoreX Desk: the red "support is viewing this window" bar + Get help screen (hidden until used). Spec .ai/specs/corex-desk.md --}}
+        @include('layouts.partials.desk-client')
         {{-- Mobile sidebar toggle --}}
         <div x-data="{ sidebarOpen: false }" class="flex flex-1 min-h-0 overflow-hidden" style="background:var(--bg, #f4f6fb)">
 
@@ -179,6 +181,10 @@
         {{-- Interactive help-tour engine (driver.js) — renders only on pages
              with a registered tour. See App\Support\Tours\TourRegistry. --}}
         @include('layouts.partials.tour-engine')
+
+        {{-- AT-478 — gradual feature rollout pop-ups (admin access review / "New in CoreX").
+             Emits nothing when the agency is not on gradual rollout. Spec: .ai/specs/agency-feature-rollout.md §5.3–5.4 --}}
+        @include('layouts.partials.feature-rollout-popups')
 
         {{-- System Updates — the "what's new in CoreX" pop-up. Emits nothing (and
              issues zero DB queries) when the user has nothing pending.

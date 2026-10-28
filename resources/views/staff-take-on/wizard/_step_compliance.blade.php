@@ -4,7 +4,7 @@
     @method('PATCH')
 
     <div class="space-y-4">
-        <div class="p-4 rounded-md" style="background:var(--surface); border:1px solid var(--border);">
+        <div class="p-4 rounded-md" style="background:var(--surface); border:1px solid var(--border);" data-tour="cop-stkw-step">
             <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-muted); letter-spacing:0.05em;">7. Compliance Documents</h4>
             <p class="text-xs mb-4" style="color:var(--text-muted);">Upload required documents. Each is filed to the employee's document profile automatically.</p>
 
@@ -42,6 +42,6 @@
         </div>
 
         <input type="hidden" name="contract_uploaded" value="{{ ($uploadedDocs ?? collect())->where('document_type', 'other')->count() > 0 ? '1' : '0' }}">
-        <button type="submit" class="corex-btn-primary">Save & Continue</button>
+        <button type="submit" class="corex-btn-primary" data-tour="cop-stkw-save">Save & Continue</button>
     </div>
 </form>

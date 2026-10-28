@@ -17,6 +17,7 @@
                 <p class="text-xs" style="color: var(--text-muted);">Load a price list from a file. Nothing is saved until you confirm on the preview screen.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <a href="{{ route('corex.rental-catalogue-items.index') }}" class="corex-btn-outline text-xs">&larr; Back to catalogue</a>
             </div>
         </div>
@@ -28,20 +29,20 @@
         </div>
     @endif
 
-    <div class="rounded-md p-6 space-y-3 max-w-3xl" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-6 space-y-3 max-w-3xl" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-import-template">
         <p class="text-sm font-medium" style="color: var(--text-primary);">1. Download the template, fill in your items, then upload it below.</p>
         <a href="{{ route('corex.rental-catalogue-items.import.template') }}" class="corex-btn-outline text-sm inline-flex">Download template</a>
     </div>
 
     <form method="POST" action="{{ route('corex.rental-catalogue-items.import.upload') }}" enctype="multipart/form-data" class="rounded-md p-6 space-y-5 max-w-3xl" style="background: var(--surface); border: 1px solid var(--border);">
         @csrf
-        <div>
+        <div data-tour="rmnt-import-file">
             <label class="text-sm font-medium" style="color: var(--text-primary);">2. Upload your filled-in file</label>
             <input type="file" name="file" accept=".csv,.xlsx,.txt" required class="prop-input mt-2">
             <p class="text-xs mt-1" style="color: var(--text-muted);">CSV or XLSX, up to 50MB.</p>
         </div>
 
-        <div>
+        <div data-tour="rmnt-import-dupes">
             <label class="text-sm font-medium" style="color: var(--text-primary);">3. If a code in your file already exists in your catalogue</label>
             <div class="mt-2 space-y-2 text-sm" style="color: var(--text-primary);">
                 <label class="flex items-center gap-2">
@@ -56,7 +57,7 @@
         </div>
 
         <div class="pt-4" style="border-top: 1px solid var(--border);">
-            <button type="submit" class="corex-btn-primary text-sm">Preview import</button>
+            <button type="submit" class="corex-btn-primary text-sm" data-tour="rmnt-import-preview">Preview import</button>
         </div>
         <p class="text-xs" style="color: var(--text-muted);">Nothing is added or changed yet — the next screen shows exactly what will happen, row by row, before anything is saved.</p>
     </form>

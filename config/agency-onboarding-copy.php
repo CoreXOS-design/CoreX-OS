@@ -8,6 +8,7 @@ use App\Http\Controllers\Compliance\FicaOfficerAppointmentsController;
 use App\Http\Controllers\CoreX\Auctions\AuctionSettingsController;
 use App\Http\Controllers\CoreX\AgencyTypeController;
 use App\Http\Controllers\CoreX\ComplianceSwitchesController;
+use App\Http\Controllers\CoreX\FeatureRolloutController;
 use App\Http\Controllers\CoreX\FeatureSettingsController;
 use App\Http\Controllers\CoreX\LeaseSettingsController;
 use App\Http\Controllers\CoreX\RentalInspectionSettingsController;
@@ -97,6 +98,12 @@ return [
             ['key' => 'trading_name', 'source' => 'agency', 'type' => 'text', 'label' => 'Trading name',
              'explain' => 'The name your agency trades under. If you trade as something different to your registered company name, put the trading name here.',
              'affects' => 'The name printed at the top of every document, in agent email signatures, and on your public property pages.'],
+            ['key' => 'legal_name', 'source' => 'agency', 'type' => 'text', 'label' => 'Registered company name (document footer)',
+             'explain' => 'Your registered company name as it should read at the foot of every document, for example "Sunrise Rentals cc t/a Coastal Rentals". Leave it blank to use your trading name.',
+             'affects' => 'The first part of the footer line on every document CoreX produces for you (inventory and inspection reports, FICA forms, applications): "<this name> | Reg No ... | PPRA Reg ...".'],
+            ['key' => 'document_website', 'source' => 'agency', 'type' => 'text', 'label' => 'Website printed on documents',
+             'explain' => 'The website address you want on your letterhead, for example www.coastalrentals.co.za. This is only a printed line - it is separate from the website address your public listings use.',
+             'affects' => 'A website line in the letterhead at the top of your documents. Left blank, no website line is printed.'],
             ['key' => 'short_code', 'source' => 'agency', 'type' => 'text', 'label' => 'Short code',
              'explain' => 'Two to ten letters or numbers that stand for your agency, for example CTR for Cape Town Rentals. We worked one out from your name — change it if you prefer other letters.',
              'affects' => 'The letters your document numbers start with — payslips read CTR-202610-001. Changing it later only affects numbers issued from then on; numbers already issued stay as they are.'],
@@ -168,7 +175,8 @@ return [
         // above these six capability toggles, and post their feature key to
         // FeatureSettingsController@update (agency_features). The six below keep their
         // own store field names + canonical savers.
-        'partial' => 'agency-setup.steps.capabilities-modules',
+        // AT-478: the gradual-introduction choice renders FIRST (how CoreX switches on), then the toolkit.
+        'partial' => ['agency-setup.steps.feature-rollout-choice', 'agency-setup.steps.capabilities-modules'],
         'savers' => [
             ['controller' => SettingsController::class,        'method' => 'updateMarketingEnabled'],
             ['controller' => SettingsController::class,        'method' => 'updateSyndicationPortals'],
@@ -183,6 +191,9 @@ return [
             // (AgencySetupWizardController::save()), so leaving it registered
             // with no matching control would fail validation on every save.
             ['controller' => FeatureSettingsController::class,  'method' => 'update'],
+            // AT-478 — MUST stay last: the gradual introduction holds back the features that are ON after
+            // every switch above has been saved. No-op unless its block was rendered (feature_rollout_present).
+            ['controller' => FeatureRolloutController::class,   'method' => 'saveChoice'],
         ],
         'controls' => [
             ['key' => 'marketing_enabled', 'source' => 'perf', 'type' => 'toggle', 'default' => 1,
@@ -2074,8 +2085,18 @@ return [
         ],
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'updateRemoteAccess'],
+            ['controller' => SettingsController::class, 'method' => 'updateDesk'],
         ],
         'controls' => [
+            // CoreX Desk (.ai/specs/corex-desk.md section 6): on by default, so an agency that does nothing can be helped.
+            ['key' => 'desk_enabled', 'source' => 'agency', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Let my agents press Get help to share their CoreX window with CoreX support',
+             'explain' => 'Every page has a Get help button. The agent reads a 6-digit code to CoreX support (usually on a phone call), and support can then see that one CoreX window live, point at things and highlight them. Support sees the agent\'s CoreX window (and the page text on it, apart from private fields such as passwords, ID, tax and bank inputs, which are hidden before anything is sent). Support can ask to take control and click and type for the agent: the agent must press Allow every time, can take control back at any moment, and support needs the separate take-over permission. The agent can also choose to share other tabs with support through the CoreX Chrome extension, only on supported websites and only while they keep sharing. Support never sees the desktop, files or tabs the agent has not shared. Every session and every action is logged under Admin > Desk > Desk sessions. Nothing from the screen is stored.',
+             'affects' => 'Whether the Get help button starts a live session with CoreX support, or just shows the CoreX support phone number.'],
+            ['key' => 'desk_control_idle_minutes', 'source' => 'agency', 'type' => 'number', 'default' => 5, 'min' => 1, 'max' => 60,
+             'label' => 'End a support take-over after this many idle minutes',
+             'explain' => 'CoreX support can ask an agent to let them take control of the agent\'s window (to click and type for them). The agent has to press Allow every time, can take control back at any moment, and every action is logged. If support does nothing for this many minutes, control ends by itself.',
+             'affects' => 'How long a take-over stays open when support stops using it.'],
             ['key' => 'require_external_access_authorization', 'source' => 'agency', 'type' => 'toggle', 'default' => 0,
              'label' => 'Ask my permission before a developer or tester enters my agency',
              'explain' => 'With this on, a CoreX developer or tester must send you a consent request and wait for you to approve it before they can switch into your agency. With it off, they can enter directly to support you.',

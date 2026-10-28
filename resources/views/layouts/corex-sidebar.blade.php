@@ -322,11 +322,15 @@
         $activeGroup = 'hr-documents';
     } elseif (request()->routeIs('admin.importer.*') || request()->routeIs('admin.pp.*')) {
         $activeGroup = 'importer';
+    } elseif (request()->routeIs('corex.desk.*')) {
+        $activeGroup = 'desk';   // CoreX Desk (Admin > Desk): console + sessions log (spec .ai/specs/corex-desk.md section 12)
     } elseif (request()->routeIs(
         'corex.settings*',
         // P24 Auto-Import is a Settings > Operations page now (step 8); its sub-routes open the Settings panel.
         'admin.minion.*',
         'corex.features.*',
+        // AT-478 — Settings → Feature rollout lives in the Settings sub menu beside Features.
+        'corex.feature-rollout.*',
         'admin.users*',
         // AT-451 - the agency's "alerts switched off" list is opened from the Users page (spec notification-system-overview.md section 14B2).
         'corex.alerts-off.*',
@@ -358,6 +362,7 @@
     } elseif (request()->routeIs(
         'agencies.*',
         'admin.agency-setup-progress',
+        'admin.agency-setup-progress.*',
         'admin.ai-usage.*',
         'admin.billing.*',
         'admin.agency-timelines.*'
@@ -502,6 +507,14 @@
             </style>
             {{-- Alert bell: top of the menu, left of the Ellie button (Johan, 2026-10-18) --}}
             @include('components.alert-bell')
+            {{-- CoreX Desk: "Get help" - a live look at this CoreX window for CoreX support. Spec .ai/specs/corex-desk.md section 3 --}}
+            @if(auth()->user()->hasPermission('desk.request_help'))
+            <button type="button" class="corex-topbar-btn rr-block" data-desk-open aria-label="Get help from CoreX support" title="Get help - share this CoreX window with CoreX support">
+                <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.712 4.33a9.027 9.027 0 0 1 1.652 1.306c.51.51.944 1.064 1.306 1.652M16.712 4.33l-3.448 4.138m3.448-4.138a9.014 9.014 0 0 0-9.424 0M19.67 7.288l-4.138 3.448m4.138-3.448a9.014 9.014 0 0 1 0 9.424m-4.138-5.976a3.736 3.736 0 0 0-.88-1.388 3.737 3.737 0 0 0-1.388-.88m2.268 2.268a3.765 3.765 0 0 1 0 2.528m-2.268-4.796a3.765 3.765 0 0 0-2.528 0m4.796 4.796c-.181.506-.475.982-.88 1.388a3.736 3.736 0 0 1-1.388.88m2.268-2.268 4.138 3.448m0 0a9.027 9.027 0 0 1-1.306 1.652c-.51.51-1.064.944-1.652 1.306m0 0-3.448-4.138m3.448 4.138a9.014 9.014 0 0 1-9.424 0m5.976-4.138a3.765 3.765 0 0 1-2.528 0m0 0a3.736 3.736 0 0 1-1.388-.88 3.737 3.737 0 0 1-.88-1.388m2.268 2.268L7.288 19.67m0 0a9.024 9.024 0 0 1-1.652-1.306 9.027 9.027 0 0 1-1.306-1.652m0 0 4.138-3.448M4.33 16.712a9.014 9.014 0 0 1 0-9.424m4.138 5.976a3.765 3.765 0 0 1 0-2.528m0 0c.181-.506.475-.982.88-1.388a3.736 3.736 0 0 1 1.388-.88m-2.268 2.268L4.33 7.288m6.406 1.18L7.288 4.33m0 0a9.024 9.024 0 0 0-1.652 1.306A9.025 9.025 0 0 0 4.33 7.288" />
+                </svg>
+            </button>
+            @endif
             <div id="help-widget-slot" style="flex-shrink:0;"></div>
             @endauth
             {{-- Mobile-only: close sidebar for a full-screen page --}}
@@ -1606,11 +1619,11 @@
         {{-- ═══════════════════════════════════════════
              DEALS (expandable group) — agency-tracker-rehome.md §8.2, step 6 (Johan, 20 Oct 2026).
              Deal Register (the former DR2), My Deals, Unfiled deal emails, and — at the bottom,
-             admin-only — Deal settings. Deals is a CORE pillar, so nothing here sits in an @feature
-             wrap (a core key is not a switch); the links are exempted by route in
-             SidebarFeatureCoverage::CORE_ROUTES instead. The old Deal Register (DR1) has no entry:
-             its URLs redirect to the Deal Register.
+             admin-only — Deal settings. The whole group sits in the `deals` switch (AT-478 §3.3: Deals is
+             switchable, on by default); the Supplier Directory stays reachable for Rentals through the
+             Maintenance menu. The old Deal Register (DR1) has no entry: its URLs redirect to the Deal Register.
              ═══════════════════════════════════════════ --}}
+        @feature('deals')
         @if($user && $user->hasAnyPermission(['view_deals', 'deals_v2.manage_suppliers', 'deals_v2.manage_pipeline', 'access_settings', 'deals_v2.manage_distribution_rules']))
         <div>
             <button type="button" @click="push('deals')"
@@ -1703,6 +1716,7 @@
             </div>
         </div>
         @endif
+        @endfeature
 
         {{-- ═══════════════════════════════════════════
              CALCULATORS (expandable group) — agency-tracker-rehome.md §11, step 10 (Johan, 20 Oct 2026).
@@ -2404,13 +2418,26 @@
             <span>What's New</span>
         </a>
 
+        {{-- AT-478 §12.5/§12.9 — New and coming: only for an agency on gradual rollout (cached check). Like
+             What's New it carries no feature/permission gate of its own: it is the guide to what is switching
+             on, for everyone; the page shows each person only what they can open. --}}
+        @if (app(\App\Services\FeatureRollout\FeatureRolloutService::class)->isOnRollout(auth()->user()?->effectiveAgencyId()))
+        <a href="{{ route('corex.new-and-coming.index') }}"
+           class="corex-nav-item {{ request()->routeIs('corex.new-and-coming.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
+            </svg>
+            <span>New and coming</span>
+        </a>
+        @endif
+
         @endpermission {{-- /sidebar.section.tools --}}
 
         {{-- ═══════════════════════════════════════════
              ADMIN SECTION (agency-level admins — BMs, super_admin)
              ═══════════════════════════════════════════ --}}
         @permission('sidebar.section.admin')
-        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_knowledge_base', 'manage_reference_sources', 'access_role_manager', 'assistants.view', 'access_finance_engine', 'access_settings', 'access_soft_deletes', 'manage_staff_take_on', 'marketing_suppressions.view', 'manage_payroll', 'run_payroll', 'view_payroll_reports']))
+        @if($user && $user->hasAnyPermission(['manage_performance_settings', 'access_knowledge_base', 'manage_reference_sources', 'access_role_manager', 'assistants.view', 'access_finance_engine', 'access_settings', 'access_soft_deletes', 'manage_staff_take_on', 'marketing_suppressions.view', 'manage_payroll', 'run_payroll', 'view_payroll_reports', 'desk.support']))
         <div class="corex-nav-divider"></div>
         <div class="corex-nav-section-label">Admin</div>
 
@@ -2679,6 +2706,42 @@
         </div>
         @endif
 
+        {{-- Desk (slide-panel group, Admin) - CoreX Desk: the support console, the sessions log, and its setting. Johan's ruling 27 Oct 2026.
+             The group shows to anyone who may run Desk (desk.support) or read the log (manage_users, an agency admin's own agency); each child
+             keeps its own gate. Spec .ai/specs/corex-desk.md section 12. --}}
+        @if($user && $user->hasAnyPermission(['desk.support', 'manage_users']))
+        <div>
+            <button type="button" @click="push('desk')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'desk' ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
+                </svg>
+                <span>Desk</span>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div class="corex-nav-panel {{ $activeGroup === 'desk' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('desk') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Desk</div>
+
+                @permission('desk.support')
+                <a href="{{ route('corex.desk.console') }}" class="corex-nav-subitem {{ request()->routeIs('corex.desk.console') ? 'active' : '' }}">Desk console</a>
+                @endpermission
+
+                {{-- The audit of every session: an agency admin reads their own agency's, owner roles every agency's --}}
+                <a href="{{ route('corex.desk.log.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.desk.log.*') ? 'active' : '' }}">Desk sessions</a>
+
+                {{-- The agency's own switch + take-over idle limit live in Company Settings --}}
+                @permission('manage_performance_settings')
+                <a href="{{ route('admin.company-settings') }}#desk" class="corex-nav-subitem">Desk settings</a>
+                @endpermission
+            </div>
+        </div>
+        @endif
+
         {{-- Settings (slide-panel group) — Settings page + Features page + Users. Johan 2026-10-12: Features moved out of the
              Settings page into its own page, and both now live under one "Settings" sub menu. Each child keeps its OWN
              permission (Settings = access_settings, Features = agency_features.manage, Users = manage_users,
@@ -2709,6 +2772,11 @@
 
                 @permission('agency_features.manage')
                 <a href="{{ route('corex.features.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.features.*') ? 'active' : '' }}">Features</a>
+                @endpermission
+
+                {{-- AT-478 — the agency's own gradual feature rollout (part of the Settings shell, like Features). --}}
+                @permission('manage_feature_rollout')
+                <a href="{{ route('corex.feature-rollout.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.feature-rollout.*') ? 'active' : '' }}">Feature rollout</a>
                 @endpermission
 
                 {{-- Users — user management (/admin/users). Johan 2026-10-12: a dedicated entry in the Settings sub menu. --}}
@@ -2760,7 +2828,7 @@
                 <a href="{{ route('agencies.index') }}" class="corex-nav-subitem {{ request()->routeIs('agencies.*') ? 'active' : '' }}">Agency Management</a>
 
                 {{-- Agency Setup Progress — onboarding-wizard tracking board (owner-only) --}}
-                <a href="{{ route('admin.agency-setup-progress') }}" class="corex-nav-subitem {{ request()->routeIs('admin.agency-setup-progress') ? 'active' : '' }}">Agency Setup Progress</a>
+                <a href="{{ route('admin.agency-setup-progress') }}" class="corex-nav-subitem {{ request()->routeIs('admin.agency-setup-progress', 'admin.agency-setup-progress.*') ? 'active' : '' }}">Agency Setup Progress</a>
 
                 {{-- AI Usage (MIC Phase B2) --}}
                 @permission('mic.view_ai_costs')
@@ -2855,9 +2923,9 @@
         </div>
 
         {{-- Dev Settings --}}
-        {{-- Agency timeline defaults (AT-447) is a Dev Settings page (spec §4.1) reached from the Dev Settings index, so its own
-             route family (admin.timeline-defaults.*, a sibling prefix, not admin.dev-settings.*) lights this item too. --}}
-        <a href="{{ route('admin.dev-settings.index') }}" class="corex-nav-item {{ request()->routeIs('admin.dev-settings.*', 'admin.timeline-defaults.*') ? 'active' : '' }}">
+        {{-- Agency timeline defaults (AT-447) and Feature rollout defaults (AT-478) are Dev Settings pages reached from the Dev Settings
+             index, so their own route families (sibling prefixes, not admin.dev-settings.*) light this item too. --}}
+        <a href="{{ route('admin.dev-settings.index') }}" class="corex-nav-item {{ request()->routeIs('admin.dev-settings.*', 'admin.timeline-defaults.*', 'admin.feature-rollout-defaults.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6.429 9.75 2.25 12l4.179 2.25m0-4.5 5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0 4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0-5.571 3-5.571-3" />
             </svg>

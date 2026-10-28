@@ -86,6 +86,9 @@
                     ($u && $u->hasPermission('agency_setup.run'))
                         ? ['key'=>'agency-setup', 'label'=>'Setup Guide', 'type'=>'link', 'href'=>route('corex.agency-setup.index'), 'keywords'=>'onboarding wizard guided introduction getting started']
                         : null,
+                    ($u && $u->hasPermission('manage_feature_rollout'))
+                        ? ['key'=>'feature-rollout', 'label'=>'Feature rollout', 'type'=>'link', 'href'=>route('corex.feature-rollout.index'), 'keywords'=>'gradual introduction new features switch on groups waves weekdays pause tours overwhelm']
+                        : null,
                     ['key'=>'company',               'label'=>'Company Settings',      'type'=>'link', 'href'=>route('admin.company-settings'), 'keywords'=>'trading name address logo branches assignments performance vat'],
                     ($u && $u->hasPermission('manage_performance_settings'))
                         ? ['key'=>'company-other-agency-stock', 'label'=>'Other Agency Stock', 'type'=>'link', 'href'=>route('admin.company-settings') . '#other-agency-stock', 'keywords'=>'company settings imported stock another agency who can see consent wording import property24 private property']
@@ -362,7 +365,7 @@
                         </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">VAT No</label>
-                            <input type="text" name="vat_no" value="{{ old('vat_no', $agency->vat_no) }}"
+                            <input data-desk-mask type="text" name="vat_no" value="{{ old('vat_no', $agency->vat_no) }}"
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
                                    placeholder="e.g. 4123456789">
@@ -1503,7 +1506,7 @@
                         <div class="grid grid-cols-3 gap-3">
                             <div>
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">ID Number</label>
-                                <input type="text" name="id_number" class="w-full px-2 py-1.5 text-sm border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
+                                <input data-desk-mask type="text" name="id_number" class="w-full px-2 py-1.5 text-sm border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Cell</label>
@@ -1703,7 +1706,7 @@
                         <div class="grid grid-cols-3 gap-3">
                             <div>
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">ID Number</label>
-                                <input type="text" name="id_number" class="w-full px-2 py-1.5 text-sm border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
+                                <input data-desk-mask type="text" name="id_number" class="w-full px-2 py-1.5 text-sm border rounded" style="border-color:var(--border); background:var(--surface); color:var(--text-primary);">
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Cell</label>

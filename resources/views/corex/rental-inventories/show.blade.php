@@ -46,14 +46,15 @@
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-        <div>
+        <div data-tour="rmnt-invd-title">
             <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Inventory — {{ $inventory->property?->buildDisplayAddress() ?? 'Unknown property' }}</h1>
             <p class="text-xs mt-0.5" style="color: var(--text-muted);">
                 <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst(str_replace('_', ' ', $inventory->status)) }}</span>
                 Started {{ $inventory->created_at?->format('Y-m-d') }} by {{ $inventory->createdBy?->name ?? '—' }}
             </p>
         </div>
-        <div class="flex flex-wrap items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2" data-tour="rmnt-invd-actions">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             @if($inventory->status === \App\Models\RentalInventory::STATUS_COMPLETED && $inventory->lease_id)
                 <a href="{{ route('corex.rental-inventories.comparison', $inventory) }}" class="corex-btn-outline text-xs">Move-out comparison</a>
             @endif
@@ -79,7 +80,7 @@
          report route; the confirm popover lists real recipients (straight
          off distributionRecipients(), server-computed) before sending. --}}
     @if($inventory->status === \App\Models\RentalInventory::STATUS_COMPLETED)
-        <div class="flex items-center gap-2 flex-wrap">
+        <div class="flex items-center gap-2 flex-wrap" data-tour="rmnt-invd-report">
             <a href="{{ route('corex.rental-inventories.report', $inventory) }}" target="_blank" rel="noopener" class="corex-btn-outline text-xs">
                 Download report
             </a>
@@ -143,7 +144,7 @@
     @endif
 
     {{-- Header: owner/tenants — display only, pulled from the same relations §17's header block already uses. --}}
-    <div class="rounded-md p-4 grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-sm" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-4 grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-sm" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-invd-parties">
         <div><span style="color: var(--text-muted);">{{ $ownerPartyLabel }}:</span> {{ optional($inventory->property?->sellerOwnerContact())->full_name ?? '—' }}</div>
         @foreach($inventory->lease?->tenants ?? [] as $idx => $tenant)
             <div><span style="color: var(--text-muted);">{{ $tenantPartyLabel }} {{ $idx + 1 }}:</span> {{ $tenant->contact?->full_name ?? '—' }}</div>
@@ -152,7 +153,7 @@
     </div>
 
     {{-- Lines, grouped by room — quantity + free-text description, per Johan's real document. --}}
-    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-invd-items">
         <h2 class="text-sm font-semibold">Items</h2>
 
         {{-- Every real space the property has, whatever its state — the
@@ -215,7 +216,7 @@
 
         @permission('rental_inventories.create')
         @if(!in_array($inventory->status, ['completed', 'cancelled']))
-        <form method="POST" action="{{ route('corex.rental-inventories.lines.store', $inventory) }}" class="grid grid-cols-1 sm:grid-cols-6 gap-2 pt-2" style="border-top: 1px solid var(--border);">
+        <form method="POST" action="{{ route('corex.rental-inventories.lines.store', $inventory) }}" data-tour="rmnt-invd-additem" class="grid grid-cols-1 sm:grid-cols-6 gap-2 pt-2" style="border-top: 1px solid var(--border);">
             @csrf
             <input type="text" name="room_label" required placeholder="Room (e.g. Lounge)" list="room-labels" class="prop-input sm:col-span-2">
             <datalist id="room-labels">
@@ -231,7 +232,7 @@
 
     {{-- Signatures — same rendering rule as rental-inspections.md §15.5: branches on
          disposition alone, a refused row never presentable as a signature. --}}
-    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-invd-signatures">
         <h2 class="text-sm font-semibold">Signatures</h2>
 
         {{-- Conductor brief 2026-09-29 — only LIVE (non-superseded) rows:
@@ -308,7 +309,7 @@
 
         @permission('rental_inventories.create')
         @if(!in_array($inventory->status, ['completed', 'cancelled']))
-        <div class="space-y-2 pt-2">
+        <div class="space-y-2 pt-2" data-tour="rmnt-invd-sign">
             {{-- Johan, 2026-09-28 — "shows the signatures block TWICE (once
                  with dates, once without)." A party who already has a
                  disposition has their FULL record (date, signature image,
@@ -448,7 +449,7 @@
                     </ul>
                 </template>
             </div>
-            <div class="flex justify-end">
+            <div class="flex justify-end" data-tour="rmnt-invd-complete">
                 <button type="button" @click="completeInventory()" class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button,#0ea5e9);">Complete</button>
             </div>
         </div>
@@ -463,7 +464,7 @@
          via their public link (rental-inventories.public.show), never
          here — this panel only sends that link and shows status. --}}
     @if($inventory->buyerAcceptanceOfferedFor())
-    <div class="rounded-md p-4 space-y-3" x-data="rentalInventoryBuyerAcceptances({{ $inventory->id }})" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-4 space-y-3" x-data="rentalInventoryBuyerAcceptances({{ $inventory->id }})" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-invd-buyer">
         <h2 class="text-sm font-semibold">Buyer acceptance</h2>
         <p class="text-xs" style="color: var(--text-muted);">Optional — a signature of acceptance from the buyer(s) on the accepted offer, for what they get in the sale.</p>
 
@@ -502,7 +503,7 @@
 
     @permission('rental_inventories.create')
     @if(!in_array($inventory->status, ['completed', 'cancelled']))
-    <form method="POST" action="{{ route('corex.rental-inventories.cancel', $inventory) }}" data-confirm="Cancel this inventory?" data-confirm-danger data-confirm-label="Cancel" class="pt-2">
+    <form method="POST" action="{{ route('corex.rental-inventories.cancel', $inventory) }}" data-confirm="Cancel this inventory?" data-confirm-danger data-confirm-label="Cancel" class="pt-2" data-tour="rmnt-invd-cancel">
         @csrf
         <input type="hidden" name="cancel_reason" value="Cancelled by agent">
         <button type="submit" class="text-xs" style="color: var(--ds-crimson,#c41e3a); background:none; border:none; cursor:pointer;">Cancel this inventory</button>

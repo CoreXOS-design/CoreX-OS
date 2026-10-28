@@ -818,6 +818,12 @@ class TemplateController extends Controller
                 'document_look' => \App\Support\Docuperfect\DocumentLook::normalise(
                     $request->input('document_look', $draft->settings['document_look'] ?? null)
                 ),
+                // Signature block (Template Settings): "from document" when the Word file brings its own signature places.
+                'signature_block' => \App\Support\Docuperfect\SignatureBlock::resolve(
+                    $request->input('signature_block', $draft->settings['signature_block'] ?? null),
+                    $draft->tagged_html,
+                    ! $draft->source_template_id
+                ),
             ],
         ];
 
@@ -870,6 +876,11 @@ class TemplateController extends Controller
             // platform-wide flag.
             $templateData['is_global'] = false;
             $templateData['agency_id'] = $user->effectiveAgencyId();
+            // A Word file that carries its own letterhead (a logo picture or a running page header) IS the letterhead:
+            // a new template starts with the agency block off ("none"); the setting stays the person's to change.
+            if (! empty($draft->cds_json['images']) || ! empty($draft->cds_json['page_header']['lines'])) {
+                $templateData['header_display'] = 'none';
+            }
             $template = Template::create($templateData);
         }
 
@@ -947,7 +958,8 @@ class TemplateController extends Controller
             $template->signing_parties,
             $draft->tagged_html,
             $draft->tags ?? [],
-            \App\Support\Docuperfect\DocumentLook::fromState($template->editor_state)
+            \App\Support\Docuperfect\DocumentLook::fromState($template->editor_state),
+            \App\Support\Docuperfect\SignatureBlock::fromState($template->editor_state)
         );
         $template->update(['blade_view' => $bladeView]);
 
@@ -1163,11 +1175,14 @@ class TemplateController extends Controller
         ?array $signingParties = null,
         ?string $taggedHtml = null,
         ?array $tags = null,
-        string $documentLook = \App\Support\Docuperfect\DocumentLook::STANDARD
+        string $documentLook = \App\Support\Docuperfect\DocumentLook::STANDARD,
+        string $signatureBlock = \App\Support\Docuperfect\SignatureBlock::COREX
     ): string {
         // Determine document body HTML
         if (!empty($taggedHtml)) {
-            $html = $this->processTaggedHtmlToBladeBody($taggedHtml, $fieldMappings);
+            // Untrusted document text (Word import / builder edits) is made inert ONCE here, before the generator adds
+            // its own trusted {{ $var }} merge fields and @include directives below.
+            $html = $this->processTaggedHtmlToBladeBody(\App\Support\Docuperfect\BladeSafe::neutralise($taggedHtml), $fieldMappings);
         } else {
             // Legacy path: render from CDS JSON
             $filteredCds = $cds;
@@ -1196,7 +1211,7 @@ class TemplateController extends Controller
             }
 
             $renderer = app(CdsRendererService::class);
-            $rawHtml = $renderer->render($filteredCds);
+            $rawHtml = \App\Support\Docuperfect\BladeSafe::neutralise($renderer->render($filteredCds));
 
             // Replace CDS inline signature sections with Blade signature-line includes.
             // Each corex-signature-block within an inline section becomes a per-party include.
@@ -1211,7 +1226,7 @@ class TemplateController extends Controller
                     if (!empty($parties)) {
                         $includes = [];
                         foreach ($parties as $p) {
-                            $includes[] = '@include("docuperfect.web-templates.components.signature-line", [\'party\' => \'' . addslashes($p) . '\'])';
+                            $includes[] = '@include("docuperfect.web-templates.components.signature-line", [\'party\' => \'' . addslashes(preg_replace('/[^\w\- ]/', '', (string) $p)) . '\'])';
                         }
                         return implode("\n", $includes);
                     }
@@ -1229,7 +1244,7 @@ class TemplateController extends Controller
                         $party = $pm[1];
                     }
                     if ($party) {
-                        return '@include("docuperfect.web-templates.components.signature-line", [\'party\' => \'' . addslashes($party) . '\'])';
+                        return '@include("docuperfect.web-templates.components.signature-line", [\'party\' => \'' . addslashes(preg_replace('/[^\w\- ]/', '', (string) $party)) . '\'])';
                     }
                     return '@include("docuperfect.web-templates.components.signature-line")';
                 },
@@ -1243,7 +1258,7 @@ class TemplateController extends Controller
                         $party = $pm[1];
                     }
                     if ($party) {
-                        return '@include("docuperfect.web-templates.components.initials-line", [\'party\' => \'' . addslashes($party) . '\'])';
+                        return '@include("docuperfect.web-templates.components.initials-line", [\'party\' => \'' . addslashes(preg_replace('/[^\w\- ]/', '', (string) $party)) . '\'])';
                     }
                     return '@include("docuperfect.web-templates.components.initials-line")';
                 },
@@ -1271,7 +1286,7 @@ class TemplateController extends Controller
         }
 
         // Build the blade template wrapper
-        $title = e($cds['title'] ?? $templateName);
+        $title = \App\Support\Docuperfect\BladeSafe::neutraliseText(e($cds['title'] ?? $templateName));
 
         $blade = <<<'BLADE'
 <!DOCTYPE html>
@@ -1290,7 +1305,7 @@ BLADE;
         $blade .= '<div class="corex-page">' . "\n\n";
         $blade .= '@include("docuperfect.web-templates.components.company-header")' . "\n\n";
 
-        $blade .= $html . "\n\n";
+        $blade .= $this->frameMergeFieldsToBlade($html) . "\n\n";
 
         // Signature block — use the authoritative sales/rental classifier
         // (category/template_type aware) so a sales CDS template bakes
@@ -1332,7 +1347,10 @@ BLADE;
 
         $partiesPhp = '["' . implode('", "', $displayParties) . '"]';
         $witnessPhp = $showWitness ? ', "show_witness" => true' : '';
-        $blade .= '@include("docuperfect.web-templates.components.signature-block", ["parties" => ' . $partiesPhp . $witnessPhp . '])' . "\n\n";
+        // "From document": the Word file's own signature table carries the signature places; CoreX's generic block is not appended.
+        if ($signatureBlock !== \App\Support\Docuperfect\SignatureBlock::DOCUMENT) {
+            $blade .= '@include("docuperfect.web-templates.components.signature-block", ["parties" => ' . $partiesPhp . $witnessPhp . '])' . "\n\n";
+        }
 
         $blade .= "</div>\n</div>\n\n";
         $blade .= "</body>\n</html>\n";
@@ -1356,6 +1374,26 @@ BLADE;
      * variable name derivation as WebTemplateDataService::resolve().
      * Signature/initial tags become @include directives.
      */
+    /**
+     * The merge chips a Word running header was mapped to on import (CdsParserService::frameMergeFields: property, surname, year)
+     * become each document's own values, so the header never prints a previous tenant's details. A value the document does not
+     * carry prints nothing (the year falls back to the current year). Variables come from WebTemplateDataService's base data.
+     */
+    private function frameMergeFieldsToBlade(string $html): string
+    {
+        $expressions = [
+            'property' => "{{ \$property_address ?? '' }}",
+            'surname' => "{{ \$lessee_last_name ?? (\$seller_last_name ?? '') }}",
+            'year' => "{{ !empty(\$lease_start) ? date('Y', strtotime(\$lease_start)) : date('Y') }}",
+        ];
+
+        return (string) preg_replace_callback(
+            '/<span class="corex-merge" data-merge="(property|surname|year)">.*?<\/span>/s',
+            fn ($m) => $expressions[$m[1]],
+            $html
+        );
+    }
+
     private function processTaggedHtmlToBladeBody(string $taggedHtml, array $mappings): string
     {
         // Pre-load all NamedFields referenced by mappings
@@ -1694,7 +1732,8 @@ BLADE;
             $template->signing_parties,
             $taggedHtml,
             $editorState['tags'] ?? [],
-            \App\Support\Docuperfect\DocumentLook::fromState($editorState)
+            \App\Support\Docuperfect\DocumentLook::fromState($editorState),
+            \App\Support\Docuperfect\SignatureBlock::fromState($editorState)
         );
         $template->blade_view = $bladeView;
         $template->save();
@@ -1779,6 +1818,7 @@ BLADE;
 
         // Pass header_display so company-header component respects template setting
         $viewData['header_display'] = $template->header_display ?? 'first_page';
+        $viewData['header_render_key'] = \Illuminate\Support\Str::random(16); // letterhead 'first_page' is counted per render
 
         // Blank-preview fix: regenerate the generated blade if its file is missing,
         // and never blank on a render failure (stored-HTML fallback).

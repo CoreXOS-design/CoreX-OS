@@ -100,7 +100,7 @@ final class MergedHtmlFreshnessGuard
             if (!empty($template->signing_parties)) {
                 $viewData['signing_parties'] = $template->signing_parties;
             }
-            $fullHtml = view(app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->ensure($template), $viewData)->render();
+            $fullHtml = view(app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->ensure($template), $viewData + $template->headerDisplayViewData())->render();
             $bodyHtml = $this->extractBodyFragment($fullHtml);
             $document->update([
                 'web_template_data' => array_merge(

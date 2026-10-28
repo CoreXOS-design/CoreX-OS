@@ -5,13 +5,14 @@
 
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3" data-tour="rops-bc-intro">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Breach notice</h1>
                 <p class="text-xs" style="color: var(--text-muted);">{{ $lease->property?->buildDisplayAddress() ?: ('Lease #' . $lease->id) }}</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
                 @include('corex.breaches._templates-link')
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             </div>
         </div>
     </div>
@@ -37,9 +38,9 @@
         @php
             $chosen = $templates->firstWhere('id', (int) old('rental_notice_template_id')) ?? $templates->firstWhere('id', (int) ($chosenTemplateId ?? 0)) ?? $templates->first();
         @endphp
-        <form method="POST" action="{{ route('corex.leases.breaches.store', $lease) }}" class="rounded-md px-5 pb-5 pt-1 space-y-4" style="background: var(--surface); border: 1px solid var(--border);" data-qa="breach-form">
+        <form method="POST" action="{{ route('corex.leases.breaches.store', $lease) }}" class="rounded-md px-5 pb-5 pt-1 space-y-4" style="background: var(--surface); border: 1px solid var(--border);" data-qa="breach-form" data-tour="rops-bc-form">
             @csrf
-            <div>
+            <div data-tour="rops-bc-template">
                 <label class="prop-label" for="breach-template">Template</label>
                 <select name="rental_notice_template_id" id="breach-template" required class="prop-select" style="max-width: 28rem;" data-qa="breach-template">
                     @foreach($templates as $t)
@@ -47,35 +48,35 @@
                     @endforeach
                 </select>
             </div>
-            <div id="grp-payment" data-qa="breach-payment-fields">
+            <div id="grp-payment" data-qa="breach-payment-fields" data-tour="rops-bc-amount">
                 <label class="prop-label" for="breach-amount">Amount outstanding (R)</label>
                 <input type="text" name="amount" id="breach-amount" value="{{ old('amount') }}" inputmode="decimal" class="prop-input" style="max-width: 12rem;" placeholder="e.g. 9 500.00" data-qa="breach-amount">
                 <p class="text-xs mt-1" style="color: var(--text-muted);">A payment breach is always against the tenant.</p>
             </div>
-            <div id="grp-other-party" data-qa="breach-party-field">
+            <div id="grp-other-party" data-qa="breach-party-field" data-tour="rops-bc-party">
                 <label class="prop-label">Who is in breach</label>
                 <select name="breach_party" class="prop-select" style="max-width: 20rem;">
                     <option value="tenant" @selected(old('breach_party', 'tenant') === 'tenant')>The tenant ({{ $lease->tenantNames() }})</option>
                     <option value="landlord" @selected(old('breach_party') === 'landlord')>The landlord ({{ $lease->landlordNames() }})</option>
                 </select>
             </div>
-            <div>
+            <div data-tour="rops-bc-clause">
                 <label class="prop-label">Lease clause breached (quote it)</label>
                 {{-- AT-462 - starts from the chosen template's saved clause block; the agent edits it to quote the clause actually breached --}}
                 <textarea name="clause" id="breach-clause" rows="6" maxlength="3000" class="prop-textarea" placeholder="e.g. 9.2 The tenant shall keep the swimming pool clean and in working order" data-qa="breach-clause">{{ old('clause', $chosen?->default_clause) }}</textarea>
             </div>
-            <div id="grp-other-reason" data-qa="breach-reason-field">
+            <div id="grp-other-reason" data-qa="breach-reason-field" data-tour="rops-bc-reason">
                 <label class="prop-label">What the breach is</label>
                 <textarea name="reason" rows="3" maxlength="3000" class="prop-textarea" placeholder="e.g. The pool has not been maintained and is green">{{ old('reason') }}</textarea>
             </div>
-            <details class="text-xs" style="color: var(--text-muted);">
+            <details class="text-xs" style="color: var(--text-muted);" data-tour="rops-bc-figures">
                 <summary class="cursor-pointer">Extra figures your template needs (one per line as name=value) and the placeholders filled for you</summary>
                 <textarea name="figures_raw" rows="3" class="prop-textarea mt-2">{{ old('figures_raw') }}</textarea>
                 <ul class="list-disc list-inside mt-1">@foreach($placeholders as $k => $label)<li><code>&#123;&#123;{{ $k }}&#125;&#125;</code> - {{ $label }}</li>@endforeach</ul>
             </details>
             <div class="flex flex-wrap gap-2 pt-1">
-                <button type="submit" name="intent" value="preview" class="corex-btn-outline text-xs">Preview</button>
-                <button type="submit" name="intent" value="send" class="corex-btn-primary text-xs" onclick="return confirm('Send this breach notice now?')">Send breach notice</button>
+                <button type="submit" name="intent" value="preview" class="corex-btn-outline text-xs" data-tour="rops-bc-preview">Preview</button>
+                <button type="submit" name="intent" value="send" class="corex-btn-primary text-xs" data-tour="rops-bc-send" onclick="return confirm('Send this breach notice now?')">Send breach notice</button>
                 <a href="{{ route('corex.leases.show', $lease) }}" class="corex-btn-outline text-xs">Cancel</a>
             </div>
         </form>

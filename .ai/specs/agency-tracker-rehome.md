@@ -356,6 +356,7 @@ A new top-level group "Deals" (declare per SB mechanics: `<button @click="push('
 
 Remove: #5, #9, #10, #11, #19, #20 from Agency Tracker (SB:1758, 1776, 1779, 1828, 1952, 1955). Remove the matchers SB:115, 120, 126 from `agency-tracker` and add them under `deals`. The disabled `deals-v2` group (SB:2939-2990, `@if(false …)` at :2945) and `app/Support/Navigation/SidebarFeatureCoverage.php:57-66` (lists `deals-v2` and `deal-register-settings` as platform groups, "retired Deals menu") must be reconciled — the lane checks that file before relying on it: the "Deal Register Settings" block is live (SB:3061) despite that list.
 Feature wrap: the `deals` feature is core (cannot be off), so no new flag is needed for the group; nav permission `view_deals`.
+**Superseded 2026-10-28 (QA2 -> Staging merge, AT-478 §3.3):** Deals is now switchable, on by default. The whole Deals main menu sits in `@feature('deals')`; every agency that has Deals today keeps it. The Supplier Directory stays reachable for Rentals through the Maintenance menu (`SidebarFeatureCoverage` exempts `deals-v2.suppliers.index` as a shared directory).
 
 ### 8.3 Retiring the old register and renaming DR2 — the spec
 
@@ -377,7 +378,7 @@ Because the data is already shared (finding 1), "migration" has three parts, eac
 - POST routes (`store`, `update`, `quickUpdate`, `remark`, `settle.save`) get a 308 (method-preserving) redirect only if the lane proves a caller still posts to them; otherwise 410/405 with a message. Never a silent 404.
 - Permissions: `create_deals`/`view_deals`/`settle_deals` unchanged (`config/corex-permissions.php:58-60`). The in-controller `deals.view/create` aborts (`Admin/DealController.php:55, 79, 99`; `Dr2/DealRegisterController.php:60`) are separate keys — the lane lists them in its report so the rename does not strand a role.
 - **Rename:** label "Deal Register (DR2)" → "Deal Register" everywhere; keep the `deals-dr2.*` route names and `/deals-dr2` URLs for now (changing 121 view lines + 34 controller lines + hardcoded `url('deals-dr2/…')` is churn with no business value). If Johan wants the URL changed later it is a separate 301 step. The hard-coded `url('deals-dr2/unfiled-emails')` and `url('deals-dr2/communications')` (`dr2/unfiled-emails.blade.php:109, 153, 172, 184`, `dr2/_communications.blade.php:18`, `dr2/pipeline-timeline.blade.php:241`, `dr2/pipeline-list.blade.php:214`) must be listed in the report so they are tested.
-- DR1 soft-retirement: views `resources/views/admin/deals/*` stay in the repo (never deleted), unreachable from menu and redirected. A feature-off switch is **not** available for `deals` (core) — the redirect is the retirement.
+- DR1 soft-retirement: views `resources/views/admin/deals/*` stay in the repo (never deleted), unreachable from menu and redirected. A feature-off switch is **not** available for `deals` (core) — the redirect is the retirement. (Since 2026-10-28 `deals` is switchable per AT-478 §3.3; the DR1 redirect is still the retirement.)
 
 ### 8.4 Deal settings (bottom of Deals, admin-only)
 

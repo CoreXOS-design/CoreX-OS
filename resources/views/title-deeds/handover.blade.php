@@ -65,7 +65,7 @@
         showUrl: @js(route('title-deeds.show', $deed->id)),
      })">
 
-    <div class="rounded-md px-5 py-4 corex-page-banner">
+    <div class="rounded-md px-5 py-4 corex-page-banner" data-tour="rpt-tdh-head">
         <a href="{{ route('title-deeds.show', $deed->id) }}" class="text-xs font-semibold" style="color: var(--brand-icon);">&larr; Back to the record</a>
         <h1 class="text-base font-bold leading-tight mt-1" style="color: var(--text-primary);">Hand over: {{ $deed->reference }} &mdash; {{ $deed->property_display }}</h1>
         <div class="text-sm" style="color: var(--text-secondary);">{{ collect($owners)->pluck('name')->implode(', ') }}</div>
@@ -148,7 +148,7 @@
 @else
     {{-- How is it being handed over? Spelled as the situation at the counter. A way that is Not used (or ruled out by a Required PIN) is not shown at all. --}}
     @if($tabs->count() > 1)
-    <div class="grid gap-2 text-sm {{ $tabs->count() === 3 ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2' }}" role="tablist" aria-label="Who is at the counter">
+    <div class="grid gap-2 text-sm {{ $tabs->count() === 3 ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2' }}" role="tablist" aria-label="Who is at the counter" data-tour="rpt-tdh-ways">
         @foreach($tabs as $key => $label)
         <button type="button" class="rounded-md px-3 py-3 font-semibold text-left" role="tab" :aria-selected="mode === '{{ $key }}'" :style="mode === '{{ $key }}' ? 'background: var(--brand-icon); color: #fff;' : 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);'" @click="mode = '{{ $key }}'">{{ $label }}</button>
         @endforeach
@@ -255,7 +255,7 @@
     {{-- The handover itself --}}
     <form method="POST" action="{{ route('title-deeds.handover.submit', $deed->id) }}" enctype="multipart/form-data" id="handover-form"
           class="rounded-md p-4 space-y-4" style="background: var(--surface); border: 1px solid var(--border);"
-          @submit="beforeSubmit($event)">
+          @submit="beforeSubmit($event)" data-tour="rpt-tdh-form">
         @csrf
         <input type="hidden" name="_form_token" value="{{ $tokens['handover'] }}">
         <input type="hidden" name="method" :value="mode">
@@ -274,7 +274,7 @@
             @elseif($pin['locked'])
                 <div class="text-sm" style="color: var(--ds-crimson);">The PIN is locked after too many wrong attempts. Issue a new PIN from the record.</div>
             @else
-                <div>
+                <div data-tour="rpt-tdh-pin">
                     <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="pin">PIN from the owner</label>
                     <input id="pin" name="pin" type="text" inputmode="numeric" autocomplete="off" maxlength="12" class="{{ $input }} tracking-widest" style="{{ $inputStyle }}" :required="mode === 'pin'">
                     @if($pin['attempts'])<div class="text-xs mt-1" style="color: var(--text-muted);">{{ $pin['attempts'] }} wrong {{ $pin['attempts'] === 1 ? 'attempt' : 'attempts' }} so far; it locks at {{ $pin['limit'] }}.</div>@endif
@@ -301,7 +301,7 @@
 
         {{-- Which owner (PIN as owner, or ID check) --}}
         <div x-show="(mode === 'pin' && collectorType === 'owner') || mode === 'id_check'" x-cloak class="space-y-3">
-            <div>
+            <div data-tour="rpt-tdh-owner">
                 <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="collector_contact_id">Owner collecting</label>
                 <select id="collector_contact_id" name="collector_contact_id" class="{{ $input }}" style="{{ $inputStyle }}" :required="(mode === 'pin' && collectorType === 'owner') || mode === 'id_check'">
                     @if(count($owners) > 1)<option value="">Choose&hellip;</option>@endif
@@ -324,7 +324,7 @@
 
         {{-- Photo of the collector's ID (Required / Optional; Not used = not shown) --}}
         @if($p->photoUsed())
-        <div>
+        <div data-tour="rpt-tdh-photo">
             <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="collector_id_photo">Photo of the collector's ID{{ $photoNote }}</label>
             <input id="collector_id_photo" name="collector_id_photo" type="file" accept="image/*,.pdf" capture="environment" @if($p->photoRequired()) required @endif class="block w-full text-sm" style="color: var(--text-secondary);">
         </div>
@@ -332,7 +332,7 @@
 
         {{-- Signature: Required / Optional on this screen; "Not used" or "sign on our screen = No" = no box at all --}}
         @if($p->signatureUsed() && $p->signOnScreen)
-        <div class="space-y-3">
+        <div class="space-y-3" data-tour="rpt-tdh-sign">
             <div>
                 <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="typed_name">Collector's full name{{ $p->signatureRequired() ? '' : ' (optional)' }}</label>
                 <input id="typed_name" name="typed_name" type="text" maxlength="191" autocomplete="off" value="{{ old('typed_name') }}" class="{{ $input }}" style="{{ $inputStyle }}">
@@ -351,7 +351,7 @@
         @endif
 
         @if($signByLink)
-        <details class="rounded-md p-3" style="background: var(--surface-2); border: 1px solid var(--border);" @if(($errors->any() && old('send_email')) || ! $p->signOnScreen) open @endif>
+        <details class="rounded-md p-3" style="background: var(--surface-2); border: 1px solid var(--border);" data-tour="rpt-tdh-link" @if(($errors->any() && old('send_email')) || ! $p->signOnScreen) open @endif>
             <summary class="text-sm font-semibold cursor-pointer" style="color: var(--text-primary);">{{ $p->signOnScreen ? 'Or: the collector signs on their own phone' : 'The collector signs on their own phone' }}</summary>
             <div class="mt-3 space-y-3">
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" x-show="mode === 'representative' || (mode === 'pin' && collectorType === 'representative')" x-cloak>
@@ -378,7 +378,7 @@
 
         <p class="text-sm" style="color: var(--ds-crimson);" x-show="clientError" x-cloak x-text="clientError" id="client-error"></p>
 
-        <button type="submit" id="handover-submit" class="corex-btn-primary w-full text-base py-3" :disabled="submitting || !canSubmit()" @if($blocked) disabled @endif>
+        <button type="submit" id="handover-submit" data-tour="rpt-tdh-submit" class="corex-btn-primary w-full text-base py-3" :disabled="submitting || !canSubmit()" @if($blocked) disabled @endif>
             <span x-text="submitting ? 'Saving…' : 'Hand the deed over'"></span>
         </button>
     </form>

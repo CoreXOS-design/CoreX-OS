@@ -3,15 +3,16 @@
 @section('corex-content')
 <div class="w-full space-y-5" x-data="deedRowActions({ returnTo: @js(request()->getRequestUri()) })">
 
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rpt-td-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Title Deeds</h1>
             <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @if($total > 0)
-                <a href="{{ route('title-deeds.export', request()->query()) }}" class="corex-btn-outline text-xs">Download as a spreadsheet (CSV)</a>
+                <a href="{{ route('title-deeds.export', request()->query()) }}" data-tour="rpt-td-export" class="corex-btn-outline text-xs">Download as a spreadsheet (CSV)</a>
                 @endif
                 @permission('title_deeds.create')
-                <a href="{{ route('title-deeds.create') }}" class="corex-btn-primary text-xs">Log a deed</a>
+                <a href="{{ route('title-deeds.create') }}" data-tour="rpt-td-new" class="corex-btn-primary text-xs">Log a deed</a>
                 @endpermission
             </div>
         </div>
@@ -26,7 +27,7 @@
         $keep = collect($filters)->filter(fn ($v) => $v !== null && $v !== '')->all();
         $tickSet = collect($ticks)->sort()->values()->all();
     @endphp
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-2" data-td-tiles>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-2" data-td-tiles data-tour="rpt-td-tiles">
         @foreach($tiles as $tile)
             @php
                 $active = collect($tile['ticks'])->sort()->values()->all() === $tickSet;
@@ -55,10 +56,10 @@
         @include('title-deeds._prepared-whatsapp', ['prepared' => $pendingWhatsapp, 'showProperty' => true])
     @endif
 
-    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rpt-td-filters">
         <form method="GET" action="{{ route('title-deeds.index') }}" class="flex flex-wrap items-end gap-3" id="td-filter-form">
             <input type="hidden" name="focus" value="">
-            <div class="flex-1 min-w-[220px]">
+            <div class="flex-1 min-w-[220px]" data-tour="rpt-td-search">
                 <label for="td-search" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
                 <input id="td-search" type="text" name="search" value="{{ $filters['search'] }}" maxlength="100"
                        placeholder="Reference, property, owner, attorney, collector"
@@ -82,7 +83,7 @@
                 </select>
             </div>
             @endif
-            <div>
+            <div data-tour="rpt-td-from">
                 <label for="td-from" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Received from</label>
                 <input id="td-from" type="date" name="from" value="{{ $filters['from'] }}" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
@@ -91,12 +92,12 @@
                 <input id="td-to" type="date" name="to" value="{{ $filters['to'] }}" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
             <div class="flex items-center gap-2">
-                <button type="submit" class="corex-btn-primary">Apply the filters</button>
+                <button type="submit" class="corex-btn-primary" data-tour="rpt-td-apply">Apply the filters</button>
                 @if($hasFilters)<a href="{{ route('title-deeds.index', ['show' => $ticks ?: ['']]) }}" class="text-xs font-semibold" style="color: var(--brand-icon);">Clear the filters</a>@endif
             </div>
 
             {{-- The kinds of title deed to show. Ticking one applies at once and opens its section. An empty show[] marks "nothing ticked". --}}
-            <fieldset class="w-full flex flex-wrap items-center gap-x-5 gap-y-2 pt-3" style="border-top: 1px solid var(--border);" data-td-ticks>
+            <fieldset class="w-full flex flex-wrap items-center gap-x-5 gap-y-2 pt-3" style="border-top: 1px solid var(--border);" data-td-ticks data-tour="rpt-td-ticks">
                 <legend class="sr-only">Show these title deeds</legend>
                 <span class="text-xs font-medium" style="color: var(--text-secondary);">Show:</span>
                 <input type="hidden" name="show[]" value="">

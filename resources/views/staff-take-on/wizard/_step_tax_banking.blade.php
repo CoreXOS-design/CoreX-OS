@@ -5,7 +5,7 @@
     @method('PATCH')
 
     <div class="space-y-4">
-        <div class="p-4 rounded-md" style="background:var(--surface); border:1px solid var(--border);">
+        <div class="p-4 rounded-md" style="background:var(--surface); border:1px solid var(--border);" data-tour="cop-stkw-step">
             <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-muted); letter-spacing:0.05em;">3. Tax Details</h4>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -28,9 +28,9 @@
                         @endforeach
                     </select></div>
                 <div><label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Branch Code</label>
-                    <input type="text" name="branch_code" value="{{ old('branch_code', $banking->branch_code ?? '') }}" maxlength="10" class="w-full px-3 py-2 text-sm rounded-md focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"></div>
+                    <input type="text" name="branch_code" data-desk-mask value="{{ old('branch_code', $banking->branch_code ?? '') }}" maxlength="10" class="w-full px-3 py-2 text-sm rounded-md focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"></div>
                 <div><label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Account Number</label>
-                    <input type="text" name="account_number" value="{{ old('account_number', $banking->account_number ?? '') }}" maxlength="30" class="w-full px-3 py-2 text-sm rounded-md focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"></div>
+                    <input type="text" name="account_number" data-desk-mask value="{{ old('account_number', $banking->account_number ?? '') }}" maxlength="30" class="w-full px-3 py-2 text-sm rounded-md focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"></div>
                 <div><label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Account Type</label>
                     <div class="flex gap-4 mt-1">
                         @foreach(['cheque'=>'Cheque','savings'=>'Savings','transmission'=>'Transmission'] as $v => $l)
@@ -53,6 +53,6 @@
             </div>
         </div>
 
-        <button type="submit" class="corex-btn-primary">Save & Continue</button>
+        <button type="submit" class="corex-btn-primary" data-tour="cop-stkw-save">Save & Continue</button>
     </div>
 </form>

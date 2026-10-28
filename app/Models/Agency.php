@@ -205,6 +205,8 @@ class Agency extends Model
         'viewing_pack_cover_phone',
         'viewing_pack_cover_accent_color',
         'trading_name',
+        'legal_name',        // the registered company line of the document footer (blank = trading name)
+        'document_website',  // the website line printed on documents - NOT website_url (that one drives the listing redirect)
         'tagline',
         'address',
         'phone',
@@ -249,6 +251,8 @@ class Agency extends Model
         'is_active',
         'is_demo',
         'require_external_access_authorization',
+        'desk_enabled', // CoreX Desk (.ai/specs/corex-desk.md section 6) - default ON
+        'desk_control_idle_minutes', // CoreX Desk phase 2 - how long an unused take-over lasts (default 5)
         'timezone', // audit 2026-10-20 (L7) - the agency's own timezone (IANA name); null = the application's
         'portal_show_agency_commission_totals',
         'dashboard_settings_mode',
@@ -469,6 +473,8 @@ class Agency extends Model
         'ss_show_complex_section' => 'boolean',
         'privacy_policy_published_at' => 'datetime',
         'require_external_access_authorization' => 'boolean',
+        'desk_enabled' => 'boolean',
+        'desk_control_idle_minutes' => 'integer',
         'portal_show_agency_commission_totals' => 'boolean',
         'split_branches_enabled' => 'boolean',
         'other_agency_stock_visible_roles' => 'array',

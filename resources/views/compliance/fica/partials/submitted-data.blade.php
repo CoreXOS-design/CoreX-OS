@@ -90,7 +90,7 @@
                                 <div>{{ $doc->file_name }}
                                     <a href="{{ $docLink($doc) }}" target="_blank" rel="noopener" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);" aria-label="View {{ $row['label'] }}">View</a>
                                     @if($canRemoveDocs)
-                                    <form method="POST" action="{{ route('compliance.fica.documents.remove', [$submission, $doc]) }}" onsubmit="return confirm('Remove this document? It will be archived — an admin can recover it.');" style="display:inline;">
+                                    <form method="POST" action="{{ route('compliance.fica.documents.remove', [$submission, $doc]) }}" onsubmit="return confirm('Remove this document? It will be archived and can be restored from Removed documents on this record.');" style="display:inline;">
                                         @csrf
                                         <button type="submit" class="text-xs font-medium" style="color:var(--ds-crimson,#c41e3a); background:none; border:none; cursor:pointer; padding:0; margin-left:8px;">Remove</button>
                                     </form>
@@ -148,7 +148,7 @@
                 <div class="text-sm break-words" style="color:var(--text-primary);">{{ $doc->file_name }}
                     <a href="{{ $docLink($doc) }}" target="_blank" rel="noopener" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);" aria-label="View {{ $doc->document_type_label }}">View</a>
                     @if($canRemoveDocs)
-                    <form method="POST" action="{{ route('compliance.fica.documents.remove', [$submission, $doc]) }}" onsubmit="return confirm('Remove this document? It will be archived — an admin can recover it.');" style="display:inline;">
+                    <form method="POST" action="{{ route('compliance.fica.documents.remove', [$submission, $doc]) }}" onsubmit="return confirm('Remove this document? It will be archived and can be restored from Removed documents on this record.');" style="display:inline;">
                         @csrf
                         <button type="submit" class="text-xs font-medium" style="color:var(--ds-crimson,#c41e3a); background:none; border:none; cursor:pointer; padding:0; margin-left:8px;">Remove</button>
                     </form>

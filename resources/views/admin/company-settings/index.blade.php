@@ -53,6 +53,7 @@
                 'branches'    => 'Branches',
                 'other-agency-stock' => 'Other Agency Stock',
                 'compliance'  => ($canManageBoard ?? false) ? 'Compliance' : null,
+                'desk'        => 'CoreX Desk',
                 'website'     => $websiteActive ? 'Website' : null,
                 'performance' => 'Performance',
             ]) as $key => $label)
@@ -103,6 +104,22 @@
                                placeholder="e.g. YOUR HORIZON HOME">
                     </div>
                     <div>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Registered company name (document footer)</label>
+                        <input type="text" name="legal_name" value="{{ old('legal_name', $agency->legal_name) }}" maxlength="255"
+                               class="w-full rounded-md px-3 py-2 text-sm"
+                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                               placeholder="e.g. Sunrise Rentals cc t/a Coastal Rentals">
+                        <p class="text-[11px] mt-1" style="color:var(--text-muted);">First part of the footer line on every document: "name | Reg No | PPRA Reg". Blank = the trading name.</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Website printed on documents</label>
+                        <input type="text" name="document_website" value="{{ old('document_website', $agency->document_website) }}" maxlength="255"
+                               class="w-full rounded-md px-3 py-2 text-sm"
+                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                               placeholder="e.g. www.coastalrentals.co.za">
+                        <p class="text-[11px] mt-1" style="color:var(--text-muted);">A printed line in the letterhead only - separate from the address your public listings use. Blank = no website line.</p>
+                    </div>
+                    <div>
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Registration No</label>
                         <input type="text" name="reg_no" value="{{ old('reg_no', $agency->reg_no) }}"
                                class="w-full rounded-md px-3 py-2 text-sm"
@@ -111,7 +128,7 @@
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">VAT No</label>
-                        <input type="text" name="vat_no" value="{{ old('vat_no', $agency->vat_no) }}"
+                        <input data-desk-mask type="text" name="vat_no" value="{{ old('vat_no', $agency->vat_no) }}"
                                class="w-full rounded-md px-3 py-2 text-sm"
                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                                placeholder="e.g. 4123456789">
@@ -856,7 +873,7 @@
 
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Banking details (shown as invoice notes)</label>
-                    <textarea name="bank_details" rows="4" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" placeholder="Bank, Account name, Account no, Branch code, Reference">{{ old('bank_details', $proformaSettings->bank_details) }}</textarea>
+                    <textarea data-desk-mask name="bank_details" rows="4" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" placeholder="Bank, Account name, Account no, Branch code, Reference">{{ old('bank_details', $proformaSettings->bank_details) }}</textarea>
                 </div>
 
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1217,7 +1234,7 @@
                                 </div>
                                 <div>
                                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">VAT No Override</label>
-                                    <input class="w-full rounded-md px-3 py-2 text-sm"
+                                    <input data-desk-mask class="w-full rounded-md px-3 py-2 text-sm"
                                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                                            name="vat_no" value="{{ old('vat_no', $branch->vat_no) }}"
                                            placeholder="e.g. 4123456789">
@@ -1421,6 +1438,49 @@
                 </form>
             </div>
             @endif
+        </div>
+
+        {{-- ============================================================
+             COREX DESK TAB — agency on/off for "Get help" (.ai/specs/corex-desk.md section 6). Same saver as the
+             Setup Wizard's access step (SettingsController::updateDesk).
+             ============================================================ --}}
+        <div x-show="activeTab === 'desk'" x-cloak class="space-y-6">
+            <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+                <h3 class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">CoreX Desk</h3>
+                <form method="POST" action="{{ route('corex.settings.desk') }}"
+                      x-data="{ on: {{ ($agency->desk_enabled ?? true) ? 'true' : 'false' }} }"
+                      class="p-4 rounded-md space-y-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                    @csrf
+                    <input type="hidden" name="return_fragment" value="desk">
+                    <input type="hidden" name="desk_enabled" value="0">
+                    <label class="flex items-start gap-3 cursor-pointer">
+                        <input type="checkbox" name="desk_enabled" value="1" x-model="on" class="mt-1 h-4 w-4 rounded">
+                        <span class="flex-1">
+                            <span class="block text-sm font-semibold" style="color:var(--text-primary);">Let my agents press Get help to share their CoreX window with CoreX support</span>
+                            <span class="block text-xs mt-1 leading-relaxed" style="color:var(--text-secondary);">
+                                <strong>ON</strong> (default): an agent presses <em>Get help</em>, reads a 6-digit code to CoreX support (usually on a phone call), and support sees that one CoreX window live and can point at and highlight things. Support can also ask to take control and click and type for the agent: the agent must press <em>Allow</em> every time, can stop it at any moment, and support needs the separate take-over permission. The agent can also share other Chrome tabs through the CoreX extension. Support never sees the desktop, files or tabs the agent has not shared, private fields (passwords, ID, tax and bank inputs) are hidden before anything is sent, and nothing from the screen is stored.<br>
+                                <strong>OFF</strong>: <em>Get help</em> only shows the CoreX support phone number.<br>
+                                Every session and every action is listed under Admin &rsaquo; Desk &rsaquo; Desk sessions.
+                            </span>
+                        </span>
+                    </label>
+                    <div>
+                        <label for="desk_control_idle_minutes" class="block text-sm font-semibold" style="color:var(--text-primary);">Take-over: end it after this many idle minutes</label>
+                        <span class="block text-xs mt-1 leading-relaxed" style="color:var(--text-secondary);">
+                            CoreX support can ask an agent to let them take control of the agent's window. The agent must press <em>Allow</em> every time and can take control back at any moment. If support does nothing for this long, control ends by itself.
+                        </span>
+                        <input id="desk_control_idle_minutes" type="number" name="desk_control_idle_minutes" min="{{ (int) config('desk.control_idle_minutes_min', 1) }}" max="{{ (int) config('desk.control_idle_minutes_max', 60) }}" step="1"
+                               value="{{ (int) ($agency->desk_control_idle_minutes ?: config('desk.control_idle_minutes_default', 5)) }}" class="mt-2 text-sm rounded-md px-2 py-1" style="width:6rem; border:1px solid var(--border); background:var(--surface); color:var(--text-primary);"> minutes
+                    </div>
+                    <div class="flex items-center justify-between gap-3 pt-2" style="border-top:1px solid var(--border);">
+                        <div class="text-xs" style="color:var(--text-muted);">
+                            Currently:
+                            <span class="font-semibold" :style="on ? 'color:var(--ds-green, #059669);' : 'color:var(--ds-amber, #f59e0b);'" x-text="on ? 'ON' : 'OFF'"></span>
+                        </div>
+                        <button type="submit" class="corex-btn-primary text-sm">Save</button>
+                    </div>
+                </form>
+            </div>
         </div>
 
         {{-- ============================================================
@@ -1846,7 +1906,7 @@ function companySettingsPage(initialId) {
         // back()/withFragment() always landed on Company regardless of which
         // tab the admin was actually on, since this page never read the hash
         // at all (unlike admin/agencies/create-edit.blade.php's same pattern).
-        activeTab: ['company', 'branding', 'branches', 'other-agency-stock', 'compliance', 'website', 'performance']
+        activeTab: ['company', 'branding', 'branches', 'other-agency-stock', 'compliance', 'desk', 'website', 'performance']
             .includes((window.location.hash || '').replace('#', ''))
             ? (window.location.hash || '').replace('#', '')
             : 'company',

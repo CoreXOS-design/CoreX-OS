@@ -17,28 +17,29 @@
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="rmnt-linklog-title">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Crew link log — {{ $crew->name }}</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Everything that has happened on this crew member's standing link: created, emailed or revoked by the office, and opened or used by the crew.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('corex.rental-crews.edit', $crew) }}" class="corex-btn-outline text-xs">&larr; Back to crew</a>
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('corex.rental-crews.edit', $crew) }}" class="corex-btn-outline text-xs" data-tour="rmnt-linklog-back">&larr; Back to crew</a>
             </div>
         </div>
     </div>
 
-    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);" data-tour="rmnt-linklog-filter">
     <form method="GET" action="{{ route('corex.rental-crews.link.events', $crew) }}" class="flex flex-wrap items-end gap-3">
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Show</label>
-            <select name="event" class="list-header-filter text-sm {{ filled($eventFilter) ? 'is-active' : '' }}">
+            <select name="event" data-tour="rmnt-linklog-event" class="list-header-filter text-sm {{ filled($eventFilter) ? 'is-active' : '' }}">
                 <option value="">Everything</option>
                 @foreach($labels as $key => $label)
                     <option value="{{ $key }}" @selected($eventFilter === $key)>{{ $label }}</option>
                 @endforeach
             </select>
         </div>
-        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;" data-tour="rmnt-linklog-filter-btn">Filter</button>
             <div class="flex-1"></div>
         <span class="ds-badge ds-badge-pill ds-badge-info">
             {{ number_format($events->total()) }} {{ \Illuminate\Support\Str::plural('entry', $events->total()) }}
@@ -46,14 +47,14 @@
     </form>
     </div>
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-linklog-table">
         <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
                 <tr style="background: var(--surface-2); color: var(--text-muted); border-bottom: 1px solid var(--border);">
                     <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">When</th>
                     <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">What</th>
-                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Job</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap" data-tour="rmnt-linklog-jobcol">Job</th>
                     <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Who / from</th>
                 </tr>
             </thead>

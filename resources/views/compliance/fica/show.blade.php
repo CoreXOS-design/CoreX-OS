@@ -186,7 +186,7 @@
                                     <div class="flex items-center gap-3">
                                         <a href="{{ route('compliance.fica.documents.view', [$submission, $doc]) }}" target="_blank" class="text-xs font-medium" style="color:var(--brand-icon,#0ea5e9); text-decoration:none;">Open in new tab</a>
                                         @if($canRemove)
-                                        <form method="POST" action="{{ route('compliance.fica.documents.remove', [$submission, $doc]) }}" onsubmit="return confirm('Remove this document? It will be archived — an admin can recover it.');" style="display:inline;">
+                                        <form method="POST" action="{{ route('compliance.fica.documents.remove', [$submission, $doc]) }}" onsubmit="return confirm('Remove this document? It will be archived and can be restored from Removed documents on this record.');" style="display:inline;">
                                             @csrf
                                             <button type="submit" class="text-xs font-medium" style="color:var(--ds-crimson,#c41e3a); background:none; border:none; cursor:pointer; padding:0;">Remove</button>
                                         </form>
@@ -219,6 +219,8 @@
             @else
                 @include('compliance.fica.partials.submitted-data', ['submission' => $submission, 'personal' => $personal, 'entity' => $entity, 'service' => $service, 'pepData' => $pepData, 'principalData' => $principalData, 'repData' => $repData, 'declData' => $declData, 'canRemoveDocs' => $canRemove])
             @endif
+
+            @include('compliance.fica.partials._archived-documents', ['submission' => $submission, 'canRestore' => $canRemove])
 
             {{-- Agent Upload Panel --}}
             @php

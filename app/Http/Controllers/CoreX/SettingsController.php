@@ -1056,6 +1056,9 @@ class SettingsController extends Controller
 
         $data = $request->validate([
             'trading_name'     => ['nullable', 'string', 'max:255'],
+            // Letterhead footer / website line - written only when the form posted the box (validated() omits absent keys, CLAUDE.md 10a / wizard spec 6.1).
+            'legal_name'       => ['nullable', 'string', 'max:255'],
+            'document_website' => ['nullable', 'string', 'max:255'],
             'tagline'          => ['nullable', 'string', 'max:255'],
             'address'          => ['nullable', 'string', 'max:500'],
             'phone'                  => ['nullable', 'string', 'max:255'],
@@ -1166,7 +1169,7 @@ class SettingsController extends Controller
 
         // Build a temporary agency-like object with query param overrides
         $overrides = $request->only([
-            'trading_name', 'tagline', 'address', 'phone', 'phone_label',
+            'trading_name', 'legal_name', 'document_website', 'tagline', 'address', 'phone', 'phone_label',
             'phone_secondary', 'phone_secondary_label', 'fax', 'email',
             'reg_no', 'vat_no', 'ffc_no', 'ppra_number', 'fic_no', 'name',
         ]);
@@ -1571,6 +1574,54 @@ class SettingsController extends Controller
             ->with('success', $newValue
                 ? 'Remote access authorization is now ON. System owners must request consent to switch in.'
                 : 'Remote access authorization is now OFF. System owners can switch in directly.');
+    }
+
+    /**
+     * CoreX Desk on/off for this agency (spec .ai/specs/corex-desk.md section 6). Shared by Company Settings and the Setup Wizard's
+     * access step - the wizard posts only its own subset of fields, so the write is guarded by has() and an absent field changes nothing.
+     * Switching it off closes any session the agency's agents have open right now.
+     */
+    public function updateDesk(Request $request)
+    {
+        $user = auth()->user();
+        abort_unless($user?->hasPermission('access_settings') || $user?->hasPermission('manage_performance_settings'), 403);
+
+        $agency = Agency::findOrFail($user->effectiveAgencyId());
+
+        if ($request->has('desk_enabled')) {
+            $newValue = $request->boolean('desk_enabled');
+            $oldValue = (bool) $agency->desk_enabled;
+            if ($oldValue !== $newValue) {
+                $agency->update(['desk_enabled' => $newValue]);
+                \Illuminate\Support\Facades\Log::info('agency_desk_enabled_toggled', ['agency_id' => $agency->id, 'old' => $oldValue, 'new' => $newValue, 'by' => $user->id]);
+                if (! $newValue) {
+                    $desk = app(\App\Services\Desk\DeskSessionService::class);
+                    \App\Models\DeskSession::withoutGlobalScopes()->open()->where('agency_id', $agency->id)->get()
+                        ->each(fn ($s) => $desk->end($s, \App\Models\DeskSession::ENDED_BY_DISABLED, $user));
+                }
+            }
+        }
+
+        // Company Settings tab (return_fragment=desk) or, from the Setup Wizard, wherever the wizard sends the user next.
+        $back = $request->input('return_fragment') === 'desk'
+            ? redirect()->to(route('admin.company-settings') . '#desk')
+            : redirect()->route('corex.settings');
+
+        // How long an unused take-over lasts before it ends by itself (phase 2). Same has() guard: the wizard step may not carry it.
+        if ($request->has('desk_control_idle_minutes')) {
+            $min = (int) config('desk.control_idle_minutes_min', 1);
+            $max = (int) config('desk.control_idle_minutes_max', 60);
+            $minutes = max($min, min($max, (int) $request->input('desk_control_idle_minutes')));
+            if ($minutes !== (int) $agency->desk_control_idle_minutes) {
+                $agency->update(['desk_control_idle_minutes' => $minutes]);
+                \Illuminate\Support\Facades\Log::info('agency_desk_control_idle_changed', ['agency_id' => $agency->id, 'minutes' => $minutes, 'by' => $user->id]);
+            }
+        }
+
+        return $back
+            ->with('success', $agency->fresh()->desk_enabled
+                ? 'CoreX Desk is ON. Your agents can press Get help to share their CoreX window with CoreX support.'
+                : 'CoreX Desk is OFF. Get help now shows the CoreX support phone number.');
     }
 
     /**

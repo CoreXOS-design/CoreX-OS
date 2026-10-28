@@ -519,7 +519,7 @@
                     {{-- ID Number --}}
                     <div>
                         <label for="id_number">ID Number</label>
-                        <input id="id_number" name="id_number" type="text" value="{{ old('id_number', $user->id_number) }}" placeholder="SA ID number">
+                        <input data-desk-mask id="id_number" name="id_number" type="text" value="{{ old('id_number', $user->id_number) }}" placeholder="SA ID number">
                         @error('id_number') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                     </div>
 

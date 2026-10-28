@@ -7,11 +7,12 @@
 @endphp
 <div class="w-full space-y-5">
 <div class="max-w-3xl space-y-4">
-    <div class="flex flex-wrap items-center justify-between gap-3">
+    <div class="flex flex-wrap items-center justify-between gap-3" data-tour="rops-rnd-intro">
         <h1 class="text-lg font-semibold">{{ \App\Models\RentalNoticeTemplate::labelFor($notice->notice_type) }}{{ $notice->trashed() ? ' (archived)' : '' }}</h1>
         <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             @if($notice->document)
-                <a href="{{ route('corex.rental-notices.download-document', $notice) }}" class="corex-btn-outline text-xs" data-qa="notice-download">Download document</a>
+                <a href="{{ route('corex.rental-notices.download-document', $notice) }}" class="corex-btn-outline text-xs" data-qa="notice-download" data-tour="rops-rnd-download">Download document</a>
             @endif
             @permission('rental_notices.create')
                 @if(! $notice->trashed() && $notice->isResendable())
@@ -35,11 +36,11 @@
         </div>
     </div>
     @include('corex.notices._tabs', ['active' => 'sent'])
-    <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rops-rnd-details">
         <div class="flex justify-between"><span style="color:var(--text-muted);">Property</span><strong>{{ $notice->lease?->property?->buildDisplayAddress() }}{{ $notice->lease?->property?->trashed() ? ' (archived)' : '' }}</strong></div>
         <div class="flex justify-between"><span style="color:var(--text-muted);">Sent</span><strong>{{ $notice->sent_at?->format('d M Y H:i') }}</strong></div>
         <div class="flex justify-between"><span style="color:var(--text-muted);">Sent by</span><strong>{{ $notice->sentByUser?->name }}</strong></div>
-        <div class="flex justify-between"><span style="color:var(--text-muted);">Addressed to</span><strong>
+        <div class="flex justify-between" data-tour="rops-rnd-recipients"><span style="color:var(--text-muted);">Addressed to</span><strong>
             @if($notice->sent_to_tenant) Tenant @endif
             @if($notice->sent_to_landlord) Landlord @endif
         </strong></div>
@@ -85,7 +86,7 @@
          never build a dead-end link; the lease relation is withTrashed() so this can be non-null but archived. --}}
     @if($notice->lease && !$notice->lease->trashed())
         @feature('rental-leases')
-        <a href="{{ route('corex.leases.show', $notice->lease) }}" class="text-xs" style="color: var(--brand-icon, #0ea5e9);">&larr; Back to Lease Hub</a>
+        <a href="{{ route('corex.leases.show', $notice->lease) }}" class="text-xs" data-tour="rops-rnd-back" style="color: var(--brand-icon, #0ea5e9);">&larr; Back to Lease Hub</a>
         @endfeature
     @elseif($notice->lease)
         <span class="text-xs" style="color: var(--text-muted);">Lease #{{ $notice->lease->id }} (archived) — no Lease Hub to return to.</span>

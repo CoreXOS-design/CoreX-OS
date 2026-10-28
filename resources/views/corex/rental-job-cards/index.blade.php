@@ -59,11 +59,12 @@
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="rmnt-jc-intro">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Job Cards</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Repair and maintenance jobs on rental properties, with their quotes and where each stands.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             @if(count($scopeOptions) > 1)
             <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
                 @foreach($scopeOptions as $i => $sc)
@@ -75,9 +76,9 @@
             </div>
             @endif
             @permission('rental_job_cards.create')
-            <a href="{{ route('corex.rental-job-cards.create', request()->only(['property_id', 'lease_id'])) }}" class="corex-btn-primary text-xs">New Job Card</a>
+            <a href="{{ route('corex.rental-job-cards.create', request()->only(['property_id', 'lease_id'])) }}" class="corex-btn-primary text-xs" data-tour="rmnt-jc-new">New Job Card</a>
             @endpermission
-            <a href="{{ route('corex.rental-job-cards.print-list', request()->query()) }}" target="_blank" class="corex-btn-outline text-xs">Print list</a>
+            <a href="{{ route('corex.rental-job-cards.print-list', request()->query()) }}" target="_blank" class="corex-btn-outline text-xs" data-tour="rmnt-jc-print">Print list</a>
             </div>
         </div>
     </div>
@@ -94,7 +95,7 @@
         </div>
     @endif
 
-    <div class="grid grid-cols-3 md:grid-cols-5 xl:grid-cols-7 gap-2 flex-shrink-0">
+    <div class="grid grid-cols-3 md:grid-cols-5 xl:grid-cols-7 gap-2 flex-shrink-0" data-tour="rmnt-jc-tiles">
         @foreach($tiles as $tile)
             @php
                 // overdue, needs_pricing (§17.5.5), awaiting_owner and variation_pending (§17.17) are yes/no filters, not statuses.
@@ -120,7 +121,7 @@
         @endforeach
     </div>
 
-    <div class="rounded-md px-5 py-4 flex-shrink-0" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md px-5 py-4 flex-shrink-0" style="background:var(--surface); border:1px solid var(--border);" data-tour="rmnt-jc-filters">
     <form method="GET" action="{{ route('corex.rental-job-cards.index') }}" class="flex flex-wrap items-end gap-3">
         <input type="hidden" name="scope" value="{{ $resolvedScope }}">
         @if(request('status'))<input type="hidden" name="status" value="{{ request('status') }}">@endif
@@ -129,11 +130,11 @@
         @endforeach
         @if(request('sort'))<input type="hidden" name="sort" value="{{ request('sort') }}">@endif
         @if(request('direction'))<input type="hidden" name="direction" value="{{ request('direction') }}">@endif
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-jc-search">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
             <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" aria-label="Search job cards" class="list-header-filter text-sm w-64 {{ filled($filters['q'] ?? '') ? 'is-active' : '' }}">
         </div>
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-jc-crew">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Crew</label>
             <select name="rental_crew_id" class="list-header-filter text-sm {{ filled($filters['rental_crew_id'] ?? null) ? 'is-active' : '' }}">
                 <option value="">All crews</option>
@@ -142,7 +143,7 @@
                 @endforeach
             </select>
         </div>
-        <div class="relative flex flex-col gap-1">
+        <div class="relative flex flex-col gap-1" data-tour="rmnt-jc-property">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Property</label>
             {{-- Only properties with a job card visible to this user — never
                  every rental property (that's the create form's own job,
@@ -159,7 +160,7 @@
                 </template>
             </div>
         </div>
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-jc-dates">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Due from</label>
             <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_from'] ?? '') ? 'is-active' : '' }}">
         </div>
@@ -170,7 +171,7 @@
         <label class="flex items-center gap-2 text-xs" style="height:2.25rem; color: var(--text-secondary);">
             <input type="checkbox" name="archived" value="1" @checked($showArchived)> Show archived
         </label>
-        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;" data-tour="rmnt-jc-filter-btn">Filter</button>
         @if($isFiltered)
             <a href="{{ route('corex.rental-job-cards.index', ['scope' => $resolvedScope]) }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>
         @endif
@@ -197,7 +198,7 @@
     }
     </script>
 
-    <div class="flex-1 min-h-0 overflow-auto rounded-md" style="background: var(--surface); border: 1px solid var(--border);" data-job-cards-panel>
+    <div class="flex-1 min-h-0 overflow-auto rounded-md" style="background: var(--surface); border: 1px solid var(--border);" data-job-cards-panel data-tour="rmnt-jc-table">
         <table class="w-full text-sm">
             <thead class="sticky top-0 z-[1]">
                 <tr style="background: var(--surface-2); color: var(--text-muted); border-bottom: 1px solid var(--border);">
@@ -235,7 +236,7 @@
                         <td class="px-4 py-3 whitespace-nowrap">{{ $jc->created_at?->format('Y-m-d') ?? '—' }}</td>
                         <td class="px-4 py-3 text-right tabular-nums whitespace-nowrap">{{ $money($list->inclusiveTotal($jc)) }}</td>
                         <td class="px-4 py-3 text-right">
-                            <a href="{{ route('corex.rental-job-cards.show', $jc->id) }}" class="corex-btn-outline text-xs">Open</a>
+                            <a href="{{ route('corex.rental-job-cards.show', $jc->id) }}" class="corex-btn-outline text-xs" @if($loop->first) data-tour="rmnt-jc-open" @endif>Open</a>
                         </td>
                     </tr>
                 @empty
