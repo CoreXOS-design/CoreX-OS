@@ -6,7 +6,7 @@
 <div class="w-full space-y-5">
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cop-fin-run-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Audit Run #{{ $run->id }}</h1>
@@ -27,6 +27,7 @@
                 </div>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <a href="{{ route('admin.finance.audit.index') }}" class="corex-btn-outline text-xs shrink-0 inline-flex items-center gap-1.5">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
                     Audit Center
@@ -36,7 +37,7 @@
     </div>
 
     {{-- Totals --}}
-    <div class="fa-tiles">
+    <div class="fa-tiles" data-tour="cop-fin-run-counts">
         <div class="fa-tile"><div class="fa-tile-n">{{ number_format($counts['total']) }}</div><div class="fa-tile-l">Total checks</div></div>
         <div class="fa-tile ok"><div class="fa-tile-n">{{ number_format($counts['matches']) }}</div><div class="fa-tile-l">Match</div></div>
         <div class="fa-tile bad"><div class="fa-tile-n">{{ number_format($counts['errors']) }}</div><div class="fa-tile-l">Fail</div></div>
@@ -51,7 +52,7 @@
     @endif
 
     {{-- Grouped Items --}}
-    <div class="space-y-3" x-data="{ openGroups: {} }">
+    <div class="space-y-3" x-data="{ openGroups: {} }" data-tour="cop-fin-run-groups">
         @foreach($groupedItems as $groupKey => $groupItems)
             @php
                 [$entityType, $entityId] = explode(':', $groupKey, 2);
@@ -69,7 +70,7 @@
                         if ($deal->agents->isNotEmpty()) {
                             $entitySubtext .= ($entitySubtext ? ' — ' : '') . $deal->agents->pluck('name')->join(', ');
                         }
-                        $editUrl = route('deals-dr2.edit', $deal);
+                        $editUrl = feature('deals') ? route('deals-dr2.edit', $deal) : null;
                     }
                 } elseif ($entityType === 'agent_period') {
                     $user = $userMap[(int)$entityId] ?? null;
@@ -87,7 +88,7 @@
             @endphp
 
             <div class="fa-card">
-                <button type="button"
+                <button type="button" @if($loop->first) data-tour="cop-fin-run-group" @endif
                         x-on:click="openGroups['{{ $groupKey }}'] = !openGroups['{{ $groupKey }}']"
                         class="fa-group-btn {{ $summary['errors'] > 0 ? 'has-err' : '' }}">
                     <div class="min-w-0">
@@ -120,7 +121,7 @@
                     </div>
                 </button>
 
-                <div x-show="openGroups['{{ $groupKey }}']" x-cloak class="overflow-x-auto">
+                <div x-show="openGroups['{{ $groupKey }}']" x-cloak class="overflow-x-auto" @if($loop->first) data-tour="cop-fin-run-items" @endif>
                     <table class="min-w-full text-sm ds-table fa-table">
                         <thead>
                             <tr class="border-b border-t" style="border-color:var(--border); color:var(--text-secondary); background:var(--surface-2)">

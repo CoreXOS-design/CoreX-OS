@@ -5,13 +5,14 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (Pattern A) --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rpt-sdl-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Archived {{ $label }}</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Restore any record below to bring it back into CoreX.</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <a href="{{ route('admin.soft-deletes.index') }}" class="corex-btn-outline text-xs">&larr; Soft Deletes</a>
             </div>
         </div>
@@ -35,7 +36,7 @@
         </div>
     @endif
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rpt-sdl-table">
         <div class="overflow-x-auto">
             <table class="min-w-full text-sm ds-table">
                 <thead>
@@ -77,7 +78,7 @@
                                     {{-- Custom CoreX confirm — a native browser confirm() reads
                                          as a stray Chrome/OS dialog, not part of the product. --}}
                                     <div x-data="{ open: false }" class="inline-block">
-                                        <button type="button" @click="open = true" class="text-xs font-semibold" style="color: var(--ds-green);">
+                                        <button type="button" @click="open = true" data-tour="rpt-sdl-restore" class="text-xs font-semibold" style="color: var(--ds-green);">
                                             Restore
                                         </button>
 
@@ -85,7 +86,7 @@
                                              class="fixed inset-0 z-50 flex items-center justify-center px-4"
                                              style="background: rgba(0,0,0,0.6);"
                                              @keydown.escape.window="open = false">
-                                            <div class="w-full max-w-md rounded-md p-5 text-left"
+                                            <div class="w-full max-w-md rounded-md p-5 text-left" data-tour="rpt-sdl-confirm"
                                                  style="background: var(--surface); border:1px solid var(--border);"
                                                  @click.outside="open = false">
                                                 <h3 class="text-base font-bold mb-2" style="color: var(--text-primary);">

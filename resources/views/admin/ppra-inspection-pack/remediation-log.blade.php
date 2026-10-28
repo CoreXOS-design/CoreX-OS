@@ -4,13 +4,16 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cop-pir-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Remediation Log</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Every remediation note ever set against a PPRA Inspection Pack gap.</p>
             </div>
-            <a href="{{ route('admin.ppra-inspection-pack.index') }}" class="corex-btn-outline text-xs">Back to checklist</a>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('admin.ppra-inspection-pack.index') }}" class="corex-btn-outline text-xs">Back to checklist</a>
+            </div>
         </div>
     </div>
 
@@ -23,12 +26,12 @@
     <form method="GET" class="props-filter-panel flex flex-wrap items-end gap-3 rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Search</label>
-            <input class="list-header-filter {{ (request('search') !== null && request('search') !== '') ? 'is-active' : '' }}" type="text" name="search" value="{{ request('search') }}" placeholder="Item or note text"
+            <input data-tour="cop-pir-search" class="list-header-filter {{ (request('search') !== null && request('search') !== '') ? 'is-active' : '' }}" type="text" name="search" value="{{ request('search') }}" placeholder="Item or note text"
                   >
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Status</label>
-            <select class="list-header-filter {{ (request('status') !== null && request('status') !== '') ? 'is-active' : '' }}" name="status">
+            <select data-tour="cop-pir-status" class="list-header-filter {{ (request('status') !== null && request('status') !== '') ? 'is-active' : '' }}" name="status">
                 <option value="">All statuses</option>
                 <option value="open" @selected(request('status')==='open')>Open</option>
                 <option value="resolved" @selected(request('status')==='resolved')>Resolved</option>
@@ -37,15 +40,15 @@
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Sort</label>
-            <select class="list-header-filter {{ (false) ? 'is-active' : '' }}" name="sort">
+            <select data-tour="cop-pir-sort" class="list-header-filter {{ (false) ? 'is-active' : '' }}" name="sort">
                 <option value="due_date" @selected(request('sort', 'due_date')==='due_date')>Due date</option>
                 <option value="created" @selected(request('sort')==='created')>Created date</option>
             </select>
         </div>
-        <button type="submit" class="corex-btn-primary text-xs" style="height:2.25rem;">Filter</button>
+        <button type="submit" class="corex-btn-primary text-xs" style="height:2.25rem;" data-tour="cop-pir-filter-btn">Filter</button>
     </form>
 
-    <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);" data-tour="cop-pir-table">
         @if($notes->isEmpty())
             <div class="py-12 px-6 text-center">
                 <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary);">
@@ -93,7 +96,7 @@
                             @if(!$note->resolved_at)
                                 <form method="POST" action="{{ route('admin.ppra-inspection-pack.gap-notes.resolve', $note) }}" class="inline">
                                     @csrf
-                                    <button type="submit" class="text-xs font-semibold uppercase tracking-wide" style="color:#15803d;">Mark resolved</button>
+                                    <button type="submit" data-tour="cop-pir-resolve" class="text-xs font-semibold uppercase tracking-wide" style="color:#15803d;">Mark resolved</button>
                                 </form>
                             @endif
                             <form method="POST" action="{{ route('admin.ppra-inspection-pack.gap-notes.destroy', $note) }}" class="inline ml-2"

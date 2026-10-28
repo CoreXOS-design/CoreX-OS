@@ -2,9 +2,7 @@
 
 namespace App\Services\Features;
 
-use App\Events\AgencyFeatureToggled;
 use App\Models\Agency;
-use App\Models\AgencyFeature;
 use App\Models\PerformanceSetting;
 use Illuminate\Support\Facades\DB;
 
@@ -29,8 +27,10 @@ class AgencyTypeFeatureSeeder
 {
     public const TYPES = ['sales', 'rentals', 'both'];
 
-    public function __construct(private readonly AgencyFeatureService $features)
-    {
+    public function __construct(
+        private readonly AgencyFeatureService $features,
+        private readonly AgencyFeatureWriter $writer,
+    ) {
     }
 
     public static function normalise(?string $type): string
@@ -111,54 +111,7 @@ class AgencyTypeFeatureSeeder
      */
     private function write(Agency $agency, array $want, ?int $userId, bool $emit): array
     {
-        $before = $this->features->all($agency);
-        $registry = $this->features->catalogue();
-        $changed = [];
-
-        foreach ($want as $key => $enabled) {
-            if (! isset($registry[$key]) || $this->features->isCore($key)) {
-                continue; // a stale list entry must never break agency creation, and core is never switchable
-            }
-
-            if ($this->features->isSwitchboard($key)) {
-                $this->writeSwitchboard($agency, $key, $enabled);
-            } else {
-                AgencyFeature::withoutAgencyStamping(function () use ($agency, $key, $enabled, $userId) {
-                    $row = AgencyFeature::withoutGlobalScopes()->withTrashed()
-                        ->firstOrNew(['agency_id' => $agency->id, 'feature_key' => $key]);
-                    $row->agency_id  = $agency->id;
-                    $row->deleted_at = null;
-                    $row->enabled    = $enabled;
-                    $row->updated_by = $userId;
-                    $row->save();
-                });
-            }
-        }
-
-        $this->features->forget((int) $agency->id);
-        $after = $this->features->all($agency);
-        foreach ($after as $key => $state) {
-            if (($before[$key] ?? null) !== $state) {
-                $changed[] = $key;
-                if ($emit) {
-                    event(new AgencyFeatureToggled((int) $agency->id, $key, $state, $userId));
-                }
-            }
-        }
-
-        return $changed;
-    }
-
-    /** Switchboard-origin keys keep their existing store (AgencyFeatureService::SWITCHBOARD_STORES). */
-    private function writeSwitchboard(Agency $agency, string $key, bool $enabled): void
-    {
-        $store = AgencyFeatureService::SWITCHBOARD_STORES[$key];
-        if ($store['type'] === 'perf') {
-            PerformanceSetting::set($store['key'], $enabled ? 1 : 0, (int) $agency->id);
-
-            return;
-        }
-        $agency->forceFill([$store['key'] => $enabled])->saveQuietly();
+        return $this->writer->write($agency, $want, $userId, $emit);
     }
 
     /**

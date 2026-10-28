@@ -7,7 +7,7 @@
 <div class="w-full space-y-5">
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cop-pf-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Proforma Invoices</h1>
@@ -16,6 +16,7 @@
                 </p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <span class="ds-badge ds-badge-pill ds-badge-info" title="Records matching the current filter">
                     {{ number_format($invoices->total()) }} {{ $status === 'issued' ? 'issued' : ($status === 'voided' ? 'voided' : 'total') }}
                 </span>
@@ -32,23 +33,23 @@
                  fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="var(--text-muted, #9ca3af)">
                 <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
             </svg>
-            <input type="text" name="q" value="{{ $search }}" placeholder="Search invoice number or property…"
+            <input type="text" name="q" value="{{ $search }}" data-tour="cop-pf-search" placeholder="Search invoice number or property…"
                    class="w-full rounded-md pl-9 pr-3 py-2 text-sm"
                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
         </div>
-        <select name="status" onchange="this.form.submit()" class="list-header-filter">
+        <select name="status" onchange="this.form.submit()" class="list-header-filter" data-tour="cop-pf-status">
             <option value="all"    {{ $status === 'all' ? 'selected' : '' }}>All statuses</option>
             <option value="issued" {{ $status === 'issued' ? 'selected' : '' }}>Issued</option>
             <option value="voided" {{ $status === 'voided' ? 'selected' : '' }}>Voided</option>
         </select>
-        <button type="submit" class="corex-btn-primary">Search</button>
+        <button type="submit" class="corex-btn-primary" data-tour="cop-pf-search-btn">Search</button>
         @if($search !== '' || $status !== 'all')
             <a href="{{ route('proforma.index') }}" class="corex-btn-outline">Clear</a>
         @endif
     </form>
 
     {{-- Table --}}
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="cop-pf-table">
         <div class="overflow-x-auto">
             <table class="min-w-full text-sm ds-table">
                 <thead>
@@ -86,7 +87,7 @@
                             <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $invoice->creator?->name ?? '—' }}</td>
                             <td class="px-4 py-3 text-right font-semibold" style="color: var(--text-primary);">{{ $money($invoice->total_incl) }}</td>
                             <td class="px-4 py-3 text-right whitespace-nowrap">
-                                <a href="{{ route('proforma.show', $invoice) }}" class="corex-btn-outline" style="padding: 4px 10px;">View</a>
+                                <a href="{{ route('proforma.show', $invoice) }}" class="corex-btn-outline" style="padding: 4px 10px;" data-tour="cop-pf-view">View</a>
                                 <a href="{{ route('proforma.download', $invoice) }}" class="corex-btn-outline" style="padding: 4px 10px;" target="_blank" rel="noopener">Download</a>
                             </td>
                         </tr>

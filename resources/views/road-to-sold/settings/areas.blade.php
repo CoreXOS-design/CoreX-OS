@@ -26,7 +26,7 @@
 @section('corex-content')
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5 cx-equal-btns">
 
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="smk-rta-intro">
         <div>
             <h1 class="text-xl font-bold text-white leading-tight">Road to Sold - areas</h1>
         </div>
@@ -46,7 +46,7 @@
     @endif
 
     {{-- View switch --}}
-    <div class="flex flex-wrap gap-2">
+    <div class="flex flex-wrap gap-2" data-tour="smk-rta-views">
         <a href="{{ route($rb . 'areas.index', ['view' => 'agents']) }}" class="px-3 py-1.5 rounded-md text-sm font-semibold"
            style="{{ $mode === 'agents' ? 'background:var(--brand-icon, #0ea5e9); color:#fff;' : 'background:var(--surface); border:1px solid var(--border); color:var(--text-primary);' }}">Agents and their suburbs</a>
         <a href="{{ route($rb . 'areas.index', ['view' => 'suburbs']) }}" class="px-3 py-1.5 rounded-md text-sm font-semibold"
@@ -74,17 +74,17 @@
     @else
     {{-- Filters --}}
     <form method="GET" action="{{ route($rb . 'areas.index') }}" class="props-filter-panel rounded-md p-4 grid grid-cols-1 sm:grid-cols-6 gap-3 items-end"
-          style="background:var(--surface); border:1px solid var(--border);">
+          style="background:var(--surface); border:1px solid var(--border);" data-tour="smk-rta-filter">
         <input type="hidden" name="view" value="{{ $mode }}">
         <div class="sm:col-span-2">
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="q">Search</label>
-            <input class="list-header-filter {{ (!empty($q)) ? 'is-active' : '' }} w-full" id="q" name="q" value="{{ $q }}" type="search"
+            <input data-tour="smk-rta-search" class="list-header-filter {{ (!empty($q)) ? 'is-active' : '' }} w-full" id="q" name="q" value="{{ $q }}" type="search"
                    placeholder="{{ $mode === 'agents' ? 'Agent name, email, suburb or town' : 'Suburb, town or agent' }}"
                   >
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="town_id">Town</label>
-            <select class="list-header-filter {{ (!empty($filters['townId'])) ? 'is-active' : '' }} w-full" id="town_id" name="town_id">
+            <select data-tour="smk-rta-town" class="list-header-filter {{ (!empty($filters['townId'])) ? 'is-active' : '' }} w-full" id="town_id" name="town_id">
                 <option value="">All towns</option>
                 @foreach($towns as $t)
                     <option value="{{ $t->id }}" @selected(($filters['townId'] ?? 0) == $t->id)>{{ $t->name }}</option>
@@ -130,7 +130,7 @@
         @endif
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="sort">Sort by</label>
-            <select class="list-header-filter {{ (false) ? 'is-active' : '' }} w-full" id="sort" name="sort">
+            <select data-tour="smk-rta-sort" class="list-header-filter {{ (false) ? 'is-active' : '' }} w-full" id="sort" name="sort">
                 @if($mode === 'agents')
                     <option value="name" @selected($sortNow === 'name')>Agent name (A-Z)</option>
                     <option value="branch" @selected($sortNow === 'branch')>Branch</option>
@@ -152,7 +152,7 @@
                 <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);"><input type="checkbox" name="unassigned" value="1" @checked(!empty($filters['unassigned']))> Nobody works it</label>
             @endif
             <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);"><input type="checkbox" name="stale" value="1" @checked(!empty($filters['staleOnly']))> Needs a refresh (a portal not captured in {{ $warnDays }} days)</label>
-            <button type="submit" class="corex-btn-primary">Apply</button>
+            <button type="submit" class="corex-btn-primary" data-tour="smk-rta-apply">Apply</button>
             <a href="{{ route($rb . 'areas.index', ['view' => $mode]) }}" class="corex-btn-outline">Clear</a>
         </div>
     </form>
@@ -160,7 +160,7 @@
     @if($mode === 'agents')
         {{-- ── Agents x suburbs ── --}}
         @if($picker)
-            <div class="rounded-md p-4 space-y-3" style="background:var(--surface); border:2px solid var(--brand-icon, #0ea5e9);">
+            <div class="rounded-md p-4 space-y-3" style="background:var(--surface); border:2px solid var(--brand-icon, #0ea5e9);" data-tour="smk-rta-picker">
                 <div class="flex items-center justify-between">
                     <h3 class="text-sm font-bold" style="color:var(--text-primary);">Add suburbs for {{ $picker['agent']->name }}</h3>
                     <a href="{{ $tabUrl(['add_for' => null]) }}" class="corex-btn-outline">Close</a>
@@ -201,7 +201,7 @@
 
         <div class="space-y-3">
             @forelse($rows as $row)
-                <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
+                <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);" @if($loop->first) data-tour="smk-rta-agent" @endif>
                     <div class="flex flex-wrap items-center justify-between gap-2">
                         <div>
                             <span class="text-sm font-bold" style="color:var(--text-primary);">{{ $row['user']->name }}</span>
@@ -209,7 +209,7 @@
                             <span class="text-xs ml-2" style="color:var(--text-muted);">{{ $row['count'] }} {{ $row['count'] === 1 ? 'suburb' : 'suburbs' }}</span>
                         </div>
                         @if($status === 'active')
-                            <a href="{{ $tabUrl(['add_for' => $row['user']->id]) }}" class="corex-btn-primary">Add suburbs</a>
+                            <a href="{{ $tabUrl(['add_for' => $row['user']->id]) }}" class="corex-btn-primary" @if($loop->first) data-tour="smk-rta-add" @endif>Add suburbs</a>
                         @endif
                     </div>
                     @if($row['chips']->isEmpty())
@@ -217,7 +217,7 @@
                             @if($status === 'removed') No removed suburbs. @else No suburbs yet.@if($lockOn) <strong>No call list until you add some.</strong>@endif @endif
                         </p>
                     @else
-                        <ul class="mt-3 flex flex-wrap gap-2">
+                        <ul class="mt-3 flex flex-wrap gap-2" data-tour="smk-rta-chips">
                             @foreach($row['chips'] as $c)
                                 <li class="rounded-md px-3 py-2 text-xs" style="border:1px solid {{ $c['needs_refresh'] ? 'var(--ds-amber, #f59e0b)' : 'var(--border)' }}; color:var(--text-primary);">
                                     <div class="font-semibold">{{ $c['name'] }}@if($c['town']) <span style="color:var(--text-muted);">- {{ $c['town'] }}</span>@endif</div>
@@ -286,7 +286,7 @@
                 <button type="submit" class="corex-btn-outline" data-qa="hide-town">Hide {{ $townName }}</button>
             </form>
         @endif
-        <div class="rounded-md overflow-x-auto" style="background:var(--surface); border:1px solid var(--border);">
+        <div class="rounded-md overflow-x-auto" style="background:var(--surface); border:1px solid var(--border);" data-tour="smk-rta-suburbs">
             <table class="w-full text-sm" style="color:var(--text-primary);">
                 <thead>
                     <tr style="background:var(--surface-2); border-bottom:1px solid var(--border); color:var(--text-muted);" class="text-left text-xs uppercase tracking-wide">

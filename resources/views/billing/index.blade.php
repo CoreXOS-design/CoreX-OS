@@ -16,7 +16,7 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (branded) --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cop-bill-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Billing</h1>
@@ -25,7 +25,8 @@
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                <span class="text-xs uppercase tracking-wider" style="color: var(--text-muted);">Monthly total</span>
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <span class="text-xs uppercase tracking-wider" style="color: var(--text-muted);" data-tour="cop-bill-total">Monthly total</span>
                 <span class="text-sm font-bold tabular-nums leading-tight" style="color: var(--text-primary);">{{ Zar::format($quote->payableZar) }}</span>
             </div>
         </div>
@@ -92,7 +93,7 @@
     @endif
 
     {{-- ── Summary tiles ── --}}
-    <div class="corex-kpi-grid">
+    <div class="corex-kpi-grid" data-tour="cop-bill-tiles">
         <x-corex-kpi-card :title="$quote->usesBands ? 'Your price band' : 'Your plan'" :value="$quote->planLabel" />
         <x-corex-kpi-card title="Billable users" :value="(string) $quote->seats" />
         <x-corex-kpi-card title="Branches" :value="(string) $quote->branches" />
@@ -113,7 +114,7 @@
          Sections come from each line's `group` key, never from matching its
          label — rename a label and a label-matching view would silently
          mis-section the money. --}}
-    <div class="rounded-md overflow-hidden" x-data="{ details: false }"
+    <div class="rounded-md overflow-hidden" x-data="{ details: false }" data-tour="cop-bill-receipt"
          style="background:var(--surface); border:1px solid var(--border);">
 
         <div class="px-5 py-4 flex flex-wrap items-start justify-between gap-3" style="border-bottom:1px solid var(--border);">
@@ -128,7 +129,7 @@
                 </p>
             </div>
 
-            <button type="button" @click="details = !details"
+            <button type="button" @click="details = !details" data-tour="cop-bill-details-btn"
                     class="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium shrink-0"
                     style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
@@ -153,7 +154,7 @@
 
         {{-- ══ SECTION: users ══ --}}
         @if(count($quote->linesIn('seats')))
-            <div class="px-5 py-4" style="border-bottom:1px solid var(--border);">
+            <div class="px-5 py-4" style="border-bottom:1px solid var(--border);" data-tour="cop-bill-users">
                 <div class="flex items-start justify-between gap-4 mb-3">
                     <div>
                         <div class="text-sm font-medium" style="color:var(--text-primary);">
@@ -213,7 +214,7 @@
         @endforeach
 
         {{-- ══ DETAILS — exactly who and what is on this bill ══ --}}
-        <div x-show="details" x-cloak style="background:var(--surface-2); border-bottom:1px solid var(--border);">
+        <div x-show="details" x-cloak style="background:var(--surface-2); border-bottom:1px solid var(--border);" data-tour="cop-bill-details">
             <div class="px-5 py-4 space-y-5">
 
                 {{-- Who you are paying for --}}
@@ -282,7 +283,7 @@
         </div>
 
         {{-- ══ TOTALS ══ --}}
-        <div class="px-5 py-4">
+        <div class="px-5 py-4" data-tour="cop-bill-totals">
             <div class="flex items-center justify-between gap-4 text-sm">
                 <span style="color:var(--text-secondary);">
                     {{ $quote->basis === \App\Services\Billing\BillingQuote::BASIS_AUTOMATIC ? 'Total' : 'Standard price' }}
@@ -319,7 +320,7 @@
     </div>
 
     {{-- ── Seat explainer — pre-empts the #1 support question ── --}}
-    <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);" data-tour="cop-bill-seats">
         <div class="text-xs font-semibold uppercase tracking-wider mb-2" style="color:var(--text-muted);">What counts as a billable user</div>
         <p class="text-sm" style="color:var(--text-secondary);">
             You have <span class="font-semibold" style="color:var(--text-primary);">{{ $quote->seats }} active {{ Str::plural('user', $quote->seats) }}</span>.
@@ -341,7 +342,7 @@
          they can't change anything. Say why. (The contact line was removed on
          Johan's instruction — the "why" stays, since a silently uneditable
          surface is exactly what that standard forbids.) --}}
-    <div class="rounded-md p-4 flex items-start gap-3" style="background:var(--surface-2); border:1px solid var(--border);">
+    <div class="rounded-md p-4 flex items-start gap-3" style="background:var(--surface-2); border:1px solid var(--border);" data-tour="cop-bill-readonly">
         <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor" style="color:var(--text-muted);">
             <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
         </svg>

@@ -108,6 +108,7 @@
                         </div>
                     </a>
 
+                    @feature('deals')
                     <a href="{{ route('deals-dr2.index') }}"
                        class="border rounded-lg shadow-sm hover:shadow p-5 transition" style="background:var(--surface); border-color:var(--border)">
                         <div class="flex items-start justify-between">
@@ -118,6 +119,7 @@
                             <div class="text-2xl">📒</div>
                         </div>
                     </a>
+                    @endfeature
 
                     <a href="{{ route('admin.targets') }}"
                        class="border rounded-lg shadow-sm hover:shadow p-5 transition" style="background:var(--surface); border-color:var(--border)">
@@ -212,6 +214,7 @@
                         </div>
                     </a>
 
+                    @feature('deals')
                     <a href="{{ route('deals-dr2.index') }}"
                        class="border rounded-lg shadow-sm hover:shadow p-5 transition" style="background:var(--surface); border-color:var(--border)">
                         <div class="flex items-start justify-between">
@@ -222,6 +225,7 @@
                             <div class="text-2xl">📒</div>
                         </div>
                     </a>
+                    @endfeature
 
                     <a href="{{ route('admin.targets') }}"
                        class="border rounded-lg shadow-sm hover:shadow p-5 transition" style="background:var(--surface); border-color:var(--border)">

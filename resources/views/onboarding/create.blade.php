@@ -8,7 +8,7 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (UI_DESIGN_SYSTEM §2.4 Pattern A) --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cop-aon-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">New Agent Application</h1>
@@ -17,6 +17,7 @@
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <a href="{{ route('onboarding.index') }}" class="corex-btn-outline text-xs no-underline">Back to Pipeline</a>
             </div>
         </div>
@@ -57,19 +58,19 @@
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label for="first_name" class="prop-label">First Name <span class="prop-required">*</span></label>
-                            <input id="first_name" type="text" name="first_name" value="{{ old('first_name') }}" required
+                            <input id="first_name" data-tour="cop-aon-first" type="text" name="first_name" value="{{ old('first_name') }}" required
                                    placeholder="e.g. John" class="prop-input">
                             @error('first_name')<p class="mt-1 text-[11px]" style="color: var(--ds-crimson, #c41e3a);">{{ $message }}</p>@enderror
                         </div>
                         <div>
                             <label for="last_name" class="prop-label">Last Name <span class="prop-required">*</span></label>
-                            <input id="last_name" type="text" name="last_name" value="{{ old('last_name') }}" required
+                            <input id="last_name" data-tour="cop-aon-last" type="text" name="last_name" value="{{ old('last_name') }}" required
                                    placeholder="e.g. Smith" class="prop-input">
                             @error('last_name')<p class="mt-1 text-[11px]" style="color: var(--ds-crimson, #c41e3a);">{{ $message }}</p>@enderror
                         </div>
                         <div>
                             <label for="email" class="prop-label">Email <span class="prop-required">*</span></label>
-                            <input id="email" type="email" name="email" value="{{ old('email') }}" required
+                            <input id="email" data-tour="cop-aon-email" type="email" name="email" value="{{ old('email') }}" required
                                    placeholder="e.g. john@example.com" class="prop-input">
                             @error('email')<p class="mt-1 text-[11px]" style="color: var(--ds-crimson, #c41e3a);">{{ $message }}</p>@enderror
                         </div>
@@ -81,7 +82,7 @@
                         </div>
                         <div>
                             <label for="id_number" class="prop-label">ID Number</label>
-                            <input data-desk-mask id="id_number" type="text" name="id_number" value="{{ old('id_number') }}"
+                            <input data-desk-mask id="id_number" data-tour="cop-aon-id" type="text" name="id_number" value="{{ old('id_number') }}"
                                    inputmode="numeric" maxlength="13" placeholder="e.g. 1234567890123" class="prop-input">
                             <p class="mt-1 text-[11px]" style="color: var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
                             @error('id_number')<p class="mt-1 text-[11px]" style="color: var(--ds-crimson, #c41e3a);">{{ $message }}</p>@enderror
@@ -95,7 +96,7 @@
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label for="designation" class="prop-label">Designation <span class="prop-required">*</span></label>
-                            <select id="designation" name="designation" required class="prop-select">
+                            <select id="designation" data-tour="cop-aon-designation" name="designation" required class="prop-select">
                                 @foreach(\App\Models\AgentApplication::DESIGNATION_LABELS as $key => $label)
                                     <option value="{{ $key }}" {{ old('designation') === $key ? 'selected' : '' }}>{{ $label }}</option>
                                 @endforeach
@@ -118,7 +119,7 @@
                 </div>
 
                 {{-- PPRA & FFC --}}
-                <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);" data-tour="cop-aon-ffc">
                     <div class="text-lg font-semibold mb-4" style="color: var(--text-primary);">PPRA &amp; FFC</div>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
@@ -145,7 +146,7 @@
             <div class="space-y-5">
 
                 {{-- Motivation --}}
-                <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);" data-tour="cop-aon-motivation">
                     <div class="text-lg font-semibold mb-4" style="color: var(--text-primary);">Motivation</div>
                     <label for="motivation" class="prop-label">Why do they want to join?</label>
                     <textarea id="motivation" name="motivation" rows="6" maxlength="5000"
@@ -154,7 +155,7 @@
                 </div>
 
                 {{-- Referral --}}
-                <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);" data-tour="cop-aon-referral">
                     <div class="text-lg font-semibold mb-4" style="color: var(--text-primary);">Referral</div>
                     <div class="space-y-4">
                         <div>
@@ -182,7 +183,7 @@
         <div class="rounded-md px-4 py-3 flex flex-wrap items-center justify-end gap-2"
              style="background: var(--surface); border: 1px solid var(--border);">
             <a href="{{ route('onboarding.index') }}" class="corex-btn-outline no-underline">Cancel</a>
-            <button type="submit" class="corex-btn-primary">Create Application</button>
+            <button type="submit" class="corex-btn-primary" data-tour="cop-aon-create">Create Application</button>
         </div>
     </form>
 </div>

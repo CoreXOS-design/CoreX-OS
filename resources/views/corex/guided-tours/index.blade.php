@@ -45,7 +45,7 @@
      }">
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rpt-gt-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Guided Tours</h1>
@@ -57,8 +57,9 @@
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 {{-- Search: filters cards and sections live as you type. --}}
-                <div class="relative w-full md:w-72 flex-shrink-0">
+                <div class="relative w-full md:w-72 flex-shrink-0" data-tour="rpt-gt-search">
                     <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style="color: var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.3-4.3m1.8-5.2a7 7 0 11-14 0 7 7 0 0114 0z"/>
                     </svg>
@@ -87,14 +88,14 @@
         </div>
     @else
         @foreach($groups as $groupName => $tours)
-        <section class="space-y-3"
+        <section class="space-y-3" data-tour="rpt-gt-group"
                  x-show="groupVisible({{ \Illuminate\Support\Js::from($tours->map(fn ($t) => mb_strtolower(trim(($t['title'] ?? '').' '.($t['description'] ?? ''))))->values()) }})">
             <h2 class="text-xs font-bold uppercase tracking-widest pt-1" style="color: var(--text-muted);">
                 {{ $groupName }} <span style="opacity:0.6;">· {{ $tours->count() }}</span>
             </h2>
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-stretch">
             @foreach($tours as $tour)
-                <div class="corex-tour-card rounded-md p-5 flex flex-col h-full transition-all duration-300"
+                <div class="corex-tour-card rounded-md p-5 flex flex-col h-full transition-all duration-300" data-tour="rpt-gt-card"
                      x-show="cardVisible({{ \Illuminate\Support\Js::from(trim(($tour['title'] ?? '').' '.($tour['description'] ?? ''))) }})"
                      style="background: var(--surface); border: 1px solid var(--border);">
                     <div class="flex items-start gap-3">
@@ -131,7 +132,7 @@
                     {{-- Actions pinned to the bottom so every card is the same shape. --}}
                     <div class="mt-auto pt-4">
                         @if($tour['url'] && ! $tour['external'])
-                            <div class="grid gap-2 {{ $tour['advancedUrl'] ? 'grid-cols-2' : 'grid-cols-1' }}">
+                            <div class="grid gap-2 {{ $tour['advancedUrl'] ? 'grid-cols-2' : 'grid-cols-1' }}" data-tour="rpt-gt-modes">
                                 <a href="{{ $tour['url'] }}"
                                    class="corex-tour-start inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold no-underline"
                                    style="background: var(--brand-button, #0ea5e9); color:#fff;">
@@ -147,13 +148,13 @@
                                 @endif
                             </div>
                             @if(! empty($tour['spot']))
-                                <div class="relative mt-2" x-data="{ spotOpen: false }" @keydown.escape="spotOpen = false">
+                                <div class="relative mt-2" x-data="{ spotOpen: false }" @keydown.escape="spotOpen = false" data-tour="rpt-gt-spot">
                                     <button type="button" @click="spotOpen = !spotOpen" :aria-expanded="spotOpen ? 'true' : 'false'"
                                             class="corex-tour-alt inline-flex items-center justify-center gap-1.5 w-full px-3 py-2 rounded-md text-xs font-semibold">
                                         Spot Help — just one part
                                         <svg class="w-3.5 h-3.5 transition-transform" :class="spotOpen && 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
                                     </button>
-                                    <div x-show="spotOpen" x-cloak @click.outside="spotOpen = false"
+                                    <div x-show="spotOpen" x-cloak @click.outside="spotOpen = false" data-tour="rpt-gt-spot-list"
                                          class="mt-1 rounded-md p-1"
                                          style="background: var(--surface-2); border: 1px solid var(--border);">
                                         @foreach($tour['spot'] as $section)

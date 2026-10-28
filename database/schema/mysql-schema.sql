@@ -776,6 +776,34 @@ CREATE TABLE `agency_document_type_configs` (
   CONSTRAINT `agency_document_type_configs_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agency_feature_rollouts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agency_feature_rollouts` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `status` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
+  `interval_days` tinyint unsigned NOT NULL DEFAULT '2',
+  `weekdays_only` tinyint(1) NOT NULL DEFAULT '1',
+  `skip_holidays` tinyint(1) NOT NULL DEFAULT '1',
+  `holiday_country` char(2) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ZA',
+  `release_time` time NOT NULL DEFAULT '07:00:00',
+  `side_by_side` tinyint(1) NOT NULL DEFAULT '0',
+  `started_on` date NOT NULL,
+  `paused_at` timestamp NULL DEFAULT NULL,
+  `completed_at` timestamp NULL DEFAULT NULL,
+  `created_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `agency_feature_rollouts_agency_id_unique` (`agency_id`),
+  KEY `agency_feature_rollouts_created_by_foreign` (`created_by`),
+  KEY `agency_feature_rollouts_status_index` (`status`),
+  CONSTRAINT `agency_feature_rollouts_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `agency_feature_rollouts_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `agency_features`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -944,6 +972,62 @@ CREATE TABLE `agency_proforma_settings` (
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `agency_proforma_settings_agency_id_unique` (`agency_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agency_rollout_items`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agency_rollout_items` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `rollout_id` bigint unsigned NOT NULL,
+  `wave_id` bigint unsigned NOT NULL,
+  `feature_key` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `state` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'held',
+  `released_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `agency_rollout_items_rollout_id_feature_key_unique` (`rollout_id`,`feature_key`),
+  KEY `agency_rollout_items_wave_id_foreign` (`wave_id`),
+  KEY `agency_rollout_items_agency_id_feature_key_index` (`agency_id`,`feature_key`),
+  CONSTRAINT `agency_rollout_items_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `agency_rollout_items_rollout_id_foreign` FOREIGN KEY (`rollout_id`) REFERENCES `agency_feature_rollouts` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `agency_rollout_items_wave_id_foreign` FOREIGN KEY (`wave_id`) REFERENCES `agency_rollout_waves` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agency_rollout_waves`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agency_rollout_waves` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `rollout_id` bigint unsigned NOT NULL,
+  `source_wave_id` bigint unsigned DEFAULT NULL,
+  `lane` tinyint unsigned NOT NULL DEFAULT '1',
+  `track` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'general',
+  `position` int unsigned NOT NULL DEFAULT '0',
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `intro_text` text COLLATE utf8mb4_unicode_ci,
+  `scheduled_for` date DEFAULT NULL,
+  `access_reviewed_at` timestamp NULL DEFAULT NULL,
+  `access_reviewed_by` bigint unsigned DEFAULT NULL,
+  `admin_notified_at` timestamp NULL DEFAULT NULL,
+  `released_at` timestamp NULL DEFAULT NULL,
+  `customised_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `agency_rollout_waves_access_reviewed_by_foreign` (`access_reviewed_by`),
+  KEY `agency_rollout_waves_rollout_id_lane_position_index` (`rollout_id`,`lane`,`position`),
+  KEY `agency_rollout_waves_agency_id_scheduled_for_index` (`agency_id`,`scheduled_for`),
+  KEY `agency_rollout_waves_source_wave_id_foreign` (`source_wave_id`),
+  CONSTRAINT `agency_rollout_waves_access_reviewed_by_foreign` FOREIGN KEY (`access_reviewed_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `agency_rollout_waves_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `agency_rollout_waves_rollout_id_foreign` FOREIGN KEY (`rollout_id`) REFERENCES `agency_feature_rollouts` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `agency_rollout_waves_source_wave_id_foreign` FOREIGN KEY (`source_wave_id`) REFERENCES `feature_rollout_waves` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `agency_service_provider_callout_history`;
@@ -6608,6 +6692,7 @@ CREATE TABLE `desk_sessions` (
   `control_ended_at` timestamp NULL DEFAULT NULL,
   `control_ended_tab` varchar(12) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `control_ended_support_user_id` bigint unsigned DEFAULT NULL,
+  `last_activity_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `desk_sessions_support_user_id_foreign` (`support_user_id`),
   KEY `desk_sessions_ended_by_user_id_foreign` (`ended_by_user_id`),
@@ -7714,6 +7799,23 @@ CREATE TABLE `fault_reports` (
   CONSTRAINT `fault_reports_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fault_reports_resolved_by_foreign` FOREIGN KEY (`resolved_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fault_reports_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `feature_rollout_waves`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `feature_rollout_waves` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `track` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'general',
+  `position` int unsigned NOT NULL DEFAULT '0',
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `intro_text` text COLLATE utf8mb4_unicode_ci,
+  `feature_keys` json NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `feature_rollout_waves_track_position_index` (`track`,`position`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `feedback_attachments`;
@@ -18189,6 +18291,51 @@ CREATE TABLE `roles` (
   CONSTRAINT `roles_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rollout_announcement_views`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rollout_announcement_views` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `wave_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `kind` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'release',
+  `seen_at` timestamp NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rollout_announcement_views_wave_id_user_id_kind_unique` (`wave_id`,`user_id`,`kind`),
+  KEY `rollout_announcement_views_user_id_foreign` (`user_id`),
+  KEY `rollout_announcement_views_agency_id_user_id_index` (`agency_id`,`user_id`),
+  CONSTRAINT `rollout_announcement_views_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rollout_announcement_views_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rollout_announcement_views_wave_id_foreign` FOREIGN KEY (`wave_id`) REFERENCES `agency_rollout_waves` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rollout_feature_users`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rollout_feature_users` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `feature_key` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `first_opened_at` timestamp NULL DEFAULT NULL,
+  `tour_nudged_at` timestamp NULL DEFAULT NULL,
+  `early_requested_at` timestamp NULL DEFAULT NULL,
+  `announced_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rollout_feature_users_agency_id_user_id_feature_key_unique` (`agency_id`,`user_id`,`feature_key`),
+  KEY `rollout_feature_users_user_id_foreign` (`user_id`),
+  KEY `rollout_feature_users_agency_id_feature_key_index` (`agency_id`,`feature_key`),
+  CONSTRAINT `rollout_feature_users_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rollout_feature_users_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rts_agent_areas`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -24364,9 +24511,16 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1849,'2026_12_06_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1850,'2026_12_07_100000_add_geocode_country_to_agencies_table',1);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1851,'2026_12_07_100000_turn_on_phone_push_for_agent_rental_alerts',1);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1852,'2026_12_05_100000_create_training_videos_tables_at509',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1853,'2026_12_08_100000_add_document_letterhead_fields_to_agencies_table',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1854,'2026_12_10_100000_create_desk_sessions_tables',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1855,'2026_12_11_100000_add_desk_control_columns',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1856,'2026_12_12_100000_add_desk_session_extra_supporters',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1857,'2026_12_12_110000_add_support_display_to_desk_sessions',1);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1858,'2026_12_13_100000_add_desk_control_request_id_and_ended_at',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1853,'2026_11_18_100000_create_feature_rollout_tables',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1854,'2026_11_18_100100_create_rollout_announcement_views_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1855,'2026_11_18_100200_add_source_and_customised_to_agency_rollout_waves',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1856,'2026_11_18_100300_create_rollout_feature_users_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1857,'2026_11_18_100400_add_admin_notified_at_to_agency_rollout_waves',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1858,'2026_11_25_100000_add_announced_at_to_rollout_feature_users_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1859,'2026_12_08_100000_add_document_letterhead_fields_to_agencies_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1860,'2026_12_10_100000_create_desk_sessions_tables',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1861,'2026_12_11_100000_add_desk_control_columns',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1862,'2026_12_12_100000_add_desk_session_extra_supporters',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1863,'2026_12_12_110000_add_support_display_to_desk_sessions',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1864,'2026_12_13_100000_add_desk_control_request_id_and_ended_at',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1865,'2026_12_14_100000_add_last_activity_at_to_desk_sessions',1);

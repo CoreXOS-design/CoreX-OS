@@ -324,7 +324,7 @@
     @endif
 
     {{-- Deal target (WS3 · D4 — register users only, optional) --}}
-    @if(!empty($canLinkDeal))
+    @if(!empty($canLinkDeal) && feature('deals'))
     <div class="card p-4 mb-4" style="border-left: 3px solid var(--ds-teal, #14b8a6);" x-show="property">
         <div class="flex items-center justify-between mb-2">
             <label class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">
@@ -438,7 +438,7 @@
         @if(!empty($canFica))
             <input type="hidden" name="trigger_fica" :value="ficaChecked ? '1' : '0'">
         @endif
-        @if(!empty($canLinkDeal))
+        @if(!empty($canLinkDeal) && feature('deals'))
             <input type="hidden" name="deal_id" :value="deal ? deal.id : ''">
         @endif
 
@@ -654,7 +654,7 @@ document.addEventListener('alpine:init', () => {
         roleSets:   @json($roleSets),    // {role:[pivotRole,...]}
         roleLabels: @json($roleLabels),
         searchUrl:       '{{ route('tools.pdf_splitter.properties.search') }}',
-        dealSearchUrl:   '{{ route('deals-v2.search.deals') }}',
+        dealSearchUrl:   '{{ feature('deals') ? route('deals-v2.search.deals') : '' }}',
         contactsTpl:     '{{ route('tools.pdf_splitter.properties.contacts', ['property' => '__ID__']) }}',
         // AT-392 — the no-property fallback: search for and pick a contact
         // directly, mirroring the property search exactly.
@@ -750,7 +750,7 @@ document.addEventListener('alpine:init', () => {
         // ── deal search (WS3 · D4) ────────────────────────────────────────
         async searchDeals() {
             const q = this.dealQ.trim();
-            if (q.length < 2) { this.dealResults = []; return; }
+            if (q.length < 2 || !this.dealSearchUrl) { this.dealResults = []; return; }
             try {
                 const res = await fetch(`${this.dealSearchUrl}?q=${encodeURIComponent(q)}`, {
                     headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin',

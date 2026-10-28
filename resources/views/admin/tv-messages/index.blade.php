@@ -69,15 +69,16 @@
 <div class="w-full space-y-6">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rpt-tv-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">TV Messages</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Create global messages (all TVs) or branch-specific messages.</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <form method="GET" action="{{ route('admin.tv-messages') }}">
-                    <select name="status" onchange="this.form.submit()" class="tv-header-filter">
+                    <select name="status" onchange="this.form.submit()" class="tv-header-filter" data-tour="rpt-tv-status">
                         <option value="active" style="background: var(--surface); color: var(--text-primary);" {{ request('status', 'active') === 'active' ? 'selected' : '' }}>Active</option>
                         <option value="archived" style="background: var(--surface); color: var(--text-primary);" {{ request('status') === 'archived' ? 'selected' : '' }}>Archived</option>
                     </select>
@@ -113,7 +114,7 @@
 
     {{-- Add Message Form --}}
     @if(!$showArchived)
-    <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rpt-tv-add">
         <h2 class="text-lg font-semibold mb-4" style="color: var(--text-primary);">Add TV Message</h2>
 
         <form method="POST" action="{{ route('admin.tv-messages.store') }}" class="space-y-4">
@@ -122,7 +123,7 @@
             <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
                 <div class="md:col-span-3">
                     <label for="add_branch_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Branch (blank = global)</label>
-                    <select id="add_branch_id" name="branch_id"
+                    <select id="add_branch_id" name="branch_id" data-tour="rpt-tv-branch"
                             class="tv-input w-full rounded-md text-sm px-3 py-2"
                             style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         <option value="">Global</option>
@@ -134,12 +135,12 @@
 
                 <div class="md:col-span-9">
                     <label for="add_message" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Message</label>
-                    <input id="add_message" name="message" required
+                    <input id="add_message" name="message" required data-tour="rpt-tv-message"
                            class="tv-input w-full rounded-md text-sm px-3 py-2 placeholder:opacity-50"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                            placeholder="Motivational message, announcement, etc.">
 
-                    <div class="mt-3">
+                    <div class="mt-3" data-tour="rpt-tv-values">
                         <div class="text-[0.6875rem] uppercase tracking-wider mb-2" style="color: var(--text-muted);">Insert values</div>
                         <div class="flex flex-wrap gap-1.5">
                             @php
@@ -164,7 +165,7 @@
             <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
                 <div class="md:col-span-3">
                     <label for="add_display_area" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Show on</label>
-                    <select id="add_display_area" name="display_area"
+                    <select id="add_display_area" name="display_area" data-tour="rpt-tv-showon"
                             class="tv-input w-full rounded-md text-sm px-3 py-2"
                             style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         <option value="both" selected>Hero + Ticker</option>
@@ -181,7 +182,7 @@
                 </div>
 
                 <div class="md:col-span-2">
-                    <button type="submit" class="w-full corex-btn-primary text-sm">Add Message</button>
+                    <button type="submit" data-tour="rpt-tv-addbtn" class="w-full corex-btn-primary text-sm">Add Message</button>
                 </div>
             </div>
         </form>
@@ -189,7 +190,7 @@
     @endif
 
     {{-- Messages List --}}
-    <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);">
+    <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);" data-tour="rpt-tv-list">
         <div class="px-5 py-3 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
             <h2 class="text-lg font-semibold" style="color: var(--text-primary);">{{ $showArchived ? 'Archived Messages' : 'Existing Messages' }}</h2>
             <div class="text-xs" style="color: var(--text-muted);">{{ number_format(count($messages)) }} total</div>
@@ -217,7 +218,7 @@
                         </div>
                     @else
                         <form method="POST"
-                              action="{{ route('admin.tv-messages.update', $m->id) }}"
+                              action="{{ route('admin.tv-messages.update', $m->id) }}" data-tour="rpt-tv-row"
                               class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
                             @csrf
 

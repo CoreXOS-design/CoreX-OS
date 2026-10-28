@@ -3,11 +3,14 @@
 @section('corex-content')
 <div class="max-w-5xl mx-auto space-y-6">
 
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cop-br-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Branch Assignments</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Manage branches and their per-branch settings.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             </div>
         </div>
     </div>
@@ -34,18 +37,18 @@
             @csrf
             <div>
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Name</label>
-                <input class="w-full rounded-md px-3 py-2 text-sm" name="name" required
+                <input class="w-full rounded-md px-3 py-2 text-sm" name="name" required data-tour="cop-br-name"
                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
             <div>
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Code</label>
-                <input class="w-full rounded-md px-3 py-2 text-sm" name="code" required
+                <input class="w-full rounded-md px-3 py-2 text-sm" name="code" required data-tour="cop-br-code"
                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
-            <button type="submit" class="corex-btn-primary text-sm">Add Branch</button>
+            <button type="submit" class="corex-btn-primary text-sm" data-tour="cop-br-add-btn">Add Branch</button>
         </form>
 
-        <div class="pt-4 space-y-2">
+        <div class="pt-4 space-y-2" data-tour="cop-br-list">
             <h4 class="text-sm font-semibold" style="color: var(--text-primary);">Existing Branches</h4>
 
             @forelse($branches as $branch)
@@ -75,7 +78,7 @@
     @include('admin.branches._archived-panel', ['archivedBranches' => $archivedBranches, 'context' => []])
 
     {{-- Branch Contact Details --}}
-    <div class="rounded-md p-4 space-y-4" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-4 space-y-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="cop-br-details">
         <div>
             <h3 class="ds-section-header">Branch Contact Details</h3>
             <div class="text-sm mt-1" style="color: var(--text-muted);">
@@ -96,7 +99,7 @@
                         <div class="font-semibold" style="color: var(--text-primary);">
                             {{ $branch->name }} <span style="color: var(--text-muted);">({{ $branch->code }})</span>
                         </div>
-                        <button type="submit" class="corex-btn-primary text-sm">Save</button>
+                        <button type="submit" class="corex-btn-primary text-sm" data-tour="cop-br-save">Save</button>
                     </div>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -104,7 +107,7 @@
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Trading Name Override</label>
                             <input class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                   name="trading_name" value="{{ old('trading_name', $branch->trading_name) }}"
+                                   data-tour="cop-br-trading" name="trading_name" value="{{ old('trading_name', $branch->trading_name) }}"
                                    placeholder="e.g. Johan and Elize Properties T/A">
                         </div>
                         <div>
@@ -118,7 +121,7 @@
 
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Address Override</label>
-                        <textarea name="address" rows="2"
+                        <textarea data-tour="cop-br-address" name="address" rows="2"
                                   class="w-full rounded-md px-3 py-2 text-sm"
                                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
                                   placeholder="Physical address">{{ old('address', $branch->address) }}</textarea>
@@ -163,7 +166,7 @@
                             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Registration No Override</label>
                             <input class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
-                                   name="reg_no" value="{{ old('reg_no', $branch->reg_no) }}"
+                                   data-tour="cop-br-regs" name="reg_no" value="{{ old('reg_no', $branch->reg_no) }}"
                                    placeholder="e.g. 2009/228978/23">
                         </div>
                         <div>
@@ -212,7 +215,7 @@
                     </div>
 
                     {{-- Logo --}}
-                    <div class="pt-4 space-y-3" style="border-top: 1px solid var(--border);">
+                    <div class="pt-4 space-y-3" style="border-top: 1px solid var(--border);" data-tour="cop-br-logo">
                         <div class="text-xs font-bold uppercase tracking-wider" style="color: var(--text-secondary);">Branch Logo</div>
                         <p class="text-xs" style="color: var(--text-muted);">JPG, PNG, or WebP — max 2 MB. Leave blank to inherit Agency logo.</p>
 

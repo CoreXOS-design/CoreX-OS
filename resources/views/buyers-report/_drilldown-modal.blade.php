@@ -4,7 +4,7 @@
 <div x-show="drillOpen" x-cloak @keydown.escape.window="closeDrill()"
      class="fixed inset-0 z-50 flex items-start justify-center p-4 md:p-10 print:hidden"
      style="background:rgba(0,0,0,.45);" @click.self="closeDrill()">
-    <div class="w-full max-w-4xl rounded shadow-lg max-h-[85vh] overflow-hidden flex flex-col"
+    <div class="w-full max-w-4xl rounded shadow-lg max-h-[85vh] overflow-hidden flex flex-col" data-tour="rpt-drill"
          style="background: var(--surface); border:1px solid var(--border);" role="dialog" aria-modal="true" aria-label="Detail">
         <div class="flex items-center justify-between px-4 py-3" style="border-bottom:1px solid var(--border);">
             <div class="flex items-center gap-2 min-w-0">

@@ -35,15 +35,16 @@
     'propertyLabel' => $filteredProperty?->buildDisplayAddress() ?? '',
 ]) }})">
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rops-lease-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Leases</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Every rental tenancy, soonest to expire first, and where each stands.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @permission('leases.create')
-                <a href="{{ route('corex.leases.create') }}" class="corex-btn-primary text-xs">New Lease</a>
+                <a href="{{ route('corex.leases.create') }}" class="corex-btn-primary text-xs" data-tour="rops-lease-new">New Lease</a>
                 @endpermission
             </div>
         </div>
@@ -102,17 +103,17 @@
     />
 
     <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
-    <form method="GET" action="{{ route('corex.leases.index') }}" class="flex flex-wrap items-end gap-3">
+    <form method="GET" action="{{ route('corex.leases.index') }}" class="flex flex-wrap items-end gap-3" data-tour="rops-lease-filters">
         @if($showArchived)
             <input type="hidden" name="archived" value="1">
         @endif
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
-            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Property address or tenant name" class="list-header-filter text-sm {{ filled($filters['q'] ?? '') ? 'is-active' : '' }}">
+            <input type="text" name="q" data-tour="rops-lease-search" value="{{ $filters['q'] ?? '' }}" placeholder="Property address or tenant name" class="list-header-filter text-sm {{ filled($filters['q'] ?? '') ? 'is-active' : '' }}">
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
-            <select name="status" class="list-header-filter text-sm {{ filled($filters['status'] ?? null) ? 'is-active' : '' }}">
+            <select name="status" data-tour="rops-lease-status" class="list-header-filter text-sm {{ filled($filters['status'] ?? null) ? 'is-active' : '' }}">
                 <option value="">All statuses</option>
                 @foreach(['draft', 'signed_awaiting_start', 'active', 'expired', 'cancelled'] as $s)
                     <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ $s === 'signed_awaiting_start' ? 'Signed - starts later' : ucfirst($s) }}</option>
@@ -121,7 +122,7 @@
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Agreement</label>
-            <select name="agreement" class="list-header-filter text-sm {{ filled($filters['agreement'] ?? null) ? 'is-active' : '' }}">
+            <select name="agreement" data-tour="rops-lease-agreement" class="list-header-filter text-sm {{ filled($filters['agreement'] ?? null) ? 'is-active' : '' }}">
                 <option value="">All agreements</option>
                 @foreach(\App\Models\Lease::SIGNING_LABELS as $signingKey => $signingLabel)
                     <option value="{{ $signingKey }}" @selected(($filters['agreement'] ?? '') === $signingKey)>{{ $signingLabel }}</option>
@@ -130,12 +131,12 @@
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Notice terms</label>
-            <select name="notice_terms" class="list-header-filter text-sm {{ filled($filters['notice_terms'] ?? null) ? 'is-active' : '' }}" data-qa="lease-filter-notice-terms">
+            <select name="notice_terms" data-tour="rops-lease-notice-terms" class="list-header-filter text-sm {{ filled($filters['notice_terms'] ?? null) ? 'is-active' : '' }}" data-qa="lease-filter-notice-terms">
                 <option value="">All notice terms</option>
                 <option value="unconfirmed" @selected(($filters['notice_terms'] ?? '') === 'unconfirmed')>To check — not confirmed</option>
             </select>
         </div>
-        <div class="relative flex flex-col gap-1">
+        <div class="relative flex flex-col gap-1" data-tour="rops-lease-property">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Property</label>
             {{-- Only properties with a lease visible to this user — never
                  every rental property (that's the create form's own job,
@@ -154,13 +155,13 @@
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">End date from</label>
-            <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_from'] ?? '') ? 'is-active' : '' }}">
+            <input type="date" name="date_from" data-tour="rops-lease-date-from" value="{{ $filters['date_from'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_from'] ?? '') ? 'is-active' : '' }}">
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">End date to</label>
             <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_to'] ?? '') ? 'is-active' : '' }}">
         </div>
-        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;" data-tour="rops-lease-filter-btn">Filter</button>
         @if(request()->hasAny(['q', 'status', 'agreement', 'notice_terms', 'property_id', 'date_from', 'date_to']))
             <a href="{{ route('corex.leases.index') }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>
         @endif
@@ -190,14 +191,14 @@
     {{-- .ai/specs/rental-notices.md §6 - tick leases and issue breach notices for all of them from one screen --}}
     @feature('rental-notices')
     @permission('rental_breaches.manage')
-        <form id="leases-bulk-form" method="GET" action="{{ route('corex.breaches.bulk') }}" class="flex items-center gap-3 text-xs" data-qa="leases-bulk-bar">
+        <form id="leases-bulk-form" method="GET" action="{{ route('corex.breaches.bulk') }}" class="flex items-center gap-3 text-xs" data-qa="leases-bulk-bar" data-tour="rops-lease-bulk">
             <button type="submit" class="corex-btn-outline text-xs">Breach notice for ticked leases</button>
             <span style="color: var(--text-muted);">Tick the leases (running leases only), then choose this. You fill in the amount owing on the next screen.</span>
         </form>
     @endpermission
     @endfeature
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rops-lease-list">
         <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
@@ -208,7 +209,7 @@
                     <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Agents</th>
                     <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('status') }}">Status{{ $sortIndicator('status') }}</a></th>
                     <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('start_date') }}">Start{{ $sortIndicator('start_date') }}</a></th>
-                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('end_date') }}">End{{ $sortIndicator('end_date') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('end_date') }}" data-tour="rops-lease-sort-end">End{{ $sortIndicator('end_date') }}</a></th>
                     <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Rent</th>
                     <th></th>
                 </tr>
@@ -263,7 +264,7 @@
                             </form>
                             @endif
                         @else
-                            <a href="{{ route('corex.leases.show', $lease) }}" class="corex-btn-outline text-xs">View</a>
+                            <a href="{{ route('corex.leases.show', $lease) }}" class="corex-btn-outline text-xs" @if($loop->first) data-tour="rops-lease-open" @endif>View</a>
                         @endif
                     </td>
                 </tr>

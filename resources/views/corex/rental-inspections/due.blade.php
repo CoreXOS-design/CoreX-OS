@@ -51,12 +51,13 @@
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="rmnt-due-intro">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Inspections</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Move-in and move-out inspections that are due, plus the interim dates your agency has loaded.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-            <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+            <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);" data-tour="rmnt-due-tabs">
                 <a href="{{ route('corex.rental-inspections.index') }}" class="px-3 py-1.5 text-xs font-semibold" style="background: var(--surface); color: var(--text-muted);">All inspections</a>
                 <a href="{{ route('corex.rental-inspections.due') }}" data-qa="due-tab" class="px-3 py-1.5 text-xs font-semibold" style="border-left: 1px solid var(--border); background: var(--brand-icon, #0ea5e9); color: #fff;">Due</a>
             </div>
@@ -104,7 +105,7 @@
     />
 
     @if($canManage && $leaseOptions->isNotEmpty() && !$archived)
-    <details class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);" @if($errors->has('dates') || $errors->has('lease_id') || old('lease_id')) open @endif>
+    <details class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-due-load" @if($errors->has('dates') || $errors->has('lease_id') || old('lease_id')) open @endif>
         <summary class="px-4 py-2 text-sm font-semibold cursor-pointer" data-qa="load-dates-toggle">Load interim inspection dates</summary>
         <form method="POST" action="{{ route('corex.rental-inspections.planned-dates.store') }}" class="p-4 space-y-3" data-qa="load-dates-form"
               x-data="{ dates: {{ Js::from(old('dates', [''])) }}, addDate() { if (this.dates.length < 24) this.dates.push(''); } }">
@@ -141,15 +142,15 @@
     </details>
     @endif
 
-    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);" data-tour="rmnt-due-filters">
     <form method="GET" action="{{ route('corex.rental-inspections.due') }}" class="flex flex-wrap items-end gap-3">
         @if($archived)<input type="hidden" name="archived" value="1">@endif
         @if(request('scope'))<input type="hidden" name="scope" value="{{ request('scope') }}">@endif
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-due-search">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
             <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Property, tenant, agent or note" class="list-header-filter text-sm {{ filled($filters['q'] ?? '') ? 'is-active' : '' }}">
         </div>
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-due-type">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Type</label>
             <select name="type" class="list-header-filter text-sm {{ filled($filters['type'] ?? null) ? 'is-active' : '' }}">
                 <option value="">All types</option>
@@ -158,7 +159,7 @@
                 @endforeach
             </select>
         </div>
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-due-status">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
             <select name="status" class="list-header-filter text-sm {{ $currentStatus !== 'open' ? 'is-active' : '' }}">
                 <option value="open" @selected($currentStatus === 'open')>Open (overdue, due, upcoming, booked)</option>
@@ -185,7 +186,7 @@
                 @endforeach
             </select>
         </div>
-        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;" data-tour="rmnt-due-filter-btn">Filter</button>
         @if(request()->hasAny(['q', 'status', 'type', 'date_from', 'date_to', 'agent_id']))
             <a href="{{ route('corex.rental-inspections.due', array_filter(['archived' => $archived ? 1 : null, 'scope' => request('scope')])) }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>
         @endif
@@ -198,7 +199,7 @@
 
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="overflow-x-auto">
-        <table class="w-full text-sm" data-qa="due-table">
+        <table class="w-full text-sm" data-qa="due-table" data-tour="rmnt-due-table">
             <thead>
                 <tr style="background: var(--surface-2); color: var(--text-muted); border-bottom: 1px solid var(--border);">
                     <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('type') }}">Type{{ $sortIndicator('type') }}</a></th>

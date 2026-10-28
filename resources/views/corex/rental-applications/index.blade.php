@@ -106,15 +106,18 @@
 
 @section('corex-content')
 <div class="w-full space-y-5">
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rops-app-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Applications</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Send a rental application to a prospective tenant, and track where every application actually is.</p>
             </div>
-            @permission('rental_applications.create')
-            <a href="{{ route('corex.rental-applications.create') }}" class="corex-btn-primary text-xs">New Rental Application</a>
-            @endpermission
+            <div class="flex items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                @permission('rental_applications.create')
+                <a href="{{ route('corex.rental-applications.create') }}" class="corex-btn-primary text-xs" data-tour="rops-app-new">New Rental Application</a>
+                @endpermission
+            </div>
         </div>
     </div>
 
@@ -150,7 +153,7 @@
          $resolvedScope (the controller's own already-clamped value, not a
          raw, unclamped request() default). --}}
     @if(count($scopeOptions) > 1)
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-2" data-tour="rops-app-scope">
         <span class="text-xs font-medium" style="color: var(--text-secondary);">Showing:</span>
         <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
             @foreach($scopeOptions as $i => $sc)
@@ -188,7 +191,7 @@
     @if(($counts['fica_waiting_applicant'] ?? 0) + ($counts['fica_waiting_us'] ?? 0) > 0)
         <p class="text-xs mb-0" style="color: var(--text-muted);">FICA tiles can overlap with Approved — an application can be both.</p>
     @endif
-    <div class="flex flex-wrap gap-1 text-sm font-medium" style="border-bottom: 1px solid var(--border);">
+    <div class="flex flex-wrap gap-1 text-sm font-medium" style="border-bottom: 1px solid var(--border);" data-tour="rops-app-tiles">
         @foreach($primaryTiles as $key)
             @if($key === $ficaGroupBeforeTile)
                 {{-- Small, non-clickable group marker — "Waiting on
@@ -226,17 +229,17 @@
         @endforeach
     </div>
 
-    <form method="GET" action="{{ route('corex.rental-applications.index') }}" class="rounded-md px-5 py-4 flex flex-wrap items-end gap-3" style="background: var(--surface); border: 1px solid var(--border);">
+    <form method="GET" action="{{ route('corex.rental-applications.index') }}" class="rounded-md px-5 py-4 flex flex-wrap items-end gap-3" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rops-app-filters">
         <input type="hidden" name="scope" value="{{ request('scope', 'own') }}">
         <input type="hidden" name="tile" value="{{ $tile }}">
         <div class="flex flex-col gap-1">
             <label class="block text-xs font-medium" style="color: var(--text-secondary);">Search</label>
-            <input type="text" name="q" value="{{ request('q') }}" placeholder="Applicant name, phone, email, ID number, property, or #id"
+            <input type="text" name="q" data-tour="rops-app-search" value="{{ request('q') }}" placeholder="Applicant name, phone, email, ID number, property, or #id"
                    class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}" style="min-width: 260px;">
         </div>
         <div class="flex flex-col gap-1">
             <label class="block text-xs font-medium" style="color: var(--text-secondary);">Created from</label>
-            <input type="date" name="date_from" value="{{ request('date_from') }}" class="list-header-filter text-sm {{ filled(request('date_from')) ? 'is-active' : '' }}">
+            <input type="date" name="date_from" data-tour="rops-app-date-from" value="{{ request('date_from') }}" class="list-header-filter text-sm {{ filled(request('date_from')) ? 'is-active' : '' }}">
         </div>
         <div class="flex flex-col gap-1">
             <label class="block text-xs font-medium" style="color: var(--text-secondary);">Created to</label>
@@ -250,7 +253,7 @@
                 @endforeach
             </select>
         </div>
-        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;" data-tour="rops-app-filter-btn">Filter</button>
         @if(request()->hasAny(['q', 'date_from', 'date_to', 'per_page']))
             <a href="{{ route('corex.rental-applications.index', array_merge(request()->only('scope'), ['tile' => $tile])) }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>
         @endif
@@ -260,7 +263,7 @@
         </a>
     </form>
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rops-app-list">
         <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
@@ -429,7 +432,7 @@
                             @endfeature
                             @endpermission
                         @endif
-                        <a href="{{ route('corex.rental-applications.show', $application) }}" class="corex-btn-outline text-xs">{{ in_array($application->status, \App\Models\RentalApplication::AGENT_EDIT_LOCKED_STATUSES, true) ? 'View' : 'Edit' }}</a>
+                        <a href="{{ route('corex.rental-applications.show', $application) }}" class="corex-btn-outline text-xs" @if($loop->first) data-tour="rops-app-open" @endif>{{ in_array($application->status, \App\Models\RentalApplication::AGENT_EDIT_LOCKED_STATUSES, true) ? 'View' : 'Edit' }}</a>
                         {{-- REGRESSION FIX (2026-09-11, broadened 2026-09-12) —
                              declined/withdrawn's own explicit door back, since
                              Review is deliberately never offered on either row.

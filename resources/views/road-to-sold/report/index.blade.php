@@ -18,13 +18,14 @@
 
 <div class="w-full space-y-4 rts-page" x-data="buyersReport({ drilldownBase: @js($drilldownBase) })">
 
-    <div class="rounded-md px-6 py-4 corex-page-banner">
+    <div class="rounded-md px-6 py-4 corex-page-banner" data-tour="smk-rr-banner">
         <div class="flex items-center justify-between flex-wrap gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Road to Sold report</h1>
                 <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $scopeLabel }} · {{ $period->label }}</div>
             </div>
-            <div class="flex items-end gap-2 flex-wrap">
+            <div class="flex items-end gap-2 flex-wrap" data-tour="smk-rr-actions">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <a href="{{ route('road-to-sold.index', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Back to Road to Sold</a>
                 <a href="{{ $exportUrl('road-to-sold.report.print') }}" target="_blank" class="corex-btn-outline corex-btn-xs">Print</a>
                 <a href="{{ $exportUrl('road-to-sold.report.pdf') }}" class="corex-btn-outline corex-btn-xs">PDF</a>
@@ -51,7 +52,7 @@
 
     @include('road-to-sold._controls')
     {{-- Filters --}}
-    <form method="GET" class="flex items-end gap-3 flex-wrap">
+    <form method="GET" class="flex items-end gap-3 flex-wrap" data-tour="smk-rr-filters">
         @foreach(['track', 'period', 'start', 'end', 'compare', 'compare_start', 'compare_end'] as $keep)
             @if(request()->filled($keep))<input type="hidden" name="{{ $keep }}" value="{{ request($keep) }}">@endif
         @endforeach
@@ -74,7 +75,7 @@
         @endif
     </form>
 
-    <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);" data-tour="smk-rr-table">
         <table class="w-full text-xs ds-table">
             <thead>
                 <tr style="color: var(--text-muted);">
@@ -88,7 +89,7 @@
             </thead>
             <tbody>
             @forelse($paged as $row)
-                <tr style="border-top: 1px solid var(--border);">
+                <tr style="border-top: 1px solid var(--border);" @if($loop->first) data-tour="smk-rr-row" @endif>
                     <td class="px-3 py-2 font-semibold whitespace-nowrap" style="color: var(--text-primary); position: sticky; left: 0; background: var(--surface);">{{ $row['name'] }}</td>
                     @foreach($columns as $c)
                         @php $cell = $row['cells'][$c['key']]; @endphp
@@ -117,7 +118,7 @@
             </tbody>
             @if($agentCount > 1)
             <tfoot>
-                <tr style="border-top: 2px solid var(--border);">
+                <tr style="border-top: 2px solid var(--border);" data-tour="smk-rr-total">
                     <td class="px-3 py-2 font-bold" style="color: var(--text-primary); position: sticky; left: 0; background: var(--surface);">Total</td>
                     @foreach($columns as $c)
                         @php $cell = $totals['cells'][$c['key']]; @endphp

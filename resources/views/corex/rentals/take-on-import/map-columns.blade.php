@@ -10,23 +10,26 @@
 
 @section('content')
 <div class="p-6 space-y-4">
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between" data-tour="rops-tom-intro">
         <h1 class="text-lg font-semibold">Map your columns — {{ $run->source_filename }}</h1>
-        <a href="{{ route('corex.rentals.take-on-import.index') }}" class="corex-btn-secondary text-xs">Back to batches</a>
+        <div class="flex items-center gap-2">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+            <a href="{{ route('corex.rentals.take-on-import.index') }}" class="corex-btn-secondary text-xs">Back to batches</a>
+        </div>
     </div>
 
     @if ($errors->any())
         <div class="ds-alert-danger">{{ $errors->first() }}</div>
     @endif
 
-    <p class="text-xs text-muted">
+    <p class="text-xs text-muted" data-tour="rops-tom-howto">
         This file's own column headings didn't match our template exactly, so match each field below to
         one of this file's columns. Required fields are marked with *. Fields left unmapped are simply
         not captured for this import.
     </p>
 
     @if ($savedMappings->isNotEmpty())
-    <div class="corex-card p-4">
+    <div class="corex-card p-4" data-tour="rops-tom-saved">
         <label class="prop-label">Load a saved mapping</label>
         <select onchange="if(this.value) window.location.href = this.value;" class="prop-select text-xs">
             <option value="">-- choose a saved mapping --</option>
@@ -42,7 +45,7 @@
 
     <form method="POST" action="{{ route('corex.rentals.take-on-import.confirm-mapping', $run) }}">
         @csrf
-        <div class="corex-card p-4">
+        <div class="corex-card p-4" data-tour="rops-tom-table">
             <div class="overflow-x-auto">
             <table class="ds-table w-full text-xs">
                 <thead>
@@ -56,7 +59,7 @@
                         <tr>
                             <td>{{ $field['required'] ? '*' : '' }}{{ $field['label'] }}</td>
                             <td>
-                                <select name="column[{{ $field['key'] }}]" class="prop-select text-xs">
+                                <select name="column[{{ $field['key'] }}]" class="prop-select text-xs" data-tour="rops-tom-column">
                                     <option value="">-- not mapped --</option>
                                     @foreach ($headers as $i => $header)
                                         <option value="{{ $i }}" @selected(($suggested[$field['key']] ?? null) === $i)>{{ $header !== '' ? $header : '(column ' . ($i + 1) . ')' }}</option>
@@ -72,17 +75,17 @@
 
         <div class="corex-card p-4 mt-4">
             <label class="flex items-center gap-2 text-xs">
-                <input type="checkbox" id="rtoi-save-mapping-toggle" name="save_mapping" value="1" onchange="document.getElementById('rtoi-mapping-name-row').style.display = this.checked ? 'block' : 'none';">
+                <input type="checkbox" data-tour="rops-tom-save-toggle" id="rtoi-save-mapping-toggle" name="save_mapping" value="1" onchange="document.getElementById('rtoi-mapping-name-row').style.display = this.checked ? 'block' : 'none';">
                 Save this mapping for reuse next time
             </label>
-            <div id="rtoi-mapping-name-row" style="display:none;" class="mt-2">
+            <div id="rtoi-mapping-name-row" style="display:none;" class="mt-2" data-tour="rops-tom-save-name">
                 <label class="prop-label">Mapping name</label>
                 <input type="text" name="mapping_name" placeholder="e.g. PropertyFile export" class="prop-input text-xs" value="{{ old('mapping_name', $loadedMappingName) }}">
             </div>
         </div>
 
         <div class="mt-4">
-            <button type="submit" class="corex-btn-primary text-xs">Continue to preview</button>
+            <button type="submit" class="corex-btn-primary text-xs" data-tour="rops-tom-continue">Continue to preview</button>
         </div>
     </form>
 </div>

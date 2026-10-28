@@ -1096,6 +1096,14 @@ class AppServiceProvider extends ServiceProvider
                 app(\App\Services\Features\AgencyFeatureService::class)->forget($event->agencyId);
             }
         );
+        // AT-478 — an admin switching a feature the gradual rollout is holding back counts as released early.
+        // SYNC, same reasons as above. The rollout ignores the events its own releases emit.
+        \Illuminate\Support\Facades\Event::listen(
+            \App\Events\AgencyFeatureToggled::class,
+            function (\App\Events\AgencyFeatureToggled $event) {
+                app(\App\Services\FeatureRollout\FeatureRolloutService::class)->onFeatureToggled($event);
+            }
+        );
 
         // ─────────────────────────────────────────────────────────────────
         // Agency Public API (website API). The `agency-api` guard resolves a

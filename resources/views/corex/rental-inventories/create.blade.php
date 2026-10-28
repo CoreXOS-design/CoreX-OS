@@ -16,7 +16,7 @@
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div>
-            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Start an Inventory</h1>
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);" data-tour="rmnt-invnew-title">Start an Inventory</h1>
             <p class="text-xs" style="color: var(--text-muted);">Pick the property. A property with an active lease gets an inventory attached to that lease.</p>
         </div>
     </div>
@@ -34,7 +34,7 @@
             </div>
         @endif
 
-        <div>
+        <div data-tour="rmnt-invnew-property">
             <label class="prop-label">Property</label>
             <select name="property_id" required class="prop-select">
                 <option value="">Select a property…</option>
@@ -49,7 +49,7 @@
 
         <div class="flex justify-end gap-2 pt-2">
             <a href="{{ route('corex.rental-inventories.index') }}" class="corex-btn-outline text-xs">Cancel</a>
-            <button type="submit" class="corex-btn-primary text-xs">Start Inventory</button>
+            <button type="submit" class="corex-btn-primary text-xs" data-tour="rmnt-invnew-start">Start Inventory</button>
         </div>
     </form>
 </div>

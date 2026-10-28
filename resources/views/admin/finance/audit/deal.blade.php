@@ -6,7 +6,7 @@
 <div class="w-full space-y-5">
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cop-fin-deal-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0">
                 <nav class="fa-crumbs" aria-label="Breadcrumb">
@@ -31,7 +31,8 @@
             </div>
 
             <div class="flex flex-wrap items-center gap-3 md:justify-end">
-                <div class="text-right">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <div class="text-right" data-tour="cop-fin-deal-run">
                     <div class="text-xs" style="color: var(--text-muted);">Audit run #{{ $run->id }} &middot; {{ AuditLabelHelper::periodLabel($run->period) }}</div>
                     <div class="mt-1">
                         @if($run->status === 'complete')
@@ -43,7 +44,9 @@
                         @endif
                     </div>
                 </div>
+                @feature('deals')
                 <a href="{{ route('deals-dr2.edit', $deal) }}" class="corex-btn-outline text-xs shrink-0">View in Deal Register</a>
+                @endfeature
             </div>
         </div>
     </div>
@@ -54,7 +57,7 @@
         </div>
     @else
 
-    <div class="fa-card">
+    <div class="fa-card" data-tour="cop-fin-deal-metrics">
         <div class="fa-card-head">
             <div class="fa-card-title">Audit metrics</div>
             <div class="text-xs" style="color: var(--text-muted);">Definition-by-definition breakdown for this deal.</div>
@@ -75,7 +78,7 @@
                 <tbody class="divide-y divide-[color:var(--border)]">
                     @foreach($items as $item)
                         <tr class="{{ $item->severity === 'error' ? 'fa-row-err' : '' }}">
-                            <td class="px-4 py-3">
+                            <td class="px-4 py-3" @if($loop->first) data-tour="cop-fin-deal-status" @endif>
                                 @if($item->severity === 'error')
                                     <span class="ds-badge ds-badge-danger">fail</span>
                                 @elseif($item->severity === 'warn')
@@ -204,7 +207,7 @@
     @endif
 
     <div>
-        <a href="{{ route('admin.finance.audit.run', $run) }}" class="corex-btn-outline text-xs inline-flex items-center gap-1.5">
+        <a href="{{ route('admin.finance.audit.run', $run) }}" data-tour="cop-fin-deal-back" class="corex-btn-outline text-xs inline-flex items-center gap-1.5">
             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
             Back to Run #{{ $run->id }}
         </a>

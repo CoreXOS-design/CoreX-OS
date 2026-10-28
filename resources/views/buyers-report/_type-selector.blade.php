@@ -8,7 +8,7 @@
     inputs so switching type never resets the period/compare/scope choice.
     Expects: $type (?string), $types (array key=>label).
 --}}
-<form method="GET" class="flex items-end gap-2">
+<form method="GET" class="flex items-end gap-2" data-tour="rpt-br-type">
     @foreach(request()->except(['type', 'page']) as $key => $value)
         @if(is_array($value))
             @foreach($value as $v)

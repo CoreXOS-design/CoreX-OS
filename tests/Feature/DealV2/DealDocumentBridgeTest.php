@@ -19,7 +19,7 @@ use Tests\TestCase;
  * DR2 docs (AT-226 lane) — the backend 3-pillar filing proof for cc4's split:
  * a document uploaded on the canonical DR2 deal view (the DR1 twin on `deals`)
  * files itself to the deal (via the deals_v2 twin), its property, and the
- * property's contacts — the bridge from the DR1 deal to the deals_v2 doc engine.
+ * deal's own parties — the bridge from the DR1 deal to the deals_v2 doc engine.
  */
 class DealDocumentBridgeTest extends TestCase
 {
@@ -56,6 +56,9 @@ class DealDocumentBridgeTest extends TestCase
             'agency_id' => $agency->id, 'branch_id' => $branch->id, 'property_id' => $property->id, 'deal_v2_id' => $twinId,
         ]));
 
+        // The deal's own party — a document reaches the deal's parties (deal_contacts), not the property's contacts.
+        DB::table('deal_contacts')->insert(['deal_id' => $deal->id, 'contact_id' => $seller->id, 'role' => 'seller', 'created_at' => now(), 'updated_at' => now()]);
+
         $doc = app(DealDocumentService::class)->fileDealDocumentFromDeal($deal, [
             'original_name' => 'offer-to-purchase.pdf', 'storage_path' => 'deal-docs/otp.pdf', 'source_type' => 'deal',
         ], $agent);
@@ -69,7 +72,7 @@ class DealDocumentBridgeTest extends TestCase
         // Pillar 2 — the property.
         $this->assertTrue($doc->properties()->where('properties.id', $property->id)->exists(), 'reachable from the property');
 
-        // Pillar 3 — the property's contacts (the seller).
+        // Pillar 3 — the deal's parties (the seller).
         $this->assertTrue($doc->contacts()->where('contacts.id', $seller->id)->exists(), 'reachable from the seller contact');
     }
 

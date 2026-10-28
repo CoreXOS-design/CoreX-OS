@@ -57,6 +57,7 @@
                 'label' => 'Agency onboarding',
                 'items' => [
                     ['key'=>'timeline-defaults', 'label'=>'Agency timeline defaults', 'type'=>'link', 'href'=>route('admin.timeline-defaults.index'), 'keywords'=>'agency timeline onboarding plan default milestones days take-on go live training steps'],
+                    ['key'=>'feature-rollout', 'label'=>'Feature rollout', 'type'=>'link', 'href'=>route('admin.feature-rollout-defaults.index'), 'keywords'=>'gradual rollout waves features switch on new agency every day 2 days weekdays weekends public holidays release time tours gap overwhelm'],
                 ],
             ],
             [
@@ -241,13 +242,13 @@
                                 Confirm password to change demo mode
                             </label>
                             <p class="text-sm mt-1" style="color: var(--text-secondary);">
-                                Turning demo mode on or off requires the demo control password.
+                                Turning demo mode on or off requires your own CoreX login password.
                             </p>
                             <input type="password"
                                    id="demo_toggle_password"
                                    name="demo_toggle_password"
-                                   autocomplete="off"
-                                   placeholder="Demo control password"
+                                   autocomplete="current-password"
+                                   placeholder="Your password"
                                    class="mt-2 w-full max-w-sm rounded-md px-3 py-2 text-sm"
                                    style="background: var(--surface); border: 1px solid {{ $errors->has('demo_toggle_password') ? 'var(--ds-crimson, #c41e3a)' : 'var(--border)' }}; color: var(--text-primary);">
                             @error('demo_toggle_password')
