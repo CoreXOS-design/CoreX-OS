@@ -109,7 +109,7 @@ trait WorkshopFixtures
 
         return Template::create(array_merge([
             'name' => 'Mega Lease Agreement 2026', 'template_type' => 'cds', 'render_type' => 'web', 'category' => 'rentals', 'is_esign' => true,
-            'party_mode' => 'shared', 'header_display' => 'none', 'security_tier' => 'standard', 'page_count' => 0,
+            'party_mode' => 'shared', 'header_display' => 'none', 'security_tier' => 'standard', 'allowed_delivery_modes' => 'email,whatsapp,link', 'page_count' => 0,
             'agency_id' => $agency->id, 'owner_id' => $owner->id, 'is_global' => true,
             'document_type_id' => $this->documentType()->id,
             'blade_view' => 'docuperfect.templates.readiness',

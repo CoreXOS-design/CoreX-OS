@@ -12,7 +12,7 @@
 @endphp
 <style>
     /* Fixed-shell page: the menu and header stay put and the page itself does not scroll; the list pane scrolls inside itself (page standard). */
-    .ws-fit { height: calc(100vh - 54px - 32px); display: flex; flex-direction: column; overflow: hidden; }
+    .ws-fit { height: calc(100vh - 54px - 48px); display: flex; flex-direction: column; overflow: hidden; }
     .ws-pane { flex: 1 1 auto; min-height: 0; overflow: auto; }
     .ws-th a { color: inherit; text-decoration: none; }
 </style>

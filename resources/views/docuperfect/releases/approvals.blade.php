@@ -9,7 +9,7 @@
     $stateColour = ['awaiting_approval' => 'var(--ds-amber, #d97706)', 'live' => 'var(--ds-green)', 'declined' => 'var(--ds-crimson)', 'withdrawn' => 'var(--text-muted)', 'superseded' => 'var(--text-muted)'];
 @endphp
 <style>
-    .ws-fit { height: calc(100vh - 54px - 32px); display: flex; flex-direction: column; overflow: hidden; }
+    .ws-fit { height: calc(100vh - 54px - 48px); display: flex; flex-direction: column; overflow: hidden; }
     .ws-pane { flex: 1 1 auto; min-height: 0; overflow: auto; }
     .ws-th a { color: inherit; text-decoration: none; }
 </style>

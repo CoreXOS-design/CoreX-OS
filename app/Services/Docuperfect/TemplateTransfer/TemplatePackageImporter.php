@@ -167,6 +167,8 @@ final class TemplatePackageImporter
                 'groups_new'      => $groupsNew,
                 'clash'           => $clash,
                 'removed_identifiers' => $pkg['data']['removed_identifiers'] ?? [],
+                // The lease link rides along but is never created by an import (esign-template-transfer.md §13.8): it is applied when a RELEASE is approved.
+                'lease_link'      => ($ll = self::leaseLinkOf($pkg['data'])) ? ['category' => $ll['category'], 'name' => $ll['name'], 'mappings' => count($ll['field_map'])] : null,
                 'warnings'        => array_values(array_unique($warnings)),
                 'blocking'        => $blocking,
                 'needs_ack'       => $needsAck,
@@ -392,6 +394,46 @@ final class TemplatePackageImporter
     }
 
     /** Structural + safety validation of a decoded package. @return string[] */
+    /** @return list<string> plain-language problems with a package's lease link ([] = fine) */
+    private function validateLeaseLink(mixed $link): array
+    {
+        $e = [];
+        if (! is_array($link)) {
+            return ['The lease agreement link in this package is damaged.'];
+        }
+        if (! in_array($link['category'] ?? null, \App\Models\RentalLeaseTemplate::CATEGORIES, true)) {
+            $e[] = 'The lease agreement link has an unknown category.';
+        }
+        if (! is_string($link['name'] ?? null) || trim($link['name']) === '' || mb_strlen($link['name']) > 255) {
+            $e[] = 'The lease agreement link has no valid name.';
+        }
+        $map = $link['field_map'] ?? [];
+        if (! is_array($map) || count($map) > 200) {
+            $e[] = 'The lease agreement field map is damaged or too large.';
+        } else {
+            foreach (array_keys($map) as $k) {
+                if (! is_string($k) || mb_strlen($k) > 64) {
+                    $e[] = 'The lease agreement field map has an invalid field name.';
+                    break;
+                }
+            }
+            array_push($e, ...TemplateContentSafety::scan($map, 'lease_link/field_map'));
+        }
+
+        return $e;
+    }
+
+    /** The package's lease link as validated plain data, or null (none, or not valid). */
+    public static function leaseLinkOf(array $data): ?array
+    {
+        $l = $data['lease_link'] ?? null;
+        if (! is_array($l) || ! in_array($l['category'] ?? null, \App\Models\RentalLeaseTemplate::CATEGORIES, true)) {
+            return null;
+        }
+
+        return ['category' => (string) $l['category'], 'name' => (string) ($l['name'] ?? ''), 'is_default' => (bool) ($l['is_default'] ?? true), 'field_map' => is_array($l['field_map'] ?? null) ? $l['field_map'] : []];
+    }
+
     private function validateContent(array $data, array $files): array
     {
         $e = [];
@@ -428,6 +470,10 @@ final class TemplatePackageImporter
             if (array_key_exists($col, $t) && $t[$col] !== null && ! is_array($t[$col])) {
                 $e[] = "The template part \"{$col}\" is damaged.";
             }
+        }
+        // Optional lease link + field map (esign-template-transfer.md §13.8): shape-checked and safety-scanned like every other content part.
+        if (array_key_exists('lease_link', $data) && $data['lease_link'] !== null) {
+            $e = array_merge($e, $this->validateLeaseLink($data['lease_link']));
         }
         $dt = $t['document_type'] ?? null;
         if ($dt !== null && (! is_array($dt) || ! is_string($dt['slug'] ?? null) || ! preg_match('/^[a-z0-9_\-]{1,100}$/i', $dt['slug']))) {
