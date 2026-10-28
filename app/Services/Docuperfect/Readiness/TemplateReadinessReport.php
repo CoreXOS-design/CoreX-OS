@@ -257,14 +257,21 @@ final class TemplateReadinessReport
         }
         $standard = $c['block'] === SignatureBlock::COREX;   // CoreX's own block puts a place for every declared signer after the wording
         $missing = [];
+        $agentOnly = true;
         foreach ($c['declared'] as $canon => $label) {
             if (! $standard && empty($have[$canon])) {
                 $missing[] = "Place a signature for {$label}.";
+                $agentOnly = $agentOnly && $canon === 'agent';
             }
         }
+        if ($missing === []) {
+            return $this->check('R04', 'Every signer has a place to sign', self::PASS, $standard ? 'CoreX adds a signature block for every signer after the wording.' : 'Every signer has at least one signature place in the document.');
+        }
 
-        return $missing === []
-            ? $this->check('R04', 'Every signer has a place to sign', self::PASS, $standard ? 'CoreX adds a signature block for every signer after the wording.' : 'Every signer has at least one signature place in the document.')
+        // A client signer with nowhere to sign cannot complete the document (fail). An agent with no place of their own can still approve
+        // and send it — worth a look, not a blocker (Mega's lease is built this way).
+        return $agentOnly
+            ? $this->check('R04', 'Every signer has a place to sign', self::WARN, 'The agent has no signature place of their own in the document; they can approve and send it but not sign on the page.', 'Place a signature for the agent if the agent must sign.', $missing)
             : $this->check('R04', 'Every signer has a place to sign', self::FAIL, count($missing) . ' signer(s) have no signature place.', 'Place a signature for each signer in the builder.', $missing);
     }
 

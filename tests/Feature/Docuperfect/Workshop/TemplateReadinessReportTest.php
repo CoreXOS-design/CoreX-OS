@@ -91,6 +91,21 @@ final class TemplateReadinessReportTest extends TestCase
         $this->assertStringContainsString('acquiring_party', implode(' ', $r04['items']));
     }
 
+    public function test_a_declared_agent_with_no_place_is_a_warning_not_a_fail(): void
+    {
+        $a = $this->agency('Mega Real Estate');
+        $t = $this->megaShaped($a, $this->owner());
+        $editor = $t->editor_state;
+        unset($editor['mappings']['tag-s3']);
+        $editor['tags'] = array_values(array_filter($editor['tags'], fn ($x) => $x['id'] !== 'tag-s3'));
+        $t->update(['editor_state' => $editor]);
+        $r = $this->report($t->fresh());
+
+        $this->assertSame('warn', $this->check($r, 'R04')['status']);
+        $this->assertSame(0, $r['counts']['fail']);
+        $this->assertSame('ready_with_warnings', $r['verdict']);
+    }
+
     public function test_corex_standard_signature_block_gives_every_declared_signer_a_place(): void
     {
         $a = $this->agency('Mega Real Estate');
