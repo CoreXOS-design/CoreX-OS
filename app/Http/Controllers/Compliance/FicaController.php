@@ -1226,6 +1226,13 @@ class FicaController extends Controller
 
         $document->delete(); // SoftDeletes — archived, admin-recoverable. Never a hard delete.
 
+        // Audit ledger — who took which document off the review, and when. Status is unchanged.
+        FicaStatusHistory::record($submission, 'document_removed', $submission->status, $submission->status, $user, null, [
+            'fica_document_id' => $document->id,
+            'document_type'    => $document->document_type,
+            'file_name'        => $document->file_name,
+        ]);
+
         Log::info('FICA agent removed (soft-deleted) document', [
             'submission_id' => $submission->id,
             'document_id'   => $document->id,
@@ -1340,7 +1347,17 @@ class FicaController extends Controller
             'Only the requesting agent or an admin can unlink documents.'
         );
 
-        $submission->linkedDocuments()->detach($contactDocument->id);
+        $slot = $submission->linkedDocuments()->where('documents.id', $contactDocument->id)->first()?->pivot?->document_type;
+        $detached = $submission->linkedDocuments()->detach($contactDocument->id);
+
+        // Audit ledger — only when a link was actually removed. Status is unchanged.
+        if ($detached > 0) {
+            FicaStatusHistory::record($submission, 'document_unlinked', $submission->status, $submission->status, $user, null, [
+                'document_id'   => $contactDocument->id,
+                'document_type' => $slot,
+                'file_name'     => $contactDocument->original_name,
+            ]);
+        }
 
         return back()->with('success', 'Contact document unlinked (the document itself was not deleted).');
     }
