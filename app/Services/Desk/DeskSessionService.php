@@ -99,6 +99,7 @@ class DeskSessionService
             'started_at' => now(),
             'code_expires_at' => now()->addMinutes($minutes),
             'last_heartbeat_at' => now(),
+            'last_activity_at' => now(),
             'ip_address' => $ip,
             'user_agent' => $userAgent ? substr($userAgent, 0, 500) : null,
         ]);
@@ -139,8 +140,11 @@ class DeskSessionService
         return DeskSession::withoutGlobalScopes()->open()->where('user_id', $agent->id)->latest('id')->first();
     }
 
-    /** The agent's tab is alive. Returns the session as it now stands (the tab learns if it was ended meanwhile). */
-    public function heartbeat(DeskSession $session, mixed $page = null): DeskSession
+    /**
+     * The agent's tab is alive. Returns the session as it now stands (the tab learns if it was ended meanwhile).
+     * $active = the agent really did something (input in the CoreX page or a shared tab) since the previous ping; a ping alone is NOT activity.
+     */
+    public function heartbeat(DeskSession $session, mixed $page = null, bool $active = false): DeskSession
     {
         $this->expireStale();
         $session = $session->fresh();
@@ -149,6 +153,10 @@ class DeskSessionService
         }
         if ($session->isLive() && ! $this->supportersStillValid($session)) {
             return $this->end($session, DeskSession::ENDED_BY_DISABLED);
+        }
+
+        if ($active && $session->isLive()) {
+            $this->touchActivity($session);
         }
 
         $path = $this->cleanPath($page);
@@ -218,6 +226,7 @@ class DeskSessionService
             'support_user_id' => $support->id,
             'support_display' => $display,
             'joined_at' => $joinedAt,
+            'last_activity_at' => $joinedAt,
             'updated_at' => $joinedAt,
         ]);
         if ($claimed !== 1) {
@@ -514,7 +523,7 @@ class DeskSessionService
                 $this->closeControl($session, 'system', 'tab');
                 $session = $session->fresh();
             }
-            $this->record($session, DeskSessionEvent::TAB_LEAVE, ['tab' => $key, 'host' => 'CoreX', 'title' => $open[$key]['title'] ?? '', 'path' => $open[$key]['path'] ?? '']);
+            $this->record($session, DeskSessionEvent::TAB_LEAVE, ['tab' => $key, 'host' => 'CoreX', 'title' => $open[$key]['title'] ?? '', 'path' => $open[$key]['path'] ?? ''], null, false);   // (system-detected: not activity)
             DeskBroadcast::dispatch($session->id, 'desk.tab_left', ['tab' => $key]);
             foreach ([$this->leaveAtKey($session->id, $key), $this->leaveRecvKey($session->id, $key), $this->joinAtKey($session->id, $key), $this->seenKey($session->id, $key)] as $k) {
                 Cache::forget($k);
@@ -876,7 +885,7 @@ class DeskSessionService
                 'ok' => $ok,
                 'reason' => $ok ? null : mb_substr((string) preg_replace('/[^a-z_ ]/i', '', $reasonText), 0, 40),
                 'n' => max(1, min(1000, (int) (is_numeric($a['n'] ?? null) ? $a['n'] : 1))),
-            ] + ($late ? ['late' => true] : []), $support);
+            ] + ($late ? ['late' => true] : []), $support, ! $late);
             $written++;
         }
         if ($anyRan && ! $late) {
@@ -922,7 +931,7 @@ class DeskSessionService
         ])->save();
 
         if ($state === DeskSession::CONTROL_REQUESTED) {
-            $this->record($session, DeskSessionEvent::CONTROL_DECLINED, $info + ['reason' => $reason], $actor);
+            $this->record($session, DeskSessionEvent::CONTROL_DECLINED, $info + ['reason' => $reason], $actor, $by !== 'system');
             DeskBroadcast::dispatch($session->id, 'desk.control_declined', ['tab' => $tab, 'reason' => $reason]);
 
             return;
@@ -933,7 +942,7 @@ class DeskSessionService
 
             return;
         }
-        $this->record($session, DeskSessionEvent::CONTROL_ENDED, $info + ['by' => $by, 'reason' => $reason], $actor);
+        $this->record($session, DeskSessionEvent::CONTROL_ENDED, $info + ['by' => $by, 'reason' => $reason], $actor, $by !== 'system');
         DeskBroadcast::dispatch($session->id, 'desk.control_ended', ['tab' => $tab, 'by' => $by, 'reason' => $reason]);
     }
 
@@ -1008,6 +1017,18 @@ class DeskSessionService
         foreach ($quiet as $session) {
             $this->end($session, DeskSession::ENDED_BY_TIMEOUT);
             $closed++;
+        }
+
+        // Inactivity (desk.inactive_minutes; 0 = off): a LIVE session in which nobody has done anything real - no input by the agent (CoreX page or a shared
+        // tab), nothing recorded server-side - for that long is disconnected. A heartbeat ping alone is not activity (spec section 4i).
+        $inactiveMinutes = (int) config('desk.inactive_minutes', 30);
+        if ($inactiveMinutes > 0) {
+            $idle = DeskSession::withoutGlobalScopes()->where('status', DeskSession::LIVE)
+                ->whereRaw('COALESCE(last_activity_at, joined_at, started_at) < ?', [now()->subMinutes($inactiveMinutes)])->get();
+            foreach ($idle as $session) {
+                $this->end($session, DeskSession::ENDED_BY_INACTIVE);
+                $closed++;
+            }
         }
 
         // Hard cap: however alive it looks, a session does not run for ever (desk.max_session_hours; 0 switches the cap off).
@@ -1098,8 +1119,28 @@ class DeskSessionService
         return null;
     }
 
-    private function record(DeskSession $session, string $type, array $payload, ?User $actor = null): DeskSessionEvent
+    /**
+     * Mark "somebody did something" on a session: sets last_activity_at, at most one write per ~10 s per session (a conditional UPDATE, so a burst of
+     * events - or two requests at once - costs one write). Never moves the clock backwards.
+     */
+    private function touchActivity(DeskSession $session): void
     {
+        $now = now();
+        DeskSession::withoutGlobalScopes()->whereKey($session->id)
+            ->where(fn ($q) => $q->whereNull('last_activity_at')->orWhere('last_activity_at', '<', $now->copy()->subSeconds(10)))
+            ->update(['last_activity_at' => $now]);
+    }
+
+    /**
+     * Writes one audit row. $activity = this event is somebody really doing something, so it also counts as session activity (the inactivity rule): true for
+     * every type except the ENDED row and the system's own housekeeping (a lapsed request, an idle control end, a silent tab dropped), which pass false.
+     */
+    private function record(DeskSession $session, string $type, array $payload, ?User $actor = null, bool $activity = true): DeskSessionEvent
+    {
+        if ($activity && $type !== DeskSessionEvent::ENDED) {
+            $this->touchActivity($session);
+        }
+
         return DeskSessionEvent::create([
             'desk_session_id' => $session->id,
             'agency_id' => $session->agency_id,

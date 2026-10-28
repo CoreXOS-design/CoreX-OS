@@ -156,8 +156,8 @@ const ui = {
         hideBar();
         const p = $('corex-desk-pointer');
         if (p) p.hidden = true;
-        if (by === 'timeout' || by === 'expired') {
-            showModal('error', { message: by === 'expired' ? 'Nobody joined in time, so the session was closed. Press Get help to start again.' : 'The connection was lost, so the session was closed.' });
+        if (by === 'timeout' || by === 'expired' || by === 'inactive') {
+            showModal('error', { message: by === 'expired' ? 'Nobody joined in time, so the session was closed. Press Get help to start again.' : by === 'inactive' ? 'Desk ended: nothing was done in the session for a while. Press Get help to start again.' : 'The connection was lost, so the session was closed.' });
         } else {
             hideModal();
         }

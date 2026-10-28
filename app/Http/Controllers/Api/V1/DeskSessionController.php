@@ -48,11 +48,11 @@ class DeskSessionController extends Controller
         return response()->json(['session' => $session?->load('agent', 'agency', 'supportUser')->toClientArray()]);
     }
 
-    /** POST /api/v1/desk/sessions/{id}/heartbeat {page} - keeps the session alive; answers with its status so a dead one is noticed. */
+    /** POST /api/v1/desk/sessions/{id}/heartbeat {page, active} - `active` = real input since the last ping (a ping alone is not activity); keeps the session alive; answers with its status so a dead one is noticed. */
     public function heartbeat(Request $request, int $id): JsonResponse
     {
         $session = $this->mine($request, $id);
-        $session = $this->desk->heartbeat($session, $request->input('page'));
+        $session = $this->desk->heartbeat($session, $request->input('page'), $request->boolean('active'));
         $tabs = [];
         if ($session->isLive() && is_string($request->input('tab'))) {
             $this->desk->touchTab($session, $this->desk->cleanTabKey($request->input('tab')));

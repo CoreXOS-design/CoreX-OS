@@ -322,6 +322,24 @@ Support and the agent can write each other short lines during a session — no p
 - Proof (`message-proof.mjs`, two real Chromium browsers on QA1): support sends → it is on the agent's red bar in every one of two tabs within a second or so; the agent
   replies → it is in the console; a highlight active → the line is on the card; the audit shows both lines; the thread shows three lines and expands.
 
+### 4i. A live session with nothing happening is disconnected (Johan, 28 Oct 2026)
+
+A LIVE session in which nobody has done anything real for `desk.inactive_minutes` (env `DESK_INACTIVE_MINUTES`, default 30; 0 = off; a platform tunable, not an agency setting)
+is ended by the sweep (`expireStale`) with `ended_by = 'inactive'`. The agent sees "Desk ended: nothing was done in the session for a while"; the console says "The session ended: no
+activity for a while"; the extension stops sharing like for any end (indicator removed); the audit log and the Desk sessions list show "the session being inactive" / "Inactive".
+Waiting sessions are not touched by this rule (they have their own code expiry).
+
+- **What counts as activity** (`desk_sessions.last_activity_at`; the sweep uses `COALESCE(last_activity_at, joined_at, started_at)`):
+  - the agent's real input in a CoreX tab (pointerdown, keydown, wheel, touchmove, throttled pointermove; trusted events only) or in a shared extension tab (same kinds, one message per ~20 s,
+    `desk.activity` to the service worker, only for a tab being shared) - it reaches the server as `active: true` on the next heartbeat (`POST .../heartbeat {page, active}` and
+    `POST .../ext/sessions/{id}/heartbeat {active}`; a non-boolean `active` is treated as false);
+  - anything recorded server-side in the session: joined / supporter attached, page change, message, highlight set or cleared, pointer on/off, tab shared / moved / stopped by the agent, control
+    requested / granted / declined / revoked / each replayed action (so support actively working in a take-over keeps it alive). Written at most once per ~10 s per session.
+- **What does not count:** a heartbeat ping alone (it only proves the browser is open; it used to keep a session alive up to the 8 h cap); the `ended` row; the system's own housekeeping
+  (a lapsed take-over request, an idle take-over end, a silent tab dropped); a late action report after control ended; input inside Desk's own UI; the clicks support replays
+  in a take-over (synthetic events - they are already recorded server-side as control actions).
+- `ended_by` values are now: `agent`, `support`, `logout`, `timeout`, `expired`, `disabled`, `replaced`, `inactive`. The 8 h hard cap (14c) is unchanged.
+
 ## 5. Privacy and audit (POPIA)
 
 Johan: a permanent audit so claims can be proven or dismissed.
@@ -398,7 +416,7 @@ emits `client-frame`, and honours `desk.*`. Only the recorder's host page differ
 ### 7.3 Lifecycle
 
 `waiting` (code issued, 10 min) → `live` (support joined) → `ended`. `ended_by`: `agent`, `support`, `logout`, `timeout`
-(heartbeat lost), `expired` (nobody joined in 10 min), `disabled`. Stale sessions are closed lazily whenever sessions are
+(heartbeat lost), `expired` (nobody joined in 10 min), `disabled`, `replaced`, `inactive` (live, nothing done for `desk.inactive_minutes` - section 4i). Stale sessions are closed lazily whenever sessions are
 read (join / current / console list) and by the `desk:expire` command, so no scheduler is required on a box without one.
 One open session per agent: starting a new one closes the old.
 
@@ -461,7 +479,7 @@ allowed for the session's agent, and for the support user who joined it while it
 | `client-pointer` | support | `{x, y}` — ratios 0–1 of the agent's viewport (so any window size works); the agent hides the cursor after 4 s idle |
 
 **HTTP.** Agent (`/api/v1/desk/sessions`, session-auth): `POST /` create → `{session, code, code_minutes}`; `GET /current`;
-`POST /{id}/heartbeat {page}` every 30 s and on each page load (answers `{status, ended_by}` — a dead session is noticed here);
+`POST /{id}/heartbeat {page, active}` every 30 s (`active` = real input since the last ping; a ping alone is not activity, 4i) and on each page load (answers `{status, ended_by}` — a dead session is noticed here);
 `POST /{id}/leaving` (beacon on `pagehide`); `POST /{id}/end`. Support (`/corex/desk`): `POST /join {code}`,
 `POST /sessions/{id}/highlight {selector, note}`, `/highlight/clear`, `/pointer {on}`, `/message {text, tab, id}`, `/end`; `GET /sessions` (live list).
 
@@ -522,7 +540,7 @@ allowed for the session's agent, and for the support user who joined it while it
 - New endpoints: `POST /api/v1/desk/support/sessions/{id}/control/key` (`api.v1.desk.support.control.key`: `desk.support` + `desk.control`, `throttle:desk-state`),
   `POST /api/v1/desk/sessions/{id}/control/key {tab}` and `POST /api/v1/desk/ext/sessions/{id}/control/key {tab}` (the agent's own page / worker). `GET /api/v1/desk/ext/session`
   also returns `allowed_hosts_exact` (the agency's own website, matched exactly).
-- Server tunables: `desk.max_session_hours`, `desk.expire_throttle_seconds`, `desk.join_candidate_cap`, `desk.control_report_grace_seconds`.
+- Server tunables: `desk.max_session_hours`, `desk.inactive_minutes`, `desk.expire_throttle_seconds`, `desk.join_candidate_cap`, `desk.control_report_grace_seconds`.
 
 **Rules every recorder must follow.**
 1. Record only the sharing tab, only while the session is `live`; stop on `desk.ended`.
@@ -782,7 +800,7 @@ check of who sent it, and an Allow answered whichever request happened to be ope
 
 ## 14c. Smaller guards (audit round, 28 Oct 2026)
 
-- **Hard cap.** `desk.max_session_hours` (8; 0 = off): `expireStale` closes (timeout) any session older than that, however alive.
+- **Hard cap.** `desk.max_session_hours` (8; 0 = off): `expireStale` closes (timeout) any session older than that, however alive. Separately, inactivity (4i) closes a live session with nothing done for `desk.inactive_minutes` (30).
 - **A supporter who loses the right ends the session.** On every heartbeat and in the sweep, every support person on a live session must still be active, hold `desk.support` and be in scope; otherwise the session
   ends (`disabled`) — a person already subscribed to a private channel cannot be removed from it any other way.
 - **Atomic join.** The first valid joiner is decided by ONE conditional `UPDATE … WHERE status = 'waiting' AND support_user_id IS NULL`; the loser is answered like a wrong code. Attaching a second supporter is a locked read-modify-write.

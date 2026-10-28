@@ -62,7 +62,7 @@ export function start(ctx) {
 
     st = { cfg, session, api, ui, tab, echo, channel, channelName, timers: [], buffer: [], flushing: false, subscribed: false, live: false, registered: false,
         ctl: newCtl(), droppedActions: 0, supporters: [], stopRecord: null, recording: false, hl: null, ended: false, pointerTimer: null,
-        haveListener: false, pendingResync: false, lastSnap: 0, thread: [], threadIds: new Set() };
+        userInput: false, haveListener: false, pendingResync: false, lastSnap: 0, thread: [], threadIds: new Set() };
 
     channel
         .listen('.desk.joined', (e) => { if (e.support_name) st.session.support_name = e.support_name; st.supporters = Array.isArray(e.supporters) && e.supporters.length ? e.supporters : [e.support_name]; st.live = true; ui.joined(e.support_name, st.supporters); beginRecording(); registerTab('join'); })
@@ -107,15 +107,23 @@ export function start(ctx) {
             ui.error('Could not open the live connection. Check your internet connection and try again.');
         });
 
-    // Keep the session alive; learn if the other side (or a timeout) already ended it.
+    // Keep the session alive; learn if the other side (or a timeout) already ended it. `active` tells the server the agent really did something since the previous
+    // ping (the inactivity rule, spec section 4i): a ping alone is not activity. The flag is cleared as it is sent; a failed ping puts it back.
     const beat = async () => {
-        const r = await api('POST', cfg.urls.sessions + '/' + session.id + '/heartbeat', { page: location.pathname, tab: st.tab });
+        const active = st.userInput;
+        st.userInput = false;
+        const r = await api('POST', cfg.urls.sessions + '/' + session.id + '/heartbeat', { page: location.pathname, tab: st.tab, active });
+        if (!r.ok && active && st) st.userInput = true;
         if (r.ok && r.json.status === 'ended') finish(r.json.ended_by);
         // The server does not list this tab as open (a "leaving" that reached it after the next page's "joined"): say so again.
         else if (r.ok && st && st.live && Array.isArray(r.json.tabs) && !r.json.tabs.includes(st.tab)) registerTab('join');
     };
     beat();
     st.timers.push(setInterval(beat, Math.max(5, cfg.heartbeatSeconds || 30) * 1000));
+
+    // Real input on this page counts as activity (inactivity rule). Only the person's own, trusted events: what support's take-over replays is synthetic
+    // (isTrusted is false) and is recorded server-side anyway; Desk's own UI is ignored. Passive and cheap: it only sets a flag.
+    for (const type of USER_INPUT_EVENTS) window.addEventListener(type, onUserInput, { capture: true, passive: true });
 
     // The page is closing or changing: say so, so the next page gets a short grace instead of the full timeout.
     window.addEventListener('pagehide', leaving);
@@ -229,6 +237,7 @@ function finish(by) {
     clearHighlight();
     hidePointer();
     st.timers.forEach((t) => { clearInterval(t); clearTimeout(t); });
+    for (const type of USER_INPUT_EVENTS) window.removeEventListener(type, onUserInput, { capture: true });
     window.removeEventListener('pagehide', leaving);
     window.removeEventListener('resize', onViewportChange);
     if (window.visualViewport) window.visualViewport.removeEventListener('resize', onViewportChange);
@@ -641,6 +650,23 @@ function clearHighlight() {
 }
 
 /** The agent clicked the highlighted element (or anything inside it): it did what was pointed out. Clear it on both sides; the console says "done". */
+const USER_INPUT_EVENTS = ['pointerdown', 'keydown', 'wheel', 'touchmove', 'pointermove']   // (not `scroll`: a page scrolling itself fires trusted scroll events);
+const USER_MOVE_THROTTLE_MS = 2000;
+let lastMoveInput = 0;
+
+/** A real person did something on this page: remember it for the next heartbeat. Synthetic events (support's replayed clicks) and Desk's own UI do not count. */
+function onUserInput(ev) {
+    if (!st || !ev || ev.isTrusted !== true) return;
+    if (ev.type === 'pointermove' || ev.type === 'touchmove') {
+        const now = Date.now();
+        if (now - lastMoveInput < USER_MOVE_THROTTLE_MS) return;
+        lastMoveInput = now;
+    }
+    const t = ev.target;
+    if (t && t.closest && t.closest('[id^="corex-desk"], .rr-block')) return;
+    st.userInput = true;
+}
+
 function onDocClick(ev) {
     const h = st && st.hl;
     if (!h) return;

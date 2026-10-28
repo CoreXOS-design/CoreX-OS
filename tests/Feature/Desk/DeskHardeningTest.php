@@ -276,7 +276,7 @@ final class DeskHardeningTest extends DeskTestCase
     public function test_a_session_is_closed_after_the_hard_cap_however_alive_it_looks(): void
     {
         [$s, $agent] = $this->live();
-        config(['desk.max_session_hours' => 8]);
+        config(['desk.max_session_hours' => 8, 'desk.inactive_minutes' => 0]);   // (the inactivity rule, spec 4i, is off here: this test is about the cap alone)
 
         $beat = fn () => DeskSession::withoutGlobalScopes()->whereKey($s->id)->update(['last_heartbeat_at' => now()]);   // (the agent's tab is still pinging)
 

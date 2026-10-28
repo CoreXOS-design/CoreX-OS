@@ -264,7 +264,7 @@ function detach(callServer) {
 
 function ended(by) {
     if (!cur) return;
-    const who = { agent: 'The agent ended the session.', support: 'You ended the session.', logout: 'The agent signed out.', timeout: 'The connection to the agent was lost.', expired: 'The session expired.' }[by] || 'The session ended.';
+    const who = { agent: 'The agent ended the session.', support: 'You ended the session.', logout: 'The agent signed out.', timeout: 'The connection to the agent was lost.', expired: 'The session expired.', inactive: 'The session ended: no activity for a while.' }[by] || 'The session ended.';
     leave();
     say(who);
 }

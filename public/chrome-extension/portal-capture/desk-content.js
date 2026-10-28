@@ -70,6 +70,24 @@
     sendViewport();
     window.addEventListener('resize', onViewport);
     if (window.visualViewport) window.visualViewport.addEventListener('resize', onViewport);
+    ACTIVITY_EVENTS.forEach(function (n) { window.addEventListener(n, onActivity, { capture: true, passive: true }); });
+  }
+
+  /**
+   * Real input on a shared tab counts as the agent being active (the inactivity rule, spec section 4i). Only the person's own trusted events: what support's
+   * take-over replays is synthetic (isTrusted false) and is recorded server-side anyway; Desk's own bar is ignored. At most one message per ACTIVITY_GAP_MS.
+   */
+  var ACTIVITY_EVENTS = ['pointerdown', 'keydown', 'wheel', 'touchmove', 'pointermove'];
+  var ACTIVITY_GAP_MS = 20000;
+  var lastActivity = 0;
+  function onActivity(ev) {
+    if (!ev || ev.isTrusted !== true) return;
+    var now = Date.now();
+    if (now - lastActivity < ACTIVITY_GAP_MS) return;
+    var t = ev.target;
+    if (t && (t.id === 'corex-desk-ext-root' || (t.closest && t.closest('#corex-desk-ext-root')))) return;
+    lastActivity = now;
+    send({ type: 'desk.activity' });
   }
 
   /** This tab's own window size, whispered on start / resync / every resize or zoom: the console lays the mirror out at it (spec section 4e). */
@@ -93,6 +111,7 @@
   function stop() {
     window.removeEventListener('resize', onViewport);
     if (window.visualViewport) window.visualViewport.removeEventListener('resize', onViewport);
+    ACTIVITY_EVENTS.forEach(function (n) { window.removeEventListener(n, onActivity, { capture: true }); });
     if (S.stop) { try { S.stop(); } catch (e) { /* ignore */ } }
     if (S.ctl.reporter) S.ctl.reporter.flush();
     if (S.ctl.idle) S.ctl.idle.stop();

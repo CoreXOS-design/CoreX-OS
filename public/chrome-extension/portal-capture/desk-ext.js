@@ -25,7 +25,8 @@ importScripts('desk-lib.js');
     control: { state: 'none', tab: null }, idleSeconds: 300,
     grant: null,         // the take-over's signing key for the tab control is granted on: {tab, key, requestId, lastSeq, q}. Memory only (plus the last seq, see persistSeq); gone when control ends.
     grantLoading: null, dropped: 0,   // actions refused (unsigned / bad signature / out of order / wrong tab / no key) - dropped silently, counted
-    hb: null, retry: 0, reconnect: null, titleTimers: new Map(), stopped: true,
+    hb: null, active: false,   // active: the agent did something on a shared tab since the last heartbeat (desk.activity from the page) - a ping alone is not activity
+    retry: 0, reconnect: null, titleTimers: new Map(), stopped: true,
     thread: [], seen: new Set(),   // the message strip: the last lines (only what the SERVER broadcast), each handled once by its id
   };
 
@@ -363,8 +364,11 @@ importScripts('desk-lib.js');
     var secs = (D.status && D.status.heartbeat_seconds) || 30;
     D.hb = setInterval(async function () {
       if (!D.tabs.size || !D.status || !D.status.session) return;
-      var r = await api('POST', '/api/v1/desk/ext/sessions/' + D.status.session.id + '/heartbeat', {});
-      if (r.ok && r.json.status === 'ended') stopAll('session ended');
+      var active = D.active;
+      D.active = false;
+      var r = await api('POST', '/api/v1/desk/ext/sessions/' + D.status.session.id + '/heartbeat', { active: active });
+      if (!r.ok && active) D.active = true;   // not delivered: tell the next ping
+      if (r.ok && r.json.status === 'ended') stopAll('session ended');   // (whatever the reason: support, timeout, inactive...)
     }, Math.max(5, secs) * 1000);
   }
 
@@ -440,6 +444,7 @@ importScripts('desk-lib.js');
       return true;
     }
     if (msg.type === 'desk.controlRevoke' && sender.tab) { dropGrant(); controlCall(sender.tab.id, 'revoke', { reason: msg.reason === 'idle' ? 'idle' : 'agent' }).then(respond); return true; }
+    if (msg.type === 'desk.activity' && sender.tab) { if (D.tabs.has(sender.tab.id)) D.active = true; return false; }   // (only a tab that is actually being shared)
     if (msg.type === 'desk.indicatorGone' && sender.tab) { stopTab(sender.tab.id, false); return false; }   // the page removed or hid the red bar: sharing stops
     if (msg.type === 'desk.viewport' && sender.tab) { send({ event: 'client-viewport', channel: D.channel, data: { t: Lib.tabKey(sender.tab.id), w: msg.w, h: msg.h, dpr: msg.dpr } }); return false; }
     if (msg.type === 'desk.actionResult' && sender.tab) { send({ event: 'client-action_result', channel: D.channel, data: { t: Lib.tabKey(sender.tab.id), id: msg.id, ok: false, reason: msg.reason } }); return false; }

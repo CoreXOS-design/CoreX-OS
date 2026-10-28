@@ -20,7 +20,7 @@ final class DeskAuditText
     ];
 
     private const ENDED = ['agent' => 'the agent', 'support' => 'support', 'logout' => 'the agent signing out', 'timeout' => 'the connection being lost',
-        'expired' => 'nobody joining in time', 'disabled' => 'Desk being switched off', 'replaced' => 'a new session being started'];
+        'expired' => 'nobody joining in time', 'disabled' => 'Desk being switched off', 'replaced' => 'a new session being started', 'inactive' => 'the session being inactive'];
 
     private const CONTROL_END = ['support' => 'support handed control back', 'idle' => 'nothing was done for the agency\'s idle limit', 'session' => 'the session ended',
         'tab' => 'the shared tab was closed', 'agent' => 'the agent took it back', 'no_answer' => 'the agent did not answer in time', 'declined' => 'the agent declined'];

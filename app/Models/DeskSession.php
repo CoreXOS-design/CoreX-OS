@@ -34,10 +34,11 @@ class DeskSession extends Model
     public const ENDED_BY_EXPIRED = 'expired';
     public const ENDED_BY_DISABLED = 'disabled';
     public const ENDED_BY_REPLACED = 'replaced';
+    public const ENDED_BY_INACTIVE = 'inactive';
 
     protected $fillable = [
         'agency_id', 'user_id', 'support_user_id', 'status', 'otp_id', 'code_expires_at', 'started_at', 'joined_at', 'ended_at',
-        'ended_by', 'ended_by_user_id', 'page_url_last', 'last_heartbeat_at', 'leaving_at', 'ip_address', 'user_agent',
+        'ended_by', 'ended_by_user_id', 'page_url_last', 'last_heartbeat_at', 'last_activity_at', 'leaving_at', 'ip_address', 'user_agent',
         'support_user_ids', 'support_display', 'control_support_user_id', 'control_state', 'control_tab', 'control_requested_at', 'control_granted_at', 'control_last_action_at',
         'control_request_id', 'control_ended_at', 'control_ended_tab', 'control_ended_support_user_id',
     ];
@@ -48,6 +49,7 @@ class DeskSession extends Model
         'joined_at' => 'datetime',
         'ended_at' => 'datetime',
         'last_heartbeat_at' => 'datetime',
+        'last_activity_at' => 'datetime',
         'leaving_at' => 'datetime',
         'support_user_ids' => 'array',
         'control_requested_at' => 'datetime',

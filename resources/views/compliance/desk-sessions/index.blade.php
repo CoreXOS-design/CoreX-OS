@@ -11,7 +11,7 @@
     };
     $arrow = fn (string $key) => $sort === $key ? ($dir === 'asc' ? ' ↑' : ' ↓') : '';
     $statusBadge = fn (string $s) => match ($s) { 'live' => 'ds-badge-success', 'waiting' => 'ds-badge-info', default => 'ds-badge-default' };
-    $endedLabel = ['agent' => 'The agent', 'support' => 'Support', 'logout' => 'Agent signed out', 'timeout' => 'Connection lost', 'expired' => 'Nobody joined', 'disabled' => 'Switched off', 'replaced' => 'New session started'];
+    $endedLabel = ['agent' => 'The agent', 'support' => 'Support', 'logout' => 'Agent signed out', 'timeout' => 'Connection lost', 'expired' => 'Nobody joined', 'disabled' => 'Switched off', 'replaced' => 'New session started', 'inactive' => 'Inactive'];
 @endphp
 <div class="w-full space-y-5">
 

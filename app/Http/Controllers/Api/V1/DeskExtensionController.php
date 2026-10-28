@@ -61,7 +61,7 @@ class DeskExtensionController extends Controller
     /** POST /api/v1/desk/ext/sessions/{id}/heartbeat - the extension keeps the session alive while it shares a tab. */
     public function heartbeat(Request $request, int $id): JsonResponse
     {
-        $session = $this->desk->heartbeat($this->mine($request, $id), null);
+        $session = $this->desk->heartbeat($this->mine($request, $id), null, $request->boolean('active'));
 
         return response()->json(['status' => $session->status, 'ended_by' => $session->ended_by]);
     }

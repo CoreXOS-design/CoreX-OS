@@ -12,6 +12,10 @@ return [
     'heartbeat_seconds' => (int) env('DESK_HEARTBEAT_SECONDS', 30),
     'stale_after_seconds' => (int) env('DESK_STALE_AFTER_SECONDS', 75),
 
+    // Inactivity: a LIVE session in which nobody did anything real (no input by the agent in the CoreX page or a shared tab, nothing recorded server-side)
+    // for this many minutes is disconnected (ended_by 'inactive'). Heartbeat pings alone do not count. 0 = off. Platform tunable, not an agency setting.
+    'inactive_minutes' => (int) env('DESK_INACTIVE_MINUTES', 30),
+
     // After the agent's tab says it is leaving (page change or close) the next page has this long to reconnect.
     'leaving_grace_seconds' => (int) env('DESK_LEAVING_GRACE_SECONDS', 30),
 
