@@ -58,8 +58,13 @@
                     This is a PDF template: it has {{ $demo['pdf_pages'] }} page(s) of scanned pages with signature zones, not typed wording with blanks, so there is nothing to fill with sample data. The signature zones are listed under "Signers and places".
                 </div>
             @else
-                <div id="demoContainer" data-demo-document style="width: 210mm; max-width: 100%; margin: 0 auto;">
-                    <div class="corex-document-wrapper">{!! $demo['html'] !!}</div>
+                {{-- The same document CSS and the same container shape the signing link uses (docuperfect.shared._document-body + corex-document.css). --}}
+                <link href="/css/corex-document.css" rel="stylesheet">
+                <link rel="stylesheet" href="{{ asset('css/docuperfect-recipient-blocks.css') }}">
+                <div style="width: 210mm; max-width: 100%; margin: 0 auto;">
+                    <div class="docuperfect-document-body recipient-signing-context" data-viewer-context="demo">
+                        <div id="demoContainer" data-demo-document data-recipient-block-host="1">{!! $demo['html'] !!}</div>
+                    </div>
                 </div>
             @endif
         </div>

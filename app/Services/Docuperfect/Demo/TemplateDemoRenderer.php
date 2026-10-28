@@ -71,6 +71,8 @@ final class TemplateDemoRenderer
             $notes[] = 'This template\'s page file has not been built yet, so the saved text is shown without the blanks filled. Open the template in the builder and Save to build it.';
         }
 
+        // The signing flow draws the page's <body> plus its <style> blocks (never the whole HTML document): do the same here.
+        $html = $this->bodyWithStyles($html);
         [$html, $fields, $counts] = $this->annotate($html, $sample['fields']);
 
         $base['notes'] = $notes;
@@ -79,6 +81,21 @@ final class TemplateDemoRenderer
             'kind' => 'web', 'html' => $html, 'fields' => $fields, 'pdf_pages' => 0, 'counts' => $counts,
             'frame' => $this->frame($ctx, $sample['frame'], $t),
         ];
+    }
+
+    /** The same split the e-sign wizard makes of a compiled page (ESignWizardController): its <style> blocks, then what is between <body> and </body>. */
+    private function bodyWithStyles(string $fullHtml): string
+    {
+        $body = $fullHtml;
+        if (preg_match('/<body[^>]*>(.*)<\/body>/si', $fullHtml, $m)) {
+            $body = trim($m[1]);
+        }
+        $styles = '';
+        if (preg_match_all('/<style[^>]*>.*?<\/style>/si', $fullHtml, $sm)) {
+            $styles = implode("\n", $sm[0]);
+        }
+
+        return $styles . $body;
     }
 
     /** Mark each blank's span with where its value came from; find the ones that rendered empty or are missing from the page. */
