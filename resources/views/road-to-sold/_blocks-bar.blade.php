@@ -34,10 +34,11 @@
     .rts-block-body > form { gap: .5rem !important; }
     .rts-grow thead th { position: sticky; top: 0; z-index: 1; background: var(--surface); }
     .rts-grow table td { padding-top: .35rem; padding-bottom: .35rem; }
+    .rts-grow table th, .rts-grow table td { padding-left: .5rem; padding-right: .5rem; }
     /* one line per cell (the reason may take two): a row is ~44px, so five rows fit */
     .rts-grow th { white-space: nowrap; }
     .rts-grow td:last-child { max-width: none !important; overflow: visible !important; }
-    .rts-grow td:not([data-qa="intake-why"]) { white-space: nowrap; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; }
+    .rts-grow td:not([data-qa="intake-why"]) { white-space: nowrap; max-width: 12rem; overflow: hidden; text-overflow: ellipsis; }
     /* what to do next + where the month stands share one row */
     .rts-top { display: flex; gap: .75rem; align-items: stretch; }
     .rts-top > :first-child { flex: 0 0 22rem; min-width: 0; }

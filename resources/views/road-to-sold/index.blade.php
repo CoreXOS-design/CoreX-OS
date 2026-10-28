@@ -237,9 +237,7 @@
                 <tr style="color: var(--text-muted);">
                     <th class="px-3 py-2 text-left">Why - start here</th>
                     <th class="px-3 py-2 text-left">Address</th>
-                    <th class="px-3 py-2 text-right">Price</th>
-                    <th class="px-3 py-2 text-right">Days on market</th>
-                    <th class="px-3 py-2 text-left">Listing agency</th>
+                    <th class="px-3 py-2 text-left">Price · days on market · agency</th>
                     <th class="px-3 py-2 text-left">Owner</th>
                     <th class="px-3 py-2 text-left">Last outcome</th>
                     <th class="px-3 py-2 text-right"></th>
@@ -249,16 +247,18 @@
             @forelse($rowsPage as $r)
                 @php $lo = $r['last_outcome']; @endphp
                 <tr style="border-top: 1px solid var(--border);">
-                    <td class="px-3 py-2 font-semibold" style="color: var(--text-primary); min-width: 14rem;" data-qa="intake-why">
+                    <td class="px-3 py-2 font-semibold" style="color: var(--text-primary); min-width: 12rem;" data-qa="intake-why">
                         <div class="rts-clamp2" title="{{ $r['why'] }}">@if(($r['origin'] ?? null) === 'follow_up')<span class="rts-chip">Follow-up</span> @endif{{ $r['why'] ?: '-' }}</div>
                     </td>
                     <td class="px-3 py-2" style="color: var(--text-primary);">
                         <div class="font-semibold rts-nw" title="{{ $r['address'] }}">{{ $r['street'] !== '' ? $r['street'] : $r['address'] }}</div>
                         @if($r['street'] !== '' && $r['suburb'])<div class="rts-nw" style="color: var(--text-muted);">{{ $r['suburb'] }}</div>@endif
                     </td>
-                    <td class="px-3 py-2 text-right whitespace-nowrap" style="color: var(--text-primary);">{{ $money($r['price']) ?: '-' }}</td>
-                    <td class="px-3 py-2 text-right" style="color: var(--text-primary);">{{ $r['dom'] !== null ? $r['dom'] : '-' }}</td>
-                    <td class="px-3 py-2" style="color: var(--text-primary);">{{ $r['agency_name'] ?: '-' }}</td>
+                    {{-- price, days on market and the listing agency share one cell (22.22): the row's actions stay on screen at 1366 wide --}}
+                    <td class="px-3 py-2" style="color: var(--text-primary);" data-qa="intake-market">
+                        <div class="font-semibold rts-nw" title="Price">{{ $money($r['price']) ?: '-' }}</div>
+                        <div class="rts-nw" style="color: var(--text-muted);" title="{{ $r['dom'] !== null ? $r['dom'] . ' days on market' : 'Days on market not known' }}{{ $r['agency_name'] ? ' - listed with ' . $r['agency_name'] : '' }}">{{ $r['dom'] !== null ? $r['dom'] . ' days' : '-' }}@if($r['agency_name']) · {{ $r['agency_name'] }}@endif</div>
+                    </td>
                     <td class="px-3 py-2" style="color: var(--text-primary);">
                         @if($r['owner_name'])
                             <div class="font-semibold">{{ $r['owner_name'] }}</div>
@@ -304,7 +304,7 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="8" class="px-6 py-12 text-center">
+                    <td colspan="6" class="px-6 py-12 text-center">
                         @php
                             $filtered = $filters['q'] !== '' || $filters['selection'] !== '' || $filters['status'] !== 'open';
                         @endphp

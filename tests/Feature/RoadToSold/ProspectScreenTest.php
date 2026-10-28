@@ -324,6 +324,14 @@ final class ProspectScreenTest extends TestCase
         $this->assertStringNotContainsString('Why suggested', $html);
     }
 
+    public function test_the_intake_table_keeps_price_days_and_agency_in_one_cell_so_the_actions_fit(): void
+    {
+        $html = $this->page($this->agent)->assertOk()->getContent();
+        $this->assertStringContainsString('Price · days on market · agency', $html);
+        $this->assertStringNotContainsString('>Listing agency<', $html);
+        $this->assertStringNotContainsString('>Days on market</th>', $html);
+    }
+
     // ── leftovers 28 Oct: pipeline order, links stay in the pop-up, a redirect keeps the pop-up on ────────
 
     public function test_the_managers_stage_tiles_run_in_pipeline_order_whatever_is_in_them(): void
