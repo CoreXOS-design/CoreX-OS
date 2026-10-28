@@ -13,6 +13,8 @@
 | 3 | **My Documents** | My Documents · My E-Sign Documents · Authorise Documents · Agency Documents · Shared Drive |
 | 4 | **Library** | Packs · Web Packs · Clause Library · Compile Studio |
 | 5 | **Templates** | Template Management · Field Groups · Named Fields · Document Types · Import Document · Template Packages · Releases · Approvals |
+| 5a | **Document workshop** (28 Oct 2026; own link, not a tab hub) | System Owner with `templates.release` only: the template list with where each is on the road to an agency, and Check readiness · Demo view · Verify · Release per row |
+| 5b | **Approve documents** (28 Oct 2026; own link) | An agency's named authorisers (`templates.approve_release`): the Approvals screen, with the waiting count |
 | 6 | **E-Sign Settings** | Recipient Presets · Recipient Templates · Finalisation Settings · How my signers sign · Who may authorise documents |
 
 Every label is unchanged. "Authorise Documents" is the My E-Sign Documents screen with `?filter=authorisation` (as its old menu
@@ -33,6 +35,8 @@ item was): the two tabs share a route and the filter decides which is lit.
 | Templates | Template Management · Field Groups · Named Fields · Document Types · Import Document | `docuperfect.templates.index` · `.field-groups.index` · `.settings.namedFields` · `.settings.types` · `.import.index` | `manage_templates` AND `access_docuperfect` |
 | Templates | Template Packages | `docuperfect.template-transfer.index` | System Owner only AND `templates.transfer` |
 | Templates | Releases (28 Oct 2026, workshop) | `docuperfect.template-releases.index` | System Owner only AND `templates.release` (`esign-template-transfer.md` §13.4) |
+| Documents menu | Document workshop (28 Oct 2026) | `docuperfect.workshop.index` | System Owner only AND `templates.release` (`esign-template-transfer.md` §13.4a) |
+| Documents menu | Approve documents (28 Oct 2026) | `docuperfect.template-approvals.index` | `templates.approve_release` AND named authoriser (not shown to the owner) (`esign-template-transfer.md` §13.4a) |
 | Templates | Approvals (28 Oct 2026, workshop) | `docuperfect.template-approvals.index` | `templates.approve_release` AND the agency's named authorisers (admins until it names anyone); the owner sees it read-only; carries the count of documents waiting |
 | E-Sign Settings | Recipient Presets · Recipient Templates · Finalisation Settings · How my signers sign · Who may authorise documents | `docuperfect.esign.recipient-presets.index` · `docuperfect.recipient-templates.index` · `docuperfect.esign.settings.finalization` · `docuperfect.esign.settings.signing-mode` · `docuperfect.esign.settings.document-authorisers` | `esign.settings` |
 

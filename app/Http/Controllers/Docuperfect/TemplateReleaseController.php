@@ -7,14 +7,13 @@ use App\Models\Agency;
 use App\Models\Docuperfect\Template;
 use App\Models\Docuperfect\TemplateRelease;
 use App\Models\Docuperfect\TemplateReleaseEvent;
-use App\Services\Docuperfect\Readiness\TemplateReadinessReport;
 use App\Services\Docuperfect\Release\TemplateReleaseException;
 use App\Services\Docuperfect\Release\TemplateReleaseService;
 use Illuminate\Http\Request;
 
 /**
- * .ai/specs/esign-template-transfer.md §13.4 — the owner's Releases tab: the workshop panel (verify, release), the releases list and the
- * release log. CoreX owner only (route: owner_only + templates.release; the service checks again). Plain-language errors, never a stack trace.
+ * .ai/specs/esign-template-transfer.md §13.4 — the owner's Releases tab: the releases list and the release log (verify and release live on the
+ * Document workshop hub). CoreX owner only (route: owner_only + templates.release; the service checks again). Plain-language errors, never a stack trace.
  */
 class TemplateReleaseController extends Controller
 {
@@ -22,20 +21,22 @@ class TemplateReleaseController extends Controller
     private const RELEASE_SORTS = ['released_at', 'template', 'agency', 'state', 'version'];
     private const LOG_SORTS = ['created_at', 'event', 'agency'];
 
-    public function __construct(private readonly TemplateReleaseService $service, private readonly TemplateReadinessReport $readiness)
+    public function __construct(private readonly TemplateReleaseService $service)
     {
     }
 
     public function index(Request $request)
     {
         $this->authorise($request);
-        $view = in_array($request->query('view'), ['workshop', 'log'], true) ? $request->query('view') : 'releases';
+        // The old "Workshop" search view is now the Document workshop hub (Documents menu), which lists every template.
+        if ($request->query('view') === 'workshop') {
+            return redirect()->route('docuperfect.workshop.index');
+        }
+        $view = $request->query('view') === 'log' ? 'log' : 'releases';
 
         $data = ['view' => $view, 'agencies' => Agency::withoutGlobalScopes()->orderBy('name')->get(['id', 'name']), 'states' => TemplateRelease::STATES];
         if ($view === 'log') {
             $data += $this->logData($request);
-        } elseif ($view === 'workshop') {
-            $data += $this->workshopData($request);
         } else {
             $data += $this->releaseData($request);
         }
@@ -190,30 +191,6 @@ class TemplateReleaseController extends Controller
             'sort' => $sort, 'dir' => $dir,
             'filtered' => $q !== '' || $event || $agencyId > 0 || $from || $to,
         ];
-    }
-
-    /** The "Workshop" panel: find a template by name and see its verdict and verified state. Capped at 8 rows. */
-    private function workshopData(Request $request): array
-    {
-        $wq = trim((string) $request->query('wq', ''));
-        $rows = collect();
-        if ($wq !== '') {
-            $templates = Template::query()->whereNull('archived_at')
-                ->where(fn ($q) => $q->whereNull('release_status')->orWhereNotIn('release_status', Template::RELEASE_HELD_BACK))
-                ->where('name', 'like', '%' . $this->escapeLike($wq) . '%')->orderBy('name')->limit(8)->get();
-            $agencyNames = Agency::withoutGlobalScopes()->whereIn('id', $templates->pluck('agency_id')->filter())->pluck('name', 'id');
-            $rows = $templates->map(function (Template $t) use ($agencyNames) {
-                $r = $this->readiness->forTemplate($t);
-
-                return [
-                    'template' => $t, 'agency_name' => $agencyNames[$t->agency_id] ?? 'No agency (shared)',
-                    'verdict' => $r['verdict'], 'counts' => $r['counts'],
-                    'state' => $t->workshop_verified_at === null ? 'workshop' : ($t->isVerifiedAndCurrent() ? 'verified' : 'stale'),
-                ];
-            });
-        }
-
-        return ['wq' => $wq, 'rows' => $rows];
     }
 
     // ───────────────────────────── helpers ─────────────────────────────

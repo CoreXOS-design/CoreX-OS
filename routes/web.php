@@ -7265,6 +7265,8 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     // E-sign document workshop — release a verified template to an agency (owner only). Spec: .ai/specs/esign-template-transfer.md §13.
     Route::middleware(['owner_only', 'permission:templates.release'])->group(function () {
         $c = \App\Http\Controllers\Docuperfect\TemplateReleaseController::class;
+        // The Document workshop hub (Documents menu): every template, where it is on the road to an agency, the next step per row. §13.4a.
+        Route::get('/workshop', [\App\Http\Controllers\Docuperfect\DocumentWorkshopController::class, 'index'])->name('docuperfect.workshop.index');
         Route::get('/template-releases', [$c, 'index'])->name('docuperfect.template-releases.index');
         Route::get('/template-releases/{id}', [$c, 'show'])->whereNumber('id')->name('docuperfect.template-releases.show');
         Route::post('/templates/{id}/verify', [$c, 'verify'])->whereNumber('id')->name('docuperfect.templates.verify');

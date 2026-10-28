@@ -36,72 +36,14 @@
     @endif
 
     <div class="flex items-center gap-1 flex-shrink-0" data-release-views>
-        @foreach(['releases' => 'Releases', 'workshop' => 'Workshop', 'log' => 'Release log'] as $v => $label)
+        <a href="{{ route('docuperfect.workshop.index') }}" data-release-view="workshop" class="text-xs px-3 py-1.5 rounded-md" style="border: 1px solid var(--border); color: var(--text-secondary);">Document workshop</a>
+        @foreach(['releases' => 'Releases', 'log' => 'Release log'] as $v => $label)
             <a href="{{ $tabUrl($v) }}" data-release-view="{{ $v }}" class="text-xs px-3 py-1.5 rounded-md" style="{{ $view === $v ? 'background: var(--brand-icon, #0ea5e9); color: #fff; font-weight: 600;' : 'border: 1px solid var(--border); color: var(--text-secondary);' }}">{{ $label }}</a>
         @endforeach
     </div>
 
-    {{-- ───────────── Workshop ───────────── --}}
-    @if($view === 'workshop')
-        <form method="GET" action="{{ route('docuperfect.template-releases.index') }}" class="flex flex-wrap items-center gap-2 flex-shrink-0">
-            <input type="hidden" name="view" value="workshop">
-            <input type="text" name="wq" value="{{ $wq }}" placeholder="Find a template by name" class="list-header-filter" style="min-width: 18rem;" aria-label="Find a template by name">
-            <button type="submit" class="corex-btn-primary text-xs px-4 py-2">Find</button>
-        </form>
-        <div class="ws-pane rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
-            @if($wq === '')
-                <p class="p-5 text-sm" style="color: var(--text-muted);">Type part of a template's name to find the document you have been preparing. You can then check it, verify it and release it to an agency.</p>
-            @elseif($rows->isEmpty())
-                <p class="p-5 text-sm" style="color: var(--text-muted);" data-empty>No templates match "{{ $wq }}". Archived templates and copies waiting for approval are not listed here.</p>
-            @else
-                <div class="divide-y" style="border-color: var(--border);">
-                    @foreach($rows as $r)
-                        @php $t = $r['template']; $vc = ['not_ready' => 'var(--ds-crimson)', 'ready_with_warnings' => 'var(--ds-amber, #d97706)', 'ready' => 'var(--ds-green)'][$r['verdict']]; @endphp
-                        <div class="p-4 space-y-2" data-workshop-row="{{ $t->id }}" data-verified-state="{{ $r['state'] }}">
-                            <div class="flex flex-wrap items-center justify-between gap-2">
-                                <div>
-                                    <div class="text-sm font-semibold" style="color: var(--text-primary);">{{ $t->name }}</div>
-                                    <div class="text-xs" style="color: var(--text-muted);">{{ $r['agency_name'] }} · readiness: <span style="color: {{ $vc }}; font-weight: 600;">{{ ['not_ready' => 'fix first', 'ready_with_warnings' => 'ready, with warnings', 'ready' => 'ready'][$r['verdict']] }}</span> ({{ $r['counts']['fail'] }} to fix, {{ $r['counts']['warn'] }} to look at)</div>
-                                </div>
-                                <div class="flex flex-wrap gap-2">
-                                    <a href="{{ route('docuperfect.templates.readiness', $t->id) }}" class="corex-btn-outline text-xs px-3 py-1.5">Check readiness</a>
-                                    @if(\Illuminate\Support\Facades\Route::has('docuperfect.templates.demo'))
-                                        <a href="{{ route('docuperfect.templates.demo', $t->id) }}" class="corex-btn-outline text-xs px-3 py-1.5">Demo view</a>
-                                    @endif
-                                </div>
-                            </div>
-                            <div class="text-xs" style="color: var(--text-secondary);">
-                                @if($r['state'] === 'verified')
-                                    <span style="color: var(--ds-green); font-weight: 600;">Verified</span> on {{ $t->workshop_verified_at?->format('j M Y H:i') }} — the document has not changed since.
-                                @elseif($r['state'] === 'stale')
-                                    <span style="color: var(--ds-amber, #d97706); font-weight: 600;">Verification out of date</span> — the document was changed after it was verified. Verify it again before releasing.
-                                @else
-                                    Not verified yet.
-                                @endif
-                            </div>
-                            <div class="flex flex-wrap items-start gap-4">
-                                <form method="POST" action="{{ route('docuperfect.templates.verify', $t->id) }}" class="flex flex-wrap items-center gap-2" data-verify-form>
-                                    @csrf
-                                    <label class="text-xs flex items-center gap-1" style="color: var(--text-secondary);"><input type="checkbox" name="i_have_looked" value="1"> I have looked at the demo view and the document</label>
-                                    <button type="submit" class="corex-btn-outline text-xs px-3 py-1.5" @disabled($r['verdict'] === 'not_ready') title="{{ $r['verdict'] === 'not_ready' ? 'Fix what the readiness check lists first.' : 'Mark this document as verified.' }}">Mark as verified</button>
-                                </form>
-                                <form method="POST" action="{{ route('docuperfect.templates.release', $t->id) }}" class="flex flex-wrap items-center gap-2" data-release-form>
-                                    @csrf
-                                    <select name="agency_id" class="list-header-filter" aria-label="Agency to release to" required>
-                                        <option value="">Release to which agency?</option>
-                                        @foreach($agencies as $a)@if((int) $a->id !== (int) $t->agency_id)<option value="{{ $a->id }}">{{ $a->name }}</option>@endif @endforeach
-                                    </select>
-                                    <button type="submit" class="corex-btn-primary text-xs px-3 py-1.5" @disabled($r['state'] !== 'verified') title="{{ $r['state'] === 'verified' ? 'It will wait for the agency to approve it.' : 'Verify the document first.' }}">Release to agency</button>
-                                </form>
-                            </div>
-                        </div>
-                    @endforeach
-                </div>
-            @endif
-        </div>
-
     {{-- ───────────── Release log ───────────── --}}
-    @elseif($view === 'log')
+    @if($view === 'log')
         <form method="GET" action="{{ route('docuperfect.template-releases.index') }}" class="flex flex-wrap items-center gap-2 flex-shrink-0" data-log-filters>
             <input type="hidden" name="view" value="log">
             <input type="text" name="q" value="{{ $filters['q'] }}" placeholder="Search template, agency, person, note" class="list-header-filter" style="min-width: 16rem;" aria-label="Search the release log">
@@ -154,7 +96,7 @@
         </form>
         <div class="ws-pane rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
             @if($releases->isEmpty())
-                <p class="p-5 text-sm" style="color: var(--text-muted);" data-empty>{{ $filtered ? 'No releases match these filters.' : 'Nothing has been released yet. Use the Workshop view to verify a document and release it to an agency.' }}</p>
+                <p class="p-5 text-sm" style="color: var(--text-muted);" data-empty>{{ $filtered ? 'No releases match these filters.' : 'Nothing has been released yet. Open the Document workshop to verify a document and release it to an agency.' }}</p>
             @else
                 <table class="w-full text-sm" data-releases-table>
                     <thead style="background: var(--surface-2, rgba(0,0,0,0.03)); position: sticky; top: 0;"><tr class="text-left text-xs ws-th" style="color: var(--text-muted);">

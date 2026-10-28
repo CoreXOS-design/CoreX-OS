@@ -1823,7 +1823,20 @@
                 {{-- Templates: Template Management | Field Groups | Named Fields | Document Types | Import Document | Template Packages (System Owner only) --}}
                 @php $_doctemplatesTabs = \App\Support\Navigation\Hubs\DocumentTemplatesTabs::forUser($user); @endphp
                 @if($_doctemplatesTabs !== [])
-                <a href="{{ route('corex.hubs.doc-templates') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\DocumentTemplatesTabs::searchEntries($_doctemplatesTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.doc-templates', 'docuperfect.templates.*', 'docuperfect.field-groups.*', 'docuperfect.settings.namedFields*', 'docuperfect.settings.types*', 'docuperfect.import.*', 'docuperfect.template-transfer.*', 'docuperfect.template-releases.*', 'docuperfect.template-approvals.*') ? 'active' : '' }}">Templates</a>
+                <a href="{{ route('corex.hubs.doc-templates') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\DocumentTemplatesTabs::searchEntries($_doctemplatesTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.doc-templates', 'docuperfect.templates.*', 'docuperfect.field-groups.*', 'docuperfect.settings.namedFields*', 'docuperfect.settings.types*', 'docuperfect.import.*', 'docuperfect.template-transfer.*', 'docuperfect.template-releases.*') ? 'active' : '' }}">Templates</a>
+                @endif
+
+                {{-- Document workshop (CoreX owner) and Approve documents (an agency's named authorisers) - .ai/specs/esign-template-transfer.md §13.4a.
+                     Workshop = the owner's hub for preparing, verifying and releasing a template; Approve documents = what is waiting for the agency's
+                     authorisers (the same screen as the Approvals tab, with the waiting count). Same checks as their routes. --}}
+                @if($user && $user->isOwnerRole() && $user->hasPermission('templates.release'))
+                <a href="{{ route('docuperfect.workshop.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.workshop.*') ? 'active' : '' }}">Document workshop</a>
+                @endif
+                @if($user && !$user->isOwnerRole() && $user->hasPermission('templates.approve_release') && \App\Services\Docuperfect\Release\AgencyDocumentAuthorisers::canAuthorise($user, (int) $user->effectiveAgencyId()))
+                @php $_approveWaiting = \App\Support\Navigation\Hubs\DocumentTemplatesTabs::badge('approvals', $user); @endphp
+                <a href="{{ route('docuperfect.template-approvals.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.template-approvals.*') ? 'active' : '' }}">
+                    Approve documents @if($_approveWaiting) <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold" style="background:#f59e0b20; color:#f59e0b;" data-approve-waiting>{{ $_approveWaiting }}</span> @endif
+                </a>
                 @endif
 
                 {{-- E-Sign Settings: Recipient Presets | Recipient Templates | Finalisation Settings --}}
