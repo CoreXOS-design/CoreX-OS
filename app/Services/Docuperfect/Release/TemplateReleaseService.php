@@ -76,7 +76,24 @@ final class TemplateReleaseService
 
     // ───────────────────────────── release (owner) ─────────────────────────────
 
+    /** The workshop route: the template must be verified and current, and its readiness must have no failing check. */
     public function release(Template $source, Agency $target, User $actor): TemplateRelease
+    {
+        return $this->land($source, $target, $actor, true, true, 'release');
+    }
+
+    /**
+     * "Copy to another agency": the same gate as a release (a NEW agency-owned copy that is NOT live, a release row, the log, the
+     * authorisers told, the lease link applied only at approval) without the workshop's verification — the readiness result is recorded
+     * on the row and re-run at approval, where a failing copy cannot be approved. The lease link and its field map are captured only when
+     * the owner asked for them.
+     */
+    public function releaseByCopy(Template $source, Agency $target, User $actor, bool $withLeaseLink = false): TemplateRelease
+    {
+        return $this->land($source, $target, $actor, false, $withLeaseLink, 'copy');
+    }
+
+    private function land(Template $source, Agency $target, User $actor, bool $workshopRoute, bool $captureLease, string $via): TemplateRelease
     {
         $this->assertOwner($actor);
         $source = $source->fresh() ?? $source;
@@ -90,10 +107,10 @@ final class TemplateReleaseService
         if ($source->agency_id !== null && (int) $source->agency_id === (int) $target->id) {
             throw new TemplateReleaseException('Choose the client agency to release to — this template already belongs to ' . $target->name . '.');
         }
-        if ($source->workshop_verified_at === null) {
+        if ($workshopRoute && $source->workshop_verified_at === null) {
             throw new TemplateReleaseException('Verify the template first, then release it.');
         }
-        if (! $source->isVerifiedAndCurrent()) {
+        if ($workshopRoute && ! $source->isVerifiedAndCurrent()) {
             throw new TemplateReleaseException('The template was changed after it was verified. Check it again and verify it again before releasing.');
         }
         $waiting = TemplateRelease::withoutGlobalScopes()->where('source_template_id', $source->id)->where('agency_id', $target->id)
@@ -102,12 +119,12 @@ final class TemplateReleaseService
             throw new TemplateReleaseException('This document is already waiting for approval at ' . $target->name . '.');
         }
         $result = $this->readiness->forTemplate($source);
-        if ($result['verdict'] === TemplateReadinessReport::VERDICT_NOT_READY) {
+        if ($workshopRoute && $result['verdict'] === TemplateReadinessReport::VERDICT_NOT_READY) {
             throw new TemplateReleaseException('This template has things that must be fixed before it can be released.');
         }
 
         try {
-            $release = DB::transaction(function () use ($source, $target, $actor, $result) {
+            $release = DB::transaction(function () use ($source, $target, $actor, $result, $captureLease, $via) {
                 // Version: soft-deleted rows count too (create -> soft-delete -> recreate must not collide with the unique key).
                 $last = TemplateRelease::withoutGlobalScopes()->withTrashed()->where('source_template_id', $source->id)->where('agency_id', $target->id)
                     ->lockForUpdate()->orderByDesc('version')->first();
@@ -129,12 +146,12 @@ final class TemplateReleaseService
                     'readiness_verdict' => $result['verdict'],
                     'readiness_snapshot' => ['verdict' => $result['verdict'], 'counts' => $result['counts'], 'checks' => $result['checks']],
                     'source_content_sha' => $source->contentSha(),
-                    'lease_link' => $this->captureLeaseLink($source),
+                    'lease_link' => $captureLease ? $this->captureLeaseLink($source) : null,
                     'released_by' => $actor->id,
                     'released_at' => now(),
                     'previous_release_id' => $previous?->id,
                 ]);
-                $this->log('released', $release, $copy, $actor, null, ['version' => $version, 'source_template_id' => $source->id, 'renamed' => (bool) ($copied['renamed'] ?? false)]);
+                $this->log('released', $release, $copy, $actor, null, ['via' => $via, 'version' => $version, 'source_template_id' => $source->id, 'renamed' => (bool) ($copied['renamed'] ?? false)]);
 
                 return $release;
             });
@@ -157,12 +174,13 @@ final class TemplateReleaseService
      *
      * @param array<string,mixed> $pkg one entry of TemplatePackageImporter::load()
      */
-    public function releaseFromPackage(array $pkg, Agency $target, User $actor, bool $allowMissingDocumentType = false): TemplateRelease
+    public function releaseFromPackage(array $pkg, Agency $target, User $actor, bool $allowMissingDocumentType = false, ?string $clashChoice = null): TemplateRelease
     {
         $this->assertOwner($actor);
         $name = (string) ($pkg['data']['template']['name'] ?? '');
         $previews = $this->importer->preview([$pkg], $target);
-        $choices = ! empty($previews[0]['clash']['exists']) ? [0 => TemplatePackageImporter::CHOICE_NEW_VERSION] : [];
+        $choice = $clashChoice === TemplatePackageImporter::CHOICE_NEW_COPY ? TemplatePackageImporter::CHOICE_NEW_COPY : TemplatePackageImporter::CHOICE_NEW_VERSION;
+        $choices = ! empty($previews[0]['clash']['exists']) ? [0 => $choice] : [];
 
         try {
             $release = DB::transaction(function () use ($pkg, $target, $actor, $choices, $allowMissingDocumentType, $name) {
@@ -208,6 +226,30 @@ final class TemplateReleaseService
         $this->afterCommit(fn () => event(new TemplateReleased((int) $release->id, (int) $release->template_id, (int) $release->agency_id, (int) $actor->id)));
 
         return $release->fresh();
+    }
+
+    /**
+     * Several packages (the bundle from "Export selected") sent to one agency in one go: every package is checked first (blocked, needs the
+     * missing-document-type tick, clash with no choice), so a problem refuses the whole bundle before anything is created.
+     *
+     * @param list<array<string,mixed>> $loaded TemplatePackageImporter::load()
+     * @param array<int,string> $choices package index => new_version|new_copy
+     * @return list<TemplateRelease>
+     */
+    public function releasePackages(array $loaded, Agency $target, User $actor, array $choices, bool $allowMissingDocumentType): array
+    {
+        $this->assertOwner($actor);
+        try {
+            $this->importer->assertImportable($loaded, $target, $choices, $allowMissingDocumentType);
+        } catch (TemplateTransferException $e) {
+            throw new TemplateReleaseException(trim($e->getMessage()), 422, $e->details);
+        }
+        $made = [];
+        foreach ($loaded as $i => $pkg) {
+            $made[] = $this->releaseFromPackage($pkg, $target, $actor, $allowMissingDocumentType, $choices[$i] ?? null);
+        }
+
+        return $made;
     }
 
     // ───────────────────────────── approve / decline (the agency) ─────────────────────────────

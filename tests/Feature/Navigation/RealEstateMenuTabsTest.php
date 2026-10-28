@@ -187,14 +187,17 @@ final class RealEstateMenuTabsTest extends TestCase
         $this->assertSame(5 * 26, $checked);
     }
 
-    public function test_the_real_estate_menu_has_the_seven_items_and_none_of_the_old_ones(): void
+    public function test_the_real_estate_menu_has_the_hub_items_and_budgets_and_none_of_the_old_ones(): void
     {
         $admin = $this->userWith(null, 'admin');
         $this->grant('admin', ['access_prospecting', 'access_properties', 'access_imported_stock', 'access_contacts', 'access_core_matches', 'access_portal_leads',
             'access_viewing_packs', 'outreach.summary.view', 'outreach_queue.view', 'access_road_to_sold', 'access_presentations', 'deeds_capture.access', 'address_review.manage']);
 
+        // The seven hub items, plus the Road to Sold manager links an administrator also holds (Review captures, Level sign-offs, Team funnel - the
+        // RTS phases, 23-27 Oct 2026) and "Budgets & Targets" (Johan, 23 Oct 2026, AT-454: the agency's planning numbers, a door of its own that
+        // works with Road to Sold switched off).
         $this->assertSame(
-            ['Real Estate Features', 'Properties', 'Contacts', 'Buyers', 'Outreach', 'Road to Sold', 'Presentations'],
+            ['Real Estate Features', 'Properties', 'Contacts', 'Buyers', 'Outreach', 'Road to Sold', 'Review captures', 'Level sign-offs', 'Team funnel', 'Budgets & Targets', 'Presentations'],
             $this->realEstateItems($admin)
         );
         // Andre, 22 Oct 2026: the MIC hub item reads "Real Estate Features"; its old name stays findable in the menu search

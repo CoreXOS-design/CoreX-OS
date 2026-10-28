@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Agency;
 use App\Models\Docuperfect\Template;
 use App\Models\Docuperfect\TemplateTransferLog;
+use App\Services\Docuperfect\Release\TemplateReleaseException;
+use App\Services\Docuperfect\Release\TemplateReleaseService;
 use App\Services\Docuperfect\TemplateTransfer\TemplatePackage;
 use App\Services\Docuperfect\TemplateTransfer\TemplatePackageExporter;
 use App\Services\Docuperfect\TemplateTransfer\TemplatePackageImporter;
@@ -27,6 +29,7 @@ class TemplateTransferController extends Controller
         private readonly TemplatePackageExporter $exporter,
         private readonly TemplatePackageImporter $importer,
         private readonly TemplateTransferStaging $staging,
+        private readonly TemplateReleaseService $releases,
     ) {
     }
 
@@ -227,18 +230,19 @@ class TemplateTransferController extends Controller
         try {
             $loaded = $this->importer->load($staged['path']);
             $choices = array_map('strval', (array) $request->input('choice', []));
-            $created = $this->importer->import($loaded, $target, $user, $choices, $request->boolean('allow_missing_document_type'));
+            // Same gate as every route a template reaches an agency by: the import lands NOT live, waiting for the agency's authorisers.
+            $made = $this->releases->releasePackages($loaded, $target, $user, $choices, $request->boolean('allow_missing_document_type'));
             $this->staging->discard($token);
-        } catch (TemplateTransferException $e) {
+        } catch (TemplateTransferException|TemplateReleaseException $e) {
             return back()->withErrors(['package' => $e->getMessage()])->with('error_details', $e->details)->withInput();
         } finally {
             $lock->release();
         }
 
-        $names = collect($created)->map(fn ($t) => '"' . $t->name . '"')->join(', ');
+        $names = collect($made)->map(fn ($r) => '"' . ($r->template()->withoutGlobalScopes()->value('name') ?? 'template') . '"')->join(', ');
 
         return redirect()->route('docuperfect.template-transfer.index')
-            ->with('status', 'Imported into ' . $target->name . ': ' . $names . '. Nothing existing was changed.');
+            ->with('status', 'Sent to ' . $target->name . ': ' . $names . '. Not live there yet — it waits until a person the agency has chosen approves it (Documents → Releases shows where it stands). Nothing existing was changed.');
     }
 
     public function cancel(Request $request, string $token)

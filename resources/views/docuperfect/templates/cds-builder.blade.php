@@ -134,7 +134,7 @@
         <span>Downloads the last SAVED version of this template as a package you can import on another system or agency.</span>
         {{-- Copy to another agency (CoreX administrators only) — spec: .ai/specs/cds-reimport-from-word.md --}}
         <form method="POST" action="{{ route('docuperfect.templates.copyToAgency', $sourceTemplateId) }}" class="flex items-center gap-2 flex-wrap"
-              data-confirm="Copy the last SAVED version of this template to the chosen agency? A new template is created there; nothing is replaced." data-confirm-label="Copy">
+              data-confirm="Send the last SAVED version of this template to the chosen agency? A new template is created there but it is NOT live: it waits until the agency approves it. Nothing is replaced." data-confirm-label="Send for approval">
             @csrf
             <select name="agency_id" required class="text-xs border border-gray-300 rounded px-2 py-1.5 bg-white text-gray-700">
                 <option value="">Copy to agency&hellip;</option>
@@ -148,7 +148,7 @@
                 <input type="checkbox" name="copy_lease_field_map" value="1" class="w-3 h-3 rounded border-gray-300 text-teal-600">
                 Also copy the rental lease link and field map
             </label>
-            <button type="submit" class="corex-btn-outline text-xs px-3 py-1.5">Copy to another agency</button>
+            <button type="submit" class="corex-btn-outline text-xs px-3 py-1.5" title="Lands at the agency waiting for approval — not live until they approve it">Copy to another agency</button>
         </form>
     </div>
 @endif

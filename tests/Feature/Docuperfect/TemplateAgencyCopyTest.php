@@ -7,6 +7,8 @@ namespace Tests\Feature\Docuperfect;
 use App\Models\Branch;
 use App\Models\Docuperfect\NamedField;
 use App\Models\Docuperfect\Template;
+use App\Models\Docuperfect\TemplateRelease;
+use App\Services\Docuperfect\Release\TemplateReleaseService;
 use App\Models\Docuperfect\TemplateTransferLog;
 use App\Models\RentalLeaseTemplate;
 use App\Models\Role;
@@ -126,19 +128,22 @@ final class TemplateAgencyCopyTest extends TestCase
             'category' => 'residential', 'is_active' => true, 'field_map' => $map, 'is_default' => true,
         ]));
 
-        // Not ticked: no lease row in the target agency.
+        // Not ticked: nothing about the lease travels (and no lease row exists in the target agency).
         $this->copy($owner, $src, $cape);
         $this->assertSame(0, RentalLeaseTemplate::withoutGlobalScopes()->where('agency_id', $cape->id)->count());
+        $firstRelease = TemplateRelease::withoutGlobalScopes()->where('agency_id', $cape->id)->firstOrFail();
+        $this->assertNull($firstRelease->lease_link);
+        app(TemplateReleaseService::class)->withdraw($firstRelease, $owner);
 
-        // Ticked: a row in the target agency, pointing at the NEW template, field map as it was.
+        // Ticked: the link and the field map are carried on the release (the copy is awaiting approval, so no lease row is made yet —
+        // it is applied when the agency approves, see TemplateCopyImportGateTest) and the field map is exactly the source's.
         $this->copy($owner, $src, $cape, ['copy_lease_field_map' => 1]);
-        $second = $this->copyOf($cape->id);
-        $rows = RentalLeaseTemplate::withoutGlobalScopes()->where('agency_id', $cape->id)->get();
-        $this->assertCount(1, $rows);
-        $this->assertSame($second->id, (int) $rows[0]->docuperfect_template_id);
-        $this->assertEquals($map, $rows[0]->field_map);
-        $this->assertSame('residential', $rows[0]->category);
-        $this->assertTrue($rows[0]->is_default, 'the target agency had no default, so this becomes it');
+        $release = TemplateRelease::withoutGlobalScopes()->where('agency_id', $cape->id)->orderByDesc('id')->firstOrFail();
+        $this->assertSame(0, RentalLeaseTemplate::withoutGlobalScopes()->where('agency_id', $cape->id)->count(), 'no lease row while the copy waits for approval');
+        $this->assertSame('residential', $release->lease_link['category']);
+        $this->assertSame('Mega Lease 2026', $release->lease_link['name']);
+        $this->assertTrue($release->lease_link['is_default']);
+        $this->assertEquals($map, $release->lease_link['field_map']);
 
         // The workshop's own lease row is untouched.
         $source->refresh();
@@ -156,11 +161,19 @@ final class TemplateAgencyCopyTest extends TestCase
 
         $this->copy($owner, $src, $cape);
         $first = $this->copyOf($cape->id);
+        // While the first copy still waits for approval, a second copy of the same document is refused (nothing is stacked up).
+        $this->copy($owner, $src, $cape)->assertSessionHasErrors('copy_to_agency');
+        $this->assertSame(1, Template::where('agency_id', $cape->id)->count());
+
+        // Once the first one is live (approved), copying again lands the next version: the name is numbered, nothing is replaced.
+        TemplateRelease::withoutGlobalScopes()->where('agency_id', $cape->id)->update(['state' => 'live']);
+        \DB::table('docuperfect_templates')->where('id', $first->id)->update(['release_status' => 'live']);
         $this->copy($owner, $src, $cape);
 
         $names = Template::where('agency_id', $cape->id)->orderBy('id')->pluck('name')->all();
         $this->assertSame([$src->name, $src->name . ' v2'], $names);
         $this->assertSame($src->name, $first->fresh()->name, 'the first copy was not replaced');
+        $this->assertSame('live', $first->fresh()->release_status);
     }
 
     public function test_only_a_corex_administrator_can_copy(): void

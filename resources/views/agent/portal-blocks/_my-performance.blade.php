@@ -20,7 +20,9 @@
                    class="text-xs px-2 py-0.5 rounded-md no-underline {{ $perf['days'] == $d ? 'font-semibold' : '' }}"
                    style="{{ $perf['days'] == $d ? 'background: var(--brand-icon); color: #fff;' : 'background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);' }}">{{ $label }}</a>
             @endforeach
+            @feature('performance-dashboards')
             <a href="{{ route('command-center.reporting.agent', ['days' => $perf['days']]) }}" class="mp-more" data-testid="full-performance-link">Full performance &rarr;</a>
+            @endfeature
         </span>
     </div>
 
