@@ -8,6 +8,7 @@ use App\Models\DevSetting;
 use App\Models\FeatureRollout\AgencyFeatureRollout;
 use App\Models\FeatureRollout\AgencyRolloutItem;
 use App\Models\FeatureRollout\AgencyRolloutWave;
+use App\Models\FeatureRollout\FeatureRolloutPlan;
 use App\Models\FeatureRollout\FeatureRolloutWave;
 use App\Models\Role;
 use App\Models\User;
@@ -140,7 +141,7 @@ final class FeatureRolloutOwnerPageTest extends TestCase
             ->assertSessionHasErrors('confirm');
         $this->assertNull($this->plan());
 
-        $this->actingAs($this->owner)->post($this->url('rollout.start'), ['interval_days' => 3, 'weekdays_only' => '1', 'confirm' => '1'])
+        $this->actingAs($this->owner)->post($this->url('rollout.start'), ['interval_days' => 3, 'weekdays_only' => '1', 'confirm' => '1', 'plan_id' => FeatureRolloutPlan::defaultId()])
             ->assertRedirect($this->url('show'));
         $this->assertSame(3, $this->plan()->interval_days);
         $this->assertFalse($this->on('docuperfect'));

@@ -22,10 +22,23 @@ class FeatureRolloutWave extends Model
         'admin'   => 'Admin decides (at the end)',
     ];
 
-    protected $fillable = ['track', 'position', 'title', 'intro_text', 'feature_keys'];
+    protected $fillable = ['plan_id', 'track', 'position', 'title', 'intro_text', 'feature_keys'];
 
     protected $casts = [
         'feature_keys' => 'array',
         'position'     => 'integer',
     ];
+
+    protected static function booted(): void
+    {
+        // A group always belongs to a plan; one created without saying which goes in the default plan.
+        static::creating(function (self $wave) {
+            $wave->plan_id ??= FeatureRolloutPlan::defaultId();
+        });
+    }
+
+    public function scopeInPlan($query, int $planId)
+    {
+        return $query->where($query->getModel()->getTable() . '.plan_id', $planId);
+    }
 }

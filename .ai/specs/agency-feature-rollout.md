@@ -718,7 +718,7 @@ labels moved to the shared `RoleManagerLabels` class).
 **Files:** `FeatureRolloutAccess` (`settingsFor`, `applySettings`), `FeatureRolloutPopupController::review`, `feature-rollout-popups.blade.php`,
 `FeatureRolloutHistory`, `RoleManagerController` and new `RoleManagerLabels` (labels only). **Tests:** `tests/Feature/Features/FeatureRolloutAccessSettingsTest.php`.
 
-## 22. Several rollout plans, copies, and a plan dropdown at Start — 2026-10-28 (DRAFT — awaiting Johan's approval)
+## 22. Several rollout plans, copies, and a plan dropdown at Start — 2026-10-28 (APPROVED by Johan 2026-10-28 — built; not yet run against a test database, see 22.8)
 
 Johan, 2026-10-28: "there needs to be an option to create multiple types of waves and make copies … so that I can create a wave
 for an agency that does rentals only, an agency that does both or only does sales and then when I go to start it there should be
@@ -782,3 +782,11 @@ No new API endpoint (NN #7): web forms on existing owner-only pages. Plan change
 New migration(s) + `FeatureRolloutPlan` model + `FeatureRolloutPlanController` (owner); edits to `FeatureRolloutService`,
 `FeatureRolloutDefaultsController`, `AgencyRolloutAdminController::start/show`, the Dev Settings board view, `agency-setup-progress/show.blade.php`,
 `routes/web.php`, schema snapshot; tests under `tests/Feature/FeatureRollout/`.
+
+### 22.8 Build notes — 2026-10-28
+Built as specified. Migration `2026_12_28_100000_create_feature_rollout_plans`; model `FeatureRolloutPlan`; plan routes
+`admin.feature-rollout-defaults.plans.*`; Start dropdown on the owner's agency page (`?plan=` refreshes the preview). A wave created
+without a plan joins the default plan. `start()` records `source_plan_id`; "Reset to default list" on a running plan uses its own
+source plan. Tests: `FeatureRolloutPlansTest` (new); `FeatureRolloutOwnerPageTest` now posts `plan_id` on Start.
+**Still to do before QA1 → Staging:** run the two test files and `schema:dump` (+ DEFINER strip, NN #12a) on a box with the tests-only
+MySQL — the box this was built on has none, so neither was possible there. Only syntax, route registration and Blade compilation were checked.

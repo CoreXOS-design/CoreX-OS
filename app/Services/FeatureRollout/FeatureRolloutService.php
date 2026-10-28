@@ -10,6 +10,7 @@ use App\Models\DevSetting;
 use App\Models\FeatureRollout\AgencyFeatureRollout;
 use App\Models\FeatureRollout\AgencyRolloutItem;
 use App\Models\FeatureRollout\AgencyRolloutWave;
+use App\Models\FeatureRollout\FeatureRolloutPlan;
 use App\Models\FeatureRollout\FeatureRolloutWave;
 use App\Services\Features\AgencyFeatureService;
 use App\Services\Features\AgencyFeatureWriter;
@@ -169,10 +170,12 @@ class FeatureRolloutService
             'interval_days', 'weekdays_only', 'skip_holidays', 'holiday_country', 'release_time',
         ])));
         $sideBySide = $type === 'both' && ! empty($options['side_by_side']);
+        $sourcePlanId = $this->resolvePlanId($agency, isset($options['plan_id']) ? (int) $options['plan_id'] : null);
 
-        return DB::transaction(function () use ($agency, $settings, $sideBySide, $userId) {
+        return DB::transaction(function () use ($agency, $settings, $sideBySide, $userId, $sourcePlanId) {
             $plan = AgencyFeatureRollout::withoutAgencyStamping(fn () => AgencyFeatureRollout::create([
                 'agency_id'       => $agency->id,
+                'source_plan_id'  => $sourcePlanId,
                 'status'          => AgencyFeatureRollout::STATUS_ACTIVE,
                 'interval_days'   => max(1, min($this->intervalMax(), (int) $settings['interval_days'])),
                 'weekdays_only'   => (bool) $settings['weekdays_only'],
@@ -189,7 +192,7 @@ class FeatureRolloutService
             // Waves are created in plan order. For a sales-and-rentals agency that is the default order
             // across BOTH lanes, so a later "side by side off" (relane) can merge lanes back by creation order.
             $rows = [];
-            foreach ($this->planFor($agency, $sideBySide) as $lane => $waves) {
+            foreach ($this->planFor($agency, $sideBySide, $sourcePlanId) as $lane => $waves) {
                 foreach ($waves as $w) {
                     $rows[] = ['lane' => $lane] + $w;
                 }
@@ -247,8 +250,9 @@ class FeatureRolloutService
      *
      * @return array<int, list<array{default: FeatureRolloutWave, keys: list<string>}>>
      */
-    public function planFor(Agency $agency, bool $sideBySide = false): array
+    public function planFor(Agency $agency, bool $sideBySide = false, ?int $planId = null): array
     {
+        $planId = $this->resolvePlanId($agency, $planId);
         $type = AgencyTypeFeatureSeeder::normalise($agency->agency_type);
         $sideBySide = $type === 'both' && $sideBySide;
         $current = $this->features->all($agency);
@@ -256,7 +260,7 @@ class FeatureRolloutService
         $taken = [];
         $out = [];
 
-        foreach ($this->lanesFor($type, $sideBySide) as $lane => $defaults) {
+        foreach ($this->lanesFor($type, $sideBySide, $planId) as $lane => $defaults) {
             foreach ($defaults as $default) {
                 $keys = [];
                 foreach ((array) $default->feature_keys as $key) {
@@ -279,11 +283,26 @@ class FeatureRolloutService
         return $out;
     }
 
+    /**
+     * Which rollout plan an agency starts from (spec §22.1): the one asked for if it is active, else the active
+     * plan whose type matches the agency (most recently changed), else the default plan.
+     */
+    public function resolvePlanId(Agency $agency, ?int $requested = null): int
+    {
+        if ($requested && FeatureRolloutPlan::whereKey($requested)->exists()) {
+            return $requested;
+        }
+        $type = AgencyTypeFeatureSeeder::normalise($agency->agency_type);
+        $match = FeatureRolloutPlan::where('agency_type', $type)->orderByDesc('updated_at')->value('id');
+
+        return (int) ($match ?: FeatureRolloutPlan::defaultId());
+    }
+
     /** @return list<string> the feature keys start() would switch off right now */
-    public function holdPreview(Agency $agency, bool $sideBySide = false): array
+    public function holdPreview(Agency $agency, bool $sideBySide = false, ?int $planId = null): array
     {
         $keys = [];
-        foreach ($this->planFor($agency, $sideBySide) as $waves) {
+        foreach ($this->planFor($agency, $sideBySide, $planId) as $waves) {
             foreach ($waves as $w) {
                 array_push($keys, ...$w['keys']);
             }
@@ -297,9 +316,9 @@ class FeatureRolloutService
      *
      * @return array<int, Collection<int,FeatureRolloutWave>>
      */
-    private function lanesFor(string $type, bool $sideBySide): array
+    private function lanesFor(string $type, bool $sideBySide, int $planId): array
     {
-        $all = FeatureRolloutWave::orderBy('position')->orderBy('id')->get();
+        $all = FeatureRolloutWave::inPlan($planId)->orderBy('position')->orderBy('id')->get();
         $of = fn (array $tracks) => $all->filter(fn ($w) => in_array($w->track, $tracks, true))->values();
 
         $lanes = match (true) {
@@ -940,7 +959,7 @@ class FeatureRolloutService
         $rows = [];
         $taken = [];
         $type = AgencyTypeFeatureSeeder::normalise($agency->agency_type);
-        foreach ($this->lanesFor($type, (bool) $plan->side_by_side) as $lane => $defaults) {
+        foreach ($this->lanesFor($type, (bool) $plan->side_by_side, $this->resolvePlanId($agency, $plan->source_plan_id ? (int) $plan->source_plan_id : null)) as $lane => $defaults) {
             foreach ($defaults as $default) {
                 // §19.1.2 — never into "Admin decides" when it cannot be kept to some roles (it lands in "Other features").
                 $keys = array_values(array_filter((array) $default->feature_keys, fn ($k) => $items->has($k) && ! isset($taken[$k])

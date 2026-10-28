@@ -79,6 +79,14 @@
                     <form method="POST" action="{{ route('admin.agency-setup-progress.rollout.start', $base) }}" class="space-y-3">
                         @csrf
                         <div class="flex flex-wrap items-end gap-4">
+                            <label class="block text-xs" style="color: var(--text-secondary);">Which rollout
+                                <select name="plan_id" class="block mt-1 {{ $input }}" style="{{ $inputStyle }}"
+                                        onchange="window.location = '{{ route('admin.agency-setup-progress.show', $base) }}?plan=' + this.value;">
+                                    @foreach ($startPlans as $sp)
+                                        <option value="{{ $sp->id }}" @selected((int) $startPlanId === (int) $sp->id)>{{ $sp->name }} ({{ \App\Models\FeatureRollout\FeatureRolloutPlan::TYPES[$sp->agency_type] ?? $sp->agency_type }})</option>
+                                    @endforeach
+                                </select>
+                            </label>
                             <label class="block text-xs" style="color: var(--text-secondary);">How often
                                 <select name="interval_days" class="block mt-1 {{ $input }}" style="{{ $inputStyle }}">
                                     @for ($d = 1; $d <= $intervalMax; $d++)
@@ -108,7 +116,7 @@
                 @endif
             @else
                 <div class="text-sm" style="color: var(--text-primary);">
-                    Started {{ $plan->started_on?->format('j M Y') }}.
+                    Started {{ $plan->started_on?->format('j M Y') }}{{ $sourcePlan ? ' from the "' . $sourcePlan->name . '" rollout' : '' }}.
                     @if ($plan->status === 'paused')
                         Paused since {{ $plan->paused_at?->format('j M Y') }}.
                     @elseif ($open && $next)

@@ -20,7 +20,7 @@ class AgencyFeatureRollout extends Model
     public const STATUS_CANCELLED = 'cancelled';
 
     protected $fillable = [
-        'agency_id', 'status', 'interval_days', 'weekdays_only', 'skip_holidays', 'holiday_country',
+        'agency_id', 'source_plan_id', 'status', 'interval_days', 'weekdays_only', 'skip_holidays', 'holiday_country',
         'release_time', 'side_by_side', 'started_on', 'paused_at', 'completed_at', 'created_by',
     ];
 
