@@ -29,6 +29,8 @@
     .dd-grid input[type=checkbox] { width: 1.05rem; height: 1.05rem; cursor: pointer; accent-color: var(--brand-icon, #0ea5e9); }
     .dd-changed { background: color-mix(in srgb, #f59e0b 16%, var(--surface)) !important; }
     .dd-dot { display: inline-block; width: .42rem; height: .42rem; border-radius: 50%; background: var(--brand-icon, #0ea5e9); margin-left: .25rem; vertical-align: middle; }
+    .dd-tabs a { font-size: .75rem; padding: .25rem .7rem; border: 1px solid var(--border); border-radius: 99px; color: var(--text-secondary); text-decoration: none; background: var(--surface); }
+    .dd-tabs a.is-here { background: var(--brand-icon, #0ea5e9); border-color: var(--brand-icon, #0ea5e9); color: #fff; font-weight: 600; }
     .dd-modal-back { position: fixed; inset: 0; background: rgba(2,10,20,.45); z-index: 80; display: flex; align-items: center; justify-content: center; padding: 1rem; }
     .dd-modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; max-width: 34rem; width: 100%; max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(2,10,20,.35); }
     .dd-modal .dd-body { overflow: auto; padding: .9rem 1.1rem; font-size: .8rem; color: var(--text-secondary); }
@@ -70,6 +72,10 @@
 
         {{-- Toolbar --}}
         <div class="flex flex-wrap items-center gap-2" style="flex: 0 0 auto;">
+            <div class="dd-tabs flex items-center gap-1.5 mr-2" data-dd-tabs>
+                <a href="{{ route('admin.settings.document-distribution') }}" class="is-here" aria-current="page">Who may receive</a>
+                <a href="{{ route('admin.settings.deal-distribution-rules.index') }}">Send at a stage</a>
+            </div>
             <input type="search" x-model="q" placeholder="Find a document type..." class="corex-input" style="font-size:.8rem; width: 16rem;" aria-label="Find a document type" data-dd-search>
             <select x-model="filter" class="corex-input" style="font-size:.8rem;" aria-label="Show" data-dd-filter>
                 <option value="all">All document types</option>
@@ -77,7 +83,7 @@
                 <option value="unticked">Only those nobody can receive</option>
             </select>
             <span class="text-xs" style="color: var(--text-muted);" x-text="shownCount() + ' of ' + types.length + ' document types'"></span>
-            <span class="text-xs flex-1" style="color: var(--text-muted);"><span class="dd-dot" style="margin-left:0"></span> = also sent automatically at a stage (set up under <a href="{{ route('admin.settings.deal-distribution-rules.index') }}" style="color: var(--brand-icon);">Deal Distribution Rules</a>)</span>
+            <span class="text-xs flex-1" style="color: var(--text-muted);"><span class="dd-dot" style="margin-left:0"></span> = also sent automatically at a stage (<a href="{{ route('admin.settings.deal-distribution-rules.index') }}" style="color: var(--brand-icon);">see Send at a stage</a>)</span>
             <button type="button" class="corex-btn-outline" style="font-size:.75rem;padding:.3rem .7rem;" @click="restoreDefaults()" data-dd-restore
                     title="Puts the standard set-up back on screen. Nothing changes until you press Save.">Restore standard set-up</button>
         </div>

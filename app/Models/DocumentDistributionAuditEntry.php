@@ -16,7 +16,10 @@ class DocumentDistributionAuditEntry extends Model
 
     protected $table = 'document_distribution_audit_entries';
 
-    protected $fillable = ['agency_id', 'user_id', 'summary', 'changes'];
+    protected $fillable = ['agency_id', 'user_id', 'area', 'summary', 'changes'];
+
+    public const AREA_MATRIX = 'matrix';
+    public const AREA_STAGE_RULES = 'stage_rules';
 
     protected $casts = ['changes' => 'array'];
 

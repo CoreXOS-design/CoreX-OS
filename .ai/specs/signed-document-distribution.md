@@ -197,3 +197,21 @@ There is no second list. (What the portal and the email button add on top is onl
 
 Files: `DocumentDistributionMatrixController`, `DocumentDistributionMatrix` (`typeLevelCells`, `stageAutoCells`, `applyCells`), `DocumentDistributionDefaults`, `DocumentDistributionAuditEntry`, view `admin/settings/document-distribution.blade.php`, tests `DocumentDistributionMatrixPageTest`.
 
+
+## The rules screen - Deal Distribution Rules ("send at a stage") (28 Oct 2026, Johan)
+
+Johan: "no edit, cannot even remember when this was built... needs to be built properly". `/admin/settings/deal-distribution-rules` (Deals menu -> Deal Distribution Rules; same permission as the matrix, `deals_v2.manage_distribution_rules`, Role Manager) is rebuilt to the standard of the matrix screen. Plain sentence at the top: **"When a deal reaches a stage, send these documents to ..."**.
+
+**What a rule is (stored model unchanged - `deal_stage_document_rules`).** One row = pipeline stage x document type x party = how it is delivered (`delivery_mode`: secure link + PIN, or email attachment) and whether it goes **automatically** the moment the stage is completed (`auto_on_stage_tick`, consumed by `DealDistributionService::autoDistributeForStep`) or is only **offered to the agent** under "Distribute documents" while the deal is at that stage (`resolvePlan`). `is_active` = switched on / off. Soft delete = archived. This screen lists and edits **stage rules only** (`pipeline_step_id` set); the "any stage" rows are the matrix's ticks and are never listed or changed here.
+
+**Screen.** Left menu and header fixed; the list is the content block and fits 1366x768 / 1920x1080 without the page scrolling (the table scrolls inside its own frame, header row pinned; pagination bar under it).
+- **Columns:** Document | Goes to | When the deal reaches (stage, pipeline in grey) | Delivered as | Sent (Automatically / By hand) | Status (On / Switched off / Archived) | actions. A row whose document+party is not ticked on the matrix carries a small "Not ticked in Who may receive" tag (the two screens must not contradict).
+- **Search** (document, party, stage names), **filter** by stage, party, status (Current = on + switched off [default], On, Switched off, Archived), **sort** on every column (default: pipeline, stage order, document), **pagination** 25, real empty state with the next step ("Add a rule") and a different message when a filter hides everything.
+- **Add / Edit:** one dialog (stage, document type, party, delivery, "send automatically" yes/no, and on edit "switched on"). **Archive** (soft delete, confirm) and **Restore**. No hard delete.
+- **Validation:** one rule per stage + document + party (the database key also counts archived rows): adding a combination that exists says so in plain words; one that exists only as an archived rule is **restored with the new settings** instead of failing; editing into another rule's combination is refused ("Restore the archived rule instead" when that one is archived). The stage must belong to one of the agency's own pipelines; another agency's rule or stage is a 404.
+- **Audit:** every add / edit / archive / restore writes an append-only `document_distribution_audit_entries` row (`area` = `stage_rules`; the matrix writes `area` = `matrix`), with the lines changed ("Delivered as: Secure link -> Email attachment"). The header shows "Last changed ... by ..." and a **History** dialog lists the last 15 of this screen.
+- **Both ways link:** a two-link strip on both screens - "Who may receive" (matrix) and "Send at a stage" (this one). The matrix's dot tooltip links here; this screen's tag links back.
+- **Ad-hoc switch** ("Let agents email a document to any address", `agencies.adhoc_document_distribution_enabled`) stays on this screen as a one-line switch in the header; its Setup Wizard control is unchanged.
+- **Navigation:** Deals menu -> Deal settings -> "Deal Distribution Rules" (next to "Deal Document Distribution").
+
+Files: `DealDistributionRuleController` (index, store, update, destroy = archive, restore), view `admin/deal-distribution-rules/index.blade.php`, migration `2026_12_29_130000_add_area_to_document_distribution_audit_entries`, tests `DealDistributionRulesPageTest`, fit check `scripts/deal-settings-fit-check.mjs` (real Chromium at both sizes, screenshots).
