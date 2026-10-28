@@ -100,16 +100,16 @@
         </div>
         <form method="GET" action="{{ route('admin.settings.deal-distribution-rules.index') }}" class="flex flex-wrap items-center gap-2 flex-1" data-dr-filters>
             <input type="hidden" name="sort" value="{{ $f['sort'] }}"><input type="hidden" name="dir" value="{{ $f['dir'] }}">
-            <input type="search" name="q" value="{{ $f['q'] }}" placeholder="Find a document, person or stage..." class="corex-input" style="font-size:.8rem; width: 15rem;" aria-label="Search rules" data-dr-search>
-            <select name="stage" class="corex-input" style="font-size:.8rem; max-width: 14rem;" aria-label="Stage" onchange="this.form.submit()" data-dr-stage>
+            <input type="search" name="q" value="{{ $f['q'] }}" placeholder="Find a document, person or stage..." class="corex-input" style="font-size:.8rem; width: 14rem;" aria-label="Search rules" data-dr-search>
+            <select name="stage" class="corex-input" style="font-size:.8rem; width: auto; max-width: 14rem;" aria-label="Stage" onchange="this.form.submit()" data-dr-stage>
                 <option value="">Every stage</option>
                 @foreach($steps as $s)<option value="{{ $s->id }}" @selected($f['stage'] === (string) $s->id)>{{ $s->name }} ({{ $s->template_name }})</option>@endforeach
             </select>
-            <select name="party" class="corex-input" style="font-size:.8rem;" aria-label="Goes to" onchange="this.form.submit()" data-dr-party>
+            <select name="party" class="corex-input" style="font-size:.8rem; width: auto;" aria-label="Goes to" onchange="this.form.submit()" data-dr-party>
                 <option value="">Anyone</option>
                 @foreach($labels as $key => $label)<option value="{{ $key }}" @selected($f['party'] === $key)>{{ $label }}</option>@endforeach
             </select>
-            <select name="status" class="corex-input" style="font-size:.8rem;" aria-label="Show" onchange="this.form.submit()" data-dr-status>
+            <select name="status" class="corex-input" style="font-size:.8rem; width: auto;" aria-label="Show" onchange="this.form.submit()" data-dr-status>
                 <option value="current" @selected($f['status'] === 'current')>Current rules</option>
                 <option value="on" @selected($f['status'] === 'on')>Switched on</option>
                 <option value="off" @selected($f['status'] === 'off')>Switched off</option>

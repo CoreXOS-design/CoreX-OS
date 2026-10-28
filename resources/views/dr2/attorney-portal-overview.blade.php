@@ -82,7 +82,7 @@
     <form method="GET" action="{{ route('deals-v2.attorney-portal.index') }}" class="flex flex-wrap items-center gap-2" style="flex: 0 0 auto;" data-po-filters>
         <input type="hidden" name="sort" value="{{ $sort }}"><input type="hidden" name="dir" value="{{ $dir }}">
         <input type="search" name="q" value="{{ $q }}" placeholder="Find an attorney or firm..." class="corex-input" style="font-size:.8rem; width: 16rem;" aria-label="Find an attorney or firm" data-po-search>
-        <select name="status" class="corex-input" style="font-size:.8rem;" aria-label="Show" onchange="this.form.submit()" data-po-status>
+        <select name="status" class="corex-input" style="font-size:.8rem; width: auto;" aria-label="Show" onchange="this.form.submit()" data-po-status>
             <option value="all" @selected($status === 'all')>Everyone</option>
             <option value="live" @selected($status === 'live')>Link active</option>
             <option value="expired" @selected($status === 'expired')>Link expired</option>
