@@ -200,6 +200,8 @@ CREATE TABLE `agencies` (
   `wa_transcription_time` varchar(5) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '22:00',
   `name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `trading_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `legal_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `document_website` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `tagline` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `address` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `phone` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -440,6 +442,8 @@ CREATE TABLE `agencies` (
   `ai_template_monthly_limit` int unsigned NOT NULL DEFAULT '20',
   `portal_show_agency_commission_totals` tinyint(1) NOT NULL DEFAULT '0',
   `timezone` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `desk_enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `desk_control_idle_minutes` smallint unsigned NOT NULL DEFAULT '5',
   PRIMARY KEY (`id`),
   UNIQUE KEY `agencies_slug_unique` (`slug`),
   UNIQUE KEY `agencies_privacy_policy_token_unique` (`privacy_policy_token`),
@@ -6546,6 +6550,74 @@ CREATE TABLE `designations` (
   `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `designations_name_unique` (`name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `desk_session_events`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `desk_session_events` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `desk_session_id` bigint unsigned NOT NULL,
+  `agency_id` bigint unsigned DEFAULT NULL,
+  `type` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `payload` json DEFAULT NULL,
+  `actor_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `desk_session_events_actor_user_id_foreign` (`actor_user_id`),
+  KEY `desk_session_events_desk_session_id_created_at_index` (`desk_session_id`,`created_at`),
+  KEY `desk_session_events_agency_id_index` (`agency_id`),
+  CONSTRAINT `desk_session_events_actor_user_id_foreign` FOREIGN KEY (`actor_user_id`) REFERENCES `users` (`id`),
+  CONSTRAINT `desk_session_events_desk_session_id_foreign` FOREIGN KEY (`desk_session_id`) REFERENCES `desk_sessions` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `desk_sessions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `desk_sessions` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned DEFAULT NULL,
+  `user_id` bigint unsigned NOT NULL,
+  `support_user_id` bigint unsigned DEFAULT NULL,
+  `support_user_ids` json DEFAULT NULL,
+  `support_display` varchar(190) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'waiting',
+  `otp_id` bigint unsigned DEFAULT NULL,
+  `code_expires_at` timestamp NULL DEFAULT NULL,
+  `started_at` timestamp NULL DEFAULT NULL,
+  `joined_at` timestamp NULL DEFAULT NULL,
+  `ended_at` timestamp NULL DEFAULT NULL,
+  `ended_by` varchar(16) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ended_by_user_id` bigint unsigned DEFAULT NULL,
+  `page_url_last` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `last_heartbeat_at` timestamp NULL DEFAULT NULL,
+  `leaving_at` timestamp NULL DEFAULT NULL,
+  `control_state` varchar(12) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'none',
+  `control_tab` varchar(12) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `control_support_user_id` bigint unsigned DEFAULT NULL,
+  `control_requested_at` timestamp NULL DEFAULT NULL,
+  `control_granted_at` timestamp NULL DEFAULT NULL,
+  `control_last_action_at` timestamp NULL DEFAULT NULL,
+  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  `control_request_id` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `control_ended_at` timestamp NULL DEFAULT NULL,
+  `control_ended_tab` varchar(12) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `control_ended_support_user_id` bigint unsigned DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `desk_sessions_support_user_id_foreign` (`support_user_id`),
+  KEY `desk_sessions_ended_by_user_id_foreign` (`ended_by_user_id`),
+  KEY `desk_sessions_status_agency_id_index` (`status`,`agency_id`),
+  KEY `desk_sessions_user_id_status_index` (`user_id`,`status`),
+  KEY `desk_sessions_started_at_index` (`started_at`),
+  KEY `desk_sessions_agency_id_index` (`agency_id`),
+  CONSTRAINT `desk_sessions_ended_by_user_id_foreign` FOREIGN KEY (`ended_by_user_id`) REFERENCES `users` (`id`),
+  CONSTRAINT `desk_sessions_support_user_id_foreign` FOREIGN KEY (`support_user_id`) REFERENCES `users` (`id`),
+  CONSTRAINT `desk_sessions_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `dev_settings`;
@@ -24292,3 +24364,9 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1849,'2026_12_06_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1850,'2026_12_07_100000_add_geocode_country_to_agencies_table',1);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1851,'2026_12_07_100000_turn_on_phone_push_for_agent_rental_alerts',1);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1852,'2026_12_05_100000_create_training_videos_tables_at509',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1853,'2026_12_08_100000_add_document_letterhead_fields_to_agencies_table',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1854,'2026_12_10_100000_create_desk_sessions_tables',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1855,'2026_12_11_100000_add_desk_control_columns',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1856,'2026_12_12_100000_add_desk_session_extra_supporters',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1857,'2026_12_12_110000_add_support_display_to_desk_sessions',1);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1858,'2026_12_13_100000_add_desk_control_request_id_and_ended_at',1);

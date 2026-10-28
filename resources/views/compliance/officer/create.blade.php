@@ -31,7 +31,7 @@
                     </div>
                     <div>
                         <label class="block text-sm font-semibold mb-1" style="color:var(--text-primary, #1f2937);">ID Number</label>
-                        <input type="text" name="id_number" value="{{ old('id_number') }}" class="w-full px-3 py-2 text-sm border" style="border-color:var(--border, #e5e7eb); border-radius:6px;">
+                        <input data-desk-mask type="text" name="id_number" value="{{ old('id_number') }}" class="w-full px-3 py-2 text-sm border" style="border-color:var(--border, #e5e7eb); border-radius:6px;">
                     </div>
                 </div>
 

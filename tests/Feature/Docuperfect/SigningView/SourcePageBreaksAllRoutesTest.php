@@ -38,7 +38,9 @@ class SourcePageBreaksAllRoutesTest extends TestCase
 
     private function chromiumAvailable(): bool
     {
-        return is_executable('/usr/bin/chromium') && is_file('/corex-qa1/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js')
+        // puppeteer-core is a devDependency of THIS checkout (scripts/*.mjs resolve it from the checkout's own node_modules);
+        // the test skips only when Chromium, node or that install is genuinely absent.
+        return is_executable('/usr/bin/chromium') && is_file(base_path('node_modules/puppeteer-core/package.json'))
             && trim((string) shell_exec('command -v node')) !== '';
     }
 
@@ -51,6 +53,33 @@ class SourcePageBreaksAllRoutesTest extends TestCase
         $pdf = Pdf::loadHTML($doc)->setPaper('a4', 'portrait')->output();
 
         $this->assertSame(4, preg_match_all('/\/Type\s*\/Page[^s]/', $pdf), 'three hard breaks = four pages, no blank sheet');
+    }
+
+    public function test_the_first_page_footer_is_page_one_only_and_a_nested_table_is_not_split_out(): void
+    {
+        if (! $this->chromiumAvailable()) {
+            $this->markTestSkipped('Chromium / node / puppeteer-core not available');
+        }
+        $cds = $this->fixture();
+        $cds['page_footer_first'] = ['lines' => [['text' => 'FIRST PAGE FOOTER']]];
+        $nested = '<table data-src-borders="1"><tbody><tr><td>Outer A<table><tbody><tr><td>n1</td></tr><tr><td>n2</td></tr></tbody></table></td></tr><tr><td>Outer B</td></tr></tbody></table>';
+        $dir = sys_get_temp_dir() . '/pgchk-' . uniqid();
+        File::makeDirectory($dir);
+        file_put_contents($dir . '/in.json', json_encode([
+            'partial' => view('docuperfect.signatures.partials.a4-page-styles')->render(),
+            'html' => (new CdsRendererService())->render($cds) . $nested,
+            'shell' => $dir . '/paginated.html',
+        ]));
+        $run = Process::path(base_path())->timeout(120)->run(['node', 'scripts/paginate-check.mjs', $dir . '/in.json']);
+        $this->assertTrue($run->successful(), $run->errorOutput());
+        $r = json_decode(trim($run->output()), true);
+
+        $this->assertSame('FIRST PAGE FOOTER', $r['footerTexts'][0], 'page one carries the first-page footer');
+        foreach (array_slice($r['footerTexts'], 1) as $i => $text) {
+            $this->assertStringContainsString('Doc footer', $text, 'page ' . ($i + 2) . ' carries the default footer');
+            $this->assertStringNotContainsString('FIRST PAGE', $text);
+        }
+        $this->assertSame(2, $r['splitTables'], "the outer table splits into its own two rows; the nested table's rows stay inside their cell");
     }
 
     public function test_the_signing_paginator_and_the_signed_pdf_honour_breaks_and_the_documents_own_footer(): void
@@ -162,6 +191,9 @@ class SourcePageBreaksAllRoutesTest extends TestCase
         $this->assertSame(SignatureBlock::DOCUMENT, SignatureBlock::resolve(null, '<td><span class="doc-tag doc-tag-signature" data-tag-type="signature">[SIG 1]</span></td>'));
         $this->assertSame(SignatureBlock::COREX, SignatureBlock::resolve('corex', '<span data-tag-type="signature"></span>'), "the person's choice wins");
         $this->assertSame(SignatureBlock::DOCUMENT, SignatureBlock::resolve('document', '<p>no places</p>'));
+        $places = '<td><span class="doc-tag doc-tag-signature" data-tag-type="signature">[SIG 1]</span></td>';
+        $this->assertSame(SignatureBlock::COREX, SignatureBlock::resolve(null, $places, false), 'an EXISTING template with no stored value keeps the CoreX block on re-save');
+        $this->assertSame(SignatureBlock::DOCUMENT, SignatureBlock::resolve('document', $places, false), 'a stored/chosen value still wins on an existing template');
         $this->assertSame(SignatureBlock::COREX, SignatureBlock::fromState(['signature_block' => 'bogus']));
         $this->assertSame(SignatureBlock::COREX, SignatureBlock::fromState(null), 'a template that never had the setting is unchanged');
     }

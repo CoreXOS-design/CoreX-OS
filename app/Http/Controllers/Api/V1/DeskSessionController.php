@@ -139,12 +139,25 @@ class DeskSessionController extends Controller
 
     // ── Take-over (phase 2): the agent's answers and the report of what their browser replayed ──────────
 
-    /** POST /api/v1/desk/sessions/{id}/control/respond {allow} - Allow / Decline a request for control. */
+    /**
+     * POST /api/v1/desk/sessions/{id}/control/respond {allow, request_id} - Allow / Decline a request for control. The request_id is the one the question
+     * carried (a mismatch is a 409). An Allow answers with the grant (the signing key) - this answer and the agent's own `control/key` call are the only
+     * places the agent's browser gets it.
+     */
     public function controlRespond(Request $request, int $id): JsonResponse
     {
-        $data = $request->validate(['allow' => ['required', 'boolean']]);
+        $data = $request->validate(['allow' => ['required', 'boolean'], 'request_id' => ['required', 'string', 'max:40']]);
 
-        return $this->control(fn () => $this->desk->respondControl($this->mine($request, $id), $request->user(), (bool) $data['allow']));
+        return $this->control(fn () => $this->desk->respondControl($this->mine($request, $id), $request->user(), (bool) $data['allow'], $data['request_id']), $id, (bool) $data['allow']);
+    }
+
+    /** POST /api/v1/desk/sessions/{id}/control/key {tab} - the agent's page asks for the grant again (a page change, or control that moved to this tab). 404 unless control is granted for exactly that tab. */
+    public function controlKey(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate(['tab' => ['required', 'string', 'max:12']]);
+        $grant = $this->desk->agentGrant($this->mine($request, $id), $request->user(), $data['tab']);
+
+        return $grant ? response()->json(['grant' => $grant])->header('Cache-Control', 'no-store') : response()->json(['message' => 'Control is not granted for that tab.'], 404);
     }
 
     /** POST /api/v1/desk/sessions/{id}/control/revoke {reason?: agent|idle} - "Take back control" (or the idle clock ran out here). */
@@ -152,7 +165,7 @@ class DeskSessionController extends Controller
     {
         $reason = $request->input('reason') === 'idle' ? 'idle' : 'agent';
 
-        return $this->control(fn () => $this->desk->revokeControl($this->mine($request, $id), $request->user(), $reason));
+        return $this->control(fn () => $this->desk->revokeControl($this->mine($request, $id), $request->user(), $reason), $id);
     }
 
     /** POST /api/v1/desk/sessions/{id}/control/actions {tab, actions: [{type, selector, label, ok, reason, n}]} - what ran (never typed values). */
@@ -161,7 +174,7 @@ class DeskSessionController extends Controller
         $data = $request->validate(['tab' => ['nullable', 'string', 'max:12'], 'actions' => ['required', 'array', 'max:200']]);
 
         try {
-            $n = $this->desk->recordControlActions($this->mine($request, $id), $request->user(), (string) ($data['tab'] ?? 'main'), $data['actions']);
+            $n = $this->desk->recordControlActions($this->mine($request, $id), $request->user(), (string) ($data['tab'] ?? 'main'), array_values(array_filter($data['actions'], 'is_array')));
         } catch (DeskControlException $e) {
             return response()->json(['message' => $e->getMessage()], $e->status);
         }
@@ -169,15 +182,19 @@ class DeskSessionController extends Controller
         return response()->json(['recorded' => $n]);
     }
 
-    private function control(\Closure $do): JsonResponse
+    private function control(\Closure $do, ?int $id = null, bool $withGrant = false): JsonResponse
     {
         try {
             $session = $do();
         } catch (DeskControlException $e) {
             return response()->json(['message' => $e->getMessage()], $e->status);
         }
+        $body = ['control' => $session->toClientArray()['control']];
+        if ($withGrant && $session->control_state === DeskSession::CONTROL_GRANTED) {
+            $body['grant'] = $this->desk->agentGrant($session, request()->user(), $session->control_tab);
+        }
 
-        return response()->json(['control' => $session->toClientArray()['control']]);
+        return response()->json($body)->header('Cache-Control', 'no-store');
     }
 
     private function mine(Request $request, int $id): DeskSession

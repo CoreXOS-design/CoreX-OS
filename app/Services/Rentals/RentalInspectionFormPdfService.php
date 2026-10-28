@@ -335,9 +335,23 @@ class RentalInspectionFormPdfService
                 'items' => $g['items']->map(fn (RentalInspectionItem $i) => [$i->id, $i->label])->all(),
             ])->all(),
             'condition_states' => array_map(fn ($s) => [$s['key'], $s['label']], $conditionStates),
+            // The agency letterhead is drawn on page 1 and its footer line on every page: a changed agency detail (name, address,
+            // phones, e-mail, website, VAT, registration numbers, logo) must produce a fresh form, not hand back the old one.
+            'letterhead' => $this->letterheadShape((int) $inspection->agency_id),
         ];
 
         return hash('sha256', json_encode($shape));
+    }
+
+    /** Everything the letterhead prints, for the content hash (the logo as a digest of its bytes). */
+    private function letterheadShape(int $agencyId): ?array
+    {
+        $lh = \App\Support\Documents\AgencyLetterhead::forAgencyId($agencyId);
+
+        return $lh === null ? null : [
+            $lh->name, $lh->addressLines, $lh->phoneLines, $lh->email, $lh->website, $lh->vatLine, $lh->footerLine,
+            $lh->logoDataUri === null ? null : sha1($lh->logoDataUri),
+        ];
     }
 
     // ── Layout — one computation, drawn AND recorded from the same arrays ──

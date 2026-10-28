@@ -130,7 +130,12 @@ function setup() {
     assert.ok(ex.run({ type: 'key', s: '#suburb', k: 'Backspace' }).ok);
     assert.strictEqual(d.getElementById('suburb').value, 'Margat');
     let submitted = 0;
+    // (the fixture's form holds a card field and a [data-desk-mask] bank field: Enter would submit what the agent typed there - refused. Clean it, and Enter submits.)
     d.getElementById('f').requestSubmit = () => { submitted++; };
+    const refused = ex.run({ type: 'key', s: '#suburb', k: 'Enter' });
+    assert.strictEqual(refused.ok, false); assert.strictEqual(refused.reason, 'private_field'); assert.strictEqual(submitted, 0, 'Enter must not submit a form with a private field in it');
+    for (const id of ['card', 'pw']) d.getElementById(id).remove();
+    d.getElementById('bank').parentNode.remove();
     assert.ok(ex.run({ type: 'key', s: '#suburb', k: 'Enter' }).ok);
     assert.strictEqual(submitted, 1);
     d.getElementById('suburb').focus();

@@ -53,7 +53,7 @@ final class AgencyLetterheadTest extends TestCase
         $this->agency = Agency::create([
             'name' => 'Mega Real Estate', 'slug' => 'mega-' . uniqid(), 'trading_name' => 'Mega Real Estate',
             'legal_name' => 'VIPS cc t/a Mega Rent Real Estate', 'reg_no' => 'CK2003/088713/23', 'ppra_number' => '1135017',
-            'vat_no' => '4123456789', 'address' => "20 Madeira Crescent\nTable View, 7441", 'phone' => '0845576594',
+            'vat_no' => '4123456789', 'vat_registered' => true, 'address' => "20 Madeira Crescent\nTable View, 7441", 'phone' => '0845576594',
             'email' => 'info@megarent.co.za', 'document_website' => 'www.megarent.co.za',
             // The public-listing redirect setting: must never appear on a document.
             'website_url' => 'https://redirect-only.example.test',
@@ -150,6 +150,63 @@ final class AgencyLetterheadTest extends TestCase
             $this->assertStringNotContainsString('VAT No:', $html, "$name: no VAT line");
             $this->assertStringContainsString(self::FOOTER, $html, "$name: the rest of the letterhead is still there");
         }
+    }
+
+    public function test_a_vat_number_is_not_printed_for_an_agency_that_is_not_vat_registered(): void
+    {
+        $this->agency->update(['vat_registered' => false]); // vat_no is still on file
+
+        $lh = AgencyLetterhead::for($this->agency->fresh());
+        $this->assertSame('', $lh->vatLine);
+        foreach ($this->documents() as $name => $html) {
+            $this->assertStringNotContainsString('VAT No:', $html, "$name: no VAT line for a non-registered agency");
+        }
+    }
+
+    public function test_a_logo_path_that_escapes_public_storage_is_never_read(): void
+    {
+        @mkdir(storage_path('app/public'), 0775, true);
+        $outside = storage_path('app/letterhead-escape-test.png');
+        @mkdir(dirname($outside), 0775, true);
+        file_put_contents($outside, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAHnOcQAAAAABJRU5ErkJggg=='));
+        try {
+            $this->agency->update(['logo_path' => '../letterhead-escape-test.png']);
+            $this->assertNull(AgencyLetterhead::for($this->agency->fresh())->logoDataUri, 'a traversal path is not a logo');
+        } finally {
+            @unlink($outside);
+        }
+    }
+
+    public function test_the_compact_letterhead_clamps_long_values_so_it_cannot_outgrow_its_reserved_strip(): void
+    {
+        $longSite = 'www.' . str_repeat('very-long-website-name', 8) . '.co.za';
+        $this->agency->update([
+            'address' => str_repeat('1234567 Extremely Long Boulevard, ', 6),
+            'document_website' => $longSite, 'email' => str_repeat('someone', 12) . '@example.test', 'phone' => '0845576594', 'phone_secondary' => '0215550100',
+            'trading_name' => str_repeat('Long Trading Name ', 8),
+        ]);
+
+        $html = view('components.agency-letterhead', ['letterhead' => AgencyLetterhead::for($this->agency->fresh()), 'compact' => true])->render();
+
+        $this->assertStringNotContainsString($longSite, $html);
+        $this->assertStringContainsString('…', $html);
+        $this->assertLessThanOrEqual(3, substr_count($html, '<br>'), 'name / address / at most two contact lines: a bounded number of lines');
+    }
+
+    public function test_a_changed_agency_detail_produces_a_fresh_blank_inspection_form(): void
+    {
+        $this->room();
+        $inspection = RentalInspection::start($this->property, RentalInspection::TYPE_IN, $this->agent);
+        $service = app(RentalInspectionFormPdfService::class);
+
+        $first = $service->generate($inspection, $this->agent);
+        $this->assertSame($first->id, $service->generate($inspection->fresh(), $this->agent)->id, 'nothing changed: the same form is handed back');
+
+        $this->agency->update(['phone' => '0215550199']);
+        $second = $service->generate($inspection->fresh(), $this->agent);
+
+        $this->assertNotSame($first->id, $second->id, 'a changed phone number on the letterhead is a new form');
+        $this->assertNotSame($first->content_hash, $second->content_hash);
     }
 
     public function test_blank_settings_leave_their_lines_out_and_the_footer_falls_back_to_the_trading_name(): void

@@ -44,6 +44,8 @@
             'sessions' => url('api/v1/desk/sessions'),
             // The take-over executor: one source shared with the extension (public/chrome-extension/portal-capture/desk-exec.js).
             'exec' => asset('chrome-extension/portal-capture/desk-exec.js') . '?v=' . (@filemtime(public_path('chrome-extension/portal-capture/desk-exec.js')) ?: 1),
+            // The masking rules (isSensitiveField) - the same file the extension uses on third-party sites, loaded as a plain script before recording starts.
+            'lib' => asset('chrome-extension/portal-capture/desk-lib.js') . '?v=' . (@filemtime(public_path('chrome-extension/portal-capture/desk-lib.js')) ?: 1),
         ],
         'controlIdleSeconds' => $__deskEnabled ? $__deskSvc->controlIdleMinutes($__deskUser->effectiveAgencyId()) * 60 : 300,
         'current' => $__deskCurrent?->toClientArray(),

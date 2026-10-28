@@ -118,7 +118,7 @@
             <p class="text-xs mb-4" style="color: var(--text-muted);">Shown as notes on every proforma invoice.</p>
 
             <label for="bank_details" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Bank details</label>
-            <textarea id="bank_details" name="bank_details" rows="4"
+            <textarea data-desk-mask id="bank_details" name="bank_details" rows="4"
                       placeholder="Bank, Account name, Account no, Branch code, Reference"
                       class="w-full rounded-md px-3 py-2 text-sm"
                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">{{ old('bank_details', $settings->bank_details) }}</textarea>

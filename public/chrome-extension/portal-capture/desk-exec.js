@@ -215,7 +215,13 @@
               else if (key === 'Delete' && isTextField(el)) remove(el, true);
               else if (key === 'Enter') {
                 if (el.tagName === 'TEXTAREA' || el.isContentEditable) insert(el, '\n');
-                else if (el.tagName === 'INPUT' && el.form) { if (el.form.requestSubmit) el.form.requestSubmit(); else el.form.submit(); }
+                else if (el.tagName === 'INPUT' && el.form) {
+                  // Enter submits the whole form, including every field in it that support is not allowed to touch (a card / ID / bank / password field the agent
+                  // filled in): refuse rather than let support send what the agent typed in a private field.
+                  var blockedInForm = Array.prototype.some.call(el.form.elements || [], function (f) { return f !== el && String(f.type || '').toLowerCase() !== 'hidden' && isBlocked(f); });   // (hidden inputs - the CSRF token - are not something the agent typed)
+                  if (blockedInForm) return out(false, 'private_field');
+                  if (el.form.requestSubmit) el.form.requestSubmit(); else el.form.submit();
+                }
                 else if (/^(button|a)$/i.test(el.tagName)) el.click();
               } else if (key === 'Tab') {
                 var list = tabbable(); var i = list.indexOf(el);

@@ -16,6 +16,7 @@ class CdsRendererService
         . '.corex-page-header { position: fixed; top: -0.45in; left: 0; right: 0; }'
         . '.corex-page-footer { position: fixed; bottom: -0.5in; left: 0; right: 0; }'
         . '.corex-page-header-cover { display: block; position: absolute; top: -0.6in; left: 0; right: 0; height: 0.5in; background: #fff; }'
+        . '.corex-page-first { display: none; }'
         . '.corex-page-number:before { content: counter(page); }';
 
     /** @var array<string,array{src:string}> pictures of the document being rendered, by relationship id */
@@ -88,9 +89,15 @@ class CdsRendererService
 
             return $out . '</div>';
         };
-        // The first page may carry its own footer; on screen the first is what a reader meets first.
-        $use = (! empty($cds['page_first_different']) && ! empty($first['lines'])) ? $first : $frame;
-        $html = $one($use ?? $frame ?? [], 'corex-page-' . $kind . (empty($use['rule']) ? '' : ' corex-page-rule'));
+        // A different first page that carries its own header / footer: the default is drawn as usual (it is what pages 2+ and
+        // every surface that cannot tell pages apart show), and the first-page variant follows as a second block marked
+        // corex-page-first. corex-document.css hides it; the e-sign paginator (a4-page-styles) uses it on page one only and the
+        // default on every other page.
+        $hasFirstVariant = ! empty($cds['page_first_different']) && ! empty($first['lines']);
+        $html = $one($frame ?? [], 'corex-page-' . $kind . (empty($frame['rule']) ? '' : ' corex-page-rule'));
+        if ($hasFirstVariant) {
+            $html .= $one($first, 'corex-page-' . $kind . ' corex-page-first' . (empty($first['rule']) ? '' : ' corex-page-rule'));
+        }
         // A document with a different first page and no header of its own there (the Word title page): a blank
         // strip on page one covers the repeated header, so page one prints without it, as in the source.
         if ($kind === 'header' && ! empty($cds['page_first_different']) && empty($first['lines'])) {

@@ -15,6 +15,16 @@ return [
     // After the agent's tab says it is leaving (page change or close) the next page has this long to reconnect.
     'leaving_grace_seconds' => (int) env('DESK_LEAVING_GRACE_SECONDS', 30),
 
+    // Hard cap: a session is closed (timeout) this many hours after it started, however alive it looks. 0 = no cap.
+    'max_session_hours' => (int) env('DESK_MAX_SESSION_HOURS', 8),
+
+    // The stale-session sweep (expireStale) runs from the `desk:expire` schedule every minute AND lazily on reads; a lazy run happens at most once per this
+    // many seconds (a cache lock), so a heartbeat or a poll never repeats the sweep's table scans. 0 = every read.
+    'expire_throttle_seconds' => (int) env('DESK_EXPIRE_THROTTLE_SECONDS', 5),
+
+    // A joining support person's code is tested against at most this many waiting sessions (newest first), of their own scope.
+    'join_candidate_cap' => (int) env('DESK_JOIN_CANDIDATE_CAP', 200),
+
     // Wrong codes a support user may enter before being locked out for the window.
     'join_max_failures' => (int) env('DESK_JOIN_MAX_FAILURES', 8),
     'join_window_seconds' => (int) env('DESK_JOIN_WINDOW_SECONDS', 600),
@@ -38,6 +48,9 @@ return [
     'control_idle_minutes_min' => 1,
     'control_idle_minutes_max' => 60,
     'control_actions_per_report' => 50,
+    // The agent's browser reports what it replayed in batches (~1.5 s), and flushes the last one a moment AFTER control ended: a report for the tab control
+    // just ended on is still recorded (marked late) for this many seconds.
+    'control_report_grace_seconds' => (int) env('DESK_CONTROL_REPORT_GRACE_SECONDS', 10),
 
     // Rate limits (AppServiceProvider: desk-state / desk-live). Each counts per signed-in user AND per route, so one busy route can never use up another's
     // allowance (spec section 14a): state-changing calls (ask, Allow, take back, join, end) and the chatty ones (pointer, actions, heartbeat, polls).

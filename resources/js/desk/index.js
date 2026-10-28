@@ -63,6 +63,10 @@ function hideModal() {
     clearInterval(countdown);
 }
 
+// Everyone who is in the session right now (the first support person and anyone who attached later), as the server named them.
+let supporters = [];
+const listText = (names) => (names.length <= 1 ? (names[0] || 'CoreX support') : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]);
+
 function showBar(name) {
     const bar = $('corex-desk-bar');
     if (!bar) return;
@@ -81,10 +85,13 @@ function hideBar() {
 function setBarMode(mode, name, note) {
     const bar = $('corex-desk-bar');
     if (!bar) return;
-    if (name) $('cd-bar-name').textContent = name;
+    // Viewing: everyone in the session is named. Asking / in control: the one person who asked / holds control.
+    if (mode === 'view' && supporters.length) $('cd-bar-name').textContent = listText(supporters);
+    else if (name) $('cd-bar-name').textContent = name;
     bar.hidden = false;
     bar.dataset.mode = mode;
-    $('cd-bar-what').textContent = { view: 'is viewing this window', ask: 'wants to take control of this window', control: 'is in control of this window' }[mode] + (note ? ' - ' + note : '');
+    const plural = mode === 'view' && supporters.length > 1;
+    $('cd-bar-what').textContent = { view: plural ? 'are viewing this window' : 'is viewing this window', ask: 'wants to take control of this window', control: 'is in control of this window' }[mode] + (note ? ' - ' + note : '');
     bar.querySelector('[data-desk-allow]').hidden = mode !== 'ask';
     bar.querySelector('[data-desk-decline]').hidden = mode !== 'ask';
     bar.querySelector('[data-desk-takeback]').hidden = mode !== 'control';
@@ -123,7 +130,25 @@ const ui = {
     controlAsk(name, note) { setBarMode('ask', name, note); },
     controlOn(name) { setBarMode('control', name); },
     controlOff() { setBarMode('view'); },
-    joined(name) { hideModal(); showBar(name); },
+    joined(name, names) {
+        supporters = Array.isArray(names) && names.length ? names.slice() : (name ? [name] : []);
+        hideModal();
+        showBar(supporters.length ? listText(supporters) : name);
+        // The code was spent at the join: it is not kept in this browser any longer.
+        const saved = stored();
+        if (saved && saved.code) store({ id: saved.id, tab: saved.tab });
+        if (supporters.length > 1) setBarMode('view');
+    },
+    /** Another support person joined the live session: the bar names them all and flashes, so the agent is never watched without being told. */
+    supporters(names, who) {
+        supporters = names.slice();
+        const bar = $('corex-desk-bar');
+        if (!bar) return;
+        const mode = bar.dataset.mode || 'view';
+        if (mode === 'view') setBarMode('view');
+        bar.title = (who ? who + ' joined the session. ' : '') + 'In this session: ' + listText(supporters);
+        bar.classList.remove('cd-flash'); void bar.offsetWidth; bar.classList.add('cd-flash');
+    },
     ended(by) {
         store(null);
         threadLines = []; threadAll = false;

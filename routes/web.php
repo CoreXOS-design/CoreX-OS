@@ -539,8 +539,14 @@ Route::middleware('auth')->group(function () {
             // Take-over (phase 2, spec section 14): the agent answers a request, takes control back, and reports what their browser replayed.
             Route::post('/{id}/control/respond', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'controlRespond'])->whereNumber('id')->middleware('throttle:desk-state')->name('control.respond');
             Route::post('/{id}/control/revoke', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'controlRevoke'])->whereNumber('id')->middleware('throttle:desk-state')->name('control.revoke');
+            Route::post('/{id}/control/key', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'controlKey'])->whereNumber('id')->middleware('throttle:desk-state')->name('control.key');
             Route::post('/{id}/control/actions', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'controlActions'])->whereNumber('id')->middleware('throttle:desk-live')->name('control.actions');
         });
+
+        // CoreX Desk - the SUPPORT person's signing key for the take-over they hold (spec .ai/specs/corex-desk.md section 14b). desk.support to be in the console at all,
+        // desk.control to take control; the controller releases it only to the user the control was granted to.
+        Route::post('desk/support/sessions/{id}/control/key', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'controlKey'])->whereNumber('id')
+            ->middleware(['permission:desk.support', 'permission:desk.control', 'throttle:desk-state'])->name('desk.support.control.key');
 
         // P24 importer gallery-completeness reconciliation — owner-only. The
         // acceptance bar for the parallel importer is "zero galleries
@@ -3139,6 +3145,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{submission}/reopen', [\App\Http\Controllers\Compliance\FicaController::class, 'reopenRejected'])->name('reopen');
         Route::post('/{submission}/agent-upload', [\App\Http\Controllers\Compliance\FicaController::class, 'agentUpload'])->name('agent-upload');
         Route::post('/{submission}/documents/{document}/remove', [\App\Http\Controllers\Compliance\FicaController::class, 'removeDocument'])->name('documents.remove');
+        Route::post('/{submission}/documents/{document}/restore', [\App\Http\Controllers\Compliance\FicaController::class, 'restoreDocument'])->whereNumber('document')->name('documents.restore');
         // AT-173 — decrypting stream serve for uploaded FICA documents (replaces the direct Storage::url).
         Route::get('/{submission}/documents/{document}/view', [\App\Http\Controllers\Compliance\FicaController::class, 'viewDocument'])->name('documents.view');
         // AT-361 — link existing contact documents into the FICA (reference, no copy); RO/CO view them here.

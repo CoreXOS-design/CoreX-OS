@@ -11,6 +11,7 @@
 import { getEcho, dropEcho } from './echo.js';
 import { encodeBatch } from './frames.js';
 import { slimEvent, resetSlim } from './slim.js';
+import { verifyAction, cryptoAvailable } from './sign.js';
 
 // How long events wait to be batched before they are whispered. After a quiet moment: about one screen frame, so a keystroke or a menu opening is on its way
 // at once. In the middle of a burst (the last message went out less than BURST_GAP_MS ago): BURST_MS, so a stream of changes goes out as one message per
@@ -21,21 +22,34 @@ const BURST_GAP_MS = 120;
 const POINTER_IDLE_MS = 4000;
 const REPLAY_KEY = 'corex.desk.replay';   // the tab that last replayed a click for support (a click that opens a new tab hands control to it)
 const REPLAY_WINDOW_MS = 10000;
+// Frames wait here until the channel is subscribed; if it never is, the oldest are dropped past this many (and a fresh full picture is taken once it is).
+const BUFFER_MAX = 4000;
 
 let st = null;
 
 /** Is this event / whisper addressed to this tab? No tab named (or "main") means the tab that started the session. */
 const forMe = (tab) => !!st && (tab || 'main') === st.tab;
 
-/** Every input type rrweb can mask. maskInputFn below decides which ones really are (password + [data-desk-mask]). */
+/**
+ * Every input type rrweb can mask. maskInputFn below decides which ones really are: the SAME default-deny rule the extension uses on third-party sites
+ * (desk-lib.js isSensitiveField - passwords, [data-desk-mask], hidden inputs, and anything whose name / id / autocomplete / placeholder / label looks like an
+ * ID number, passport, bank account, branch code, tax number, card, PIN, one-time code, secret, token, key, date of birth...). `hidden` is masked too: hidden
+ * inputs carry CSRF tokens and record ids.
+ */
 const ALL_INPUT_TYPES = {
     color: true, date: true, 'datetime-local': true, email: true, month: true, number: true, range: true, search: true,
-    tel: true, text: true, time: true, url: true, week: true, textarea: true, password: true,   // (not select: rrweb then drops option.selected and the mirror shows the wrong choice)
+    tel: true, text: true, time: true, url: true, week: true, textarea: true, password: true, hidden: true,   // (not select: rrweb then drops option.selected and the mirror shows the wrong choice)
 };
 
+// The page's CSRF token sits in a <meta>: it must never be part of a snapshot.
+const BLOCK_SELECTOR = 'meta[name="csrf-token"]';
+
+/** desk-lib.js is loaded as a plain script before recording starts. If it is not there (it failed to load) EVERYTHING is treated as private: fail closed. */
+const lib = () => window.CoreXDeskLib || null;
+const sensitive = (el) => { const L = lib(); return L ? L.isSensitiveField(el) : true; };
+
 function maskInput(text, el) {
-    const must = el && ((el.type === 'password') || (el.closest && el.closest('[data-desk-mask]')));
-    return must ? '*'.repeat((text || '').length) : text;
+    return sensitive(el) ? '*'.repeat((text || '').length) : text;
 }
 
 export function start(ctx) {
@@ -47,11 +61,13 @@ export function start(ctx) {
     const channel = echo.private(channelName);
 
     st = { cfg, session, api, ui, tab, echo, channel, channelName, timers: [], buffer: [], flushing: false, subscribed: false, live: false, registered: false,
-        ctl: { state: 'none', asked: false, exec: null, reporter: null, idle: null }, stopRecord: null, recording: false, hl: null, ended: false, pointerTimer: null,
+        ctl: newCtl(), droppedActions: 0, supporters: [], stopRecord: null, recording: false, hl: null, ended: false, pointerTimer: null,
         haveListener: false, pendingResync: false, lastSnap: 0, thread: [], threadIds: new Set() };
 
     channel
-        .listen('.desk.joined', (e) => { if (e.support_name) st.session.support_name = e.support_name; st.live = true; ui.joined(e.support_name); beginRecording(); registerTab('join'); })
+        .listen('.desk.joined', (e) => { if (e.support_name) st.session.support_name = e.support_name; st.supporters = Array.isArray(e.supporters) && e.supporters.length ? e.supporters : [e.support_name]; st.live = true; ui.joined(e.support_name, st.supporters); beginRecording(); registerTab('join'); })
+        // Someone else attached to the live session: the agent is told, by name, and the bar lists everyone who is in it.
+        .listen('.desk.supporter_joined', (e) => { if (Array.isArray(e.supporters) && e.supporters.length) { st.supporters = e.supporters; ui.supporters(e.supporters, e.support_name); } })
         .listen('.desk.ended', (e) => finish(e.by))
         // Events and whispers name the tab they are for. This client only reacts to its own.
         .listen('.desk.highlight', (e) => { if (forMe(e.tab)) showHighlight(e.selector, e.note); })
@@ -60,7 +76,8 @@ export function start(ctx) {
         .listenForWhisper('pointer', (p) => { if (forMe(p && p.t)) movePointer(p); })
         .listenForWhisper('resync', (r) => { if (forMe(r && r.t)) resync(true); })
         // Take-over (protocol 1.2): support asks, the agent answers, and only after the agent's own Allow does anything get replayed.
-        .listen('.desk.control_requested', (e) => { if (forMe(e.tab)) askControl(e.support_name); })
+        .listen('.desk.control_requested', (e) => { if (forMe(e.tab)) askControl(e.support_name, e.request_id); })
+        // (starts only if THIS page's own Allow (or the server's word on a page change / a move) has already been taken - beginControl checks)
         .listen('.desk.control_granted', (e) => { if (forMe(e.tab)) beginControl(e.idle_seconds); })
         .listen('.desk.control_declined', (e) => { if (forMe(e.tab)) endControlLocal('declined'); })
         .listen('.desk.control_revoked', (e) => { if (forMe(e.tab)) endControlLocal('revoked'); })
@@ -68,21 +85,27 @@ export function start(ctx) {
         // A click support replayed opened a new CoreX tab: control moves there. This tab goes back to "viewing"; the new one starts replaying.
         .listen('.desk.control_moved', (e) => {
             if (e.from === st.tab) endControlLocal('moved');
-            else if (forMe(e.tab)) { st.ctl.asked = true; beginControl(e.idle_seconds); }
+            else if (forMe(e.tab)) { st.ctl.allowed = true; beginControl(e.idle_seconds); }   // (control was granted on the tab that opened this one: the server's own event says so)
         })
-        .listenForWhisper('action', (a) => { if (forMe(a && a.t)) runAction(a); })
-        // The message strip (spec section 4h): support's whisper is first; the server's copy (and the echo of our own reply) is dropped by its id.
-        .listenForWhisper('message', (m) => onMessage(m))
+        // A take-over action: signed by the console with the grant key; verified, in order, before anything is replayed (spec 14b).
+        .listenForWhisper('action', (a) => { if (forMe(a && a.t)) onActionWhisper(a); })
+        // The message strip (spec section 4h): only what the SERVER broadcast is shown (name, text and sender are the server's, the same as the audit row).
+        // A whispered line is never rendered - any member of the channel could write one with another name.
         .listen('.desk.message', (m) => onMessage(m))
         .listenForWhisper('tping', (p) => { if (st.cfg.timing && p) { try { st.channel.whisper('tpong', { id: p.id, c: p.c, a: Date.now(), t: st.tab }); } catch (e) { /* not subscribed */ } } })
         .subscribed(() => {
             if (!st) return;
             st.subscribed = true;
             emitViewport();
+            if (st.needSnap) { st.needSnap = false; st.lastSnap = 0; resync(true); }   // frames were dropped while waiting: a fresh full picture puts the mirror right
             if (st.buffer.length) scheduleFlush();
             if (st.live && !st.registered) registerTab('join');
         })
-        .error(() => ui.error('Could not open the live connection. Check your internet connection and try again.'));
+        .error(() => {
+            // The channel would not open: nothing can be whispered, so stop recording instead of filling the buffer for a connection that is not there.
+            stopRecording();
+            ui.error('Could not open the live connection. Check your internet connection and try again.');
+        });
 
     // Keep the session alive; learn if the other side (or a timeout) already ended it.
     const beat = async () => {
@@ -110,14 +133,15 @@ export function start(ctx) {
     if (session.status === 'live') {
         st.live = true;
         st.listenerKnown = true;   // support is already in the session (this is a page change, or a tab opened later): its console is listening, so the first picture goes out at once
-        ui.joined(session.support_name);
+        ui.joined(session.support_name, Array.isArray(session.supporters) && session.supporters.length ? session.supporters : [session.support_name]);
         beginRecording();
         // (the page's own inline script already sent this tab's join call as the page started; its answer is read here)
         if (ctx.earlyJoin) { st.registered = 'inflight'; ctx.earlyJoin.then((r) => joined(r)); } else registerTab('join');
         // A page change must not drop a take-over (or a pending request): pick it up again from the session.
         const c = session.control || {};
-        if (forMe(c.tab) && c.state === 'requested') askControl(session.support_name);
-        if (forMe(c.tab) && c.state === 'granted') { st.ctl.asked = true; beginControl(cfg.controlIdleSeconds); }
+        st.supporters = Array.isArray(session.supporters) && session.supporters.length ? session.supporters : [session.support_name];
+        if (forMe(c.tab) && c.state === 'requested') askControl(session.support_name, c.request_id);
+        if (forMe(c.tab) && c.state === 'granted') { st.ctl.allowed = true; beginControl(cfg.controlIdleSeconds); }   // (the grant key is fetched from the server: it is never kept across page loads)
     }
 
     return st;
@@ -170,7 +194,7 @@ function joined(r) {
     if (Array.isArray(r.json.messages) && r.json.messages.length) { r.json.messages.forEach((m) => addLine(m)); st.ui.thread(st.thread, false); }
     // Control may already have moved here (the event can arrive before this answer, or not at all): the server's word settles it.
     const c = r.json.session && r.json.session.control;
-    if (c && c.state === 'granted' && forMe(c.tab) && st.ctl.state !== 'granted') { st.ctl.asked = true; beginControl(st.cfg.controlIdleSeconds); }
+    if (c && c.state === 'granted' && forMe(c.tab) && st.ctl.state !== 'granted' && st.ctl.state !== 'starting') { st.ctl.allowed = true; beginControl(st.cfg.controlIdleSeconds); }
 }
 
 let titleObs = null, titleTimer = null;
@@ -224,7 +248,8 @@ async function beginRecording() {
     if (!st || st.recording) return;
     st.recording = true;
     const { record } = await import('rrweb');
-    if (!st || st.ended) return;
+    await loadScript(st && st.cfg.urls.lib).catch(() => {});   // the masking rules (desk-lib.js); without them everything is masked
+    if (!st || st.ended || !st.recording) return;
     st.record = record;
     resetSlim();
     // On the FIRST join nobody is listening until support's console has subscribed and asked for a picture (its "resync"): a snapshot sent before that goes
@@ -233,8 +258,17 @@ async function beginRecording() {
     st.haveListener = st.pendingResync || !!st.listenerKnown;
     st.pendingResync = false;
     st.stopRecord = record({
-        emit: (event) => { if (!st || !st.haveListener) return; const e = slimEvent(event); if (e) { st.buffer.push(e); scheduleFlush(); } },
+        emit: (event) => {
+            if (!st || !st.haveListener) return;
+            const e = slimEvent(event);
+            if (!e) return;
+            st.buffer.push(e);
+            // Not subscribed yet (or a send is slow): never let the wait grow without bound. The oldest go; a fresh full picture follows once the channel is up.
+            if (st.buffer.length > BUFFER_MAX) { st.buffer.splice(0, st.buffer.length - BUFFER_MAX); st.needSnap = true; }
+            scheduleFlush();
+        },
         blockClass: 'rr-block',
+        blockSelector: BLOCK_SELECTOR,
         maskInputOptions: ALL_INPUT_TYPES,
         maskInputFn: maskInput,
         maskTextSelector: '[data-desk-mask]',
@@ -302,7 +336,9 @@ async function flush() {
     if (!st) return;
     st.flushTimer = null;
     // Nothing is whispered before the private channel is subscribed (a page change re-subscribes first); events wait in the buffer.
-    if (!st.subscribed || st.flushing || !st.buffer.length) { if (st.buffer.length) scheduleFlush(); return; }
+    if (!st.buffer.length) return;
+    if (!st.subscribed) { st.flushTimer = setTimeout(flush, 1000); return; }   // (wait quietly - not a 16 ms loop - until the channel opens)
+    if (st.flushing) { scheduleFlush(); return; }
     st.flushing = true;
     st.lastFlushAt = Date.now();
     const events = st.buffer;
@@ -321,51 +357,75 @@ async function flush() {
     }
 }
 
-// ── Take-over (phase 2, spec section 14) ─────────────────────────────────────────
+// ── Take-over (phase 2, spec sections 14 and 14b) ────────────────────────────────
 
-/** What the recorder masks, the executor refuses to touch: passwords and [data-desk-mask]. */
-const blockedField = (el) => !!(el && ((el.type === 'password') || (el.closest && el.closest('[data-desk-mask]'))));
+/** The state of a take-over in THIS tab. `allowed` is set only by this page's own Allow (or by the server's word, over an authenticated call, on a page change / a move to this tab). */
+function newCtl() {
+    return { state: 'none', requestId: null, allowed: false, grant: null, key: null, lastSeq: 0, exec: null, reporter: null, idle: null, q: Promise.resolve() };
+}
 
-function loadExec() {
-    if (window.CoreXDeskExec) return Promise.resolve();
-    return new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = st.cfg.urls.exec;
-        s.onload = () => resolve();
-        s.onerror = () => reject(new Error('executor failed to load'));
-        document.head.appendChild(s);
+/** What the recorder masks, the executor refuses to touch: the same default-deny rule (passwords, [data-desk-mask], ID / bank / card / tax / secret looking fields). */
+const blockedField = (el) => sensitive(el);
+
+/** Load a plain script once (the executor, the masking rules). */
+const scripts = {};
+function loadScript(url) {
+    if (!url) return Promise.reject(new Error('no url'));
+    if (scripts[url]) return scripts[url];
+    scripts[url] = new Promise((resolve, reject) => {
+        const el = document.createElement('script');
+        el.src = url;
+        el.onload = () => resolve();
+        el.onerror = () => { delete scripts[url]; reject(new Error('script failed to load')); };
+        document.head.appendChild(el);
     });
+    return scripts[url];
+}
+
+async function loadExec() {
+    if (!window.CoreXDeskExec) await loadScript(st.cfg.urls.exec);
+    if (!window.CoreXDeskLib) await loadScript(st.cfg.urls.lib);
+    if (!window.CoreXDeskExec || !window.CoreXDeskLib) throw new Error('executor failed to load');
 }
 
 function controlUrl(what) { return st.cfg.urls.sessions + '/' + st.session.id + '/control/' + what; }
 
 /** Support asked: show "wants to take control - Allow / Decline" in the red bar. Nothing moves until Allow. */
-function askControl(supportName) {
-    if (!st || st.ctl.state === 'granted') return;
+function askControl(supportName, requestId) {
+    if (!st || st.ctl.state === 'granted' || st.ctl.state === 'starting') return;
+    // (a new question replaces an old one: only the request being shown can be answered)
+    if (st.ctl.requestId !== (requestId || null)) st.ctl = newCtl();
     st.ctl.state = 'asking';
-    st.ctl.asked = true;
+    st.ctl.requestId = requestId || null;
     st.ui.controlAsk(supportName || st.session.support_name);
     try { st.channel.whisper('control_ack', { t: st.tab }); } catch (e) { /* not subscribed yet */ }   // tells the console the question is on the agent's screen
 }
 
 export async function controlRespond(allow) {
     if (!st) return;
+    const c = st.ctl;
+    if (c.state !== 'asking' || !c.requestId) return;
     // The answer is the one call that must not be lost: a busy minute (429), a dropped connection (0) or a server hiccup (5xx) is retried, and if it still
     // cannot be sent the question STAYS on screen with a plain "try again" - never silently dropped (the console would wait on "Requested" for good).
     let r = null;
     for (let attempt = 0; attempt < 3; attempt++) {
-        r = await st.api('POST', controlUrl('respond'), { allow: !!allow });
+        r = await st.api('POST', controlUrl('respond'), { allow: !!allow, request_id: c.requestId });
         if (r.ok || !(r.status === 429 || r.status === 0 || r.status >= 500)) break;
         await new Promise((res) => setTimeout(res, 1000 * (attempt + 1)));
-        if (!st) return;
+        if (!st || st.ctl !== c) return;
     }
+    if (!st || st.ctl !== c) return;
     if (!r.ok) {
         if (r.status === 429 || r.status === 0 || r.status >= 500) { st.ui.controlAsk(st.session.support_name, 'could not send your answer - press ' + (allow ? 'Allow' : 'Decline') + ' again'); return; }
-        endControlLocal('lapsed');   // the request already lapsed or was withdrawn
+        endControlLocal('lapsed');   // the request already lapsed, was withdrawn, or was replaced by another
         return;
     }
-    if (!allow) endControlLocal('declined');
-    // Allow: the server's desk.control_granted event starts it (so the bar and the executor change together).
+    if (!allow) { endControlLocal('declined'); return; }
+    // Allow: the answer carries the grant key. THIS press is what lets control start here (c.allowed); the server's desk.control_granted event also calls
+    // beginControl, whichever of the two arrives first - it starts once.
+    c.allowed = true;
+    if (r.json.grant && r.json.grant.key) c.grant = r.json.grant;
+    beginControl(st.cfg.controlIdleSeconds);
 }
 
 export async function controlRevoke() {
@@ -374,32 +434,78 @@ export async function controlRevoke() {
     await st.api('POST', controlUrl('revoke'), { reason: 'agent' });
 }
 
+/** The grant key again, from the server (page change, control moved to this tab). Only the agent can ask; only for the tab control is granted on. */
+async function fetchGrant() {
+    const r = await st.api('POST', controlUrl('key'), { tab: st.tab });
+    return r.ok && r.json.grant && r.json.grant.key ? r.json.grant : null;
+}
+
+/**
+ * Start replaying - idempotent. Runs only after this page's own Allow (or the server's word on a resume), needs the grant key and WebCrypto (without either:
+ * no control, never unsigned control), and re-checks after every await that it is still the same take-over (an end, a decline or a new question in between
+ * leaves nothing running and no timer behind).
+ */
 async function beginControl(idleSeconds) {
-    if (!st || !st.ctl.asked) return;   // a "granted" nobody here asked for is ignored: only this page's own Allow can start control
-    await loadExec();
-    if (!st) return;
-    const c = st.ctl;
+    const c = st && st.ctl;
+    if (!c || !c.allowed || c.state === 'starting' || c.state === 'granted') return;
+    c.state = 'starting';
+    const alive = () => st && st.ctl === c && c.state === 'starting';
+    try {
+        if (!cryptoAvailable()) throw new Error('no WebCrypto');
+        if (!c.grant) c.grant = await fetchGrant();
+        if (!alive()) return;
+        if (!c.grant) throw new Error('no grant');
+        await loadExec();
+    } catch (e) {
+        if (!st || st.ctl !== c) return;
+        console.warn('[corex-desk] take-over could not start:', e && e.message);
+        endControlLocal('agent');
+        st.api('POST', controlUrl('revoke'), { reason: 'agent' });   // tell the server and the console: nothing will be replayed here
+        return;
+    }
+    if (!alive()) return;
+    c.key = c.grant.key;
+    c.lastSeq = 0;
     c.state = 'granted';
     c.exec = window.CoreXDeskExec.create({ doc: document, win: window, isBlocked: blockedField });
     c.reporter = window.CoreXDeskExec.createReporter((actions) => st && st.api('POST', controlUrl('actions'), { tab: st.tab, actions }), 1500);
     const secs = Math.max(60, idleSeconds || st.cfg.controlIdleSeconds || 300);
-    c.idle = window.CoreXDeskExec.createIdleTimer(secs, () => { if (st) { endControlLocal('idle'); st.api('POST', controlUrl('revoke'), { reason: 'idle' }); } });
+    if (c.idle) c.idle.stop();   // (never two idle clocks)
+    c.idle = window.CoreXDeskExec.createIdleTimer(secs, () => { if (st && st.ctl === c) { endControlLocal('idle'); st.api('POST', controlUrl('revoke'), { reason: 'idle' }); } });
     c.idle.start();
     st.ui.controlOn(st.session.support_name);
 }
 
-/** Control is over (any reason): stop replaying, flush the report, put the bar back to "viewing". */
+/** Control is over (any reason): stop replaying, flush the report, forget the key, put the bar back to "viewing". */
 function endControlLocal(reason, quiet) {
     if (!st) return;
     const c = st.ctl;
-    const wasOn = c.state === 'granted' || c.state === 'asking';
+    const wasOn = c.state === 'granted' || c.state === 'asking' || c.state === 'starting';
     if (c.reporter) c.reporter.flush();
     if (c.idle) c.idle.stop();
-    st.ctl = { state: 'none', asked: false, exec: null, reporter: null, idle: null };
+    c.state = 'none';   // (a beginControl still awaiting something sees this and stops)
+    st.ctl = newCtl();
     if (wasOn && !quiet) st.ui.controlOff(reason);
 }
 
-/** One action whispered by support. Only replayed while control is granted HERE; refusals are reported like anything else. */
+/** A support action whisper. It is queued so verification (async) and replay keep the order they were sent in. Anything else is dropped and counted. */
+function onActionWhisper(a) {
+    const c = st && st.ctl;
+    if (!c || c.state !== 'granted' || !c.exec || !c.key) { st.droppedActions++; return; }
+    c.q = c.q.then(() => verifyAndRun(c, a)).catch(() => { if (st) st.droppedActions++; });
+}
+
+async function verifyAndRun(c, msg) {
+    if (!st || st.ctl !== c || c.state !== 'granted') return;
+    const v = await verifyAction(c.key, msg, c.lastSeq);
+    if (!st || st.ctl !== c || c.state !== 'granted') return;
+    // Signed, in order, and meant for THIS tab (the signed payload names its tab, so a recorded action cannot be pointed at another one).
+    if (!v.ok || v.action.t !== st.tab) { st.droppedActions++; return; }
+    c.lastSeq = v.seq;
+    runAction(v.action);
+}
+
+/** One verified action. Only replayed while control is granted HERE; refusals are reported like anything else. */
 function runAction(a) {
     if (!st || st.ctl.state !== 'granted' || !st.ctl.exec) return;
     // A click that opens a new tab must be traceable to this tab: note it BEFORE it runs (the new tab reads this when it joins).
@@ -418,7 +524,7 @@ function runAction(a) {
 const THREAD_MAX = 30;
 const uid = () => (Date.now().toString(36) + Math.random().toString(36).slice(2, 6)).slice(0, 14);
 
-/** Add a line to the thread once (the whisper, the server's copy and the echo of our own reply all carry the same id). */
+/** Add a line to the thread once (by its id). Only the server's broadcast calls this. */
 function addLine(m) {
     if (!st || !m || typeof m.text !== 'string' || !m.text.trim() || !m.id || st.threadIds.has(m.id)) return null;
     const max = st.cfg.messageMax || 300;
@@ -437,15 +543,15 @@ function onMessage(m) {
     if (line.from === 'support' && st.hl && forMe(line.tab)) setHighlightNote(line.text);
 }
 
-/** The agent's reply from the red bar: whispered at once, recorded (audited) by the server. */
+/**
+ * The agent's reply from the red bar. It goes to the server, which records it and broadcasts it; the line appears in this thread (and the console's) from
+ * that broadcast - the one copy everyone sees is the audited one. No whisper: nothing a channel member whispers is ever shown as a message.
+ */
 export function sendMessage(text) {
     if (!st) return false;
     text = String(text || '').replace(/\s+/g, ' ').trim().slice(0, st.cfg.messageMax || 300);
     if (!text) return false;
-    const m = { id: uid(), from: 'agent', name: st.session.agent_name || '', text, tab: st.tab, at: Date.now() };
-    onMessage(m);
-    try { st.channel.whisper('message', m); } catch (e) { /* not subscribed yet - the server's copy follows */ }
-    st.api('POST', st.cfg.urls.sessions + '/' + st.session.id + '/message', { text, tab: st.tab, id: m.id }).then((r) => {
+    st.api('POST', st.cfg.urls.sessions + '/' + st.session.id + '/message', { text, tab: st.tab, id: uid() }).then((r) => {
         if (!r.ok) console.warn('[corex-desk] reply not recorded', r.status);
     });
     return true;
@@ -477,8 +583,6 @@ function hidePointer() {
 }
 
 // ── Support's highlight: a CoreX ring + label and a small note card (spec section 4g) ─────────────────────────
-
-const esc = (t) => String(t).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
 
 /** The card beside the ring: made on first use, then just re-worded. */
 function setHighlightNote(text) {

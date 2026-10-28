@@ -183,7 +183,7 @@ final class DeskCoreXTabsTest extends DeskTestCase
         [$s, $agent, $support] = $this->live();
         $this->tab($agent, $s, 'join', 'main')->assertOk();
         $this->desk->requestControl($s->fresh(), $support, 'main');
-        $this->desk->respondControl($s->fresh(), $agent, true);
+        $this->desk->respondControl($s->fresh(), $agent, true, $this->rid($s->fresh()));
 
         // a tab that was not opened by the controlled tab's replayed click: control stays where it is
         $this->tab($agent, $s, 'join', 'cself111')->assertOk();
@@ -235,7 +235,8 @@ final class DeskCoreXTabsTest extends DeskTestCase
 
         // ... so it has to say so again the moment support joins: the page listens for desk.joined and registers then
         $agentJs = (string) file_get_contents(base_path('resources/js/desk/agent.js'));
-        $this->assertStringContainsString(".listen('.desk.joined', (e) => { if (e.support_name) st.session.support_name = e.support_name; st.live = true; ui.joined(e.support_name); beginRecording(); registerTab('join'); })", $agentJs);
+        $this->assertStringContainsString(".listen('.desk.joined', (e) => {", $agentJs);
+        $this->assertStringContainsString("ui.joined(e.support_name, st.supporters); beginRecording(); registerTab('join'); })", $agentJs);
         $this->desk->join($this->owner(), $code);
         $this->tab($agent, $s, 'join', 'cearly123')->assertOk();
         $this->assertSame(['cearly123'], array_keys($this->desk->openTabs($s->fresh())));
@@ -249,7 +250,7 @@ final class DeskCoreXTabsTest extends DeskTestCase
 
         $this->actingAs($support)->postJson("/corex/desk/sessions/{$s->id}/control/request", ['tab' => 'cnew1234'])->assertOk()->assertJsonPath('control.tab', 'cnew1234');
         Event::assertDispatched(DeskBroadcast::class, fn ($e) => $e->name === 'desk.control_requested' && $e->payload['tab'] === 'cnew1234');
-        $this->actingAs($agent)->postJson("/api/v1/desk/sessions/{$s->id}/control/respond", ['allow' => true])->assertOk()->assertJsonPath('control.tab', 'cnew1234');
+        $this->actingAs($agent)->postJson("/api/v1/desk/sessions/{$s->id}/control/respond", ['allow' => true, 'request_id' => $this->rid($s)])->assertOk()->assertJsonPath('control.tab', 'cnew1234');
         // an unknown CoreX tab cannot be controlled
         $this->desk->endControlBySupport($s->fresh(), $support);
         $this->actingAs($support)->postJson("/corex/desk/sessions/{$s->id}/control/request", ['tab' => 'cnone999'])->assertStatus(409);

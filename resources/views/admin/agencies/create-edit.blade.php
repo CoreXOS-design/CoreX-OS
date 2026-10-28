@@ -136,7 +136,7 @@
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">VAT No</label>
-                    <input type="text" name="vat_no" value="{{ old('vat_no', $agency?->vat_no) }}"
+                    <input data-desk-mask type="text" name="vat_no" value="{{ old('vat_no', $agency?->vat_no) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
                            style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                            placeholder="e.g. 4123456789">
@@ -672,7 +672,7 @@
                 <h3 class="ds-section-header">Copy your API key now</h3>
                 <p class="text-xs" style="color:var(--ds-crimson);">This secret is shown only once. Store it in “{{ session('new_api_key')['name'] }}”’s environment config — you will not be able to see it again.</p>
                 <div class="flex items-center gap-2">
-                    <input type="text" readonly value="{{ session('new_api_key')['plaintext'] }}" id="new-key-secret"
+                    <input data-desk-mask type="text" readonly value="{{ session('new_api_key')['plaintext'] }}" id="new-key-secret"
                            class="flex-1 rounded-md px-3 py-2 text-sm font-mono"
                            style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
                     <button type="button" class="corex-btn-outline text-xs"
@@ -741,7 +741,7 @@
                     <div class="text-xs" style="color:var(--text-muted);">
                         <button type="button" @click="showSecret = !showSecret" class="underline" x-text="showSecret ? 'Hide webhook secret' : 'Reveal webhook signing secret'"></button>
                         <div x-show="showSecret" x-cloak class="flex items-center gap-2 mt-1">
-                            <input type="text" readonly value="{{ $key->webhook_secret }}" id="whsec-{{ $key->id }}"
+                            <input data-desk-mask type="text" readonly value="{{ $key->webhook_secret }}" id="whsec-{{ $key->id }}"
                                    class="flex-1 rounded-md px-2 py-1 text-xs font-mono"
                                    style="background: var(--surface); border:1px solid var(--border); color: var(--text-primary);">
                             <button type="button" class="corex-btn-outline text-xs"
@@ -1058,7 +1058,7 @@
                             </div>
                             <div>
                                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">VAT No Override</label>
-                                <input class="w-full rounded-md px-3 py-2 text-sm"
+                                <input data-desk-mask class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
                                        name="vat_no" value="{{ old('vat_no', $branch->vat_no) }}">
                             </div>

@@ -39,6 +39,7 @@ class DeskSession extends Model
         'agency_id', 'user_id', 'support_user_id', 'status', 'otp_id', 'code_expires_at', 'started_at', 'joined_at', 'ended_at',
         'ended_by', 'ended_by_user_id', 'page_url_last', 'last_heartbeat_at', 'leaving_at', 'ip_address', 'user_agent',
         'support_user_ids', 'support_display', 'control_support_user_id', 'control_state', 'control_tab', 'control_requested_at', 'control_granted_at', 'control_last_action_at',
+        'control_request_id', 'control_ended_at', 'control_ended_tab', 'control_ended_support_user_id',
     ];
 
     protected $casts = [
@@ -52,6 +53,7 @@ class DeskSession extends Model
         'control_requested_at' => 'datetime',
         'control_granted_at' => 'datetime',
         'control_last_action_at' => 'datetime',
+        'control_ended_at' => 'datetime',
     ];
 
     public function agent(): BelongsTo
@@ -84,6 +86,34 @@ class DeskSession extends Model
     {
         return (int) $this->support_user_id === (int) $user->id
             || in_array((int) $user->id, array_map('intval', (array) $this->support_user_ids), true);
+    }
+
+    /**
+     * Everyone in the session as the agent sees them ("Name — Organisation, Designation"), the first support person first. Shown on the agent's red bar so the
+     * agent always knows who is watching - not just whoever joined first.
+     *
+     * @return array<int, string>
+     */
+    public function supporterNames(): array
+    {
+        $names = [];
+        $first = $this->support_display ?: $this->supportUser?->name;
+        if ($first) {
+            $names[] = (string) $first;
+        }
+        $extra = array_values(array_diff(array_map('intval', (array) $this->support_user_ids), [(int) $this->support_user_id]));
+        if ($extra) {
+            $rows = DeskSessionEvent::query()->where('desk_session_id', $this->id)->where('type', DeskSessionEvent::JOINED)->whereIn('actor_user_id', $extra)->orderBy('id')->get(['actor_user_id', 'payload']);
+            $byUser = [];
+            foreach ($rows as $r) {
+                $byUser[(int) $r->actor_user_id] = $r->payload['support_name'] ?? null;   // (the latest row of each person wins)
+            }
+            foreach ($extra as $id) {
+                $names[] = (string) ($byUser[$id] ?? User::withoutGlobalScopes()->whereKey($id)->value('name') ?? 'CoreX support');
+            }
+        }
+
+        return $names;
     }
 
     public function scopeOpen(Builder $query): Builder
@@ -122,11 +152,14 @@ class DeskSession extends Model
             'agency_name' => $this->agency?->name,
             // The support person as the agent sees them: "Name — Organisation, Designation" (frozen at join time).
             'support_name' => $this->support_display ?: $this->supportUser?->name,
+            // Everyone in the session (the first joiner and anyone who attached later), for the agent's red bar.
+            'supporters' => $this->isLive() ? $this->supporterNames() : [],
             'page' => $this->page_url_last,
             'started_at' => $this->started_at?->toIso8601String(),
             'joined_at' => $this->joined_at?->toIso8601String(),
             'code_expires_at' => $this->code_expires_at?->toIso8601String(),
-            'control' => ['state' => $this->control_state ?: self::CONTROL_NONE, 'tab' => $this->control_tab],
+            // request_id: the id of the take-over request the agent is being asked about (the Allow / Decline must quote it). Never the signing key.
+            'control' => ['state' => $this->control_state ?: self::CONTROL_NONE, 'tab' => $this->control_tab, 'request_id' => ($this->control_state ?: self::CONTROL_NONE) === self::CONTROL_REQUESTED ? $this->control_request_id : null],
         ];
     }
 }

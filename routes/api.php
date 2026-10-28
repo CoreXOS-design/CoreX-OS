@@ -532,6 +532,7 @@ Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(f
             // Take-over on a shared tab (phase 2): the same answers and report as the CoreX page, over the token.
             Route::post('/sessions/{id}/control/respond', [\App\Http\Controllers\Api\V1\DeskExtensionController::class, 'controlRespond'])->whereNumber('id')->name('control.respond');
             Route::post('/sessions/{id}/control/revoke', [\App\Http\Controllers\Api\V1\DeskExtensionController::class, 'controlRevoke'])->whereNumber('id')->name('control.revoke');
+            Route::post('/sessions/{id}/control/key', [\App\Http\Controllers\Api\V1\DeskExtensionController::class, 'controlKey'])->whereNumber('id')->name('control.key');
             Route::post('/sessions/{id}/control/actions', [\App\Http\Controllers\Api\V1\DeskExtensionController::class, 'controlActions'])->whereNumber('id')->name('control.actions');
         });
 

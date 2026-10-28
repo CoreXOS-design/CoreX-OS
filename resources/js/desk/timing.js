@@ -19,6 +19,8 @@ const push = (a, v) => { a.push(v); if (a.length > MAX) a.shift(); };
 export const timing = {
     reset(on, deps) {
         S.on = !!on; S.deps = deps || null; S.off = {}; S.best = {}; S.kinds = {}; S.snap = null; S.muts = []; S.rtt = []; S.srv = []; S.http = [];
+        // The diagnostics hook and the 1 s repaint exist only while the overlay is switched on (config desk.timing_overlay) - nothing global otherwise.
+        if (S.on) install(); else uninstall();
         const el = document.getElementById('cdc-timing');
         if (el) el.hidden = !S.on;
     },
@@ -85,7 +87,13 @@ export const timing = {
     },
 };
 
-if (typeof window !== 'undefined') {
+let repaint = null;
+function install() {
+    if (typeof window === 'undefined') return;
     window.__deskTiming = timing;
-    setInterval(() => { if (S.on && S.dirty) timing.paint(); }, 1000);
+    if (!repaint) repaint = setInterval(() => { if (S.on && S.dirty) timing.paint(); }, 1000);
+}
+function uninstall() {
+    if (repaint) { clearInterval(repaint); repaint = null; }
+    if (typeof window !== 'undefined' && window.__deskTiming === timing) delete window.__deskTiming;
 }

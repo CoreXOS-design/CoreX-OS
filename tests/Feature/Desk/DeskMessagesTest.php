@@ -164,12 +164,13 @@ final class DeskMessagesTest extends DeskTestCase
         $this->assertStringContainsString('Message to <strong id="cdc-msg-to">', $view, 'the label says what it is');
         $this->assertStringContainsString('id="cdc-msg-form"', $view);
         $this->assertStringContainsString("addEventListener('submit'", $console);
-        $this->assertStringContainsString("listenForWhisper('message'", $console);
+        // (audit fix 28 Oct 2026: a whispered line is never rendered - only the server's broadcast is a message; our own line shows as pending until it arrives)
+        $this->assertStringNotContainsString("listenForWhisper('message'", $console);
         $this->assertStringContainsString("listen('.desk.message'", $console);
-        $this->assertStringContainsString('cur.threadIds.has(m.id)', $console, 'a line is shown once: whisper, server copy and own echo share an id');
+        $this->assertStringContainsString('cur.thread.find((l) => l.id === line.id)', $console, 'a line is shown once: the pending copy and the server copy share an id');
         $this->assertStringContainsString('cur.thread.slice(-3)', $console, 'last three lines, expandable');
         // agent page: the red bar shows the line in every tab, with a Reply box; the highlight card carries it
-        $this->assertStringContainsString("listenForWhisper('message'", $agent);
+        $this->assertStringNotContainsString("listenForWhisper('message'", $agent);
         $this->assertStringContainsString("listen('.desk.message'", $agent);
         $this->assertStringContainsString('setHighlightNote(line.text)', $agent);
         $this->assertStringContainsString('export function sendMessage', $agent);
@@ -182,8 +183,8 @@ final class DeskMessagesTest extends DeskTestCase
         // the extension worker and its pages
         $ext = (string) file_get_contents(base_path('public/chrome-extension/portal-capture/desk-ext.js'));
         $content = (string) file_get_contents(base_path('public/chrome-extension/portal-capture/desk-content.js'));
-        $this->assertStringContainsString("ev === 'client-message' || ev === 'desk.message'", $ext);
-        $this->assertStringContainsString("event: 'client-message'", $ext);
+        $this->assertStringContainsString("ev === 'desk.message'", $ext);
+        $this->assertStringNotContainsString("'client-message'", $ext);
         $this->assertStringContainsString('/message', $ext);
         $this->assertStringContainsString("case 'desk.message'", $content);
         $this->assertStringContainsString('id="rin"', $content);

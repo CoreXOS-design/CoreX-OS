@@ -128,7 +128,7 @@
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">VAT No</label>
-                        <input type="text" name="vat_no" value="{{ old('vat_no', $agency->vat_no) }}"
+                        <input data-desk-mask type="text" name="vat_no" value="{{ old('vat_no', $agency->vat_no) }}"
                                class="w-full rounded-md px-3 py-2 text-sm"
                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                                placeholder="e.g. 4123456789">
@@ -873,7 +873,7 @@
 
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Banking details (shown as invoice notes)</label>
-                    <textarea name="bank_details" rows="4" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" placeholder="Bank, Account name, Account no, Branch code, Reference">{{ old('bank_details', $proformaSettings->bank_details) }}</textarea>
+                    <textarea data-desk-mask name="bank_details" rows="4" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" placeholder="Bank, Account name, Account no, Branch code, Reference">{{ old('bank_details', $proformaSettings->bank_details) }}</textarea>
                 </div>
 
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1234,7 +1234,7 @@
                                 </div>
                                 <div>
                                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">VAT No Override</label>
-                                    <input class="w-full rounded-md px-3 py-2 text-sm"
+                                    <input data-desk-mask class="w-full rounded-md px-3 py-2 text-sm"
                                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                                            name="vat_no" value="{{ old('vat_no', $branch->vat_no) }}"
                                            placeholder="e.g. 4123456789">
@@ -1458,9 +1458,9 @@
                         <span class="flex-1">
                             <span class="block text-sm font-semibold" style="color:var(--text-primary);">Let my agents press Get help to share their CoreX window with CoreX support</span>
                             <span class="block text-xs mt-1 leading-relaxed" style="color:var(--text-secondary);">
-                                <strong>ON</strong> (default): an agent presses <em>Get help</em>, reads a 6-digit code to CoreX support (usually on a phone call), and support sees that one CoreX window live and can point at and highlight things. The agent does the clicking. Support never sees other tabs, files or the desktop, and nothing from the screen is stored.<br>
+                                <strong>ON</strong> (default): an agent presses <em>Get help</em>, reads a 6-digit code to CoreX support (usually on a phone call), and support sees that one CoreX window live and can point at and highlight things. Support can also ask to take control and click and type for the agent: the agent must press <em>Allow</em> every time, can stop it at any moment, and support needs the separate take-over permission. The agent can also share other Chrome tabs through the CoreX extension. Support never sees the desktop, files or tabs the agent has not shared, private fields (passwords, ID, tax and bank inputs) are hidden before anything is sent, and nothing from the screen is stored.<br>
                                 <strong>OFF</strong>: <em>Get help</em> only shows the CoreX support phone number.<br>
-                                Every session is listed under Compliance &rsaquo; Reports &amp; Logs &rsaquo; Desk sessions.
+                                Every session and every action is listed under Admin &rsaquo; Desk &rsaquo; Desk sessions.
                             </span>
                         </span>
                     </label>

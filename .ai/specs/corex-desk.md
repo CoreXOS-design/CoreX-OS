@@ -90,6 +90,16 @@ out-of-scope session answers "not found"). The first to join stays `support_user
 private channel, point, highlight and ask for control (`control_support_user_id` records who asked, so the audit names the person who acted). Every
 attach is a `joined` audit row ("opened the session again" / "a second support person"). A waiting session is still joined by its code only.
 
+#### 4b-2. A second supporter is announced to the agent (audit fix H1, 28 Oct 2026)
+
+Attaching to a live session (a second support person of the same scope, or an owner role) used to be silent: the channel is private, not presence, so the agent
+heard only about the first joiner. Now `DeskSessionService::attach()` writes the `joined` audit row **and broadcasts `desk.supporter_joined {support_name, supporters[]}`**
+(not for the same person re-opening their own window). The agent's red bar then names **everyone in the session** ("A and B are viewing this window"), flashes, and
+carries the same list on every CoreX tab and every shared Chrome tab (`desk.supporters` to the page). `desk.joined` carries `supporters` too, and every session answer
+to the agent carries `supporters` (the first joiner first, then the others, by their frozen display labels). The list is "everyone who has joined and is still allowed to
+be there" — leaving the console window is not tracked (the channel has no presence), the session ends if any supporter loses `desk.support` or is deactivated
+(14c). **An added supporter has no control**: they can only *ask*, and the agent's separate Allow gives the signing key to the person who asked (14b).
+
 ### 4c. Who is the support person? (Johan + Andre, 27 Oct 2026)
 
 The support person is identified in full everywhere the agent sees them — the red bar, the consent prompt ("… wants to take control of this
@@ -296,15 +306,17 @@ Support and the agent can write each other short lines during a session — no p
   corner of the picture and as a toast ("Reply from …").
 - **The thread.** Both sides see the **last three lines**, with *Show all* (up to 30) / *Show fewer*. A tab that opens or changes page mid-session gets the thread so far
   from the server (the `tabs` answer carries the last 10 lines), as does a console that opens the session again.
-- **Transport.** The text travels as a **whisper** (`client-message {id, from, name, text, tab, at}`) for speed, and the sender also calls the server —
+- **Transport (changed 28 Oct 2026 — audit fix M4).** The line goes to the server —
   `POST /corex/desk/sessions/{id}/message` (support) or `POST /api/v1/desk/sessions/{id}/message` (agent; `POST /api/v1/desk/ext/sessions/{id}/message` from a shared Chrome
-  tab) with `{text, tab, id}` — which **records the audit row** and broadcasts `desk.message {id, from, name, text, tab, at}` as a safety net. Each side shows a line once:
-  the whisper, the server's copy and the echo of its own line all carry the same `id`. Text is plain (tags stripped, spaces collapsed), at most `desk.message_max`
-  (300) characters, shown with `textContent` only.
+  tab) with `{text, tab, id}` — which **records the audit row** and broadcasts `desk.message {id, from, name, text, tab, at}`. **Only that broadcast is ever shown as a
+  message** (the sender, the name and the text are the audited ones); there is **no `client-message` whisper any more** and a whispered line is ignored by every client — any
+  member of the channel could otherwise write one under another name. Support's own console shows its line at once marked *(sending…)* (pending) and turns it real when the
+  broadcast with the same `id` arrives (a failed send takes the pending line back out). The agent's page and the extension show a line when the broadcast arrives (about one
+  round trip). Text is plain (tags stripped, spaces collapsed), at most `desk.message_max` (300) characters, shown with `textContent` only.
 - **Audit.** Every message is a `message` row in `desk_session_events` — `{from: support|agent, name, text, tab, id}` and the actor — shown in the Desk session log as
   *Message — support to the agent: "…"* / *the agent: "…"*. (A message is *content the people chose to write to each other*, unlike the agent's screen, which is never stored.)
-- **Extension tabs.** The service worker passes `client-message` / `desk.message` to every shared tab (a closed shadow-root thread under the bar, with the same
-  Reply box) and sends the agent's reply as a whisper plus the audit call.
+- **Extension tabs.** The service worker passes the server's `desk.message` to every shared tab (a closed shadow-root thread under the bar, with the same
+  Reply box) and sends the agent's reply to the server only (no whisper).
 - **Settings.** `desk.message_max` is a config tunable like the other Desk limits, not an agency setting (nothing for the Setup Wizard: no agency would want a different
   length). Multi-agency: the wording is neutral ("CoreX support"), the supporter's name comes from their own agency-neutral display label.
 - Proof (`message-proof.mjs`, two real Chromium browsers on QA1): support sends → it is on the agent's red bar in every one of two tabs within a second or so; the agent
@@ -320,8 +332,10 @@ Johan: a permanent audit so claims can be proven or dismissed.
   `highlight_cleared`, `pointer_on` / `pointer_off`, `message` (4h), `ended`; phase 3: `tab_join` / `tab_update` / `tab_leave`; phase 2: `control_requested` / `control_granted` / `control_declined` / `control_revoked` / `control_ended` and one `control_action` per thing replayed (section 14).
 - Both tables soft delete; nothing is ever hard-deleted.
 - The screen content itself is **never stored** — it travels browser to browser over the live channel only.
-- Agency admins see their own agency's sessions under **Compliance › Reports & Logs › Desk sessions**. The CoreX owner
+- Agency admins see their own agency's sessions under **Admin › Desk › Desk sessions**. The CoreX owner
   console lists every agency's sessions.
+- **Retention.** `desk_session_events` is kept for ever today (soft delete only). How long to keep the trail is a business decision (POPIA retention) that has **not**
+  been made — nothing prunes it.
 
 ## 6. Settings and permissions
 
@@ -402,8 +416,15 @@ All Desk JS is its own Vite entry (`resources/js/desk/index.js`) loaded by both 
 exists or the console is open (`agent.js`). The console has its own entry (`console.js`). `echo.js` (one connection per tab) and
 `frames.js` (the frame codec) are shared. No CSP exists today and none is added.
 
-- **Masking (in the agent's browser, before anything is sent):** every input type is passed to rrweb's `maskInputOptions`, and
-  `maskInputFn` keeps the real value unless the field is `type="password"` or sits inside `[data-desk-mask]`;
+- **Masking (in the agent's browser, before anything is sent) — changed 28 Oct 2026 (audit fix M5):** every input type — **including `hidden`** — is passed to rrweb's
+  `maskInputOptions`, and `maskInputFn` / the take-over executor use **the same default-deny rule as the extension** (`desk-lib.js` `isSensitiveField`, loaded as a plain
+  script by the CoreX page before recording starts; if it fails to load, every input is masked): passwords, anything inside `[data-desk-mask]`, hidden inputs, and any input whose
+  name / id / autocomplete / placeholder / aria-label / title / label text — camelCase split, so `userIdNumber`, `SAIdNumber`, `dateOfBirth` count — looks like an ID number,
+  passport, bank account / name / branch code, tax / VAT number, card, PIN, one-time code, secret, token, key, password or date of birth. The page's
+  `<meta name="csrf-token">` is blocked from the snapshot (`blockSelector`). Views with sensitive inputs that the heuristic cannot know about carry `data-desk-mask` explicitly
+  (admin users, compliance officer, onboarding, company settings, agencies, contacts, properties, agent portal, mailbox password reveal, proforma settings, the rental application
+  field component, the bank fields of the letting-mandate templates). Any future card / ID / bank / credential input must carry it. Previously:
+  `maskInputFn` kept the real value unless the field is `type="password"` or sits inside `[data-desk-mask]`;
   `maskTextSelector: '[data-desk-mask]'` hides displayed text (e.g. a bank number shown as text). `data-desk-mask` is set on the
   bank account and branch-code inputs (contacts, payroll, staff take-on, platform company, the rental application's bank account
   field). Any future card/bank input must carry it. All Desk UI carries `rr-block`, so it is never part of what support sees.
@@ -492,6 +513,16 @@ allowed for the session's agent, and for the support user who joined it while it
   → event `desk.timing {sent_ms}`.
 - The recorder no longer sends a snapshot nobody asked for: after the first join, a snapshot goes out when the console asks (`client-resync`), or at once for a
   tab joining a session support is already in.
+
+**Protocol 1.5 (28 Oct 2026, audit round — sections 14b, 14c; additive, but `request_id` is now required on Allow / Decline).**
+- `desk.control_requested {tab, support_name, request_id}`; the agent's `respond {allow, request_id}` must quote it (409 on a mismatch; 422 if missing).
+- `desk.joined` and the session answers carry `supporters[]`; new `desk.supporter_joined {support_name, supporters[]}`.
+- `client-action` is now `{t, seq, p, sig}` — `p` the action as a JSON string (its own `t`, `id`, `type`, …), `sig` = HMAC-SHA256 of `seq + "|" + p` with the per-grant key.
+  An unsigned action is dropped. `client-message` is gone (messages are the server's `desk.message` only).
+- New endpoints: `POST /api/v1/desk/support/sessions/{id}/control/key` (`api.v1.desk.support.control.key`: `desk.support` + `desk.control`, `throttle:desk-state`),
+  `POST /api/v1/desk/sessions/{id}/control/key {tab}` and `POST /api/v1/desk/ext/sessions/{id}/control/key {tab}` (the agent's own page / worker). `GET /api/v1/desk/ext/session`
+  also returns `allowed_hosts_exact` (the agency's own website, matched exactly).
+- Server tunables: `desk.max_session_hours`, `desk.expire_throttle_seconds`, `desk.join_candidate_cap`, `desk.control_report_grace_seconds`.
 
 **Rules every recorder must follow.**
 1. Record only the sharing tab, only while the session is `live`; stop on `desk.ended`.
@@ -596,7 +627,7 @@ Known limits: cross-origin iframes inside a tab are not recorded; images/CSS tha
 support (the replay runs under support's session); stylesheets from the page's own origin travel inlined.
 
 **Audit.** `tab_join` / `tab_leave` (host + title, never a URL path or query string) and `tab_update` when a shared tab moves to
-another site; shown on the session's page under Compliance › Reports & Logs › Desk sessions as "Browser tab shared / moved to another
+another site; shown on the session's page under Admin › Desk › Desk sessions as "Browser tab shared / moved to another
 site / no longer shared". A tab that navigates off the allowed list stops being shared (and is audited as leaving).
 
 **How it works.**
@@ -611,8 +642,19 @@ site / no longer shared". A tab that navigates off the allowed list stops being 
   `client-resync` / `client-pointer` / `desk.highlight` to the right tab, re-injects after a full page load, heartbeats every 30 s, stops
   every tab on `desk.ended`, reconnects with back-off, and survives a worker restart (`chrome.storage.session`).
 - Console (`console.js`): one Replayer per tab, a tab bar, `t` / `tab` on everything it sends.
-- Reverb must accept the extension's websocket origin (`chrome-extension://…`): QA1 sets `REVERB_ALLOWED_ORIGINS=*`. Origin is not the
+- Reverb must accept the extension's websocket origin (`chrome-extension://<id>`). `config/reverb.php` now **defaults `allowed_origins` to the host of `APP_URL`** (not `*`),
+  so a box that serves extension tabs sets `REVERB_ALLOWED_ORIGINS=<app host>,<extension id>` (QA1 may still say `*` explicitly). Reverb now defaults to loopback
+  (`REVERB_SERVER_HOST=127.0.0.1`), per-connection rate limiting **on** (4000 messages / 60 s, excess refused) — see the Desk block of `.env.example`. Origin is not the
   security boundary — nothing flows without a channel authorisation (session cookie + CSRF, or the agent's own token).
+
+**Hardening (28 Oct 2026, audit round).**
+- **https only.** A tab is shareable only on an `https:` page (popup, worker and `hostAllowed`/`urlAllowed` all check the scheme).
+- **The agency's own website is matched exactly** — the site as typed and its `www` / non-`www` twin, never its subdomains or parent domain (`agencyExactHosts`); the platform
+  sites in `config/desk.php` still match themselves and their subdomains.
+- **Site access is handed back.** If sharing a tab needed Chrome's "allow this site" prompt, `chrome.permissions.remove` returns that origin when the last shared tab on it stops.
+- **The red bar cannot be removed.** If the page removes or hides it, it is put back; if that keeps happening (more than 3 times) the worker stops sharing the tab.
+- **Enter does not submit a private form.** The executor refuses an Enter whose form contains a blocked / sensitive field (hidden inputs excluded).
+- The worker verifies take-over actions itself (14b); the key never enters the page.
 
 **Files.** Extension (`public/chrome-extension/portal-capture/`): `manifest.json` (3.12.0, `optional_host_permissions: ["https://*/*"]`),
 `background.js` (one `importScripts`), `desk-lib.js`, `desk-ext.js`, `desk-content.js`, `popup-desk.js`, `popup.html` (the card),
@@ -706,3 +748,50 @@ dropped the question; nothing told the console, because the server's state had n
 - **The console reconciles with the server every second** (was 2 s until the 27 Oct round - spec 4f) (`reconcile()`): it reads `GET /corex/desk/sessions` (whose rows carry `control: {state, tab}`) and falls into
   line — *In control* if the agent allowed it, back to *Viewing* if the request ended or control was ended, closed if the session is no longer open. A missed
   websocket event (dropped connection, Reverb restart) therefore heals within a second or two instead of leaving the console waiting.
+
+## 14b. Take-over is bound to the agent's Allow and signed (audit round, 28 Oct 2026)
+
+**Why.** The whispers of a channel reach every member. Before this round the agent's page replayed any `client-action` whisper while its own state was *granted*, with no
+check of who sent it, and an Allow answered whichever request happened to be open.
+
+- **Request id (M1).** Each request gets a random `control_request_id` (stored on the session, sent in `desk.control_requested`). The agent's `respond {allow, request_id}` must
+  quote it: a missing id is 422, a wrong or stale one 409 — a request that was withdrawn and asked again is a different question. `respondControl` also enforces
+  `desk.control_request_seconds` itself: an Allow for a request older than that closes it (audited as declined / `no_answer`) and answers 409.
+- **Grant key (H2).** `grantKey = HMAC-SHA256(app key, "desk-grant|{session id}|{support user id}|{request id}|{granted_at unix}")`. **Nothing is stored**: it is derived on demand, and
+  closing the control clears the fields it is derived from, so an ended / revoked / idle-expired control has no key. It is given to exactly two parties: the **agent** (in the Allow
+  answer — web and extension endpoints — or, after a page change / a move of control to a new tab / a worker restart, by the agent's own `control/key {tab}` call, which answers
+  404 unless control is granted on exactly that tab) and the **support person who asked for this control** (`POST /api/v1/desk/support/sessions/{id}/control/key`; needs
+  `desk.support` and `desk.control`; 404 for any other supporter, owner or stale page). All answers are `Cache-Control: no-store`. This is a small widening of "returned
+  only in the Allow answer": the agent can re-fetch it, because a page change must not drop a take-over and the browser never stores the key.
+- **Signing.** The console signs every action: whisper `client-action {t, seq, p, sig}` where `p` is the action as a JSON string (its own `t`, `id`, `type`, …), `seq` a
+  per-grant counter starting at 1, `sig` = HMAC-SHA256(key, `seq|p`) — sent as it is, so there is no canonical-JSON ambiguity. Signing goes through one queue, so seq numbers and
+  whispers stay in the order the actions were made. The agent's page (`agent.js`) and the extension's **service worker** (the key never enters the page) verify the signature and
+  that `seq` is higher than any they accepted for this grant, in order, and that the signed `t` is their own tab (a recorded action cannot be aimed at another tab); anything
+  else is dropped silently and counted (`droppedActions` / `D.dropped`). The accepted `seq` survives a page change (sessionStorage) and a worker restart (`chrome.storage.session`).
+  The key is discarded on end, revoke, idle, decline, tab loss and session end. **Without WebCrypto (a non-https page) there is no take-over**: the console cannot sign, the
+  agent cannot verify, nothing falls back to unsigned actions (the agent's page revokes). `resources/js/desk/sign.js` (console and CoreX page) and `desk-lib.js` (extension) are the two
+  copies of the same two functions; a node test checks each verifies what the other signed.
+- **Client state (M2).** Control starts in a tab only after **that tab's own Allow** (`ctl.allowed`/`S.ctl.allowed`) or the server's word on a resume (page change, control moved to
+  this tab); `beginControl` is idempotent (a `starting` / `granted` guard, any earlier idle timer stopped first) and re-checks after every await that it is still the same take-over,
+  so a duplicate start (page-load path and `desk.joined`) leaves no orphan timer and an Allow that was ended in between starts nothing.
+- **Late report (M3).** The agent's browser flushes its last batch (~1.5 s) *after* control ended. `closeControl` records `control_ended_at` / `control_ended_tab` /
+  `control_ended_support_user_id`; a report for that same tab within `desk.control_report_grace_seconds` (10) is accepted — also after the session itself ended — and each row is marked
+  `late` ("reported just after control ended" in the audit). A late report never touches the idle clock.
+- **Columns** (migration `2026_12_13_100000`): `desk_sessions.control_request_id`, `control_ended_at`, `control_ended_tab`, `control_ended_support_user_id`.
+- Tests: `DeskHardeningTest`, `DeskControlTest`, `tests/desk-lib.test.cjs`, `tests/desk-exec.test.cjs`.
+
+## 14c. Smaller guards (audit round, 28 Oct 2026)
+
+- **Hard cap.** `desk.max_session_hours` (8; 0 = off): `expireStale` closes (timeout) any session older than that, however alive.
+- **A supporter who loses the right ends the session.** On every heartbeat and in the sweep, every support person on a live session must still be active, hold `desk.support` and be in scope; otherwise the session
+  ends (`disabled`) — a person already subscribed to a private channel cannot be removed from it any other way.
+- **Atomic join.** The first valid joiner is decided by ONE conditional `UPDATE … WHERE status = 'waiting' AND support_user_id IS NULL`; the loser is answered like a wrong code. Attaching a second supporter is a locked read-modify-write.
+- **Code testing.** `waitingSessionForCode` tests only the joiner's own scope (own agency; all for an owner role), newest first, capped at `desk.join_candidate_cap` (200) — not every agency's every waiting session.
+- **Sweep throttle.** `expireStale()` from a read (heartbeat, poll, join) runs at most once per `desk.expire_throttle_seconds` (5, a cache lock); the `desk:expire` schedule forces a sweep.
+- **Malformed input** (arrays where text is expected: heartbeat `page`, action `selector` / `label` / `reason` / `type` / `n`, the log's `?sort[]=` `?status[]=`…) is absorbed instead of a 500.
+- **Client memory / loops.** The console starts a new Replayer from the next full snapshot once the old one has taken in 3000 events (and drops the old events); the agent's frame buffer
+  is capped at 4000 (a fresh full picture follows once subscribed), the flush loop waits 1 s instead of spinning while unsubscribed, recording stops if the channel cannot be opened;
+  `Reassembler` bounds `n` (1–256) and `i` (0..n-1) and sweeps stale partial batches on a timer; the timing overlay installs `window.__deskTiming` and its repaint timer only when `desk.timing_overlay` is on; the
+  saved Get-help code is dropped from `localStorage` once support has joined.
+- **What the agent is told (M6).** The Setup Wizard step and Company Settings now say what Desk really does: support sees the CoreX window, can ask to take control (Allow every time, `desk.control`
+  needed), the agent can share other tabs through the extension, everything is logged under **Admin › Desk › Desk sessions**.

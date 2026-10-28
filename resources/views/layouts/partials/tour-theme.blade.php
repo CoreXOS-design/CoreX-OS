@@ -1,9 +1,10 @@
 {{-- ════════════════════════════════════════════════════════════════════════
      COREX TOUR THEME — the driver.js stylesheet + the CoreX look of a tour popover / highlight (.driver-popover.corex-tour ...).
 
-     Lived inline in tour-engine.blade.php; moved here, unchanged, so CoreX Desk (support's highlight on the agent's screen) can draw
-     with exactly the Guided Tour's styling on EVERY page, not only pages that have a tour. tour-engine includes it where the block
-     used to be; @once means a page that includes both still gets it once.
+     Lived inline in tour-engine.blade.php; moved here, unchanged. It was split out so CoreX Desk could borrow it, but Desk no longer does:
+     since 27 Oct 2026 Desk draws its own highlight (ring + label + note card, spec .ai/specs/corex-desk.md 4g) and does NOT include this
+     partial. Today only tour-engine includes it (so it is on pages that carry the engine, not "every page"); @once keeps a second include
+     on the same page from emitting it twice.
      ════════════════════════════════════════════════════════════════════════ --}}
 @once
         <link rel="stylesheet" href="{{ asset('vendor/driverjs/driver.css') }}">

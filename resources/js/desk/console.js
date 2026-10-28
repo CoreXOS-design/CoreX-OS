@@ -13,6 +13,7 @@ import 'rrweb/dist/style.css';
 import { getEcho, dropEcho } from './echo.js';
 import { Reassembler } from './frames.js';
 import { timing } from './timing.js';
+import { signAction, cryptoAvailable } from './sign.js';
 
 const cfg = window.CorexDesk || {};
 const con = window.CorexDeskConsole || {};
@@ -21,6 +22,8 @@ const $ = (id) => document.getElementById(id);
 const EVENT_META = 4;
 const EVENT_FULL = 2;
 const MAIN = 'main';
+// The Replayer keeps every event it was ever given. Past this many, the next full picture the agent sends replaces the Replayer (and drops the old events).
+const REPLAYER_EVENT_LIMIT = 3000;
 
 let cur = null; // { session, channel, name, tabs: Map(key -> tab), selected, started, tick, retry, pointerOn, lastPointer, control: {state, tab}, focusSel, typed }
 
@@ -95,18 +98,19 @@ function newTab(key, label, host) {
     root.className = 'cdc-tab';
     root.hidden = true;
     $('cdc-replay').appendChild(root);
-    return { key, label, host: host || '', root, replayer: null, events: [], reassembler: null, born: Date.now(), asked: 0, askedAt: 0 };
+    return { key, label, host: host || '', root, replayer: null, events: [], count: 0, reassembler: null, born: Date.now(), asked: 0, askedAt: 0 };
 }
 
 function attach(session) {
     if (cur) detach(false);
     const name = 'desk.session.' + session.id;
     const channel = getEcho().private(name);
-    cur = { session, channel, name, tabs: new Map(), selected: MAIN, tabsSince: Date.now(), started: Date.parse(session.joined_at || session.started_at), pointerOn: false, lastPointer: 0, control: { state: (session.control && session.control.state) || 'none', tab: session.control && session.control.tab }, focusSel: null, typed: null, hl: !(session.control && session.control.state === 'granted') };
+    cur = { session, channel, name, tabs: new Map(), selected: MAIN, tabsSince: Date.now(), started: Date.parse(session.joined_at || session.started_at), pointerOn: false, lastPointer: 0, control: { state: (session.control && session.control.state) || 'none', tab: session.control && session.control.tab }, focusSel: null, typed: null, hl: true, grant: null, seq: 0, signQ: Promise.resolve(), keyFetching: false };
     cur.known = new Set([MAIN, ...(session.tabs || []).map((t) => t.tab)]);   // (a tab not in here when it announces itself is a NEW one)
     cur.order = new Map();
     cur.thread = []; cur.threadIds = new Set(); cur.threadAll = false;
     cur.tabs.set(MAIN, newTab(MAIN, 'CoreX page', ''));
+    if (cur.control.state === 'granted') fetchControlKey();   // (this window was reopened while its own take-over is on: the key comes from the server again)
     (session.tabs || []).forEach((t) => addTab(t, true));
     (session.messages || []).forEach((m) => addLine(m));
     $('cdc-msg-to').textContent = session.agent_name || 'the agent';
@@ -122,7 +126,7 @@ function attach(session) {
             if (!cur.tabs.has(key) && /^c[a-z0-9]{3,10}$/.test(key)) addTab({ tab: key, host: 'CoreX', title: '', path: '' }, false);
             const tab = cur.tabs.get(key);
             if (!tab) return;
-            if (!tab.reassembler) tab.reassembler = new Reassembler((events, info) => onEvents(tab, events, info));
+            if (!tab.reassembler) tab.reassembler = new Reassembler((events, info) => onEvents(tab, events, info));   // (disposed with the tab)
             tab.reassembler.push(chunk);
         })
         .listen('.desk.tab_joined', (e) => {
@@ -139,8 +143,8 @@ function attach(session) {
         .listen('.desk.tab_updated', (e) => updateTab(e))
         .listen('.desk.tab_left', (e) => removeTab(e.tab))
         .listen('.desk.timing', (e) => timing.serverEvent(e))
-        // A line of the message strip: the other side's whisper is first; the server's copy (and our own, echoed) is dropped by its id.
-        .listenForWhisper('message', (m) => onMessage(m))
+        // A line of the message strip: only what the SERVER broadcast is shown as a message (its sender, name and text are the audited ones). Our own line
+        // shows at once as "sending..." and turns real when the server's copy arrives.
         .listen('.desk.message', (m) => onMessage(m))
         .listenForWhisper('tpong', (p) => timing.pong(p))
         .listenForWhisper('viewport', (v) => {
@@ -247,7 +251,7 @@ function detach(callServer) {
     clearTimeout(cur.typeTimer);
     clearInterval(cur.focusTimer);
     if (callServer) api('POST', con.urls.sessions + '/' + cur.session.id + '/end');
-    cur.tabs.forEach((t) => { if (t.ro) t.ro.disconnect(); });
+    cur.tabs.forEach((t) => disposeTab(t));
     $('cdc-replay').innerHTML = '';
     $('cdc-tabs').innerHTML = '';
     $('cdc-thread').hidden = true;
@@ -320,10 +324,18 @@ function updateTab(t) {
     renderTabs();
 }
 
+/** Let go of everything a tab holds: its observer, its keyboard-focus listener, a half-received batch, its Replayer. */
+function disposeTab(tab) {
+    if (tab.ro) { tab.ro.disconnect(); tab.ro = null; }
+    if (tab.focusin) { document.removeEventListener('focusin', tab.focusin); tab.focusin = null; }
+    if (tab.reassembler) { tab.reassembler.dispose(); tab.reassembler = null; }
+    if (tab.replayer) { try { tab.replayer.destroy(); } catch (e) { /* already torn down */ } tab.replayer = null; }
+}
+
 function removeTab(key) {
     const tab = cur && cur.tabs.get(key);
     if (!tab) return;
-    if (tab.ro) tab.ro.disconnect();
+    disposeTab(tab);
     tab.root.remove();
     cur.tabs.delete(key);
     if (cur.selected === key) {
@@ -455,8 +467,24 @@ function onEvents(tab, events, info) {
     // a few seconds behind or ahead would be mirrored late (or in a burst). A live mirror wants "as it arrives": stamp the batch with
     // the moment it arrived here (order inside the batch is kept - equal stamps keep their sequence).
     const arrived = Date.now();
+    for (const ev of events) ev.timestamp = arrived;
+    // Memory: a long session would keep every event for ever inside the Replayer. When a new full picture arrives and the Replayer has taken in a lot, start
+    // a new Replayer from that picture (its Meta + full snapshot + whatever followed in the batch) and let the old events go.
+    if (tab.replayer && tab.count >= REPLAYER_EVENT_LIMIT) {
+        const full = events.findIndex((e) => e.type === EVENT_FULL);
+        let from = full;
+        while (from > 0 && events[from].type !== EVENT_META) from--;
+        if (full >= 0 && events[from].type === EVENT_META) {
+            disposeReplayer(tab);
+            tab.events = events.slice(from);
+            tab.count = 0;
+            startReplayer(tab);
+            tab.events = [];
+            timing.batch(tab.key, info, Date.now() - applyStart, events);
+            return;
+        }
+    }
     for (const ev of events) {
-        ev.timestamp = arrived;
         if (ev.type === EVENT_META && ev.data && ev.data.href && cur.selected === tab.key) {
             try {
                 const u = new URL(ev.data.href);
@@ -466,16 +494,25 @@ function onEvents(tab, events, info) {
         }
         if (!tab.replayer) {
             tab.events.push(ev);
-            if (tab.events.some((e) => e.type === EVENT_META) && tab.events.some((e) => e.type === EVENT_FULL)) startReplayer(tab);
+            if (tab.events.some((e) => e.type === EVENT_META) && tab.events.some((e) => e.type === EVENT_FULL)) { startReplayer(tab); tab.events = []; }
         } else {
             tab.replayer.addEvent(ev);
+            tab.count++;
         }
     }
     timing.batch(tab.key, info, Date.now() - applyStart, events);
 }
 
+/** Take down a tab's Replayer (and what hangs off it) so a new one can replace it. */
+function disposeReplayer(tab) {
+    if (tab.ro) { tab.ro.disconnect(); tab.ro = null; }
+    if (tab.focusin) { document.removeEventListener('focusin', tab.focusin); tab.focusin = null; }
+    if (tab.replayer) { try { tab.replayer.destroy(); } catch (e) { /* already torn down */ } tab.replayer = null; }
+}
+
 function startReplayer(tab) {
     tab.root.innerHTML = '';
+    tab.count = tab.events.length;
     // useVirtualDom:false - the virtual DOM is a fast-forward optimisation; in live mode a mutation applied "sync" (an event stamped just
     // before the replayer started) switches it on and later mutations then wait in it for a flush that never comes.
     const replayer = new Replayer(tab.events, { root: tab.root, liveMode: true, mouseTail: false, showWarning: false, showDebug: false, skipInactive: false, useVirtualDom: false,
@@ -571,10 +608,12 @@ function hookReplayInput(tab) {
     iframe.style.pointerEvents = 'none';
     target.style.cursor = 'crosshair';
     target.tabIndex = 0;   // so typing can be captured while support is in control
-    const controlling = () => cur && cur.selected === tab.key && cur.control.state === 'granted' && cur.control.tab === tab.key;
+    // (also needs the signing key: without it nothing could be sent, so the window stays a viewing window)
+    const controlling = () => cur && cur.selected === tab.key && cur.control.state === 'granted' && cur.control.tab === tab.key && !!cur.grant;
     // The Replayer re-plays the agent's own focus changes inside the mirror, which would pull keyboard focus into the iframe and away from the
     // wrapper that captures support's typing. Take it straight back while in control.
-    document.addEventListener('focusin', (e) => { if (e.target === iframe && controlling()) target.focus({ preventScroll: true }); });
+    tab.focusin = (e) => { if (e.target === iframe && controlling()) target.focus({ preventScroll: true }); };
+    document.addEventListener('focusin', tab.focusin);
 
     // The pointer is whispered at most every 40 ms - but the LAST position always goes (a trailing send): dropping it left the agent's cursor
     // one step behind wherever you stopped. It carries the window size this console believes, so an agent whose window changed can correct us.
@@ -731,10 +770,41 @@ function flushTyped(tab) {
     sendAction(tab, { type: 'type', s: cur.focusSel, v, n: v.length });
 }
 
-/** One action, browser to browser (a whisper): the text never passes through CoreX. The AGENT's browser reports what it did, for the audit. */
+/**
+ * One action, browser to browser (a whisper): the text never passes through CoreX. It is SIGNED with the take-over's key (spec 14b) - the agent's browser
+ * replays nothing that is unsigned, badly signed, out of order or addressed to another tab. Signing is asynchronous, so actions go through one queue: the
+ * sequence number is taken, and the whisper sent, in the order the actions were made. The AGENT's browser reports what it did, for the audit.
+ */
 function sendAction(tab, a) {
-    if (!cur) return;
-    cur.channel.whisper('action', { t: tab.key, id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ...a });
+    const c = cur;
+    if (!c || !c.grant) return;
+    const grant = c.grant;
+    const payload = { t: tab.key, id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), ...a };
+    c.signQ = c.signQ.then(async () => {
+        if (cur !== c || c.grant !== grant) return;
+        const signed = await signAction(grant.key, ++c.seq, payload);
+        if (!signed) { say('This browser cannot sign take-over actions (it needs a secure https page).', true); return; }
+        if (cur !== c || c.grant !== grant) return;
+        c.channel.whisper('action', { t: tab.key, ...signed });
+    }).catch(() => {});
+}
+
+/** The signing key of the take-over this support person holds - asked of the server, which gives it to nobody else (404 = someone else holds control). */
+async function fetchControlKey() {
+    const c = cur;
+    if (!c || c.keyFetching || c.grant) return;
+    c.keyFetching = true;
+    try {
+        if (!cryptoAvailable()) { say('Take-over needs a secure (https) connection - this browser cannot sign actions, so you can watch but not drive.', true); return; }
+        const r = await api('POST', con.urls.controlKey + '/' + c.session.id + '/control/key');
+        if (cur !== c || c.control.state !== 'granted') return;
+        if (r.ok && r.json.grant && r.json.grant.key) { c.grant = r.json.grant; c.seq = 0; c.signQ = Promise.resolve(); }
+        else say('Another support person holds control of this window - you can watch, not drive.', true);
+        c.hl = !c.grant;
+        paintControl();
+    } finally {
+        c.keyFetching = false;
+    }
 }
 
 function setControl(state, tabKey, note) {
@@ -746,9 +816,12 @@ function setControl(state, tabKey, note) {
         // An agent page that was opened before CoreX Desk learned take-over cannot ask the question. It would stay silent, so say why.
         cur.askTimer = setTimeout(() => say((cur && cur.session.agent_name || 'The agent') + "'s page has not shown the question. If it was open before today's update, ask them to refresh CoreX (F5), then request again.", true), 6000);
     }
-    cur.hl = state !== 'granted';   // in control a click clicks; otherwise a click points
+    // The key lives only as long as the take-over: gone the moment it ends, asked for again if a new one is granted.
+    if (state !== 'granted') { cur.grant = null; cur.seq = 0; cur.signQ = Promise.resolve(); }
+    cur.hl = !(state === 'granted' && cur.grant);   // in control a click clicks; otherwise a click points
     if (state !== 'granted') { cur.typed = null; cur.focusSel = null; cur.privateFocus = false; }
     else {
+        if (!cur.grant) fetchControlKey();
         // Belt and braces for the focus tug-of-war with the mirror: while in control, give focus back to the capture layer.
         cur.focusTimer = setInterval(() => {
             const t = cur && cur.tabs.get(cur.control.tab);
@@ -769,7 +842,7 @@ function paintControl() {
     const c = cur.control;
     btn.textContent = c.state === 'none' ? 'Request control' : (c.state === 'requested' ? 'Withdraw request' : 'Hand back');
     btn.className = c.state === 'granted' ? 'corex-btn-outline' : (c.state === 'requested' ? 'corex-btn-outline' : 'corex-btn-primary');
-    status.textContent = c.state === 'requested' ? 'Requested' : (c.state === 'granted' ? 'In control' : 'Viewing');
+    status.textContent = c.state === 'requested' ? 'Requested' : (c.state === 'granted' ? (cur.grant ? 'In control' : 'Control: another supporter') : 'Viewing');
     status.style.background = c.state === 'granted' ? '#f59e0b' : 'var(--surface-2)';
     status.style.color = c.state === 'granted' ? '#1f2937' : 'var(--text-secondary)';
     // The amber frame goes round the whole window while in control of the tab on show.
@@ -851,8 +924,14 @@ const uid = () => (Date.now().toString(36) + Math.random().toString(36).slice(2,
 
 /** Add a line to the thread (once - the whisper, the server's copy and our own echo all carry the same id). Returns the line, or null if it was already there. */
 function addLine(m) {
-    if (!cur || !m || typeof m.text !== 'string' || !m.text.trim() || !m.id || cur.threadIds.has(m.id)) return null;
-    const line = { id: String(m.id), from: m.from === 'agent' ? 'agent' : 'support', name: String(m.name || '').slice(0, 120), text: m.text.slice(0, con.messageMax || 300), tab: m.tab || MAIN, at: m.at || Date.now() };
+    if (!cur || !m || typeof m.text !== 'string' || !m.text.trim() || !m.id) return null;
+    const line = { id: String(m.id), from: m.from === 'agent' ? 'agent' : 'support', name: String(m.name || '').slice(0, 120), text: m.text.slice(0, con.messageMax || 300), tab: m.tab || MAIN, at: m.at || Date.now(), pending: !!m.pending };
+    // Our own line is shown at once as pending; the server's copy (same id) confirms it - and its text and name are the ones that stand.
+    const known = cur.thread.find((l) => l.id === line.id);
+    if (known) {
+        if (known.pending && !line.pending) { Object.assign(known, line); return known; }
+        return null;
+    }
     cur.threadIds.add(line.id);
     cur.thread.push(line);
     if (cur.thread.length > THREAD_MAX) cur.threadIds.delete(cur.thread.shift().id);
@@ -880,6 +959,7 @@ function renderThread() {
         b.textContent = (l.from === 'support' && l.name === con.me ? 'You' : (l.name || (l.from === 'agent' ? (cur.session.agent_name || 'Agent') : 'Support'))) + ': ';
         d.appendChild(b);
         d.appendChild(document.createTextNode(l.text));
+        if (l.pending) { d.style.opacity = '.6'; const sp = document.createElement('i'); sp.textContent = ' (sending…)'; d.appendChild(sp); }
         lines.appendChild(d);
     });
     const more = $('cdc-th-more');
@@ -888,7 +968,7 @@ function renderThread() {
     lines.scrollTop = lines.scrollHeight;
 }
 
-/** Send the line in the box to the agent: whispered at once, and recorded (audited) by the server, which also sends its own copy as a safety net. */
+/** Send the line in the box to the agent. It shows here at once as pending; the server records it and broadcasts it, and the broadcast is what the agent sees and what confirms it here. */
 function sendMessage() {
     if (!cur) return;
     const input = $('cdc-msg-in');
@@ -896,11 +976,14 @@ function sendMessage() {
     if (!text) return;
     const m = { id: uid(), from: 'support', name: con.me || 'Support', text, tab: cur.selected || MAIN, at: Date.now() };
     input.value = '';
-    onMessage(m);
-    try { cur.channel.whisper('message', m); } catch (e) { /* not subscribed yet - the server's copy follows */ }
+    onMessage({ ...m, pending: true });
     const id = cur.session.id;
     api('POST', con.urls.sessions + '/' + id + '/message', { text, tab: m.tab, id: m.id }).then((r) => {
-        if (!r.ok && cur && cur.session.id === id) say(r.json.message || 'The message could not be recorded - it may not have reached the agent.', true);
+        if (!r.ok && cur && cur.session.id === id) {
+            say(r.json.message || 'The message could not be recorded - it did not reach the agent.', true);
+            const i = cur.thread.findIndex((l) => l.id === m.id && l.pending);   // it never happened: take the pending line back out
+            if (i >= 0) { cur.threadIds.delete(m.id); cur.thread.splice(i, 1); renderThread(); }
+        }
     });
 }
 $('cdc-msg-form').addEventListener('submit', (e) => { e.preventDefault(); sendMessage(); });

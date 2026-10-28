@@ -37,6 +37,8 @@ class DeskExtensionController extends Controller
             'enabled' => $enabled,
             'reverb' => $enabled ? ['key' => $key, 'host' => $public['host'], 'port' => (int) $public['port'], 'scheme' => $public['scheme']] : null,
             'allowed_hosts' => $this->desk->allowedExtensionHosts($agencyId),
+            // The agency's own website: matched exactly (the site as typed and its www / non-www twin), never its subdomains or parent domain.
+            'allowed_hosts_exact' => $this->desk->agencyExactHosts($agencyId ? (int) $agencyId : null),
             'heartbeat_seconds' => (int) config('desk.heartbeat_seconds', 30),
             'session' => $session?->load('agent', 'agency', 'supportUser')->toClientArray(),
             'tabs' => $session && $session->isLive() ? array_values($this->desk->openTabs($session)) : [],
@@ -102,12 +104,21 @@ class DeskExtensionController extends Controller
 
     // ── Take-over on a shared extension tab (phase 2): same answers and the same report as the CoreX page, over the token ────────
 
-    /** POST /api/v1/desk/ext/sessions/{id}/control/respond {allow} */
+    /** POST /api/v1/desk/ext/sessions/{id}/control/respond {allow, request_id} - an Allow answers with the grant (the signing key), like the CoreX page's. */
     public function controlRespond(Request $request, int $id): JsonResponse
     {
-        $data = $request->validate(['allow' => ['required', 'boolean']]);
+        $data = $request->validate(['allow' => ['required', 'boolean'], 'request_id' => ['required', 'string', 'max:40']]);
 
-        return $this->control(fn () => $this->desk->respondControl($this->mine($request, $id), $request->user(), (bool) $data['allow']));
+        return $this->control(fn () => $this->desk->respondControl($this->mine($request, $id), $request->user(), (bool) $data['allow'], $data['request_id']), (bool) $data['allow']);
+    }
+
+    /** POST /api/v1/desk/ext/sessions/{id}/control/key {tab} - the worker asks for the grant again (after a worker restart, or when the Allow answer was missed). */
+    public function controlKey(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate(['tab' => ['required', 'string', 'regex:/^x\d{1,10}$/']]);
+        $grant = $this->desk->agentGrant($this->mine($request, $id), $request->user(), $data['tab']);
+
+        return $grant ? response()->json(['grant' => $grant])->header('Cache-Control', 'no-store') : response()->json(['message' => 'Control is not granted for that tab.'], 404);
     }
 
     /** POST /api/v1/desk/ext/sessions/{id}/control/revoke {reason?: agent|idle} */
@@ -124,7 +135,7 @@ class DeskExtensionController extends Controller
         $data = $request->validate(['tab' => ['required', 'string', 'regex:/^x\d{1,10}$/'], 'actions' => ['required', 'array', 'max:200']]);
 
         try {
-            $n = $this->desk->recordControlActions($this->mine($request, $id), $request->user(), $data['tab'], $data['actions']);
+            $n = $this->desk->recordControlActions($this->mine($request, $id), $request->user(), $data['tab'], array_values(array_filter($data['actions'], 'is_array')));
         } catch (DeskControlException $e) {
             return response()->json(['message' => $e->getMessage()], $e->status);
         }
@@ -132,15 +143,19 @@ class DeskExtensionController extends Controller
         return response()->json(['recorded' => $n]);
     }
 
-    private function control(\Closure $do): JsonResponse
+    private function control(\Closure $do, bool $withGrant = false): JsonResponse
     {
         try {
             $session = $do();
         } catch (DeskControlException $e) {
             return response()->json(['message' => $e->getMessage()], $e->status);
         }
+        $body = ['control' => $session->toClientArray()['control']];
+        if ($withGrant && $session->control_state === DeskSession::CONTROL_GRANTED) {
+            $body['grant'] = $this->desk->agentGrant($session, request()->user(), $session->control_tab);
+        }
 
-        return response()->json(['control' => $session->toClientArray()['control']]);
+        return response()->json($body)->header('Cache-Control', 'no-store');
     }
 
     private function mine(Request $request, int $id): DeskSession

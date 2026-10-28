@@ -12,7 +12,7 @@ use App\Support\Docuperfect\DocumentAgencyContext;
  * THE letterhead every document CoreX produces for an agency carries — one resolver, one component pair
  * (<x-agency-letterhead>, <x-agency-letterhead-footer>), no per-document copies.
  *
- *   header  logo left; name, address, tel, e-mail, website and VAT line right
+ *   header  logo left; name, address, tel, e-mail, website and VAT line (VAT-registered agencies only) right
  *   footer  "<legal name> | Reg No <reg> | PPRA Reg <ppra>"
  *
  * Every value comes from the agency's own settings (a branch's own value wins where the branch has one). A blank value
@@ -74,7 +74,9 @@ final class AgencyLetterhead
             }
         }
 
-        $vat = $pick('vat_no');
+        // A VAT number is printed only for an agency that is VAT-registered (agencies.vat_registered): a stale number left on a
+        // de-registered agency must not keep appearing on its documents.
+        $vat = $agency->vat_registered ? $pick('vat_no') : '';
 
         return new self(
             name: $name,
@@ -110,7 +112,12 @@ final class AgencyLetterhead
         if ($path === null || $path === '') {
             return null;
         }
-        $abs = storage_path('app/public/' . ltrim($path, '/'));
+        $base = realpath(storage_path('app/public'));
+        $abs = realpath(storage_path('app/public/' . ltrim($path, '/')));
+        // The resolved file must sit INSIDE storage/app/public: a stored path such as "../../.env" (or a symlink out) is never read.
+        if ($base === false || $abs === false || ! str_starts_with($abs, $base . DIRECTORY_SEPARATOR)) {
+            return null;
+        }
         $mime = ['png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'gif' => 'image/gif'][strtolower(pathinfo($abs, PATHINFO_EXTENSION))] ?? null;
         if ($mime === null || ! is_file($abs)) {
             return null;

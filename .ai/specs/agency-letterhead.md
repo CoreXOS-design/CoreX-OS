@@ -52,3 +52,10 @@ Mega's Word file prints "Mega Rent Lease – 50d Madeira Crescent – Arendse - 
 ## 6. Tests
 
 `tests/Feature/Documents/AgencyLetterheadTest.php` (full-settings letterhead on all four documents; VAT line absent when blank on all four; blank settings leave their lines out; the redirect website never printed; foreign branch ignored; Company Settings saves the new fields and a post without them leaves them alone), `tests/Unit/CdsImporterFidelityTest.php` (header becomes merge fields; ordinary header untouched).
+
+## 7. Audit hardening (28 Oct 2026)
+
+- The VAT line prints only for an agency that is VAT-registered (`agencies.vat_registered`); a stale `vat_no` on a de-registered agency prints nothing.
+- The logo is read only when its resolved path (`realpath`) sits inside `storage/app/public`; a stored `../` path or a symlink out is ignored (no logo).
+- The compact header (printable inspection form) is clamped: name, address and at most two contact lines, each cut with an ellipsis, so it cannot outgrow `LETTERHEAD_HEIGHT` and push into the form title.
+- `RentalInspectionFormPdfService::contentHash` includes the letterhead values (name, address, phones, e-mail, website, VAT, footer line, logo digest): a changed agency detail makes the next download a new form version. Tests in `AgencyLetterheadTest`.

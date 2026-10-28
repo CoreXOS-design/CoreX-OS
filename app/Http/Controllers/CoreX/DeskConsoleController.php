@@ -33,6 +33,7 @@ class DeskConsoleController extends Controller
                 'join' => route('corex.desk.join'),
                 'list' => route('corex.desk.sessions'),
                 'sessions' => url('corex/desk/sessions'),
+                'controlKey' => url('api/v1/desk/support/sessions'),   // + /{id}/control/key
             ]],
         ]);
     }
@@ -98,7 +99,7 @@ class DeskConsoleController extends Controller
     /** POST /corex/desk/sessions/{id}/highlight/clear */
     public function clearHighlight(Request $request, int $id): JsonResponse
     {
-        $this->desk->clearHighlight($this->mine($request, $id), $request->user(), $request->input('tab'));
+        $this->desk->clearHighlight($this->mine($request, $id), $request->user(), is_string($request->input('tab')) ? $request->input('tab') : null);
 
         return response()->json(['ok' => true]);
     }
@@ -149,6 +150,19 @@ class DeskConsoleController extends Controller
         $data = $request->validate(['tab' => ['nullable', 'string', 'max:12']]);
 
         return $this->control(fn () => $this->desk->requestControl($this->scoped($request, $id), $request->user(), (string) ($data['tab'] ?? 'main')));
+    }
+
+    /**
+     * POST /api/v1/desk/support/sessions/{id}/control/key - the signing key for the take-over this support person holds. Needs desk.control (route middleware),
+     * and only the user who asked for the control (control_support_user_id) gets it, only while it is granted; anyone else - another supporter, a stale
+     * page - is a 404. The console signs every action it whispers with it; the agent's browser verifies before replaying (spec 14b).
+     */
+    public function controlKey(Request $request, int $id): JsonResponse
+    {
+        $session = $this->scoped($request, $id);
+        $grant = $this->desk->supportGrant($session, $request->user());
+
+        return $grant ? response()->json(['grant' => $grant])->header('Cache-Control', 'no-store') : response()->json(['message' => 'You do not hold control of this session.'], 404);
     }
 
     /** POST /corex/desk/sessions/{id}/control/end - hand control back (or withdraw a request nobody has answered). */

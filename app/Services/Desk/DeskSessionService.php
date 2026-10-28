@@ -11,8 +11,10 @@ use App\Models\User;
 use App\Services\Otp\OtpService;
 use App\Support\Desk\DeskSupporterLabel;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 
 /**
  * CoreX Desk - the one place a session changes state (spec .ai/specs/corex-desk.md sections 5, 7.3, 7.4).
@@ -138,12 +140,15 @@ class DeskSessionService
     }
 
     /** The agent's tab is alive. Returns the session as it now stands (the tab learns if it was ended meanwhile). */
-    public function heartbeat(DeskSession $session, ?string $page = null): DeskSession
+    public function heartbeat(DeskSession $session, mixed $page = null): DeskSession
     {
         $this->expireStale();
         $session = $session->fresh();
         if (! $session->isOpen()) {
             return $session;
+        }
+        if ($session->isLive() && ! $this->supportersStillValid($session)) {
+            return $this->end($session, DeskSession::ENDED_BY_DISABLED);
         }
 
         $path = $this->cleanPath($page);
@@ -188,7 +193,7 @@ class DeskSessionService
 
         $this->expireStale();
         $code = preg_replace('/\D/', '', $code) ?? '';
-        $session = strlen($code) === 6 ? $this->waitingSessionForCode($code) : null;
+        $session = strlen($code) === 6 ? $this->waitingSessionForCode($code, null, $support) : null;
 
         if (! $session || ! $this->canSupport($support, $session)) {
             RateLimiter::hit($key, (int) config('desk.join_window_seconds', 600));
@@ -205,19 +210,28 @@ class DeskSessionService
 
         RateLimiter::clear($key);
         $display = DeskSupporterLabel::for($support);   // frozen now: the audit stays true if a title changes later
-        $session->forceFill([
+        // First valid joiner wins, atomically: the claim is ONE conditional UPDATE (still `waiting`), so two support people who typed the code in the same
+        // instant cannot both pass - the loser's UPDATE touches no row and is answered like a wrong / expired code.
+        $joinedAt = now();
+        $claimed = DeskSession::withoutGlobalScopes()->whereKey($session->id)->where('status', DeskSession::WAITING)->whereNull('support_user_id')->update([
             'status' => DeskSession::LIVE,
             'support_user_id' => $support->id,
             'support_display' => $display,
-            'joined_at' => now(),
-        ])->save();
+            'joined_at' => $joinedAt,
+            'updated_at' => $joinedAt,
+        ]);
+        if ($claimed !== 1) {
+            return null;
+        }
+        $session = $session->fresh();
         $this->record($session, DeskSessionEvent::JOINED, ['support_name' => $display], $support);
         DeskBroadcast::dispatch($session->id, 'desk.joined', [
             'support_name' => $display,
+            'supporters' => [$display],
             'joined_at' => $session->joined_at->toIso8601String(),
         ]);
 
-        return $session->fresh();
+        return $session;
     }
 
     /**
@@ -234,13 +248,25 @@ class DeskSessionService
 
         $again = $session->isSupporter($support);
         if (! $again) {
-            $ids = array_values(array_unique(array_merge(array_map('intval', (array) $session->support_user_ids), [(int) $support->id])));
-            $session->forceFill(['support_user_ids' => $ids])->save();
+            // (a locked read-modify-write: two people attaching at once must both end up in the list)
+            DB::transaction(function () use ($session, $support) {
+                $row = DeskSession::withoutGlobalScopes()->lockForUpdate()->find($session->id);
+                $ids = array_values(array_unique(array_merge(array_map('intval', (array) $row->support_user_ids), [(int) $support->id])));
+                $row->forceFill(['support_user_ids' => $ids])->save();
+            });
+            $session = $session->fresh();
         }
         $display = $this->displayFor($session, $support);
-        $this->record($session, DeskSessionEvent::JOINED, ['support_name' => $display, 'again' => $again, 'additional' => ! $again && (int) $session->support_user_id !== (int) $support->id], $support);
+        $additional = ! $again && (int) $session->support_user_id !== (int) $support->id;
+        $this->record($session, DeskSessionEvent::JOINED, ['support_name' => $display, 'again' => $again, 'additional' => $additional], $support);
+        // The agent is TOLD (spec 4b/14b): a support person who attaches to a live session is announced on the agent's red bar, which then lists everyone in the
+        // session. The channel is private, not presence, so this server event is the only notice the agent gets - it is sent for a first attach, not for the same
+        // person re-opening their own window. An added supporter has no control: that needs the agent's separate Allow, as always.
+        if (! $again) {
+            DeskBroadcast::dispatch($session->id, 'desk.supporter_joined', ['support_name' => $display, 'supporters' => $session->supporterNames()]);
+        }
 
-        return $session->fresh();
+        return $session;
     }
 
     public function highlight(DeskSession $session, User $support, string $selector, ?string $note = null, ?string $tab = null): void
@@ -272,19 +298,31 @@ class DeskSessionService
 
     // ── Extension tabs (phase 3) ────────────────────────────────────────────────────
 
-    /** Hosts whose tabs the extension may share: the platform list plus this agency's own website. */
-    public function allowedExtensionHosts(?int $agencyId): array
+    /** The platform sites whose tabs the extension may share (config/desk.php). Each matches itself AND its subdomains. */
+    public function allowedExtensionHosts(?int $agencyId = null): array
     {
-        $hosts = array_map('strtolower', (array) config('desk.extension_hosts', []));
-        if ($agencyId) {
-            $url = Agency::withoutGlobalScopes()->whereKey($agencyId)->value('website_url');
-            $host = $url ? parse_url(str_contains($url, '://') ? $url : 'https://' . $url, PHP_URL_HOST) : null;
-            if (is_string($host) && $host !== '') {
-                $hosts[] = preg_replace('/^www\./', '', strtolower($host));
-            }
-        }
+        return array_values(array_unique(array_map('strtolower', (array) config('desk.extension_hosts', []))));
+    }
 
-        return array_values(array_unique($hosts));
+    /**
+     * This agency's own website host (agencies.website_url), matched EXACTLY - never its subdomains or its parent domain. The site as the agency typed it
+     * and its www / non-www twin (people type either), nothing else: "mail.agency.co.za" or "co.za" are not "the agency's website".
+     *
+     * @return array<int, string>
+     */
+    public function agencyExactHosts(?int $agencyId): array
+    {
+        if (! $agencyId) {
+            return [];
+        }
+        $url = trim((string) Agency::withoutGlobalScopes()->whereKey($agencyId)->value('website_url'));
+        $host = $url !== '' ? parse_url(str_contains($url, '://') ? $url : 'https://' . $url, PHP_URL_HOST) : null;
+        if (! is_string($host) || $host === '') {
+            return [];
+        }
+        $bare = preg_replace('/^www\./', '', strtolower($host));
+
+        return $bare === '' ? [] : array_values(array_unique([$bare, 'www.' . $bare]));
     }
 
     public function hostAllowed(string $host, ?int $agencyId): bool
@@ -296,7 +334,7 @@ class DeskSessionService
             }
         }
 
-        return false;
+        return in_array($host, $this->agencyExactHosts($agencyId), true);
     }
 
     /**
@@ -566,6 +604,13 @@ class DeskSessionService
     /** The extension tabs open in this session right now, derived from its audit trail (last join/update/leave per tab). */
     public function openTabs(DeskSession $session): array
     {
+        // One read per request unless the trail changed meanwhile: the answer is keyed by the id of the newest tab row, found by one cheap indexed query -
+        // the heavy part (loading and folding every tab row) runs once for many callers in the same request (tabInfo, settleTabs, the list).
+        $latest = (int) DeskSessionEvent::query()->where('desk_session_id', $session->id)
+            ->whereIn('type', [DeskSessionEvent::TAB_JOIN, DeskSessionEvent::TAB_UPDATE, DeskSessionEvent::TAB_LEAVE])->max('id');
+        if (isset($this->openTabsMemo[$session->id]) && $this->openTabsMemo[$session->id][0] === $latest) {
+            return $this->openTabsMemo[$session->id][1];
+        }
         $open = [];
         $events = DeskSessionEvent::query()->where('desk_session_id', $session->id)
             ->whereIn('type', [DeskSessionEvent::TAB_JOIN, DeskSessionEvent::TAB_UPDATE, DeskSessionEvent::TAB_LEAVE])
@@ -582,9 +627,13 @@ class DeskSessionService
                 $open[$key] = ['tab' => $key, 'host' => (string) ($p['host'] ?? ''), 'title' => (string) ($p['title'] ?? ''), 'path' => (string) ($p['path'] ?? '')];
             }
         }
+        $this->openTabsMemo[$session->id] = [$latest, $open];
 
         return $open;
     }
+
+    /** @var array<int, array{0:int, 1:array}> openTabs() memo for this request: session id => [newest tab row id, tabs] */
+    private array $openTabsMemo = [];
 
     /** A page title is whatever the site says - strip markup, collapse whitespace, cap the length. */
     private function cleanTitle(?string $title): string
@@ -643,18 +692,24 @@ class DeskSessionService
             throw new DeskControlException('That tab is no longer shared.', 409);
         }
 
+        // Each request has its own random id: the agent's Allow / Decline must quote it, so an answer can only ever be for the question that was shown.
+        $requestId = strtolower(Str::random(24));
         $session->forceFill([
-            'control_state' => DeskSession::CONTROL_REQUESTED, 'control_tab' => $tab, 'control_support_user_id' => $support->id,
+            'control_state' => DeskSession::CONTROL_REQUESTED, 'control_tab' => $tab, 'control_support_user_id' => $support->id, 'control_request_id' => $requestId,
             'control_requested_at' => now(), 'control_granted_at' => null, 'control_last_action_at' => null,
         ])->save();
         $this->record($session, DeskSessionEvent::CONTROL_REQUESTED, $this->tabInfo($session, $tab), $support);
-        DeskBroadcast::dispatch($session->id, 'desk.control_requested', ['tab' => $tab, 'support_name' => $this->displayFor($session, $support)]);
+        DeskBroadcast::dispatch($session->id, 'desk.control_requested', ['tab' => $tab, 'support_name' => $this->displayFor($session, $support), 'request_id' => $requestId]);
 
         return $session->fresh();
     }
 
-    /** The agent's answer to a request (Allow / Decline). Only the agent; only while a request is open. */
-    public function respondControl(DeskSession $session, User $agent, bool $allow): DeskSession
+    /**
+     * The agent's answer to a request (Allow / Decline). Only the agent; only while a request is open; only for the request that was shown
+     * ($requestId - a mismatch is a 409, null is for the server's own "withdraw" path); and never for a request older than desk.control_request_seconds
+     * (the request lapses first and the answer is refused).
+     */
+    public function respondControl(DeskSession $session, User $agent, bool $allow, ?string $requestId = null, bool $checkRequestId = true): DeskSession
     {
         $session = $session->fresh();
         if (! $session || ! $session->isLive() || (int) $session->user_id !== (int) $agent->id) {
@@ -663,11 +718,18 @@ class DeskSessionService
         if ($session->control_state !== DeskSession::CONTROL_REQUESTED) {
             throw new DeskControlException('Nobody is asking for control.', 409);
         }
+        if ($checkRequestId && (! is_string($requestId) || $requestId === '' || ! $session->control_request_id || ! hash_equals((string) $session->control_request_id, $requestId))) {
+            throw new DeskControlException('That request is not the one currently open.', 409);
+        }
+        if ($session->control_requested_at && $session->control_requested_at->lt(now()->subSeconds((int) config('desk.control_request_seconds', 60)))) {
+            $this->closeControl($session, 'system', 'no_answer');   // the clock ran out before the answer got here
+            throw new DeskControlException('That request has lapsed. Ask support to request control again.', 409);
+        }
         $tab = (string) $session->control_tab;
         $info = $this->tabInfo($session, $tab);
 
         if ($allow) {
-            $session->forceFill(['control_state' => DeskSession::CONTROL_GRANTED, 'control_granted_at' => now(), 'control_last_action_at' => now()])->save();
+            $session->forceFill(['control_state' => DeskSession::CONTROL_GRANTED, 'control_granted_at' => now(), 'control_last_action_at' => now(), 'control_ended_at' => null])->save();
             $this->record($session, DeskSessionEvent::CONTROL_GRANTED, $info, $agent);
             DeskBroadcast::dispatch($session->id, 'desk.control_granted', ['tab' => $tab, 'idle_seconds' => $this->controlIdleMinutes($session->agency_id ? (int) $session->agency_id : null) * 60]);
         } else {
@@ -691,13 +753,58 @@ class DeskSessionService
         }
         $state = $session->control_state ?: DeskSession::CONTROL_NONE;
         if ($state === DeskSession::CONTROL_REQUESTED) {
-            return $this->respondControl($session, $agent, false);
+            return $this->respondControl($session, $agent, false, null, false);
         }
         if ($state === DeskSession::CONTROL_GRANTED) {
             $this->closeControl($session, $reason === 'idle' ? 'system' : 'agent', $reason === 'idle' ? 'idle' : 'agent', $agent);
         }
 
         return $session->fresh();
+    }
+
+    /**
+     * The signing key of the take-over that is granted right now: HMAC-SHA256(app key, "desk-grant|session|support user|request id|granted at"). Nothing is
+     * stored - it is derived each time it is asked for, so the moment control ends (which clears those fields) the key cannot be derived any more.
+     * Only two callers get it: the AGENT (the Allow answer, or the agent's own "key" call when a page change / a tab move needs it again) and the support
+     * person who holds this control. The console signs every action with it; the agent's browser verifies before anything is replayed.
+     */
+    public function grantKey(DeskSession $session): ?string
+    {
+        $session = $session->fresh();
+        if (! $session || ! $session->isLive() || $session->control_state !== DeskSession::CONTROL_GRANTED
+            || ! $session->control_request_id || ! $session->control_support_user_id || ! $session->control_granted_at) {
+            return null;
+        }
+
+        return hash_hmac('sha256', implode('|', ['desk-grant', $session->id, $session->control_support_user_id, $session->control_request_id, $session->control_granted_at->getTimestamp()]), (string) config('app.key'));
+    }
+
+    /** The grant as the AGENT's browser gets it: the key plus the request it belongs to. Null unless granted (and, if $tab is given, granted for that tab). */
+    public function agentGrant(DeskSession $session, User $agent, ?string $tab = null): ?array
+    {
+        $session = $session->fresh();
+        if (! $session || (int) $session->user_id !== (int) $agent->id) {
+            return null;
+        }
+        if ($tab !== null && $session->control_tab !== $this->cleanTabKey($tab)) {
+            return null;
+        }
+        $key = $this->grantKey($session);
+
+        return $key ? ['key' => $key, 'request_id' => $session->control_request_id, 'tab' => $session->control_tab] : null;
+    }
+
+    /** The grant as the SUPPORT person gets it: only the user who asked for this control (control_support_user_id), only while it is granted. */
+    public function supportGrant(DeskSession $session, User $support): ?array
+    {
+        $session = $session->fresh();
+        if (! $session || ! $session->isLive() || ! $session->isSupporter($support) || ! $support->hasPermission('desk.control') || ! $this->canSupport($support, $session)
+            || (int) $session->control_support_user_id !== (int) $support->id) {
+            return null;
+        }
+        $key = $this->grantKey($session);
+
+        return $key ? ['key' => $key, 'request_id' => $session->control_request_id, 'tab' => $session->control_tab] : null;
     }
 
     /** Support hands control back (or cancels a request nobody has answered yet). */
@@ -724,13 +831,26 @@ class DeskSessionService
     public function recordControlActions(DeskSession $session, User $agent, string $tab, array $actions): int
     {
         $session = $session->fresh();
-        if (! $session || ! $session->isLive() || (int) $session->user_id !== (int) $agent->id
-            || $session->control_state !== DeskSession::CONTROL_GRANTED || $session->control_tab !== $this->cleanTabKey($tab)) {
+        $tab = $this->cleanTabKey($tab);
+        $late = false;
+        if (! $session || (int) $session->user_id !== (int) $agent->id) {
+            throw new DeskControlException('Nobody has control of that tab.', 409);
+        }
+        if ($session->isLive() && $session->control_state === DeskSession::CONTROL_GRANTED && $session->control_tab === $tab) {
+            $controlTab = $tab;
+            $supportId = $session->control_support_user_id ?: $session->support_user_id;
+        } elseif ($session->control_ended_at && $session->control_ended_tab === $tab
+            && $session->control_ended_at->gte(now()->subSeconds((int) config('desk.control_report_grace_seconds', 10)))) {
+            // The agent's browser flushes its last batch a moment AFTER control ended (the report is batched ~1.5 s): accept it inside a short grace window for the
+            // same session and tab, and mark the rows late. A late report never keeps anything alive (no idle-clock touch).
+            $late = true;
+            $controlTab = $tab;
+            $supportId = $session->control_ended_support_user_id ?: $session->support_user_id;
+        } else {
             throw new DeskControlException('Nobody has control of that tab.', 409);
         }
 
-        $info = $this->tabInfo($session, $session->control_tab);
-        $supportId = $session->control_support_user_id ?: $session->support_user_id;
+        $info = $this->tabInfo($session, $controlTab);
         $support = $supportId ? User::withoutGlobalScopes()->find($supportId) : null;
         $kinds = ['click', 'dblclick', 'type', 'key', 'scroll', 'select', 'focus'];
         $max = (int) config('desk.control_actions_per_report', 50);
@@ -738,24 +858,28 @@ class DeskSessionService
         $anyRan = false;
 
         foreach (array_slice($actions, 0, $max) as $a) {
-            $kind = is_array($a) ? (string) ($a['type'] ?? '') : '';
+            $kind = is_array($a) && is_scalar($a['type'] ?? null) ? (string) $a['type'] : '';
             if (! in_array($kind, $kinds, true)) {
                 continue;
             }
             $ok = (bool) ($a['ok'] ?? false);
             $anyRan = $anyRan || $ok;
+            // (an element selector / label / reason is text - a client that sends an array or an object in their place must not crash the call)
+            $selector = is_scalar($a['selector'] ?? null) ? (string) $a['selector'] : '';
+            $labelText = is_scalar($a['label'] ?? null) ? (string) $a['label'] : '';
+            $reasonText = is_scalar($a['reason'] ?? null) ? (string) $a['reason'] : 'refused';
             $this->record($session, DeskSessionEvent::CONTROL_ACTION, [
                 'tab' => $info['tab'], 'host' => $info['host'], 'title' => $info['title'],
                 'action' => $kind,
-                'selector' => mb_substr((string) ($a['selector'] ?? ''), 0, (int) config('desk.selector_max', 500)),
-                'label' => $this->cleanTitle(mb_substr((string) ($a['label'] ?? ''), 0, 80)),
+                'selector' => mb_substr($selector, 0, (int) config('desk.selector_max', 500)),
+                'label' => $this->cleanTitle(mb_substr($labelText, 0, 80)),
                 'ok' => $ok,
-                'reason' => $ok ? null : mb_substr(preg_replace('/[^a-z_ ]/i', '', (string) ($a['reason'] ?? 'refused')), 0, 40),
-                'n' => max(1, min(1000, (int) ($a['n'] ?? 1))),
-            ], $support);
+                'reason' => $ok ? null : mb_substr((string) preg_replace('/[^a-z_ ]/i', '', $reasonText), 0, 40),
+                'n' => max(1, min(1000, (int) (is_numeric($a['n'] ?? null) ? $a['n'] : 1))),
+            ] + ($late ? ['late' => true] : []), $support);
             $written++;
         }
-        if ($anyRan) {
+        if ($anyRan && ! $late) {
             $session->forceFill(['control_last_action_at' => now()])->save();   // the idle clock
         }
 
@@ -787,7 +911,15 @@ class DeskSessionService
         }
         $tab = (string) $session->control_tab;
         $info = $this->tabInfo($session, $tab);
-        $session->forceFill(['control_state' => DeskSession::CONTROL_NONE, 'control_tab' => null, 'control_requested_at' => null, 'control_granted_at' => null, 'control_last_action_at' => null, 'control_support_user_id' => null])->save();
+        $was = ['tab' => $tab, 'support' => $session->control_support_user_id];
+        $session->forceFill([
+            'control_state' => DeskSession::CONTROL_NONE, 'control_tab' => null, 'control_requested_at' => null, 'control_granted_at' => null, 'control_last_action_at' => null,
+            'control_support_user_id' => null, 'control_request_id' => null,
+            // remembered for the report grace window (recordControlActions): only a control that was really granted can have a last batch still on its way
+            'control_ended_at' => $state === DeskSession::CONTROL_GRANTED ? now() : $session->control_ended_at,
+            'control_ended_tab' => $state === DeskSession::CONTROL_GRANTED ? $was['tab'] : $session->control_ended_tab,
+            'control_ended_support_user_id' => $state === DeskSession::CONTROL_GRANTED ? $was['support'] : $session->control_ended_support_user_id,
+        ])->save();
 
         if ($state === DeskSession::CONTROL_REQUESTED) {
             $this->record($session, DeskSessionEvent::CONTROL_DECLINED, $info + ['reason' => $reason], $actor);
@@ -847,9 +979,17 @@ class DeskSessionService
         }
     }
 
-    /** Close sessions nobody joined in time, and sessions whose agent tab has gone quiet. Cheap; safe to call on every read. */
-    public function expireStale(): int
+    /**
+     * Close sessions nobody joined in time, sessions whose agent tab has gone quiet, sessions past the hard cap, and sessions with a support person who is
+     * no longer allowed to be there. Safe to call on every read: a read-path call is throttled to once per desk.expire_throttle_seconds (a cache lock, so
+     * a heartbeat or a poll does not run the sweep's table scans each time); the `desk:expire` schedule and anything that passes $force always sweeps.
+     */
+    public function expireStale(bool $force = false): int
     {
+        $every = (int) config('desk.expire_throttle_seconds', 5);
+        if (! $force && $every > 0 && ! Cache::add('desk:expire-sweep', 1, $every)) {
+            return 0;
+        }
         $closed = 0;
         $staleBefore = now()->subSeconds((int) config('desk.stale_after_seconds', 75));
         $leavingBefore = now()->subSeconds((int) config('desk.leaving_grace_seconds', 30));
@@ -868,6 +1008,24 @@ class DeskSessionService
         foreach ($quiet as $session) {
             $this->end($session, DeskSession::ENDED_BY_TIMEOUT);
             $closed++;
+        }
+
+        // Hard cap: however alive it looks, a session does not run for ever (desk.max_session_hours; 0 switches the cap off).
+        $maxHours = (int) config('desk.max_session_hours', 8);
+        if ($maxHours > 0) {
+            $tooLong = DeskSession::withoutGlobalScopes()->open()->where('started_at', '<', now()->subHours($maxHours))->get();
+            foreach ($tooLong as $session) {
+                $this->end($session, DeskSession::ENDED_BY_TIMEOUT);
+                $closed++;
+            }
+        }
+
+        // A support person whose desk.support permission / account is gone is not left watching (see supportersStillValid).
+        foreach (DeskSession::withoutGlobalScopes()->where('status', DeskSession::LIVE)->whereNotNull('support_user_id')->get() as $session) {
+            if (! $this->supportersStillValid($session)) {
+                $this->end($session, DeskSession::ENDED_BY_DISABLED);
+                $closed++;
+            }
         }
 
         // Take-over: a request nobody answered lapses; a granted control nobody uses ends (the agency's idle limit).
@@ -891,14 +1049,43 @@ class DeskSessionService
 
     // ── Internals ───────────────────────────────────────────────────────────────────
 
-    /** The waiting, unexpired session whose code this is (hash test - nothing is consumed or counted against anyone). */
-    private function waitingSessionForCode(string $code, ?int $exceptId = null): ?DeskSession
+    /**
+     * Is every support person on this live session still allowed to be there (active account, desk.support, still in scope)? A person whose permission
+     * or account was taken away mid-session cannot be removed from a private channel they are already subscribed to, so the session ends instead (heartbeat
+     * and the expiry sweep call this) - the agent is never left with someone watching who should not be.
+     */
+    public function supportersStillValid(DeskSession $session): bool
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', array_merge([(int) $session->support_user_id], (array) $session->support_user_ids)))));
+        if (! $ids) {
+            return true;
+        }
+        $users = User::withoutGlobalScopes()->whereIn('id', $ids)->get()->keyBy('id');
+        foreach ($ids as $id) {
+            $u = $users->get($id);
+            if (! $u || ! $u->is_active || ! $this->canSupport($u, $session)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * The waiting, unexpired session whose code this is (hash test - nothing is consumed or counted against anyone). A joining support person can only ever
+     * use a session they could support, so the candidates are narrowed to their scope (their own agency; every agency for an owner role) and capped, instead of
+     * bcrypt-testing every waiting session of every agency on each attempt.
+     */
+    private function waitingSessionForCode(string $code, ?int $exceptId = null, ?User $joiner = null): ?DeskSession
     {
         $candidates = DeskSession::withoutGlobalScopes()
             ->where('status', DeskSession::WAITING)
             ->where('code_expires_at', '>', now())
             ->whereNotNull('otp_id')
             ->when($exceptId, fn ($q) => $q->where('id', '!=', $exceptId))
+            ->when($joiner && ! $joiner->isOwnerRole(), fn ($q) => $q->where('agency_id', $joiner->effectiveAgencyId() ?: 0))
+            ->orderByDesc('id')
+            ->limit((int) config('desk.join_candidate_cap', 200))
             ->get();
 
         foreach ($candidates as $session) {
@@ -924,9 +1111,9 @@ class DeskSessionService
     }
 
     /** Path only - a query string can carry anything (tokens, search text), so it is never kept. */
-    private function cleanPath(?string $page): ?string
+    public function cleanPath(mixed $page): ?string
     {
-        if ($page === null || trim($page) === '') {
+        if (! is_string($page) || trim($page) === '') {
             return null;
         }
         $path = parse_url($page, PHP_URL_PATH);

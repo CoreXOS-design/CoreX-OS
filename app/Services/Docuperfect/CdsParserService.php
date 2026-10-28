@@ -121,11 +121,13 @@ class CdsParserService
             throw new \RuntimeException("Cannot open .docx file: {$filePath}");
         }
 
+        $this->assertZipWithinLimits($zip);
+
         // 2. Extract the key XML files
-        $documentXml = $zip->getFromName('word/document.xml');
-        $stylesXml = $zip->getFromName('word/styles.xml');
-        $numberingXml = $zip->getFromName('word/numbering.xml');
-        $relsXml = (string) $zip->getFromName('word/_rels/document.xml.rels');
+        $documentXml = $this->readPart($zip, 'word/document.xml');
+        $stylesXml = $this->readPart($zip, 'word/styles.xml');
+        $numberingXml = $this->readPart($zip, 'word/numbering.xml');
+        $relsXml = (string) $this->readPart($zip, 'word/_rels/document.xml.rels');
         $this->media = $this->readMedia($zip, $relsXml);
         $this->picturesImported = 0;
         $this->cellNumState = [];
@@ -133,7 +135,7 @@ class CdsParserService
         for ($i = 0; $i < $zip->numFiles; $i++) {
             $name = (string) $zip->getNameIndex($i);
             if (preg_match('#^word/(header|footer)\d*\.xml$#', $name)) {
-                $partXml[$name] = (string) $zip->getFromIndex($i);
+                $partXml[$name] = (string) $this->readPart($zip, $i);
             }
         }
         $zip->close();
@@ -173,6 +175,51 @@ class CdsParserService
         ] + $this->imageStore() + ($pageFrame['frame'] ?? []);
     }
 
+    /** Zip-bomb guards: what a Word file may declare before anything is inflated. */
+    private const MAX_ZIP_ENTRIES = 5000;
+
+    private const MAX_PART_BYTES = 25_000_000;
+
+    private const MAX_TOTAL_UNCOMPRESSED_BYTES = 250_000_000;
+
+    /** libxml flags for every Word part: never touch the network. (Never NOENT / DTDLOAD: no entity or DTD loading.) */
+    private const XML_FLAGS = LIBXML_NONET;
+
+    /** Refuse a container that declares too many entries, or more uncompressed bytes in total than the importer will take. */
+    private function assertZipWithinLimits(ZipArchive $zip): void
+    {
+        if ($zip->numFiles > self::MAX_ZIP_ENTRIES) {
+            throw new DocxTooLargeException('That Word file is too complex to import (too many parts inside it). Save a simplified copy and try again.');
+        }
+        $total = 0;
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $stat = $zip->statIndex($i);
+            $total += (int) ($stat['size'] ?? 0);
+            if ($total > self::MAX_TOTAL_UNCOMPRESSED_BYTES) {
+                throw new DocxTooLargeException('That Word file is too large once unpacked to import. Save a smaller copy and try again.');
+            }
+        }
+    }
+
+    /**
+     * Read one XML part (by name or index) of the .docx, checking its DECLARED uncompressed size first so a tiny archive
+     * claiming a huge part is refused before it is inflated.
+     *
+     * @return string|false false when the part is absent
+     */
+    private function readPart(ZipArchive $zip, string|int $entry): string|false
+    {
+        $stat = is_int($entry) ? $zip->statIndex($entry) : $zip->statName($entry);
+        if ($stat === false) {
+            return false;
+        }
+        if (($stat['size'] ?? 0) > self::MAX_PART_BYTES) {
+            throw new DocxTooLargeException('That Word file has a section that is too large to import. Save a smaller copy and try again.');
+        }
+
+        return is_int($entry) ? $zip->getFromIndex($entry) : $zip->getFromName($entry);
+    }
+
     /**
      * Pictures the document embeds (word/media via the document relationships), as data URIs so the builder, the
      * signing page and both PDF routes draw them with no file or login of their own. One picture is stored once
@@ -194,7 +241,14 @@ class CdsParserService
                     continue;
                 }
                 $ext = strtolower(pathinfo($target[1], PATHINFO_EXTENSION));
-                $bytes = $mimes[$ext] ?? null ? $zip->getFromName('word/' . ltrim($target[1], '/')) : false;
+                $bytes = false;
+                if (isset($mimes[$ext])) {
+                    // Declared size first: a picture over the cap is never inflated at all.
+                    $stat = $zip->statName('word/' . ltrim($target[1], '/'));
+                    if ($stat !== false && ($stat['size'] ?? PHP_INT_MAX) <= 2_500_000) {
+                        $bytes = $zip->getFromName('word/' . ltrim($target[1], '/'));
+                    }
+                }
                 if ($bytes === false || $bytes === '' || strlen($bytes) > 2_500_000 || $total + strlen($bytes) > 6_000_000) {
                     continue;
                 }
@@ -240,7 +294,7 @@ class CdsParserService
     private function parseReport(string $documentXml, int $headerFooterChars, int $importedHeaderFooterChars = 0): array
     {
         $dom = new DOMDocument();
-        $dom->loadXML($documentXml);
+        $dom->loadXML($documentXml, self::XML_FLAGS);
         $x = new DOMXPath($dom);
         $x->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
         $x->registerNamespace('mc', 'http://schemas.openxmlformats.org/markup-compatibility/2006');
@@ -313,7 +367,7 @@ class CdsParserService
         if (!$xml) return $map;
 
         $dom = new DOMDocument();
-        $dom->loadXML($xml);
+        $dom->loadXML($xml, self::XML_FLAGS);
         $xpath = new DOMXPath($dom);
         $xpath->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
 
@@ -375,7 +429,7 @@ class CdsParserService
         if (!$xml) return $map;
 
         $dom = new DOMDocument();
-        $dom->loadXML($xml);
+        $dom->loadXML($xml, self::XML_FLAGS);
         $xpath = new DOMXPath($dom);
         $xpath->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
 
@@ -429,7 +483,7 @@ class CdsParserService
     private function parseDocument(string $xml, array $styleMap, array $numberingMap): array
     {
         $dom = new DOMDocument();
-        $dom->loadXML($xml);
+        $dom->loadXML($xml, self::XML_FLAGS);
         $xpath = new DOMXPath($dom);
         $xpath->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
         $xpath->registerNamespace('a', 'http://schemas.openxmlformats.org/drawingml/2006/main');
@@ -1141,7 +1195,7 @@ class CdsParserService
     private function readPageFrame(string $documentXml, string $relsXml, array $partXml): array
     {
         $dom = new DOMDocument();
-        $dom->loadXML($documentXml);
+        $dom->loadXML($documentXml, self::XML_FLAGS);
         $x = new DOMXPath($dom);
         $x->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
         $x->registerNamespace('r', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships');
@@ -1236,7 +1290,7 @@ class CdsParserService
     private function readFramePart(string $xml): array
     {
         $dom = new DOMDocument();
-        @$dom->loadXML($xml);
+        @$dom->loadXML($xml, self::XML_FLAGS);
         $x = new DOMXPath($dom);
         $x->registerNamespace('w', 'http://schemas.openxmlformats.org/wordprocessingml/2006/main');
         $lines = [];

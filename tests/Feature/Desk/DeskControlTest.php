@@ -62,10 +62,10 @@ final class DeskControlTest extends DeskTestCase
         $s = $this->desk->requestControl($s, $support, 'main');
         $this->assertSame('requested', $s->control_state);
         $this->assertSame('main', $s->control_tab);
-        Event::assertDispatched(DeskBroadcast::class, fn ($e) => $e->name === 'desk.control_requested' && $e->payload === ['tab' => 'main', 'support_name' => \App\Support\Desk\DeskSupporterLabel::for($support)]);
+        Event::assertDispatched(DeskBroadcast::class, fn ($e) => $e->name === 'desk.control_requested' && $e->payload === ['tab' => 'main', 'support_name' => \App\Support\Desk\DeskSupporterLabel::for($support), 'request_id' => $s->control_request_id]);
         $this->assertNull($s->control_granted_at, 'nothing is granted by asking');
 
-        $s = $this->desk->respondControl($s, $agent, true);
+        $s = $this->desk->respondControl($s, $agent, true, $this->rid($s));
         $this->assertSame('granted', $s->control_state);
         Event::assertDispatched(DeskBroadcast::class, fn ($e) => $e->name === 'desk.control_granted' && $e->payload['tab'] === 'main' && $e->payload['idle_seconds'] === 300);
 
@@ -83,7 +83,7 @@ final class DeskControlTest extends DeskTestCase
         [$s, $agent, $support] = $this->live();
         $this->desk->requestControl($s, $support, 'main');
 
-        $s = $this->desk->respondControl($s, $agent, false);
+        $s = $this->desk->respondControl($s, $agent, false, $this->rid($s));
         $this->assertSame('none', $s->control_state);
         $this->assertNull($s->control_tab);
         Event::assertDispatched(DeskBroadcast::class, fn ($e) => $e->name === 'desk.control_declined' && $e->payload === ['tab' => 'main', 'reason' => 'declined']);
@@ -96,7 +96,7 @@ final class DeskControlTest extends DeskTestCase
     {
         [$s, $agent, $support] = $this->live();
         $this->desk->requestControl($s, $support, 'main');
-        $s = $this->desk->respondControl($s, $agent, true);
+        $s = $this->desk->respondControl($s, $agent, true, $this->rid($s));
 
         $s = $this->desk->revokeControl($s, $agent);
 
@@ -115,7 +115,7 @@ final class DeskControlTest extends DeskTestCase
     {
         [$s, $agent, $support] = $this->live();
         $this->desk->requestControl($s, $support, 'main');
-        $this->desk->respondControl($s, $agent, true);
+        $this->desk->respondControl($s, $agent, true, $this->rid($s));
 
         $s = $this->desk->end($s->fresh(), DeskSession::ENDED_BY_AGENT, $agent);
 
@@ -137,7 +137,7 @@ final class DeskControlTest extends DeskTestCase
             $this->assertSame(409, $e->status);
         }
 
-        $this->desk->respondControl($s->fresh(), $agent, false);
+        $this->desk->respondControl($s->fresh(), $agent, false, $this->rid($s->fresh()));
         $this->expectException(DeskControlException::class);
         $this->desk->requestControl($s->fresh(), $support, 'x999');   // never shared
     }
@@ -149,7 +149,7 @@ final class DeskControlTest extends DeskTestCase
         $s = $this->desk->requestControl($s->fresh(), $support, 'x7');
         $this->assertSame('x7', $s->control_tab);
         $this->assertSame(['tab' => 'x7', 'host' => 'www.cmainfo.co.za', 'title' => 'Property search'], $s->events()->where('type', 'control_requested')->first()->payload);
-        $this->desk->respondControl($s, $agent, true);
+        $this->desk->respondControl($s, $agent, true, $this->rid($s));
 
         $this->desk->tabEvent($s->fresh(), $agent, 'leave', 'x7');
 
@@ -173,7 +173,7 @@ final class DeskControlTest extends DeskTestCase
         $this->assertSame('no_answer', $s->events()->where('type', 'control_declined')->first()->payload['reason']);
 
         $this->desk->requestControl($s->fresh(), $support, 'main');
-        $this->desk->respondControl($s->fresh(), $agent, true);
+        $this->desk->respondControl($s->fresh(), $agent, true, $this->rid($s->fresh()));
         $s->forceFill(['control_last_action_at' => now()->subSeconds(100)])->save();
         $this->desk->expireStale();
         $this->assertSame('granted', $s->fresh()->control_state, '100 s is inside a 2 minute limit');
@@ -198,7 +198,7 @@ final class DeskControlTest extends DeskTestCase
     {
         [$s, $agent, $support] = $this->live();
         $this->desk->requestControl($s, $support, 'main');
-        $this->desk->respondControl($s->fresh(), $agent, true);
+        $this->desk->respondControl($s->fresh(), $agent, true, $this->rid($s->fresh()));
         $s->forceFill(['control_last_action_at' => now()->subMinutes(4)])->save();
 
         $this->desk->recordControlActions($s->fresh(), $agent, 'main', [['type' => 'click', 'selector' => '#a', 'label' => 'Save', 'ok' => true]]);
@@ -245,14 +245,14 @@ final class DeskControlTest extends DeskTestCase
         [$s, $agent, $support] = $this->live();
 
         try {
-            $this->desk->respondControl($s, $agent, true);
+            $this->desk->respondControl($s, $agent, true, $this->rid($s));
             $this->fail('nothing was asked');
         } catch (DeskControlException $e) {
             $this->assertSame(409, $e->status);
         }
         $this->desk->requestControl($s, $support, 'main');
         $this->expectException(DeskControlException::class);
-        $this->desk->respondControl($s->fresh(), $this->agentIn($this->agencyA), true);   // a colleague cannot allow it
+        $this->desk->respondControl($s->fresh(), $this->agentIn($this->agencyA), true, $this->rid($s->fresh()));   // a colleague cannot allow it
     }
 
     public function test_actions_are_only_accepted_while_control_is_granted_for_that_tab_and_from_the_agent(): void
@@ -273,7 +273,7 @@ final class DeskControlTest extends DeskTestCase
         } catch (DeskControlException $e) {
             $this->assertSame(409, $e->status);
         }
-        $this->desk->respondControl($s->fresh(), $agent, true);
+        $this->desk->respondControl($s->fresh(), $agent, true, $this->rid($s->fresh()));
 
         $this->assertSame(1, $this->desk->recordControlActions($s->fresh(), $agent, 'main', $row));
         $this->expectException(DeskControlException::class);
@@ -286,7 +286,7 @@ final class DeskControlTest extends DeskTestCase
     {
         [$s, $agent, $support] = $this->live();
         $this->desk->requestControl($s, $support, 'main');
-        $this->desk->respondControl($s->fresh(), $agent, true);
+        $this->desk->respondControl($s->fresh(), $agent, true, $this->rid($s->fresh()));
 
         $this->desk->recordControlActions($s->fresh(), $agent, 'main', [
             ['type' => 'click', 'selector' => '#save', 'label' => '<b>Save</b> contact', 'ok' => true, 'v' => 'SECRET', 'value' => 'SECRET', 'text' => 'SECRET'],
@@ -320,7 +320,7 @@ final class DeskControlTest extends DeskTestCase
     {
         [$s, $agent, $support] = $this->live();
         $this->desk->requestControl($s, $support, 'main');
-        $this->desk->respondControl($s->fresh(), $agent, true);
+        $this->desk->respondControl($s->fresh(), $agent, true, $this->rid($s->fresh()));
         $s->forceFill(['control_last_action_at' => now()->subMinutes(4)])->save();
 
         $this->desk->recordControlActions($s->fresh(), $agent, 'main', [['type' => 'click', 'selector' => '#pw', 'label' => 'Password', 'ok' => false, 'reason' => 'private_field']]);
@@ -333,7 +333,7 @@ final class DeskControlTest extends DeskTestCase
         [$s, $agent, $support] = $this->live();
         $this->desk->tabEvent($s, $agent, 'join', 'x7', 'https://www.cmainfo.co.za/', 'Property search');
         $this->desk->requestControl($s->fresh(), $support, 'x7');
-        $this->desk->respondControl($s->fresh(), $agent, true);
+        $this->desk->respondControl($s->fresh(), $agent, true, $this->rid($s->fresh()));
         $this->desk->recordControlActions($s->fresh(), $agent, 'x7', [
             ['type' => 'click', 'selector' => '#go', 'label' => 'Search deeds', 'ok' => true],
             ['type' => 'type', 'selector' => '#suburb', 'label' => 'Suburb', 'ok' => true, 'n' => 6],
@@ -358,10 +358,15 @@ final class DeskControlTest extends DeskTestCase
         [$s, $agent, $support] = $this->live();
 
         $this->actingAs($support)->postJson("/corex/desk/sessions/{$s->id}/control/request", ['tab' => 'main'])->assertOk()->assertJsonPath('control.state', 'requested');
-        $this->actingAs($agent)->postJson("/api/v1/desk/sessions/{$s->id}/control/respond", ['allow' => true])->assertOk()->assertJsonPath('control.state', 'granted');
+        $this->actingAs($agent)->postJson("/api/v1/desk/sessions/{$s->id}/control/respond", ['allow' => true, 'request_id' => $this->rid($s)])->assertOk()->assertJsonPath('control.state', 'granted');
         $this->actingAs($agent)->postJson("/api/v1/desk/sessions/{$s->id}/control/actions", ['tab' => 'main', 'actions' => [['type' => 'click', 'selector' => '#a', 'label' => 'OK', 'ok' => true]]])->assertOk()->assertJsonPath('recorded', 1);
         $this->actingAs($agent)->postJson("/api/v1/desk/sessions/{$s->id}/control/revoke", ['reason' => 'agent'])->assertOk()->assertJsonPath('control.state', 'none');
+        // The last batch is flushed by the agent's browser a moment AFTER control ended: still recorded inside the grace window - marked late - and refused after it.
+        $this->actingAs($agent)->postJson("/api/v1/desk/sessions/{$s->id}/control/actions", ['tab' => 'main', 'actions' => [['type' => 'click', 'selector' => '#a', 'ok' => true]]])->assertOk()->assertJsonPath('recorded', 1);
+        $this->assertTrue((bool) ($s->events()->where('type', 'control_action')->get()->last()->payload['late'] ?? false));
+        $this->travel(config('desk.control_report_grace_seconds') + 5)->seconds();
         $this->actingAs($agent)->postJson("/api/v1/desk/sessions/{$s->id}/control/actions", ['tab' => 'main', 'actions' => [['type' => 'click', 'selector' => '#a', 'ok' => true]]])->assertStatus(409);
+        $this->travelBack();
 
         $this->actingAs($support)->postJson("/corex/desk/sessions/{$s->id}/control/request", ['tab' => 'main'])->assertOk();
         $this->actingAs($support)->postJson("/corex/desk/sessions/{$s->id}/control/end")->assertOk()->assertJsonPath('control.state', 'none');
@@ -371,7 +376,7 @@ final class DeskControlTest extends DeskTestCase
     {
         [$s, $agent, $support] = $this->live();
 
-        $this->actingAs($this->agentIn($this->agencyA))->postJson("/api/v1/desk/sessions/{$s->id}/control/respond", ['allow' => true])->assertNotFound();   // a colleague
+        $this->actingAs($this->agentIn($this->agencyA))->postJson("/api/v1/desk/sessions/{$s->id}/control/respond", ['allow' => true, 'request_id' => 'abc'])->assertNotFound();   // a colleague
         $this->actingAs($agent)->postJson("/corex/desk/sessions/{$s->id}/control/request", ['tab' => 'main'])->assertForbidden();                          // the agent is not support
         $this->actingAs($this->adminWithSupport($this->agencyA))->postJson("/corex/desk/sessions/{$s->id}/control/request", ['tab' => 'main'])->assertForbidden();   // view-only support
         $this->actingAs($this->owner())->postJson("/corex/desk/sessions/{$s->id}/control/request", ['tab' => 'main'])->assertStatus(409);                   // an owner who did not join
@@ -401,7 +406,7 @@ final class DeskControlTest extends DeskTestCase
         $this->postJson("/api/v1/desk/ext/sessions/{$s->id}/tabs", ['action' => 'join', 'tab' => 'x4', 'url' => 'https://www.loom.com/share/1', 'title' => 'Video'])->assertOk();
         $this->desk->requestControl($s->fresh(), $support, 'x4');
 
-        $this->postJson("/api/v1/desk/ext/sessions/{$s->id}/control/respond", ['allow' => true])->assertOk()->assertJsonPath('control.state', 'granted')->assertJsonPath('control.tab', 'x4');
+        $this->postJson("/api/v1/desk/ext/sessions/{$s->id}/control/respond", ['allow' => true, 'request_id' => $this->rid($s)])->assertOk()->assertJsonPath('control.state', 'granted')->assertJsonPath('control.tab', 'x4');
         $this->postJson("/api/v1/desk/ext/sessions/{$s->id}/control/actions", ['tab' => 'x4', 'actions' => [['type' => 'scroll', 'selector' => '', 'label' => 'page', 'ok' => true, 'n' => 3]]])->assertOk();
         $this->postJson("/api/v1/desk/ext/sessions/{$s->id}/control/actions", ['tab' => 'main', 'actions' => [['type' => 'click', 'ok' => true]]])->assertStatus(422);   // an extension route only reports extension tabs
         $this->postJson("/api/v1/desk/ext/sessions/{$s->id}/control/revoke", ['reason' => 'idle'])->assertOk()->assertJsonPath('control.state', 'none');
@@ -410,7 +415,7 @@ final class DeskControlTest extends DeskTestCase
         $this->assertSame('Video', $s->events()->where('type', 'control_action')->first()->payload['title']);
 
         Sanctum::actingAs($this->agentIn($this->agencyB), ['*']);
-        $this->postJson("/api/v1/desk/ext/sessions/{$s->id}/control/respond", ['allow' => true])->assertNotFound();
+        $this->postJson("/api/v1/desk/ext/sessions/{$s->id}/control/respond", ['allow' => true, 'request_id' => 'abc'])->assertNotFound();
     }
 
     // ── The agency setting ──────────────────────────────────────────────────────────
@@ -457,13 +462,14 @@ final class DeskControlTest extends DeskTestCase
     public function test_the_clients_only_start_control_after_their_own_allow(): void
     {
         $agent = (string) file_get_contents(resource_path('js/desk/agent.js'));
-        $this->assertStringContainsString('if (!st || !st.ctl.asked) return;', $agent);
+        $this->assertStringContainsString('if (!c || !c.allowed || c.state === \'starting\' || c.state === \'granted\') return;', $agent);
         $this->assertStringContainsString("listenForWhisper('action'", $agent);
-        $this->assertStringContainsString("el.type === 'password'", $agent);
+        $this->assertStringContainsString('verifyAction(c.key, msg, c.lastSeq)', $agent);
+        $this->assertStringContainsString('isSensitiveField(el)', $agent);
         $this->assertStringContainsString("[data-desk-mask]", $agent);
 
         $content = (string) file_get_contents(public_path('chrome-extension/portal-capture/desk-content.js'));
-        $this->assertStringContainsString("S.ctl.state !== 'asking' && S.ctl.state !== 'granted'", $content);
+        $this->assertStringContainsString("S.ctl.state !== 'asking' || !S.ctl.allowed", $content);
         $this->assertStringContainsString('isBlocked: Lib.isSensitiveField', $content);
 
         $console = (string) file_get_contents(resource_path('js/desk/console.js'));

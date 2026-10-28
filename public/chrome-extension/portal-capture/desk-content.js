@@ -16,10 +16,10 @@
 
   var Lib = window.CoreXDeskLib;
   var rr = window.rrwebRecord && window.rrwebRecord.record;
-  var S = window.__corexDeskExt = { ctl: { state: 'none', exec: null, reporter: null, idle: null }, support: 'CoreX support', key: null, stop: null, buf: [], timer: null, host: null, root: null, ui: {}, hl: null, ptrTimer: null, raf: 0 };
+  var S = window.__corexDeskExt = { ctl: { state: 'none', allowed: false, requestId: null, exec: null, reporter: null, idle: null }, support: 'CoreX support', key: null, stop: null, buf: [], timer: null, host: null, root: null, ui: {}, hl: null, ptrTimer: null, raf: 0 };
   if (!Lib || !rr) { delete window.__corexDeskExt; return; }
 
-  var ALL_TYPES = { color: true, date: true, 'datetime-local': true, email: true, month: true, number: true, range: true, search: true, tel: true, text: true, time: true, url: true, week: true, textarea: true, password: true };   // (not select: rrweb then drops option.selected and the mirror shows the wrong choice)
+  var ALL_TYPES = { color: true, date: true, 'datetime-local': true, email: true, month: true, number: true, range: true, search: true, tel: true, text: true, time: true, url: true, week: true, textarea: true, password: true, hidden: true };   // (not select: rrweb then drops option.selected and the mirror shows the wrong choice; hidden inputs carry tokens and ids)
 
   // ── Messages from the service worker ────────────────────────────────────────────
 
@@ -27,7 +27,8 @@
     if (!msg || typeof msg.type !== 'string') return false;
     switch (msg.type) {
       case 'desk.ping': respond({ ok: true, key: S.key }); return false;
-      case 'desk.start': start(msg.key, msg.support); return false;
+      case 'desk.start': start(msg.key, msg.support, msg.supporters); return false;
+      case 'desk.supporters': setSupporters(msg.names, msg.who); return false;
       case 'desk.resync': resync(); return false;
       case 'desk.pointer': movePointer(msg.x, msg.y, msg.who, msg.vw, msg.vh); return false;
       case 'desk.pointer_hide': hidePointer(); return false;
@@ -35,8 +36,8 @@
       case 'desk.highlight_clear': clearHighlight(); return false;
       case 'desk.message': addLine(msg.m, true); return false;
       case 'desk.thread': (msg.lines || []).forEach(function (l) { addLine(l, false); }); return false;
-      case 'desk.control_ask': controlAsk(msg.support); return false;
-      case 'desk.control_on': if (msg.resumed) S.ctl.state = 'asking'; controlOn(msg.idle); return false;
+      case 'desk.control_ask': controlAsk(msg.support, msg.requestId); return false;
+      case 'desk.control_on': if (msg.resumed) { S.ctl.state = 'asking'; S.ctl.allowed = true; } controlOn(msg.idle); return false;   // (resumed = this page was reloaded mid-control; the worker read that from CoreX)
       case 'desk.control_off': controlOff(msg.why); return false;
       case 'desk.action': runAction(msg.a); return false;
       case 'desk.stop': stop(); return false;
@@ -46,13 +47,16 @@
 
   // ── Recording ───────────────────────────────────────────────────────────────────
 
-  function start(key, support) {
+  function start(key, support, supporters) {
     if (S.stop) return;
     S.key = key;
-    buildUi(support);
+    S.supporters = Array.isArray(supporters) && supporters.length ? supporters.slice(0, 20).map(function (n) { return String(n).replace(/[<>&"]/g, ''); }) : null;
+    buildUi(S.supporters ? listText(S.supporters) : support);
+    guardIndicator();
     S.stop = rr({
       emit: function (event) { S.buf.push(event); if (!S.timer) S.timer = setTimeout(flush, 60); },   // short: a keystroke reaches the console in well under a second
       blockClass: 'rr-block',
+      blockSelector: 'meta[name="csrf-token"]',   // (a page's CSRF token is never part of what support sees)
       maskInputOptions: ALL_TYPES,
       maskInputFn: Lib.maskInputFn,
       maskTextSelector: '[data-desk-mask]',
@@ -92,6 +96,8 @@
     if (S.stop) { try { S.stop(); } catch (e) { /* ignore */ } }
     if (S.ctl.reporter) S.ctl.reporter.flush();
     if (S.ctl.idle) S.ctl.idle.stop();
+    if (S.guard) S.guard.disconnect();
+    clearInterval(S.guardTimer); clearTimeout(S.guardReset);
     clearTimeout(S.timer); cancelAnimationFrame(S.raf); clearTimeout(S.ptrTimer);
     if (S.root && S.root.parentNode) S.root.parentNode.removeChild(S.root);
     window.removeEventListener('scroll', place, true);
@@ -125,7 +131,7 @@
       '.th button{all:unset;cursor:pointer;padding:0 10px;border:1px solid rgba(255,255,255,.6);border-radius:4px;background:rgba(255,255,255,.18);font:700 11px/20px system-ui,sans-serif}.th button.more{border:0;background:none;text-decoration:underline;padding:0}' +
       '[hidden]{display:none!important}' +
       '</style>' +
-      '<div class="bar" id="bar"><span>CoreX Desk — ' + name + ' <span id="what">is viewing this window</span></span>' +
+      '<div class="bar" id="bar"><span>CoreX Desk — <span id="name">' + name + '</span> <span id="what">is viewing this window</span></span>' +
       '<button type="button" id="allow" hidden>Allow</button><button type="button" id="decline" hidden>Decline</button><button type="button" id="takeback" hidden>Take back control</button>' +
       '<button type="button" id="stop">Stop sharing</button></div>' +
       '<div class="th" id="th" hidden><div id="thl"></div><div class="rp"><input id="rin" type="text" maxlength="300" placeholder="Reply to CoreX support - Enter sends" autocomplete="off"><button type="button" id="rbtn">Reply</button><button type="button" class="more" id="rmore" hidden></button></div></div>' +
@@ -133,8 +139,18 @@
       '<div class="ring" hidden></div>' +
       '<div class="note" hidden><b id="who">CoreX support</b><span></span></div>';
     S.support = name;
-    sh.getElementById('allow').addEventListener('click', function () { send({ type: 'desk.controlRespond', allow: true }); });
-    sh.getElementById('decline').addEventListener('click', function () { send({ type: 'desk.controlRespond', allow: false }); controlOff('declined'); });
+    // Allow is the ONE thing that lets control start on this page (S.ctl.allowed): set here, by the agent's own click, for the question that is on screen.
+    sh.getElementById('allow').addEventListener('click', function () {
+      if (S.ctl.state !== 'asking' || !S.ctl.requestId) return;
+      S.ctl.allowed = true;
+      try {
+        chrome.runtime.sendMessage({ type: 'desk.controlRespond', allow: true, requestId: S.ctl.requestId }, function (res) {
+          void chrome.runtime.lastError;
+          if (!res || !res.ok) controlOff('lapsed');   // the request had lapsed, was replaced, or CoreX could not be reached: nothing starts
+        });
+      } catch (e) { controlOff('lapsed'); }
+    });
+    sh.getElementById('decline').addEventListener('click', function () { send({ type: 'desk.controlRespond', allow: false, requestId: S.ctl.requestId || '' }); controlOff('declined'); });
     sh.getElementById('takeback').addEventListener('click', function () { controlOff('agent'); send({ type: 'desk.controlRevoke', reason: 'agent' }); });
     sh.getElementById('stop').addEventListener('click', function () {
       try { chrome.runtime.sendMessage({ type: 'desk.stopMe' }, function () { void chrome.runtime.lastError; }); } catch (e) { /* ignore */ }
@@ -189,10 +205,24 @@
     try { chrome.runtime.sendMessage(msg, function () { void chrome.runtime.lastError; }); } catch (e) { /* extension reloaded */ }
   }
 
+  function listText(names) { return names.length <= 1 ? (names[0] || 'CoreX support') : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]; }
+
+  /** Another support person joined: the bar names everyone in the session and flashes, so the agent is never watched without being told. */
+  function setSupporters(names, who) {
+    if (!Array.isArray(names) || !names.length || !S.ui.bar) return;
+    S.supporters = names.slice(0, 20).map(function (n) { return String(n).replace(/[<>&"]/g, ''); });
+    var nameEl = S.sh.getElementById('name');
+    if (nameEl) nameEl.textContent = listText(S.supporters);
+    setBar(S.ui.bar.getAttribute('data-mode') || 'view');
+    S.ui.bar.title = (who ? String(who).replace(/[<>&"]/g, '') + ' joined the session. ' : '') + 'In this session: ' + listText(S.supporters);
+    S.ui.bar.animate([{ background: '#f59e0b' }, { background: '' }], { duration: 1600 });
+  }
+
   function setBar(mode) {
     if (!S.ui.bar) return;
     S.ui.bar.setAttribute('data-mode', mode);
-    S.sh.getElementById('what').textContent = { view: 'is viewing this window', ask: 'wants to take control of this window', control: 'is in control of this window' }[mode];
+    var plural = mode === 'view' && S.supporters && S.supporters.length > 1;
+    S.sh.getElementById('what').textContent = { view: plural ? 'are viewing this window' : 'is viewing this window', ask: 'wants to take control of this window', control: 'is in control of this window' }[mode];
     S.sh.getElementById('allow').hidden = mode !== 'ask';
     S.sh.getElementById('decline').hidden = mode !== 'ask';
     S.sh.getElementById('takeback').hidden = mode !== 'control';
@@ -200,16 +230,21 @@
   }
 
   /** Support asked. Nothing moves until the agent presses Allow in the bar. */
-  function controlAsk() {
+  function controlAsk(support, requestId) {
     if (!S.ui.bar || S.ctl.state === 'granted') return;
+    // A new question replaces an old one: only the request on screen can be answered, and nothing from a previous one carries over.
+    if (S.ctl.requestId !== (requestId || null)) S.ctl.allowed = false;
     S.ctl.state = 'asking';
+    S.ctl.requestId = requestId || null;
+    var nameEl = S.sh.getElementById('name');
+    if (nameEl && support) nameEl.textContent = String(support).replace(/[<>&"]/g, '');   // the person who is asking (not necessarily the first in the session)
     setBar('ask');
   }
 
   /** The server confirmed the agent's Allow (or this page was reloaded mid-control): start replaying support's actions. */
   function controlOn(idleSeconds) {
     if (!S.ui.bar || !window.CoreXDeskExec) return;
-    if (S.ctl.state !== 'asking' && S.ctl.state !== 'granted') return;   // only an Allow given here starts control
+    if (S.ctl.state !== 'asking' || !S.ctl.allowed) return;   // only an Allow given HERE starts control; a second "on" while it runs does nothing
     var E = window.CoreXDeskExec;
     S.ctl.state = 'granted';
     S.ctl.exec = E.create({ doc: document, win: window, isBlocked: Lib.isSensitiveField });
@@ -223,8 +258,33 @@
   function controlOff() {
     if (S.ctl.reporter) S.ctl.reporter.flush();
     if (S.ctl.idle) S.ctl.idle.stop();
-    S.ctl = { state: 'none', exec: null, reporter: null, idle: null };
-    if (S.ui.bar) setBar('view');
+    S.ctl = { state: 'none', allowed: false, requestId: null, exec: null, reporter: null, idle: null };
+    if (S.ui.bar) {
+      var nameEl = S.sh.getElementById('name');
+      if (nameEl && S.supporters) nameEl.textContent = listText(S.supporters);
+      setBar('view');
+    }
+  }
+
+  // ── The indicator must stay: a page that removes or hides the red bar ends the sharing ───────────
+  // The bar is the agent's proof that support is looking. If the page takes it out of the document (or hides it), it is put back; if the page keeps doing it,
+  // the worker stops sharing this tab (nothing is shown to support without the bar being on screen).
+
+  function guardIndicator() {
+    S.lost = 0;
+    var check = function () {
+      if (!S.root) return;
+      var hidden = false;
+      try { var cs = getComputedStyle(S.root); hidden = cs.display === 'none' || cs.visibility === 'hidden'; } catch (e) { /* ignore */ }
+      if (S.root.isConnected && !hidden) return;
+      S.lost++;
+      if (S.lost > 3) { send({ type: 'desk.indicatorGone' }); return; }
+      if (!S.root.isConnected) document.documentElement.appendChild(S.root);
+      if (hidden) { S.root.style.setProperty('display', 'block', 'important'); S.root.style.setProperty('visibility', 'visible', 'important'); }
+      clearTimeout(S.guardReset); S.guardReset = setTimeout(function () { S.lost = 0; }, 10000);   // quiet for a while: forgive
+    };
+    if (window.MutationObserver) { S.guard = new MutationObserver(check); S.guard.observe(document.documentElement, { childList: true }); }
+    S.guardTimer = setInterval(check, 2000);
   }
 
   /** One action whispered by support, forwarded by the service worker. Replayed only while control is granted on THIS tab. */

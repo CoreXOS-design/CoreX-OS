@@ -100,6 +100,10 @@ class DocumentTemplateGenerator
         // Strip any existing blade shell from tagged HTML (prevents nesting on re-edit)
         $taggedHtml = $this->extractBodyOnly($taggedHtml);
 
+        // Imported text is untrusted: neutralise Blade/PHP syntax ONCE here, before processTagSpans() inserts
+        // its own trusted {{ $var }} merge-field expressions (see BladeSafe).
+        $taggedHtml = \App\Support\Docuperfect\BladeSafe::neutralise($taggedHtml);
+
         // Step 2: Process tag spans → proper field/sig/ini spans
         try {
             $processedHtml = $this->processTagSpans($taggedHtml, $tagsById, $mappings, $namedFieldMap, $fieldGroupMap);
@@ -382,8 +386,8 @@ class DocumentTemplateGenerator
         $slug = preg_replace('/[^a-z0-9]+/', '_', strtolower($tagId));
         $slug = trim((string) $slug, '_') ?: 'unknown';
 
-        return '<span class="field field-manual" data-field="manual.' . e($slug) . '"'
-            . ' data-label="' . e($label) . '">{{ $manual_' . $slug . ' ?? \'\' }}</span>';
+        return '<span class="field field-manual" data-field="manual.' . $this->esc($slug) . '"'
+            . ' data-label="' . $this->esc($label) . '">{{ $manual_' . $slug . ' ?? \'\' }}</span>';
     }
 
     /**
@@ -409,7 +413,7 @@ class DocumentTemplateGenerator
             if (!$nf) {
                 $fieldKey = 'field_' . $tagNumber;
                 $fallbackLabel = $mapping['label'] ?? 'Field ' . $tagNumber;
-                return '<span class="field field-manual" data-field="manual.' . $fieldKey . '" data-label="' . e($fallbackLabel) . '">{{ $manual_' . $fieldKey . ' ?? \'\' }}</span>';
+                return '<span class="field field-manual" data-field="manual.' . $fieldKey . '" data-label="' . $this->esc($fallbackLabel) . '">{{ $manual_' . $fieldKey . ' ?? \'\' }}</span>';
             }
 
             $sourceType = $nf->source_type ?? 'manual';
@@ -420,10 +424,10 @@ class DocumentTemplateGenerator
             $nfLabel = $nf->name ?? '';
 
             $contactAttr = $contactType
-                ? ' data-contact-type="' . e($contactType) . '"'
+                ? ' data-contact-type="' . $this->esc($contactType) . '"'
                 : '';
 
-            return '<span class="field" data-field="' . e($dataField) . '"' . $contactAttr . ' data-label="' . e($nfLabel) . '">{{ $' . $varName . ' ?? \'\' }}</span>';
+            return '<span class="field" data-field="' . $this->esc($dataField) . '"' . $contactAttr . ' data-label="' . $this->esc($nfLabel) . '">{{ $' . $varName . ' ?? \'\' }}</span>';
         }
 
         if ($mappingType === 'field_group') {
@@ -433,7 +437,7 @@ class DocumentTemplateGenerator
             if (!$fg) {
                 $fieldKey = 'field_' . $tagNumber;
                 $fallbackLabel = $mapping['label'] ?? 'Field ' . $tagNumber;
-                return '<span class="field field-manual" data-field="manual.' . $fieldKey . '" data-label="' . e($fallbackLabel) . '">{{ $manual_' . $fieldKey . ' ?? \'\' }}</span>';
+                return '<span class="field field-manual" data-field="manual.' . $fieldKey . '" data-label="' . $this->esc($fallbackLabel) . '">{{ $manual_' . $fieldKey . ' ?? \'\' }}</span>';
             }
 
             $layout = $fg->layout ?? 'inline';
@@ -454,14 +458,14 @@ class DocumentTemplateGenerator
                 $label = $f['label_override'] ?? $nf->name ?? '';
 
                 $contactAttr = $contactType
-                    ? ' data-contact-type="' . e($contactType) . '"'
+                    ? ' data-contact-type="' . $this->esc($contactType) . '"'
                     : '';
 
-                $inner .= '<span class="field" data-field="' . e($dataField) . '"' . $contactAttr
-                    . ' data-label="' . e($label) . '">{{ $' . $varName . ' ?? \'\' }}</span> ';
+                $inner .= '<span class="field" data-field="' . $this->esc($dataField) . '"' . $contactAttr
+                    . ' data-label="' . $this->esc($label) . '">{{ $' . $varName . ' ?? \'\' }}</span> ';
             }
 
-            return '<span class="field-group" data-group-id="' . $groupId . '" data-layout="' . e($layout) . '">'
+            return '<span class="field-group" data-group-id="' . $groupId . '" data-layout="' . $this->esc($layout) . '">'
                 . trim($inner)
                 . '</span>';
         }
@@ -471,7 +475,7 @@ class DocumentTemplateGenerator
             $slug = Str::slug($label, '_');
             $varName = 'manual_' . $slug;
 
-            return '<span class="field field-manual" data-field="manual.' . e($slug) . '" data-label="' . e($label) . '">{{ $' . $varName . ' ?? \'\' }}</span>';
+            return '<span class="field field-manual" data-field="manual.' . $this->esc($slug) . '" data-label="' . $this->esc($label) . '">{{ $' . $varName . ' ?? \'\' }}</span>';
         }
 
         return '';
@@ -498,8 +502,8 @@ class DocumentTemplateGenerator
             ->values()
             ->toArray();
 
-        $partiesJson = e(json_encode($parties));
-        $html = '<div class="sig-block" data-sig-number="' . $number . '" data-variant="' . e($variant) . '" data-parties="' . $partiesJson . '">';
+        $partiesJson = $this->esc(json_encode($parties));
+        $html = '<div class="sig-block" data-sig-number="' . $number . '" data-variant="' . $this->esc($variant) . '" data-parties="' . $partiesJson . '">';
 
         // Preamble based on variant
         if ($variant === 'sig_full') {
@@ -522,7 +526,7 @@ class DocumentTemplateGenerator
             $varName = Str::camel(Str::slug($partyName, '_')) . 'Name';
             $html .= '<div class="sig-block-party">'
                 . '<div class="sig-line">_________________________________</div>'
-                . '<div class="sig-name">{{ $' . $varName . ' ?? \'' . e($partyName) . '\' }}</div>'
+                . '<div class="sig-name">{{ $' . $varName . ' ?? \'' . $this->esc($partyName) . '\' }}</div>'
                 . '</div>';
         }
 
@@ -902,12 +906,18 @@ class DocumentTemplateGenerator
     /**
      * Wrap generated HTML body in a full Blade template shell.
      */
+    /** HTML-escape a value that goes into the generated Blade file AND make any Blade/PHP syntax in it inert (BladeSafe). */
+    protected function esc(mixed $value): string
+    {
+        return \App\Support\Docuperfect\BladeSafe::neutraliseText(e((string) $value));
+    }
+
     protected function wrapInBladeTemplate(string $bodyHtml, string $templateName): string
     {
         // Note: detectSignatureBoundary() is intentionally NOT called here.
         // The DocxParserService already stripped original sig sections during parse.
         // The signature-block component is appended below via @include.
-        $title = e($templateName);
+        $title = $this->esc($templateName);
 
         // If the processed HTML already contains inline sig blocks from SIG tags,
         // don't append the signature-block component (would duplicate signatures)
