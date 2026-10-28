@@ -48,8 +48,12 @@ for (const person of people) {
                 const table = block === 'intake' ? document.querySelector('[data-qa="intake-table"]') : null;
                 const form = body && body.querySelector('form');
                 const over = (el) => !el ? null : el.scrollHeight - el.clientHeight;
+                const overX = (el) => !el ? null : el.scrollWidth - el.clientWidth;
+                const gb = grow ? grow.getBoundingClientRect() : null;
+                const actions = block === 'intake' ? [...document.querySelectorAll('[data-qa="intake-table"] tbody td:last-child')] : [];
+                const clipped = gb ? actions.filter((td) => td.getBoundingClientRect().right > gb.right + 1).length : 0;
                 return {
-                    vh: innerHeight, pageOverflow: over(sc), bodyOverflow: over(body), growOverflow: over(grow), growBox: box(grow), table: box(table),
+                    vh: innerHeight, growOverflowX: overX(grow), actionCellsClipped: clipped, actionCells: actions.length, buttons: actions.reduce((n, td) => n + td.querySelectorAll('button, a').length, 0), pageOverflow: over(sc), bodyOverflow: over(body), growOverflow: over(grow), growBox: box(grow), table: box(table),
                     formBottom: form ? box(form).bottom : null, rows: table ? table.querySelectorAll('tbody tr').length : null,
                     cards: document.querySelectorAll('[data-prospect]').length, parkedRows: document.querySelectorAll('[data-parked]').length,
                 };
@@ -60,6 +64,8 @@ for (const person of people) {
             if ((g.bodyOverflow ?? 0) > 1) fails.push(`block scrolls by ${g.bodyOverflow}px`);
             if ((g.growOverflow ?? 0) > 1) fails.push(`the list scrolls by ${g.growOverflow}px (${g.rows ?? g.cards ?? g.parkedRows} rows)`);
             if (block === 'intake') {
+                if ((g.growOverflowX ?? 0) > 1) fails.push(`the intake table scrolls sideways by ${g.growOverflowX}px`);
+                if (g.actionCellsClipped > 0) fails.push(`${g.actionCellsClipped} of ${g.actionCells} rows have their actions off the right edge`);
                 if (!g.table || g.table.h < 120) fails.push(`intake table is ${g.table ? g.table.h : 'missing'}px high`);
                 else if (g.table.bottom > g.vh + 1 || g.table.top < 0) fails.push(`intake table is off screen (${g.table.top}-${g.table.bottom} of ${g.vh})`);
                 if (g.formBottom !== null && g.table && g.table.top - g.formBottom > 60) fails.push('the table is not right under the filters');
