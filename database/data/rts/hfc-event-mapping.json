@@ -178,5 +178,5 @@
     "Feedback to Sellers - EATS": "moved to Listing live (hand-ticked)",
     "Rcr submitted": "not mapped - compliance filing, still credited by its own detector"
   },
-  "_note_28_oct": "The three decisions above are in database/data/rts/hfc-task-decisions.json and apply with rts:apply-task-mapping (road-to-sold.md 22.24). Binding to events is still not applied."
+  "_note_28_oct": "The three decisions above are in database/data/rts/hfc-task-decisions.json and apply with rts:apply-task-mapping (road-to-sold.md 22.25). Binding to events is still not applied."
 }

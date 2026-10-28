@@ -22,11 +22,13 @@ class ProspectListService
 {
     public const PER_PAGE = 25;
     public const PROSPECT_SORTS = ['due', 'stage', 'address', 'days_in_stage', 'last_outcome'];
+    public const LINE_SORTS = ['due', 'days_in_stage', 'address'];
+    public const LINE_CHIP_LIMIT = 300;
     public const PARKED_SORTS = ['revisit', 'parked', 'address', 'reason'];
     public const DUE_FILTERS = ['overdue', 'today', 'week', 'later', 'none'];
     public const REVISIT_FILTERS = ['due', 'month', 'later'];
 
-    private function base(User $viewer, ?int $agentId, string $track)
+    private function base(User $viewer, ?int $agentId, string $track, ?int $branchId = null)
     {
         $q = RtsProspect::query()->visibleTo($viewer)
             ->where('rts_prospects.track', $track)
@@ -37,6 +39,9 @@ class ProspectListService
                 'oc.first_name as owner_first', 'oc.last_name as owner_last', 'oc.phone as owner_phone', 'ag.name as agent_name');
         if ($agentId !== null) {
             $q->where('rts_prospects.user_id', $agentId);
+        }
+        if ($branchId !== null) {
+            $q->where('rts_prospects.branch_id', $branchId);
         }
 
         return $q;
@@ -132,6 +137,62 @@ class ProspectListService
         return [
             'rows'   => new LengthAwarePaginator($items->values(), $total, self::PER_PAGE, $page, ['path' => request()->url(), 'query' => request()->query()]),
             'counts' => $counts,
+        ];
+    }
+
+    /**
+     * The production line's chips (road-to-sold.md 22.24): every ACTIVE prospect in the scope, one plain row each, no paging - up to
+     * LINE_CHIP_LIMIT, ordered by station then the sort. search: address, suburb, owner name, owner phone, next action. filters: stage (one
+     * station), due, suburb. sort: due (default), days_in_stage, address. Scoping in the query (own / branch / agency); a branch or agent
+     * outside the breadth simply has no rows.
+     *
+     * @param  ?int $agentId one agent, or null = everyone in the viewer's breadth;  ?int $branchId = one branch of them
+     * @param  array{q?:?string,stage?:?string,due?:?string,suburb?:?string,sort?:?string,dir?:?string} $f
+     * @return array{rows:array<int,array<string,mixed>>,total:int,limited:bool}
+     */
+    public function line(User $viewer, ?int $agentId, array $f = [], string $track = 'sales', ?int $branchId = null): array
+    {
+        $q = $this->base($viewer, $agentId, $track, $branchId)->activeStage();
+        $this->search($q, (string) ($f['q'] ?? ''), ["CONCAT_WS(' ', tp.street_number, tp.street_name)", 'tp.suburb', "CONCAT_WS(' ', oc.first_name, oc.last_name)", 'oc.phone', 'rts_prospects.next_action_label']);
+        if (! empty($f['stage']) && ProspectStages::exists((string) $f['stage'])) {
+            $q->where('rts_prospects.stage', $f['stage']);
+        }
+        $today = Carbon::today()->toDateString();
+        match ($f['due'] ?? null) {
+            'overdue' => $q->whereNotNull('rts_prospects.next_action_at')->whereDate('rts_prospects.next_action_at', '<', $today),
+            'today'   => $q->whereDate('rts_prospects.next_action_at', $today),
+            'week'    => $q->whereNotNull('rts_prospects.next_action_at')->whereDate('rts_prospects.next_action_at', '>', $today)->whereDate('rts_prospects.next_action_at', '<=', Carbon::today()->addDays(7)->toDateString()),
+            'later'   => $q->whereDate('rts_prospects.next_action_at', '>', Carbon::today()->addDays(7)->toDateString()),
+            'none'    => $q->whereNull('rts_prospects.next_action_at'),
+            default   => null,
+        };
+        if (! empty($f['suburb'])) {
+            $q->where('tp.suburb', (string) $f['suburb']);
+        }
+
+        $dir = ($f['dir'] ?? 'asc') === 'desc' ? 'desc' : 'asc';
+        $order = implode(',', array_map(fn ($k) => DB::getPdo()->quote($k), ProspectStages::keys()));
+        $q->orderByRaw("FIELD(rts_prospects.stage, {$order})");
+        switch (in_array($f['sort'] ?? 'due', self::LINE_SORTS, true) ? ($f['sort'] ?? 'due') : 'due') {
+            case 'address':
+                $q->orderBy('tp.street_name', $dir)->orderBy('tp.street_number', $dir);
+                break;
+            case 'days_in_stage':
+                $q->orderBy('rts_prospects.stage_entered_at', $dir);   // the line's default reads "longest at the station first": the oldest entry
+                break;
+            default:
+                $q->orderByRaw("rts_prospects.next_action_at IS NULL, rts_prospects.next_action_at {$dir}");
+        }
+        $q->orderBy('rts_prospects.id');
+
+        $total = (clone $q)->reorder()->count('rts_prospects.id');
+        $rows = $q->limit(self::LINE_CHIP_LIMIT)->get();
+        $prices = CurrentAskingPrice::forTracked($rows->pluck('tracked_property_id')->all());
+
+        return [
+            'rows'    => $rows->map(fn ($r) => $this->row($r, $today, $prices))->values()->all(),
+            'total'   => $total,
+            'limited' => $total > self::LINE_CHIP_LIMIT,
         ];
     }
 

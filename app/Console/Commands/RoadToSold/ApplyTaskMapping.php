@@ -6,7 +6,7 @@ use App\Services\RoadToSold\TaskMappingService;
 use Illuminate\Console\Command;
 
 /**
- * Road to Sold (road-to-sold.md 22.24) - apply the decided task-to-step defaults for an agency and record every task's starting mapping,
+ * Road to Sold (road-to-sold.md 22.25) - apply the decided task-to-step defaults for an agency and record every task's starting mapping,
  * so Settings can show "changed from default" and put it back.
  *
  *   rts:apply-task-mapping --agency=1 [--dry-run] [--file=database/data/rts/hfc-task-decisions.json]

@@ -7,7 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Road to Sold - the task-to-step mapping an agency can see, change and put back (road-to-sold.md 22.18 / 22.24).
+ * Road to Sold - the task-to-step mapping an agency can see, change and put back (road-to-sold.md 22.18 / 22.25).
  *
  *  rts_tasks.mapping_default  the step / event the task started on (JSON {step_id, event_key, event_filter, needs_step, note}); null = none recorded.
  *  rts_tasks.needs_step       true = nobody has chosen a step for this task yet ("not mapped - choose a step"); it sits in its old step meanwhile.

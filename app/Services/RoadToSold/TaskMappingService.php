@@ -9,7 +9,7 @@ use App\Models\Scopes\AgencyScope;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Road to Sold - which step each task sits in and what credits it, as the agency sees it (road-to-sold.md 22.24).
+ * Road to Sold - which step each task sits in and what credits it, as the agency sees it (road-to-sold.md 22.25).
  *
  * A task's "mapping" is its step, its event binding (key + filter) and whether anyone has chosen a step for it yet (needs_step). The
  * mapping the task STARTED on is kept on the task (rts_tasks.mapping_default) so an admin can put it back, and every change or restore is

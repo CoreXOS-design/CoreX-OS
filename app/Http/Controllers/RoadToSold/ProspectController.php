@@ -105,17 +105,21 @@ class ProspectController extends Controller
         $p = $this->find($request, $prospect, true);
         $data = $request->validate([
             'stage' => ['required', 'string'],
-            'note'  => ['nullable', 'string', 'max:255'],
-            'next_label' => ['nullable', 'string', 'max:120'],
-            'next_at'    => ['nullable', 'date'],
-        ], ['stage.required' => 'Pick the stage it reached.', 'next_at.date' => 'We could not read that date. Pick it again.']);
+            'note'  => ['required', 'string', 'max:255'],
+            'next_label' => ['required', 'string', 'max:120'],
+            'next_at'    => ['required', 'date'],
+        ], [
+            'stage.required' => 'Pick the stage it reached.', 'note.required' => 'Say what happened.',
+            'next_label.required' => 'Say what you will do next.', 'next_at.required' => 'Pick the date for the next action.',
+            'next_at.date' => 'We could not read that date. Pick it again.',
+        ]);
         if (! ProspectStages::exists($data['stage'])) {
             throw ValidationException::withMessages(['stage' => 'Pick one of the stages shown.']);
         }
         $moved = $this->prospects->advance($p, $data['stage'], $request->user(), [
             'note' => $data['note'] ?? null, 'event_class' => 'captured', 'subject_type' => 'capture', 'subject_id' => (int) now()->format('Uu'),
-            'next_label' => array_key_exists('next_label', $data) && $data['next_label'] !== null ? $data['next_label'] : ProspectStages::defaultNext($data['stage']),
-            'next_at' => ! empty($data['next_at']) ? Carbon::parse($data['next_at']) : null,
+            'next_label' => $data['next_label'],
+            'next_at' => Carbon::parse($data['next_at']),
         ]);
         if (! $moved) {
             throw ValidationException::withMessages(['stage' => 'It is already at or past that stage.']);
