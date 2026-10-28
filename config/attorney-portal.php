@@ -11,6 +11,6 @@ return [
     'otp'           => [
         'expires_minutes' => 10,
         'cooldown_secs'   => 60,
-        'hourly_limit'    => 5,
+        'hourly_limit'    => 10,   // codes per attorney contact per hour (each contact counts on their own)
     ],
 ];
