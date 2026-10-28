@@ -26,7 +26,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class MarketReportCompRow extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToAgency, SoftDeletes, \App\Models\Concerns\FlagsDemoRows;
 
     protected $table = 'market_report_comp_rows';
 

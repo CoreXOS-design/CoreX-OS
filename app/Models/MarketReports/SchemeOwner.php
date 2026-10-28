@@ -16,7 +16,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class SchemeOwner extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes, \App\Models\Concerns\FlagsDemoRows;
 
     protected $table = 'scheme_owners';
 

@@ -237,6 +237,14 @@ Schedule::command('corex:queue-healthcheck')
     ->onOneServer()
     ->name('queue-healthcheck');
 
+// A queue with jobs waiting and no worker process on this host naming it (the `thumbnails` lane sat idle on the demo box with
+// 780 jobs because nobody had installed its worker). Reads the process table, not supervisor, so it works on every box.
+Schedule::command('corex:queue-worker-coverage')
+    ->everyFiveMinutes()
+    ->withoutOverlapping()
+    ->onOneServer()
+    ->name('queue-worker-coverage');
+
 // Queue worker liveness alert — runs every minute so a FATAL/STOPPED
 // corex-worker-* process (e.g. one that lost its supervisor restart budget
 // during a MySQL blip, 2026-08-19) emails the configured Dev Settings
