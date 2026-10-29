@@ -31,6 +31,17 @@ class RmcpVersion extends Model
         'next_review_due',
         'change_notes',
         'created_by',
+        'signed_copy_path',
+        'signed_copy_name',
+        'signed_copy_sha256',
+        'signed_copy_uploaded_by',
+        'signed_copy_uploaded_at',
+        'signed_by_name',
+        'signed_on',
+        'submitted_to_fic_on',
+        'staff_training_sent_at',
+        'staff_training_sent_by',
+        'staff_training_sent_count',
     ];
 
     protected $casts = [
@@ -38,6 +49,10 @@ class RmcpVersion extends Model
         'superseded_at'  => 'datetime',
         'effective_from' => 'date',
         'next_review_due' => 'date',
+        'signed_copy_uploaded_at'  => 'datetime',
+        'signed_on'                => 'date',
+        'submitted_to_fic_on'      => 'date',
+        'staff_training_sent_at'   => 'datetime',
     ];
 
     // ── Relationships ──

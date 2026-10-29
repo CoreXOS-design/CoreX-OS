@@ -36,6 +36,22 @@ class PolicyVersion extends Model
         'next_review_due',
         'change_notes',
         'created_by',
+        'signed_copy_path',
+        'signed_copy_name',
+        'signed_copy_sha256',
+        'signed_copy_uploaded_by',
+        'signed_copy_uploaded_at',
+        'signed_by_name',
+        'signed_on',
+        'submitted_to_fic_on',
+        'staff_training_sent_at',
+        'staff_training_sent_by',
+        'staff_training_sent_count',
+        'source_kind',
+        'source_document_path',
+        'source_document_name',
+        'source_document_sha256',
+        'source_page_count',
     ];
 
     protected $casts = [
@@ -43,6 +59,10 @@ class PolicyVersion extends Model
         'superseded_at'   => 'datetime',
         'effective_from'  => 'date',
         'next_review_due' => 'date',
+        'signed_copy_uploaded_at'  => 'datetime',
+        'signed_on'                => 'date',
+        'submitted_to_fic_on'      => 'date',
+        'staff_training_sent_at'   => 'datetime',
     ];
 
     // ── Relationships ──
@@ -102,6 +122,12 @@ class PolicyVersion extends Model
      * superseded — which reverts every staff member to not_started for this
      * policy (status is computed against the active version id). See spec §8.
      */
+    /** A policy made from an uploaded document (stored as a PDF, one section per page) rather than typed sections. */
+    public function isDocument(): bool
+    {
+        return $this->source_kind === 'document';
+    }
+
     public function approve(User $user, string $title, ?string $documentPath, ?string $notes): void
     {
         self::where('policy_id', $this->policy_id)

@@ -53,6 +53,36 @@
         </div>
         @endif
 
+        @include('compliance.partials._signed-copy', [
+            'version' => $version, 'signed' => $signed, 'canManage' => $canManageSigned, 'canAttach' => $canAttachSigned,
+            'downloadUrl' => route('compliance.policy.signed-copy', $version), 'storeUrl' => route('compliance.policy.signed-copy.store', $version),
+        ])
+
+        @if($canSendTraining)
+            @include('compliance.partials._staff-training', [
+                'version' => $version, 'counts' => $trainingCounts, 'trainingUrl' => route('compliance.policy.staff-training', $version),
+                'docLabel' => ($version->policy->name ?? 'this policy') . ' v' . $version->version_number,
+            ])
+        @endif
+
+        @if($version->isDocument())
+        <div class="mb-4 rounded-md px-4 py-3 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <div class="font-semibold">Uploaded document · {{ $version->source_document_name }} · {{ $version->source_page_count }} {{ Str::plural('page', $version->source_page_count) }}</div>
+            <div class="text-xs mt-0.5" style="color: var(--text-muted);">Staff read it page by page and sign once at the end.</div>
+            @permission('edit_policy')
+            <details class="mt-2">
+                <summary class="text-xs font-semibold cursor-pointer" style="color: var(--brand-icon);">Upload a new version of the document</summary>
+                <form method="POST" action="{{ route('compliance.policy.version.upload', $version->policy_id) }}" enctype="multipart/form-data" class="mt-2 flex flex-wrap items-center gap-3">
+                    @csrf
+                    <input type="file" name="document" accept=".pdf,.docx,.doc,application/pdf" required class="text-xs">
+                    <button type="submit" class="corex-btn-outline text-xs">Create draft from this file</button>
+                    @error('document') <span class="text-xs" style="color: var(--ds-crimson);">{{ $message }}</span> @enderror
+                </form>
+            </details>
+            @endpermission
+        </div>
+        @endif
+
         <div class="flex gap-6">
             <div class="hidden lg:block flex-shrink-0" style="width:240px;">
                 <div class="sticky top-16">

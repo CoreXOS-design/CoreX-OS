@@ -54,6 +54,13 @@
             <div class="flex-1">
                 <strong>{{ $selectedPolicy->name }} v{{ $activeVersion->version_number }}</strong>
                 <span style="color: var(--text-secondary);">— approved {{ $activeVersion->approved_at?->format('d M Y') ?? 'pending' }} | Next review: {{ $activeVersion->next_review_due?->format('d M Y') ?? 'not set' }}</span>
+                <div class="text-xs mt-1" style="color: var(--text-secondary);" data-training-status>
+                    @if($activeVersion->staff_training_sent_at)
+                        Last sent {{ $activeVersion->staff_training_sent_at->format('j F Y H:i') }} · {{ $validCount }} of {{ $totalStaff }} signed
+                    @else
+                        Staff training not sent yet · {{ $validCount }} of {{ $totalStaff }} signed
+                    @endif
+                </div>
             </div>
         </div>
         @else

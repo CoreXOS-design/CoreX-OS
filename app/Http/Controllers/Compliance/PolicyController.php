@@ -8,9 +8,12 @@ use App\Models\Compliance\AgencyPolicy;
 use App\Models\Compliance\PolicySection;
 use App\Models\Compliance\PolicyVersion;
 use App\Services\Compliance\CompliancePdf;
+use App\Services\Compliance\PolicyDocumentImporter;
 use App\Services\Compliance\PolicyVariableResolver;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -22,6 +25,9 @@ use Illuminate\Support\Str;
 class PolicyController extends Controller
 {
     protected PolicyVariableResolver $resolver;
+
+    /** Closing declaration of a policy made from an uploaded document (the typed starter has its own wording). */
+    public const DOCUMENT_DECLARATION = 'I confirm that I have read and understood this policy in full and acknowledge my obligations under it.';
 
     public function __construct(PolicyVariableResolver $resolver)
     {
@@ -66,8 +72,11 @@ class PolicyController extends Controller
             'name'        => 'required|string|max:255',
             'policy_key'  => 'required|string|max:64|regex:/^[a-z0-9_]+$/',
             'description' => 'nullable|string|max:1000',
+            'document'    => 'nullable|file|mimes:pdf,docx,doc|max:20480',
         ], [
             'policy_key.regex' => 'The policy key may only contain lowercase letters, numbers and underscores.',
+            'document.mimes'   => 'Upload the policy as a PDF or a Word file (.docx).',
+            'document.max'     => 'The document must be 20 MB or smaller.',
         ]);
 
         $exists = AgencyPolicy::where('agency_id', $agencyId)
@@ -76,6 +85,8 @@ class PolicyController extends Controller
         if ($exists) {
             return back()->withInput()->withErrors(['policy_key' => 'A policy with this key already exists.']);
         }
+
+        DB::beginTransaction();
 
         $policy = AgencyPolicy::create([
             'agency_id'   => $agencyId,
@@ -93,6 +104,22 @@ class PolicyController extends Controller
             'status'         => 'draft',
             'created_by'     => $user->id,
         ]);
+
+        // Made from an uploaded document: one section per page, read page by page, one signature at the end. A document
+        // that cannot be read leaves nothing behind - the policy and its draft are removed so the form can be tried again.
+        if ($request->hasFile('document')) {
+            try {
+                app(PolicyDocumentImporter::class)->import($version, $request->file('document'), self::DOCUMENT_DECLARATION);
+            } catch (\RuntimeException $e) {
+                DB::rollBack();
+
+                return back()->withInput()->withErrors(['document' => $e->getMessage()]);
+            }
+            DB::commit();
+
+            return redirect()->route('compliance.policy.show', $version)
+                ->with('success', "Policy '{$policy->name}' created from the uploaded document ({$version->source_page_count} pages). Approve it to make it active and ask staff to read and sign it.");
+        }
 
         // Starter sections so the version is editable and signable.
         PolicySection::create([
@@ -116,6 +143,8 @@ class PolicyController extends Controller
             'body_html'                => '<p>I confirm that I have read and understood this policy in full and acknowledge my obligations under it.</p>',
             'requires_acknowledgement' => false,
         ]);
+
+        DB::commit();
 
         return redirect()->route('compliance.policy.edit', $version)
             ->with('success', "Policy '{$policy->name}' created with a v1 draft.");
@@ -146,6 +175,12 @@ class PolicyController extends Controller
             'status'         => 'draft',
             'created_by'     => $user->id,
             'change_notes'   => "Cloned from v{$latestNumber}",
+            // An uploaded-document policy keeps pointing at the same document until a new one is uploaded.
+            'source_kind'            => $source?->source_kind ?? 'sections',
+            'source_document_path'   => $source?->source_document_path,
+            'source_document_name'   => $source?->source_document_name,
+            'source_document_sha256' => $source?->source_document_sha256,
+            'source_page_count'      => $source?->source_page_count,
         ]);
 
         if ($source) {
@@ -176,13 +211,28 @@ class PolicyController extends Controller
         $agency = Agency::findOrFail($version->agency_id);
         $variables = $this->resolver->resolve($agency, $version);
 
-        return view('compliance.policy.show', compact('version', 'agency', 'variables'));
+        $signedCopies    = app(\App\Services\Compliance\SignedCopyService::class);
+        $signed          = $signedCopies->describe($version);
+        $canManageSigned = $signedCopies->canManage(Auth::user(), (int) $version->agency_id);
+        $canAttachSigned = $signedCopies->canAttachTo($version);
+        $trainingCounts  = $version->status === 'active' ? app(\App\Services\Compliance\StaffTrainingService::class)->counts($version) : null;
+        $canSendTraining = $trainingCounts !== null && Auth::user()->hasPermission('approve_policy');
+
+        return view('compliance.policy.show', compact(
+            'version', 'agency', 'variables',
+            'signed', 'canManageSigned', 'canAttachSigned', 'trainingCounts', 'canSendTraining'
+        ));
     }
 
     public function edit(PolicyVersion $version)
     {
         abort_unless(Auth::user()->hasPermission('edit_policy'), 403);
         abort_unless($version->canBeEdited(), 403, 'Only draft versions can be edited.');
+
+        if ($version->isDocument()) {
+            return redirect()->route('compliance.policy.show', $version)
+                ->with('error', 'This policy is an uploaded document, so there is no text to edit. Upload a new version of the document instead.');
+        }
 
         $version->load('policy', 'sections');
         $agency = Agency::findOrFail($version->agency_id);
@@ -311,8 +361,13 @@ class PolicyController extends Controller
             'user_id'    => Auth::id(),
         ]);
 
+        // Same shared step as RMCP approval: earlier signatures on this policy stop counting and every active staff
+        // member is told (in-app) to read and sign it. A failure here never undoes the approval (the service logs it).
+        $sent = app(\App\Services\Compliance\StaffTrainingService::class)
+            ->send($version->fresh(), Auth::user(), \App\Services\Compliance\StaffTrainingService::MODE_APPROVAL);
+
         return redirect()->route('compliance.policy.show', $version)
-            ->with('success', "Policy v{$version->version_number} approved and now active. All staff must re-acknowledge.");
+            ->with('success', "Policy v{$version->version_number} approved and now active. {$sent['notified']} staff member(s) have been asked to read and sign it.");
     }
 
     public function downloadPdf(PolicyVersion $version)
@@ -320,6 +375,15 @@ class PolicyController extends Controller
         abort_unless(Auth::user()->hasPermission('access_policy'), 403);
 
         $version->load('policy', 'sections', 'approver');
+
+        if ($version->isDocument() && $version->source_document_path && Storage::disk('local')->exists($version->source_document_path)) {
+            return Storage::disk('local')->download(
+                $version->source_document_path,
+                Str::slug((string) ($version->policy?->name ?: $version->title)) . '-v' . $version->version_number . '.pdf',
+                ['Content-Type' => 'application/pdf']
+            );
+        }
+
         $agency = Agency::findOrFail($version->agency_id);
         $variables = $this->resolver->resolve($agency, $version);
 
@@ -335,5 +399,59 @@ class PolicyController extends Controller
 
         return $response ?? redirect()->route('compliance.policy.show', $version)
             ->with('error', 'The PDF could not be created just now. Please try again; if it keeps failing, tell your administrator.');
+    }
+    /**
+     * A new DRAFT version of an uploaded-document policy from a newly uploaded file.
+     */
+    public function uploadVersion(Request $request, AgencyPolicy $policy)
+    {
+        abort_unless(Auth::user()->hasPermission('edit_policy'), 403);
+
+        $request->validate([
+            'document' => 'required|file|mimes:pdf,docx,doc|max:20480',
+        ], [
+            'document.required' => 'Choose the new document to upload.',
+            'document.mimes'    => 'Upload the policy as a PDF or a Word file (.docx).',
+            'document.max'      => 'The document must be 20 MB or smaller.',
+        ]);
+
+        $user   = Auth::user();
+        $latest = PolicyVersion::where('policy_id', $policy->id)->max('version_number') ?? 0;
+
+        DB::beginTransaction();
+        $version = PolicyVersion::create([
+            'agency_id'      => $policy->agency_id,
+            'policy_id'      => $policy->id,
+            'version_number' => $latest + 1,
+            'title'          => $policy->name,
+            'status'         => 'draft',
+            'created_by'     => $user->id,
+            'change_notes'   => 'New document uploaded',
+        ]);
+
+        try {
+            app(PolicyDocumentImporter::class)->import($version, $request->file('document'), self::DOCUMENT_DECLARATION);
+        } catch (\RuntimeException $e) {
+            DB::rollBack();
+
+            return back()->withErrors(['document' => $e->getMessage()]);
+        }
+        DB::commit();
+
+        return redirect()->route('compliance.policy.show', $version)
+            ->with('success', "{$policy->name} v{$version->version_number} draft created from the uploaded document ({$version->source_page_count} pages).");
+    }
+
+    /**
+     * One page of an uploaded-document policy, as the image the read-through shows. Private: signed in, same agency.
+     */
+    public function pageImage(PolicyVersion $version, int $page)
+    {
+        abort_unless(Auth::user()->hasPermission('access_policy'), 403);
+
+        $path = app(PolicyDocumentImporter::class)->pageImagePath($version, $page);
+        abort_unless($path, 404);
+
+        return Storage::disk('local')->response($path, null, ['Content-Type' => 'image/jpeg', 'Cache-Control' => 'private, max-age=3600']);
     }
 }

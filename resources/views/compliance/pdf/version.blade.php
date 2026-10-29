@@ -61,6 +61,9 @@
         @else
             <div class="status superseded">Superseded{{ $version->superseded_at ? ' on ' . $version->superseded_at->format('d F Y') : '' }}</div>
         @endif
+        @if(!empty($signedLine))
+            <div class="status active" data-signed-copy-line>{{ $signedLine }}</div>
+        @endif
 
         @if($version->sections->isNotEmpty())
         <div class="toc">
