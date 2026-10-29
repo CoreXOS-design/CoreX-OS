@@ -259,6 +259,11 @@
         || (request()->routeIs('corex.contacts.show') && session('corex.lens.contacts', false))
     ) {
         $activeGroup = 'rental-applications';
+    } elseif (
+        // Auctions v2 — highlights the Auctions group on its own screens.
+        request()->routeIs('corex.auctions.*')
+    ) {
+        $activeGroup = 'auctions';
     } elseif (request()->routeIs(
         'prospecting.*',
         'market-intelligence.*',
@@ -1495,6 +1500,41 @@
         </div>
         @endfeature
         @endif
+
+        {{-- ═══════════════════════════════════════════
+             AUCTIONS (expandable group) — AT-432, Auctions v2, .ai/specs/auctions.md §5
+             Feature-flagged AND permission-gated: an agency that does not
+             auction sees nothing here at all. Alpine group key 'auctions'.
+             Same push()/pop() + corex-nav-group-toggle pattern as the Rentals panel above.
+             ═══════════════════════════════════════════ --}}
+        @feature('auctions')
+        @if($user && $user->hasPermission('access_auctions'))
+        <div>
+            <button type="button" @click="push('auctions')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'auctions' ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.25 9.75 16.5 12l-6.75 6.75-2.25-2.25M3 21l3-3m12.75-15L21 5.25m-3.75 3.75L21 5.25m-8.303 8.303 2.652 2.652M5.25 5.25l3.879 3.879" />
+                </svg>
+                <span>Auctions</span>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div class="corex-nav-panel {{ $activeGroup === 'auctions' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('auctions') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Auctions</div>
+
+                @permission('auctions.view')
+                <a href="{{ route('corex.auctions.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.index', 'corex.auctions.create', 'corex.auctions.edit', 'corex.auctions.documents.*') ? 'active' : '' }}">Auctions</a>
+                <a href="{{ route('corex.auctions.lots.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.lots.*') ? 'active' : '' }}">Lots</a>
+                @endpermission
+
+            </div>
+        </div>
+        @endif
+        @endfeature
 
         {{-- ═══════════════════════════════════════════
              COMMUNICATION (expandable group)

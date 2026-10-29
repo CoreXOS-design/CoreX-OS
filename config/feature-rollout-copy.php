@@ -29,6 +29,7 @@ return [
 
         // ── Listings & marketing ────────────────────────────────────────────
         'ad-manager' => "Ad Manager is where you build and track adverts for your listings across the channels you use.\n\nSee which adverts are running for each property and keep your advertising organised in one place.",
+        'auctions' => "Auctions lets you sell properties by auction.\n\nBuild an auction, add lots, give each auction property its bidding dates and opening bid, and publish a public auction page. Buyers sign up, register for the auction and bid; you approve bidders and watch every bid.\n\nNothing changes for anyone until you switch it on.",
         'imported-stock' => "Imported Stock lists properties brought in from other agencies' portal listings, kept separate from your own stock.\n\nIt helps your agents know the market and spot opportunities, without mixing other agencies' listings into your own.",
         'marketing' => "Marketing gives your agents tools to market each listing: social posts, brochures and campaign tracking, all attached to the property.\n\nThe tools appear right on the listing, so marketing a property starts from the property itself.",
         'marketing-suppressions' => "Marketing Suppressions keeps the list of contacts who have asked not to receive marketing.\n\nCoreX honours the list automatically wherever it sends marketing, which helps your agency stay within the privacy rules.",

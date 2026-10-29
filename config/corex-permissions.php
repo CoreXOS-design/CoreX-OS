@@ -1039,6 +1039,19 @@ return [
         // turn syndication on" setting lands, this key is expected to delegate
         // to (or be replaced by) that instead.
         ['key' => 'other_agency_stock.change_status', 'label' => 'Change Other Agency Stock Status', 'section' => 'properties', 'type' => 'action', 'module' => 'other_agency_stock', 'sort_order' => 1],
+        // ── Auctions v2 — .ai/specs/auctions.md §9 (phase 1 keys; later phases add enquiries / bids / bidders / room / results) ──
+        // Feature-flagged per agency (config/corex-features.php 'auctions', default off). `auctions.view` is the data-scope
+        // row: getDataScope($user, 'auctions') reads it — admin=all, branch_manager=branch, agent=own (scope_defaults).
+        ['key' => 'access_auctions',          'label' => 'Access Auctions',            'section' => 'auctions', 'type' => 'access', 'module' => 'auctions', 'sort_order' => 1],
+        ['key' => 'auctions.view',            'label' => 'View',                       'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 2],
+        ['key' => 'auctions.create',          'label' => 'Create',                     'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 3],
+        ['key' => 'auctions.edit',            'label' => 'Edit',                       'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 4],
+        ['key' => 'auctions.archive',         'label' => 'Archive / Restore',          'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 5],
+        ['key' => 'auctions.publish',         'label' => 'Publish / Cancel / Complete', 'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 6],
+        ['key' => 'auctions.lots.manage',     'label' => 'Manage Lots',                'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 7],
+        ['key' => 'auctions.reserve.view',    'label' => 'View Reserve Prices',        'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 8],
+        ['key' => 'auctions.reserve.edit',    'label' => 'Set Reserve Prices',         'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 9],
+        ['key' => 'auctions.manage_settings', 'label' => 'Manage Auction Settings',    'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 10],
     ],
 
     // ──────────────────────────────────────────────────────────
@@ -1118,6 +1131,9 @@ return [
                 // Other Agency Stock status; agents/assistants/viewers do not
                 // (fresh-install default; agencies can widen via Role Manager).
                 'other_agency_stock.change_status',
+                // Auctions v2 (.ai/specs/auctions.md §9) — Branch Manager gets everything built so far except manage_settings.
+                'access_auctions', 'auctions.view', 'auctions.create', 'auctions.edit', 'auctions.archive', 'auctions.publish',
+                'auctions.lots.manage', 'auctions.reserve.view', 'auctions.reserve.edit',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts', 'export_reports',
                 'access_agency_tracker', 'access_daily_activity', 'access_deal_register',
                 'access_listing_stock', 'access_tv_messages', 'access_worksheet_market',
@@ -1324,6 +1340,8 @@ return [
 
         'agent' => [
             'include' => [
+                // Auctions v2 (.ai/specs/auctions.md §9) — Agent: view, create, edit, lots (own scope).
+                'access_auctions', 'auctions.view', 'auctions.create', 'auctions.edit', 'auctions.lots.manage',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity',
                 'communication_mailboxes.view', // AT-395 — own scope (scope_defaults)

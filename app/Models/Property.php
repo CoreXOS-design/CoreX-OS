@@ -2686,6 +2686,18 @@ class Property extends Model
         return strtolower(trim((string) $this->sale_method)) === 'auction';
     }
 
+    /** Every auction lot this property has been in, newest first (Auctions v2, .ai/specs/auctions.md §4.4). */
+    public function auctionLots(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(\App\Models\AuctionLot::class, 'property_id')->latest('id');
+    }
+
+    /** The property's live lot (not yet sold, passed in or withdrawn), if any. */
+    public function currentAuctionLot(): ?\App\Models\AuctionLot
+    {
+        return $this->auctionLots()->live()->first();
+    }
+
     /**
      * The single source of truth for a listing's price across display,
      * syndication payloads, and readiness gates. Rentals carry the amount in

@@ -23,7 +23,7 @@ use Illuminate\Support\Carbon;
  *   available_from  "Available now" / "Available from 1 Nov 2026"     rentals only
  *   rent_per_month  "R 12 500 per month"        rentals only; the rental price type decides the unit
  *   show_day        "Sat 25 Oct · 10:00–13:00"  the next upcoming show day of THIS listing
- *   auction_date    "12 Nov 2026 · 11:00"        (no source while the auction module is rebuilt)
+ *   auction_date    "12 Nov 2026 · 11:00"       from Property::currentAuctionLot()
  *   auction_venue   "Venue name, address"
  *
  * Times are shown in the owning agency's timezone (the app timezone until agencies carry their own).
@@ -166,13 +166,27 @@ final class AdListingFacts
     }
 
     /**
-     * Date and venue of the listing's auction. The auction module is being rebuilt, so there is
-     * no source for these yet — both stay empty and the auction_date / auction_venue blocks render nothing.
+     * Date and venue of the listing's open auction lot. Nothing when there is no advertisable lot (draft, cancelled,
+     * finished or withdrawn) or the sale moment has already passed.
      *
      * @return array{date: string, venue: string}
      */
     private static function auction(Property $p, Carbon $now, string $tz): array
     {
-        return ['date' => '', 'venue' => ''];
+        $none = ['date' => '', 'venue' => ''];
+        if (! $p->exists) {
+            return $none;
+        }
+
+        $lot  = $p->currentAuctionLot();
+        $when = $lot?->advertisedDate();
+        if ($when === null || $when->lt($now)) {
+            return $none;
+        }
+
+        return [
+            'date'  => $when->copy()->setTimezone($tz)->format('j M Y') . ' · ' . $when->copy()->setTimezone($tz)->format('H:i'),
+            'venue' => $lot->advertisedVenue(),
+        ];
     }
 }

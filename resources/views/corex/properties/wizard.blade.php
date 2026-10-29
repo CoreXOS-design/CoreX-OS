@@ -4,6 +4,10 @@
 @php
     $currentUser = auth()->user();
     $listingTypes = ['sale' => 'For Sale', 'rental' => 'For Rental'];
+    // Auctions v2 — a third tile, only where the agency has Auctions on and the user may manage lots.
+    $auctionTileOn = $currentUser->hasPermission('auctions.lots.manage')
+        && app(\App\Services\Features\AgencyFeatureService::class)->enabled('auctions', $currentUser->effectiveAgencyId() ? \App\Models\Agency::find($currentUser->effectiveAgencyId()) : null);
+    if ($auctionTileOn) { $listingTypes['auction'] = 'On Auction'; }
 @endphp
 
 <div class="max-w-4xl mx-auto"
@@ -132,7 +136,7 @@
             {{-- Listing type tiles --}}
             <div data-tour="wiz-listing-type">
                 <label class="block text-xs font-semibold uppercase tracking-wider mb-2" style="color:var(--text-secondary);">Listing type</label>
-                <div class="grid grid-cols-2 gap-3">
+                <div class="grid {{ $auctionTileOn ? 'grid-cols-3' : 'grid-cols-2' }} gap-3">
                     @foreach($listingTypes as $value => $label)
                     <button type="button" @click="pickListing('{{ $value }}')"
                             :class="tileOn('{{ $value }}') ? 'ring-2' : ''"
@@ -144,13 +148,15 @@
                               :style="tileOn('{{ $value }}') ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);'">
                             @if($value === 'sale')
                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l9-9 9 9M5 10v10a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V10"/></svg>
+                            @elseif($value === 'auction')
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14 10l-8 8m0 0l-1.5-1.5L10 8l4 4m-1-5l3-3 4 4-3 3m-4-4l4 4M4 21h8"/></svg>
                             @else
                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4M12 21a9 9 0 100-18 9 9 0 000 18z"/></svg>
                             @endif
                         </span>
                         <div class="text-left">
                             <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $label }}</div>
-                            <div class="text-[11px]" style="color:var(--text-muted);">{{ $value === 'sale' ? 'Property is on the market' : 'Property is for rent' }}</div>
+                            <div class="text-[11px]" style="color:var(--text-muted);">{{ $value === 'sale' ? 'Property is on the market' : ($value === 'auction' ? 'Sold at an auction' : 'Property is for rent') }}</div>
                         </div>
                     </button>
                     @endforeach
@@ -724,12 +730,15 @@ function propertyWizard(config) {
 
         formatZAR(n) { return 'R ' + Number(n || 0).toLocaleString('en-ZA').replace(/,/g, ' '); },
 
+        // Three tiles, two fields: "On Auction" is a sale with sale_method=auction.
         tileOn(v) {
-            return v === 'rental' ? this.s1.listing_type === 'rental' : this.s1.listing_type === 'sale';
+            if (v === 'auction') return this.s1.sale_method === 'auction';
+            if (v === 'sale') return this.s1.listing_type === 'sale' && this.s1.sale_method !== 'auction';
+            return this.s1.listing_type === 'rental';
         },
         pickListing(v) {
             this.s1.listing_type = v === 'rental' ? 'rental' : 'sale';
-            this.s1.sale_method = 'private_treaty';
+            this.s1.sale_method = v === 'auction' ? 'auction' : 'private_treaty';
         },
 
         step1Valid() {

@@ -23,6 +23,10 @@ final class NewScreensHaveTheirMenuPlaceTest extends TestCase
             'corex.breaches.'      => ['group' => 'rental-applications', 'item' => 'Notices'],
             'corex.lease-notices.' => ['group' => 'rental-applications', 'item' => 'Notices'],
             'corex.alerts-off.'    => ['group' => 'settings', 'item' => 'Users'],
+            'corex.auctions.lots.' => ['group' => 'auctions', 'item' => 'Lots'],
+            'corex.auctions.documents.' => ['group' => 'auctions', 'item' => 'Auctions'],
+            'corex.auctions.create' => ['group' => 'auctions', 'item' => 'Auctions'],
+            'corex.auctions.edit' => ['group' => 'auctions', 'item' => 'Auctions'],
         ];
     }
 

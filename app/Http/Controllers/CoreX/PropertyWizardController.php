@@ -65,6 +65,7 @@ class PropertyWizardController extends Controller
         $draftPrefill = $draft ? [
             // Step 1
             'listing_type'       => $draft->listing_type,
+            'sale_method'        => $draft->isAuction() ? 'auction' : 'private_treaty',
             'title'              => $draft->title,
             'property_type'      => $draft->property_type,
             // A rental's rent lives in rental_amount (the sale price stays 0); the wizard's one price box shows whichever applies.
@@ -220,6 +221,7 @@ class PropertyWizardController extends Controller
         $contactId = $data['contact_id'] ?? null;
         unset($data['contact_id']);
 
+        $wantsAuction = ($data['sale_method'] ?? null) === 'auction' && ($data['listing_type'] ?? null) === 'sale' && $user->hasPermission('auctions.lots.manage');
         unset($data['sale_method'], $data['auction_id']);
 
         $draftId = $data['property_id'] ?? null;
@@ -293,6 +295,11 @@ class PropertyWizardController extends Controller
                     actorUserId: $user->id,
                 ));
             }
+        }
+
+        if ($wantsAuction && ! $property->isAuction()) {
+            $property->sale_method = 'auction';
+            $property->save();
         }
 
         // Link the originating contact as the seller side of the listing

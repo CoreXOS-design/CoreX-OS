@@ -1312,6 +1312,57 @@ return [
         ],
     ],
 
+    // Auctions v2 (.ai/specs/auctions.md §7). Gated on the `auctions` feature (AgencyOnboardingSetup::stepGates), so an
+    // agency that does not auction never sees it. Posts a SUBSET of Settings -> Auctions, so its saver (updateWizard)
+    // guards every write with $request->has() (wizard spec 6.1). Deliberately NOT in the wizard (recorded in the wizard
+    // spec 5.1): the default bid-increment ladder, bidder document lists and the registration terms text - they live on
+    // Settings -> Auctions.
+    'auctions' => [
+        'title' => 'Auctions',
+        'intro' => 'Tell CoreX how your agency runs auctions. You can change all of this later under Settings -> Auctions.',
+        'what' => [
+            'title' => 'What Auctions is',
+            'body'  => 'Auctions lets you sell properties by auction. You build an auction, add lots (one property each), and publish a public auction page. '
+                . 'Buyers sign up, register for the auction and bid; you approve each bidder first and can see every bid. '
+                . 'These settings decide how your public auction page looks and how bidding behaves.',
+        ],
+        'savers' => [
+            ['controller' => \App\Http\Controllers\CoreX\Auctions\AuctionSettingsController::class, 'method' => 'updateWizard'],
+        ],
+        'controls' => [
+            ['key' => 'site_title', 'source' => 'auction', 'type' => 'text', 'default' => '',
+             'label' => 'Auction page title',
+             'explain' => 'The name shown at the top of your public auction page. Leave it blank to use your agency name.',
+             'affects' => 'What this changes: the heading buyers see on your public auction page and in the emails they receive about it.'],
+            ['key' => 'contact_email', 'source' => 'auction', 'type' => 'text', 'default' => '',
+             'label' => 'Enquiries email',
+             'explain' => 'The email address buyers are shown on the auction page for questions about an auction.',
+             'affects' => 'What this changes: the contact address printed on your public auction page.'],
+            ['key' => 'notify_enquiry_to', 'source' => 'auction', 'type' => 'select', 'default' => 'listing_agent',
+             'options' => ['listing_agent' => 'The listing agent', 'branch_manager' => 'The branch manager', 'both' => 'Both'],
+             'label' => 'Who is told about a new enquiry',
+             'explain' => 'When a buyer sends an enquiry about a lot, this decides who is notified.',
+             'affects' => 'What this changes: who receives the notification the moment a buyer enquires about an auction lot.'],
+            ['key' => 'reserve_visibility', 'source' => 'auction', 'type' => 'select', 'default' => 'met_not_met',
+             'options' => ['met_not_met' => 'Show "Reserve met" / "Reserve not met"', 'hidden' => 'Do not show anything about the reserve'],
+             'label' => 'What buyers see about the reserve',
+             'explain' => 'The reserve is the lowest price the seller will accept. The amount itself is never shown to buyers; this only decides whether they see if it has been reached.',
+             'affects' => 'What this changes: whether a lot on your public auction page shows a "Reserve met" or "Reserve not met" label while bidding is open.'],
+            ['key' => 'soft_close_minutes', 'source' => 'auction', 'type' => 'number', 'default' => 5, 'min' => 0, 'max' => 60,
+             'label' => 'Soft close (minutes)',
+             'explain' => 'If someone bids in the last few minutes, the closing time moves out by the same number of minutes so nobody is beaten at the last second. 0 switches it off.',
+             'affects' => 'What this changes: how long a timed lot stays open after a late bid.'],
+            ['key' => 'show_bid_count', 'source' => 'auction', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Show how many bids a lot has',
+             'explain' => 'Whether buyers can see the number of bids placed on a lot.',
+             'affects' => 'What this changes: the bid count shown on each lot on your public auction page.'],
+            ['key' => 'registration_closes_hours', 'source' => 'auction', 'type' => 'number', 'default' => 24, 'min' => 0, 'max' => 720,
+             'label' => 'Registration closes (hours before the auction)',
+             'explain' => 'Buyers must register and be approved before bidding. This is how long before the auction starts they must have registered by.',
+             'affects' => 'What this changes: the registration deadline buyers see, and when "Register to bid" stops accepting new registrations.'],
+        ],
+    ],
+
     'properties' => [
         'title' => 'Properties & listings',
         // Marketing and portal syndication are switched on in the Capabilities

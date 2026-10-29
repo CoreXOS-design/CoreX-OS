@@ -164,6 +164,17 @@ class Property24ListingMapper
             $listing['showDays'] = $showdays;
         }
 
+        // Auctions v2 - `auctionInfo` is what drives P24's AUCTION badge (`status` has no Auction member and stays 'Active').
+        // `date` is the one required field; `venue` is only sent when CoreX holds one (an online-only auction has none).
+        if ($property->isAuction() && ($lot = $property->currentAuctionLot()) && ($when = $lot->advertisedDate())) {
+            $auctionInfo = ['date' => $when->format('Y-m-d\TH:i:s')];
+            $venue = trim((string) $lot->auction->venue_name);
+            if ($venue !== '') {
+                $auctionInfo['venue'] = $venue;
+            }
+            $listing['auctionInfo'] = $auctionInfo;
+        }
+
         if ($includePhotos) {
             // AT-P24: only (re)upload photos when the gallery actually changed
             // since the last successful sync. P24 keeps the existing photos when

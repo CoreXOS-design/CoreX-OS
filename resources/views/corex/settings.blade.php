@@ -152,6 +152,9 @@
                     $can('rental_details.manage_settings')
                         ? ['key'=>'rental-details-settings', 'label'=>'Rental Details', 'type'=>'link', 'href'=>route('corex.settings.rental-details.edit'), 'keywords'=>'rental tab custom fields lets assist price type lease type advert block description']
                         : null,
+                    ($u && $u->hasFeature('auctions') && $can('auctions.manage_settings'))
+                        ? ['key'=>'auctions-settings', 'label'=>'Auctions', 'type'=>'link', 'href'=>route('corex.settings.auctions.show'), 'keywords'=>'auction auctions bidding bid increments reserve soft close registration enquiries public page']
+                        : null,
                     ['key'=>'feature-contacts',      'label'=>'Contacts',              'type'=>'section', 'keywords'=>'contact types sources tags labels phone email personal business dial code country prefix'],
                     ['key'=>'feature-properties',    'label'=>'Properties & Listings', 'type'=>'section', 'keywords'=>'syndication portals marketing'],
                     ['key'=>'feature-presentations', 'label'=>'Presentations',         'type'=>'section', 'keywords'=>'cma coverage thresholds comps period rich moderate thin comparable selection price band radius erf percentile range widen anchor'],

@@ -2077,6 +2077,9 @@
                                     <select name="listing_type" class="prop-select prop-field-enum" id="prop-listing-type">
                                         <option value="sale"   {{ old('listing_type', $property->listing_type ?? 'sale') === 'sale'   ? 'selected' : '' }}>For Sale</option>
                                         <option value="rental" {{ old('listing_type', $property->listing_type ?? 'sale') === 'rental' ? 'selected' : '' }}>For Rental</option>
+                                        @if($isNew && ! $property->listing_type_pending && auth()->user()->hasPermission('auctions.lots.manage') && app(\App\Services\Features\AgencyFeatureService::class)->enabled('auctions', auth()->user()->effectiveAgencyId() ? \App\Models\Agency::find(auth()->user()->effectiveAgencyId()) : null))
+                                        <option value="auction" {{ old('listing_type') === 'auction' ? 'selected' : '' }}>On Auction</option>
+                                        @endif
                                     </select>
                                     <p class="mt-1 text-xs" style="color:var(--text-muted);">
                                         @if($property->listing_type_pending)
@@ -3831,6 +3834,17 @@
                 @endif
             </div>
         </div>
+
+        {{-- AUCTION TAB — when bidding opens/closes, opening bid, reserve (Auctions v2, .ai/specs/auctions.md §6) --}}
+        @if(! $isNew && $property->isAuction())
+        @feature('auctions')
+        @permission('auctions.view')
+        <div x-show="activeTab === 'auction'" x-cloak class="p-6 space-y-4">
+            @include('corex.properties.partials._auction-tab')
+        </div>
+        @endpermission
+        @endfeature
+        @endif
 
         {{-- ── GALLERY TAB ────────────────────────────────────────────────── --}}
         <div x-show="activeTab === 'gallery'" x-cloak class="p-6 space-y-6"
@@ -10415,6 +10429,14 @@
                 <ul id="drive-create-list" class="mt-3 space-y-1"></ul>
             </div>
         @else
+
+            @if($property->isAuction())
+            @feature('auctions')
+            @permission('auctions.view')
+            @include('corex.properties.partials._auction-pack')
+            @endpermission
+            @endfeature
+            @endif
 
             {{-- Compliance documents checklist (AT-94) — mirrors the marketing-readiness gate --}}
             @include('corex.properties._compliance-checklist', ['complianceChecklist' => $complianceChecklist ?? [], 'property' => $property])

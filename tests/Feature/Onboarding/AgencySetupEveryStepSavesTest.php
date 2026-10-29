@@ -112,7 +112,7 @@ final class AgencySetupEveryStepSavesTest extends TestCase
     {
         [$agency, $admin] = $this->newAgencyWithAdmin();
         // Every gated step reachable.
-        $this->switchOn($agency, 'prospecting', 'road-to-sold', 'proforma-invoices', 'agency-tracker', 'commission-management', 'core-matches');
+        $this->switchOn($agency, 'prospecting', 'road-to-sold', 'proforma-invoices', 'agency-tracker', 'commission-management', 'auctions', 'core-matches');
         // Values a brand-new agency has not got yet and a person must type (the form has no default for them).
         $typed = [
             // The colour pickers are Alpine-bound (:value), so they are not in the server HTML a test reads — a browser posts them.

@@ -222,6 +222,21 @@ class MarketingCopyService
 
         if ($property->isAuction()) {
             $lines[] = '- This is an AUCTION listing, not a private-treaty sale.';
+            // Only auction facts that are actually set reach the model, so it can never invent a date, venue or price.
+            // The reserve is never given to it.
+            if (($lot = $property->currentAuctionLot()) && ($when = $lot->advertisedDate())) {
+                $lines[] = '- Auction date: ' . $when->format('d F Y \a\t H:i');
+                if (($venue = $lot->advertisedVenue()) !== '') {
+                    $lines[] = '- Auction venue: ' . $venue;
+                }
+                if ($lot->opening_bid) {
+                    $lines[] = '- Opening bid: R ' . number_format((float) $lot->opening_bid, 0, '.', ' ');
+                }
+                if ($lot->guide_price_min || $lot->guide_price_max) {
+                    $lines[] = '- Guide price: R ' . number_format((float) ($lot->guide_price_min ?? 0), 0, '.', ' ')
+                        . ' – R ' . number_format((float) ($lot->guide_price_max ?? $lot->guide_price_min), 0, '.', ' ');
+                }
+            }
         }
 
         $features    = $this->extractFeatures($property->features_json ?? []);

@@ -903,6 +903,13 @@ class AgencySetupWizardController extends Controller
                         ->where('user_id', Auth::id())
                         ->first()?->{$key} ?? ($control['default'] ?? null)
                 ),
+                // Auctions v2 — one named resolver per setting on AgencyAuctionSettings ({camelKey}For), same convention
+                // as rental_application above; keys are this file's own config, never user input.
+                'auction'   => (function () use ($key, $agency) {
+                    $v = \App\Models\AgencyAuctionSettings::{\Illuminate\Support\Str::camel($key) . 'For'}($agency->id);
+
+                    return is_bool($v) ? (int) $v : $v;
+                })(),
                 default     => $agency->{$key} ?? ($control['default'] ?? null),
             };
         }

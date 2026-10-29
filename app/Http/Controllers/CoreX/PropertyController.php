@@ -1269,8 +1269,12 @@ class PropertyController extends Controller
         /** @var User $user */
         $user = auth()->user();
 
-        // The old "On Auction" listing-type choice is retired with the old auction module.
+        // "On Auction" is a third choice in the Listing Type picker (.ai/specs/auctions.md §6): stored as a SALE
+        // listing marked sale_method='auction'; its Auction tab then takes the bidding dates.
+        $markAuction = false;
         if ($request->input('listing_type') === 'auction') {
+            abort_unless($user->hasPermission('auctions.lots.manage'), 403);
+            $markAuction = true;
             $request->merge(['listing_type' => 'sale']);
         }
 
@@ -1616,6 +1620,11 @@ class PropertyController extends Controller
 
             return $property;
         });
+
+        if ($markAuction) {
+            $property->sale_method = 'auction';
+            $property->save();
+        }
 
         // The create form falls back to an AJAX submit when it carries more
         // gallery images than PHP's max_file_uploads cap (default 20): the

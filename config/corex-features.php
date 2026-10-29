@@ -869,4 +869,15 @@ return [
         'view_dirs' => ['command-center/settings/contact-governance'],
     ],
 
+    // ── Auctions v2 (.ai/specs/auctions.md) ──
+    'auctions' => [
+        'label' => 'Auctions', 'category' => 'Listings & Marketing',
+        'explain' => 'Run property auctions: build auctions and lots, give each auction property its bidding dates, and publish a public auction page where buyers register and bid.',
+        'affects' => 'Whether the Auctions menu, the Auction tab on auction properties and Settings → Auctions appear at all. Off means no change whatsoever for an agency that does not hold auctions.',
+        'default' => false, 'core' => false, 'depends_on' => [],
+        'nav_permission' => ['access_auctions'], 'sidebar_section' => 'auctions',
+        'settings_section' => null, 'route_prefixes' => ['corex/auctions', 'corex/settings/auctions'], 'global_flag' => null,
+        'permission_modules' => ['auctions'],
+    ],
+
 ];

@@ -1,6 +1,6 @@
 # Auctions — Spec (REBUILD, v2)
 
-> Status: **DRAFT — awaiting Johan's approval. No code is written until this is approved.**
+> Status: **APPROVED by Johan 2026-10-29. Phase 1 BUILT on QA2 (not yet Johan-tested, not promoted). Phases 2-4 not started.**
 > Supersedes: the AT-432 auctions spec and `auctions-advertising-mode.md` (both retired 2026-10-29; the old module was removed from QA2 in commit `0983bc5f2`).
 > Drafted: 2026-10-29 · Author: Claude (conductor lane) for Johan
 > Lane: QA2 first. Johan's go gates Staging; nothing reaches Live without Johan's specific order.
@@ -41,6 +41,8 @@ An agency can run auctions end to end inside CoreX:
 Cross-pillar reactions use domain events only (NN #9) — §10.
 
 ## 4. Data model
+
+> **Phase 1 build notes (2026-10-30).** Old tables were **renamed** to `legacy_*` (not dropped) by `2026_10_30_090000_retire_legacy_auction_tables`; nothing is dropped until Johan orders the Live backup. New FKs use explicit `au2_` names (constraint names are unique per schema). `Auction` also uses `BelongsToBranch` (Split Branches isolation). Phase 1 created: `auctions`, `auction_increments`, `auction_documents`, `auction_lots`, `agency_auction_settings`, `property_files.auction_visibility`. Permission keys built so far: `access_auctions`, `auctions.view|create|edit|archive|publish|lots.manage|reserve.view|reserve.edit|manage_settings`; the rest land with their phase. For adverts/feeds a lot's sale moment is the auction start (live) or the lot's closing time (timed) — `AuctionLot::advertisedDate()`.
 
 All tables: `agency_id` + `BelongsToAgency` (AgencyScope), `branch_id` where staff scoping needs it, **SoftDeletes** (NN #1 — retract/cancel/archive, never delete). All money `decimal(14,2)`, ZAR by default but a currency column is stored on the auction. The old tables of the same names are dropped by the first migration **only after** the Live backup order (§12 step 0).
 
@@ -180,7 +182,7 @@ All HTTP APIs live under `/api/v1/*`, named, in the Admin → API catalogue, reg
 ## 14. Files (indicative — final list fixed per phase)
 Models `Auction*` (+ `BidderDocument`); `app/Services/Auctions/` (BidEngine, LotCloser, RegistrationGate, AuctionReferenceGenerator); controllers under `CoreX/Auctions/`, `Public/Auctions/`, `Api/V1/Auctions/`; views `corex/auctions/*`, `public/auctions/*`; property partials `_auction-tab`, drive auction-pack; migrations (≈10); `config/corex-permissions.php`, `corex-features.php`, `agency-onboarding-copy.php`, `feature-rollout-copy.php`; `routes/web.php`, `routes/console.php` (closer, reminders); sidebar; tests `tests/Feature/Auctions/*`.
 
-## 15. Open business questions for Johan (answer before Phase 2)
-1. **Public address:** is `/auctions/{agency-name}` on the CoreX domain fine for v1, with each agency's own domain (e.g. `auctions.theiragency.co.za`) as a later upgrade?
-2. **Reserve on the public page:** default to showing only "Reserve met / not met" (BidPro style), or hide it entirely until the agency chooses?
-3. **Who can see bidder numbers and names** while bidding is open — only staff (recommended), or also the auctioneer's screen only?
+## 15. Business questions — ANSWERED by Johan 2026-10-29 (all "yes")
+1. **Public address — YES:** `/auctions/{agency-slug}` on the CoreX domain for v1; each agency's own domain is a later upgrade. (Original question: is `/auctions/{agency-name}` on the CoreX domain fine for v1, with each agency's own domain (e.g. `auctions.theiragency.co.za`) as a later upgrade?
+2. **Reserve on the public page — YES:** default to showing only "Reserve met / not met" (BidPro style), or hide it entirely until the agency chooses?
+3. **Bidder numbers and names — YES:** staff only while bidding is open.

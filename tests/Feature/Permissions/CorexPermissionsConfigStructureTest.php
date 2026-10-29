@@ -61,4 +61,17 @@ final class CorexPermissionsConfigStructureTest extends TestCase
             'Duplicate permission key(s) found: '.implode(', ', array_diff_assoc($keys, array_unique($keys))),
         );
     }
+
+    /** Auctions v2 — the keys must sit INSIDE the permissions array or corex:sync-permissions never sees them. */
+    public function test_every_auctions_permission_key_is_present_inside_the_permissions_array(): void
+    {
+        $keys = array_column(config('corex-permissions.permissions'), 'key');
+
+        foreach ([
+            'access_auctions', 'auctions.view', 'auctions.create', 'auctions.edit', 'auctions.archive', 'auctions.publish',
+            'auctions.lots.manage', 'auctions.reserve.view', 'auctions.reserve.edit', 'auctions.manage_settings',
+        ] as $key) {
+            $this->assertContains($key, $keys, "'{$key}' is missing from config('corex-permissions.permissions').");
+        }
+    }
 }

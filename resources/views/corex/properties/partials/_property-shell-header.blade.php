@@ -153,6 +153,21 @@
         </a>
         @endpermission
 
+        {{-- Auctions v2 (.ai/specs/auctions.md §6) — mark a sale listing as an auction property; its Auction tab then appears. --}}
+        @feature('auctions')
+        @permission('auctions.lots.manage')
+            @if(! $property->isAuction() && ! $property->isRental())
+            <form method="POST" action="{{ route('corex.properties.auction.mark', $property) }}" class="inline">
+                @csrf
+                <button type="submit" class="prop-action-btn prop-action-btn-neutral" data-prop-auction-entry="mark"
+                        title="Mark this property as an auction property and set its bidding dates">Put on Auction</button>
+            </form>
+            @elseif($property->isAuction())
+            <a href="{{ route('corex.properties.show', $property) }}?tab=auction" class="prop-action-btn prop-action-btn-neutral no-underline" data-prop-auction-entry="open">On Auction</a>
+            @endif
+        @endpermission
+        @endfeature
+
         {{-- Layer 3 — the approval tag and the "Send for approval" button, right
              beside Compliance Status because that is the moment they matter: the
              button exists ONLY once compliance is done (Johan, spec D5). Renders

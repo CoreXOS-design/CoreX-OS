@@ -13,7 +13,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * QA2 500: toggling a feature on the Features page hit "Duplicate entry '1-imported-stock'"
+ * QA2 500: toggling Auctions on the Features page hit "Duplicate entry '1-auctions'"
  * because a soft-deleted agency_features row still holds the unique key and
  * FeatureSettingsController::update() didn't see it.
  */
@@ -28,15 +28,15 @@ final class FeatureToggleSoftDeletedRowTest extends TestCase
         $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Main']);
         $admin = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin']);
 
-        $row = AgencyFeature::create(['agency_id' => $agency->id, 'feature_key' => 'imported-stock', 'enabled' => true]);
+        $row = AgencyFeature::create(['agency_id' => $agency->id, 'feature_key' => 'auctions', 'enabled' => true]);
         $row->delete();
         $this->assertSoftDeleted('agency_features', ['id' => $row->id]);
 
         $this->actingAs($admin)
-            ->post(route('corex.settings.features.update'), ['imported-stock' => '1'])
+            ->post(route('corex.settings.features.update'), ['auctions' => '1'])
             ->assertSessionHasNoErrors();
 
-        $fresh = AgencyFeature::withTrashed()->where('agency_id', $agency->id)->where('feature_key', 'imported-stock')->get();
+        $fresh = AgencyFeature::withTrashed()->where('agency_id', $agency->id)->where('feature_key', 'auctions')->get();
         $this->assertCount(1, $fresh, 'no duplicate row');
         $this->assertNull($fresh->first()->deleted_at);
         $this->assertTrue((bool) $fresh->first()->enabled);

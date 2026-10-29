@@ -589,6 +589,10 @@ Route::middleware('auth')->group(function () {
 
         Route::get('/branding',        [\App\Http\Controllers\Api\V1\BrandingController::class, 'show'])->name('branding.show');
 
+        // Auctions v2 (.ai/specs/auctions.md §11) — property picker for the Lots screen.
+        Route::get('/auctions/property-search', [\App\Http\Controllers\Api\V1\Auctions\AuctionPropertySearchController::class, 'index'])
+            ->middleware(['permission:auctions.lots.manage', 'agency.required', 'feature:auctions'])->name('auctions.property-search');
+
         // ── Agency Access Authorization (cross-agency consent flow) ──
         // See .ai/specs/agency-access-authorization-spec.md
         Route::prefix('agency-access')->name('agency-access.')->group(function () {
@@ -6172,6 +6176,57 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/rentals/properties', [\App\Http\Controllers\CoreX\PropertyController::class, 'index'])
         ->middleware(['permission:access_properties', 'agency.required'])
         ->name('corex.rentals.properties.index');
+
+    // ── Auctions v2 (.ai/specs/auctions.md) — screens S1 Auctions, S2 Lots, S8 Settings; property Auction tab ──
+    Route::prefix('auctions')->middleware(['permission:access_auctions', 'agency.required', 'feature:auctions'])->name('corex.auctions.')->group(function () {
+        $A = \App\Http\Controllers\CoreX\Auctions\AuctionController::class;
+        $L = \App\Http\Controllers\CoreX\Auctions\AuctionLotController::class;
+
+        Route::get('/', [$A, 'index'])->middleware('permission:auctions.view')->name('index');
+        Route::get('/create', [$A, 'create'])->middleware('permission:auctions.create')->name('create');
+        Route::post('/', [$A, 'store'])->middleware('permission:auctions.create')->name('store');
+
+        // Lots — registered before the /{auction} wildcards so '/lots' is never read as an auction id.
+        Route::prefix('lots')->name('lots.')->middleware('permission:auctions.view')->group(function () use ($L) {
+            Route::get('/', [$L, 'index'])->name('index');
+            Route::get('/create', [$L, 'create'])->middleware('permission:auctions.lots.manage')->name('create');
+            Route::post('/', [$L, 'store'])->middleware('permission:auctions.lots.manage')->name('store');
+            Route::get('/{lot}/edit', [$L, 'edit'])->whereNumber('lot')->name('edit');
+            Route::put('/{lot}', [$L, 'update'])->whereNumber('lot')->middleware('permission:auctions.lots.manage')->name('update');
+            Route::post('/{lot}/withdraw', [$L, 'withdraw'])->whereNumber('lot')->middleware('permission:auctions.lots.manage')->name('withdraw');
+            Route::delete('/{lot}', [$L, 'archive'])->whereNumber('lot')->middleware('permission:auctions.lots.manage')->name('archive');
+            Route::post('/{lot}/restore', [$L, 'restore'])->whereNumber('lot')->middleware('permission:auctions.lots.manage')->name('restore');
+        });
+
+        Route::middleware('permission:auctions.view')->group(function () use ($A) {
+            Route::get('/{auction}/edit', [$A, 'edit'])->whereNumber('auction')->name('edit');
+            Route::get('/{auction}/documents/{document}', [$A, 'downloadDocument'])->whereNumber(['auction', 'document'])->name('documents.download');
+        });
+        Route::put('/{auction}', [$A, 'update'])->whereNumber('auction')->middleware('permission:auctions.edit')->name('update');
+        Route::delete('/{auction}', [$A, 'archive'])->whereNumber('auction')->middleware('permission:auctions.archive')->name('archive');
+        Route::post('/{auction}/restore', [$A, 'restore'])->whereNumber('auction')->middleware('permission:auctions.archive')->name('restore');
+        Route::post('/{auction}/publish', [$A, 'publish'])->whereNumber('auction')->middleware('permission:auctions.publish')->name('publish');
+        Route::post('/{auction}/cancel', [$A, 'cancel'])->whereNumber('auction')->middleware('permission:auctions.publish')->name('cancel');
+        Route::post('/{auction}/complete', [$A, 'complete'])->whereNumber('auction')->middleware('permission:auctions.publish')->name('complete');
+        Route::post('/{auction}/clone', [$A, 'duplicate'])->whereNumber('auction')->middleware('permission:auctions.create')->name('clone');
+        Route::post('/{auction}/documents', [$A, 'storeDocument'])->whereNumber('auction')->middleware('permission:auctions.edit')->name('documents.store');
+        Route::delete('/{auction}/documents/{document}', [$A, 'destroyDocument'])->whereNumber(['auction', 'document'])->middleware('permission:auctions.edit')->name('documents.destroy');
+    });
+
+    Route::prefix('settings/auctions')->middleware(['permission:auctions.manage_settings', 'agency.required', 'feature:auctions'])->name('corex.settings.auctions.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\Auctions\AuctionSettingsController::class, 'show'])->name('show');
+        Route::post('/', [\App\Http\Controllers\CoreX\Auctions\AuctionSettingsController::class, 'update'])->name('update');
+    });
+
+    // The property side: mark as auction, the Auction tab (one live lot), and the Drive auction pack.
+    Route::prefix('properties/{property}')->whereNumber('property')->middleware(['permission:auctions.lots.manage', 'agency.required', 'feature:auctions'])->group(function () {
+        $P = \App\Http\Controllers\CoreX\Auctions\PropertyAuctionController::class;
+        Route::post('/auction/mark', [$P, 'mark'])->name('corex.properties.auction.mark');
+        Route::delete('/auction/mark', [$P, 'unmark'])->name('corex.properties.auction.unmark');
+        Route::put('/auction', [$P, 'update'])->name('corex.properties.auction.update');
+        Route::delete('/auction', [$P, 'withdraw'])->name('corex.properties.auction.withdraw');
+        Route::put('/files/{file}/auction-visibility', [$P, 'fileVisibility'])->whereNumber('file')->name('corex.properties.files.auction-visibility');
+    });
 
     // AT-401 — Rentals → Rental Pipeline. Same BuyerPipelineController::index()
     // as command-center.buyers.pipeline, detected by route name, forcing
