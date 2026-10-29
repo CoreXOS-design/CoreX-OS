@@ -86,6 +86,9 @@ class CdsBindingSuggester
                     }
                 }
             }
+            foreach (CdsTableFields::walk($section) as $item) {
+                $out[] = ['field_name' => (string) ($item['field_name'] ?? ''), 'label' => (string) ($item['label'] ?? '')];
+            }
         }
         return $out;
     }

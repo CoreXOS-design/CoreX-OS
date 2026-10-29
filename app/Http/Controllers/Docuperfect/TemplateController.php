@@ -731,6 +731,8 @@ class TemplateController extends Controller
                 'curated' => isset($curatedIds[$nf->id]),
             ])->values()->all(),
             'isLeaseDocument' => $isLeaseDocument,
+            'guess' => ($draft->settings['guess'] ?? null),
+            'draftSourceName' => ($draft->source_path ?? null) ? ($draft->source_name ?: 'the Word file') : null,
             'signingParties' => $agencyParties,
             'hasSavedState' => $hasSavedState,
             'savedTags' => $draft->tags ?? [],
@@ -779,6 +781,45 @@ class TemplateController extends Controller
         }
 
         return response()->json(['suggestions' => $suggestions]);
+    }
+
+    /**
+     * "Re-read with current rules": parse the Word file kept on the draft again and replace the draft's parse with the result.
+     * The field links and the builder's saved state are cleared (they belong to the old reading); the draft's name and the type /
+     * category guess are kept. Draft owner only; refused when no file was kept (a draft made before files were kept).
+     */
+    public function cdsReread(Request $request, CdsDraft $draft)
+    {
+        abort_if($draft->user_id !== auth()->id(), 403);
+        abort_unless(auth()->user()->hasPermission('manage_templates'), 403);
+
+        $path = (string) ($draft->source_path ?? '');
+        $disk = \Illuminate\Support\Facades\Storage::disk('local');
+        if ($path === '' || ! $disk->exists($path)) {
+            return back()->with('error', 'No Word file was kept for this draft, so it cannot be read again. Upload the Word file again from Import.');
+        }
+
+        $parser = app(\App\Services\Docuperfect\CdsParserService::class)
+            ->withLeaseFeeLabel(\App\Models\LeaseSetting::leaseFeeLabelFor((int) auth()->user()->effectiveAgencyId()));
+        try {
+            $cds = $parser->parse($disk->path($path));
+        } catch (\Throwable $e) {
+            \Log::warning('CDS re-read failed', ['draft' => $draft->id, 'error' => $e->getMessage()]);
+
+            return back()->with('error', 'The Word file could not be read again. Nothing was changed.');
+        }
+
+        $settings = (array) ($draft->settings ?? []);
+        $guess = app(\App\Services\Docuperfect\DocumentTypeGuesser::class)->guess((string) ($cds['title'] ?? ''), (string) ($cds['original_text'] ?? ''));
+        if ($guess && empty($settings['category']) && empty($settings['document_type_id'])) {
+            $settings['guess'] = $guess;
+        }
+        $draft->forceFill([
+            'cds_json' => $cds, 'tags' => null, 'mappings' => null, 'tagged_html' => null,
+            'settings' => $settings ?: null,
+        ])->save();
+
+        return redirect()->route('docuperfect.cds.builder', $draft)->with('success', 'The Word file was read again with the current rules.');
     }
 
     public function cdsSaveMappings(Request $request)
@@ -1095,7 +1136,10 @@ class TemplateController extends Controller
         $template = $template->fresh();
 
         return redirect()->route('docuperfect.cds.builder', $this->resolveCdsEditingDraft($template))
-            ->with('success', 'Template saved: ' . $template->name);
+            ->with('success', 'Template saved: ' . $template->name
+                . ((int) $request->input('outstanding', 0) > 0
+                    ? '. ' . (int) $request->input('outstanding') . ' field(s) are not linked yet - the readiness report lists them and the template cannot be released until they are.'
+                    : ''));
     }
 
     public function cdsDestroyDraft(CdsDraft $draft)
@@ -1166,6 +1210,18 @@ class TemplateController extends Controller
                     ];
                 }
             }
+        }
+
+        // esign-import-blanks.md - blanks written in a table's cells, in the order the page draws them.
+        foreach (\App\Services\Docuperfect\CdsTableFields::walk($section) as $item) {
+            $fields[] = [
+                'index' => $index++,
+                'label' => $item['label'] ?? 'FIELD',
+                'field_name' => $item['field_name'] ?? '',
+                'field_type' => $item['field_type'] ?? 'text',
+                'source' => $this->inferSource($item['field_name'] ?? ''),
+                'filled_by' => $this->inferFilledBy($item['field_name'] ?? ''),
+            ];
         }
     }
 

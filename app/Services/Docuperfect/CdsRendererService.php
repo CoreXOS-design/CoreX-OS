@@ -470,6 +470,10 @@ class CdsRendererService
                     $inner .= $this->imageTag((string) $run['img'], (float) ($run['w'] ?? 0), (float) ($run['h'] ?? 0));
                     continue;
                 }
+                if (isset($run['field'])) {
+                    $inner .= $this->fieldSpan((array) $run['field']);   // a blank written in a table cell
+                    continue;
+                }
                 $t = preg_replace('/\R/u', '<br>', e((string) ($run['t'] ?? '')));
                 $t = str_replace("\t", '&emsp;', $t);
                 foreach (['b' => 'strong', 'i' => 'em', 'u' => 'u'] as $k => $el) {
@@ -511,6 +515,30 @@ class CdsRendererService
         return rtrim(rtrim(number_format($value, 2, '.', ''), '0'), '.') . '%';
     }
 
+    /** The builder's field span for one blank (a field_placeholder, or a blank inside a table cell). */
+    private function fieldSpan(array $item): string
+    {
+        $label = $item['label'] ?? 'FIELD';
+        $fieldName = $item['field_name'] ?? '';
+        $fieldType = $item['field_type'] ?? 'text';
+        $confidence = $item['confidence'] ?? 'low';
+
+        $borderColor = match($confidence) {
+            'high' => '#22c55e',
+            'medium' => '#f97316',
+            default => '#ef4444',
+        };
+
+        return '<span class="corex-field" '
+            . 'data-field-name="' . e($fieldName) . '" '
+            . 'data-field-type="' . e($fieldType) . '" '
+            . 'data-field-label="' . e($label) . '" '
+            . 'data-confidence="' . e($confidence) . '" '
+            . 'style="border-color:' . $borderColor . ';">'
+            . '<span class="corex-field-label">' . e($label) . '</span>'
+            . '</span>';
+    }
+
     /**
      * Render content array (text runs with formatting) to HTML.
      */
@@ -524,25 +552,7 @@ class CdsRendererService
             }
 
             if (($item['type'] ?? '') === 'field_placeholder') {
-                $label = $item['label'] ?? 'FIELD';
-                $fieldName = $item['field_name'] ?? '';
-                $fieldType = $item['field_type'] ?? 'text';
-                $confidence = $item['confidence'] ?? 'low';
-
-                $borderColor = match($confidence) {
-                    'high' => '#22c55e',
-                    'medium' => '#f97316',
-                    default => '#ef4444',
-                };
-
-                $html .= '<span class="corex-field" '
-                    . 'data-field-name="' . e($fieldName) . '" '
-                    . 'data-field-type="' . e($fieldType) . '" '
-                    . 'data-field-label="' . e($label) . '" '
-                    . 'data-confidence="' . e($confidence) . '" '
-                    . 'style="border-color:' . $borderColor . ';">'
-                    . '<span class="corex-field-label">' . e($label) . '</span>'
-                    . '</span>';
+                $html .= $this->fieldSpan($item);
                 continue;
             }
 

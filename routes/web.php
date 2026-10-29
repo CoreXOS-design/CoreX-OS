@@ -7256,6 +7256,8 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     // CDS Document Engine (DB-backed drafts)
     Route::get('/templates/cds/builder/{draft}', [\App\Http\Controllers\Docuperfect\TemplateController::class, 'cdsBuilder'])->name('docuperfect.cds.builder');
     // esign-lease-field-source.md - the builder's "Suggest links (AI)" button: names the blanks the rules left unlinked.
+    // esign-import-blanks.md - read the kept Word file again with the importer's current rules.
+    Route::post('/templates/cds/builder/{draft}/reread', [\App\Http\Controllers\Docuperfect\TemplateController::class, 'cdsReread'])->name('docuperfect.cds.builder.reread');
     Route::post('/templates/cds/builder/{draft}/ai-suggest', [\App\Http\Controllers\Docuperfect\TemplateController::class, 'cdsAiSuggest'])->name('docuperfect.cds.builder.aiSuggest');
     // AT-390 — CoreX-account agency context, scoped to this draft. Wraps the
     // existing agency switcher (session active_agency_id) rather than adding a

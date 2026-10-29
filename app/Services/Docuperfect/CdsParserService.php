@@ -537,6 +537,11 @@ class CdsParserService
         // context labeller so each detected blank gets a label from its surrounding words.
         $sections = $this->detectDottedLeaderFields($sections);
 
+        // esign-import-blanks.md - a label followed by tabs and nothing else is a blank to fill; blanks written in a table's cells
+        // (markers, underscore / dotted runs, an empty cell beside its label) become fields too.
+        $sections = $this->detectTabLeaderBlanks($sections);
+        $sections = $this->detectTableFields($sections);
+
         $sections = $this->identifyFieldsFromContext($sections);
 
         // AT-359 (Johan, 2026-08-03) — assign the PARTY from an inline "(Lessor / Landlord)" /
@@ -2375,6 +2380,24 @@ class CdsParserService
         $aboveSection = '';
 
         foreach ($sections as &$section) {
+            if (($section['type'] ?? '') === 'table') {
+                $section = CdsTableFields::each($section, function (array $f, string $before, string $after, string $clause, string $above, ?string $prev) use ($lease, $isLease, &$aboveSection) {
+                    $ident = $isLease ? $lease->match($before, $after, $clause, $above !== '' ? $above : $aboveSection, $prev) : null;
+                    $key = $ident !== null ? substr($ident['field_name'], strlen('lease_')) : null;
+                    $ident ??= $this->identifyField(trim($before), trim($after), $clause);
+
+                    return [
+                        'label' => $ident['label'], 'field_name' => $ident['field_name'], 'field_type' => $ident['field_type'],
+                        'source' => $ident['source'], 'confidence' => $ident['confidence'], '_key' => $key,
+                    ];
+                });
+                $lastRow = end($section['rows']) ?: [];
+                $own = trim(implode(' ', array_map('strval', (array) $lastRow)));
+                if ($own !== '') {
+                    $aboveSection = $own;
+                }
+                continue;
+            }
             if (!isset($section['content'])) continue;
             $previousLeaseKey = null;
 
@@ -2515,6 +2538,10 @@ class CdsParserService
     private function identifyField(string $before, string $after, string $clause): array
     {
         $patterns = [
+            // PROPERTY address named as such ("Property address:", "Address of the premises") - ahead of the generic address rules below.
+            ['match' => '/\b(property|premises)\s+(physical\s+|street\s+)?address\b|address\s+of\s+(the\s+)?(property|premises)\b/i', 'on' => 'before',
+             'result' => ['label' => 'Property Address', 'field_name' => 'property.address', 'field_type' => 'text', 'source' => 'property', 'confidence' => 'high']],
+
             // CONTACT — Name fields
             ['match' => '/I\s*\/\s*We\s*$/i', 'on' => 'before',
              'result' => ['label' => 'Owner Name(s)', 'field_name' => 'contact.full_names', 'field_type' => 'text', 'source' => 'contact', 'confidence' => 'high']],
@@ -2842,6 +2869,10 @@ class CdsParserService
             if (preg_match('/\b(signature|witness|signed\s+at|as\s+witnesses|thus\s+done)\b/', $plain)) {
                 continue; // handled by the signature detectors
             }
+            // esign-import-blanks.md: a line that is only underscores is a signing line (AT-177 D4 pairs it with its "Signature" label), not a blank.
+            if (str_contains($plain, '_') && preg_match('/^[\s_\-\x{2013}\x{2014}]*$/u', $plain)) {
+                continue;
+            }
 
             $newContent = [];
             $changed = false;
@@ -2851,7 +2882,7 @@ class CdsParserService
                     continue;
                 }
                 $val = (string) ($item['value'] ?? '');
-                $parts = preg_split('/(\.{5,}|\x{2026}{2,})/u', $val, -1, PREG_SPLIT_DELIM_CAPTURE);
+                $parts = preg_split('/(\.{5,}|\x{2026}{2,}|_{3,})/u', $val, -1, PREG_SPLIT_DELIM_CAPTURE);
                 if ($parts === false || count($parts) <= 1) {
                     $newContent[] = $item;
                     continue;
@@ -2860,8 +2891,8 @@ class CdsParserService
                     if ($part === '') {
                         continue;
                     }
-                    if (preg_match('/^(\.{5,}|\x{2026}{2,})$/u', $part)) {
-                        $newContent[] = ['type' => 'field_placeholder', 'length' => mb_strlen($part), 'source_marker' => 'dotted_leader'];
+                    if (preg_match('/^(\.{5,}|\x{2026}{2,}|_{3,})$/u', $part)) {
+                        $newContent[] = ['type' => 'field_placeholder', 'length' => mb_strlen($part), 'source_marker' => $part[0] === '_' ? 'underscore_run' : 'dotted_leader'];
                         $changed = true;
                     } else {
                         $t = ['type' => 'text', 'value' => $part];
@@ -2879,6 +2910,54 @@ class CdsParserService
             }
         }
         unset($section);
+
+        return $sections;
+    }
+
+    /**
+     * "Total Rental Amount<tab><tab><tab>" at the end of a short line: the tabs are the gap a person types into. Only a short
+     * line whose last item is the label plus 2+ tabs (a tab used for layout inside a sentence is never at its very end).
+     */
+    private function detectTabLeaderBlanks(array $sections): array
+    {
+        foreach ($sections as &$section) {
+            if (empty($section['content']) || ! is_array($section['content']) || count($section['content']) > 3) {
+                continue;
+            }
+            $last = count($section['content']) - 1;
+            $item = $section['content'][$last];
+            if (($item['type'] ?? '') !== 'text') {
+                continue;
+            }
+            $plain = $this->contentToPlainText($section['content']);
+            if (preg_match('/\b(signature|witness|signed|initial)/i', $plain)) {
+                continue;
+            }
+            if (! preg_match('/^(.*\S)[ ]*\t[\t ]*\t[\t ]*$/u', (string) ($item['value'] ?? ''), $m)) {
+                continue;
+            }
+            $label = trim($m[1]);
+            if (mb_strlen($label) < 3 || mb_strlen($label) > 70 || preg_match('/[.;]$/', $label)) {
+                continue;
+            }
+            $kept = $item;
+            $kept['value'] = $m[1] . ' ';
+            $section['content'][$last] = $kept;
+            $section['content'][] = ['type' => 'field_placeholder', 'length' => 3, 'source_marker' => 'tab_leader'];
+        }
+        unset($section);
+
+        return $sections;
+    }
+
+    /** Blanks inside the cells of a table become field runs (see CdsTableFields). */
+    private function detectTableFields(array $sections): array
+    {
+        foreach ($sections as $i => $section) {
+            if (($section['type'] ?? '') === 'table') {
+                $sections[$i] = CdsTableFields::detect($section);
+            }
+        }
 
         return $sections;
     }

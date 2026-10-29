@@ -104,13 +104,28 @@ class DocumentImporterController extends Controller
         }
 
         // Create a CDS draft (DB-backed, no session)
+        // esign-import-blanks.md: a first guess at the document type and category (editable in the builder), and the Word file kept
+        // on the draft so "Re-read with current rules" can read it again after the importer improves.
+        $guess = app(\App\Services\Docuperfect\DocumentTypeGuesser::class)->guess((string) ($cds['title'] ?? ''), (string) ($cds['original_text'] ?? ''));
         $draft = CdsDraft::create([
             'user_id' => auth()->id(),
             'agency_id' => auth()->user()->agency_id ?? null,
             'template_name' => $cds['title'] ?? 'Untitled',
             'cds_json' => $cds,
             'status' => 'draft',
+            'settings' => $guess ? ['guess' => $guess] : null,
         ]);
+        try {
+            $file = $request->file('document');
+            $path = \Illuminate\Support\Facades\Storage::disk('local')->putFileAs(
+                'cds-draft-sources/' . ((int) $user->effectiveAgencyId()),
+                $file,
+                $draft->id . '-' . substr((string) hash_file('sha256', $file->getPathname()), 0, 12) . '.docx'
+            );
+            $draft->forceFill(['source_path' => $path, 'source_name' => \App\Models\Document::sanitizeOriginalName($file->getClientOriginalName()) ?: 'document.docx'])->save();
+        } catch (\Throwable $e) {
+            \Log::warning('CDS import: the Word file could not be kept on the draft', ['draft' => $draft->id, 'error' => $e->getMessage()]);
+        }
 
         // AT-262 near-miss guard — a marker-like sequence that did NOT parse (wrong
         // tilde count, a stray ~, an empty ~~~~~~~~) is the single most likely thing
