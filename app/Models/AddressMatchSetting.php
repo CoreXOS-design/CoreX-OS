@@ -18,6 +18,7 @@ class AddressMatchSetting extends Model
     protected $fillable = [
         'agency_id', 'rule_erf_exact', 'rule_scheme_exact', 'rule_street_exact',
         'possible_min_agreeing_columns', 'neighbour_suburb_credit', 'gps_radius_m', 'unit_missing_on_one_side',
+        'fuzzy_threshold', 'auto_merge_min_confidence',
     ];
 
     protected $casts = [
@@ -26,10 +27,13 @@ class AddressMatchSetting extends Model
         'rule_street_exact'             => 'boolean',
         'possible_min_agreeing_columns' => 'integer',
         'gps_radius_m'                  => 'integer',
+        'fuzzy_threshold'               => 'integer',
     ];
 
     public const NEIGHBOUR_CREDITS = ['possible', 'ignore'];
     public const UNIT_MISSING_MODES = ['possible', 'different'];
+    /** property-identity.md §6: the lowest confidence a match may have and still link automatically. */
+    public const AUTO_MERGE_LEVELS = ['exact', 'high'];
 
     /** The shipped defaults — one place, so the page, the scorer and the tests agree. */
     public const DEFAULTS = [
@@ -40,6 +44,8 @@ class AddressMatchSetting extends Model
         'neighbour_suburb_credit'       => 'possible',
         'gps_radius_m'                  => 25,
         'unit_missing_on_one_side'      => 'possible',
+        'fuzzy_threshold'               => 85,
+        'auto_merge_min_confidence'     => 'high',
     ];
 
     /**
@@ -47,7 +53,7 @@ class AddressMatchSetting extends Model
      * every value clamped to its valid range so a bad row can never make the scorer loosen
      * past what the page allows.
      *
-     * @return array{rule_erf_exact: bool, rule_scheme_exact: bool, rule_street_exact: bool, possible_min_agreeing_columns: int, neighbour_suburb_credit: string, gps_radius_m: int, unit_missing_on_one_side: string}
+     * @return array{rule_erf_exact: bool, rule_scheme_exact: bool, rule_street_exact: bool, possible_min_agreeing_columns: int, neighbour_suburb_credit: string, gps_radius_m: int, unit_missing_on_one_side: string, fuzzy_threshold: int, auto_merge_min_confidence: string}
      */
     public static function forAgency(?int $agencyId): array
     {
@@ -73,6 +79,10 @@ class AddressMatchSetting extends Model
         }
         if (! in_array($out['unit_missing_on_one_side'], self::UNIT_MISSING_MODES, true)) {
             $out['unit_missing_on_one_side'] = self::DEFAULTS['unit_missing_on_one_side'];
+        }
+        $out['fuzzy_threshold'] = max(60, min(100, (int) $out['fuzzy_threshold']));
+        if (! in_array($out['auto_merge_min_confidence'], self::AUTO_MERGE_LEVELS, true)) {
+            $out['auto_merge_min_confidence'] = self::DEFAULTS['auto_merge_min_confidence'];
         }
         foreach (['rule_erf_exact', 'rule_scheme_exact', 'rule_street_exact'] as $flag) {
             $out[$flag] = (bool) $out[$flag];

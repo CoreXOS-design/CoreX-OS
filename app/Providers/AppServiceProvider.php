@@ -263,6 +263,12 @@ class AppServiceProvider extends ServiceProvider
         ], \App\View\Composers\OutreachWindowComposer::class);
 
         Agency::observe(AgencyObserver::class);
+        // Property identity (.ai/specs/property-identity.md §7): attach new rows to their property file on save.
+        \App\Models\Property::created(fn ($m) => app(\App\Observers\PropertyIdentityLinkObserver::class)->propertyCreated($m));
+        \App\Models\MarketReports\MarketReportCompRow::created(fn ($m) => app(\App\Observers\PropertyIdentityLinkObserver::class)->compRowCreated($m));
+        \App\Models\PresentationSoldComp::created(fn ($m) => app(\App\Observers\PropertyIdentityLinkObserver::class)->soldCompCreated($m));
+        \App\Models\P24Listing::saved(fn ($m) => app(\App\Observers\PropertyIdentityLinkObserver::class)->alertSaved($m));
+        \App\Models\Deal::saved(fn ($m) => app(\App\Observers\PropertyIdentityLinkObserver::class)->dealSaved($m));
         \App\Models\DailyActivityEntry::observe(\App\Observers\DailyActivityEntryObserver::class);
         CalendarEventFeedback::observe(CalendarEventFeedbackObserver::class);
         CalendarEvent::observe(CalendarEventObserver::class);

@@ -48,7 +48,11 @@ class AddressMatchingRulesController extends Controller
             'neighbour_suburb_credit'       => ['required', Rule::in(AddressMatchSetting::NEIGHBOUR_CREDITS)],
             'gps_radius_m'                  => ['required', 'integer', 'min:5', 'max:100'],
             'unit_missing_on_one_side'      => ['required', Rule::in(AddressMatchSetting::UNIT_MISSING_MODES)],
+            'fuzzy_threshold'               => ['sometimes', 'integer', 'min:60', 'max:100'],
+            'auto_merge_min_confidence'     => ['sometimes', Rule::in(AddressMatchSetting::AUTO_MERGE_LEVELS)],
         ]);
+
+        $current = AddressMatchSetting::forAgency($agencyId);
 
         AddressMatchSetting::query()->updateOrCreate(['agency_id' => $agencyId], [
             'rule_erf_exact'                => $request->boolean('rule_erf_exact'),
@@ -58,6 +62,8 @@ class AddressMatchingRulesController extends Controller
             'neighbour_suburb_credit'       => $v['neighbour_suburb_credit'],
             'gps_radius_m'                  => (int) $v['gps_radius_m'],
             'unit_missing_on_one_side'      => $v['unit_missing_on_one_side'],
+            'fuzzy_threshold'               => (int) ($v['fuzzy_threshold'] ?? $current['fuzzy_threshold']),
+            'auto_merge_min_confidence'     => $v['auto_merge_min_confidence'] ?? $current['auto_merge_min_confidence'],
         ]);
 
         return back()->with('status', 'Address matching settings saved.');

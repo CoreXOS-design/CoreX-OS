@@ -149,14 +149,10 @@ final class BackfillTrackedProperties extends Command
             foreach ($rows as $listing) {
                 try {
                     if (!$dryRun) {
-                        $streetNumber = null;
-                        $streetName   = null;
                         $addr = trim((string) ($listing->address ?? ''));
-                        if ($addr !== '' && $addr !== 'Address not available'
-                            && preg_match('/^(\d+\w*)\s+(.+)$/', $addr, $m)) {
-                            $streetNumber = $m[1];
-                            $streetName   = $m[2];
-                        }
+                        $line = \App\Services\Address\AddressLineFacts::split($addr, (string) $listing->suburb) ?? [];
+                        $streetNumber = $line['street_number'] ?? null;
+                        $streetName   = $line['street_name'] ?? null;
 
                         $tp = $service->matchOrCreate(
                             agencyId: (int) $listing->agency_id,
@@ -164,6 +160,8 @@ final class BackfillTrackedProperties extends Command
                                 'address'                 => $addr !== '' && $addr !== 'Address not available' ? $addr : null,
                                 'street_number'           => $streetNumber,
                                 'street_name'             => $streetName,
+                                'unit_number'             => $line['unit_number'] ?? null,
+                                'complex_name'            => $line['complex_name'] ?? null,
                                 'suburb'                  => $listing->suburb !== '' ? $listing->suburb : null,
                                 'property_type'           => $listing->property_type,
                                 'bedrooms'                => $listing->bedrooms,
@@ -255,12 +253,9 @@ final class BackfillTrackedProperties extends Command
                         if (!is_array($fields)) $fields = [];
 
                         $addr = isset($fields['address']) ? trim((string) $fields['address']) : null;
-                        $streetNumber = null;
-                        $streetName   = null;
-                        if ($addr && preg_match('/^(\d+\w*)\s+(.+)$/', $addr, $m)) {
-                            $streetNumber = $m[1];
-                            $streetName   = $m[2];
-                        }
+                        $line = \App\Services\Address\AddressLineFacts::split($addr, $fields['suburb'] ?? null) ?? [];
+                        $streetNumber = $line['street_number'] ?? null;
+                        $streetName   = $line['street_name'] ?? null;
 
                         $tp = $service->matchOrCreate(
                             agencyId: (int) $pl->agency_id,
@@ -268,6 +263,8 @@ final class BackfillTrackedProperties extends Command
                                 'address'                 => $addr,
                                 'street_number'           => $streetNumber,
                                 'street_name'             => $streetName,
+                                'unit_number'             => $line['unit_number'] ?? null,
+                                'complex_name'            => $line['complex_name'] ?? null,
                                 'suburb'                  => $fields['suburb'] ?? null,
                                 'property_type'           => $fields['property_type'] ?? null,
                                 'bedrooms'                => $fields['beds'] ?? $fields['bedrooms'] ?? null,

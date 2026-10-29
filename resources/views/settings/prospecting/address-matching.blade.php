@@ -68,6 +68,22 @@
             </select>
         </div>
 
+        <div>
+            <label class="block text-sm font-semibold mb-1" style="color:var(--text-secondary);">Link automatically from</label>
+            <select name="auto_merge_min_confidence" class="px-3 py-2 text-sm rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                <option value="high" @selected(old('auto_merge_min_confidence', $settings['auto_merge_min_confidence']) === 'high')>Confident matches and certain ones (standard)</option>
+                <option value="exact" @selected(old('auto_merge_min_confidence', $settings['auto_merge_min_confidence']) === 'exact')>Only certain matches (same advert number or SG code)</option>
+            </select>
+            <p class="text-xs mt-1" style="color:var(--text-muted);">Anything less certain is never linked on its own. It is kept as a "possible match" for an agent to confirm.</p>
+        </div>
+
+        <div>
+            <label class="block text-sm font-semibold mb-1" style="color:var(--text-secondary);">Loose-match score worth keeping (60-100)</label>
+            <input type="number" name="fuzzy_threshold" min="60" max="100" required value="{{ old('fuzzy_threshold', $settings['fuzzy_threshold']) }}"
+                   class="w-28 px-3 py-2 text-sm rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+            <p class="text-xs mt-1" style="color:var(--text-muted);">A "same street, nothing else agrees" candidate below this score is not even kept as a possible match. Standard: 85.</p>
+        </div>
+
         <div class="flex flex-wrap items-center gap-3">
             <button type="submit" class="text-sm font-semibold px-5 py-2 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Save address matching settings</button>
             <button type="submit" name="reset" value="1" formnovalidate class="text-sm px-4 py-2 rounded-md" style="background:transparent; border:1px solid var(--border); color:var(--text-primary);"

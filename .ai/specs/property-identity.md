@@ -33,7 +33,7 @@ Public advert facts also go to a **global shared pool** keyed by canonical refer
 (The erf and SG code come from deeds and CMA reports, which are paid-for agency data, so the pool never carries them.)
 
 **Rules**
-- The pool is read and written ONLY through `App\Services\Prospecting\SharedPortalPool` (an explicit column allow-list). No model, relation, query scope or API returns a pool row's contributors; the pool does not record which agency contributed (no `agency_id`, no contributor id).
+- The pool is read and written ONLY through `App\Services\Prospecting\SharedPortalPool` (an explicit column allow-list). No model, relation, query scope or API returns a pool row's contributors. In A2-A4 the pool records no contributor at all (no `agency_id`, no contributor id); A5 (§14) adds an INTERNAL contribution record that no agency-facing read can reach.
 - A pool row **never contains or reveals** another agency's tracked-property id, claim, status, comment or deed field.
 - A new agency's first sight of an advert is pre-filled from the pool (address, GPS, price, beds/baths) into **its own** new tracked property. Nothing flows back except the public allow-list.
 - Own listings: a published own listing (P24/PP syndication) writes its public facts to the pool like any scrape; the owning agency sees it flagged own stock (existing `matched_property_id` / promoted link), others see it as other-agency stock.
@@ -104,17 +104,17 @@ Pure, idempotent (`normalise(normalise(x)) === normalise(x)`), no DB.
 | 1 | **Canonical portal ref**, same agency | agency | `exact` / `portal_ref` — with `numbersConflict` self-heal as today |
 | 2 | **LPI (SG code)**; else **erf + portion + same suburb**; else **scheme + section + same suburb**; **title deed number + deeds office** only as a corroborator of 2–4 (never a key alone; it changes at each transfer) | **private**, same agency only | LPI `exact`; erf/scheme `high`; deed number corroborating a `probable` lifts it to `high` |
 | 3 | **Normalised address + suburb + unit** (`AddressMatcher` scorer, unchanged) | agency | EXACT tier + unit rule ok ⇒ `high`; POSSIBLE tier (neighbour suburb, type differs, unit on one side only) ⇒ `probable`; STREET-ONLY ⇒ `weak` |
-| 4 | **GPS within `gps_radius_m`** | agency | `probable` only when a second signal agrees (street or suburb); GPS alone ⇒ `weak`. A pin with `geo_confidence` of `suburb`/`street`/NULL **never counts as GPS** |
-| 5 | **Fuzzy** (token overlap ≥ `fuzzy_threshold`, number veto kept) | agency | `weak`; shown to the agent, never linked |
+| 4 | **GPS** — precise pins only (a CMA property pin, or a pin the geocoder marked `exact`/`high`) | agency | within ~5 m **with the suburb agreeing and no number/unit conflict ⇒ `high` (links)**; within `gps_radius_m` otherwise ⇒ `probable` (suburb agrees) or `weak` (it does not) — recorded, never linked. A pin of `geo_confidence` `suburb`/`street`/unknown **never counts as GPS**; an incoming pin labelled `suburb`/`street` is not used at all |
+| 5 | **Fuzzy** — loose word overlap on a street | agency | ONE street-agreeing candidate (number veto, street-agreement and unit rule kept; a number on one side only does not veto — the standing "Rule 4") ⇒ `high`/`fuzzy`, links. **Ties** (several houses fit) are never picked between: each is `weak`, recorded. Street-only scorer candidates with a score ≥ `fuzzy_threshold` are kept as `weak` possible matches |
 
 Pool lookup (cross-agency) is by `canonical_ref` only and returns public columns for pre-fill — it never produces a link to another agency's tracked property.
 
 ### 5.2 The unit-number rule (fixes over-merged blocks going forward)
 
-An address match **without matching unit numbers never auto-merges**:
+An address match **without matching unit numbers never auto-merges** where the property is a unit (one rule, `unitDoubt`, used by address history, the scored street rule and the fuzzy rule):
 - unit/section on both sides and **equal** ⇒ agrees; **different** ⇒ VETO (no match, as today);
-- unit on one side only ⇒ at most `probable`, recorded as a possible match;
-- no unit on either side ⇒ merges (`high`) **only if neither side is a unit-type** (property_type apartment/flat/sectional/townhouse, or a `complex_name`/`scheme_*` present); otherwise `probable`.
+- a **unit-type** property (property_type apartment / flat / sectional / townhouse / duplex / simplex / cluster / studio / penthouse / unit, or one in a sectional scheme) where the two sides do not BOTH name a unit ⇒ at most `probable`, recorded as a possible match;
+- anything else (a freehold house, with or without an estate / complex name; a legacy record with a stray unit lifted from a polluted line) ⇒ merges (`high`). A bare `complex_name` alone does NOT make a property unit-type: a freehold house in an estate has no unit.
 The street-number-from-unit bug (`ProspectingApiController` first-number rule) is fixed by passing the full address to the one reader in A3.
 
 ### 5.3 How a result is used
@@ -139,7 +139,17 @@ Page: existing `/corex/settings/prospecting/address-matching` (permission `prosp
 
 ## 7. Which routes must use the door
 
-All of them. Each is moved in A3 with its own test; the old private dedupe is removed or reduced to a call to the door.
+All of them. **How** (A3): `TrackedPropertyMatchOrCreateService::matchOrCreate()` is now a thin delegate to `PropertyIdentityResolver::resolve()`, so every existing caller of the matcher — MIC extension, portal capture, deeds, CMA bulk import (`ParseMarketReportJob`), P24/PP leads, Road to Sold, rental take-on, map, seller outreach, presentation CMA propagation — goes through the door **without being edited**; a test fails if any app code other than the resolver calls the engine (`matchOrCreateEngine`). Rows created by Eloquent without calling the matcher are attached by `PropertyIdentityLinkObserver`, one hook per table (`config('property-identity.link_on_create')`, on by default, off in the test environment):
+
+| Table | On | Does |
+|---|---|---|
+| `properties` (own stock — routes 1-3, 5-8, 10 and the portal pull) | created | **find or create** the property file; saves `tracked_property_id` + `identity_confidence` + `identity_method`. `promoteToStock()` suppresses it (the promote already decided) and stamps the link itself (`promoted`) |
+| `market_report_comp_rows` (CMA bulk import) | created | **find only** — a comparable never mints a property file; address + scheme/section/flat from the row, never GPS |
+| `presentation_sold_comps` | created | **find only**, from the address and erf in `raw_row_json` |
+| `p24_listings` (email alerts) | saved | **attach by advert number only** (an alert has a suburb and a number, no address) |
+| `deals` | saved | takes the property file of its `property_id` (deals with only a typed address stay unlinked — `DealPropertyLinkService`, run by hand, is the existing way to link them) |
+
+A resolver failure is logged and never blocks the save. Not yet linked at all: `presentation_active_listings` (no address in the row) and deals with no `property_id` — see the A3 report.
 
 | # | Route | File (audit) |
 |---|---|---|
@@ -239,9 +249,23 @@ Comments (`tracked_property_comments`) and claims (`prospecting_claims`) were al
 |---|---|---|
 | A1 | This spec | landed (QA1) |
 | A2 | `PortalRef` normaliser + `canonical_ref` columns + model hooks + pool table (`portal_advert_facts`) + `property-refs:normalise` | landed (QA1) — dry-run report in the A2 build report; `--apply` not yet run |
-| A3 | `PropertyIdentityResolver` + all routes through the door + settings fields | pending |
+| A3 | `PropertyIdentityResolver` + all routes through the door + settings fields + link columns + the one address-line reader | landed (QA1) |
 | A4 | `property-identity:reconcile --dry-run` report for Johan | pending |
-| — | Possible-matches list, `--apply` merges | not in this lane; after Johan's review of A4 |
+| A5 | Make the property/advert row shared across agencies (§14) | after A4 and after lane B (cc4) steps 1-4 |
+| — | Possible-matches list, `--apply` merges | not in A2-A4; after Johan's review of A4 |
 | B1 | Lane B investigation | landed (QA1) `.ai/B1_AGENCY_WORK_LAYER_2026-10-29.md` |
 | B2 | portal-capture + alert tables per agency; work record; owners scoped; backfill | landed (QA1) - section 12 |
 | B3/B4 | two-agency privacy sweep; status panel + own-stock flag | landed (QA1) - section 12 |
+
+
+## 14. A5 - one shared row per property / advert across agencies (design; built after A4 and after lane B's steps 1-4)
+
+**Why.** Today `tracked_properties`, MIC adverts (`prospecting_listings`) and external refs are per-agency copies; the pool of §3 only holds public advert facts keyed by advert. Johan's ruling 1 asks for one shared row per property / advert, public facts only, enriched by every agency, **with the contributor recorded and never visible to another agency**; lane B (cc4) holds each agency's own layer (claims, comments, prospecting status, owners, deed data, history) in a per-agency work record.
+
+**Shape (to be confirmed against cc4's work record when it lands; nothing below is built):**
+- The shared row is the pool row, extended: one row per canonical advert (already `portal_advert_facts`), plus a shared **property** key joining the adverts of one physical property (relists, both portals). Public columns only (§3 allow-list).
+- Each agency's `tracked_properties` / MIC row becomes that agency's work record and points at the shared row (`shared_advert_id`, `shared_property_id`). **No private column ever moves to the shared side**; the agency's own columns stay where they are.
+- Contribution record (internal): `portal_advert_contributions (shared_advert_id, agency_id, first_seen_at, last_seen_at, fields_contributed json)`. Written by `SharedPortalPool`; **no model, relation, scope, API or screen reads it for another agency** (only the contributing agency's own row, and platform audit). A test proves agency B cannot read agency A's contribution or claim state through any route.
+- Agency 1 claiming, commenting or setting prospecting status writes only to agency 1's work record; agency 2's view of the shared row does not change.
+- **Reconcile first** (same reporting as A4): `property-identity:share --dry-run` reports, per source, how many agency rows would join an existing shared row, how many would create one, clashes, and what would be written to the shared side — **no apply** until Johan reviews it.
+- Multi-agency check (rule 9): no HFC id or wording anywhere. (The agency stamp on `p24_listings` and `portal_listings` — audit gap 11 — was done by lane B, step B2, §12.)

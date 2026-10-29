@@ -1298,17 +1298,16 @@ class PortalCaptureController extends Controller
                 if (!$portalListingId) continue;
 
                 $addr = isset($item['address']) ? trim((string) $item['address']) : null;
-                $streetNumber = null;
-                $streetName   = null;
-                if ($addr && preg_match('/^(\d+\w*)\s+(.+)$/', $addr, $m)) {
-                    $streetNumber = $m[1];
-                    $streetName   = $m[2];
-                }
+                $line = \App\Services\Address\AddressLineFacts::split($addr, $item['suburb'] ?? null) ?? [];
+                $streetNumber = $line['street_number'] ?? null;
+                $streetName   = $line['street_name'] ?? null;
 
                 $facts = array_filter([
                     'address'                 => $addr,
                     'street_number'           => $streetNumber,
                     'street_name'             => $streetName,
+                    'unit_number'             => $line['unit_number'] ?? null,
+                    'complex_name'            => $line['complex_name'] ?? null,
                     'suburb'                  => $item['suburb'] ?? null,
                     'property_type'           => $item['property_type'] ?? null,
                     'bedrooms'                => $item['beds'] ?? $item['bedrooms'] ?? null,

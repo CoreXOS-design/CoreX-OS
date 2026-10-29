@@ -14,6 +14,7 @@ use App\Services\Address\AddressMatcher;
 use App\Services\Address\AddressMatchScorer;
 use App\Services\Address\LpiCode;
 use App\Models\Prospecting\TrackedPropertyAddress;
+use App\Models\AddressMatchSetting;
 use App\Models\Prospecting\TrackedPropertyExternalRef;
 use App\Models\Prospecting\TrackedPropertyOwner;
 use App\Models\User;
@@ -80,6 +81,28 @@ final class TrackedPropertyMatchOrCreateService
 
     /** @var array<int, array{type: string, id: int, label: string}>|null */
     private ?array $lastMatchCandidates = null;
+
+    /** property-identity.md §5.1: confidence levels, weakest first. */
+    private const CONFIDENCE_RANK = ['weak' => 1, 'probable' => 2, 'high' => 3, 'exact' => 4];
+
+    /**
+     * Candidates found by the last resolution that are NOT certain enough to link (spec §5.3). Never linked here;
+     * PropertyIdentityResolver records them as possible matches for an agent to confirm.
+     *
+     * @var list<array{id:int, confidence:string, method:string, reason:string, score:?int}>
+     */
+    private array $lastPossible = [];
+
+    /** @var array{strategy:?string, confidence:?string, method:?string, linked:bool, created:bool, possible:list<array<string,mixed>>}|null */
+    private ?array $lastResolution = null;
+
+    /** the confidence/method the winning strategy decided; read by buildResolution() */
+    private ?string $lastConfidence = null;
+    private ?string $lastMethod = null;
+    private bool $lastCanonicalHit = false;
+
+    /** @var array<int, array<string,mixed>> per-agency AddressMatchSetting::forAgency() memo (one request) */
+    private array $settingsMemo = [];
 
     /**
      * Recorded, agent-facing match decisions (CX-102 part 2) exist ONLY for
@@ -148,14 +171,44 @@ final class TrackedPropertyMatchOrCreateService
         array $source,
         ?int $actorUserId = null,
     ): TrackedProperty {
-        return DB::transaction(function () use ($agencyId, $facts, $source, $actorUserId) {
-            $matched = $this->resolveMatch($agencyId, $facts, $source);
+        // The one door (.ai/specs/property-identity.md §5): every caller of this method is routed through
+        // PropertyIdentityResolver, which calls matchOrCreateEngine() below and records what it decided.
+        // $this is handed to the resolver so the caller's instance keeps the same last-match state it always had.
+        return (new PropertyIdentityResolver($this, app(SharedPortalPool::class)))->resolve($agencyId, $facts, $source, $actorUserId)->trackedProperty;
+    }
+
+    /**
+     * The engine behind the door. Only PropertyIdentityResolver calls this.
+     *
+     * $facts may carry 'portal_refs' => list<array{type:string, ref:string, payload?:array}>: further advert
+     * numbers of the same property (an own listing on both portals). They are matched by canonical reference and
+     * written as external refs; the key is removed before the facts are sanitised.
+     * $createDefaults: facts used ONLY when a new property file is created (the shared pool's public facts) — they
+     * never take part in matching.
+     */
+    public function matchOrCreateEngine(
+        int $agencyId,
+        array $facts,
+        array $source,
+        ?int $actorUserId = null,
+        array $createDefaults = [],
+    ): TrackedProperty {
+        $extraRefs = $this->extractPortalRefs($facts);
+        unset($facts['portal_refs']);
+
+        return DB::transaction(function () use ($agencyId, $facts, $source, $actorUserId, $extraRefs, $createDefaults) {
+            $matched = $this->resolveMatch($agencyId, $facts, $source, $extraRefs);
             $strategy = $this->lastMatchStrategy;
             $candidates = $this->lastMatchCandidates;
+            $this->lastResolution = $this->buildResolution($strategy, $matched !== null);
 
             $tp = $matched
                 ? $this->enrich($matched, $facts, $source, $actorUserId)
-                : $this->create($agencyId, $facts, $source, $actorUserId);
+                : $this->create($agencyId, $facts + $createDefaults, $source, $actorUserId); // $createDefaults: public pool facts, new files only
+
+            foreach ($extraRefs as $extra) {
+                $this->writeExternalRef($agencyId, (int) $tp->id, $extra);
+            }
 
             // CX-102 part 2 (2026-08-19, Johan) — record WHY, at the moment of
             // the match, for whichever screen shows this decision to an agent.
@@ -430,7 +483,216 @@ final class TrackedPropertyMatchOrCreateService
      */
     public function findExistingMatch(int $agencyId, array $facts, array $source = []): ?TrackedProperty
     {
-        return $this->resolveMatch($agencyId, $facts, $source);
+        $extraRefs = $this->extractPortalRefs($facts);
+        unset($facts['portal_refs']);
+        $found = $this->resolveMatch($agencyId, $facts, $source, $extraRefs);
+        $this->lastResolution = $this->buildResolution($this->lastMatchStrategy, $found !== null);
+
+        return $found;
+    }
+
+    /**
+     * What the last matchOrCreateEngine() / findExistingMatch() call decided: the strategy, how certain it was and by
+     * which key, whether it linked or created, and the candidates it did NOT link (possible matches).
+     *
+     * @return array{strategy:?string, confidence:?string, method:?string, linked:bool, created:bool, possible:list<array<string,mixed>>}|null
+     */
+    public function lastResolution(): ?array
+    {
+        return $this->lastResolution;
+    }
+
+    /** @return array{strategy:?string, confidence:?string, method:?string, linked:bool, created:bool, possible:list<array<string,mixed>>} */
+    private function buildResolution(?string $strategy, bool $linked): array
+    {
+        [$confidence, $method] = $linked && $strategy !== null ? $this->confidenceFor($strategy) : [null, null];
+
+        return [
+            'strategy'   => $strategy,
+            'confidence' => $confidence,
+            'method'     => $method,
+            'linked'     => $linked,
+            'created'    => ! $linked,
+            'possible'   => $this->lastPossible,
+        ];
+    }
+
+    /** @return array{0:string,1:string} [confidence, method] for the strategy that linked */
+    private function confidenceFor(string $strategy): array
+    {
+        if ($this->lastConfidence !== null && $this->lastMethod !== null && $strategy !== '1_source_ref') {
+            return [$this->lastConfidence, $this->lastMethod];
+        }
+
+        return match (true) {
+            str_starts_with($strategy, '0_address_history') => ['high', 'address_history'],
+            $strategy === '1_source_ref'                    => $this->lastCanonicalHit ? ['exact', 'portal_ref'] : ['high', 'source_ref'],
+            str_starts_with($strategy, '2_gps')             => ['high', 'gps'],
+            $strategy === '3_erf_suburb'                    => in_array('lpi', (array) ($this->lastScoredMatch['matched_on'] ?? []), true) ? ['exact', 'lpi'] : ['high', 'erf_suburb'],
+            $strategy === '3b_scheme_section'               => ['high', 'scheme_unit'],
+            $strategy === '4_normalised_address'            => ['high', 'address_unit'],
+            default                                         => ['high', 'fuzzy'],
+        };
+    }
+
+    /** @return array<string,mixed> */
+    private function settings(int $agencyId): array
+    {
+        return $this->settingsMemo[$agencyId] ??= AddressMatchSetting::forAgency($agencyId);
+    }
+
+    /** Is a match of this confidence allowed to link on its own for this agency? (setting: auto_merge_min_confidence) */
+    private function meetsAutoMerge(int $agencyId, string $confidence): bool
+    {
+        $min = (string) ($this->settings($agencyId)['auto_merge_min_confidence'] ?? 'high');
+
+        return (self::CONFIDENCE_RANK[$confidence] ?? 0) >= (self::CONFIDENCE_RANK[$min] ?? 3);
+    }
+
+    private function addPossible(TrackedProperty $cand, string $confidence, string $method, string $reason, ?int $score = null): void
+    {
+        foreach ($this->lastPossible as $i => $p) {
+            if ($p['id'] === (int) $cand->id) {
+                if ((self::CONFIDENCE_RANK[$confidence] ?? 0) > (self::CONFIDENCE_RANK[$p['confidence']] ?? 0)) {
+                    $this->lastPossible[$i] = ['id' => (int) $cand->id, 'confidence' => $confidence, 'method' => $method, 'reason' => $reason, 'score' => $score];
+                }
+
+                return;
+            }
+        }
+        if (count($this->lastPossible) < 5) {
+            $this->lastPossible[] = ['id' => (int) $cand->id, 'confidence' => $confidence, 'method' => $method, 'reason' => $reason, 'score' => $score];
+        }
+    }
+
+    /**
+     * Link $cand if this confidence may link on its own and no agent has vetoed the pairing; otherwise keep it as a
+     * possible match. The one place the auto-merge threshold is applied (spec §5.3).
+     */
+    private function linkOrPossible(int $agencyId, array $source, TrackedProperty $cand, string $strategy, string $confidence, string $method, string $reason, ?int $score = null): ?TrackedProperty
+    {
+        if (! $this->meetsAutoMerge($agencyId, $confidence)) {
+            $this->addPossible($cand, $confidence, $method, $reason, $score);
+
+            return null;
+        }
+        if (! $this->acceptCandidate($agencyId, $source, $cand, $strategy)) {
+            return null;
+        }
+        $this->lastConfidence = $confidence;
+        $this->lastMethod = $method;
+
+        return $cand;
+    }
+
+    /** @return list<array{type:string, ref:string, payload?:array}> */
+    private function extractPortalRefs(array $facts): array
+    {
+        $out = [];
+        foreach ((array) ($facts['portal_refs'] ?? []) as $r) {
+            if (is_array($r) && ! empty($r['type']) && ! empty($r['ref'])) {
+                $out[] = ['type' => (string) $r['type'], 'ref' => (string) $r['ref'], 'payload' => $r['payload'] ?? null];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * The unit rule for the address-text strategies (history, scored street, fuzzy) — spec §5.2. Doubt = a unit-type
+     * property (apartment / flat / sectional / townhouse …, or one in a sectional scheme) where the two sides do not BOTH
+     * name a unit: 303 and 304 Pebble Beach share every address column. Two different units are a veto elsewhere
+     * (numbersConflict); two equal units agree. A freehold record with a stray unit lifted from a polluted address line
+     * is not unit-type, so it is not in doubt.
+     */
+    private function unitDoubt(array $facts, TrackedProperty $tp): bool
+    {
+        $f = trim((string) ($facts['unit_number'] ?? $facts['section_number'] ?? '')) !== '';
+        $c = trim((string) ($tp->unit_number ?? $tp->section_number ?? '')) !== '';
+        if ($f && $c) {
+            return false;
+        }
+        $unitType = '/apartment|flat|sectional|townhouse|duplex|simplex|cluster|studio|penthouse|\bunit\b/i';
+
+        return preg_match($unitType, (string) ($facts['property_type'] ?? '')) === 1
+            || preg_match($unitType, (string) ($tp->property_type ?? '')) === 1
+            || trim((string) ($facts['scheme_name'] ?? $facts['scheme_number'] ?? '')) !== ''
+            || trim((string) ($tp->scheme_name ?? $tp->scheme_number ?? '')) !== '';
+    }
+
+    private function suburbAgrees(array $facts, TrackedProperty $cand): bool
+    {
+        $suburb = trim((string) ($facts['suburb'] ?? ''));
+
+        return $suburb !== '' && in_array((string) $cand->suburb_normalised, TrackedPropertyAddress::suburbSpellingKeys($suburb), true);
+    }
+
+    /** Straight-line metres between two nearby points (flat approximation; the span here is metres to tens of metres). */
+    private function metresBetween(float $lat1, float $lng1, float $lat2, float $lng2): float
+    {
+        $dLat = ($lat2 - $lat1) * 111320.0;
+        $dLng = ($lng2 - $lng1) * 111320.0 * cos(deg2rad(($lat1 + $lat2) / 2));
+
+        return sqrt($dLat * $dLat + $dLng * $dLng);
+    }
+
+    /**
+     * Strategy 2 (spec §5.1). Only a PRECISE pin counts: a CMA property pin, or a lat/lng the geocoder marked
+     * exact/high — never a suburb-centre or street-level pin (28,302 property files sit at a suburb centre, and
+     * step 2 used to read none of that). Within ~5 m with the suburb agreeing and no number/unit conflict = HIGH and
+     * links; anything else within the agency's GPS radius is only a possible match (probable with the suburb
+     * agreeing, weak without it).
+     */
+    private function gpsMatch(int $agencyId, array $facts, array $source, float $lat, float $lng): ?TrackedProperty
+    {
+        $radiusM = (int) ($this->settings($agencyId)['gps_radius_m'] ?? 25);
+        $box = max(self::GPS_TOLERANCE_DEGREES, $radiusM / 111000);
+
+        $rows = TrackedProperty::queryWithoutAgencyScope()
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->where(function ($q) use ($lat, $lng, $box) {
+                $q->where(fn ($w) => $w->whereBetween('cma_gps_lat', [$lat - $box, $lat + $box])->whereBetween('cma_gps_lng', [$lng - $box, $lng + $box]))
+                  ->orWhere(fn ($w) => $w->whereIn('geo_confidence', ['exact', 'high'])
+                      ->whereBetween('latitude', [$lat - $box, $lat + $box])->whereBetween('longitude', [$lng - $box, $lng + $box]));
+            })
+            ->orderBy('id')
+            ->limit(25)
+            ->get();
+
+        $scored = [];
+        foreach ($rows as $cand) {
+            $d = null;
+            if ($cand->cma_gps_lat !== null && $cand->cma_gps_lng !== null) {
+                $d = $this->metresBetween($lat, $lng, (float) $cand->cma_gps_lat, (float) $cand->cma_gps_lng);
+            }
+            if ($cand->latitude !== null && $cand->longitude !== null && in_array((string) $cand->geo_confidence, ['exact', 'high'], true)) {
+                $d2 = $this->metresBetween($lat, $lng, (float) $cand->latitude, (float) $cand->longitude);
+                $d = $d === null ? $d2 : min($d, $d2);
+            }
+            if ($d !== null && $d <= $radiusM) {
+                $scored[] = [$d, $cand];
+            }
+        }
+        usort($scored, fn ($a, $b) => $a[0] <=> $b[0]);
+
+        foreach ($scored as [$d, $cand]) {
+            if ($this->numbersConflict($facts, $cand)) {
+                continue;
+            }
+            $agrees = $this->suburbAgrees($facts, $cand);
+            $label = sprintf('GPS is %d m from this property\'s precise pin', (int) round($d));
+            if ($agrees && $d <= 5.6) {
+                $hit = $this->linkOrPossible($agencyId, $source, $cand, '2_gps_latlng', 'high', 'gps', $label . ' and the suburb agrees.');
+                if ($hit) {
+                    return $hit;
+                }
+            } else {
+                $this->addPossible($cand, $agrees ? 'probable' : 'weak', 'gps', $label . ($agrees ? '.' : ', but the suburb is not the same or not known.'));
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -652,8 +914,13 @@ final class TrackedPropertyMatchOrCreateService
      * All queries bypass the global AgencyScope and filter by the explicit
      * $agencyId so the service is safe to invoke from background workers.
      */
-    private function resolveMatch(int $agencyId, array $facts, array $source): ?TrackedProperty
+    private function resolveMatch(int $agencyId, array $facts, array $source, array $extraRefs = []): ?TrackedProperty
     {
+        $this->lastPossible = [];
+        $this->lastConfidence = null;
+        $this->lastMethod = null;
+        $this->lastCanonicalHit = false;
+
         // CX-102 part 2 — clear any strategy/candidates left over from a
         // previous call before this one runs, so a caller that reads them
         // straight after can never see stale state from an earlier match.
@@ -709,32 +976,47 @@ final class TrackedPropertyMatchOrCreateService
             }
         }
 
-        // Strategy 2: GPS proximity (cma_gps preferred, then lat/lng).
-        $lat = $facts['cma_gps_lat'] ?? $facts['latitude'] ?? null;
-        $lng = $facts['cma_gps_lng'] ?? $facts['longitude'] ?? null;
-        if ($lat !== null && $lng !== null) {
-            $tol = self::GPS_TOLERANCE_DEGREES;
-            $byCmaGps = TrackedProperty::queryWithoutAgencyScope()
-                ->where('agency_id', $agencyId)
-                ->whereNull('deleted_at')
-                ->whereBetween('cma_gps_lat', [$lat - $tol, $lat + $tol])
-                ->whereBetween('cma_gps_lng', [$lng - $tol, $lng + $tol])
-                ->first();
-            if ($byCmaGps && ! $this->numbersConflict($facts, $byCmaGps) && $this->acceptCandidate($agencyId, $source, $byCmaGps, '2_gps_cma')) {
-                return $byCmaGps;
+        // Strategy 1b (property-identity.md §4, §5.1): the SAME advert under another spelling or another source.
+        // Every portal advert number is compared by its canonical form (p24:116123456 / pp:T1014486), so
+        // "P24-116123456" (extension), "116123456" (capture, own listing) and the e-mail alert's "P24-116123456"
+        // are one key. Same guard as 1: a wrong link is never re-confirmed (numbersConflict), and an agent-rejected
+        // pairing stays rejected (acceptCandidate).
+        $sources = array_merge([$source], $extraRefs);
+        foreach ($sources as $src) {
+            $canonical = ! empty($src['type']) && ! empty($src['ref'])
+                ? TrackedPropertyExternalRef::canonicalFor((string) $src['type'], (string) $src['ref'], is_array($src['payload'] ?? null) ? $src['payload'] : null)
+                : null;
+            if ($canonical === null) {
+                continue;
             }
-
-            $byGps = TrackedProperty::queryWithoutAgencyScope()
+            $refs = TrackedPropertyExternalRef::queryWithoutAgencyScope()
                 ->where('agency_id', $agencyId)
+                ->where('canonical_ref', $canonical)
                 ->whereNull('deleted_at')
-                ->whereBetween('latitude', [$lat - $tol, $lat + $tol])
-                ->whereBetween('longitude', [$lng - $tol, $lng + $tol])
-                ->first();
-            if ($byGps && ! $this->numbersConflict($facts, $byGps) && $this->acceptCandidate($agencyId, $source, $byGps, '2_gps_latlng')) {
-                return $byGps;
+                ->orderBy('id')
+                ->get();
+            foreach ($refs as $r) {
+                $tp = TrackedProperty::queryWithoutAgencyScope()
+                    ->where('agency_id', $agencyId)
+                    ->whereNull('deleted_at')
+                    ->find($r->tracked_property_id);
+                if ($tp && ! $this->numbersConflict($facts, $tp) && $this->acceptCandidate($agencyId, $source, $tp, '1_source_ref')) {
+                    $this->lastCanonicalHit = true;
+
+                    return $tp;
+                }
             }
         }
 
+        // Strategy 2: GPS proximity — precise pins only (see gpsMatch()).
+        $lat = $facts['cma_gps_lat'] ?? $facts['latitude'] ?? null;
+        $lng = $facts['cma_gps_lng'] ?? $facts['longitude'] ?? null;
+        if ($lat !== null && $lng !== null && ! in_array(strtolower((string) ($facts['geo_confidence'] ?? '')), ['suburb', 'street'], true)) {
+            $gpsHit = $this->gpsMatch($agencyId, $facts, $source, (float) $lat, (float) $lng);
+            if ($gpsHit) {
+                return $gpsHit;
+            }
+        }
         // Strategies 3 / 3b / 4 — erf (+ portion / LPI) + suburb, sectional scheme + section/unit, and
         // street number + street + suburb — are now ONE scored comparison (2026-10-07,
         // .ai/specs/structured-address-matching.md §6): AddressMatcher retrieves the candidates from indexed
@@ -809,37 +1091,36 @@ final class TrackedPropertyMatchOrCreateService
                 }
 
                 if (count($tied) === 1) {
-                    $this->lastMatchStrategy = '5_token_overlap';
-                    return $tied[0];
+                    // A single street-agreeing candidate links (the standing rule: a number on one side only does not veto —
+                    // TrackedPropertyNumberDiscriminatorTest "Rule 4"), unless the unit rule says a unit may be missing.
+                    if ($this->unitDoubt($facts, $tied[0])) {
+                        $this->addPossible($tied[0], 'probable', 'address_unit', 'Close text match, but a unit number is missing on one side — may be a different unit.');
+                    } else {
+                        $hit = $this->linkOrPossible($agencyId, $source, $tied[0], '5_token_overlap', 'high', 'fuzzy', 'Close text match on this street and suburb; no other property on this street was a candidate.');
+                        if ($hit) {
+                            return $hit;
+                        }
+                    }
+                    $tied = [];
                 }
 
                 if (count($tied) > 1) {
-                    // GPS tie-break (2026-08-19, Johan, CX-102) — more than one
-                    // candidate matched on words alone. Prefer whichever is
-                    // physically closest to the incoming capture's own coordinates
-                    // instead of silently taking the oldest. This is exactly what
-                    // would have resolved Von Baumbach Avenue correctly: the deed's
-                    // own GPS sat ~10m from the correct record and ~1km from the
-                    // one the old rule picked.
+                    // More than one candidate matched on words alone (CX-102: 417 and 381 Von Baumbach Avenue). The candidates
+                    // are kept for the agent; none is linked.
                     $this->lastMatchCandidates = array_map(
                         fn ($c) => ['type' => 'tracked_property', 'id' => $c->id, 'label' => $this->candidateLabel($c)],
                         $tied,
                     );
 
+                    // Several houses fit: never pick one (spec §5.3 — a wrong auto-link is worse than a duplicate). Each is
+                    // kept as a possible match; the nearest by GPS is listed first so the agent sees it first.
                     $winner = $this->nearestByGps($facts, $tied);
-                    if ($winner !== null) {
-                        $this->lastMatchStrategy = '5_token_overlap_gps_tiebreak';
-                        return $winner;
+                    foreach ($tied as $cand) {
+                        $this->addPossible($cand, 'weak', 'fuzzy', $winner && $winner->id === $cand->id
+                            ? 'Close text match; several houses on this street fit — this one is the nearest by GPS.'
+                            : 'Close text match; several houses on this street fit.');
                     }
-
-                    // Neither side carries usable GPS to break the tie — fall back
-                    // to the original rule (oldest candidate) rather than refuse to
-                    // match. Johan (2026-08-19): staff keep working; queuing an
-                    // unresolved tie for review is deliberately NOT built here —
-                    // that's what the agent-facing "Not the same property" control
-                    // is for (CX-102 part 2), not a silent hold.
-                    $this->lastMatchStrategy = '5_token_overlap_untiebroken';
-                    return $tied[0];
+                    return null;
                 }
             }
         }
@@ -861,11 +1142,36 @@ final class TrackedPropertyMatchOrCreateService
             foreach ($group as $h) {
                 /** @var TrackedProperty $tp */
                 $tp = $h['model'];
-                if ($this->acceptCandidate($agencyId, $source, $tp, self::RULE_STRATEGY[$rule])) {
+                // The unit rule (spec §5.2): an address match with no unit on either side is not enough for a unit-type
+                // property or a complex — 303 and 304 Pebble Beach share every address column. Possible, never linked.
+                if ($rule === 'street' && $this->unitDoubt($facts, $tp)) {
+                    $this->addPossible($tp, 'probable', 'address_unit', 'Same address, but this is a unit or complex and no unit number was given — may be a different unit.', (int) ($h['result']['score'] ?? 0));
+                    continue;
+                }
+                [$confidence, $method] = match ($rule) {
+                    'lpi'    => ['exact', 'lpi'],
+                    'erf'    => ['high', 'erf_suburb'],
+                    'scheme' => ['high', 'scheme_unit'],
+                    default  => ['high', 'address_unit'],
+                };
+                $linked = $this->linkOrPossible($agencyId, $source, $tp, self::RULE_STRATEGY[$rule], $confidence, $method, (string) ($h['result']['reasons'][0] ?? 'Same address.'), (int) ($h['result']['score'] ?? 0));
+                if ($linked) {
                     $this->lastScoredMatch = $h['result'];
 
-                    return $tp;
+                    return $linked;
                 }
+            }
+        }
+
+        // Nothing certain: keep the scorer's POSSIBLE tier, and street-only candidates worth a look, as possible matches.
+        $fuzzyMin = (int) ($this->settings($agencyId)['fuzzy_threshold'] ?? 85);
+        foreach ($hits as $h) {
+            $tier = $h['result']['tier'];
+            $score = (int) ($h['result']['score'] ?? 0);
+            if ($tier === AddressMatchScorer::TIER_POSSIBLE) {
+                $this->addPossible($h['model'], 'probable', (string) (($h['result']['matched_on'][0] ?? null) ?: 'address_unit'), (string) ($h['result']['reasons'][0] ?? 'Some of the address agrees and nothing contradicts it.'), $score);
+            } elseif ($tier === AddressMatchScorer::TIER_STREET_ONLY && $score >= $fuzzyMin) {
+                $this->addPossible($h['model'], 'weak', 'fuzzy', (string) ($h['result']['reasons'][0] ?? 'Same street and suburb; the number differs or is missing.'), $score);
             }
         }
 
@@ -1484,16 +1790,15 @@ final class TrackedPropertyMatchOrCreateService
         $streetName = TrackedPropertyAddress::normaliseStreet($facts['street_name'] ?? null);
         $streetNumber = isset($facts['street_number']) ? trim((string) $facts['street_number']) : '';
         $suburbNormalised = TrackedPropertyAddress::normaliseSuburb($facts['suburb'] ?? null);
-        $lat = $facts['cma_gps_lat'] ?? $facts['latitude'] ?? null;
-        $lng = $facts['cma_gps_lng'] ?? $facts['longitude'] ?? null;
 
         $hasStreet = $streetNumber !== '' && !empty($streetName) && !empty($suburbNormalised);
-        $hasGps    = $lat !== null && $lng !== null;
-        if (!$hasStreet && !$hasGps) {
+        if (!$hasStreet) {
             return null;
         }
 
-        // Match A — exact structured address.
+        // Match A — exact structured address (number + street + suburb). The unit rule applies here too (spec §5.2):
+        // the history key carries no unit, so a unit on one side only — or a unit-type property with no unit named —
+        // is a possible match, never a link.
         if ($hasStreet) {
             $hit = DB::table('tracked_property_addresses')
                 ->where('agency_id', $agencyId)
@@ -1509,35 +1814,21 @@ final class TrackedPropertyMatchOrCreateService
                     ->where('agency_id', $agencyId)
                     ->whereNull('deleted_at')
                     ->find((int) $hit->tracked_property_id);
-                if ($tp && ! $this->numbersConflict($facts, $tp) && $this->acceptCandidate($agencyId, $source, $tp, '0_address_history_exact')) {
-                    return $tp;
+                if ($tp && ! $this->numbersConflict($facts, $tp)) {
+                    if ($this->unitDoubt($facts, $tp)) {
+                        $this->addPossible($tp, 'probable', 'address_history', 'Same address as one already held for this property, but a unit number is missing on one side — may be a different unit.');
+                    } else {
+                        $linked = $this->linkOrPossible($agencyId, $source, $tp, '0_address_history_exact', 'high', 'address_history', 'An address already confirmed for this property.');
+                        if ($linked) {
+                            return $linked;
+                        }
+                    }
                 }
             }
         }
 
-        // Match B — GPS proximity on the address row itself.
-        if ($hasGps) {
-            $tol = self::GPS_TOLERANCE_DEGREES;
-            $hit = DB::table('tracked_property_addresses')
-                ->where('agency_id', $agencyId)
-                ->whereNull('deleted_at')
-                ->whereNotNull('latitude')
-                ->whereNotNull('longitude')
-                ->whereBetween('latitude', [$lat - $tol, $lat + $tol])
-                ->whereBetween('longitude', [$lng - $tol, $lng + $tol])
-                ->orderByRaw("FIELD(confidence, 'verified', 'high', 'medium', 'low')")
-                ->orderByDesc('is_primary')
-                ->first(['tracked_property_id']);
-            if ($hit) {
-                $tp = TrackedProperty::queryWithoutAgencyScope()
-                    ->where('agency_id', $agencyId)
-                    ->whereNull('deleted_at')
-                    ->find((int) $hit->tracked_property_id);
-                if ($tp && ! $this->numbersConflict($facts, $tp) && $this->acceptCandidate($agencyId, $source, $tp, '0_address_history_gps')) {
-                    return $tp;
-                }
-            }
-        }
+        // (The old "Match B" — a GPS pin on an address-history row within ~5 m — is gone: those pins carry no
+        // precision, and a suburb-centre pin matched every house in the suburb. Strategy 2 owns GPS, precise pins only.)
 
         return null;
     }
@@ -1808,6 +2099,8 @@ final class TrackedPropertyMatchOrCreateService
     {
         if (empty($source['type']) || empty($source['ref'])) return;
 
+        [$confidence, $method] = $this->refConfidence($source);
+
         $existing = TrackedPropertyExternalRef::queryWithoutAgencyScope()
             ->where('agency_id', $agencyId)
             ->where('source_type', (string) $source['type'])
@@ -1816,11 +2109,19 @@ final class TrackedPropertyMatchOrCreateService
             ->first();
 
         if ($existing) {
-            $existing->update([
+            $update = [
                 'tracked_property_id' => $trackedPropertyId,
                 'source_payload'      => $source['payload'] ?? $existing->source_payload,
                 'last_seen_at'        => now(),
-            ]);
+            ];
+            // How certain the link is: set when unknown, raised when this resolution is surer, and always re-stated
+            // when the ref is re-pointed at another property file. Never lowered by a weaker re-sighting.
+            $repointed = (int) $existing->tracked_property_id !== $trackedPropertyId;
+            $surer = (self::CONFIDENCE_RANK[$confidence ?? ''] ?? 0) > (self::CONFIDENCE_RANK[(string) $existing->match_confidence] ?? 0);
+            if ($confidence !== null && ($repointed || $surer)) {
+                $update += ['match_confidence' => $confidence, 'match_method' => $method, 'matched_at' => now()];
+            }
+            $existing->update($update);
             return;
         }
 
@@ -1832,7 +2133,23 @@ final class TrackedPropertyMatchOrCreateService
             'source_payload'      => $source['payload'] ?? null,
             'first_seen_at'       => now(),
             'last_seen_at'        => now(),
+            'match_confidence'    => $confidence,
+            'match_method'        => $method,
+            'matched_at'          => $confidence !== null ? now() : null,
         ]);
+    }
+
+    /** @return array{0:?string,1:?string} [confidence, method] to store on the external ref being written */
+    private function refConfidence(array $source): array
+    {
+        $r = $this->lastResolution;
+        if ($r !== null && $r['linked'] && $r['confidence'] !== null) {
+            return [$r['confidence'], $r['method']];
+        }
+        // A property file created by this very ref: the ref IS its identity (certain) when it is a portal advert number.
+        $canonical = TrackedPropertyExternalRef::canonicalFor((string) $source['type'], (string) $source['ref'], is_array($source['payload'] ?? null) ? $source['payload'] : null);
+
+        return $canonical !== null ? ['exact', 'portal_ref'] : [null, null];
     }
 
     private function buildSourceChainEntry(array $source, array $facts): array
@@ -1854,6 +2171,8 @@ final class TrackedPropertyMatchOrCreateService
             'street_number', 'street_name', 'unit_number', 'complex_name',
             'suburb', 'town', 'province', 'postal_code',
             'latitude', 'longitude', 'cma_gps_lat', 'cma_gps_lng',
+            // how precise the incoming pin is (exact / high / street / suburb) — strategy 2 only trusts exact / high
+            'geo_confidence',
             'erf_number', 'title_deed_number', 'cadastral_extent',
             'municipal_valuation', 'municipal_valuation_year',
             'last_known_asking_price', 'last_known_sold_price', 'last_known_sold_date',
@@ -2300,7 +2619,8 @@ final class TrackedPropertyMatchOrCreateService
                 // exactly matching "properties created by an agent still get
                 // Draft".
                 $status = $tp->isFromAutomatedIngest() ? Property::STATUS_PROSPECTING : 'draft';
-                $property = Property::create(array_merge(
+                // The promote itself decides which property file this stock belongs to (it IS $tp) — the create hook must not resolve again.
+                $property = \App\Observers\PropertyIdentityLinkObserver::suppress(fn () => Property::create(array_merge(
                     [
                         'agency_id'                => $tp->agency_id,
                         'agent_id'                 => $promotingUserId,
@@ -2351,8 +2671,12 @@ final class TrackedPropertyMatchOrCreateService
                         // The TP↔Property linkage is preserved by tracked_properties.promoted_to_property_id.
                     ],
                     $propertyFields
-                ));
+                )));
             }
+
+            // The stock row points back at the property file it was promoted from (certain: it is the same record).
+            \Illuminate\Support\Facades\DB::table('properties')->where('id', $property->id)->whereNull('tracked_property_id')
+                ->update(['tracked_property_id' => $tp->id, 'identity_confidence' => 'exact', 'identity_method' => 'promoted']);
 
             $tp->update([
                 'promoted_to_property_id' => $property->id,

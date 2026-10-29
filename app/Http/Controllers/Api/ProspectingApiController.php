@@ -548,14 +548,10 @@ class ProspectingApiController extends Controller
             // Street parsing best-effort. The matcher tolerates nulls — when a P24
             // alert hides the address, source-ref matching (portal_source + portal_ref)
             // is the dominant signal anyway.
-            $streetNumber = null;
-            $streetName   = null;
             $addr = trim((string) ($listing->address ?? ''));
-            if ($addr !== '' && $addr !== 'Address not available'
-                && preg_match('/^(\d+\w*)\s+(.+)$/', $addr, $m)) {
-                $streetNumber = $m[1];
-                $streetName   = $m[2];
-            }
+            $line = \App\Services\Address\AddressLineFacts::split($addr, (string) $listing->suburb) ?? [];
+            $streetNumber = $line['street_number'] ?? null;
+            $streetName   = $line['street_name'] ?? null;
 
             $tp = $service->matchOrCreate(
                 agencyId: $agencyId,
@@ -563,6 +559,8 @@ class ProspectingApiController extends Controller
                     'address'                 => $addr !== '' && $addr !== 'Address not available' ? $addr : null,
                     'street_number'           => $streetNumber,
                     'street_name'             => $streetName,
+                    'unit_number'             => $line['unit_number'] ?? null,
+                    'complex_name'            => $line['complex_name'] ?? null,
                     'suburb'                  => $listing->suburb !== '' ? $listing->suburb : null,
                     'property_type'           => $listing->property_type,
                     'bedrooms'                => $listing->bedrooms,

@@ -88,14 +88,15 @@ class TrackedPropertyMatchOrCreateTest extends TestCase
     {
         $first = $this->service->matchOrCreate(
             $this->agency->id,
-            ['suburb' => 'Margate', 'latitude' => -30.8625000, 'longitude' => 30.3700000],
+            ['suburb' => 'Margate', 'latitude' => -30.8625000, 'longitude' => 30.3700000, 'geo_confidence' => 'exact'],
             ['type' => 'manual', 'ref' => 'M-1']
         );
 
-        // ~1m off — well inside the 0.00005° (~5m) tolerance.
+        // ~1m off — well inside the ~5m tolerance. Property identity (spec §5.1): only a PRECISE pin counts, so both
+        // sides say how precise their pin is; a pin with no precision, or a suburb-centre pin, never links on its own.
         $second = $this->service->matchOrCreate(
             $this->agency->id,
-            ['suburb' => 'Margate', 'latitude' => -30.8625010, 'longitude' => 30.3700010],
+            ['suburb' => 'Margate', 'latitude' => -30.8625010, 'longitude' => 30.3700010, 'geo_confidence' => 'exact'],
             ['type' => 'manual', 'ref' => 'M-2']
         );
 
