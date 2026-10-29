@@ -74,7 +74,19 @@ class RmcpController extends Controller
             ? app(RmcpBoardApprovalService::class)->openLineForUser($version, Auth::user())
             : null;
 
-        return view('compliance.rmcp.show', compact('version', 'agency', 'variables', 'board', 'myBoardLine'));
+        // Signed copy + officer sign-off (everyone who can view sees it) and the staff-training button (approvers only).
+        $signedCopies  = app(\App\Services\Compliance\SignedCopyService::class);
+        $signed        = $signedCopies->describe($version);
+        $canManageSigned = $signedCopies->canManage(Auth::user(), (int) $version->agency_id);
+        $canAttachSigned = $signedCopies->canAttachTo($version);
+        $training      = app(\App\Services\Compliance\StaffTrainingService::class);
+        $trainingCounts = $version->status === 'active' ? $training->counts($version) : null;
+        $canSendTraining = $trainingCounts !== null && Auth::user()->hasPermission('approve_rmcp');
+
+        return view('compliance.rmcp.show', compact(
+            'version', 'agency', 'variables', 'board', 'myBoardLine',
+            'signed', 'canManageSigned', 'canAttachSigned', 'trainingCounts', 'canSendTraining'
+        ));
     }
 
     /**

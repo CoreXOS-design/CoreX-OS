@@ -56,6 +56,18 @@
         </div>
         @endif
 
+        @include('compliance.partials._signed-copy', [
+            'version' => $version, 'signed' => $signed, 'canManage' => $canManageSigned, 'canAttach' => $canAttachSigned,
+            'downloadUrl' => route('compliance.rmcp.signed-copy', $version), 'storeUrl' => route('compliance.rmcp.signed-copy.store', $version),
+        ])
+
+        @if($canSendTraining)
+            @include('compliance.partials._staff-training', [
+                'version' => $version, 'counts' => $trainingCounts, 'trainingUrl' => route('compliance.rmcp.staff-training', $version),
+                'docLabel' => 'RMCP v' . $version->version_number,
+            ])
+        @endif
+
         @if($board)
             @include('compliance.rmcp._board-panel')
         @endif

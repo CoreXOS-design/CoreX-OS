@@ -24,7 +24,7 @@
                 Creates the policy plus a <strong>v1 draft</strong> with two starter sections. The draft is not published — approve it later to make it active and require staff sign-off.
             </div>
 
-            <form method="POST" action="{{ route('compliance.policy.store') }}" class="space-y-5">
+            <form method="POST" action="{{ route('compliance.policy.store') }}" enctype="multipart/form-data" class="space-y-5">
                 @csrf
 
                 <div>
@@ -48,6 +48,13 @@
                     <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Description</label>
                     <textarea name="description" rows="2" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">{{ old('description') }}</textarea>
                     @error('description') <p class="text-xs mt-1" style="color:var(--ds-crimson);">{{ $message }}</p> @enderror
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Or upload the policy as a document</label>
+                    <input type="file" name="document" accept=".pdf,.docx,.doc,application/pdf" class="text-xs">
+                    <p class="text-xs mt-1" style="color:var(--text-muted);">Optional. A PDF or Word file replaces the typed starter sections: staff read it page by page and sign once at the end. Word files are turned into a PDF first.</p>
+                    @error('document') <p class="text-xs mt-1" style="color:var(--ds-crimson);">{{ $message }}</p> @enderror
                 </div>
 
                 <div class="flex items-center gap-3 pt-2">

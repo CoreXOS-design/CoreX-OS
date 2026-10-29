@@ -3039,6 +3039,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->name('approve')->middleware('permission:approve_rmcp');
         Route::get('/{version}/pdf', [\App\Http\Controllers\Compliance\RmcpController::class, 'downloadPdf'])
             ->name('pdf')->middleware('permission:access_rmcp');
+        // Signed copy + compliance-officer sign-off (compliance.md). Upload/replace is checked in the controller
+        // (manage_signed_copy, or the appointed compliance officer); it never approves or re-asks staff.
+        Route::get('/{version}/signed-copy', [\App\Http\Controllers\Compliance\SignedCopyController::class, 'rmcpDownload'])
+            ->name('signed-copy');
+        Route::post('/{version}/signed-copy', [\App\Http\Controllers\Compliance\SignedCopyController::class, 'rmcpStore'])
+            ->name('signed-copy.store');
+        // "Build staff training from this version" - whoever may approve the RMCP may send it to staff.
+        Route::post('/{version}/staff-training', [\App\Http\Controllers\Compliance\StaffTrainingController::class, 'rmcp'])
+            ->name('staff-training')->middleware('permission:approve_rmcp');
 
         // RMCP board approval letter (.ai/specs/compliance.md). Send / resend / cancel / re-create the PDF: manage_rmcp_board_approval
         // (checked in the controller, which also scopes by agency). In-app signing is for the board member on the open line.
@@ -3112,6 +3121,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->name('approve')->middleware('permission:approve_policy');
         Route::get('/{version}/pdf', [\App\Http\Controllers\Compliance\PolicyController::class, 'downloadPdf'])
             ->name('pdf')->middleware('permission:access_policy');
+        // Uploaded-document policies: a new draft from a new file, and the page images the read-through shows.
+        Route::post('/policies/{policy}/versions/upload', [\App\Http\Controllers\Compliance\PolicyController::class, 'uploadVersion'])
+            ->name('version.upload')->middleware('permission:edit_policy');
+        Route::get('/{version}/pages/{page}', [\App\Http\Controllers\Compliance\PolicyController::class, 'pageImage'])
+            ->whereNumber('page')->name('page')->middleware('permission:access_policy');
+        Route::get('/{version}/signed-copy', [\App\Http\Controllers\Compliance\SignedCopyController::class, 'policyDownload'])
+            ->name('signed-copy');
+        Route::post('/{version}/signed-copy', [\App\Http\Controllers\Compliance\SignedCopyController::class, 'policyStore'])
+            ->name('signed-copy.store');
+        Route::post('/{version}/staff-training', [\App\Http\Controllers\Compliance\StaffTrainingController::class, 'policy'])
+            ->name('staff-training')->middleware('permission:approve_policy');
     });
 
     // ── RMCP Compliance Officer (retired — redirects to settings) ──
