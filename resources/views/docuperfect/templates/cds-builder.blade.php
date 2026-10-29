@@ -318,6 +318,13 @@
                placeholder="Enter template name...">
     </div>
 
+    {{-- Cover shown from the first paint until the builder has built the document's fields (large documents take a moment). Alpine removes it. --}}
+    <div x-show="!builderReady" data-builder-loading
+         style="position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.92);font-size:14px;color:#334155;">
+        Loading this document's fields&hellip;
+    </div>
+    <div x-show="initError" x-cloak data-builder-init-error class="bg-red-50 border-b border-red-200 text-red-800 text-sm px-6 py-3" x-text="initError"></div>
+
     {{-- TWO-PANE AREA --}}
     <div class="flex flex-1 min-h-0">
 
@@ -1219,6 +1226,8 @@ function cdsEditor() {
         namedFieldsAll: @json($namedFieldsAll ?? []),
         isLeaseDocument: @json($isLeaseDocument ?? false),
         guessNote: '',
+        builderReady: false,
+        initError: '',
         showAllFields: false,
         aiBusy: false,
         aiNote: '',
@@ -1486,10 +1495,34 @@ function cdsEditor() {
 
         // ===== Init — convert CDS field spans to tags + auto-suggest =====
 
+        // Opening a draft: build the tags from the saved state (or from the fresh import) once Alpine has drawn the page. Any failure is
+        // shown on the page (never a silent "No fields tagged yet"), and the loading cover comes off either way.
         init() {
             this.$nextTick(() => {
+                try {
+                    this._initBuild();
+                } catch (e) {
+                    console.error('Builder init failed:', e);
+                    this.initError = 'This draft could not be loaded into the builder (' + (e && e.message ? e.message : 'unknown error') + '). Reload the page; if it happens again, use "Re-read with current rules" or tell support.';
+                } finally {
+                    this.builderReady = true;
+                }
+            });
+        },
+
+        // The saved builder state is only used when it really holds the tagged document: tags without their spans in the saved HTML
+        // (a half-saved draft) would open as an untagged document with a tag list that points at nothing.
+        _savedStateUsable() {
+            if (!Array.isArray(this.savedTags) || this.savedTags.length === 0) return true;
+            const probe = document.createElement('div');
+            probe.innerHTML = this.savedTaggedHtml || '';
+            return probe.querySelectorAll('[data-tag-id]').length > 0;
+        },
+
+        _initBuild() {
+            {
                 // â”€â”€ RESTORE PATH: if we have saved state, inject it instead of regenerating â”€â”€
-                if (this.hasSavedState) {
+                if (this.hasSavedState && this._savedStateUsable()) {
                     const container = document.getElementById('docContainer');
                     container.innerHTML = this.savedTaggedHtml;
 
@@ -1747,7 +1780,7 @@ function cdsEditor() {
                 this._initFormatToolbar();
                 this._initSigPlaceholderHandler();
                 this._initUndoKeyHandler();
-            });
+            }
         },
 
         // ===== Selection — doc <-> panel sync =====
