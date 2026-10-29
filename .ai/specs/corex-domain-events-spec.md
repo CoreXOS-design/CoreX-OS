@@ -392,6 +392,14 @@ The initial catalogue. Each row: event name, when it fires, payload, who emits i
 
 **A webinar grant expires on an absolute date, so `DemoAccessFirstLogin` no longer implies a clock started.** Webinar registration issues its grant with `expires_at` already set and `expiry_hours` NULL; `stampFirstLogin()` COALESCEs and leaves that deadline alone. The event still fires on first sign-in — it is still true that the prospect signed in for the first time — but for these grants it marks *use*, not the start of a countdown. Nothing downstream may infer `expires_at = first_login_at + expiry_hours`. Spec: `.ai/specs/webinar-registration.md` §5.2.
 
+**Auctions v2 (`.ai/specs/auctions.md` §10) — events added as each phase ships.**
+
+| Event | Fact | Subject | Emitted by | Listeners |
+|---|---|---|---|---|
+| `Auction\AuctionEnquiryReceived` | A buyer or guest sent an enquiry from the public auction site (phase 2) | `AuctionEnquiry` | `AuctionEnquiryService::capture()`, after the enquiry, its Contact and the buyer-pipeline seed are stored | `NotifyOfAuctionEnquiry` (emails the listing agent / branch manager per Settings → Auctions, falling back to the agency's enquiries address) |
+
+The remaining spec §10 events (published, cancelled, completed, bidder registered / approved / declined, bid placed / retracted, outbid, closing soon, lot sold / sold subject to confirmation / passed in / withdrawn) are catalogued here in the same commit as the phase that emits them.
+
 This catalogue is **not exhaustive**. As new features ship, new events are added per E9.
 
 > **Note on `AgencyCreated`:** the domain event (`App\Events\AgencyCreated`) is distinct

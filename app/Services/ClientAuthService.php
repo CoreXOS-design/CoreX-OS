@@ -209,7 +209,7 @@ class ClientAuthService
      * (ClientAccessLog 'otp_sent', logged only when a ClientUser exists, as
      * before). Behaviour is identical to the pre-AT-130 inline implementation.
      */
-    public function issueOtp(string $email, string $purpose, Request $request): Otp
+    public function issueOtp(string $email, string $purpose, Request $request, ?Agency $forAgency = null): Otp
     {
         $email      = strtolower(trim($email));
         $clientUser = ClientUser::where('email', $email)->first();
@@ -224,7 +224,7 @@ class ClientAuthService
             'expires_minutes' => $expiresMin,
             // Fake @corexclient.co.za logins are not deliverable mailboxes.
             'deliver'         => !str_ends_with($email, '@' . $fakeDomain),
-            'mail'            => fn (string $code) => new ClientAuthOtpMail($code, $expiresMin, $this->agencyForSignIn($email, $clientUser)),
+            'mail'            => fn (string $code) => new ClientAuthOtpMail($code, $expiresMin, $forAgency ?? $this->agencyForSignIn($email, $clientUser)),
             // Preserve the legacy columns exactly (client_user_id + email) so
             // the ClientUser->otps() relation and existing rows are unchanged.
             'attributes'      => ['client_user_id' => $clientUser?->id, 'email' => $email],

@@ -446,6 +446,8 @@ class AppServiceProvider extends ServiceProvider
         );
 
         // The domain-event logging family — every one of these was discovery-only.
+        // Auctions v2 (.ai/specs/auctions.md §10) — tell the agency about a new public-site enquiry.
+        Event::listen(\App\Events\Auction\AuctionEnquiryReceived::class, \App\Listeners\Auction\NotifyOfAuctionEnquiry::class);
         Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Agent\LogAgentEvent::class);
         Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Mandate\LogMandateEvent::class);
         Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Deal\LogDealEvent::class);

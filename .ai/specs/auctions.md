@@ -1,6 +1,6 @@
 # Auctions — Spec (REBUILD, v2)
 
-> Status: **APPROVED by Johan 2026-10-29. Phase 1 BUILT on QA2 (not yet Johan-tested, not promoted). Phases 2-4 not started.**
+> Status: **APPROVED by Johan 2026-10-29. Phases 1 and 2 BUILT on QA2 (not yet Johan-tested, not promoted). Phases 3-4 not started.**
 > Supersedes: the AT-432 auctions spec and `auctions-advertising-mode.md` (both retired 2026-10-29; the old module was removed from QA2 in commit `0983bc5f2`).
 > Drafted: 2026-10-29 · Author: Claude (conductor lane) for Johan
 > Lane: QA2 first. Johan's go gates Staging; nothing reaches Live without Johan's specific order.
@@ -88,6 +88,13 @@ Fees & tax on fees, deposits, buyer's commission, guarantees, bidder invoices, m
 - `document_types`: optional seed of auction-pack types (Title deed, Municipal valuation, Zoning certificate, Levy statement, Site plan, Inspection report…) as agency-editable defaults.
 - `agencies`/new `agency_auction_settings` — §7.
 - Existing and kept: `properties.sale_method`, `Property::isAuction()`, `STATUS_ON_AUCTION`, `contact_matches.open_to_auction`.
+
+> **Phase 2 build notes (2026-10-31).**
+> - **"Registered" means signed in.** Johan: buyers must register before they get anything. So `registered`-only documents (auction level and the property Drive pack) open for any signed-in buyer account; per-auction bidder *approval* (phase 3) gates **bidding**, not documents. (Spec §8.1's "approved/registered users" is read this way.)
+> - **Drive pack fix.** The property Drive stores `Document` rows linked through `document_properties`, not the deprecated `property_files` — so the "Show on auction page" flag is the `document_properties.auction_visibility` column (per property link). The phase-1 `property_files` column was removed by `2026_10_31_090000_move_auction_visibility_to_property_documents`.
+> - **Buyer accounts reuse the existing client login** (`client_users`, guard `client-web`, `ClientAuthService::issueOtp()` with an optional agency so the code mail goes out as the agency). Sign-up and reset are email-code flows; a buyer gets one Contact per agency, created (match-or-create) on first use. Contacts and enquiries from the public site are stamped into the agency of the URL — never the agency of a staff member who happens to be browsing — and filed in a branch of that agency.
+> - New permission keys: `auctions.enquiries.view|manage|view_all`. New table: `auction_enquiries`. Event: `AuctionEnquiryReceived`.
+> - Reserve met / not met on the public lot page needs bids, so it arrives with phase 3.
 
 ## 5. Screens, navigation and per-screen list standards
 

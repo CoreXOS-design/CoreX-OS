@@ -8,7 +8,6 @@ use App\Models\Agency;
 use App\Models\AgencyAuctionSettings;
 use App\Models\Auction;
 use App\Models\AuctionLot;
-use App\Models\PropertyFile;
 use App\Models\User;
 use App\Services\Auctions\AuctionLotService;
 use Illuminate\Http\UploadedFile;
@@ -217,21 +216,30 @@ final class AuctionScreensTest extends AuctionsV2TestCase
         $this->assertFalse($rental->fresh()->isAuction());
     }
 
-    public function test_the_drive_auction_pack_visibility_is_saved_per_file(): void
+    public function test_the_drive_auction_pack_visibility_is_saved_per_document_on_this_property(): void
     {
         $p = $this->property(extra: ['sale_method' => 'auction']);
-        $file = PropertyFile::create(['agency_id' => $this->agency->id, 'property_id' => $p->id, 'user_id' => $this->admin->id, 'name' => 'Title deed.pdf', 'path' => 'p/title.pdf', 'size' => 10, 'mime_type' => 'application/pdf']);
-        $this->assertNull($file->auction_visibility);
+        $other = $this->property('Another house', ['sale_method' => 'auction']);
+        $doc = \App\Models\Document::create(['original_name' => 'Title deed.pdf', 'storage_path' => 'p/title.pdf', 'disk' => 'local', 'mime_type' => 'application/pdf', 'size' => 10, 'source_type' => 'upload', 'uploaded_by' => $this->admin->id]);
+        $p->documents()->attach($doc->id);
+        $other->documents()->attach($doc->id);   // the same file on a second property
+        $pivot = fn ($prop) => $prop->documents()->first()->pivot->auction_visibility;
+        $this->assertNull($pivot($p->fresh()));
 
-        $url = route('corex.properties.files.auction-visibility', [$p, $file->id]);
+        $url = route('corex.properties.files.auction-visibility', [$p, $doc->id]);
         $this->putJson($url, ['auction_visibility' => 'registered'])->assertOk();
-        $this->assertSame('registered', $file->fresh()->auction_visibility);
+        $this->assertSame('registered', $pivot($p->fresh()));
+        $this->assertNull($pivot($other->fresh()), 'the flag belongs to this property only');
 
         $this->putJson($url, ['auction_visibility' => 'nonsense'])->assertStatus(422);
         $this->putJson($url, ['auction_visibility' => null])->assertOk();
-        $this->assertNull($file->fresh()->auction_visibility);
+        $this->assertNull($pivot($p->fresh()));
 
-        $this->get(route('corex.properties.show', $p).'?tab=drive')->assertOk()->assertSee('data-auction-pack', false);
+        // a document that is not on this property cannot be flagged through it
+        $stray = \App\Models\Document::create(['original_name' => 'x.pdf', 'storage_path' => 'p/x.pdf', 'disk' => 'local', 'mime_type' => 'application/pdf', 'size' => 1, 'source_type' => 'upload', 'uploaded_by' => $this->admin->id]);
+        $this->putJson(route('corex.properties.files.auction-visibility', [$p, $stray->id]), ['auction_visibility' => 'public'])->assertNotFound();
+
+        $this->get(route('corex.properties.show', $p).'?tab=drive')->assertOk()->assertSee('data-auction-pack', false)->assertSee('Title deed.pdf');
     }
 
     public function test_settings_save_and_default_to_neutral_values(): void

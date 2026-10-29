@@ -4,7 +4,7 @@ namespace App\Http\Controllers\CoreX\Auctions;
 
 use App\Http\Controllers\Controller;
 use App\Models\Property;
-use App\Models\PropertyFile;
+use App\Models\Document;
 use App\Services\Auctions\AuctionLotService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -81,11 +81,11 @@ class PropertyAuctionController extends Controller
         $property = $this->property($request, $property);
         $data = $request->validate(['auction_visibility' => 'nullable|in:public,registered']);
 
-        $row = PropertyFile::query()->where('property_id', $property->id)->findOrFail($file);
-        $row->auction_visibility = $data['auction_visibility'] ?? null;
-        $row->save();
+        // The flag lives on the document<->property link (document_properties), not on the document itself.
+        $document = $property->documents()->where('documents.id', $file)->firstOrFail();
+        $property->documents()->updateExistingPivot($document->id, ['auction_visibility' => $data['auction_visibility'] ?? null]);
 
-        return response()->json(['ok' => true, 'auction_visibility' => $row->auction_visibility]);
+        return response()->json(['ok' => true, 'auction_visibility' => $data['auction_visibility'] ?? null]);
     }
 
     private function property(Request $request, int $id): Property

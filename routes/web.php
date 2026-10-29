@@ -6186,6 +6186,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/create', [$A, 'create'])->middleware('permission:auctions.create')->name('create');
         Route::post('/', [$A, 'store'])->middleware('permission:auctions.create')->name('store');
 
+        // Enquiries from the public auction site (S3) — also before the wildcards.
+        Route::prefix('enquiries')->name('enquiries.')->middleware('permission:auctions.enquiries.view')->group(function () {
+            $E = \App\Http\Controllers\CoreX\Auctions\EnquiryController::class;
+            Route::get('/', [$E, 'index'])->name('index');
+            Route::put('/{enquiry}', [$E, 'update'])->whereNumber('enquiry')->middleware('permission:auctions.enquiries.manage')->name('update');
+            Route::delete('/{enquiry}', [$E, 'archive'])->whereNumber('enquiry')->middleware('permission:auctions.enquiries.manage')->name('archive');
+            Route::post('/{enquiry}/restore', [$E, 'restore'])->whereNumber('enquiry')->middleware('permission:auctions.enquiries.manage')->name('restore');
+        });
+
         // Lots — registered before the /{auction} wildcards so '/lots' is never read as an auction id.
         Route::prefix('lots')->name('lots.')->middleware('permission:auctions.view')->group(function () use ($L) {
             Route::get('/', [$L, 'index'])->name('index');
@@ -7525,6 +7534,42 @@ Route::prefix('rental-inventory-report')->group(function () {
         ->middleware('throttle:rental-inventory-public-show')->name('rental-inventories.public.signature-wet-ink-file');
     Route::post('/{token}/buyer-acceptance', [\App\Http\Controllers\RentalInventoryPublicController::class, 'storeBuyerAcceptance'])
         ->middleware('throttle:rental-inventory-public-show')->name('rental-inventories.public.buyer-acceptance.store');
+});
+
+// ===== AUCTIONS v2 — PUBLIC AUCTION SITE + BUYER ACCOUNTS (.ai/specs/auctions.md §8, no staff login) =====
+// One branded site per agency at /auctions/{agency-slug}. Reads only published material (PublicAuctionSite); buyers sign up
+// and log in with the existing client login on the `client-web` session guard. Every write is throttled.
+Route::prefix('auctions/{agencySlug}')->where(['agencySlug' => '[A-Za-z0-9\-_]+'])->name('public.auctions.')->group(function () {
+    $S = \App\Http\Controllers\Public\Auctions\SiteController::class;
+    $A = \App\Http\Controllers\Public\Auctions\BuyerAuthController::class;
+    $E = \App\Http\Controllers\Public\Auctions\EnquiryController::class;
+
+    Route::middleware('throttle:120,1')->group(function () use ($S, $A) {
+        Route::get('/', [$S, 'home'])->name('home');
+        Route::get('/a/{auction}', [$S, 'auction'])->whereNumber('auction')->name('auction');
+        Route::get('/a/{auction}/documents/{document}', [$S, 'auctionDocument'])->whereNumber(['auction', 'document'])->name('auction.document');
+        Route::get('/a/{auction}/lots/{lot}', [$S, 'lot'])->whereNumber(['auction', 'lot'])->name('lot');
+        Route::get('/a/{auction}/lots/{lot}/documents/{document}', [$S, 'packDocument'])->whereNumber(['auction', 'lot', 'document'])->name('lot.document');
+
+        Route::get('/signup', [$A, 'signupForm'])->name('signup');
+        Route::get('/signup/verify', [$A, 'signupVerifyForm'])->name('signup.verify');
+        Route::get('/login', [$A, 'loginForm'])->name('login');
+        Route::get('/forgot', [$A, 'forgotForm'])->name('forgot');
+        Route::get('/forgot/reset', [$A, 'resetForm'])->name('forgot.reset');
+        Route::get('/account', [$A, 'account'])->name('account');
+    });
+
+    Route::post('/signup', [$A, 'signupSend'])->middleware('throttle:6,1')->name('signup.send');
+    Route::post('/signup/verify', [$A, 'signupComplete'])->middleware('throttle:10,1')->name('signup.complete');
+    Route::post('/login', [$A, 'login'])->middleware('throttle:10,1')->name('login.submit');
+    Route::post('/logout', [$A, 'logout'])->name('logout');
+    Route::post('/forgot', [$A, 'forgotSend'])->middleware('throttle:6,1')->name('forgot.send');
+    Route::post('/forgot/reset', [$A, 'resetComplete'])->middleware('throttle:10,1')->name('forgot.complete');
+    Route::put('/account', [$A, 'accountUpdate'])->middleware('throttle:20,1')->name('account.update');
+
+    // Enquiries: guests may send one. The limit has its own counter name so browsing lots never uses it up.
+    Route::post('/a/{auction}/enquire', [$E, 'store'])->whereNumber('auction')->middleware('throttle:10,1,auction-enquiry')->name('enquire');
+    Route::post('/a/{auction}/lots/{lot}/enquire', [$E, 'store'])->whereNumber(['auction', 'lot'])->middleware('throttle:10,1,auction-enquiry')->name('enquire.lot');
 });
 
 // ===== SALES DOCUMENT RETURN (public, no auth, token-based) =====
