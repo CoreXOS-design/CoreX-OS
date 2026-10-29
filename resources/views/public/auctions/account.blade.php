@@ -21,6 +21,14 @@
             <p class="muted small">You have not registered for an auction yet.</p>
         @endforelse
 
+        @if($won->isNotEmpty())
+        <h2>Lots I have won</h2>
+        @foreach($won as $w)
+            <p class="small" style="margin:.3rem 0;"><a href="{{ route('public.auctions.lot', [$agency->slug, $w->auction_id, $w->id]) }}">Lot {{ $w->lot_number }} — {{ $w->displayTitle() }}</a> —
+                <strong>You won at R {{ number_format((float) $w->hammer_price, 0, '.', ' ') }}</strong>@if($w->status === 'sold_subject_to_confirmation') · waiting for the seller to confirm @endif</p>
+        @endforeach
+        @endif
+
         <h2>Watching</h2>
         @forelse($watching as $w)
             <p class="small" style="margin:.3rem 0;"><a href="{{ route('public.auctions.lot', [$agency->slug, $w->lot->auction_id, $w->lot_id]) }}">Lot {{ $w->lot->lot_number }} — {{ $w->lot->displayTitle() }}</a></p>

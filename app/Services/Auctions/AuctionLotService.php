@@ -3,6 +3,7 @@
 namespace App\Services\Auctions;
 
 use App\Models\AgencyAuctionSettings;
+use App\Events\Auction\AuctionLotWithdrawn;
 use App\Models\Auction;
 use App\Models\AuctionLot;
 use App\Models\Property;
@@ -120,6 +121,7 @@ class AuctionLotService
 
         $lot->forceFill(['status' => AuctionLot::STATUS_WITHDRAWN, 'result_at' => now(), 'result_note' => $this->str($reason, 300)])->save();
         $this->releaseProperty($lot);
+        AuctionLotWithdrawn::dispatch($lot);
 
         return $lot;
     }

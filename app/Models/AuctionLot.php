@@ -31,7 +31,7 @@ class AuctionLot extends Model
     protected $fillable = [
         'agency_id', 'auction_id', 'property_id', 'lot_number', 'title', 'reference', 'external_ref', 'description',
         'opens_at', 'closes_at', 'opening_bid', 'reserve_price', 'guide_price_min', 'guide_price_max', 'status',
-        'winning_bid_id', 'hammer_price', 'result_at', 'confirmation_deadline', 'result_note',
+        'winning_bid_id', 'deal_id', 'hammer_price', 'result_at', 'confirmation_deadline', 'confirmed_at', 'result_note',
     ];
 
     protected $casts = [
@@ -39,6 +39,7 @@ class AuctionLot extends Model
         'closes_at' => 'datetime',
         'result_at' => 'datetime',
         'confirmation_deadline' => 'datetime',
+        'confirmed_at' => 'datetime',
         'lot_number' => 'integer',
         'opening_bid' => 'decimal:2',
         'reserve_price' => 'decimal:2',

@@ -103,6 +103,15 @@
     </form>
 
     @unless($isNew)
+    @permission('auctions.room.operate')
+    @if($auction->isPublic() && ! $auction->trashed())
+    <section class="rounded-md p-4 flex flex-wrap items-center gap-3" style="background:var(--surface);border:1px solid var(--border);">
+        <a href="{{ route('corex.auctions.room.show', $auction->id) }}" class="corex-btn-primary" data-open-sale-room>Open the Sale Room</a>
+        <span class="text-xs" style="color:var(--text-muted);">{{ $auction->format === 'live' ? 'Run the auction: put lots on the block, record floor bids and knock them down.' : 'Watch the bidding live. A timed auction runs on its own clock.' }}</span>
+    </section>
+    @endif
+    @endpermission
+
     {{-- Documents --}}
     <section class="rounded-md p-5 space-y-3" style="background:var(--surface);border:1px solid var(--border);" data-auction-documents>
         <h2 class="text-sm font-bold" style="color:var(--text-primary);">Documents</h2>

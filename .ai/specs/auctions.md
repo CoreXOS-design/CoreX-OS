@@ -1,6 +1,6 @@
 # Auctions — Spec (REBUILD, v2)
 
-> Status: **APPROVED by Johan 2026-10-29. Phases 1, 2 and 3 BUILT on QA2 (not yet Johan-tested, not promoted). Phase 4 not started.**
+> Status: **APPROVED by Johan 2026-10-29. All four phases BUILT on QA2 (not yet Johan-tested, not promoted). Phase 2 of the *product* (fees, deposits, invoices, Direct sales, analytics) is not started.**
 > Supersedes: the AT-432 auctions spec and `auctions-advertising-mode.md` (both retired 2026-10-29; the old module was removed from QA2 in commit `0983bc5f2`).
 > Drafted: 2026-10-29 · Author: Claude (conductor lane) for Johan
 > Lane: QA2 first. Johan's go gates Staging; nothing reaches Live without Johan's specific order.
@@ -106,6 +106,14 @@ Fees & tax on fees, deposits, buyer's commission, guarantees, bidder invoices, m
 > - **A lot with bids is locked:** its bidding window, opening bid and reserve cannot be edited (retract the bids or withdraw the lot).
 > - **Closing:** `auctions:run` (every minute) opens published timed lots when their window starts and closes ended ones: highest valid bid at/above the reserve (or no reserve) = sold; below the reserve = sold subject to confirmation; none = passed in (property released). When no lot is still running the auction becomes `closed`. A sold lot's property stays "On Auction" until phase 4 opens the Deal (the Deal milestone is what marks a property Sold today).
 > - New tables: `auction_registrations`, `bidder_documents`, `auction_registration_documents`, `auction_bids`, `auction_auto_bids`, `auction_watchlist`. New permission keys: `auctions.bidders.view|view_all|approve|review_documents`, `auctions.bids.view|retract`. Not built yet from §10: `LotClosingSoon` (closing-soon emails), calendar entries, Deal on sold (phase 4).
+
+> **Phase 4 build notes (2026-11-02).**
+> - **Sale Room (S6)** — `/corex/auctions/{id}/room` (permission `auctions.room.operate`). For a LIVE auction: open a lot (one at a time), record a bid called from the floor against a **bidder number** (source `floor`: no clock, no soft close, no outbid email), **knock down** or **pass in** (`auctions.hammer`). For a timed auction it is a read-only monitor. The room refreshes itself when the lot changes (staff feed `GET /api/v1/auctions/lots/{lot}/feed`). Online bidders cannot bid on a live auction; they register online and are bid for in the room.
+> - **Outcomes (same for the clock and the hammer):** highest bid at/above the reserve (or no reserve) = **sold**; below = **sold subject to confirmation** (seller decides within *confirmation_days*, agency setting, default 3; it is on the calendar); no bid, or the auctioneer passes it in = **passed in** (property released). Seller **confirms** (-> sold, Deal opens, only the winner is emailed again) or **declines** (-> passed in, property released, winner told their bid was not accepted). An auction cannot be completed while a lot awaits the seller.
+> - **Deal:** `AuctionLotSold` -> `CreateDealOnLotSold` -> `AuctionDealFactory` (the Deal Register's own model, agent pivot and pipeline): cash deal, price = hammer price, seller(s) from the property, buyer = winner, listing agent. Needs a seller linked to the property; if there is none the sale still stands and the lot page shows **Open the deal** to retry. Fees are product-phase 2, so commission starts at 0 with a remark. The property becomes Sold through the Deal's existing milestone, as for any sale.
+> - **Results (S7)** — `/corex/auctions/results` (`auctions.results.view`), CSV export (`auctions.results.export`; the reserve columns only for `auctions.reserve.view`). Stats: lots sold, awaiting seller, passed in, turnover, highest price, bids per lot.
+> - **Calendar:** `AuctionCalendarSource` emits `auction_date`, `auction_registration_closes`, `auction_confirmation_deadline` (draft/cancelled auctions excluded).
+> - **My account** lists the lots the buyer has won. New events: `AuctionPublished`, `AuctionCancelled`, `AuctionCompleted`, `AuctionLotWithdrawn`, `LotDeclinedBySeller`. New setting: `confirmation_days` (Settings -> Auctions and the Setup Wizard step). New permission keys: `auctions.room.operate`, `auctions.hammer`, `auctions.results.view`, `auctions.results.export`. Still not built: `LotClosingSoon` emails.
 
 ## 5. Screens, navigation and per-screen list standards
 

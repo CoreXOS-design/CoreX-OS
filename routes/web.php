@@ -589,6 +589,10 @@ Route::middleware('auth')->group(function () {
 
         Route::get('/branding',        [\App\Http\Controllers\Api\V1\BrandingController::class, 'show'])->name('branding.show');
 
+        // Auctions v2 (.ai/specs/auctions.md §11) — the Sale Room's live view of one lot.
+        Route::get('/auctions/lots/{lot}/feed', [\App\Http\Controllers\Api\V1\Auctions\AuctionLotFeedController::class, 'show'])
+            ->whereNumber('lot')->middleware(['permission:auctions.room.operate', 'agency.required', 'feature:auctions'])->name('auctions.lots.feed');
+
         // Auctions v2 (.ai/specs/auctions.md §11) — property picker for the Lots screen.
         Route::get('/auctions/property-search', [\App\Http\Controllers\Api\V1\Auctions\AuctionPropertySearchController::class, 'index'])
             ->middleware(['permission:auctions.lots.manage', 'agency.required', 'feature:auctions'])->name('auctions.property-search');
@@ -6186,6 +6190,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/create', [$A, 'create'])->middleware('permission:auctions.create')->name('create');
         Route::post('/', [$A, 'store'])->middleware('permission:auctions.create')->name('store');
 
+        // Results (S7) — before the wildcards.
+        Route::get('/results', [\App\Http\Controllers\CoreX\Auctions\ResultController::class, 'index'])->middleware('permission:auctions.results.view')->name('results');
+        Route::get('/results/export', [\App\Http\Controllers\CoreX\Auctions\ResultController::class, 'export'])->middleware('permission:auctions.results.export')->name('results.export');
+
         // Bidders (S5) and Bids (S4) — also before the wildcards.
         Route::prefix('bidders')->name('bidders.')->middleware('permission:auctions.bidders.view')->group(function () {
             $B = \App\Http\Controllers\CoreX\Auctions\BidderController::class;
@@ -6224,11 +6232,23 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/{lot}/withdraw', [$L, 'withdraw'])->whereNumber('lot')->middleware('permission:auctions.lots.manage')->name('withdraw');
             Route::delete('/{lot}', [$L, 'archive'])->whereNumber('lot')->middleware('permission:auctions.lots.manage')->name('archive');
             Route::post('/{lot}/restore', [$L, 'restore'])->whereNumber('lot')->middleware('permission:auctions.lots.manage')->name('restore');
+            Route::post('/{lot}/confirm', [$L, 'confirm'])->whereNumber('lot')->middleware('permission:auctions.hammer')->name('confirm');
+            Route::post('/{lot}/decline', [$L, 'decline'])->whereNumber('lot')->middleware('permission:auctions.hammer')->name('decline');
+            Route::post('/{lot}/open-deal', [$L, 'openDeal'])->whereNumber('lot')->middleware('permission:auctions.hammer')->name('open-deal');
         });
 
         Route::middleware('permission:auctions.view')->group(function () use ($A) {
             Route::get('/{auction}/edit', [$A, 'edit'])->whereNumber('auction')->name('edit');
             Route::get('/{auction}/documents/{document}', [$A, 'downloadDocument'])->whereNumber(['auction', 'document'])->name('documents.download');
+        });
+        // The Sale Room (S6): the auctioneer's console for a live auction; a read-only monitor for a timed one.
+        Route::prefix('{auction}/room')->whereNumber('auction')->name('room.')->middleware('permission:auctions.room.operate')->group(function () {
+            $R = \App\Http\Controllers\CoreX\Auctions\SaleRoomController::class;
+            Route::get('/', [$R, 'show'])->name('show');
+            Route::post('/lots/{lot}/open', [$R, 'openLot'])->whereNumber('lot')->name('open');
+            Route::post('/lots/{lot}/bid', [$R, 'floorBid'])->whereNumber('lot')->name('bid');
+            Route::post('/lots/{lot}/hammer', [$R, 'hammer'])->whereNumber('lot')->middleware('permission:auctions.hammer')->name('hammer');
+            Route::post('/lots/{lot}/pass-in', [$R, 'passIn'])->whereNumber('lot')->middleware('permission:auctions.hammer')->name('pass-in');
         });
         Route::put('/{auction}', [$A, 'update'])->whereNumber('auction')->middleware('permission:auctions.edit')->name('update');
         Route::delete('/{auction}', [$A, 'archive'])->whereNumber('auction')->middleware('permission:auctions.archive')->name('archive');

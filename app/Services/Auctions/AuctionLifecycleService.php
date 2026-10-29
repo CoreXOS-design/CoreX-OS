@@ -2,6 +2,9 @@
 
 namespace App\Services\Auctions;
 
+use App\Events\Auction\AuctionCancelled;
+use App\Events\Auction\AuctionCompleted;
+use App\Events\Auction\AuctionPublished;
 use App\Models\Auction;
 use App\Models\AuctionLot;
 use App\Models\Property;
@@ -17,7 +20,7 @@ class AuctionLifecycleService
     public function __construct(private AuctionLotService $lots) {}
 
     /** Make the auction (and its lots) visible on the public auction site and mark each property On Auction. */
-    public function publish(Auction $auction): Auction
+    public function publish(Auction $auction, ?int $byUserId = null): Auction
     {
         if ($auction->status !== Auction::STATUS_DRAFT) {
             throw ValidationException::withMessages(['status' => 'Only a draft auction can be published.']);
@@ -43,7 +46,7 @@ class AuctionLifecycleService
             throw ValidationException::withMessages(['status' => implode(' ', $problems)]);
         }
 
-        return DB::transaction(function () use ($auction) {
+        $auction = DB::transaction(function () use ($auction) {
             foreach ($auction->lots()->live()->where('status', AuctionLot::STATUS_DRAFT)->with('property')->get() as $lot) {
                 $lot->forceFill(['status' => AuctionLot::STATUS_PUBLISHED])->save();
                 $this->markOnAuction($lot->property);
@@ -52,6 +55,9 @@ class AuctionLifecycleService
 
             return $auction;
         });
+        AuctionPublished::dispatch($auction, $byUserId);
+
+        return $auction;
     }
 
     /** Called when a lot joins an auction that is already published, so its property is marked too. */
@@ -65,13 +71,13 @@ class AuctionLifecycleService
         $property->save();
     }
 
-    public function cancel(Auction $auction, ?string $reason): Auction
+    public function cancel(Auction $auction, ?string $reason, ?int $byUserId = null): Auction
     {
         if (in_array($auction->status, [Auction::STATUS_COMPLETED, Auction::STATUS_CANCELLED], true)) {
             throw ValidationException::withMessages(['status' => 'This auction is already ' . strtolower($auction->statusLabel()) . '.']);
         }
 
-        return DB::transaction(function () use ($auction, $reason) {
+        $auction = DB::transaction(function () use ($auction, $reason) {
             foreach ($auction->lots()->live()->with('property')->get() as $lot) {
                 $this->lots->withdraw($lot, 'Auction cancelled');
             }
@@ -83,10 +89,13 @@ class AuctionLifecycleService
 
             return $auction;
         });
+        AuctionCancelled::dispatch($auction, $byUserId);
+
+        return $auction;
     }
 
     /** Close the books once every lot has a result. */
-    public function complete(Auction $auction): Auction
+    public function complete(Auction $auction, ?int $byUserId = null): Auction
     {
         if (! in_array($auction->status, [Auction::STATUS_PUBLISHED, Auction::STATUS_OPEN, Auction::STATUS_CLOSED], true)) {
             throw ValidationException::withMessages(['status' => 'Only a published auction can be completed.']);
@@ -96,6 +105,7 @@ class AuctionLifecycleService
         }
 
         $auction->forceFill(['status' => Auction::STATUS_COMPLETED, 'completed_at' => now()])->save();
+        AuctionCompleted::dispatch($auction, $byUserId);
 
         return $auction;
     }

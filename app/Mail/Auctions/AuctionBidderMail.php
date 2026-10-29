@@ -20,7 +20,7 @@ class AuctionBidderMail extends Mailable
 {
     use Queueable, SerializesModels;
 
-    public const KINDS = ['approved', 'declined', 'outbid', 'won', 'subject_to_confirmation', 'ended'];
+    public const KINDS = ['approved', 'declined', 'outbid', 'won', 'subject_to_confirmation', 'not_accepted', 'ended'];
 
     public string $agencyName;
     public ?string $logoUrl;
@@ -50,6 +50,7 @@ class AuctionBidderMail extends Mailable
             'outbid' => 'You have been outbid' . ($this->lot ? " on Lot {$this->lot->lot_number}" : ''),
             'won' => 'You won' . ($this->lot ? " Lot {$this->lot->lot_number}" : '') . " — {$this->auction->title}",
             'subject_to_confirmation' => 'You are the highest bidder' . ($this->lot ? " on Lot {$this->lot->lot_number}" : '') . ' — subject to confirmation',
+            'not_accepted' => 'About your bid' . ($this->lot ? " on Lot {$this->lot->lot_number}" : '') . " — {$this->auction->title}",
             default => "The auction has ended — {$this->auction->title}",
         };
 

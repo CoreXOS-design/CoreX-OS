@@ -70,7 +70,9 @@ class BidEngine
             }
 
             $bid = $this->insert($lot, $reg, $amount, $source, $ip);
-            $this->extendIfLate($lot);
+            if ($source !== 'floor') {
+                $this->extendIfLate($lot);   // the auctioneer closes a live lot with the hammer, not a clock
+            }
             $this->settle($lot, $ip);
             $after = $lot->highestBid();
 
@@ -179,7 +181,13 @@ class BidEngine
         $high = $lot->highestBid();
         $concluded = $lot->isConcluded() || $lot->status === AuctionLot::STATUS_SOLD_SUBJECT;
 
-        $phase = $concluded || ($closes && $now->gte($closes)) ? 'ended' : (($opens && $now->lt($opens)) ? 'upcoming' : 'open');
+        if ($auction->format === 'live') {
+            // a live lot is open exactly while the auctioneer has it open; there is no clock
+            $phase = $concluded ? 'ended' : ($lot->status === AuctionLot::STATUS_OPEN ? 'open' : 'upcoming');
+            $closes = null;
+        } else {
+            $phase = $concluded || ($closes && $now->gte($closes)) ? 'ended' : (($opens && $now->lt($opens)) ? 'upcoming' : 'open');
+        }
 
         $you = null;
         if ($reg) {
@@ -248,7 +256,18 @@ class BidEngine
         if (! in_array($auction->status, [Auction::STATUS_PUBLISHED, Auction::STATUS_OPEN], true) || $lot->trashed()) {
             throw $this->reject('This auction is not open for bidding.');
         }
-        if ($auction->format !== 'timed' && $source !== 'floor') {
+        if ($source === 'floor') {
+            // A bid called from the floor of a LIVE auction: valid only while the auctioneer has the lot open. No clock applies.
+            if ($auction->format !== 'live') {
+                throw $this->reject('Floor bids are only taken at a live auction.');
+            }
+            if ($lot->status !== AuctionLot::STATUS_OPEN) {
+                throw $this->reject('Open the lot before taking bids on it.');
+            }
+
+            return;
+        }
+        if ($auction->format !== 'timed') {
             throw $this->reject('This is a live auction. Bids are taken in the room.');
         }
         if (! in_array($lot->status, [AuctionLot::STATUS_PUBLISHED, AuctionLot::STATUS_OPEN], true)) {
@@ -360,7 +379,7 @@ class BidEngine
         }
         $before = $o['before'];
         $after = $o['after'];
-        if ($before && $after && (int) $before->registration_id !== (int) $after->registration_id) {
+        if ($before && $after && $bid?->source !== 'floor' && (int) $before->registration_id !== (int) $after->registration_id) {
             $outbid = AuctionRegistration::withoutGlobalScopes()->find($before->registration_id);
             if ($outbid) {
                 LotOutbid::dispatch($o['lot'], $outbid, (float) $after->amount);

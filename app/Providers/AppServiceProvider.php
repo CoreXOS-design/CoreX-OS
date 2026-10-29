@@ -452,7 +452,9 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(\App\Events\Auction\BidderApproved::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleApproved']);
         Event::listen(\App\Events\Auction\BidderDeclined::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleDeclined']);
         Event::listen(\App\Events\Auction\LotOutbid::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleOutbid']);
+        Event::listen(\App\Events\Auction\AuctionLotSold::class, \App\Listeners\Auction\CreateDealOnLotSold::class);   // Deal first: the winner's email links to a finished sale
         Event::listen(\App\Events\Auction\AuctionLotSold::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleSold']);
+        Event::listen(\App\Events\Auction\LotDeclinedBySeller::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleDeclinedBySeller']);
         Event::listen(\App\Events\Auction\AuctionLotSoldSubjectToConfirmation::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleSoldSubject']);
         Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Agent\LogAgentEvent::class);
         Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Mandate\LogMandateEvent::class);
@@ -481,6 +483,8 @@ class AppServiceProvider extends ServiceProvider
         $registry->register(\App\Services\CommandCenter\Calendar\Sources\DocumentCalendarSource::class);
         $registry->register(\App\Services\CommandCenter\Calendar\Sources\PeopleCalendarSource::class);
         $registry->register(\App\Services\CommandCenter\Calendar\Sources\RecurringCalendarSource::class);
+        // Auctions v2 (.ai/specs/auctions.md §10): auction date, registration closes, seller confirmation due.
+        $registry->register(\App\Services\CommandCenter\Calendar\Sources\AuctionCalendarSource::class);
 
         // Domain events: every concrete DomainEvent is recorded to
         // domain_event_log by RecordDomainEvent. Spec:

@@ -70,6 +70,9 @@
         <section class="rounded-md p-5 space-y-4" style="background:var(--surface);border:1px solid var(--border);">
             <h2 class="text-sm font-bold" style="color:var(--text-primary);">Bidder registration</h2>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div><label class="{{ $label }}" style="color:var(--text-secondary);">Days a seller has to confirm a below-reserve sale</label>
+                    <input type="number" min="1" max="60" name="confirmation_days" value="{{ old('confirmation_days', $values['confirmation_days']) }}" class="{{ $field }}" style="{{ $fieldStyle }}">
+                    <p class="{{ $hint }}" style="color:var(--text-muted);">When the highest bid is under the reserve, the seller decides within this time. It appears on the calendar.</p></div>
                 <div><label class="{{ $label }}" style="color:var(--text-secondary);">Registration closes (hours before the auction)</label>
                     <input type="number" min="0" max="720" name="registration_closes_hours" value="{{ old('registration_closes_hours', $values['registration_closes_hours']) }}" class="{{ $field }}" style="{{ $fieldStyle }}"></div>
                 @foreach(['docs_required_individual' => 'Documents required from an individual', 'docs_required_company' => 'Documents required from a company'] as $key => $title)

@@ -7,7 +7,9 @@ use App\Models\Auction;
 use App\Models\AuctionLot;
 use App\Models\Property;
 use App\Models\User;
+use App\Services\Auctions\AuctionDealFactory;
 use App\Services\Auctions\AuctionLotService;
+use App\Services\Auctions\LotResultService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
@@ -20,7 +22,7 @@ class AuctionLotController extends Controller
 {
     private const SORTABLE = ['auction', 'lot_number', 'title', 'status', 'opens_at', 'closes_at', 'opening_bid'];
 
-    public function __construct(private AuctionLotService $service) {}
+    public function __construct(private AuctionLotService $service, private LotResultService $results) {}
 
     public function index(Request $request)
     {
@@ -142,6 +144,37 @@ class AuctionLotController extends Controller
         $this->service->saveForProperty($lot->property, $data, $request->user(), $lot);
 
         return back()->with('status', 'Lot saved.');
+    }
+
+    /** The seller accepts the highest bid although it is below the reserve: the lot is sold and the deal opens. */
+    public function confirm(Request $request, int $lot)
+    {
+        $this->results->confirmSale($this->find($request, $lot));
+
+        return back()->with('status', 'Sale confirmed. The deal was opened if the property has a seller on file.');
+    }
+
+    public function decline(Request $request, int $lot)
+    {
+        $data = $request->validate(['reason' => 'required|string|max:300']);
+        $this->results->declineSale($this->find($request, $lot), $data['reason']);
+
+        return back()->with('status', 'Sale declined. The lot was passed in and the property released.');
+    }
+
+    /** Retry opening the Deal for a sold lot (it needs a linked seller on the property). */
+    public function openDeal(Request $request, int $lot, AuctionDealFactory $factory)
+    {
+        $lot = $this->find($request, $lot);
+        try {
+            $deal = $factory->createFromSoldLot($lot, $request->user()->id);
+        } catch (\App\Exceptions\Deal\PropertyOwnerMismatchException $e) {
+            return back()->withErrors(['deal' => 'This property has no seller on file yet. Add the seller to the property (Contacts tab), then open the deal.']);
+        } catch (\RuntimeException $e) {
+            return back()->withErrors(['deal' => $e->getMessage()]);
+        }
+
+        return back()->with('status', 'Deal ' . $deal->deal_no . ' opened.');
     }
 
     public function withdraw(Request $request, int $lot)

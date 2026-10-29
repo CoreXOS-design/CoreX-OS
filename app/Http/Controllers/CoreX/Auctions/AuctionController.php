@@ -148,7 +148,7 @@ class AuctionController extends Controller
 
     public function publish(Request $request, int $auction, AuctionLifecycleService $lifecycle)
     {
-        $lifecycle->publish($this->find($request, $auction));
+        $lifecycle->publish($this->find($request, $auction), $request->user()->id);
 
         return back()->with('status', 'Auction published. It is now on your public auction page.');
     }
@@ -156,14 +156,14 @@ class AuctionController extends Controller
     public function cancel(Request $request, int $auction, AuctionLifecycleService $lifecycle)
     {
         $request->validate(['cancel_reason' => 'nullable|string|max:300']);
-        $lifecycle->cancel($this->find($request, $auction), $request->input('cancel_reason'));
+        $lifecycle->cancel($this->find($request, $auction), $request->input('cancel_reason'), $request->user()->id);
 
         return back()->with('status', 'Auction cancelled. Its lots were withdrawn and the properties released.');
     }
 
     public function complete(Request $request, int $auction, AuctionLifecycleService $lifecycle)
     {
-        $lifecycle->complete($this->find($request, $auction));
+        $lifecycle->complete($this->find($request, $auction), $request->user()->id);
 
         return back()->with('status', 'Auction completed.');
     }

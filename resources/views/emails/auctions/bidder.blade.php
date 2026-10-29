@@ -22,9 +22,12 @@
 @elseif($kind === 'won')
 <h1 style="margin:0 0 10px;font-size:1.25rem;color:#111827;">Congratulations, you won</h1>
 <p style="margin:0 0 14px;color:#374151;">You are the winning bidder on <strong>Lot {{ $lot?->lot_number }} — {{ $lot?->displayTitle() }}</strong>@if(!empty($facts['amount'])) at <strong>{{ $facts['amount'] }}</strong>@endif. {{ $agencyName }} will be in touch about the next steps.</p>
+@elseif($kind === 'not_accepted')
+<h1 style="margin:0 0 10px;font-size:1.25rem;color:#111827;">The seller did not accept the highest bid</h1>
+<p style="margin:0 0 14px;color:#374151;">Your bid {!! !empty($facts['amount']) ? 'of <strong>' . e($facts['amount']) . '</strong> ' : '' !!}on <strong>Lot {{ $lot?->lot_number }} — {{ $lot?->displayTitle() }}</strong> was the highest, but it was below the reserve and the seller chose not to accept it. The lot has been passed in. Thank you for bidding.</p>
 @elseif($kind === 'subject_to_confirmation')
 <h1 style="margin:0 0 10px;font-size:1.25rem;color:#111827;">You are the highest bidder</h1>
-<p style="margin:0 0 14px;color:#374151;">Your bid@if(!empty($facts['amount'])) of <strong>{{ $facts['amount'] }}</strong>@endif on <strong>Lot {{ $lot?->lot_number }} — {{ $lot?->displayTitle() }}</strong> is the highest, but it is below the seller's reserve, so the sale is subject to the seller's confirmation. {{ $agencyName }} will let you know.</p>
+<p style="margin:0 0 14px;color:#374151;">Your bid {!! !empty($facts['amount']) ? 'of <strong>' . e($facts['amount']) . '</strong> ' : '' !!}on <strong>Lot {{ $lot?->lot_number }} — {{ $lot?->displayTitle() }}</strong> is the highest, but it is below the seller's reserve, so the sale is subject to the seller's confirmation. {{ $agencyName }} will let you know.</p>
 @else
 <h1 style="margin:0 0 10px;font-size:1.25rem;color:#111827;">Bidding has ended</h1>
 <p style="margin:0 0 14px;color:#374151;">Bidding on <strong>Lot {{ $lot?->lot_number }} — {{ $lot?->displayTitle() }}</strong> has ended and your bid was not the highest. Thank you for taking part.</p>

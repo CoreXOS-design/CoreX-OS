@@ -82,6 +82,40 @@
         @if(! $locked)@permission('auctions.lots.manage')<button type="submit" class="corex-btn-primary">{{ $isNew ? 'Create lot' : 'Save lot' }}</button>@endpermission @endif
     </form>
 
+    @if(! $isNew && in_array($lot->status, ['sold', 'sold_subject_to_confirmation', 'passed_in'], true))
+    @php
+        $winBid = $lot->winning_bid_id ? \App\Models\AuctionBid::withoutGlobalScopes()->find($lot->winning_bid_id) : null;
+        $winReg = $winBid ? \App\Models\AuctionRegistration::withoutGlobalScopes()->with('contact')->find($winBid->registration_id) : null;
+        $canHammer = $user->hasPermission('auctions.hammer');
+    @endphp
+    <section class="rounded-md p-5 space-y-3" style="background:var(--surface);border:1px solid var(--border);" data-lot-result>
+        <h2 class="text-sm font-bold" style="color:var(--text-primary);">Result</h2>
+        <p class="text-sm"><strong>{{ $lot->statusLabel() }}</strong>@if($lot->hammer_price !== null) at <strong>R {{ number_format((float) $lot->hammer_price, 0, '.', ' ') }}</strong>@endif
+            @if($winReg) · bidder #{{ $winReg->bidder_number }} {{ $winReg->displayName() }}@endif
+            @if($lot->result_note)<br><span class="text-xs" style="color:var(--text-muted);">{{ $lot->result_note }}</span>@endif</p>
+
+        @if($lot->status === 'sold_subject_to_confirmation')
+            <p class="text-sm" style="color:#b45309;">The highest bid is below the reserve{{ $canReserve && $lot->reserve_price !== null ? ' (R ' . number_format((float) $lot->reserve_price, 0, '.', ' ') . ')' : '' }}. The seller must confirm or decline{!! $lot->confirmation_deadline ? ' by <strong>' . e($lot->confirmation_deadline->format('d M Y H:i')) . '</strong>' : '' !!}.</p>
+            @if($canHammer)
+            <div class="flex flex-wrap items-center gap-3">
+                <form method="POST" action="{{ route('corex.auctions.lots.confirm', $lot->id) }}" onsubmit="return confirm('Confirm the sale at this price?');">@csrf<button class="corex-btn-primary">Seller confirms the sale</button></form>
+                <form method="POST" action="{{ route('corex.auctions.lots.decline', $lot->id) }}" class="flex items-center gap-2">@csrf
+                    <input name="reason" placeholder="Why the seller declined" required class="px-2 py-2 text-xs rounded-md" style="{{ $fieldStyle }}"><button class="corex-btn-outline" style="color:#ef4444;">Seller declines</button></form>
+            </div>
+            @endif
+        @endif
+
+        @if($lot->status === 'sold')
+            @if($lot->deal_id)
+                <p class="text-sm">A deal was opened for this sale. <a href="{{ route('deals-dr2.index') }}" class="underline">Open the Deal Register</a></p>
+            @elseif($canHammer)
+                <p class="text-sm" style="color:#b45309;">No deal has been opened yet. A deal needs the seller to be linked to the property.</p>
+                <form method="POST" action="{{ route('corex.auctions.lots.open-deal', $lot->id) }}">@csrf<button class="corex-btn-outline">Open the deal</button></form>
+            @endif
+        @endif
+    </section>
+    @endif
+
     @unless($isNew)
     <section class="rounded-md p-5 flex flex-wrap items-center gap-3" style="background:var(--surface);border:1px solid var(--border);">
         @permission('auctions.lots.manage')

@@ -408,7 +408,13 @@ The initial catalogue. Each row: event name, when it fires, payload, who emits i
 | `Auction\AuctionLotSoldSubjectToConfirmation` | A timed lot closed below its reserve: the seller must confirm | `AuctionLot` | `LotResultService::conclude()` | `NotifyBidder` |
 | `Auction\AuctionLotPassedIn` | A timed lot closed with no valid bid; the property is released | `AuctionLot` | `LotResultService::conclude()` | audit |
 
-The remaining spec §10 events (published, cancelled, completed, closing soon, lot withdrawn) are catalogued here in the same commit as the phase that emits them.
+| `Auction\AuctionPublished` | An auction was published to the public auction site (phase 4 completes the set) | `Auction` | `AuctionLifecycleService::publish()` | audit |
+| `Auction\AuctionCancelled` | An auction was cancelled; its lots were withdrawn | `Auction` | `AuctionLifecycleService::cancel()` | audit |
+| `Auction\AuctionCompleted` | Every lot has a final result and staff completed the auction | `Auction` | `AuctionLifecycleService::complete()` | audit |
+| `Auction\AuctionLotWithdrawn` | A lot was withdrawn; the property was released | `AuctionLot` | `AuctionLotService::withdraw()` | audit |
+| `Auction\LotDeclinedBySeller` | The seller declined the highest bid on a below-reserve sale; the lot was passed in | `AuctionLot` | `LotResultService::declineSale()` (with `AuctionLotPassedIn`) | `NotifyBidder` ("your bid was not accepted") |
+
+`AuctionLotSold` (above) now also carries `afterConfirmation` (true when the seller confirmed a below-reserve sale) and has a second listener, `CreateDealOnLotSold`, which opens the Deal (sync, idempotent: a second event never opens a second deal; failure is logged and never undoes the sale). The only §10 event not built yet is `LotClosingSoon`.
 
 This catalogue is **not exhaustive**. As new features ship, new events are added per E9.
 

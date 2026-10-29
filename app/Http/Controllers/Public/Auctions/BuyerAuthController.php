@@ -180,6 +180,11 @@ class BuyerAuthController extends Controller
             'contact' => $this->buyers->contactFor($buyer, $agency),
             'registrations' => \App\Models\AuctionRegistration::withoutGlobalScopes()->whereNull('deleted_at')->with('auction')
                 ->where('agency_id', $agency->id)->where('client_user_id', $buyer->id)->latest('id')->get(),
+            'won' => \App\Models\AuctionLot::withoutGlobalScopes()->whereNull('deleted_at')->with('auction')
+                ->whereIn('status', ['sold', 'sold_subject_to_confirmation'])
+                ->whereIn('winning_bid_id', \App\Models\AuctionBid::withoutGlobalScopes()->select('id')->whereIn('registration_id',
+                    \App\Models\AuctionRegistration::withoutGlobalScopes()->select('id')->where('agency_id', $agency->id)->where('client_user_id', $buyer->id)))
+                ->latest('result_at')->get(),
             'watching' => \App\Models\AuctionWatch::withoutGlobalScopes()->whereNull('deleted_at')->with('lot')
                 ->where('agency_id', $agency->id)->where('client_user_id', $buyer->id)->latest('id')->get()->filter(fn ($w) => $w->lot),
         ]);

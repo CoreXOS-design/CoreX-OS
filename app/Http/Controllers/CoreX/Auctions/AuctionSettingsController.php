@@ -35,6 +35,7 @@ class AuctionSettingsController extends Controller
                 'terms_text' => AgencyAuctionSettings::termsTextFor($agencyId),
                 'notify_enquiry_to' => AgencyAuctionSettings::notifyEnquiryToFor($agencyId),
                 'outbid_emails' => AgencyAuctionSettings::outbidEmailsFor($agencyId),
+                'confirmation_days' => AgencyAuctionSettings::confirmationDaysFor($agencyId),
                 'default_increments' => AgencyAuctionSettings::defaultIncrementsFor($agencyId),
             ],
         ]);
@@ -93,6 +94,7 @@ class AuctionSettingsController extends Controller
             'soft_close_minutes' => $p . 'nullable|integer|min:0|max:60',
             'reserve_visibility' => $p . 'nullable|in:' . implode(',', array_keys(AgencyAuctionSettings::RESERVE_VISIBILITY)),
             'registration_closes_hours' => $p . 'nullable|integer|min:0|max:720',
+            'confirmation_days' => $p . 'nullable|integer|min:1|max:60',
             'terms_text' => $p . 'nullable|string|max:20000',
             'notify_enquiry_to' => $p . 'nullable|in:' . implode(',', array_keys(AgencyAuctionSettings::NOTIFY_ENQUIRY_TO)),
             'docs_required_individual' => 'sometimes|array',
@@ -106,7 +108,7 @@ class AuctionSettingsController extends Controller
     private function scalarWrites(array $data, ?Request $guardWithHas = null): array
     {
         $out = [];
-        foreach (['site_title', 'intro_text', 'contact_email', 'contact_phone', 'reference_prefix', 'soft_close_minutes', 'reserve_visibility', 'registration_closes_hours', 'terms_text', 'notify_enquiry_to'] as $key) {
+        foreach (['site_title', 'intro_text', 'contact_email', 'contact_phone', 'reference_prefix', 'soft_close_minutes', 'reserve_visibility', 'registration_closes_hours', 'confirmation_days', 'terms_text', 'notify_enquiry_to'] as $key) {
             if ($guardWithHas && ! $guardWithHas->has($key)) {
                 continue;
             }

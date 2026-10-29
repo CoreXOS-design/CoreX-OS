@@ -1062,6 +1062,11 @@ return [
         ['key' => 'auctions.bidders.review_documents', 'label' => 'Review Bidder Documents',        'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 17],
         ['key' => 'auctions.bids.view',                'label' => 'View Bids',                      'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 18],
         ['key' => 'auctions.bids.retract',             'label' => 'Retract a Bid',                  'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 19],
+        // Phase 4 — the Sale Room, the hammer (and the seller's decision on a below-reserve sale) and Results.
+        ['key' => 'auctions.room.operate',      'label' => 'Operate the Sale Room',          'section' => 'auctions', 'type' => 'access', 'module' => 'auctions', 'sort_order' => 20],
+        ['key' => 'auctions.hammer',            'label' => 'Knock Down / Pass In / Confirm a Sale', 'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 21],
+        ['key' => 'auctions.results.view',      'label' => 'View Results',                   'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 22],
+        ['key' => 'auctions.results.export',    'label' => 'Export Results',                 'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 23],
         ['key' => 'auctions.enquiries.view_all', 'label' => "View All Branches' Enquiries",    'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 13],
     ],
 
@@ -1147,6 +1152,7 @@ return [
                 'auctions.lots.manage', 'auctions.reserve.view', 'auctions.reserve.edit',
                 'auctions.enquiries.view', 'auctions.enquiries.manage',
                 'auctions.bidders.view', 'auctions.bidders.approve', 'auctions.bidders.review_documents', 'auctions.bids.view',
+                'auctions.room.operate', 'auctions.hammer', 'auctions.results.view', 'auctions.results.export',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts', 'export_reports',
                 'access_agency_tracker', 'access_daily_activity', 'access_deal_register',
                 'access_listing_stock', 'access_tv_messages', 'access_worksheet_market',
@@ -1357,6 +1363,7 @@ return [
                 'access_auctions', 'auctions.view', 'auctions.create', 'auctions.edit', 'auctions.lots.manage',
                 'auctions.enquiries.view', 'auctions.enquiries.manage',
                 'auctions.bidders.view', 'auctions.bids.view',
+                'auctions.results.view',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity',
                 'communication_mailboxes.view', // AT-395 — own scope (scope_defaults)

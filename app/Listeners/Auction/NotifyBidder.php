@@ -6,6 +6,7 @@ use App\Events\Auction\AuctionLotSold;
 use App\Events\Auction\AuctionLotSoldSubjectToConfirmation;
 use App\Events\Auction\BidderApproved;
 use App\Events\Auction\BidderDeclined;
+use App\Events\Auction\LotDeclinedBySeller;
 use App\Events\Auction\LotOutbid;
 use App\Mail\Auctions\AuctionBidderMail;
 use App\Models\Agency;
@@ -42,7 +43,18 @@ class NotifyBidder
 
     public function handleSold(AuctionLotSold $e): void
     {
-        $this->result($e->lot, 'won');
+        // a sale the seller confirmed later: the others were already told it ended, so only the winner hears again
+        $this->result($e->lot, 'won', onlyWinner: $e->afterConfirmation);
+    }
+
+    /** The winner's bid was not accepted by the seller. */
+    public function handleDeclinedBySeller(LotDeclinedBySeller $e): void
+    {
+        $bid = $e->lot->winning_bid_id ? \App\Models\AuctionBid::withoutGlobalScopes()->find($e->lot->winning_bid_id) : null;
+        $reg = $bid ? AuctionRegistration::withoutGlobalScopes()->find($bid->registration_id) : null;
+        if ($reg) {
+            $this->send($reg, 'not_accepted', $e->lot, ['amount' => $this->money((float) $e->lot->hammer_price)]);
+        }
     }
 
     public function handleSoldSubject(AuctionLotSoldSubjectToConfirmation $e): void
@@ -51,7 +63,7 @@ class NotifyBidder
     }
 
     /** The winner hears they won (or are highest subject to confirmation); every other bidder is told it ended. */
-    private function result(AuctionLot $lot, string $winnerKind): void
+    private function result(AuctionLot $lot, string $winnerKind, bool $onlyWinner = false): void
     {
         $winning = $lot->winning_bid_id ? \App\Models\AuctionBid::withoutGlobalScopes()->find($lot->winning_bid_id) : null;
         $winnerReg = $winning?->registration_id;
@@ -59,6 +71,9 @@ class NotifyBidder
 
         foreach (AuctionRegistration::withoutGlobalScopes()->whereIn('id', $regIds)->get() as $reg) {
             $isWinner = (int) $reg->id === (int) $winnerReg;
+            if ($onlyWinner && ! $isWinner) {
+                continue;
+            }
             $this->send($reg, $isWinner ? $winnerKind : 'ended', $lot, $isWinner ? ['amount' => $this->money((float) $lot->hammer_price)] : []);
         }
     }

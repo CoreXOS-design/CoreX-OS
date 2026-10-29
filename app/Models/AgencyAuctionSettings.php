@@ -24,7 +24,7 @@ class AgencyAuctionSettings extends Model
         'agency_id', 'site_title', 'intro_text', 'contact_email', 'contact_phone', 'reference_prefix',
         'default_increments', 'soft_close_minutes', 'reserve_visibility', 'show_bid_count', 'show_bidder_numbers',
         'registration_closes_hours', 'docs_required_individual', 'docs_required_company', 'terms_text',
-        'notify_enquiry_to', 'outbid_emails',
+        'notify_enquiry_to', 'outbid_emails', 'confirmation_days',
     ];
 
     protected $casts = [
@@ -33,6 +33,7 @@ class AgencyAuctionSettings extends Model
         'docs_required_company' => 'array',
         'soft_close_minutes' => 'integer',
         'registration_closes_hours' => 'integer',
+        'confirmation_days' => 'integer',
         'show_bid_count' => 'boolean',
         'show_bidder_numbers' => 'boolean',
         'outbid_emails' => 'boolean',
@@ -83,6 +84,8 @@ class AgencyAuctionSettings extends Model
     public static function registrationClosesHoursFor(int $agencyId): int { return (int) static::value($agencyId, 'registration_closes_hours', 24); }
     public static function notifyEnquiryToFor(int $agencyId): string { return (string) static::value($agencyId, 'notify_enquiry_to', 'listing_agent'); }
     public static function outbidEmailsFor(int $agencyId): bool { return (bool) static::value($agencyId, 'outbid_emails', true); }
+    /** Days a seller has to confirm or decline a sale made below the reserve. */
+    public static function confirmationDaysFor(int $agencyId): int { return max(1, (int) static::value($agencyId, 'confirmation_days', 3)); }
     public static function termsTextFor(int $agencyId): string { return (string) static::value($agencyId, 'terms_text', ''); }
 
     /** @return array<int, array{0: int|float, 1: int|float}> */

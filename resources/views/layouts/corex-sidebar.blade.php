@@ -1527,7 +1527,7 @@
                 <div class="corex-nav-panel-title">Auctions</div>
 
                 @permission('auctions.view')
-                <a href="{{ route('corex.auctions.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.index', 'corex.auctions.create', 'corex.auctions.edit', 'corex.auctions.documents.*') ? 'active' : '' }}">Auctions</a>
+                <a href="{{ route('corex.auctions.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.index', 'corex.auctions.create', 'corex.auctions.edit', 'corex.auctions.documents.*', 'corex.auctions.room.*') ? 'active' : '' }}">Auctions</a>
                 <a href="{{ route('corex.auctions.lots.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.lots.*') ? 'active' : '' }}">Lots</a>
                 @endpermission
                 @permission('auctions.bids.view')
@@ -1535,6 +1535,9 @@
                 @endpermission
                 @permission('auctions.bidders.view')
                 <a href="{{ route('corex.auctions.bidders.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.bidders.*') ? 'active' : '' }}">Bidders</a>
+                @endpermission
+                @permission('auctions.results.view')
+                <a href="{{ route('corex.auctions.results') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.results', 'corex.auctions.results.export') ? 'active' : '' }}">Results</a>
                 @endpermission
                 @permission('auctions.enquiries.view')
                 <a href="{{ route('corex.auctions.enquiries.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.enquiries.*') ? 'active' : '' }}">Enquiries</a>
