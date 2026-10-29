@@ -1055,6 +1055,13 @@ return [
         // Phase 2 — Enquiries (S3). `view_all` lifts the own/branch scope for this one screen.
         ['key' => 'auctions.enquiries.view',     'label' => 'View Enquiries',                  'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 11],
         ['key' => 'auctions.enquiries.manage',   'label' => 'Assign / Update Enquiries',       'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 12],
+        // Phase 3 — Bidders (S5) and Bids (S4). `bidders.view` is who may see registrations; the others are the actions.
+        ['key' => 'auctions.bidders.view',             'label' => 'View Bidders',                   'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 14],
+        ['key' => 'auctions.bidders.view_all',         'label' => "View All Branches' Bidders",     'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 15],
+        ['key' => 'auctions.bidders.approve',          'label' => 'Approve / Decline Bidders',      'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 16],
+        ['key' => 'auctions.bidders.review_documents', 'label' => 'Review Bidder Documents',        'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 17],
+        ['key' => 'auctions.bids.view',                'label' => 'View Bids',                      'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 18],
+        ['key' => 'auctions.bids.retract',             'label' => 'Retract a Bid',                  'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 19],
         ['key' => 'auctions.enquiries.view_all', 'label' => "View All Branches' Enquiries",    'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 13],
     ],
 
@@ -1139,6 +1146,7 @@ return [
                 'access_auctions', 'auctions.view', 'auctions.create', 'auctions.edit', 'auctions.archive', 'auctions.publish',
                 'auctions.lots.manage', 'auctions.reserve.view', 'auctions.reserve.edit',
                 'auctions.enquiries.view', 'auctions.enquiries.manage',
+                'auctions.bidders.view', 'auctions.bidders.approve', 'auctions.bidders.review_documents', 'auctions.bids.view',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts', 'export_reports',
                 'access_agency_tracker', 'access_daily_activity', 'access_deal_register',
                 'access_listing_stock', 'access_tv_messages', 'access_worksheet_market',
@@ -1348,6 +1356,7 @@ return [
                 // Auctions v2 (.ai/specs/auctions.md §9) — Agent: view, create, edit, lots (own scope).
                 'access_auctions', 'auctions.view', 'auctions.create', 'auctions.edit', 'auctions.lots.manage',
                 'auctions.enquiries.view', 'auctions.enquiries.manage',
+                'auctions.bidders.view', 'auctions.bids.view',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity',
                 'communication_mailboxes.view', // AT-395 — own scope (scope_defaults)

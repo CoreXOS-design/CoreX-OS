@@ -6186,6 +6186,25 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/create', [$A, 'create'])->middleware('permission:auctions.create')->name('create');
         Route::post('/', [$A, 'store'])->middleware('permission:auctions.create')->name('store');
 
+        // Bidders (S5) and Bids (S4) — also before the wildcards.
+        Route::prefix('bidders')->name('bidders.')->middleware('permission:auctions.bidders.view')->group(function () {
+            $B = \App\Http\Controllers\CoreX\Auctions\BidderController::class;
+            Route::get('/', [$B, 'index'])->name('index');
+            Route::get('/{registration}', [$B, 'show'])->whereNumber('registration')->name('show');
+            Route::get('/{registration}/documents/{document}/download', [$B, 'downloadDocument'])->whereNumber(['registration', 'document'])->name('documents.download');
+            Route::post('/{registration}/approve', [$B, 'approve'])->whereNumber('registration')->middleware('permission:auctions.bidders.approve')->name('approve');
+            Route::post('/{registration}/decline', [$B, 'decline'])->whereNumber('registration')->middleware('permission:auctions.bidders.approve')->name('decline');
+            Route::delete('/{registration}', [$B, 'withdraw'])->whereNumber('registration')->middleware('permission:auctions.bidders.approve')->name('withdraw');
+            Route::post('/{registration}/restore', [$B, 'restore'])->whereNumber('registration')->middleware('permission:auctions.bidders.approve')->name('restore');
+            Route::post('/{registration}/documents/accept-all', [$B, 'acceptAll'])->whereNumber('registration')->middleware('permission:auctions.bidders.review_documents')->name('documents.accept-all');
+            Route::post('/{registration}/documents/{document}/review', [$B, 'reviewDocument'])->whereNumber(['registration', 'document'])->middleware('permission:auctions.bidders.review_documents')->name('documents.review');
+        });
+        Route::prefix('bids')->name('bids.')->middleware('permission:auctions.bids.view')->group(function () {
+            $D = \App\Http\Controllers\CoreX\Auctions\BidController::class;
+            Route::get('/', [$D, 'index'])->name('index');
+            Route::post('/{bid}/retract', [$D, 'retract'])->whereNumber('bid')->middleware('permission:auctions.bids.retract')->name('retract');
+        });
+
         // Enquiries from the public auction site (S3) — also before the wildcards.
         Route::prefix('enquiries')->name('enquiries.')->middleware('permission:auctions.enquiries.view')->group(function () {
             $E = \App\Http\Controllers\CoreX\Auctions\EnquiryController::class;
@@ -7549,6 +7568,7 @@ Route::prefix('auctions/{agencySlug}')->where(['agencySlug' => '[A-Za-z0-9\-_]+'
         Route::get('/a/{auction}', [$S, 'auction'])->whereNumber('auction')->name('auction');
         Route::get('/a/{auction}/documents/{document}', [$S, 'auctionDocument'])->whereNumber(['auction', 'document'])->name('auction.document');
         Route::get('/a/{auction}/lots/{lot}', [$S, 'lot'])->whereNumber(['auction', 'lot'])->name('lot');
+        Route::get('/a/{auction}/register', [\App\Http\Controllers\Public\Auctions\RegistrationController::class, 'form'])->whereNumber('auction')->name('register');
         Route::get('/a/{auction}/lots/{lot}/documents/{document}', [$S, 'packDocument'])->whereNumber(['auction', 'lot', 'document'])->name('lot.document');
 
         Route::get('/signup', [$A, 'signupForm'])->name('signup');
@@ -7567,9 +7587,22 @@ Route::prefix('auctions/{agencySlug}')->where(['agencySlug' => '[A-Za-z0-9\-_]+'
     Route::post('/forgot/reset', [$A, 'resetComplete'])->middleware('throttle:10,1')->name('forgot.complete');
     Route::put('/account', [$A, 'accountUpdate'])->middleware('throttle:20,1')->name('account.update');
 
+    Route::post('/a/{auction}/register', [\App\Http\Controllers\Public\Auctions\RegistrationController::class, 'submit'])->whereNumber('auction')->middleware('throttle:10,1')->name('register.submit');
+
     // Enquiries: guests may send one. The limit has its own counter name so browsing lots never uses it up.
     Route::post('/a/{auction}/enquire', [$E, 'store'])->whereNumber('auction')->middleware('throttle:10,1,auction-enquiry')->name('enquire');
     Route::post('/a/{auction}/lots/{lot}/enquire', [$E, 'store'])->whereNumber(['auction', 'lot'])->middleware('throttle:10,1,auction-enquiry')->name('enquire.lot');
+});
+
+// Auctions v2 — the bidding API behind the public lot page (.ai/specs/auctions.md §11). Cookie-session, under /api/v1 so it is in the
+// Admin -> API catalogue. The feed is open (no personal data); everything else needs a signed-in buyer, checked in the controller.
+Route::prefix('api/v1/auctions/public/lots/{lot}')->whereNumber('lot')->name('api.v1.auctions.public.')->group(function () {
+    $K = \App\Http\Controllers\Public\Auctions\BiddingController::class;
+    Route::get('/feed', [$K, 'feed'])->middleware('throttle:90,1')->name('feed');
+    Route::post('/bids', [$K, 'bid'])->middleware('throttle:auction-bids')->name('bid');
+    Route::post('/auto-bid', [$K, 'autoBid'])->middleware('throttle:auction-bids')->name('auto-bid');
+    Route::delete('/auto-bid', [$K, 'cancelAutoBid'])->middleware('throttle:auction-bids')->name('auto-bid.cancel');
+    Route::post('/watch', [$K, 'watch'])->middleware('throttle:30,1')->name('watch');
 });
 
 // ===== SALES DOCUMENT RETURN (public, no auth, token-based) =====

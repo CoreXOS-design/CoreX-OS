@@ -5,6 +5,9 @@ namespace App\Http\Controllers\Public\Auctions;
 use App\Http\Controllers\Controller;
 use App\Models\Agency;
 use App\Models\AgencyAuctionSettings;
+use App\Models\AuctionWatch;
+use App\Services\Auctions\AuctionRegistrationService;
+use App\Services\Auctions\BidEngine;
 use App\Services\Auctions\BuyerAccountService;
 use App\Services\Auctions\PublicAuctionSite;
 use Illuminate\Support\Facades\Storage;
@@ -15,7 +18,12 @@ use Illuminate\Support\Facades\Storage;
  */
 class SiteController extends Controller
 {
-    public function __construct(private PublicAuctionSite $site, private BuyerAccountService $buyers) {}
+    public function __construct(
+        private PublicAuctionSite $site,
+        private BuyerAccountService $buyers,
+        private BidEngine $engine,
+        private AuctionRegistrationService $registrations,
+    ) {}
 
     public function home(string $agencySlug)
     {
@@ -47,11 +55,18 @@ class SiteController extends Controller
         $agency = $this->site->agency($agencySlug);
         $auction = $this->site->auction($agency, $auction);
         $lot = $this->site->lot($auction, $lot);
-        $signedIn = $this->buyers->current() !== null;
+        $buyer = $this->buyers->current();
+        $signedIn = $buyer !== null;
+        $registration = $buyer ? $this->registrations->forBuyer($auction, $buyer) : null;
+        $state = $this->engine->state($lot, $registration && $registration->isApproved() ? $registration : null);
 
         return view('public.auctions.lot', $this->shared($agency) + [
             'auction' => $auction,
             'lot' => $lot,
+            'registration' => $registration,
+            'registrationOpen' => $this->registrations->isOpen($auction),
+            'state' => $state,
+            'watching' => $buyer ? AuctionWatch::withoutGlobalScopes()->whereNull('deleted_at')->where('lot_id', $lot->id)->where('client_user_id', $buyer->id)->exists() : false,
             'photos' => $this->site->photos($lot->property),
             'documents' => $this->site->auctionDocuments($auction, $signedIn),
             'packDocuments' => $this->site->packDocuments($lot, $signedIn),

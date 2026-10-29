@@ -179,6 +179,9 @@ Schedule::command('corex:matches:send-digests')->dailyAt('07:00')->onOneServer()
 
 // Agency Access Authorization — expire stale pending requests every minute.
 Schedule::command('agency-access:expire')->everyMinute()->withoutOverlapping();
+// Auctions v2 (.ai/specs/auctions.md §8.6) — open timed lots when their window starts, close and settle them when it ends.
+Schedule::command('auctions:run')->everyMinute()->withoutOverlapping();
+
 // AT-118 — Communications Access Gate: midnight reset of all live grants
 // (closes the never-closed-session loophole) + expire stale pending requests.
 Schedule::command('comms-access:reset')->dailyAt('00:00')->withoutOverlapping();

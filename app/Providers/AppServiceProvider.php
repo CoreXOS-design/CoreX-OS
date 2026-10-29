@@ -448,6 +448,12 @@ class AppServiceProvider extends ServiceProvider
         // The domain-event logging family — every one of these was discovery-only.
         // Auctions v2 (.ai/specs/auctions.md §10) — tell the agency about a new public-site enquiry.
         Event::listen(\App\Events\Auction\AuctionEnquiryReceived::class, \App\Listeners\Auction\NotifyOfAuctionEnquiry::class);
+        // Phase 3 — bidders hear about their registration and about their lots, as the agency.
+        Event::listen(\App\Events\Auction\BidderApproved::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleApproved']);
+        Event::listen(\App\Events\Auction\BidderDeclined::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleDeclined']);
+        Event::listen(\App\Events\Auction\LotOutbid::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleOutbid']);
+        Event::listen(\App\Events\Auction\AuctionLotSold::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleSold']);
+        Event::listen(\App\Events\Auction\AuctionLotSoldSubjectToConfirmation::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleSoldSubject']);
         Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Agent\LogAgentEvent::class);
         Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Mandate\LogMandateEvent::class);
         Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Deal\LogDealEvent::class);
@@ -1426,6 +1432,14 @@ class AppServiceProvider extends ServiceProvider
                         'agentPhone' => $application?->createdBy?->cell ?: $application?->createdBy?->phone,
                     ], 429);
                 });
+        });
+
+        // Auctions v2 — a bidder may place 30 bids / auto-bids a minute (keyed by their login, else the address).
+        \Illuminate\Support\Facades\RateLimiter::for('auction-bids', function (\Illuminate\Http\Request $request) {
+            $buyer = \Illuminate\Support\Facades\Auth::guard('client-web')->user();
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinute(30)->by('auction-bids:' . ($buyer ? 'u' . $buyer->getAuthIdentifier() : $request->ip()))
+                ->response(fn () => response()->json(['message' => 'You are bidding too fast. Please wait a moment.'], 429));
         });
     }
 }

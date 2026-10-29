@@ -57,6 +57,24 @@ class AuctionLot extends Model
         return $this->belongsTo(Property::class);
     }
 
+    public function bids()
+    {
+        // A lot's bids always belong to the lot's own agency; never filter them by whoever happens to be browsing.
+        return $this->hasMany(AuctionBid::class, 'lot_id')->withoutGlobalScope(\App\Models\Scopes\AgencyScope::class);
+    }
+
+    /** True once any valid bid exists: the window, opening bid and reserve are then locked. */
+    public function hasBids(): bool
+    {
+        return $this->bids()->valid()->exists();
+    }
+
+    /** The current highest valid bid (the earlier one wins an exact tie). */
+    public function highestBid(): ?AuctionBid
+    {
+        return $this->bids()->valid()->orderByDesc('amount')->orderBy('id')->first();
+    }
+
     public function isConcluded(): bool
     {
         return in_array($this->status, self::CONCLUDED_STATUSES, true);

@@ -176,7 +176,13 @@ class BuyerAuthController extends Controller
             return redirect()->route('public.auctions.login', $agencySlug);
         }
 
-        return view('public.auctions.account', SiteController::layoutData($agency, $buyer) + ['contact' => $this->buyers->contactFor($buyer, $agency)]);
+        return view('public.auctions.account', SiteController::layoutData($agency, $buyer) + [
+            'contact' => $this->buyers->contactFor($buyer, $agency),
+            'registrations' => \App\Models\AuctionRegistration::withoutGlobalScopes()->whereNull('deleted_at')->with('auction')
+                ->where('agency_id', $agency->id)->where('client_user_id', $buyer->id)->latest('id')->get(),
+            'watching' => \App\Models\AuctionWatch::withoutGlobalScopes()->whereNull('deleted_at')->with('lot')
+                ->where('agency_id', $agency->id)->where('client_user_id', $buyer->id)->latest('id')->get()->filter(fn ($w) => $w->lot),
+        ]);
     }
 
     public function accountUpdate(Request $request, string $agencySlug)

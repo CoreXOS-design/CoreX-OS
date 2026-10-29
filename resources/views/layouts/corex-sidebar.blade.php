@@ -1530,6 +1530,12 @@
                 <a href="{{ route('corex.auctions.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.index', 'corex.auctions.create', 'corex.auctions.edit', 'corex.auctions.documents.*') ? 'active' : '' }}">Auctions</a>
                 <a href="{{ route('corex.auctions.lots.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.lots.*') ? 'active' : '' }}">Lots</a>
                 @endpermission
+                @permission('auctions.bids.view')
+                <a href="{{ route('corex.auctions.bids.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.bids.*') ? 'active' : '' }}">Bids</a>
+                @endpermission
+                @permission('auctions.bidders.view')
+                <a href="{{ route('corex.auctions.bidders.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.bidders.*') ? 'active' : '' }}">Bidders</a>
+                @endpermission
                 @permission('auctions.enquiries.view')
                 <a href="{{ route('corex.auctions.enquiries.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.enquiries.*') ? 'active' : '' }}">Enquiries</a>
                 @endpermission

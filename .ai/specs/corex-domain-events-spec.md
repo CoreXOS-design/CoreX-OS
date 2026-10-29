@@ -398,7 +398,17 @@ The initial catalogue. Each row: event name, when it fires, payload, who emits i
 |---|---|---|---|---|
 | `Auction\AuctionEnquiryReceived` | A buyer or guest sent an enquiry from the public auction site (phase 2) | `AuctionEnquiry` | `AuctionEnquiryService::capture()`, after the enquiry, its Contact and the buyer-pipeline seed are stored | `NotifyOfAuctionEnquiry` (emails the listing agent / branch manager per Settings → Auctions, falling back to the agency's enquiries address) |
 
-The remaining spec §10 events (published, cancelled, completed, bidder registered / approved / declined, bid placed / retracted, outbid, closing soon, lot sold / sold subject to confirmation / passed in / withdrawn) are catalogued here in the same commit as the phase that emits them.
+| `Auction\BidderRegistered` | A buyer submitted a bidder registration for an auction (phase 3) | `AuctionRegistration` | `AuctionRegistrationService::submit()` | audit |
+| `Auction\BidderApproved` | Staff approved a bidder; a bidder number was issued | `AuctionRegistration` | `AuctionRegistrationService::approve()` | `NotifyBidder` (email, as the agency) |
+| `Auction\BidderDeclined` | Staff declined a registration, with a reason | `AuctionRegistration` | `AuctionRegistrationService::decline()` | `NotifyBidder` |
+| `Auction\BidPlaced` | A valid bid was placed (by hand or by the auto-bid engine) | `AuctionBid` | `BidEngine`, after the bid transaction commits | audit |
+| `Auction\BidRetracted` | Staff retracted a bid | `AuctionBid` | `BidEngine::retract()` | audit |
+| `Auction\LotOutbid` | The leading bidder on a lot was outbid | `AuctionLot` | `BidEngine`, only when the leader actually changed | `NotifyBidder` (honours Settings -> Auctions "outbid emails") |
+| `Auction\AuctionLotSold` | A timed lot closed at/above its reserve | `AuctionLot` | `LotResultService::conclude()` | `NotifyBidder` (winner "you won", others "ended") |
+| `Auction\AuctionLotSoldSubjectToConfirmation` | A timed lot closed below its reserve: the seller must confirm | `AuctionLot` | `LotResultService::conclude()` | `NotifyBidder` |
+| `Auction\AuctionLotPassedIn` | A timed lot closed with no valid bid; the property is released | `AuctionLot` | `LotResultService::conclude()` | audit |
+
+The remaining spec §10 events (published, cancelled, completed, closing soon, lot withdrawn) are catalogued here in the same commit as the phase that emits them.
 
 This catalogue is **not exhaustive**. As new features ship, new events are added per E9.
 

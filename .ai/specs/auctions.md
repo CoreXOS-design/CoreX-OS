@@ -1,6 +1,6 @@
 # Auctions — Spec (REBUILD, v2)
 
-> Status: **APPROVED by Johan 2026-10-29. Phases 1 and 2 BUILT on QA2 (not yet Johan-tested, not promoted). Phases 3-4 not started.**
+> Status: **APPROVED by Johan 2026-10-29. Phases 1, 2 and 3 BUILT on QA2 (not yet Johan-tested, not promoted). Phase 4 not started.**
 > Supersedes: the AT-432 auctions spec and `auctions-advertising-mode.md` (both retired 2026-10-29; the old module was removed from QA2 in commit `0983bc5f2`).
 > Drafted: 2026-10-29 · Author: Claude (conductor lane) for Johan
 > Lane: QA2 first. Johan's go gates Staging; nothing reaches Live without Johan's specific order.
@@ -95,6 +95,17 @@ Fees & tax on fees, deposits, buyer's commission, guarantees, bidder invoices, m
 > - **Buyer accounts reuse the existing client login** (`client_users`, guard `client-web`, `ClientAuthService::issueOtp()` with an optional agency so the code mail goes out as the agency). Sign-up and reset are email-code flows; a buyer gets one Contact per agency, created (match-or-create) on first use. Contacts and enquiries from the public site are stamped into the agency of the URL — never the agency of a staff member who happens to be browsing — and filed in a branch of that agency.
 > - New permission keys: `auctions.enquiries.view|manage|view_all`. New table: `auction_enquiries`. Event: `AuctionEnquiryReceived`.
 > - Reserve met / not met on the public lot page needs bids, so it arrives with phase 3.
+
+> **Phase 3 build notes (2026-11-01).**
+> - **Online bidding is for timed auctions.** A live auction's bidders still register and are approved online, but bids are taken in the room (phase 4: Sale Room, floor bids, hammer).
+> - **Minimum bid = current high + the increment in force** (the opening bid for the first bid). A bid need not be an exact multiple of the increment. A leading bidder cannot outbid themselves; they raise their auto-bid maximum instead.
+> - **Auto-bids** are resolved directly (never bid-for-bid): every bidder has a "cap" (highest bid or auto maximum); the highest cap leads and pays one increment above the second-highest cap, never above its own. A tie on price goes to the bid actually placed at that price. Setting an auto-bid while not leading bids the minimum at once. Retracting a bid switches off that bidder's auto-bid on the lot.
+> - **Soft close:** a bid in the last N minutes moves the closing time out by N (auction override, else agency setting; 0 = off). The lot, bid, auto-bid and retraction paths all serialise on a row lock on the lot.
+> - **Registration deadline:** the auction's own `registration_closes_at`, else N hours (agency setting, default 24) before it starts.
+> - **Bidder documents are per agency** (refines §4.6): "use existing" reuses what the buyer already sent to THIS agency; an agency never receives another agency's copy of someone's ID. Approval needs every required document kind accepted; the bidder number is 1, 2, 3… within the auction.
+> - **A lot with bids is locked:** its bidding window, opening bid and reserve cannot be edited (retract the bids or withdraw the lot).
+> - **Closing:** `auctions:run` (every minute) opens published timed lots when their window starts and closes ended ones: highest valid bid at/above the reserve (or no reserve) = sold; below the reserve = sold subject to confirmation; none = passed in (property released). When no lot is still running the auction becomes `closed`. A sold lot's property stays "On Auction" until phase 4 opens the Deal (the Deal milestone is what marks a property Sold today).
+> - New tables: `auction_registrations`, `bidder_documents`, `auction_registration_documents`, `auction_bids`, `auction_auto_bids`, `auction_watchlist`. New permission keys: `auctions.bidders.view|view_all|approve|review_documents`, `auctions.bids.view|retract`. Not built yet from §10: `LotClosingSoon` (closing-soon emails), calendar entries, Deal on sold (phase 4).
 
 ## 5. Screens, navigation and per-screen list standards
 

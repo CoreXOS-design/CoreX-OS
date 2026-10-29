@@ -34,6 +34,10 @@
         <div class="rounded-md px-3 py-2 text-xs" style="background:color-mix(in srgb,#ef4444 12%,transparent);color:#ef4444;">{{ $errors->first() }}</div>
     @endif
 
+    @if($lot && $lot->hasBids())
+        <div class="rounded-md px-3 py-2 text-xs" style="background:color-mix(in srgb,#f59e0b 14%,transparent);color:#b45309;">This lot has bids, so its bidding window, opening bid and reserve are locked. Retract the bids or withdraw the lot to change them.</div>
+    @endif
+
     @if($canManageLots)
     <form method="POST" action="{{ route('corex.properties.auction.update', $property) }}" class="space-y-4" data-auction-form>
         @csrf @method('PUT')
@@ -101,5 +105,23 @@
     @endif
     @else
     <p class="text-xs" style="color:var(--text-muted);">You can see this property's auction but you do not have permission to change it.</p>
+    @endif
+
+    @if($lot && auth()->user()->hasPermission('auctions.bids.view'))
+    @php $recentBids = $lot->bids()->with('registration.contact')->orderByDesc('id')->limit(10)->get(); @endphp
+    <div data-auction-bids>
+        <h4 class="text-xs font-bold uppercase tracking-wider mb-2" style="color:var(--text-muted);">Bids ({{ $lot->bids()->valid()->count() }})</h4>
+        @forelse($recentBids as $b)
+        <div class="flex items-center gap-3 text-xs py-1" style="border-top:1px solid var(--border);{{ $b->status === 'retracted' ? 'opacity:.55;' : '' }}">
+            <span style="width:110px;color:var(--text-muted);">{{ $b->placed_at->format('d M H:i:s') }}</span>
+            <span class="flex-1">#{{ $b->registration?->bidder_number ?? '—' }} {{ $b->registration?->displayName() }}</span>
+            <strong>R {{ number_format((float) $b->amount, 0, '.', ' ') }}</strong>
+            <span style="color:var(--text-muted);">{{ \App\Models\AuctionBid::SOURCES[$b->source] ?? $b->source }}{{ $b->status === 'retracted' ? ' · retracted' : '' }}</span>
+        </div>
+        @empty
+        <p class="text-xs" style="color:var(--text-muted);">No bids yet.</p>
+        @endforelse
+        @if($lot->bids()->count() > 10)<a href="{{ route('corex.auctions.bids.index', ['lot_id' => $lot->id]) }}" class="text-xs underline">See all bids</a>@endif
+    </div>
     @endif
 </div>

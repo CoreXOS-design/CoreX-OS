@@ -45,6 +45,17 @@ class AuctionLotService
             throw ValidationException::withMessages(['guide_price_max' => 'The top of the guide range cannot be lower than the bottom.']);
         }
 
+        // Once there are bids the terms are fixed: changing the window, opening bid or reserve under a bidder's feet would
+        // be unfair. Retract the bids (or withdraw the lot) first.
+        if ($lot && $lot->hasBids()) {
+            $same = fn ($a, $b) => ($a === null && $b === null) || ($a !== null && $b !== null && abs((float) $a - (float) $b) < 0.005);
+            $sameTime = fn ($a, $b) => ($a === null && $b === null) || ($a !== null && $b !== null && $a->format('Y-m-d H:i') === $b->format('Y-m-d H:i'));
+            if (! $sameTime($lot->windowOpensAt(), $opens) || ! $sameTime($lot->windowClosesAt(), $closes)
+                || ! $same($lot->opening_bid, $opening) || ! $same($lot->reserve_price, $reserve)) {
+                throw ValidationException::withMessages(['opening_bid' => 'This lot already has bids, so its bidding window, opening bid and reserve can no longer be changed. Retract the bids first, or withdraw the lot.']);
+            }
+        }
+
         return DB::transaction(function () use ($property, $data, $user, $lot, $opens, $closes, $opening, $reserve, $guideMin, $guideMax) {
             $auction = $this->resolveAuction($property, $data, $user, $lot, $opens, $closes);
 
