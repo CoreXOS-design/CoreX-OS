@@ -76,10 +76,10 @@
                         <div class="flex items-center gap-2 flex-shrink-0">
                             <button type="button"
                                     @click='openEdit({{ $template->id }}, {
-                                        name: @json($template->name),
-                                        subject: @json($template->subject ?? ""),
-                                        body: @json($template->body),
-                                        description: @json($template->description ?? ""),
+                                        name: @json($template->name, JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG),
+                                        subject: @json($template->subject ?? "", JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG),
+                                        body: @json($template->body, JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG),
+                                        description: @json($template->description ?? "", JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG),
                                         is_active: {{ $template->is_active ? "true" : "false" }},
                                         is_default_for_channel: {{ $template->is_default_for_channel ? "true" : "false" }},
                                         include_tracking_link: {{ $template->include_tracking_link ? "true" : "false" }}
