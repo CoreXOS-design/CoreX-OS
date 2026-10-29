@@ -539,6 +539,18 @@ class PropertyObserver
             Log::warning("MapPinService address-index cache bust failed on property save #{$property->id}: {$e->getMessage()}");
         }
 
+        // Lane B (property-identity.md section 12): the agency's own-stock flag on the tracked property promoted to this property follows its status.
+        if ($property->wasRecentlyCreated || $property->wasChanged(['status', 'p24_ref', 'pp_ref'])) {
+            try {
+                $workService = app(\App\Services\Prospecting\AgencyWorkService::class);
+                \App\Models\Prospecting\TrackedProperty::withoutGlobalScopes()
+                    ->where('agency_id', $property->agency_id)->where('promoted_to_property_id', $property->id)->pluck('id')
+                    ->each(fn ($tpId) => $workService->syncOwnStock((int) $property->agency_id, (int) $tpId));
+            } catch (\Throwable $e) {
+                Log::warning("Agency work own-stock sync failed on property save #{$property->id}: {$e->getMessage()}");
+            }
+        }
+
         // AT-321 — release the trigger suppression set in saving() now that the
         // Eloquent UPDATE/INSERT (and its trigger evaluation) has passed. Any
         // subsequent quiet/raw write on this connection is then caught by the trigger.

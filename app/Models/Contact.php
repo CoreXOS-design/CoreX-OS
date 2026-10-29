@@ -1240,6 +1240,7 @@ class Contact extends Model
 
             // Un-promoted tracked properties owned by the company (CMA/deeds).
             $tracked = \App\Models\Prospecting\TrackedProperty::withoutGlobalScopes()
+                ->where('agency_id', $company->agency_id)   // the company's own agency only: tracked properties are never read across agencies
                 ->whereNull('deleted_at')
                 ->whereHas('owners', fn ($q) => $q->where('contact_id', $company->id))
                 ->get();

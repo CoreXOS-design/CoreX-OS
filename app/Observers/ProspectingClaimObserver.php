@@ -53,6 +53,7 @@ final class ProspectingClaimObserver
     public function created(ProspectingClaim $claim): void
     {
         $this->bumpCountsCacheVersion($claim);
+        $this->syncWorkRecord($claim);
 
         try {
             event(new ClaimCreated($claim));
@@ -68,6 +69,9 @@ final class ProspectingClaimObserver
     {
         if ($claim->wasChanged(['is_active', 'released_at', 'last_updated_at', 'feedback_at'])) {
             $this->bumpCountsCacheVersion($claim);
+        }
+        if ($claim->wasChanged(['is_active', 'released_at', 'user_id', 'claimed_at'])) {
+            $this->syncWorkRecord($claim);
         }
 
         try {
@@ -90,6 +94,19 @@ final class ProspectingClaimObserver
                 'claim_id' => $claim->id ?? null,
                 'message'  => $e->getMessage(),
             ]);
+        }
+    }
+
+    /** Lane B: the agency's own work record shows who holds the claim now. Failure-isolated like everything else here. */
+    private function syncWorkRecord(ProspectingClaim $claim): void
+    {
+        try {
+            $tpId = \Illuminate\Support\Facades\DB::table('prospecting_listings')->where('id', $claim->prospecting_listing_id)->where('agency_id', $claim->agency_id)->value('tracked_property_id');
+            if ($tpId) {
+                app(\App\Services\Prospecting\AgencyWorkService::class)->syncClaim((int) $claim->agency_id, (int) $tpId);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Agency work claim sync failed (swallowed)', ['claim_id' => $claim->id ?? null, 'message' => $e->getMessage()]);
         }
     }
 

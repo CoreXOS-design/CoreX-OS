@@ -23,6 +23,14 @@ final class TrackedPropertyObserver
 
     public function updated(TrackedProperty $tp): void
     {
+        // Lane B: promoting (or un-promoting) a tracked property to the agency's own stock updates the agency's own-stock flag at once.
+        if ($tp->wasChanged('promoted_to_property_id')) {
+            try {
+                app(\App\Services\Prospecting\AgencyWorkService::class)->syncOwnStock((int) $tp->agency_id, (int) $tp->id);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning("Agency work own-stock sync failed on tracked property #{$tp->id}: {$e->getMessage()}");
+            }
+        }
         if ($tp->wasChanged('owner_contact_id') && ! $tp->getOriginal('owner_contact_id')) {
             $this->raise($tp);
         }

@@ -2481,6 +2481,16 @@ class PropertyController extends Controller
         $property->status = Property::STATUS_NOT_SELLING;
         $property->save();
 
+        // Lane B: the agency's own record of the tracked property (the same status, with the reason and who set it) - never another agency's.
+        try {
+            $tpId = \App\Models\Prospecting\TrackedProperty::withoutGlobalScopes()->where('agency_id', $property->agency_id)->where('promoted_to_property_id', $property->id)->value('id');
+            if ($tpId) {
+                app(\App\Services\Prospecting\AgencyWorkService::class)->setStatus((int) $property->agency_id, (int) $tpId, 'not_selling', $reason !== '' ? $reason : null, auth()->id());
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Agency work not-selling record failed for property #{$property->id}: {$e->getMessage()}");
+        }
+
         // Johan, 2026-08-27 — "the my claim has run its cycle... should fall off
         // My Claims." Not Selling ends the cycle whether the MIC pitch was
         // completed or not (two real cases hit this: a completed pitch marked

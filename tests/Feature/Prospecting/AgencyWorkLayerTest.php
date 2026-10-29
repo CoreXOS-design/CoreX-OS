@@ -172,6 +172,30 @@ final class AgencyWorkLayerTest extends TestCase
         $this->assertCount(2, $this->svc->history($this->agency->id, $a->id));
     }
 
+    public function test_a_new_claim_and_a_promotion_update_the_record_without_anyone_running_the_backfill(): void
+    {
+        [$a, $b] = $this->sameHouse();
+        $listingA = $this->listing([], $a);
+
+        $claim = ProspectingClaim::create([
+            'agency_id' => $this->agency->id, 'prospecting_listing_id' => $listingA, 'user_id' => $this->agent->id,
+            'status' => 'claimed', 'claimed_at' => now(), 'is_active' => true,
+        ]);
+        $this->assertSame($this->agent->id, (int) $this->svc->find($this->agency->id, $a->id)->claimed_by_user_id, 'a claim shows on the record at once');
+        $this->assertNull($this->svc->find($this->b->id, $b->id));
+
+        $claim->forceFill(['released_at' => now(), 'is_active' => false])->save();
+        $this->assertNull($this->svc->find($this->agency->id, $a->id)->claimed_by_user_id, 'releasing the claim clears it');
+
+        $propertyId = $this->property($this->agent->id, ['status' => 'active']);
+        $a->forceFill(['promoted_to_property_id' => $propertyId])->save();
+        $this->assertTrue((bool) $this->svc->find($this->agency->id, $a->id)->is_own_stock, 'promotion flags own stock at once');
+
+        \App\Models\Property::withoutGlobalScopes()->whereKey($propertyId)->first()->forceFill(['status' => 'not_selling'])->save();
+        $this->assertFalse((bool) $this->svc->find($this->agency->id, $a->id)->is_own_stock, 'a property that is no longer ours stops being flagged');
+        $this->assertNull($this->svc->find($this->b->id, $b->id), 'none of it ever reaches agency B\'s record');
+    }
+
     public function test_an_owner_row_carries_the_agency_of_its_tracked_property_and_is_scoped(): void
     {
         [$a, $b] = $this->sameHouse();
@@ -199,8 +223,11 @@ final class AgencyWorkLayerTest extends TestCase
         $dead->forceFill(['promoted_to_property_id' => $this->property($this->agent->id, ['status' => 'not_selling'])])->save();
         OnMarketStockService::flushCache();
 
+        $before = Work::withoutGlobalScopes()->count();
+        $beforeEvents = TrackedPropertyAgencyWorkEvent::withoutGlobalScopes()->count();
         $this->artisan('agency-work:backfill', ['--dry-run' => true])->assertSuccessful();
-        $this->assertSame(0, Work::withoutGlobalScopes()->count(), 'a dry run writes nothing');
+        $this->assertSame($before, Work::withoutGlobalScopes()->count(), 'a dry run writes nothing');
+        $this->assertSame($beforeEvents, TrackedPropertyAgencyWorkEvent::withoutGlobalScopes()->count());
 
         $this->artisan('agency-work:backfill')->assertSuccessful();
         $count = Work::withoutGlobalScopes()->count();
