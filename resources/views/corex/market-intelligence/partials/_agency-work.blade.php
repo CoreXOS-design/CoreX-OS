@@ -64,7 +64,7 @@
                         @elseif($e->kind === 'own_stock')
                             {{ $e->to_value ? 'Marked as our stock' : 'No longer our stock' }}
                         @else
-                            {{ $e->to_value ? 'Claimed' : 'Claim released' }}
+                            {{ $e->to_value ? 'Claimed' : 'Claim released' }}@if($e->reason): {{ $e->reason }}@endif
                         @endif
                         @if($e->user)<span style="color: var(--text-muted);">({{ $e->user->name }})</span>@endif
                     </li>

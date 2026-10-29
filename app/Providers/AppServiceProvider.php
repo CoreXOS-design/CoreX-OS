@@ -265,6 +265,9 @@ class AppServiceProvider extends ServiceProvider
         Agency::observe(AgencyObserver::class);
         // Property identity (.ai/specs/property-identity.md §7): attach new rows to their property file on save.
         \App\Models\Property::created(fn ($m) => app(\App\Observers\PropertyIdentityLinkObserver::class)->propertyCreated($m));
+        // Property identity C2 (section 15.2): runs AFTER the link above - a property added by hand that is the same property as one already in
+        // Market Intelligence claims that record for the agent who added it. A user must be signed in (imports and seeders are not "by hand").
+        \App\Models\Property::created(fn ($m) => auth()->check() ? app(\App\Services\Prospecting\CaptureClaimService::class)->claimFromManualProperty((int) $m->id, (int) auth()->id()) : null);
         \App\Models\MarketReports\MarketReportCompRow::created(fn ($m) => app(\App\Observers\PropertyIdentityLinkObserver::class)->compRowCreated($m));
         \App\Models\PresentationSoldComp::created(fn ($m) => app(\App\Observers\PropertyIdentityLinkObserver::class)->soldCompCreated($m));
         \App\Models\P24Listing::saved(fn ($m) => app(\App\Observers\PropertyIdentityLinkObserver::class)->alertSaved($m));

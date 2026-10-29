@@ -18,7 +18,7 @@ class AddressMatchSetting extends Model
     protected $fillable = [
         'agency_id', 'rule_erf_exact', 'rule_scheme_exact', 'rule_street_exact',
         'possible_min_agreeing_columns', 'neighbour_suburb_credit', 'gps_radius_m', 'unit_missing_on_one_side',
-        'fuzzy_threshold', 'auto_merge_min_confidence',
+        'fuzzy_threshold', 'auto_merge_min_confidence', 'auto_claim_min_confidence',
     ];
 
     protected $casts = [
@@ -34,6 +34,8 @@ class AddressMatchSetting extends Model
     public const UNIT_MISSING_MODES = ['possible', 'different'];
     /** property-identity.md §6: the lowest confidence a match may have and still link automatically. */
     public const AUTO_MERGE_LEVELS = ['exact', 'high'];
+    /** property-identity.md section 15 (C2): the lowest confidence at which a capture claims its Market Intelligence record on its own. */
+    public const AUTO_CLAIM_LEVELS = ['exact', 'high'];
 
     /** The shipped defaults — one place, so the page, the scorer and the tests agree. */
     public const DEFAULTS = [
@@ -46,6 +48,7 @@ class AddressMatchSetting extends Model
         'unit_missing_on_one_side'      => 'possible',
         'fuzzy_threshold'               => 85,
         'auto_merge_min_confidence'     => 'high',
+        'auto_claim_min_confidence'     => 'high',
     ];
 
     /**
@@ -83,6 +86,9 @@ class AddressMatchSetting extends Model
         $out['fuzzy_threshold'] = max(60, min(100, (int) $out['fuzzy_threshold']));
         if (! in_array($out['auto_merge_min_confidence'], self::AUTO_MERGE_LEVELS, true)) {
             $out['auto_merge_min_confidence'] = self::DEFAULTS['auto_merge_min_confidence'];
+        }
+        if (! in_array($out['auto_claim_min_confidence'], self::AUTO_CLAIM_LEVELS, true)) {
+            $out['auto_claim_min_confidence'] = self::DEFAULTS['auto_claim_min_confidence'];
         }
         foreach (['rule_erf_exact', 'rule_scheme_exact', 'rule_street_exact'] as $flag) {
             $out[$flag] = (bool) $out[$flag];

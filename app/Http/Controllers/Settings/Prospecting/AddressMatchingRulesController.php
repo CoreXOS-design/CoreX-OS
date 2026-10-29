@@ -50,6 +50,7 @@ class AddressMatchingRulesController extends Controller
             'unit_missing_on_one_side'      => ['required', Rule::in(AddressMatchSetting::UNIT_MISSING_MODES)],
             'fuzzy_threshold'               => ['sometimes', 'integer', 'min:60', 'max:100'],
             'auto_merge_min_confidence'     => ['sometimes', Rule::in(AddressMatchSetting::AUTO_MERGE_LEVELS)],
+            'auto_claim_min_confidence'     => ['sometimes', Rule::in(AddressMatchSetting::AUTO_CLAIM_LEVELS)],
         ]);
 
         $current = AddressMatchSetting::forAgency($agencyId);
@@ -64,6 +65,7 @@ class AddressMatchingRulesController extends Controller
             'unit_missing_on_one_side'      => $v['unit_missing_on_one_side'],
             'fuzzy_threshold'               => (int) ($v['fuzzy_threshold'] ?? $current['fuzzy_threshold']),
             'auto_merge_min_confidence'     => $v['auto_merge_min_confidence'] ?? $current['auto_merge_min_confidence'],
+            'auto_claim_min_confidence'     => $v['auto_claim_min_confidence'] ?? $current['auto_claim_min_confidence'],
         ]);
 
         return back()->with('status', 'Address matching settings saved.');

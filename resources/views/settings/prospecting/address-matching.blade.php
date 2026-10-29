@@ -78,6 +78,15 @@
         </div>
 
         <div>
+            <label class="block text-sm font-semibold mb-1" style="color:var(--text-secondary);">Claim a Market Intelligence property for the agent who captures it, from</label>
+            <select name="auto_claim_min_confidence" data-qa="auto-claim-min" class="px-3 py-2 text-sm rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                <option value="high" @selected(old('auto_claim_min_confidence', $settings['auto_claim_min_confidence']) === 'high')>Confident matches and certain ones (standard)</option>
+                <option value="exact" @selected(old('auto_claim_min_confidence', $settings['auto_claim_min_confidence']) === 'exact')>Only certain matches (same advert number or SG code)</option>
+            </select>
+            <p class="text-xs mt-1" style="color:var(--text-muted);">When an agent captures a property (a deeds capture or a property added by hand) and it is the same property as one already in Market Intelligence, that property is claimed for them automatically so it counts in Road to Sold. Anything less certain is never claimed on its own; it waits as a "possible match" for an agent to confirm.</p>
+        </div>
+
+        <div>
             <label class="block text-sm font-semibold mb-1" style="color:var(--text-secondary);">Loose-match score worth keeping (60-100)</label>
             <input type="number" name="fuzzy_threshold" min="60" max="100" required value="{{ old('fuzzy_threshold', $settings['fuzzy_threshold']) }}"
                    class="w-28 px-3 py-2 text-sm rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">

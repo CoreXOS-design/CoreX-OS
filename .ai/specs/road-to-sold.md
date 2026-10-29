@@ -2262,3 +2262,8 @@ Johan: "you'll see them in Settings and can change any". Each answer below is a 
 - **`rts:apply-task-mapping --agency=1 [--dry-run]`** applies `database/data/rts/hfc-task-decisions.json` (the three decisions above) and records every other task's current step as its default. Idempotent; never touches completions or history. HFC's file is data, not code: another agency has its own file or none.
 
 `rts:bind-tasks --apply` (binding tasks to events and retiring their old detectors) is still not built; it needs the other answers in 22.18.
+
+### 22.26 Claims from captures count in Road to Sold (lane C, C2, 29 Oct 2026)
+
+A property an agent captures (a deeds capture, or a property added by hand) that is already a Market Intelligence property is claimed for that agent automatically (`property-identity.md` section 15.2). Road to Sold side: `CaptureClaimService` calls `ProspectService::place()` for the agent - a prospect at **Found**, selection `claimed_deeds` or `claimed_manual`, reason "Claimed when you captured it (...)" - so the property is in the agent's list, the Found tile and the funnel like any other source. Nothing new in the engine: the existing `rts_prospects` row and its PLACED event are the stats hook. Rules: only when the agency has Road to Sold on and the agent is a real (active, non-assistant) agent; a property another agent already works there is left to them; a closed story is not restarted. The Market Intelligence `ClaimCreated` event is deliberately NOT fired (no "claim taken" points for an automatic claim).
+

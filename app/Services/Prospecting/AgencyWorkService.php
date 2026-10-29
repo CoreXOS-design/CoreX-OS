@@ -124,7 +124,7 @@ final class AgencyWorkService
     }
 
     /** Re-derive the current claim from the agency's claims on this tracked property's adverts (or its own claim row). */
-    public function syncClaim(int $agencyId, int $trackedPropertyId): TrackedPropertyAgencyWork
+    public function syncClaim(int $agencyId, int $trackedPropertyId, ?string $reason = null): TrackedPropertyAgencyWork
     {
         $this->assertOwn($agencyId, $trackedPropertyId);
         $listingIds = ProspectingListing::withoutGlobalScopes()->where('agency_id', $agencyId)->where('tracked_property_id', $trackedPropertyId)->pluck('id');
@@ -143,7 +143,7 @@ final class AgencyWorkService
         $oldUser = $work->claimed_by_user_id ? (int) $work->claimed_by_user_id : null;
         $work->forceFill(['claimed_by_user_id' => $newUser, 'claimed_at' => $claim?->claimed_at])->save();
         if ($newUser !== $oldUser) {
-            $this->log($agencyId, $trackedPropertyId, Event::KIND_CLAIM, $oldUser ? (string) $oldUser : null, $newUser ? (string) $newUser : null, null, $newUser ?? $oldUser);
+            $this->log($agencyId, $trackedPropertyId, Event::KIND_CLAIM, $oldUser ? (string) $oldUser : null, $newUser ? (string) $newUser : null, $reason, $newUser ?? $oldUser);
         }
 
         return $work;
