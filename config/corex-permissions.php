@@ -398,6 +398,7 @@ return [
         ['key' => 'edit_rmcp',                   'label' => 'Edit RMCP Drafts',                'section' => 'compliance',       'type' => 'action',  'module' => 'rmcp',             'sort_order' => 21],
         ['key' => 'approve_rmcp',                'label' => 'Approve RMCP (Board)',             'section' => 'compliance',       'type' => 'action',  'module' => 'rmcp',             'sort_order' => 22],
         ['key' => 'manage_rmcp_board_approval',  'label' => 'Manage RMCP board approval (board list, send letter)', 'section' => 'compliance', 'type' => 'action', 'module' => 'rmcp', 'sort_order' => 25],
+        ['key' => 'manage_signed_copy',          'label' => 'Upload the signed copy of an RMCP / policy (compliance officer sign-off)', 'section' => 'compliance', 'type' => 'action', 'module' => 'rmcp', 'sort_order' => 26],
         ['key' => 'manage_compliance_officer',   'label' => 'Manage Compliance Officer',       'section' => 'compliance',       'type' => 'action',  'module' => 'rmcp',             'sort_order' => 23],
         ['key' => 'manage_information_officer',  'label' => 'Manage Information Officer (POPIA)','section' => 'compliance',     'type' => 'action',  'module' => 'rmcp',             'sort_order' => 24],
         ['key' => 'manage_activity_mappings',    'label' => 'Manage Activity Points → Calendar Mappings', 'section' => 'compliance', 'type' => 'action', 'module' => 'activity-points', 'sort_order' => 25],

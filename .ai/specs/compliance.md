@@ -340,3 +340,30 @@ The tenant/landlord FICA form used to open empty. It now opens with what the con
 **Left for later / known limits.** The staff acknowledgement page still carries its own copy of the pad (the new letter uses a vanilla-JS twin of the same component so it also works on the public page); moving the staff page onto the shared partial is a separate change. A board member removed from the list after a letter was sent stays on that round (cancel and resend to change who signs). Policies (`PolicyVersion`) have the same upload-a-PDF approval and are not changed here.
 
 **Tests:** `tests/Feature/Compliance/RmcpBoardApprovalTest.php`.
+
+## Signed copy, "Build staff training from this version" and uploaded-document policies (29 Oct 2026; Johan)
+
+**Why.** The signed RMCP was submitted to the FIC outside CoreX, so CoreX needed (1) to hold the signed copy and the compliance officer's sign-off where anyone who opens or downloads the RMCP sees it, and (2) one way to put a document in front of all staff to read and sign. Before this, an uploaded board-approval PDF was stored (`board_approval_document_path`) but nothing ever served it, and a policy approval did not supersede old signatures or tell anyone.
+
+**1. Signed copy + sign-off** (`SignedCopyService`, `SignedCopyController`; RMCP and policy versions, same columns on `rmcp_versions` and `policy_versions`: `signed_copy_path/name/sha256`, `signed_copy_uploaded_by/at`, `signed_by_name`, `signed_on`, `submitted_to_fic_on`).
+- Upload or replace on an ACTIVE or SUPERSEDED version (a draft is refused - the approval step takes the board's file). It does NOT approve anything and fires NO staff re-sign. The earlier file is kept; the audit entry names it.
+- Who may upload: owner and admin (they hold the new Role Manager key `manage_signed_copy` through the admin "all minus exclude" default), anyone granted the key, and the agency's appointed primary compliance officer (`FicaOfficerAppointment::currentPrimary`, whatever their role). Download: anyone who can view the RMCP (`access_rmcp`) / policy (`access_policy`).
+- View page (`compliance.rmcp.show`, `compliance.policy.show`): "Signed copy on file - signed by NAME on DATE, submitted to the FIC on DATE" + a "Download signed copy" button, for everyone who can view the page. With no signed copy a viewer sees nothing extra; people who may upload see an "Add the signed copy" control. The same line is printed on the cover of the generated PDF (`CompliancePdf::versionHtml`).
+- Read-back: when no signed copy was uploaded here, `board_approval_document_path` (the PDF uploaded at approval, or the signed board letter's PDF) is shown as the signed copy, with the approver and approval date as the sign-off. A path whose file is missing shows nothing.
+- Routes: `compliance.rmcp.signed-copy` / `.store`, `compliance.policy.signed-copy` / `.store`. Files: private `local` disk, `rmcp|policy/{agency}/signed/`. Audit: `compliance_document_audit_log` (`signed_copy_uploaded`, `signed_copy_replaced`).
+
+**2. Build staff training from this version** (`StaffTrainingService`, `StaffTrainingController`; `RmcpReSignService` is now a thin wrapper).
+- The My Portal > Training item is read from the document's ACTIVE version (RMCP card, Policies sub-tab), so the item already exists for everyone who has not signed it. Sending the training: supersedes the acknowledgements staff signed on EARLIER versions of the same document (kept, never deleted; for a policy only that policy's), notifies the staff who have not signed THIS version in-app (`rmcp.version_approved` / new `policy.version_approved`), and records when/how many (`staff_training_sent_at/by/count` on both version tables + an audit entry).
+- Button on the RMCP page and every policy page (active version only; whoever holds `approve_rmcp` / `approve_policy`), with a confirm dialog that states how many staff will be asked. Each press is its own notification occurrence (`dedupe_key`), so a deliberate second press is not swallowed by the gateway cooldown.
+- Approval: an RMCP approval behaves as before (asks every active staff member). A policy approval now calls the same service (it used to only flip people to "not started" silently).
+- Both dashboards print "Last sent DATE - N of M signed" (or "not sent yet").
+
+**3. Uploaded-document policies** (`PolicyDocumentImporter`). A policy can be created by uploading a PDF or Word file instead of typing sections (`compliance.policy.create`, or "Upload a new version" on a document policy's page). Word is converted to PDF with LibreOffice; the PDF is kept; each page is rendered to a private JPEG (`pdftoppm`) served by `compliance.policy.page` (signed in, agency-scoped). One `policy_sections` row per page ("I have read this page") + the usual closing declaration, so the EXISTING wizard (page by page, one signature at the end, receipt, dashboard, re-sign) works unchanged. The PDF button returns the uploaded file; Edit is replaced by "upload a new version". An unreadable file rolls the whole create back. Limit 250 pages / 20 MB.
+
+**Server needs.** `poppler-utils` (`pdftoppm`, `pdfinfo`) and, for Word files, LibreOffice (`soffice`). Both are on Staging/QA1/demo; the live host must have them before document policies are used there (env parity, CLAUDE.md step h). Without them the upload says so and no policy is created.
+
+**Side finding (reported).** `RmcpComplianceOfficerController` / `RmcpComplianceOfficer` read the deprecated `rmcp_compliance_officers` table (renamed `_deprecated_20260421`) but no route reaches them (the old officer URL redirects to settings). Every live officer lookup (`RmcpVariableResolver` `FicaOfficerAppointment::currentPrimary`, `User` officer checks, and the new signed-copy check) already reads `fica_officer_appointments`.
+
+**Not in the Setup Wizard (non-negotiable 10a).** No new agency setting - one Role Manager permission and per-document actions; nothing to configure at onboarding.
+
+**Tests:** `SignedCopyTest` (11), `StaffTrainingTest` (7), `PolicyDocumentUploadTest` (6) in `tests/Feature/Compliance/`.

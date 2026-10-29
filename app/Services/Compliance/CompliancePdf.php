@@ -83,7 +83,16 @@ class CompliancePdf
      */
     public function versionHtml(string $kicker, ?string $legalLine, object $version, Agency $agency, array $variables, string $title, ?string $coverLine = null): string
     {
+        // "Signed copy on file - signed by ... on ..., submitted to the FIC on ..." (compliance.md); null = print nothing extra.
+        $signedLine = null;
+        try {
+            $signedLine = app(SignedCopyService::class)->describe($version)['line'] ?? null;
+        } catch (\Throwable $e) {
+            // A PDF is never blocked by the signed-copy lookup.
+        }
+
         return view('compliance.pdf.version', [
+            'signedLine' => $signedLine,
             'kicker'    => $kicker,
             'legalLine' => $legalLine,
             'coverLine' => $coverLine,
