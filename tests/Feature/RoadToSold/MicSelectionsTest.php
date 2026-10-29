@@ -238,7 +238,7 @@ final class MicSelectionsTest extends TestCase
         $p1 = $this->listing([], $this->tp(['owner_contact_id' => $this->contact()]));
         // path 2 — a tracked_property_owners row with a contact
         $tp2 = $this->tp();
-        DB::table('tracked_property_owners')->insert(['tracked_property_id' => $tp2->id, 'contact_id' => $this->contact(), 'name' => 'O', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('tracked_property_owners')->insert(['agency_id' => DB::table('tracked_properties')->where('id', $tp2->id)->value('agency_id'), 'tracked_property_id' => $tp2->id, 'contact_id' => $this->contact(), 'name' => 'O', 'created_at' => now(), 'updated_at' => now()]);
         $p2 = $this->listing([], $tp2);
         // path 3 — a seller on the CoreX property a pitch created
         $prop = $this->property($this->agent->id, ['status' => 'not_selling']);   // the agent's own pitch (another agent's would be theirs, never offered)
@@ -246,13 +246,13 @@ final class MicSelectionsTest extends TestCase
         $p3 = $this->listing(['matched_property_id' => $prop]);
         // path 4 — an owner on the deed the agent linked
         $deedTp = $this->tp(['capture_kind' => 'deeds_capture']);
-        DB::table('tracked_property_owners')->insert(['tracked_property_id' => $deedTp->id, 'contact_id' => $this->contact(), 'name' => 'D', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('tracked_property_owners')->insert(['agency_id' => DB::table('tracked_properties')->where('id', $deedTp->id)->value('agency_id'), 'tracked_property_id' => $deedTp->id, 'contact_id' => $this->contact(), 'name' => 'D', 'created_at' => now(), 'updated_at' => now()]);
         $p4 = $this->listing(['linked_deed_tracked_property_id' => $deedTp->id]);
         // none
         $this->listing();
         // owner row WITHOUT a contact does not count
         $tpNo = $this->tp();
-        DB::table('tracked_property_owners')->insert(['tracked_property_id' => $tpNo->id, 'contact_id' => null, 'name' => 'Unmatched', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('tracked_property_owners')->insert(['agency_id' => DB::table('tracked_properties')->where('id', $tpNo->id)->value('agency_id'), 'tracked_property_id' => $tpNo->id, 'contact_id' => null, 'name' => 'Unmatched', 'created_at' => now(), 'updated_at' => now()]);
         $this->listing([], $tpNo);
 
         $ids = $this->listingIds((new OwnerKnownSelection())->candidates($this->ctx(settings: ['ownerKnownQuantity' => 50]), 50));

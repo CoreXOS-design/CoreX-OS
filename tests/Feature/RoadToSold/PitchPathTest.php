@@ -295,8 +295,8 @@ final class PitchPathTest extends TestCase
         $coOwner = $this->owner('Annelie');
         $tp = $this->tp(['street_number' => '12', 'street_name' => 'Marine Drive', 'owner_contact_id' => $owner->id, 'suburb' => 'Uvongo']);
         DB::table('tracked_property_owners')->insert([
-            ['tracked_property_id' => $tp->id, 'contact_id' => $owner->id, 'name' => 'Pieter Botha', 'is_primary' => true, 'created_at' => now(), 'updated_at' => now()],
-            ['tracked_property_id' => $tp->id, 'contact_id' => $coOwner->id, 'name' => 'Annelie Botha', 'is_primary' => false, 'created_at' => now(), 'updated_at' => now()],
+            ['agency_id' => DB::table('tracked_properties')->where('id', $tp->id)->value('agency_id'), 'tracked_property_id' => $tp->id, 'contact_id' => $owner->id, 'name' => 'Pieter Botha', 'is_primary' => true, 'created_at' => now(), 'updated_at' => now()],
+            ['agency_id' => DB::table('tracked_properties')->where('id', $tp->id)->value('agency_id'), 'tracked_property_id' => $tp->id, 'contact_id' => $coOwner->id, 'name' => 'Annelie Botha', 'is_primary' => false, 'created_at' => now(), 'updated_at' => now()],
         ]);
         $def = \App\Models\RoadToSold\RtsOutcomeDefinition::query()->where('agency_id', $this->agency->id)->where('key', 'spoke_evaluation_booked')->firstOrFail();
         $this->actingAs($this->agent);

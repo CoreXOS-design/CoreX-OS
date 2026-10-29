@@ -74,7 +74,7 @@ final class DeedsCaptureLinkServiceTest extends TestCase
     private function addOwner(TrackedProperty $tp, string $name, string $id, ?int $contactId, bool $primary = true): void
     {
         DB::table('tracked_property_owners')->insert([
-            'tracked_property_id' => $tp->id,
+            'agency_id' => DB::table('tracked_properties')->where('id', $tp->id)->value('agency_id'), 'tracked_property_id' => $tp->id,
             'contact_id'          => $contactId,
             'name'                => $name,
             'id_number'           => $id,

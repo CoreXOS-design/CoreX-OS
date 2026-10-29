@@ -130,7 +130,7 @@ final class TvaCompanyDirectorsTest extends TestCase
             'capture_kind' => 'deeds_capture', 'created_at' => now(), 'updated_at' => now(),
         ]);
         DB::table('tracked_property_owners')->insert([
-            'tracked_property_id' => $tpId, 'contact_id' => $companyOwner->id,
+            'agency_id' => DB::table('tracked_properties')->where('id', $tpId)->value('agency_id'), 'tracked_property_id' => $tpId, 'contact_id' => $companyOwner->id,
             'name' => 'Beaumont Prop Cc 1502', 'id_number' => self::REG_NO, 'is_primary' => true,
             'created_at' => now(), 'updated_at' => now(),
         ]);

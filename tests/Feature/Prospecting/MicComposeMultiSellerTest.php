@@ -421,7 +421,7 @@ final class MicComposeMultiSellerTest extends TestCase
         ]);
         foreach ($owners as $i => [$name, $idn]) {
             DB::table('tracked_property_owners')->insert([
-                'tracked_property_id' => $tpId, 'name' => $name, 'id_number' => $idn, 'id_type' => 'sa_id',
+                'agency_id' => DB::table('tracked_properties')->where('id', $tpId)->value('agency_id'), 'tracked_property_id' => $tpId, 'name' => $name, 'id_number' => $idn, 'id_type' => 'sa_id',
                 'is_primary' => $i === 0, 'created_at' => now(), 'updated_at' => now(),
             ]);
         }
