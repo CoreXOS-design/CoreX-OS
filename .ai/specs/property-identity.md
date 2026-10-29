@@ -53,10 +53,11 @@ Public advert facts also go to a **global shared pool** keyed by canonical refer
 | `match_method` varchar(30) NULL | `portal_ref`, `lpi`, `erf_suburb`, `scheme_unit`, `deed_number`, `address_unit`, `gps`, `fuzzy`, `manual`, `address_history` |
 | `matched_at` timestamp NULL | when the link was made |
 
-Index `(canonical_ref)` (for cross-agency pool lookups) and **unique `(agency_id, canonical_ref)`**: one advert belongs to exactly one tracked property per agency. Existing `unq_tracked_external_ref (agency_id, source_type, source_ref)` stays — raw value kept for audit, never rewritten.
-Where a unique clash would arise on backfill (the same advert under two tracked properties of one agency — the audit found 4,561 capture-vs-MIC splits), the backfill does NOT fail or merge: it records the pair in the dry-run report as a **duplicate by canonical ref** and leaves `canonical_ref` NULL on the later row until Johan approves the merge.
+Indexes `(canonical_ref)` (cross-agency pool lookups) and `(agency_id, canonical_ref)`. **Target: unique `(agency_id, canonical_ref)`** — one advert belongs to exactly one tracked property per agency — **added only after the reconcile report (A4) has been reviewed and applied**; until then it is a plain index, because the same advert sits under two property files of one agency in thousands of places today (the audit's 4,561 capture-vs-MIC splits). Existing `unq_tracked_external_ref (agency_id, source_type, source_ref)` stays — the raw value is kept for audit, never rewritten.
+The backfill never fails or merges on such a clash: it stores `canonical_ref` on both rows and lists the pair in the report as a **clash** (the input of the A4 reconcile report).
 
-**Other tables that carry an advert number** keep their raw column and gain `canonical_ref` (nullable, indexed) + `tracked_property_id` (nullable, indexed) + `identity_confidence` + `identity_method`: `prospecting_listings` (MIC, already has `tracked_property_id`; adds `canonical_ref`), `p24_listings` (alerts), `portal_listings` (captures), `properties` (own stock; `canonical_ref` for P24 and PP separately → `p24_canonical_ref`, `pp_canonical_ref`), `property_external_sources` (OAS), `deals`, `market_report_comp_rows`, `presentation_sold_comps`, `presentation_active_listings`. (Link columns on the last four are the "property-file id on stock, comps and deals" the audit asked for.)
+**Other tables that carry an advert number** keep their raw column and gain a derived `canonical_ref` (nullable, indexed): `prospecting_listings` (MIC), `p24_listings` (alerts), `portal_listings` (captures), `property_external_sources` (OAS), and `properties` (own stock) as `p24_canonical_ref` + `pp_canonical_ref` (a property can be on both portals). Built in **A2**. Kept current by an Eloquent `saving` hook (`HasCanonicalPortalRef`) on each model; writers that skip events (`saveQuietly`, raw query-builder inserts such as the map's prospecting-listing insert) are caught by re-running `property-refs:normalise --apply`, which recomputes a derived column whose stored value is NULL or stale.
+**Link columns** (`tracked_property_id` + `identity_confidence` + `identity_method`) for tables that have NO advert number — `deals`, `market_report_comp_rows`, `presentation_sold_comps`, `presentation_active_listings`, and `properties`/`p24_listings` where not yet present — are the "property-file id on stock, comps and deals" the audit asked for; they are added in **A3** together with the resolver that fills them.
 
 ### 4.1 Normaliser — `App\Support\Property\PortalRef::normalise(?string $raw, ?string $portalHint = null): ?string`
 
@@ -158,7 +159,7 @@ Demo seeders are exempt.
 
 ## 8. Data safety, backfill, merges
 
-- **Normalise backfill** `property-refs:normalise --dry-run|--apply`: chunked, resumable, **fills only empty `canonical_ref`**, never rewrites a raw value; refuses to run outside QA/local/testing (precedent: `address:backfill-structured`). The dry-run reports per source table: rows read, normalised, unparseable (with samples), already canonical, clashes (same canonical ref on two tracked properties of one agency), and **cross-source matches** (canonical refs present in two or more source tables).
+- **Normalise backfill** `property-refs:normalise --dry-run|--apply`: chunked, idempotent (re-run to resume), writes only the DERIVED canonical column (to its freshly computed value), never touches a raw value; refuses to run outside QA/local/testing (precedent: `address:backfill-structured`). The dry-run reports per source table: rows read, normalised, unparseable (with samples), already canonical, clashes (same canonical ref on two tracked properties of one agency), and **cross-source matches** (canonical refs present in two or more source tables).
 - **Reconcile** `property-identity:reconcile --dry-run` (A4): own properties → tracked-property joins with confidence; duplicates by canonical ref; over-merged tracked properties (≥ 2 distinct unit numbers or ≥ 10 adverts on one file) with a proposed split; written to `storage/app/reports/`. **No `--apply` ships in this lane.** Merges are flagged (`duplicate_of_tracked_property_id`), never hard-deleted (non-negotiable #1).
 - Every new column is nullable; no existing column is dropped or overwritten.
 
@@ -188,7 +189,7 @@ Fixtures: real shapes (Pebble Beach 303 vs 304; 1166 Lynne Avenue portions; Uvon
 | # | Step | Status |
 |---|---|---|
 | A1 | This spec | landed (QA1) |
-| A2 | Normaliser + `canonical_ref` columns + pool table + `property-refs:normalise` | pending |
+| A2 | `PortalRef` normaliser + `canonical_ref` columns + model hooks + pool table (`portal_advert_facts`) + `property-refs:normalise` | landed (QA1) — dry-run report in the A2 build report; `--apply` not yet run |
 | A3 | `PropertyIdentityResolver` + all routes through the door + settings fields | pending |
 | A4 | `property-identity:reconcile --dry-run` report for Johan | pending |
 | — | Possible-matches list, `--apply` merges | not in this lane; after Johan's review of A4 |

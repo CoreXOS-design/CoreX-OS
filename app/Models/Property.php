@@ -6,6 +6,8 @@ use App\Models\CommandCenter\CalendarEvent;
 use App\Models\CommandCenter\CalendarEventLink;
 use App\Models\Concerns\BelongsToAgency;
 use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\HasCanonicalPortalRef;
+use App\Support\Property\PortalRef;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -18,6 +20,17 @@ use Illuminate\Support\Str;
 class Property extends Model
 {
     use SoftDeletes, BelongsToAgency, BelongsToBranch, \App\Models\Concerns\FlagsDemoRows;
+    use HasCanonicalPortalRef;
+
+    /** @return array<string, ?string> */
+    public function canonicalRefValues(): array
+    {
+        return [
+            'p24_canonical_ref' => PortalRef::normalise($this->p24_ref, PortalRef::P24)
+                ?? PortalRef::normalise($this->p24_listing_number, PortalRef::P24),
+            'pp_canonical_ref'  => PortalRef::normalise($this->pp_ref, PortalRef::PP),
+        ];
+    }
 
     /**
      * Transient (NOT persisted) flag set by bulk importers before save. When
