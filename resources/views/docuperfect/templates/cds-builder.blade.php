@@ -2394,6 +2394,8 @@ function cdsEditor() {
 
         _findBestNamedFieldMatch(suggestedLabel, suggestedKey) {
             if (!suggestedLabel) return null;
+            // The date / place / time of signing are typed while signing, never a field of the data (a "Month" there is not the lease's escalation month).
+            if (suggestedKey && suggestedKey.startsWith('signing.')) return null;
             const needle = suggestedLabel.toLowerCase().trim();
             const pool = this._matchableFields();
 
