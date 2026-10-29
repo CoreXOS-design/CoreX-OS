@@ -13,8 +13,6 @@ use Tests\TestCase;
  * Pinned by name so it cannot come back unnoticed, with no allow-list entry for any of them:
  *   - Breach Register and Notices Received live in the Rentals panel, so that panel must open on every one of their pages;
  *   - the "alerts switched off" list is opened from the Users page, so it stays under Settings -> Users;
- *   - the auction's Bidder Register, Sale Room and documents hang off the auction (auctions.md 7.1: no top-level entry on
- *     purpose) so "Auction Diary" stays selected; the results export belongs to Results.
  */
 final class NewScreensHaveTheirMenuPlaceTest extends TestCase
 {
@@ -25,10 +23,6 @@ final class NewScreensHaveTheirMenuPlaceTest extends TestCase
             'corex.breaches.'      => ['group' => 'rental-applications', 'item' => 'Notices'],
             'corex.lease-notices.' => ['group' => 'rental-applications', 'item' => 'Notices'],
             'corex.alerts-off.'    => ['group' => 'settings', 'item' => 'Users'],
-            'corex.auctions.bidders.' => ['group' => 'auctions', 'item' => 'Auction Diary'],
-            'corex.auctions.room.' => ['group' => 'auctions', 'item' => 'Auction Diary'],
-            'corex.auctions.document' => ['group' => 'auctions', 'item' => 'Auction Diary'],
-            'corex.auctions.results.export' => ['group' => 'auctions', 'item' => 'Results'],
         ];
     }
 

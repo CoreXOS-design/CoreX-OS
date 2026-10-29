@@ -50,63 +50,6 @@ class PropertySettingItem extends Model
     const GROUP_AUCTION_TYPE       = 'auction_type';
     const GROUP_AUCTION_LOT_STATUS = 'auction_lot_status';
 
-    /**
-     * AT-432 — the FIXED machine slugs behind GROUP_AUCTION_LOT_STATUS, in the
-     * exact order DEFAULT_ROWS lists their default labels. AuctionLotStatusService
-     * (the only writer of `auction_lots.status`) always writes one of these slugs,
-     * never a PropertySettingItem row's `name` — that column carries the
-     * agency-editable LABEL only, per §5.9 ("machine-readable status slugs stay
-     * in code; only the labels are agency-editable"). Pair a slug with its
-     * current label via sort_order (zipWithLabels() below) — this group has no
-     * dedicated slug column, so an agency may RENAME a row but must not reorder
-     * it; renaming is the only edit this group's settings screen should offer.
-     */
-    public const AUCTION_LOT_STATUS_SLUGS = [
-        'draft', 'catalogued', 'open_for_bids', 'under_the_hammer',
-        'sold', 'sold_subject_to_confirmation', 'passed_in', 'withdrawn',
-    ];
-
-    /**
-     * slug => current label for GROUP_AUCTION_LOT_STATUS, for this agency (or
-     * the shipped defaults when the agency has never curated the group).
-     * Falls back to the shipped default label for any slug an agency's
-     * curated set is missing a row for (e.g. an old row deleted by mistake) —
-     * never returns a blank label.
-     *
-     * @return array<string, string>
-     */
-    public static function auctionLotStatusLabelsFor(int $agencyId): array
-    {
-        $defaults = array_combine(
-            self::AUCTION_LOT_STATUS_SLUGS,
-            array_column(self::DEFAULT_ROWS[self::GROUP_AUCTION_LOT_STATUS], 'name'),
-        );
-
-        if ($agencyId <= 0) {
-            return $defaults;
-        }
-
-        $rows = static::query()->group(self::GROUP_AUCTION_LOT_STATUS)
-            ->where('agency_id', $agencyId)
-            ->where('active', true)
-            ->orderBy('sort_order')
-            ->pluck('name')
-            ->values();
-
-        if ($rows->isEmpty()) {
-            return $defaults;
-        }
-
-        $labels = $defaults;
-        foreach ($rows as $i => $name) {
-            if (isset(self::AUCTION_LOT_STATUS_SLUGS[$i])) {
-                $labels[self::AUCTION_LOT_STATUS_SLUGS[$i]] = $name;
-            }
-        }
-
-        return $labels;
-    }
-
     /** 'Average' is the baseline (0%) and cannot be deleted. The controller
      *  enforces this; the UI surfaces it so the agent knows. */
     public const CONDITION_BASELINE_NAME = 'Average';

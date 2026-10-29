@@ -83,12 +83,8 @@ class MarketingCopyService
             ? 'Use a few tasteful, relevant emojis (e.g. 🏡 📍 🛏️ 🚿 ✨) spread through the copy to make it warm and scannable — keep it professional and do not overuse them.'
             : 'Do NOT use any emojis.';
 
-        // AT-432 Phase 5 — .ai/specs/auctions.md §14.5: "generated adverts
-        // carry the urgency the format depends on." Only fires when the
-        // fact block above actually contains auction data, so a
-        // private-treaty listing's prompt is unchanged.
         $auctionRule = $property->isAuction()
-            ? "\n- This is an AUCTION listing — the copy must convey the urgency and excitement of a live sale (bidding, a fixed date, \"don't miss this\"), using ONLY the auction date/venue/guide price/registration deadline given in PROPERTY DATA above. Mention the auction date prominently. Never call it a private-treaty sale or omit that it is going to auction."
+            ? "\n- This is an AUCTION listing — the copy must convey the urgency and excitement of a live sale (bidding, a fixed date, \"don't miss this\"), using ONLY auction details given in PROPERTY DATA above. Do not invent a date, venue or price. Never call it a private-treaty sale or omit that it is going to auction."
             : '';
 
         $system = <<<SYS
@@ -224,25 +220,8 @@ class MarketingCopyService
             $lines[] = '- Location: ' . $location;
         }
 
-        // AT-432 Phase 5 — .ai/specs/auctions.md §14.5. Same allowlist
-        // mechanism as every other fact here: only auction attributes that
-        // are actually set reach the model, so Ellie can never invent a
-        // date/venue/deadline the auction doesn't have.
-        if ($property->isAuction() && ($lot = $property->currentAuctionLot()) && $lot->auction) {
+        if ($property->isAuction()) {
             $lines[] = '- This is an AUCTION listing, not a private-treaty sale.';
-            if ($lot->auction->starts_at) {
-                $lines[] = '- Auction date: ' . $lot->auction->starts_at->format('d F Y \a\t H:i');
-            }
-            if ($lot->auction->venue_name) {
-                $lines[] = '- Auction venue: ' . $lot->auction->venue_name;
-            }
-            if ($lot->guide_price_min || $lot->guide_price_max) {
-                $lines[] = '- Guide price: R ' . number_format((float) ($lot->guide_price_min ?? 0), 0, '.', ' ')
-                    . ' – R ' . number_format((float) ($lot->guide_price_max ?? $lot->guide_price_min), 0, '.', ' ');
-            }
-            if ($lot->auction->registration_closes_at) {
-                $lines[] = '- Registration deadline: ' . $lot->auction->registration_closes_at->format('d F Y \a\t H:i');
-            }
         }
 
         $features    = $this->extractFeatures($property->features_json ?? []);

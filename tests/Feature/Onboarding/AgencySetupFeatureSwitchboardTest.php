@@ -109,8 +109,8 @@ class AgencySetupFeatureSwitchboardTest extends TestCase
         // immediately after identity) moved from index 1 to index 2.
         $this->assertSame('capabilities', AgencyOnboardingSetup::STEPS[2]);
         // proforma + market_intelligence + welcome brought the total to 16; AT-395's outgoing_mail and the leases step to 18;
-        // AT-432's auctions to 19; AT-454's road_to_sold to 20.
-        $this->assertSame(20, AgencyOnboardingSetup::totalSteps());
+        // AT-454's road_to_sold to 19.
+        $this->assertSame(19, AgencyOnboardingSetup::totalSteps());
     }
 
     // ── Round-trip: writes through the SAME store the settings page writes ────

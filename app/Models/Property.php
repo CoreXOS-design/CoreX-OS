@@ -2686,21 +2686,6 @@ class Property extends Model
         return strtolower(trim((string) $this->sale_method)) === 'auction';
     }
 
-    /** The lot currently carrying this property, across any auction (concluded or not). */
-    public function auctionLots(): \Illuminate\Database\Eloquent\Relations\HasMany
-    {
-        return $this->hasMany(\App\Models\AuctionLot::class, 'property_id');
-    }
-
-    /** The property's open (not yet concluded) auction lot, if any. Null once sold/passed-in/withdrawn. */
-    public function currentAuctionLot(): ?\App\Models\AuctionLot
-    {
-        return $this->auctionLots()
-            ->whereNotIn('status', \App\Models\AuctionLot::CONCLUDED_STATUSES)
-            ->latest('id')
-            ->first();
-    }
-
     /**
      * The single source of truth for a listing's price across display,
      * syndication payloads, and readiness gates. Rentals carry the amount in

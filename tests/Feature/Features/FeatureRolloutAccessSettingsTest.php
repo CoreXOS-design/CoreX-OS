@@ -147,11 +147,11 @@ final class FeatureRolloutAccessSettingsTest extends TestCase
 
     public function test_keys_that_end_in_the_same_word_are_all_listed(): void
     {
-        // auctions.view / auctions.reserve.view and shared_drive.folders.create / shared_drive.drives.create used to
-        // overwrite each other, so one of each pair never reached the pop-up.
-        $settings = $this->access()->settingsFor((int) $this->agency->id, ['auctions', 'shared-drive']);
+        // shared_drive.folders.create / shared_drive.drives.create used to overwrite each other, so one of the pair
+        // never reached the pop-up.
+        $settings = $this->access()->settingsFor((int) $this->agency->id, ['shared-drive']);
 
-        foreach (['auctions', 'shared-drive'] as $feature) {
+        foreach (['shared-drive'] as $feature) {
             $shown = [];
             foreach ($settings['features'][$feature]['modules'] as $m) {
                 $shown = array_merge($shown, array_column($m['access'], 'key'), array_column($m['standard'], 'key'), array_column($m['other'], 'key'), $m['view'] ? [$m['view']] : []);
