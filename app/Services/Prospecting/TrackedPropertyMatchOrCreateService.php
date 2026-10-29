@@ -612,6 +612,9 @@ final class TrackedPropertyMatchOrCreateService
         if ($f && $c) {
             return false;
         }
+        if ($f) {
+            return true; // the incoming data names a unit and the file does not: it is a block / house-level file, never this unit
+        }
         $unitType = '/apartment|flat|sectional|townhouse|duplex|simplex|cluster|studio|penthouse|\bunit\b/i';
 
         return preg_match($unitType, (string) ($facts['property_type'] ?? '')) === 1
@@ -682,13 +685,22 @@ final class TrackedPropertyMatchOrCreateService
             }
             $agrees = $this->suburbAgrees($facts, $cand);
             $label = sprintf('GPS is %d m from this property\'s precise pin', (int) round($d));
-            if ($agrees && $d <= 5.6) {
-                $hit = $this->linkOrPossible($agencyId, $source, $cand, '2_gps_latlng', 'high', 'gps', $label . ' and the suburb agrees.');
+            // The incoming pin must be trustworthy too: labelled exact/high (or a CMA property pin), or the very same
+            // stored pin (<= 1.5 m — a click on a pin we already hold). An unlabelled imported pin proves nothing.
+            $pinTrusted = in_array(strtolower((string) ($facts['geo_confidence'] ?? '')), ['exact', 'high'], true)
+                || isset($facts['cma_gps_lat']) || $d <= 1.5;
+            // Where the incoming data names a street, the street must agree and the number must be confirmed on both
+            // sides ("Unit 8, Marine Drive" 4 m from "145 Marine Drive" is a road, not a house).
+            $hasStreetInfo = ! empty($facts['street_name']) || ! empty($facts['street_number']);
+            $streetOk = ! $hasStreetInfo
+                || ($this->streetsAgree($facts['street_name'] ?? null, $cand->street_name) && $this->streetNumberConfirmed($facts, $cand));
+            if ($agrees && $d <= 5.6 && $pinTrusted && $streetOk && ! $this->unitDoubt($facts, $cand)) {
+                $hit = $this->linkOrPossible($agencyId, $source, $cand, '2_gps_latlng', 'high', 'gps', $label . ', the suburb agrees and nothing contradicts it.');
                 if ($hit) {
                     return $hit;
                 }
             } else {
-                $this->addPossible($cand, $agrees ? 'probable' : 'weak', 'gps', $label . ($agrees ? '.' : ', but the suburb is not the same or not known.'));
+                $this->addPossible($cand, $agrees ? 'probable' : 'weak', 'gps', $label . ($agrees ? ', but it is not enough on its own (pin, street, number or unit not confirmed).' : ', but the suburb is not the same or not known.'));
             }
         }
 

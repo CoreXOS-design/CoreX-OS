@@ -115,7 +115,7 @@ final class PropertyIdentityReconciler
             ->select('r.canonical_ref', DB::raw('COUNT(DISTINCT r.tracked_property_id) as files'))
             ->groupBy('r.canonical_ref')->havingRaw('COUNT(DISTINCT r.tracked_property_id) > 1')->get();
 
-        $out = ['groups' => $groups->count(), 'same_address' => 0, 'possible' => 0, 'different_address' => 0, 'unreadable' => 0, 'files_involved' => 0, 'samples' => ['different_address' => [], 'same_address' => []]];
+        $out = ['groups' => $groups->count(), 'same_address' => 0, 'possible' => 0, 'different_address' => 0, 'cannot_compare' => 0, 'unreadable' => 0, 'files_involved' => 0, 'samples' => ['different_address' => [], 'same_address' => []]];
         $settings = AddressMatchSetting::forAgency($agencyId);
         $involved = [];
 
@@ -134,11 +134,20 @@ final class PropertyIdentityReconciler
                         $worst = 'unreadable';
                         continue;
                     }
-                    $tier = $this->scorer->score(AddressFacts::fromModel($base), AddressFacts::fromModel($b), $settings)['tier'];
+                    $res = $this->scorer->score(AddressFacts::fromModel($base), AddressFacts::fromModel($b), $settings);
+                    $tier = $res['tier'];
                     if ($tier === AddressMatchScorer::TIER_EXACT) {
                         continue;
                     }
-                    $worst = $worst === 'different_address' ? 'different_address' : ($tier === AddressMatchScorer::TIER_POSSIBLE ? 'possible' : 'different_address');
+                    $this_ = match (true) {
+                        $res['veto'] !== []                                                                                 => 'different_address',
+                        $tier === AddressMatchScorer::TIER_POSSIBLE || $tier === AddressMatchScorer::TIER_STREET_ONLY       => 'possible',
+                        default                                                                                             => 'cannot_compare', // one or both files hold no address to compare
+                    };
+                    $rank = ['same_address' => 0, 'cannot_compare' => 1, 'possible' => 2, 'different_address' => 3, 'unreadable' => 4];
+                    if ($rank[$this_] > $rank[$worst]) {
+                        $worst = $this_;
+                    }
                 }
                 $out[$worst]++;
                 foreach ($ids as $i) {

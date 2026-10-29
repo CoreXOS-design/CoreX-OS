@@ -104,6 +104,7 @@ final class ReconcilePropertyIdentity extends Command
             $o[] = "  - the files have the same address (safe to merge): {$c['same_address']}";
             $o[] = "  - the addresses only possibly agree (check): {$c['possible']}";
             $o[] = "  - the files have DIFFERENT addresses (the advert points at two houses - check before anything): {$c['different_address']}";
+            $o[] = "  - one or both files hold no address to compare (e.g. made from an alert or a suburb-only capture): {$c['cannot_compare']}";
             $o[] = "  - a file could not be read: {$c['unreadable']}";
             foreach (['different_address' => 'Different-address samples', 'same_address' => 'Same-address samples'] as $k => $title) {
                 if ($c['samples'][$k]) {

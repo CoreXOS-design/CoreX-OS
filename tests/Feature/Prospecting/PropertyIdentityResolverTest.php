@@ -232,6 +232,30 @@ final class PropertyIdentityResolverTest extends TestCase
         $this->assertSame('gps', $b->possible[0]['method']);
     }
 
+    public function test_an_unlabelled_imported_pin_next_to_a_precise_one_is_only_a_possible_match(): void
+    {
+        $a = $this->resolve(['suburb' => 'Margate', 'latitude' => -30.8625000, 'longitude' => 30.3700000, 'geo_confidence' => 'exact'], ['type' => 'manual', 'ref' => 'M-1']);
+        // 3 m away, but the incoming pin says nothing about how precise it is (an imported spreadsheet pin)
+        $b = $this->resolve(['suburb' => 'Margate', 'latitude' => -30.8625270, 'longitude' => 30.3700000], ['type' => 'manual', 'ref' => 'M-2']);
+
+        $this->assertTrue($b->created);
+        $this->assertSame($a->trackedProperty->id, $b->possible[0]['id']);
+    }
+
+    public function test_gps_never_joins_a_unit_or_a_road_to_a_house(): void
+    {
+        $house = $this->resolve(['street_number' => '145', 'street_name' => 'Marine Drive', 'suburb' => 'Margate', 'latitude' => -30.8625000, 'longitude' => 30.3700000, 'geo_confidence' => 'exact'], ['type' => 'manual', 'ref' => 'H-1']);
+
+        // a unit in a block: the pin is the block's
+        $unit = $this->resolve(['unit_number' => '8', 'street_number' => '145', 'street_name' => 'Marine Drive', 'suburb' => 'Margate', 'latitude' => -30.8625000, 'longitude' => 30.3700000, 'geo_confidence' => 'exact'], ['type' => 'manual', 'ref' => 'H-2']);
+        $this->assertTrue($unit->created, 'the incoming data names a unit; the file does not');
+
+        // a road with no house number at all
+        $road = $this->resolve(['street_name' => 'Marine Drive', 'suburb' => 'Margate', 'latitude' => -30.8625000, 'longitude' => 30.3700000, 'geo_confidence' => 'exact'], ['type' => 'manual', 'ref' => 'H-3']);
+        $this->assertTrue($road->created, 'a street name without a number is not a house');
+        $this->assertNotSame($house->trackedProperty->id, $road->trackedProperty->id);
+    }
+
     public function test_the_gps_radius_is_an_agency_setting(): void
     {
         AddressMatchSetting::query()->create(['agency_id' => $this->a->id, 'gps_radius_m' => 5]);
