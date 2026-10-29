@@ -251,7 +251,7 @@ Comments (`tracked_property_comments`) and claims (`prospecting_claims`) were al
 | A2 | `PortalRef` normaliser + `canonical_ref` columns + model hooks + pool table (`portal_advert_facts`) + `property-refs:normalise` | landed (QA1) — dry-run report in the A2 build report; `--apply` not yet run |
 | A3 | `PropertyIdentityResolver` + all routes through the door + settings fields + link columns + the one address-line reader | landed (QA1) |
 | A4 | `property-identity:reconcile --dry-run` report for Johan (read-only; no `--apply` exists) | landed (QA1) |
-| A5 | Make the property/advert row shared across agencies (§14) | next - after Johan has seen the A4 report; lane B steps 1-4 have landed |
+| A5 | Shared advert / property rows across agencies (§14): tables, internal contribution record, `property-identity:share --dry-run` | landed (QA1); the share itself is not applied - Johan reviews A4 + A5 together |
 | — | Possible-matches list, `--apply` merges | not in A2-A4; after Johan's review of A4 |
 | B1 | Lane B investigation | landed (QA1) `.ai/B1_AGENCY_WORK_LAYER_2026-10-29.md` |
 | B2 | portal-capture + alert tables per agency; work record; owners scoped; backfill | landed (QA1) - section 12 |
@@ -261,55 +261,25 @@ Comments (`tracked_property_comments`) and claims (`prospecting_claims`) were al
 | C3 | one prospecting status per agency per property, both ways | landed (QA1) - section 15.3 |
 
 
-## 14. A5 - one shared row per property / advert across agencies (design; built after A4 and after lane B's steps 1-4)
+## 14. A5 - one shared row per property / advert across agencies (built; the share step is NOT applied)
 
-**Why.** Today `tracked_properties`, MIC adverts (`prospecting_listings`) and external refs are per-agency copies; the pool of §3 only holds public advert facts keyed by advert. Johan's ruling 1 asks for one shared row per property / advert, public facts only, enriched by every agency, **with the contributor recorded and never visible to another agency**; lane B (cc4) holds each agency's own layer (claims, comments, prospecting status, owners, deed data, history) in a per-agency work record.
+**Why.** Johan's ruling 1: one shared row per property / advert, public facts only, enriched by every agency, the contributor recorded and never visible to another agency. Lane B (§12) keeps each agency's own layer.
 
-**Shape (to be confirmed against cc4's work record when it lands; nothing below is built):**
-- The shared row is the pool row, extended: one row per canonical advert (already `portal_advert_facts`), plus a shared **property** key joining the adverts of one physical property (relists, both portals). Public columns only (§3 allow-list).
-- Each agency's `tracked_properties` / MIC row becomes that agency's work record and points at the shared row (`shared_advert_id`, `shared_property_id`). **No private column ever moves to the shared side**; the agency's own columns stay where they are.
-- Contribution record (internal): `portal_advert_contributions (shared_advert_id, agency_id, first_seen_at, last_seen_at, fields_contributed json)`. Written by `SharedPortalPool`; **no model, relation, scope, API or screen reads it for another agency** (only the contributing agency's own row, and platform audit). A test proves agency B cannot read agency A's contribution or claim state through any route.
-- Agency 1 claiming, commenting or setting prospecting status writes only to agency 1's work record; agency 2's view of the shared row does not change.
-- **Reconcile first** (same reporting as A4): `property-identity:share --dry-run` reports, per source, how many agency rows would join an existing shared row, how many would create one, clashes, and what would be written to the shared side — **no apply** until Johan reviews it.
-- Multi-agency check (rule 9): no HFC id or wording anywhere. (The agency stamp on `p24_listings` and `portal_listings` — audit gap 11 — was done by lane B, step B2, §12.)
+**Decision (lane A, with lane B's §12 in view):** the agency's `tracked_properties` / MIC rows are **not** moved or merged across agencies — lane B established that they are the agency's own layer and moving them would rewrite ~85 files of reads for no extra privacy. The shared rows are NEW tables that each agency's row **points at**:
 
+| Table | Scope | Holds |
+|---|---|---|
+| `portal_advert_facts` (A2) | shared, no agency | one row per canonical advert: public advert facts (§3 allow-list) + `shared_property_id` |
+| `shared_properties` (A5) | shared, no agency | one row per physical property across agencies: public property facts only (address parts, GPS + its precision, type, beds / baths / garages, floor and erf size) |
+| `portal_advert_contributions` (A5) | **internal**, `agency_id`, `BelongsToAgency` | which agency saw which advert, first / last seen, how often, which public fields it supplied |
+| `tracked_properties.shared_property_id`, `prospecting_listings.portal_advert_fact_id` | the agency's own row | the pointer to the shared row — **NULL until the share step is applied** |
 
-## 15. Lane C - e-mail alerts on the property, deeds / manual capture claims, status write-back (written by lane C; QA1 only)
+**Privacy, by construction:** the shared tables have no `agency_id`; both directions of every read / write go through `SharedPortalPool`'s column allow-list; the contribution record is the only place an agency id meets an advert, it is agency-scoped at the query layer (an agency can only read its own rows), and no pool read returns it. Tests: `PropertyIdentityShareTest` (an agency reads only its own contributions; a pool read carries no agency; the report's privacy self-check finds no private column and no agency column on the shared side).
 
-(Numbered 15 because 13 and 14 were already taken by the steps table and the A5 design. Johan's rulings of 29 Oct stand: agency work is private per agency; deed data is private; the shared pool is public facts only. Lane C changes nothing inside the door (A) or the work record (B); its one addition to B's service is the optional `reason` argument of `syncClaim()` so a claim line can say where it came from.)
+**What is live now:** every resolver call that carries a portal advert number already enriches the pool and — new in A5 — writes the contribution record (new scrapes only). Nothing else is written: no `shared_property_id` / `portal_advert_fact_id` is set, no `shared_properties` row is created.
 
-### 15.1 C1 - e-mail alerts become part of the property
+**The share step (dry-run only):** `php artisan property-identity:share --dry-run` (QA / local / testing only; `--apply` does not exist). It reports the adverts that would be in the pool and how many are seen by several agencies; the shared properties that would exist (adverts and files grouped: an advert on two files joins them, an advert held by two agencies joins their files) split into one-agency-one-file, one-agency-several-files (needs the A4 merge decision first), spanning agencies, and **blocked because a file in the group is over-merged (split first)**; the contributions that would be written; where agencies disagree about one advert's suburb or price; how complete the public facts are; and the privacy self-check. It writes `storage/app/reports/property-identity-share-dry-run-*.md` / `.json` and nothing to the database.
 
-- **Alerts are tied to the property file through the door.** `AlertPropertyLinker` calls `PropertyIdentityResolver::find()` with the alert's advert number as the only fact (an alert has a suburb and a number, never an address), inside the alert's own agency. A hit saves `tracked_property_id`, `identity_confidence` (`exact`) and `identity_method` (`portal_ref`) on the alert row. It never creates a property file and never merges one; an alert whose advert is not yet on a property file stays unlinked and shows on the property as soon as the advert is (the screen reads by link OR by the file's advert numbers). The importers call it after every save; lane A's save hook stays as it was.
-- **Backfill:** `php artisan alerts:link-properties [--portal=p24|pp|all] [--agency=N] --dry-run|--apply`. Dry-run is the default: rows read, already linked, would link, no property file yet, unreadable number, per-agency counts and samples. Apply writes derived links only. Refuses to run outside QA / local / testing.
-- **Screen:** Market Intelligence > Opportunities > the property: panel "What the portal e-mail alerts say" under "Your agency's notes" - portal, advert number (linked), asking price now, % change since first seen, price-change lines (date, from, to), first/last seen, number of alerts, mandated, status. `PropertyAlertFacts` reads the agency's own alert rows only (explicit agency), so another agency's alert for the same advert can never show.
-- **Private Property alerts:** `pp:import` (hourly in the scheduler; off until `PP_IMPORT_ENABLED=true`) mirrors `p24:import`: `PpImapImportService` + `PpEmailParserService`, tables `pp_alert_listings`, `pp_alert_price_changes`, `pp_import_log` (all per agency; unique per agency + advert number). Mailbox: `services.pp_imap` falls back to the Property24 mailbox values (one inbox can serve both), sender filter `PP_IMAP_FROM` (default "privateproperty.co.za"), agency `PP_IMPORT_AGENCY_ID` else the agency the Property24 import uses.
-- **FLAG - the Private Property mail format is not confirmed.** No real Private Property alert mail was available on this box. The reader is built against the public shape of a Private Property advert link and the Property24-style card wording, and is tested on `tests/Fixtures/pp-alert-sample.html`. A mail it cannot read is logged as a warning and is NOT marked processed, so it is read again once the reader is fixed. The first real mail must be run through `pp:import` on QA and compared before anyone relies on it.
-- **Search / sort / filter:** no new list screen. Archive/restore: the new alert rows soft-delete like the Property24 ones.
-- **Not in the Setup Wizard:** mailbox settings are server environment, not an agency setting.
+**Applying it later (not built):** create the `shared_properties` and fill `shared_property_id` only for groups the report marks clean; groups needing a merge or split wait for the A4 decisions; the contribution record is backfilled from the existing MIC rows. Johan reviews A4 and A5 together first.
 
-### 15.2 C2 - a captured property claims its Market Intelligence record
-
-- **When:** (a) a deeds capture (`POST /api/v1/deeds-capture`, the extension) resolves to an existing property, or (b) a property is added by hand by a signed-in user (web form, wizard, mobile) and the door links it to an existing property file. Imports, queue jobs and seeders (nobody signed in) are not hand captures and claim nothing.
-- **What "claims" means** (`CaptureClaimService`): a real `prospecting_claims` row (status `claimed`, a note saying where it came from) on every advert of the property file (up to 20, newest first) - so Market Intelligence "my claims" lists it under that agent and no other agent can pitch it; the agency's work record shows who holds it and since when, with the history line "Claimed from a deeds capture" / "Claimed from a property added by hand"; and Road to Sold gets a prospect for the agent at Found through `ProspectService::place()` (selection `claimed_deeds` / `claimed_manual`) - the same door the other Road to Sold sources use, so it counts in the agent's list, funnel and stats. `rts_prospects` and `rts_prospect_events` (PLACED) are the stats hook; no new event or table. An assistant claims for the agent they work for.
-- **No points:** the claim rows are written without the claim domain events, so an automatic claim does not mint the "claim taken" activity points (the agent did not take it). The Market Intelligence counts cache and the work-record sync that those events drive are done by the service itself. Lane B's own-stock flag is untouched.
-- **Only a confident match claims.** The confidence is the one the door saved on the link (deeds: the external-ref row; manual: `properties.identity_confidence`). At or above the agency's bar, `address_match_settings.auto_claim_min_confidence` (`exact` or `high`, default `high`), the property is claimed. A `probable` or `weak` match was already recorded by the door as a possible match (section 5.3) and is never claimed on its own. Settings > Prospecting > Address matching, beside the auto-link bar. Not in the Setup Wizard, consistent with the rest of this settings family (`agency-onboarding-setup.md` section 5.1 records it).
-- **Never over another agent:** if another agent in the agency holds an active claim, or a live pitch lock, on any advert of the property, nothing is claimed (outcome `held_by_other`). A new property (no Market Intelligence record), or one whose adverts are gone, claims nothing.
-- **Never across agencies:** every query names the agency; the claim, work record and Road to Sold prospect are all the capturing agency's own. Agency B's copy of the same house is not touched (test: `CaptureClaimTest::test_agency_privacy_...`).
-- **Road to Sold already-owned:** if another agent already works the property in Road to Sold, the Market Intelligence claim is still made and Road to Sold is left alone (`owned_by_other`); a closed story is not restarted (`closed`).
-
-### 15.3 C3 - one status per agency per property, both ways
-
-The agency's prospecting status lives on its work record (section 12). `ProspectingStatusSync` keeps the property side telling the same story, inside one agency (every query names the agency; the other agency's copy is never touched).
-
-| Happens | Effect |
-|---|---|
-| The "Not selling" button, or any save that makes a property Not selling | Work record: "Owner not selling", with the reason typed, who and when (one history line). Found through `tracked_property_id` (the door's link) as well as the promoted link - before, only the promoted link was found |
-| A property leaves Not selling | A "Not selling" on the work record is cleared ("The property is no longer marked Not selling"). Any other status (for example Do not contact) is left alone |
-| A Prospecting property becomes ours (draft or live, "mandate won") | "Owner not selling" and "Mandate with another agency" are cleared ("Now listed with us"); Owner interested / contacted / Do not contact stay. "Listed with us" itself is lane B's own-stock flag |
-| The Market Intelligence status form sets "Owner not selling" | The agency's Prospecting property on it becomes Not selling and its open claims are closed (adverts matched to the property and the Market Intelligence property's own adverts), exactly as the button does; the page says so |
-| The form leaves "Owner not selling" | That Not selling property goes back to Prospecting |
-| The form sets Owner interested / contacted / Mandate with another agency / Do not contact | The property is left alone (no equivalent). A live listing of ours is never switched off by a note |
-
-History is kept on the work record for every change (who, when, from, to, why). The claim-closing code moved out of `PropertyController::markNotSelling` into `ProspectingStatusSync::closeOpenClaims` so the button and the form share it. Not wired (no per-property status to carry): Road to Sold "park" reasons (they are per agent), and the deeds screen has no status of its own.
-
+**Search / sort / filter / pagination, navigation, permissions:** no new screen and no new permission — the build adds tables, an internal model and a console report. Archive / restore: shared rows are never deleted by an agency (they are shared); an agency's own pointer is cleared with its own row.

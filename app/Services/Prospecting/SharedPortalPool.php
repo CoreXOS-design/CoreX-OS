@@ -45,8 +45,17 @@ final class SharedPortalPool
 
     private const STATUSES = ['active', 'sold', 'withdrawn', 'unknown'];
 
-    /** Add what an agency's scrape saw of this advert. Existing values are never blanked; a changed price is logged. */
-    public function contribute(string $canonicalRef, array $facts): void
+    /** The pool columns an agency may ever write — the allow-list, for the share report's privacy self-check. */
+    public static function writableColumns(): array
+    {
+        return array_values(array_unique(array_merge(array_values(self::ALLOWED), ['suburb_normalised'])));
+    }
+
+    /**
+     * Add what an agency's scrape saw of this advert. Existing values are never blanked; a changed price is logged.
+     * $agencyId (when known) is recorded in the INTERNAL contribution record — never returned by find().
+     */
+    public function contribute(string $canonicalRef, array $facts, ?int $agencyId = null): void
     {
         $split = \App\Support\Property\PortalRef::split($canonicalRef);
         if ($split === null) {
@@ -75,18 +84,19 @@ final class SharedPortalPool
             $new['price'] = (int) round((float) $new['price']);
         }
 
-        DB::transaction(function () use ($canonicalRef, $split, $new) {
+        DB::transaction(function () use ($canonicalRef, $split, $new, $agencyId) {
             $row = DB::table('portal_advert_facts')->where('canonical_ref', $canonicalRef)->lockForUpdate()->first();
             $now = now();
 
             if ($row === null) {
                 $history = isset($new['price']) ? [['price' => $new['price'], 'at' => $now->toDateString()]] : [];
-                DB::table('portal_advert_facts')->insert(array_merge($new, [
+                $factId = DB::table('portal_advert_facts')->insertGetId(array_merge($new, [
                     'canonical_ref' => $canonicalRef, 'portal' => $split[0], 'listing_id' => $split[1],
                     'status' => $new['status'] ?? 'unknown', 'first_seen_at' => $now, 'last_seen_at' => $now,
                     'price_history' => $history ? json_encode($history) : null, 'seen_count' => 1,
                     'created_at' => $now, 'updated_at' => $now,
                 ]));
+                $this->recordContribution($factId, $agencyId, array_keys($new));
 
                 return;
             }
@@ -104,7 +114,30 @@ final class SharedPortalPool
             DB::table('portal_advert_facts')->where('id', $row->id)->update(array_merge($update, [
                 'last_seen_at' => $now, 'seen_count' => (int) $row->seen_count + 1, 'updated_at' => $now,
             ]));
+            $this->recordContribution((int) $row->id, $agencyId, array_keys($new));
         });
+    }
+
+    /** Internal: which agency saw this advert and which public fields it supplied. Never part of a pool read. */
+    private function recordContribution(int $factId, ?int $agencyId, array $columns): void
+    {
+        if (! $agencyId) {
+            return;
+        }
+        $now = now();
+        $existing = DB::table('portal_advert_contributions')->where('portal_advert_fact_id', $factId)->where('agency_id', $agencyId)->first();
+        if ($existing === null) {
+            DB::table('portal_advert_contributions')->insert([
+                'portal_advert_fact_id' => $factId, 'agency_id' => $agencyId, 'first_seen_at' => $now, 'last_seen_at' => $now, 'seen_count' => 1,
+                'fields_contributed' => json_encode(array_values($columns)), 'created_at' => $now, 'updated_at' => $now,
+            ]);
+
+            return;
+        }
+        $fields = array_values(array_unique(array_merge(json_decode((string) $existing->fields_contributed, true) ?: [], $columns)));
+        DB::table('portal_advert_contributions')->where('id', $existing->id)->update([
+            'last_seen_at' => $now, 'seen_count' => (int) $existing->seen_count + 1, 'fields_contributed' => json_encode($fields), 'updated_at' => $now,
+        ]);
     }
 
     /**

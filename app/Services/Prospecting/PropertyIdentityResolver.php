@@ -58,7 +58,7 @@ final class PropertyIdentityResolver
         $recorded = $possible ? $this->recordPossibles($agencyId, $tp, $possible, $source, $canonical, $facts) : [];
 
         if ($canonical !== null) {
-            $this->safePoolContribute($canonical, $facts);
+            $this->safePoolContribute($canonical, $facts, $agencyId);
         }
 
         return new IdentityResult(
@@ -243,10 +243,10 @@ final class PropertyIdentityResolver
         }
     }
 
-    private function safePoolContribute(string $canonical, array $facts): void
+    private function safePoolContribute(string $canonical, array $facts, int $agencyId): void
     {
         try {
-            $this->pool->contribute($canonical, $facts);
+            $this->pool->contribute($canonical, $facts, $agencyId);
         } catch (\Throwable $e) {
             Log::warning('SharedPortalPool write failed', ['canonical' => $canonical, 'error' => $e->getMessage()]);
         }

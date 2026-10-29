@@ -56,6 +56,12 @@ final class PropertyIdentityReconciler
             ->unique()->sort()->values()->map(fn ($i) => (int) $i)->all();
     }
 
+    /** @return list<int> every property file of the agency that holds several different units / houses (the A4 test) */
+    public function overMergedFileIds(int $agencyId): array
+    {
+        return $this->overMerged($agencyId, 0)['file_ids'];
+    }
+
     // ---- 1. own stock -> property file ---------------------------------------------------------------------------
 
     /** @return array<string, mixed> */
@@ -196,7 +202,7 @@ final class PropertyIdentityReconciler
         $candidates = DB::table('prospecting_listings')->where('agency_id', $agencyId)->whereNull('deleted_at')->whereNotNull('tracked_property_id')
             ->select('tracked_property_id', DB::raw('COUNT(*) as n'))->groupBy('tracked_property_id')->havingRaw('COUNT(*) >= ?', [$minAdverts])->get();
 
-        $out = ['files_with_many_adverts' => $candidates->count(), 'looks_like_relist_history' => 0, 'over_merged' => 0, 'adverts_on_over_merged' => 0, 'proposed_new_files' => 0, 'samples' => []];
+        $out = ['files_with_many_adverts' => $candidates->count(), 'looks_like_relist_history' => 0, 'over_merged' => 0, 'adverts_on_over_merged' => 0, 'proposed_new_files' => 0, 'file_ids' => [], 'samples' => []];
 
         foreach ($candidates as $c) {
             $rows = DB::table('prospecting_listings')->where('agency_id', $agencyId)->whereNull('deleted_at')->where('tracked_property_id', $c->tracked_property_id)
@@ -229,6 +235,7 @@ final class PropertyIdentityReconciler
                 continue;
             }
             $out['over_merged']++;
+            $out['file_ids'][] = (int) $c->tracked_property_id;
             $out['adverts_on_over_merged'] += $c->n;
             $out['proposed_new_files'] += max(0, count($real) - 1);
             if (count($out['samples']) < $samples) {
