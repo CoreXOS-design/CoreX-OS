@@ -31,7 +31,7 @@ final class SalesDisclosureContext extends AbstractDemoContext
 
     public function vars(): array
     {
-        return [
+        return self::salesNames() + [
             'property_full_address' => '12 Sample Street, Table View, Cape Town, 7441',
             'property_address_suburb' => 'Table View',
             'seller_full' => self::person('seller'),

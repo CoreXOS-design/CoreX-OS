@@ -27,7 +27,7 @@ final class InspectionContext extends AbstractDemoContext
 
     public function vars(): array
     {
-        return [
+        return self::rentalNames() + [
             'inspection_date' => date('j F Y'),
             'inspection_type' => 'Move-in inspection',
             'room_condition' => 'Good, no marks',

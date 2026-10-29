@@ -27,7 +27,7 @@ final class RentalMandateContext extends AbstractDemoContext
 
     public function vars(): array
     {
-        return [
+        return self::rentalNames() + [
             'lessor_full' => self::person('landlord'),
             'property_town' => 'Cape Town',
             'property_address_suburb' => 'Table View',

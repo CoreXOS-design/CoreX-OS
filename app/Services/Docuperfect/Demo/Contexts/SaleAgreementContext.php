@@ -32,7 +32,7 @@ final class SaleAgreementContext extends AbstractDemoContext
 
     public function vars(): array
     {
-        return [
+        return self::salesNames() + [
             'purchase_price' => 'R 1 850 000.00',
             'price' => 'R 1 850 000.00',
             'deposit_amount' => 'R 185 000.00',

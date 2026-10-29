@@ -27,7 +27,7 @@ final class RentalApplicationContext extends AbstractDemoContext
 
     public function vars(): array
     {
-        return [
+        return self::rentalNames() + [
             'employer' => 'Sample Employer (Pty) Ltd',
             'employer_name' => 'Sample Employer (Pty) Ltd',
             'monthly_income' => 'R 38 000.00',

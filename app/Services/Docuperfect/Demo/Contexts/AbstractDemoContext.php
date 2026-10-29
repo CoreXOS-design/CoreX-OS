@@ -29,6 +29,26 @@ abstract class AbstractDemoContext implements DemoContext
         return [];
     }
 
+    /** The landlord's and tenant's names under every name a rental document's blanks use. */
+    protected static function rentalNames(): array
+    {
+        return [
+            'lessor_full' => self::person('landlord'), 'lessee_full' => self::person('tenant'),
+            'lessor_name' => self::person('landlord'), 'lessee_name' => self::person('tenant'),
+            'landlord_full' => self::person('landlord'), 'tenant_full' => self::person('tenant'),
+        ];
+    }
+
+    /** The seller's and buyer's names under every name a sales document's blanks use. */
+    protected static function salesNames(): array
+    {
+        return [
+            'seller_full' => self::person('seller'), 'buyer_full' => self::person('buyer'),
+            'seller_name' => self::person('seller'), 'buyer_name' => self::person('buyer'),
+            'purchaser_full' => self::person('buyer'), 'purchaser_name' => self::person('buyer'),
+        ];
+    }
+
     protected static function person(string $role): string
     {
         return (string) config('template-demo-sample.people.' . $role . '.name', 'Sample Person');

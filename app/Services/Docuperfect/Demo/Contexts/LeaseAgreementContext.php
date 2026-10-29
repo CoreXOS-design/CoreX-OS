@@ -33,7 +33,7 @@ final class LeaseAgreementContext extends AbstractDemoContext
 
     public function vars(): array
     {
-        return [
+        return self::rentalNames() + [
             'rent_due_date' => '1st of every month',
             'annual_escalation' => '8%',
             'escalation' => '8%',

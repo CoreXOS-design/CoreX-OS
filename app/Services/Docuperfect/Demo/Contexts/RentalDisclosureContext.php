@@ -31,7 +31,7 @@ final class RentalDisclosureContext extends AbstractDemoContext
 
     public function vars(): array
     {
-        return [
+        return self::rentalNames() + [
             'erf_size_sqm' => '650',
             'building_size_sqm' => '180',
             'garage_size_sqm' => '36',
