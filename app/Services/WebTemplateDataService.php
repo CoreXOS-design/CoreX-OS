@@ -563,6 +563,7 @@ class WebTemplateDataService
         }
 
         $data = [];
+        $leaseValues = null;
 
         // Resolve each field from field_mappings using named field keys
         foreach ($template->field_mappings ?? [] as $field) {
@@ -640,8 +641,14 @@ class WebTemplateDataService
 
                 $isContact  = $fSource === 'contact'  || str_starts_with($typeKey, 'sf:contact_');
                 $isProperty = $fSource === 'property' || $typeKey === 'sf:property';
+                $isLease    = $fSource === 'lease'    || $typeKey === 'sf:lease';
 
-                if ($isContact && $fRole !== '') {
+                if ($isLease) {
+                    // esign-lease-field-source.md - the Lease source: the lease's own value, worked out once per render from
+                    // the lease the flow was started for (its id travels in the step data), dressed the way this page prints it.
+                    $leaseValues ??= app(\App\Services\Docuperfect\LeaseFieldSource::class)->valuesForStepData($stepData, $template);
+                    $value = $leaseValues[(string) ($namedField->source_column ?? '')] ?? '';
+                } elseif ($isContact && $fRole !== '') {
                     $attr  = $this->attributeForNamedField($namedField, $field);
                     $value = $this->resolveContactColumnAllRecipients($fRole, $attr, $recipients);
                 } elseif ($isProperty) {
@@ -1727,6 +1734,10 @@ class WebTemplateDataService
 
         if ($sourceType === 'agent') {
             return 'agent_' . $sourceColumn;
+        }
+
+        if ($sourceType === 'lease') {
+            return 'lease_' . $sourceColumn;
         }
 
         return null;

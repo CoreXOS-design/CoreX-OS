@@ -7239,6 +7239,8 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
     Route::post('/templates/upload', [\App\Http\Controllers\Docuperfect\TemplateController::class, 'upload'])->name('docuperfect.templates.upload');
     // CDS Document Engine (DB-backed drafts)
     Route::get('/templates/cds/builder/{draft}', [\App\Http\Controllers\Docuperfect\TemplateController::class, 'cdsBuilder'])->name('docuperfect.cds.builder');
+    // esign-lease-field-source.md - the builder's "Suggest links (AI)" button: names the blanks the rules left unlinked.
+    Route::post('/templates/cds/builder/{draft}/ai-suggest', [\App\Http\Controllers\Docuperfect\TemplateController::class, 'cdsAiSuggest'])->name('docuperfect.cds.builder.aiSuggest');
     // AT-390 — CoreX-account agency context, scoped to this draft. Wraps the
     // existing agency switcher (session active_agency_id) rather than adding a
     // second one, and always syncs THIS draft's own agency_id to match --

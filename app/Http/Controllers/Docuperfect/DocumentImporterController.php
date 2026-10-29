@@ -92,6 +92,8 @@ class DocumentImporterController extends Controller
         $request->validate(['document' => 'required|file|extensions:docx']);
 
         $parser = app(CdsParserService::class);
+        // A lease's fee line is recognised by the name THIS agency gives its lease fee (Rentals settings).
+        $parser->withLeaseFeeLabel(\App\Models\LeaseSetting::leaseFeeLabelFor((int) $user->effectiveAgencyId()));
         $cds = $parser->parse($request->file('document')->getPathname());
 
         // Create a CDS draft (DB-backed, no session)

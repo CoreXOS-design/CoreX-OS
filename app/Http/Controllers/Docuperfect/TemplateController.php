@@ -619,6 +619,11 @@ class TemplateController extends Controller
             }
         }
 
+        // A lease: the builder's own name matching must never offer a mandate or property date for a lease date.
+        $isLeaseDocument = app(\App\Services\Docuperfect\LeasePhraseMatcher::class)->isLeaseDocument(
+            (string) ($draft->template_name ?: ($draft->cds_json['title'] ?? ''))
+        );
+
         // Load named fields grouped by source_type + contact_type
         $namedFields = NamedField::whereNull('deleted_at')
             ->orderBy('source_type')
@@ -626,6 +631,9 @@ class TemplateController extends Controller
             ->orderBy('sort_order')
             ->orderBy('name')
             ->get(['id', 'name', 'source_type', 'source_column', 'source_contact_type', 'field_type']);
+
+        // esign-lease-field-source.md - the pickers list the curated fields; the rest sit behind "Show every database field".
+        $curatedIds = app(\App\Services\Docuperfect\FieldCatalogue::class)->curatedIds($namedFields);
 
         $groupedFields = [];
         foreach ($namedFields as $nf) {
@@ -641,6 +649,7 @@ class TemplateController extends Controller
                 'source_column' => $nf->source_column,
                 'source_contact_type' => $nf->source_contact_type,
                 'field_type' => $nf->field_type,
+                'curated' => isset($curatedIds[$nf->id]),
             ];
         }
 
@@ -725,8 +734,11 @@ class TemplateController extends Controller
                 'id' => $nf->id,
                 'name' => $nf->name,
                 'source_type' => $nf->source_type,
+                'source_column' => $nf->source_column,
                 'source_contact_type' => $nf->source_contact_type,
+                'curated' => isset($curatedIds[$nf->id]),
             ])->values()->all(),
+            'isLeaseDocument' => $isLeaseDocument,
             'signingParties' => $agencyParties,
             'hasSavedState' => $hasSavedState,
             'savedTags' => $draft->tags ?? [],
@@ -738,6 +750,43 @@ class TemplateController extends Controller
             'activeAgencyId' => $activeAgencyId,
             'activeAgencyName' => $activeAgencyName,
         ]);
+    }
+
+    /**
+     * "Suggest links (AI)": the blanks the builder could not link, with their surrounding words, go to the AI together with the
+     * curated field list; only ids from that list come back. Same owner check as saving the draft; nothing is saved here - the
+     * builder applies the answers (orange "medium" dots) and saves as it always does.
+     */
+    public function cdsAiSuggest(Request $request, CdsDraft $draft)
+    {
+        abort_if($draft->user_id !== auth()->id(), 403);
+
+        $data = $request->validate([
+            'blanks' => 'required|array|max:80',
+            'blanks.*.tag' => 'required|string|max:80',
+            'blanks.*.before' => 'nullable|string|max:400',
+            'blanks.*.after' => 'nullable|string|max:300',
+            'lease' => 'nullable|boolean',
+        ]);
+
+        $rows = NamedField::whereNull('deleted_at')->get(['id', 'name', 'source_type', 'source_column', 'source_contact_type']);
+        $curated = app(\App\Services\Docuperfect\FieldCatalogue::class)->curatedIds($rows);
+        $catalogue = $rows->filter(fn ($nf) => isset($curated[$nf->id]))->map(fn ($nf) => [
+            'id' => (int) $nf->id,
+            'label' => ucfirst((string) $nf->source_type) . ($nf->source_contact_type ? ' ' . $nf->source_contact_type : '') . ' - ' . $nf->name,
+        ])->values()->all();
+
+        try {
+            $suggestions = app(\App\Services\Docuperfect\CdsAiFieldSuggester::class)->suggest(
+                array_map(fn ($b) => ['tag' => $b['tag'], 'before' => (string) ($b['before'] ?? ''), 'after' => (string) ($b['after'] ?? '')], $data['blanks']),
+                $catalogue,
+                (bool) ($data['lease'] ?? false),
+            );
+        } catch (\App\Exceptions\AI\AiPausedException $e) {
+            return response()->json(['message' => $e->getMessage()], 503);
+        }
+
+        return response()->json(['suggestions' => $suggestions]);
     }
 
     public function cdsSaveMappings(Request $request)
@@ -1656,6 +1705,10 @@ BLADE;
 
         if ($sourceType === 'agent') {
             return 'agent_' . $sourceColumn;
+        }
+
+        if ($sourceType === 'lease') {
+            return 'lease_' . $sourceColumn;
         }
 
         return null;
