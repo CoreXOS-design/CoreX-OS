@@ -198,9 +198,7 @@ final class BackfillTrackedProperties extends Command
     }
 
     /**
-     * portal_listings has no agency_id column — resolve via the last_capture_id's user.
-     * Rows whose capturing user has no agency_id are skipped (super-admin captures
-     * without an active agency switcher).
+     * portal_listings carries its own agency_id (Lane B step 1); the capturing user is only used for attribution.
      */
     private function backfillPortalListings(
         TrackedPropertyMatchOrCreateService $service,
@@ -216,9 +214,7 @@ final class BackfillTrackedProperties extends Command
             ->whereNull('pl.tracked_property_id');
 
         if ($agencyId !== null) {
-            $query->where('u.agency_id', $agencyId);
-        } else {
-            $query->whereNotNull('u.agency_id');
+            $query->where('pl.agency_id', $agencyId);
         }
 
         // Always re-query from the start of the filter — as rows get linked to TPs,
@@ -233,7 +229,7 @@ final class BackfillTrackedProperties extends Command
                 ->select(
                     'pl.id', 'pl.source_site', 'pl.portal_listing_id',
                     'pl.current_fields_json', 'pl.last_capture_id',
-                    'u.agency_id', 'u.id as captured_by_user_id'
+                    'pl.agency_id', 'u.id as captured_by_user_id'
                 )
                 ->orderBy('pl.id')
                 ->limit($batch)

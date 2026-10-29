@@ -2,14 +2,16 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PortalListing extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes, BelongsToAgency;
 
     protected $fillable = [
+        'agency_id',
         'source_site',
         'portal_listing_id',
         'canonical_url',

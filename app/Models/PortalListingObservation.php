@@ -2,16 +2,18 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class PortalListingObservation extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes, BelongsToAgency;
 
     public $timestamps = false;
 
     protected $fillable = [
+        'agency_id',
         'portal_listing_id',
         'capture_id',
         'observed_at',

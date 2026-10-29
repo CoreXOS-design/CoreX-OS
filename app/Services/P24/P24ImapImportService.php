@@ -139,7 +139,8 @@ class P24ImapImportService
                             continue;
                         }
 
-                        $existing = P24Listing::where('p24_listing_number', $data['p24_listing_number'])->first();
+                        // explicit agency: this runs from the scheduler with nobody signed in, so the scope cannot be relied on
+                        $existing = P24Listing::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)->where('agency_id', $agencyId)->where('p24_listing_number', $data['p24_listing_number'])->first();
 
                         if ($existing) {
                             // Check for price change

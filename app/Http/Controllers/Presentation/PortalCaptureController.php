@@ -46,6 +46,7 @@ class PortalCaptureController extends Controller
         $domHash    = hash('sha256', $html);
 
         $capture = PortalCapture::create([
+            'agency_id'              => $request->user()->effectiveAgencyId(),
             'user_id'                => $request->user()->id,
             'presentation_id'        => $validated['presentation_id'] ?? null,
             'source_site'            => $validated['source_site'],
