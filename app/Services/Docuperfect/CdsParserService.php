@@ -2357,10 +2357,26 @@ class CdsParserService
      * Reads text before/after each field_placeholder to determine
      * what kind of field it is (contact name, ID, address, amount, etc).
      */
+    /** What the importing agency calls its lease fee (Rentals settings); lets a lease's fee line be recognised by that name. */
+    private ?string $leaseFeeLabel = null;
+
+    public function withLeaseFeeLabel(?string $label): static
+    {
+        $this->leaseFeeLabel = $label !== null && trim($label) !== '' ? trim($label) : null;
+
+        return $this;
+    }
+
     private function identifyFieldsFromContext(array $sections): array
     {
+        // esign-lease-field-source.md - in a LEASE the blanks are read with the lease wording first (Lease data source).
+        $lease = new LeasePhraseMatcher($this->leaseFeeLabel);
+        $isLease = $lease->isLeaseDocument($this->documentHeadText($sections));
+        $aboveSection = '';
+
         foreach ($sections as &$section) {
             if (!isset($section['content'])) continue;
+            $previousLeaseKey = null;
 
             for ($i = 0; $i < count($section['content']); $i++) {
                 $item = &$section['content'][$i];
@@ -2389,7 +2405,11 @@ class CdsParserService
                 $fullClauseText = $this->contentToPlainText($section['content']);
 
                 // Run identification
-                $identification = $this->identifyField(
+                $identification = $isLease
+                    ? $lease->match($textBefore, $textAfter, $fullClauseText, $aboveSection, $previousLeaseKey)
+                    : null;
+                $previousLeaseKey = $identification !== null ? substr($identification['field_name'], strlen('lease.')) : null;
+                $identification ??= $this->identifyField(
                     $textBefore, $textAfter, $fullClauseText
                 );
 
@@ -2399,9 +2419,56 @@ class CdsParserService
                 $item['source'] = $identification['source'];
                 $item['confidence'] = $identification['confidence'];
             }
+
+            $own = trim($this->contentToPlainText($section['content']));
+            if ($own !== '') {
+                $aboveSection = $own;
+            }
         }
 
         return $sections;
+    }
+
+    /** The words of the first few paragraphs - the document's heading, where it says what kind of document it is. */
+    private function documentHeadText(array $sections): string
+    {
+        $head = '';
+        foreach (array_slice($sections, 0, 6) as $section) {
+            if (isset($section['content']) && is_array($section['content'])) {
+                $head .= ' ' . $this->contentToPlainText($section['content']);
+            }
+        }
+
+        return $head;
+    }
+
+    /**
+     * Read the blanks of an already-imported document again with the current rules. Used when the importer's rules improve and
+     * an imported (not yet built-on) document should benefit: the saved sections keep their text and blanks; only the naming of
+     * each blank is redone. Same steps, same order, as a fresh import.
+     *
+     * @param array<string,mixed> $cds a parsed document (the `cds_json` of a draft or template)
+     * @return array<string,mixed>
+     */
+    public function reidentifyFields(array $cds): array
+    {
+        $sections = (array) ($cds['sections'] ?? []);
+        foreach ($sections as &$section) {
+            foreach ($section['content'] ?? [] as $i => $item) {
+                if (($item['type'] ?? '') === 'field_placeholder') {
+                    unset($section['content'][$i]['label'], $section['content'][$i]['field_name'], $section['content'][$i]['field_type'],
+                        $section['content'][$i]['source'], $section['content'][$i]['confidence'], $section['content'][$i]['linked_to']);
+                }
+            }
+        }
+        unset($section);
+
+        $sections = $this->identifyFieldsFromContext($sections);
+        $sections = $this->assignPartyFromInlineDescriptor($sections);
+        $sections = $this->refineAmountPairsAndAgencySplit($sections);
+        $cds['sections'] = $sections;
+
+        return $cds;
     }
 
     /**
@@ -2634,17 +2701,16 @@ class CdsParserService
 
         // Medium confidence — common label:field pattern
         // If text before ends with a colon or looks like a label, use it
-        if (preg_match('/([A-Za-z\s]+):?\s*$/', $before, $m)) {
-            $label = trim($m[1]);
-            if (strlen($label) > 2 && strlen($label) < 40) {
-                return [
-                    'label' => $label,
-                    'field_name' => '',
-                    'field_type' => 'text',
-                    'source' => 'manual',
-                    'confidence' => 'medium',
-                ];
-            }
+        // esign-lease-field-source.md: FieldLabel keeps apostrophes ("Let's Assist Fee") and refuses a sentence fragment.
+        $label = FieldLabel::fromPrecedingText($before);
+        if ($label !== null) {
+            return [
+                'label' => $label,
+                'field_name' => '',
+                'field_type' => 'text',
+                'source' => 'manual',
+                'confidence' => 'medium',
+            ];
         }
 
         // Low confidence — unknown field
@@ -2726,6 +2792,9 @@ class CdsParserService
                     $mid = '';
                     for ($j = $k - 1; $j > $i; $j--) {
                         if (($content[$j]['type'] ?? '') === 'text') { $mid .= (string) $content[$j]['value']; }
+                    }
+                    if (str_starts_with((string) ($content[$i]['field_name'] ?? ''), 'lease.')) {
+                        break; // the Lease source already named both halves
                     }
                     if (str_contains($mid, '(')) {
                         $amtName = $isPrice ? 'property.price' : ($content[$i]['field_name'] ?? 'deal.amount');

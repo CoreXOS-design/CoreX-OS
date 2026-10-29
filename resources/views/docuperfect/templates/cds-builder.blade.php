@@ -180,6 +180,13 @@
                     <span class="text-[10px] text-gray-400 whitespace-nowrap" x-show="lastSavedLabel" x-text="lastSavedLabel"></span>
                 </div>
 
+                {{-- esign-lease-field-source.md: one button asks the AI to name the blanks still unlinked (same field list as the pickers) --}}
+                <button type="button" @click="aiSuggest()" :disabled="aiBusy" data-ai-suggest
+                        class="text-sm px-3 py-2 rounded-lg border border-violet-300 bg-violet-50 hover:bg-violet-100 text-violet-700 transition-colors flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50">
+                    <span x-text="aiBusy ? 'Reading...' : 'Suggest links (AI)'"></span>
+                </button>
+                <span class="text-[10px] text-gray-500 max-w-[14rem] truncate" x-show="aiNote" x-text="aiNote" :title="aiNote"></span>
+
                 {{-- Validate button --}}
                 <button type="button" @click="runValidation()"
                         class="text-sm px-3 py-2 rounded-lg border border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-700 transition-colors flex items-center gap-1.5 whitespace-nowrap">
@@ -641,6 +648,7 @@
                                         <option value="">Select type...</option>
                                         <optgroup label="Single Field">
                                             <option value="sf:property">Property</option>
+                                            <option value="sf:lease">Lease</option>
                                             <option value="sf:contact_lessor">Contact &mdash; Lessor</option>
                                             <option value="sf:contact_lessee">Contact &mdash; Lessee</option>
                                             <option value="sf:contact_seller">Contact &mdash; Seller</option>
@@ -664,10 +672,13 @@
                                                 :value="String(getMapping(tag.id).namedFieldId || '')"
                                                 @change="setNamedField(tag.id, parseInt($event.target.value))">
                                             <option value="">Select field...</option>
-                                            <template x-for="nf in getFieldsForType(getMapping(tag.id).typeKey)" :key="nf.id">
+                                            <template x-for="nf in getFieldsForType(getMapping(tag.id).typeKey, getMapping(tag.id).namedFieldId)" :key="nf.id">
                                                 <option :value="String(nf.id)" x-text="nf.name"></option>
                                             </template>
                                         </select>
+                                        <label class="flex items-center gap-1 text-[10px] text-gray-500 mb-1.5 cursor-pointer" data-show-all-fields>
+                                            <input type="checkbox" x-model="showAllFields" class="rounded border-gray-300"> Show every database field
+                                        </label>
                                     </template>
 
                                     {{-- Manual label input --}}
@@ -1167,6 +1178,11 @@ function cdsEditor() {
         groupedFields: @json($groupedFields ?? (object)[]),
         fieldGroups: @json($fieldGroups ?? []),
         namedFieldsAll: @json($namedFieldsAll ?? []),
+        isLeaseDocument: @json($isLeaseDocument ?? false),
+        showAllFields: false,
+        aiBusy: false,
+        aiNote: '',
+        aiSuggestUrl: @json(route('docuperfect.cds.builder.aiSuggest', $draftId)),
 
         // Signing parties (agency-level)
         signingParties: @json($signingParties ?? []),
@@ -1848,7 +1864,7 @@ function cdsEditor() {
             const partyMap = {
                 'sf:contact_seller': 'Seller', 'sf:contact_buyer': 'Buyer',
                 'sf:contact_lessor': 'Lessor', 'sf:contact_lessee': 'Lessee',
-                'sf:property': 'Property', 'sf:agent': 'Agent',
+                'sf:property': 'Property', 'sf:agent': 'Agent', 'sf:lease': 'Lease',
             };
             const party = partyMap[m.typeKey] || '';
             if (!m.namedFieldId) return party;
@@ -2158,12 +2174,64 @@ function cdsEditor() {
             }
         },
 
+        // ===== AI: name the blanks that are still unlinked (esign-lease-field-source.md) =====
+
+        // The words just before and after a tag, read from the document as it stands now.
+        _tagContext(tagId) {
+            const el = document.querySelector(`#docContainer [data-tag-id="${tagId}"]`);
+            if (!el) return { before: '', after: '' };
+            const block = el.closest('p, li, td, div') || el.parentElement;
+            const text = (block ? block.innerText : '').replace(/\s+/g, ' ');
+            const label = (el.textContent || '').trim();
+            const pos = label ? text.indexOf(label) : -1;
+            if (pos < 0) return { before: text.slice(0, 160), after: '' };
+            return { before: text.slice(Math.max(0, pos - 160), pos), after: text.slice(pos + label.length, pos + label.length + 80) };
+        },
+
+        async aiSuggest() {
+            const open = this.tags.filter(t => t.type === 'input' && !(this.getMapping(t.id).namedFieldId || this.getMapping(t.id).fieldGroupId));
+            if (!open.length) { this.aiNote = 'Every field is already linked.'; return; }
+            this.aiBusy = true; this.aiNote = '';
+            try {
+                const res = await fetch(this.aiSuggestUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrfToken, 'Accept': 'application/json' },
+                    body: JSON.stringify({ blanks: open.map(t => ({ tag: t.id, ...this._tagContext(t.id) })), lease: this.isLeaseDocument }),
+                });
+                const out = await res.json();
+                if (!res.ok) { this.aiNote = out.message || 'The AI could not be used just now.'; return; }
+                let applied = 0;
+                (out.suggestions || []).forEach(sg => {
+                    const nf = this.namedFieldsAll.find(f => f.id === sg.named_field_id && f.curated);
+                    if (!nf || !sg.tag || this.getMapping(sg.tag).namedFieldId) return;
+                    const typeKey = this._typeKeyForNamedField(nf);
+                    this.mappings[sg.tag] = this._makeMapping('named_field', {
+                        typeKey, namedFieldId: nf.id, label: nf.name, sourceType: nf.source_type,
+                        sourceContactType: nf.source_contact_type || '', party: this._autoPartyForType(typeKey),
+                        partyLocked: typeKey === 'sf:agent', confidence: 'medium',
+                        editable_by: nf.source_type === 'lease' ? ['agent'] : this._autoEditableBy(nf.source_type, nf.source_contact_type, typeKey),
+                    });
+                    this._syncTagColor(sg.tag); this._syncTagLabel(sg.tag);
+                    applied++;
+                });
+                this._persistMappings();
+                this.aiNote = applied ? (applied + ' of ' + open.length + ' linked - check the orange dots.') : 'The AI found nothing it was sure of.';
+            } catch (e) {
+                this.aiNote = 'The AI could not be used just now.';
+            } finally {
+                this.aiBusy = false;
+            }
+        },
+
         // ===== Field lookup helpers =====
 
-        getFieldsForType(typeKey) {
+        // The curated list unless "Show every database field" is ticked; the field a tag is already mapped to is always listed.
+        getFieldsForType(typeKey, currentId) {
             if (!typeKey || !typeKey.startsWith('sf:')) return [];
             const group = typeKey.substring(3);
-            return this.groupedFields[group] || [];
+            const all = this.groupedFields[group] || [];
+            if (this.showAllFields) return all;
+            return all.filter(nf => nf.curated || (currentId && String(nf.id) === String(currentId)));
         },
 
         getGroupPreview(fgId) {
@@ -2219,14 +2287,23 @@ function cdsEditor() {
             return 'auto';
         },
 
+        // Name matching only ever offers a curated field. In a lease it also never offers a mandate or property date: the
+        // lease's start, end and renewal dates come from the Lease source (a lease "Start Date" is not "Mandate Start Date").
+        _matchableFields() {
+            return this.namedFieldsAll.filter(nf => nf.curated && !(this.isLeaseDocument
+                && ((nf.source_type === 'deal' && /mandate|start|expiry|end_date/i.test(nf.source_column || ''))
+                    || (nf.source_type === 'property' && /expiry|lease_(start|end)|rental_amount|deposit/i.test(nf.source_column || '')))));
+        },
+
         _findBestNamedFieldMatch(suggestedLabel, suggestedKey) {
             if (!suggestedLabel) return null;
             const needle = suggestedLabel.toLowerCase().trim();
+            const pool = this._matchableFields();
 
-            let match = this.namedFieldsAll.find(nf => nf.name.toLowerCase() === needle);
+            let match = pool.find(nf => nf.name.toLowerCase() === needle);
             if (match) return match;
 
-            match = this.namedFieldsAll.find(nf => {
+            match = pool.find(nf => {
                 const name = nf.name.toLowerCase();
                 return needle.includes(name) || name.includes(needle);
             });
@@ -2236,7 +2313,7 @@ function cdsEditor() {
                 const parts = suggestedKey.split('.');
                 const fieldPart = parts.slice(1).join(' ').replace(/_/g, ' ').toLowerCase();
                 if (fieldPart) {
-                    match = this.namedFieldsAll.find(nf => {
+                    match = pool.find(nf => {
                         const name = nf.name.toLowerCase().replace(/_/g, ' ');
                         return name.includes(fieldPart) || fieldPart.includes(name);
                     });

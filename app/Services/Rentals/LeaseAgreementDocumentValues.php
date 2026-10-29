@@ -241,6 +241,12 @@ class LeaseAgreementDocumentValues
         };
     }
 
+    /** {@see present()} for callers outside this class (the lease source of the template builder dresses a proposed figure the same way). */
+    public function dress(mixed $value, string $type, ?string $how = null): ?string
+    {
+        return $this->present($value, $type, $how);
+    }
+
     private function presentMoney(mixed $value, bool $bare): string
     {
         if (! is_numeric($value)) {

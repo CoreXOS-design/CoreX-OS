@@ -56,6 +56,7 @@ class LeaseSigningLauncher
         $property = $lease->property;
 
         return [
+            'lease_id' => $lease->id,   // the template builder's "Lease" fields are read from this lease at render time
             'property' => $this->propertySnapshot($property),
             'recipients' => ['recipients' => $this->recipientRows($lease, $user)],
             'details' => [
@@ -142,6 +143,7 @@ class LeaseSigningLauncher
         $stepData = [
             'template' => ['template_id' => $templateId],
             'fields' => $fields,
+            'lease_id' => $newTerm->id,   // the template builder's "Lease" fields are read from this lease at render time
             'property' => $this->propertySnapshot($property),
             'recipients' => ['recipients' => $this->recipientRows($newTerm, $user)],
             'details' => [

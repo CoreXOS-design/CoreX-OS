@@ -94,6 +94,8 @@ class DocumentImporterController extends Controller
         ]);
 
         $parser = app(CdsParserService::class);
+        // A lease's fee line is recognised by the name THIS agency gives its lease fee (Rentals settings).
+        $parser->withLeaseFeeLabel(\App\Models\LeaseSetting::leaseFeeLabelFor((int) $user->effectiveAgencyId()));
         try {
             $cds = $parser->parse($request->file('document')->getPathname());
         } catch (\App\Services\Docuperfect\DocxTooLargeException $e) {

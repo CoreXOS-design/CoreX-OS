@@ -39,6 +39,23 @@ abstract class AbstractDemoContext implements DemoContext
         ];
     }
 
+    /** What the builder's "Lease" fields print in a sample: one believable lease (esign-lease-field-source.md). Keys are the page variables, lease_<field>. */
+    protected static function leaseSource(): array
+    {
+        return [
+            'lease_rent' => 'R 8,500.00', 'lease_rent_in_words' => 'Eight thousand five hundred Rand',
+            'lease_deposit' => 'R 8,500.00', 'lease_deposit_in_words' => 'Eight thousand five hundred Rand',
+            'lease_lease_fee' => 'R 1,500.00',
+            'lease_start_date' => '1 March 2027', 'lease_end_date' => '28 February 2028',
+            'lease_adults' => '2', 'lease_max_other_persons' => '2', 'lease_pets' => 'One small dog',
+            'lease_escalation_percent' => '8', 'lease_escalation_in_words' => 'eight', 'lease_escalation_month' => 'March',
+            'lease_earliest_termination_date' => '28 February 2028', 'lease_renewal_option_months' => '12',
+            'lease_electricity_arrangement' => 'Prepaid, in the tenant\'s name',
+            'lease_other_conditions' => 'No smoking inside the property.',
+            'lease_agent_service_fee' => 'R 977.50', 'lease_net_to_owner' => 'R 6,022.50',
+        ];
+    }
+
     /** The seller's and buyer's names under every name a sales document's blanks use. */
     protected static function salesNames(): array
     {

@@ -107,6 +107,14 @@ class CdsBindingSuggester
             return null;
         }
 
+        // esign-lease-field-source.md - a blank the importer read as a lease field ("lease.rent") binds to the Lease source.
+        if (str_starts_with($key, 'lease.')) {
+            $nf = $this->findNamedField(LeaseFieldSource::SOURCE, substr($key, strlen('lease.')), null);
+
+            // Filled from the lease, but the agent may still correct it while preparing the document.
+            return $nf ? $this->namedFieldBinding($nf, '', 'auto', ['agent']) : null;
+        }
+
         [$partyKind, $role, $attr] = $this->splitPartyAttribute($key);
         if ($attr === '') {
             return null;
