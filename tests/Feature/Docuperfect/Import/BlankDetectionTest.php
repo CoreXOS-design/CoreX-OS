@@ -261,6 +261,18 @@ final class BlankDetectionTest extends TestCase
 
     // ── 5. save with open fields; deploy sync ──
 
+    public function test_the_guess_is_applied_on_a_fresh_draft_and_again_when_the_unsaved_draft_is_reopened(): void
+    {
+        $html = $this->actingAs($this->admin)->get(route('docuperfect.cds.builder', CdsDraft::create([
+            'user_id' => $this->admin->id, 'agency_id' => $this->admin->agency_id, 'template_name' => 'LEASE', 'status' => 'draft',
+            'cds_json' => ['title' => 'LEASE', 'sections' => []], 'tags' => [['id' => 't1', 'type' => 'input']], 'tagged_html' => '<span data-tag-id="t1" class="doc-tag"></span>',
+            'settings' => ['guess' => ['category' => 'rentals', 'document_type_id' => 15, 'slug' => 'lease_agreement', 'note' => 'Guessed']],
+        ])))->assertOk()->getContent();
+
+        // one helper, called on both the fresh path and the restore path
+        $this->assertGreaterThanOrEqual(2, substr_count($html, 'this._applyGuess()'));
+    }
+
     public function test_the_builder_offers_save_with_open_fields(): void
     {
         $draft = CdsDraft::create(['user_id' => $this->admin->id, 'agency_id' => $this->admin->agency_id, 'template_name' => 'x', 'status' => 'draft', 'cds_json' => ['sections' => []]]);

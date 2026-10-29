@@ -1512,6 +1512,16 @@ function cdsEditor() {
 
         // The saved builder state is only used when it really holds the tagged document: tags without their spans in the saved HTML
         // (a half-saved draft) would open as an untagged document with a tag list that points at nothing.
+        // The importer's guess at the category and document type fills the two dropdowns only while they are still empty.
+        _applyGuess() {
+            const guess = @json($guess ?? null);
+            if (!guess) return;
+            let used = false;
+            if (!this.templateCategory && guess.category) { this.templateCategory = guess.category; used = true; }
+            if (!this.templateDocumentTypeId && guess.document_type_id) { this.templateDocumentTypeId = String(guess.document_type_id); used = true; }
+            if (used) this.guessNote = guess.note || '';
+        },
+
         _savedStateUsable() {
             if (!Array.isArray(this.savedTags) || this.savedTags.length === 0) return true;
             const probe = document.createElement('div');
@@ -1565,6 +1575,7 @@ function cdsEditor() {
                         const fallbackDocTypeId = @json($sourceTemplate->document_type_id ?? null);
                         if (fallbackDocTypeId) this.templateDocumentTypeId = String(fallbackDocTypeId);
                     }
+                    this._applyGuess();   // a draft opened again before it was ever saved keeps the importer's guess
 
                     this._startAutoSave();
                     this._initFormatToolbar();
@@ -1574,12 +1585,7 @@ function cdsEditor() {
                 }
 
                 // â”€â”€ FRESH PATH: convert CDS field spans to tags + auto-suggest â”€â”€                // esign-import-blanks.md - the importer's guess at the category and document type (both stay editable).
-                const guess = @json($guess ?? null);
-                if (guess) {
-                    if (!this.templateCategory && guess.category) this.templateCategory = guess.category;
-                    if (!this.templateDocumentTypeId && guess.document_type_id) this.templateDocumentTypeId = String(guess.document_type_id);
-                    this.guessNote = guess.note || '';
-                }
+                this._applyGuess();
 
                 // Convert CDS .corex-field spans to doc-tag system
                 // Handles: input fields, marker-based SIG (%%%%), marker-based INI (####)
