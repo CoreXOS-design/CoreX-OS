@@ -10,9 +10,18 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use App\Models\Concerns\BelongsToAgency;
 use App\Models\Concerns\BelongsToBranch;
 use App\Models\Concerns\InheritsBranchFromParent;
+use App\Models\Concerns\HasCanonicalPortalRef;
+use App\Support\Property\PortalRef;
 class ProspectingListing extends Model
 {
     use BelongsToBranch, InheritsBranchFromParent, BelongsToAgency, SoftDeletes;
+    use HasCanonicalPortalRef;
+
+    /** @return array<string, ?string> */
+    public function canonicalRefValues(): array
+    {
+        return ['canonical_ref' => PortalRef::normalise($this->portal_ref, PortalRef::portal($this->portal_source))];
+    }
 
     /**
      * Branch follows the capturing agent — set here (not the acting user) so a

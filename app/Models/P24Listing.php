@@ -7,13 +7,22 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use App\Models\Concerns\BelongsToAgency;
 use Carbon\Carbon;
+use App\Models\Concerns\HasCanonicalPortalRef;
+use App\Support\Property\PortalRef;
 
 class P24Listing extends Model
 {
     use SoftDeletes;
     use BelongsToAgency;
+    use HasCanonicalPortalRef;
 
     protected $table = 'p24_listings';
+
+    /** @return array<string, ?string> */
+    public function canonicalRefValues(): array
+    {
+        return ['canonical_ref' => PortalRef::normalise($this->p24_listing_number, PortalRef::P24)];
+    }
 
     protected $fillable = [
         'agency_id',
