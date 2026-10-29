@@ -1702,6 +1702,7 @@ class MarketIntelligenceController extends Controller
             'work'                 => $work,
             'workHistory'          => $workService->history((int) $agencyId, (int) $tp->id, 15)->load('user:id,name'),
             'canSetStatus'         => $user->hasPermission('mic.comments.add'),
+            'alerts'               => app(\App\Services\Prospecting\PropertyAlertFacts::class)->for((int) $agencyId, $tp),
             'tp'                   => $tp,
             'linkedListings'       => $linkedListings,
             'externalRefsBySource' => $externalRefsBySource,

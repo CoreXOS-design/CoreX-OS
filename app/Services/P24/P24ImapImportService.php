@@ -165,9 +165,10 @@ class P24ImapImportService
                             }
 
                             $existing->save();
+                            $this->linkToProperty($existing);
                             $updatedCount++;
                         } else {
-                            P24Listing::create([
+                            $created = P24Listing::create([
                                 'agency_id' => $agencyId,
                                 'p24_listing_number' => $data['p24_listing_number'],
                                 'asking_price' => $data['asking_price'],
@@ -183,6 +184,7 @@ class P24ImapImportService
                                 'original_price' => $data['asking_price'],
                                 'times_seen' => 1,
                             ]);
+                            $this->linkToProperty($created);
                             $newCount++;
                         }
                     }
@@ -232,6 +234,16 @@ class P24ImapImportService
         ]);
 
         return ['status' => 'success', 'stats' => $stats];
+    }
+
+    /** C1: the alert is tied to its property file through the door (by advert number). Never blocks the import. */
+    private function linkToProperty(P24Listing $alert): void
+    {
+        try {
+            app(\App\Services\Prospecting\AlertPropertyLinker::class)->linkModel($alert);
+        } catch (\Throwable $e) {
+            Log::warning('P24 alert could not be tied to a property file', ['alert_id' => $alert->id, 'error' => $e->getMessage()]);
+        }
     }
 
     private function resolveAgencyId(): ?int

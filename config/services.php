@@ -63,6 +63,19 @@ return [
         'enabled' => env('P24_IMPORT_ENABLED', false),
     ],
 
+    // Private Property alert e-mails (property-identity.md section 15, C1). Same mailbox as Property24 unless PP_IMAP_* says otherwise.
+    'pp_imap' => [
+        'host' => env('PP_IMAP_HOST', env('P24_IMAP_HOST')),
+        'port' => env('PP_IMAP_PORT', env('P24_IMAP_PORT', 993)),
+        'encryption' => env('PP_IMAP_ENCRYPTION', env('P24_IMAP_ENCRYPTION', 'ssl')),
+        'username' => env('PP_IMAP_USERNAME', env('P24_IMAP_USERNAME')),
+        'password' => env('PP_IMAP_PASSWORD', env('P24_IMAP_PASSWORD')),
+        'folder' => env('PP_IMAP_FOLDER', env('P24_IMAP_FOLDER', 'INBOX')),
+        'from' => env('PP_IMAP_FROM', 'privateproperty.co.za'),
+        'agency_id' => env('PP_IMPORT_AGENCY_ID'),
+        'enabled' => env('PP_IMPORT_ENABLED', false),
+    ],
+
     'meta' => [
         'app_id'       => env('META_APP_ID'),
         'app_secret'   => env('META_APP_SECRET'),

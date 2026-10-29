@@ -10,6 +10,7 @@ Artisan::command('inspire', function () {
 
 // P24 alert email import — runs hourly
 Schedule::command('p24:import')->hourly();
+Schedule::command('pp:import')->hourly();   // off until PP_IMPORT_ENABLED=true (property-identity.md section 15, C1)
 
 // P24 location tree (provinces → cities → suburbs) — daily full refresh +
 // stamp-and-sweep at 11:00. Keeps p24_verified_at current on everything P24
