@@ -137,13 +137,26 @@ final class LeaseFieldSourceTest extends TestCase
                 }
             }
         }
-        $this->assertSame(['lease.rent', 'lease.rent_in_words', 'lease.start_date', 'lease.end_date'], array_slice($names, 0, 4));
+        $this->assertSame(['lease_rent', 'lease_rent_in_words', 'lease_start_date', 'lease_end_date'], array_slice($names, 0, 4));
 
         $bindings = (new CdsBindingSuggester($this->agency->id))->suggest($out)['bindings'];
         $this->assertSame('sf:lease', $bindings[0]['typeKey']);
         $this->assertSame('lease', $bindings[0]['sourceType']);
         $this->assertSame(['agent'], $bindings[0]['editable_by']);
         $this->assertSame('Lease - Start date', $bindings[2]['label']);
+    }
+
+    public function test_a_blank_followed_by_property_in_brackets_is_the_property_address(): void
+    {
+        $text = fn (string $v) => ['type' => 'text', 'value' => $v];
+        $cds = ['title' => 'LEASE AGREEMENT', 'sections' => [
+            ['type' => 'paragraph', 'content' => [$text('LEASE AGREEMENT')]],
+            ['type' => 'paragraph', 'content' => [$text('The premises :- being '), ['type' => 'field_placeholder'], $text(' (Property)')]],
+        ]];
+
+        $out = app(CdsParserService::class)->reidentifyFields($cds);
+
+        $this->assertSame('property.address', $out['sections'][1]['content'][1]['field_name']);
     }
 
     public function test_a_mandate_keeps_its_own_start_date_rule(): void

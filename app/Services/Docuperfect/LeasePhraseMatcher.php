@@ -6,7 +6,7 @@ namespace App\Services\Docuperfect;
  * esign-lease-field-source.md - the importer's lease wording. A residential lease says the same things in much the same words
  * ("shall be personally occupied by __ Adults and not more than __ other persons", "escalation of __% (__) per annum",
  * "shall commence on __", "expire at midnight on __"), so each blank is read from the words around it and pointed at the
- * Lease data source (key `lease.<field>`), never at the mandate or property dates.
+ * Lease data source (key `lease_<field>`), never at the mandate or property dates.
  *
  * Only ever asked about a LEASE document ({@see isLeaseDocument()}); a mandate's "commence on" is the mandate's start and keeps
  * its own rules. Every rule reads the text before the blank, the text after it, the previous blank's answer (for "(in words)"
@@ -94,7 +94,7 @@ class LeasePhraseMatcher
     {
         [$label, $type] = self::LABELS[$key];
 
-        return ['label' => $label, 'field_name' => 'lease.' . $key, 'field_type' => $type, 'source' => 'lease', 'confidence' => 'high'];
+        return ['label' => $label, 'field_name' => 'lease_' . $key, 'field_type' => $type, 'source' => 'lease', 'confidence' => 'high'];
     }
 
     private function key(string $b, string $a, string $c, string $above, ?string $previousKey): ?string

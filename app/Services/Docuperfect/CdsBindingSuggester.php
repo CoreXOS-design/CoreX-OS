@@ -107,9 +107,10 @@ class CdsBindingSuggester
             return null;
         }
 
-        // esign-lease-field-source.md - a blank the importer read as a lease field ("lease.rent") binds to the Lease source.
-        if (str_starts_with($key, 'lease.')) {
-            $nf = $this->findNamedField(LeaseFieldSource::SOURCE, substr($key, strlen('lease.')), null);
+        // esign-lease-field-source.md - a blank the importer read as a lease field ("lease_rent", the page's own variable name)
+        // binds to the Lease source; a name that is not one of the lease fields falls through to the rules below.
+        if (str_starts_with($key, 'lease_') && in_array(substr($key, strlen('lease_')), LeaseFieldSource::keys(), true)) {
+            $nf = $this->findNamedField(LeaseFieldSource::SOURCE, substr($key, strlen('lease_')), null);
 
             // Filled from the lease, but the agent may still correct it while preparing the document.
             return $nf ? $this->namedFieldBinding($nf, '', 'auto', ['agent']) : null;
