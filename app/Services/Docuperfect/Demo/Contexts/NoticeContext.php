@@ -27,7 +27,7 @@ final class NoticeContext extends AbstractDemoContext
 
     public function vars(): array
     {
-        return [
+        return self::rentalNames() + [
             'notice_date' => date('j F Y'),
             'vacate_date' => date('j F Y', strtotime('+20 days')),
             'breach_description' => 'Rent for the current month has not been received by the due date.',

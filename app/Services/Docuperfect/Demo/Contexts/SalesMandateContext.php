@@ -28,7 +28,7 @@ final class SalesMandateContext extends AbstractDemoContext
 
     public function vars(): array
     {
-        return [
+        return self::salesNames() + [
             'seller_full' => self::person('seller'),
             'seller_address' => '12 Sample Street, Table View, Cape Town, 7441',
             'property_town' => 'Cape Town',

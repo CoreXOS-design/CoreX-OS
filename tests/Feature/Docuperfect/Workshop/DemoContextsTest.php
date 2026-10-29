@@ -109,6 +109,26 @@ final class DemoContextsTest extends TestCase
         $this->assertSame(TemplateDemoSample::KNOWN, $row['source']);
     }
 
+    public function test_a_lease_blank_named_for_the_lessor_or_lessee_is_filled_not_a_placeholder(): void
+    {
+        $a = $this->agency('Cape Agency');
+        $t = $this->megaShaped($a, $this->owner(), ['document_type_id' => $this->documentType('lease_agreement', 'Lease Agreement')->id]);
+        $editor = $t->editor_state;
+        foreach (['Lessor full' => 'tag-l1', 'Lessee full' => 'tag-l2'] as $label => $id) {
+            $editor['tags'][] = ['id' => $id, 'type' => 'input', 'label' => '[INPUT 9]', 'number' => 9];
+            $editor['mappings'][$id] = ['label' => $label, 'typeKey' => 'sf:manual', 'mappingType' => 'manual', 'namedFieldId' => null, 'fieldGroupId' => null];
+        }
+        $t->update(['editor_state' => $editor]);
+        $t = $t->fresh();
+
+        $built = app(TemplateDemoSample::class)->build($t, app(TemplateReadinessReport::class)->context($t));
+        $byLabel = collect($built['fields'])->keyBy('label');
+
+        $this->assertSame('Thandi Mokoena', $byLabel['Lessor full']['value']);
+        $this->assertSame('Pieter van der Merwe', $byLabel['Lessee full']['value']);
+        $this->assertNotSame(TemplateDemoSample::PLACEHOLDER, $byLabel['Lessor full']['source']);
+    }
+
     public function test_the_demo_screen_names_the_context_and_the_sample_people(): void
     {
         $a = $this->agency('Cape Agency');
