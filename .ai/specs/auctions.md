@@ -269,3 +269,19 @@ Models `Auction*` (+ `BidderDocument`); `app/Services/Auctions/` (BidEngine, Lot
 **Not in this phase:** online card payments, seller's commission, refunds of deposits, bidder registration deposits, guarantees beyond a received/not-received tick with a note, calendar entries for deposit/balance dates (the list's Overdue filter covers it).
 
 **Acceptance.** A sale with a 7.5% commission on R1 000 000: commission R75 000, VAT R11 250, total R1 086 250; deposit 10% = R100 000, balance R986 250. The deal's commission is R86 250 (incl. VAT). Only the winner can see their invoice; another agency's invoice is unreachable by id; payments beyond the amount owing are refused; settings changes never alter an issued invoice.
+
+---
+
+## 18. "Add to auction" on a property (added 2026-11-05, Johan)
+
+**What he asked for.** When Auctions is on and someone clicks **Add to auction** on a property, it must first **ask which auction** it is going into and **what its lot number is**, **fill the auction's date in by itself**, and have them **enter the time**; then show all the auction details on the property — and the property must also **show under Lots**.
+
+**The dialog** (property header; replaces the old "Put on Auction" button). Fields: *Which auction?* (the user's upcoming auctions, each shown with its date and whether it is live or online; plus "A new one-property auction for just this property"); *Lot number* (filled with the next free number, editable; a number already used in that auction is refused); then the date(s) and time(s):
+- **Live auction:** *Auction date* (filled from the auction) + *Time* (typed in). The lot's start is that date and time.
+- **Timed auction:** *Bidding opens* date (filled from the auction's start) + time, and *Bidding closes* date (filled from the auction's end) + time. Times are always typed in, never pre-filled.
+- **New one-property auction:** both dates and times typed in.
+Dates can be changed but are limited to the auction's own dates. Rentals cannot be added; a property already in a live lot is told which lot it is in.
+
+**What happens.** The lot is created straight away (as a draft until the auction is published), the property is marked as an auction property, the user lands on the property's **Auction tab** (opening bid, reserve, guide price, bids), and the lot appears on **Auctions → Lots** and in the auction's own lot list. If the time falls outside the auction's window, or any rule is broken, the dialog reopens with the reason. Afterwards the header shows "On auction — Lot N (reference)" instead of the button.
+
+**Rules unchanged.** One live lot per property; a finished/cancelled auction takes no lots; a lot's window must sit inside its auction; permission `auctions.lots.manage`.

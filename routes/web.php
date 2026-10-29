@@ -6293,6 +6293,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // The property side: mark as auction, the Auction tab (one live lot), and the Drive auction pack.
     Route::prefix('properties/{property}')->whereNumber('property')->middleware(['permission:auctions.lots.manage', 'agency.required', 'feature:auctions'])->group(function () {
         $P = \App\Http\Controllers\CoreX\Auctions\PropertyAuctionController::class;
+        Route::post('/auction/add', [$P, 'add'])->name('corex.properties.auction.add');
         Route::post('/auction/mark', [$P, 'mark'])->name('corex.properties.auction.mark');
         Route::delete('/auction/mark', [$P, 'unmark'])->name('corex.properties.auction.unmark');
         Route::put('/auction', [$P, 'update'])->name('corex.properties.auction.update');

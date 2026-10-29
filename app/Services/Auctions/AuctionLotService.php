@@ -112,6 +112,34 @@ class AuctionLotService
         });
     }
 
+    /**
+     * The auctions a property can be added to, for the "Add to auction" dialog: the ones this user can see that are not finished or
+     * cancelled and not already over. Each carries its date(s) (so the dialog can fill them in) and the next free lot number.
+     * A one-property auction (made automatically for a single property) is not offered: it already has its one lot.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function pickerOptions(User $user): array
+    {
+        $today = now()->startOfDay();
+
+        return Auction::visibleTo($user)->with('increments')
+            ->whereIn('status', [Auction::STATUS_DRAFT, Auction::STATUS_PUBLISHED, Auction::STATUS_OPEN])
+            ->where('is_single_property', false)
+            ->where(fn ($q) => $q->whereNull('starts_at')->orWhere('ends_at', '>=', $today)->orWhere(fn ($w) => $w->whereNull('ends_at')->where('starts_at', '>=', $today)))
+            ->orderBy('starts_at')->get()
+            ->map(fn (Auction $a) => [
+                'id' => $a->id,
+                'reference' => $a->reference,
+                'title' => $a->title,
+                'format' => $a->format,
+                'label' => $a->reference . ' — ' . $a->title . ($a->starts_at ? ' (' . $a->starts_at->format('j M Y') . ', ' . ($a->format === 'live' ? 'live' : 'online') . ')' : ' (no date yet)'),
+                'starts_date' => $a->starts_at?->format('Y-m-d'),
+                'ends_date' => $a->ends_at?->format('Y-m-d') ?? $a->starts_at?->format('Y-m-d'),
+                'next_lot' => AuctionLot::nextLotNumber($a->id),
+            ])->values()->all();
+    }
+
     /** Take a lot out of the auction. The property returns to its pre-auction status and may go into another auction. */
     public function withdraw(AuctionLot $lot, ?string $reason = null): AuctionLot
     {

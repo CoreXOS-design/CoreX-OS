@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Property;
 use App\Models\Document;
 use App\Services\Auctions\AuctionLotService;
+use App\Models\Auction;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
@@ -16,6 +18,68 @@ use Illuminate\Validation\ValidationException;
 class PropertyAuctionController extends Controller
 {
     public function __construct(private AuctionLotService $service) {}
+
+    /**
+     * "Add to auction": ask which auction, which lot number, the date (filled in from the auction) and the time, then put the
+     * property into a real lot straight away — so it shows under Lots at once — and land on its Auction tab for the rest.
+     */
+    public function add(Request $request, int $property)
+    {
+        $user = $request->user();
+        $property = $this->property($request, $property);
+
+        try {
+            $data = $request->validate([
+                'auction_id' => 'required',
+                'lot_number' => 'nullable|integer|min:1|max:9999',
+                'opens_date' => 'required|date',
+                'opens_time' => ['required', 'date_format:H:i'],
+                'closes_date' => 'nullable|date',
+                'closes_time' => ['nullable', 'date_format:H:i'],
+            ], [
+                'auction_id.required' => 'Choose which auction this property is going into.',
+                'opens_date.required' => 'Enter the date.',
+                'opens_time.required' => 'Enter the time.',
+                'opens_time.date_format' => 'Enter the time like 10:30.',
+                'closes_time.date_format' => 'Enter the closing time like 15:00.',
+            ]);
+
+            if ($property->isRental()) {
+                throw ValidationException::withMessages(['auction_id' => 'Only a property for sale can go on auction.']);
+            }
+            if ($existing = $property->currentAuctionLot()) {
+                throw ValidationException::withMessages(['auction_id' => "This property is already Lot {$existing->lot_number} in {$existing->auction->reference}. Change it on the Auction tab."]);
+            }
+
+            $auction = null;
+            if ($data['auction_id'] !== 'new') {
+                $auction = Auction::visibleTo($user)->find((int) $data['auction_id']);
+                if (! $auction || ! $auction->isEditable()) {
+                    throw ValidationException::withMessages(['auction_id' => 'Pick one of your upcoming auctions.']);
+                }
+            }
+
+            // A live auction has one date and time. A timed one (or a new one-property auction) has bidding that opens and closes.
+            $needsClose = $auction === null || $auction->format !== 'live';
+            if ($needsClose && (empty($data['closes_date']) || empty($data['closes_time']))) {
+                throw ValidationException::withMessages(['closes_date' => 'Enter the date and time bidding closes.']);
+            }
+
+            $lot = $this->service->saveForProperty($property, [
+                'auction_id' => $auction?->id,
+                'lot_number' => $data['lot_number'] ?? null,
+                'opens_at' => Carbon::parse($data['opens_date'] . ' ' . $data['opens_time'])->toDateTimeString(),
+                'closes_at' => $needsClose ? Carbon::parse($data['closes_date'] . ' ' . $data['closes_time'])->toDateTimeString() : null,
+            ], $user);
+        } catch (ValidationException $e) {
+            session()->flash('add_to_auction_open', true);   // reopen the dialog with the messages
+
+            throw $e;
+        }
+
+        return redirect()->to(route('corex.properties.show', $property) . '?tab=auction')
+            ->with('status', "Added to {$lot->auction->reference} as Lot {$lot->lot_number}. Set the opening bid and reserve below.");
+    }
 
     public function mark(Request $request, int $property)
     {

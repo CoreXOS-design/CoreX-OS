@@ -153,17 +153,102 @@
         </a>
         @endpermission
 
-        {{-- Auctions v2 (.ai/specs/auctions.md §6) — mark a sale listing as an auction property; its Auction tab then appears. --}}
+        {{-- Auctions v2 (.ai/specs/auctions.md §6.1) — "Add to auction": ask which auction and which lot number, fill the date in from
+             the auction, ask for the time, create the lot at once (so it shows under Lots) and land on the Auction tab. --}}
         @feature('auctions')
         @permission('auctions.lots.manage')
-            @if(! $property->isAuction() && ! $property->isRental())
-            <form method="POST" action="{{ route('corex.properties.auction.mark', $property) }}" class="inline">
-                @csrf
-                <button type="submit" class="prop-action-btn prop-action-btn-neutral" data-prop-auction-entry="mark"
-                        title="Mark this property as an auction property and set its bidding dates">Put on Auction</button>
-            </form>
-            @elseif($property->isAuction())
-            <a href="{{ route('corex.properties.show', $property) }}?tab=auction" class="prop-action-btn prop-action-btn-neutral no-underline" data-prop-auction-entry="open">On Auction</a>
+            @php $headerLot = $property->isRental() ? null : $property->currentAuctionLot(); @endphp
+            @if($headerLot)
+            <a href="{{ route('corex.properties.show', $property) }}?tab=auction" class="prop-action-btn prop-action-btn-neutral no-underline" data-prop-auction-entry="open"
+               title="This property is in an auction. Open its Auction tab.">On auction — Lot {{ $headerLot->lot_number }} ({{ $headerLot->auction?->reference }})</a>
+            @elseif(! $property->isRental())
+            @php
+                $auctionChoices = app(\App\Services\Auctions\AuctionLotService::class)->pickerOptions(auth()->user());
+                $addErrors = session('add_to_auction_open') ? $errors->all() : [];
+                $addOld = ['auction' => old('auction_id'), 'lot' => old('lot_number'), 'od' => old('opens_date'), 'ot' => old('opens_time'), 'cd' => old('closes_date'), 'ct' => old('closes_time')];
+                $addOpen = session('add_to_auction_open') ? 'true' : 'false';
+            @endphp
+            <div class="inline" x-data="addToAuction({{ \Illuminate\Support\Js::from($auctionChoices) }}, {{ \Illuminate\Support\Js::from($addOld) }}, {{ $addOpen }})">
+                <button type="button" @click="open = true" class="prop-action-btn prop-action-btn-neutral" data-prop-auction-entry="add"
+                        title="Add this property to an auction as a lot">Add to auction</button>
+
+                <div x-show="open" x-cloak @keydown.escape.window="open = false" data-add-to-auction
+                     style="position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:16px;">
+                    <form method="POST" action="{{ route('corex.properties.auction.add', $property) }}" @click.outside="open = false"
+                          style="background:var(--surface);color:var(--text-primary);border:1px solid var(--border);border-radius:12px;max-width:520px;width:100%;max-height:92vh;overflow:auto;padding:22px;">
+                        @csrf
+                        <h3 style="font-size:1rem;font-weight:700;margin:0 0 4px;">Add to auction</h3>
+                        <p style="font-size:.8rem;color:var(--text-muted);margin:0 0 14px;">{{ $property->buildDisplayAddress() ?: $property->title }}</p>
+
+                        @if($addErrors)
+                        <div style="background:color-mix(in srgb,#ef4444 12%,transparent);color:#ef4444;border-radius:8px;padding:8px 12px;font-size:.8rem;margin-bottom:12px;">@foreach($addErrors as $e)<div>{{ $e }}</div>@endforeach</div>
+                        @endif
+
+                        <label style="display:block;font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin:0 0 4px;">Which auction?</label>
+                        <select name="auction_id" x-model="auctionId" @change="pickAuction()" required class="prop-select" style="width:100%;">
+                            <option value="">Choose an auction…</option>
+                            @foreach($auctionChoices as $c)<option value="{{ $c['id'] }}">{{ $c['label'] }}</option>@endforeach
+                            <option value="new">A new one-property auction for just this property</option>
+                        </select>
+                        @if(empty($auctionChoices))<p style="font-size:.75rem;color:var(--text-muted);margin:6px 0 0;">You have no upcoming auction yet.@permission('auctions.create') <a href="{{ route('corex.auctions.create') }}" class="underline">Create an auction</a> first, or choose the one-property option.@endpermission</p>@endif
+
+                        <div x-show="auctionId !== ''" x-cloak>
+                            <label style="display:block;font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin:14px 0 4px;">Lot number</label>
+                            <input type="number" min="1" max="9999" name="lot_number" x-model="lot" @input="lotTouched = true" class="prop-input" style="width:140px;" :placeholder="a ? a.next_lot : '1'">
+                            <span style="font-size:.75rem;color:var(--text-muted);margin-left:8px;" x-show="a">Next free number: <strong x-text="a ? a.next_lot : ''"></strong></span>
+
+                            <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                                <div>
+                                    <label style="display:block;font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin:0 0 4px;" x-text="isLive ? 'Auction date' : 'Bidding opens (date)'"></label>
+                                    <input type="date" name="opens_date" x-model="od" :min="a ? a.starts_date : null" :max="a ? a.ends_date : null" required class="prop-input" style="width:100%;">
+                                </div>
+                                <div>
+                                    <label style="display:block;font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin:0 0 4px;" x-text="isLive ? 'Time' : 'Opens at (time)'"></label>
+                                    <input type="time" name="opens_time" x-model="ot" required class="prop-input" style="width:100%;" data-time-input>
+                                </div>
+                            </div>
+                            <div x-show="!isLive" style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                                <div>
+                                    <label style="display:block;font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin:0 0 4px;">Bidding closes (date)</label>
+                                    <input type="date" name="closes_date" x-model="cd" :min="a ? a.starts_date : null" :max="a ? a.ends_date : null" :required="!isLive" :disabled="isLive" class="prop-input" style="width:100%;">
+                                </div>
+                                <div>
+                                    <label style="display:block;font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin:0 0 4px;">Closes at (time)</label>
+                                    <input type="time" name="closes_time" x-model="ct" :required="!isLive" :disabled="isLive" class="prop-input" style="width:100%;">
+                                </div>
+                            </div>
+                            <p style="font-size:.75rem;color:var(--text-muted);margin:10px 0 0;" x-show="a">The date comes from the auction. Enter the time<span x-show="!isLive"> each way</span>.</p>
+                            <p style="font-size:.75rem;color:var(--text-muted);margin:10px 0 0;" x-show="auctionId === 'new'">Enter the date and time bidding opens and closes. The opening bid and reserve come next.</p>
+                        </div>
+
+                        <div style="display:flex;gap:10px;margin-top:18px;justify-content:flex-end;">
+                            <button type="button" @click="open = false" class="prop-action-btn prop-action-btn-neutral">Cancel</button>
+                            <button type="submit" class="prop-action-btn" style="background:var(--brand-button,#0ea5e9);color:#fff;" :disabled="auctionId === ''">Add to auction</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            @once
+            <script>
+                // The "Add to auction" dialog: choosing an auction fills in its date(s) and the next free lot number; the person enters the time.
+                window.addToAuction = window.addToAuction || function (options, old, openAtStart) {
+                    return {
+                        options: options, open: !!openAtStart, auctionId: old.auction || '', lot: old.lot || '', lotTouched: !!old.lot,
+                        od: old.od || '', ot: old.ot || '', cd: old.cd || '', ct: old.ct || '',
+                        get a() { return this.options.find(o => String(o.id) === String(this.auctionId)) || null; },
+                        get isLive() { return !!this.a && this.a.format === 'live'; },
+                        pickAuction() {
+                            if (this.a) {
+                                this.od = this.a.starts_date || '';
+                                this.cd = this.a.ends_date || '';
+                                if (!this.lotTouched || !this.lot) { this.lot = this.a.next_lot; this.lotTouched = false; }
+                            } else { this.od = ''; this.cd = ''; if (!this.lotTouched) this.lot = ''; }
+                            this.ot = ''; this.ct = '';   // the time is always typed in
+                        },
+                    };
+                };
+            </script>
+            @endonce
             @endif
         @endpermission
         @endfeature
