@@ -607,10 +607,14 @@ final class TrackedPropertyMatchOrCreateService
      */
     private function unitDoubt(array $facts, TrackedProperty $tp): bool
     {
-        $f = trim((string) ($facts['unit_number'] ?? $facts['section_number'] ?? '')) !== '';
-        $c = trim((string) ($tp->unit_number ?? $tp->section_number ?? '')) !== '';
+        $fu = trim((string) ($facts['unit_number'] ?? $facts['section_number'] ?? ''));
+        $cu = trim((string) ($tp->unit_number ?? $tp->section_number ?? ''));
+        $f = $fu !== '';
+        $c = $cu !== '';
         if ($f && $c) {
-            return false;
+            // both name a unit: equal agrees. A unit / door number against a deeds SECTION number can legitimately differ
+            // (section numbers are not door numbers), so a difference here is doubt — a possible match, not a link.
+            return $this->numberKey($fu) !== $this->numberKey($cu);
         }
         if ($f) {
             return true; // the incoming data names a unit and the file does not: it is a block / house-level file, never this unit
