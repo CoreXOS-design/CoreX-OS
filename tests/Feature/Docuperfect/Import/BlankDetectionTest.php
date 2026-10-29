@@ -271,6 +271,53 @@ final class BlankDetectionTest extends TestCase
         $this->assertStringContainsString('Save with open fields', $html);
     }
 
+    public function test_the_builder_has_a_loading_cover_an_init_error_banner_and_valid_scripts(): void
+    {
+        $path = $this->leaseDocx();
+        $cds = app(CdsParserService::class)->parse($path);
+        @unlink($path);
+        $draft = CdsDraft::create(['user_id' => $this->admin->id, 'agency_id' => $this->admin->agency_id, 'template_name' => 'LEASE', 'status' => 'draft', 'cds_json' => $cds]);
+
+        $html = $this->actingAs($this->admin)->get(route('docuperfect.cds.builder', $draft))->assertOk()->getContent();
+
+        $this->assertStringContainsString('data-builder-loading', $html);
+        $this->assertStringContainsString('data-builder-init-error', $html);
+        $this->assertStringContainsString('_savedStateUsable', $html);
+
+        // every inline script of the rendered page parses (a syntax slip leaves the builder blank in the browser)
+        preg_match_all('/<script(?![^>]*\ssrc)[^>]*>(.*?)<\/script>/s', $html, $m);
+        $bad = [];
+        foreach ($m[1] as $i => $js) {
+            $file = tempnam(sys_get_temp_dir(), 'js') . '.js';
+            file_put_contents($file, "new Function(" . json_encode($js) . ");");
+            exec('node ' . escapeshellarg($file) . ' 2>&1', $out, $code);
+            if ($code !== 0) {
+                $bad[] = $i . ': ' . implode(' ', array_slice($out, 0, 3));
+            }
+            @unlink($file);
+            $out = [];
+        }
+        $this->assertSame([], $bad);
+    }
+
+    public function test_a_half_saved_draft_with_tags_but_no_tag_spans_opens_from_the_fresh_reading(): void
+    {
+        $path = $this->leaseDocx();
+        $cds = app(CdsParserService::class)->parse($path);
+        @unlink($path);
+        $draft = CdsDraft::create([
+            'user_id' => $this->admin->id, 'agency_id' => $this->admin->agency_id, 'template_name' => 'LEASE', 'status' => 'draft', 'cds_json' => $cds,
+            'tags' => [['id' => 'tag-1', 'type' => 'input', 'label' => '[INPUT 1]', 'number' => 1]], 'mappings' => ['tag-1' => ['mappingType' => 'manual']],
+            'tagged_html' => '<p>saved without any tag spans</p>',
+        ]);
+
+        $html = $this->actingAs($this->admin)->get(route('docuperfect.cds.builder', $draft))->assertOk()->getContent();
+
+        // the page still carries the fresh reading's blanks for the builder to tag (the JS falls back to them)
+        $this->assertGreaterThan(0, substr_count($html, 'class="corex-field"'));
+        $this->assertStringContainsString('hasSavedState', $html);
+    }
+
     public function test_staging_and_live_deploys_run_the_reference_data_sync_like_qa1(): void
     {
         $deploy = (string) file_get_contents(base_path('scripts/deploy.sh'));
