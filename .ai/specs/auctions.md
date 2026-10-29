@@ -212,3 +212,36 @@ Models `Auction*` (+ `BidderDocument`); `app/Services/Auctions/` (BidEngine, Lot
 1. **Public address — YES:** `/auctions/{agency-slug}` on the CoreX domain for v1; each agency's own domain is a later upgrade. (Original question: is `/auctions/{agency-name}` on the CoreX domain fine for v1, with each agency's own domain (e.g. `auctions.theiragency.co.za`) as a later upgrade?
 2. **Reserve on the public page — YES:** default to showing only "Reserve met / not met" (BidPro style), or hide it entirely until the agency chooses?
 3. **Bidder numbers and names — YES:** staff only while bidding is open.
+
+---
+
+## 16. The Preview page (added 2026-11-03, Johan: "a page called preview page where the user can [see] the auction preview page and make edits to the page")
+
+**What and why.** Auctions → **Preview page** shows the agency's public auction site exactly as a visitor will see it — including auctions and lots that are still **drafts** — next to an editor for the wording and pictures on it. The agency sees the result before anyone else does, and changes it without touching code. Nothing is live to the public until the auction itself is published.
+
+**Pillars.** Property (the lots shown), Agent/agency (branding), Contact (via the existing enquiry/sign-up flows, which are switched off inside the preview).
+
+**Screen (S9).** Left: the editor. Right: the preview, in a frame, with a **Desktop / Tablet / Phone** width switch, a "Page to preview" picker (Home page, each auction, each lot), and **Open the live page** / **Copy link**. A banner inside the frame says it is a preview and shows whether the auction is a draft ("only you can see this until you publish it"). Links inside the preview move around the preview; forms (sign up, log in, enquire, bid) are switched off in it.
+
+**What can be edited**
+| On | Field | Notes |
+|---|---|---|
+| The page (agency-wide) | Page title, introduction, enquiries email and phone | existing settings, now edited here too |
+| | **Banner picture** (upload / remove) | shown across the top of the home page; jpg/png/webp, 4 MB |
+| | **Accent colour** | the header/brand colour; blank = the agency's own brand colour |
+| | **"How bidding works"** text | optional section on the home page |
+| | **Footer text** | optional line in the page footer |
+| | **Show past auctions** on the home page | on by default |
+| One auction | Title, description, **cover picture** (upload / remove) | cover shows on the home card and the auction page; editable while the auction is not completed/cancelled |
+
+**Two buttons, on purpose.** **Update preview** re-draws the preview with the edits typed so far — nothing is saved. **Save changes** saves them (and they are live on the public page at once for anything already published). Unsaved picture uploads are held in a per-person temporary file, replaced on each preview and removed on save.
+
+**Rules.** Plain text only (shown escaped, line breaks kept). Colour must be `#rrggbb`. All images stored on the public disk under the agency's own folder. Everything is per agency and neutral by default (no HFC wording). The preview renders through the SAME controllers and views as the public site (never a second copy), so what is previewed is what is served.
+
+**Permissions.** Viewing the preview: `auctions.view`. Saving edits: new key `auctions.page.edit` (branch manager: yes; agent: no). Branch/own scoping applies to which auctions can be picked and edited (an agent only sees auctions they can see anywhere else).
+
+**Data.** `agency_auction_settings`: `hero_image_path`, `accent_color`, `footer_text`, `how_it_works`, `show_past_auctions`. `auctions.cover_image_path` already exists.
+
+**Setup Wizard (NN #10a).** Surfaced in the Auctions step: *Show past auctions*, *How bidding works* text, *Footer text*. **Deliberately NOT in the wizard (Johan to confirm):** the banner picture and the accent colour — a picture cannot be uploaded in a step and the colour is best chosen while looking at the page; both live on the Preview page, which the step links to.
+
+**Acceptance.** A draft auction/lot previews; the public site 404s it. Unsaved edits appear in the preview and are not stored; Save stores them and the public page shows them. A visitor never sees a draft, another agency's page, or a staff-only banner. Forms in the preview do nothing. An agent cannot edit the page; another agency's auction cannot be previewed or edited by ID.

@@ -1528,6 +1528,7 @@
 
                 @permission('auctions.view')
                 <a href="{{ route('corex.auctions.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.index', 'corex.auctions.create', 'corex.auctions.edit', 'corex.auctions.documents.*', 'corex.auctions.room.*') ? 'active' : '' }}">Auctions</a>
+                <a href="{{ route('corex.auctions.preview') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.preview*') ? 'active' : '' }}">Preview page</a>
                 <a href="{{ route('corex.auctions.lots.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.lots.*') ? 'active' : '' }}">Lots</a>
                 @endpermission
                 @permission('auctions.bids.view')

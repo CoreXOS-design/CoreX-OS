@@ -6190,6 +6190,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/create', [$A, 'create'])->middleware('permission:auctions.create')->name('create');
         Route::post('/', [$A, 'store'])->middleware('permission:auctions.create')->name('store');
 
+        // The Preview page (S9) — before the wildcards.
+        $PV = \App\Http\Controllers\CoreX\Auctions\PreviewController::class;
+        Route::get('/preview', [$PV, 'index'])->middleware('permission:auctions.view')->name('preview');
+        Route::match(['get', 'post'], '/preview/frame', [$PV, 'frame'])->middleware('permission:auctions.view')->name('preview.frame');
+        Route::post('/preview', [$PV, 'save'])->middleware('permission:auctions.page.edit')->name('preview.save');
+
         // Results (S7) — before the wildcards.
         Route::get('/results', [\App\Http\Controllers\CoreX\Auctions\ResultController::class, 'index'])->middleware('permission:auctions.results.view')->name('results');
         Route::get('/results/export', [\App\Http\Controllers\CoreX\Auctions\ResultController::class, 'export'])->middleware('permission:auctions.results.export')->name('results.export');

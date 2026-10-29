@@ -21,6 +21,40 @@ use Illuminate\Support\Collection;
  */
 class PublicAuctionSite
 {
+    /** Preview mode (the staff Preview page): drafts are shown too, and unsaved edits to an auction stand in for the saved ones. */
+    private bool $preview = false;
+
+    /** The staff member previewing: they only ever see the auctions their own access allows. */
+    private ?\App\Models\User $previewViewer = null;
+
+    /** @var array<int, array<string, mixed>> auction id => attributes typed but not saved */
+    private array $auctionEdits = [];
+
+    /** A copy of this service for the Preview page. Same queries and views as the public site, with drafts visible. */
+    public function forPreview(\App\Models\User $viewer, array $auctionEdits = []): static
+    {
+        $copy = clone $this;
+        $copy->preview = true;
+        $copy->previewViewer = $viewer;
+        $copy->auctionEdits = $auctionEdits;
+
+        return $copy;
+    }
+
+    public function isPreview(): bool
+    {
+        return $this->preview;
+    }
+
+    private function withEdits(Auction $auction): Auction
+    {
+        if ($this->preview && isset($this->auctionEdits[$auction->id])) {
+            $auction->forceFill($this->auctionEdits[$auction->id]);   // in memory only, never saved
+        }
+
+        return $auction;
+    }
+
     /** The agency for /auctions/{slug}; 404 when unknown or when the agency has not switched Auctions on. */
     public function agency(string $slug): Agency
     {
@@ -34,14 +68,15 @@ class PublicAuctionSite
     public function auctions(Agency $agency): Collection
     {
         return $this->auctionQuery($agency)->withCount(['lots as public_lots_count' => fn ($q) => $q->whereIn('status', $this->visibleLotStatuses())])
-            ->orderByRaw("FIELD(status, 'open', 'published', 'closed', 'completed')")
+            ->orderByRaw("FIELD(status, 'open', 'published', 'draft', 'closed', 'completed')")
             ->orderBy('starts_at')
-            ->get();
+            ->get()
+            ->each(fn (Auction $a) => $this->withEdits($a));
     }
 
     public function auction(Agency $agency, int $id): Auction
     {
-        return $this->auctionQuery($agency)->findOrFail($id);
+        return $this->withEdits($this->auctionQuery($agency)->findOrFail($id));
     }
 
     /** @return Collection<int, AuctionLot> */
@@ -122,13 +157,20 @@ class PublicAuctionSite
     /** Lot statuses that are shown publicly (never draft, never withdrawn). */
     public function visibleLotStatuses(): array
     {
+        if ($this->preview) {
+            return [AuctionLot::STATUS_DRAFT, AuctionLot::STATUS_PUBLISHED, AuctionLot::STATUS_OPEN, AuctionLot::STATUS_SOLD, AuctionLot::STATUS_SOLD_SUBJECT, AuctionLot::STATUS_PASSED_IN];
+        }
+
         return [AuctionLot::STATUS_PUBLISHED, AuctionLot::STATUS_OPEN, AuctionLot::STATUS_SOLD, AuctionLot::STATUS_SOLD_SUBJECT, AuctionLot::STATUS_PASSED_IN];
     }
 
     private function auctionQuery(Agency $agency)
     {
         return Auction::queryWithoutAgencyScope()->withoutGlobalScope(BranchScope::class)
+            ->when($this->preview && $this->previewViewer, fn ($q) => $q->visibleTo($this->previewViewer))
             ->where('agency_id', $agency->id)
-            ->whereIn('status', [Auction::STATUS_PUBLISHED, Auction::STATUS_OPEN, Auction::STATUS_CLOSED, Auction::STATUS_COMPLETED]);
+            ->whereIn('status', $this->preview
+                ? [Auction::STATUS_DRAFT, Auction::STATUS_PUBLISHED, Auction::STATUS_OPEN, Auction::STATUS_CLOSED, Auction::STATUS_COMPLETED]
+                : [Auction::STATUS_PUBLISHED, Auction::STATUS_OPEN, Auction::STATUS_CLOSED, Auction::STATUS_COMPLETED]);
     }
 }

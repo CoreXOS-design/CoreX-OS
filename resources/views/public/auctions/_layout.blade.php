@@ -6,7 +6,7 @@
     <title>@yield('title', $siteTitle) — {{ $siteTitle }}</title>
     <meta name="robots" content="index,follow">
     <style>
-        :root { --brand: {{ $branding['colors']['default'] }}; --button: {{ $branding['colors']['button'] }}; --ink:#1f2937; --muted:#6b7280; --line:#e5e7eb; --bg:#f6f7f9; --card:#fff; }
+        :root { --brand: {{ $accent }}; --button: {{ $branding['colors']['button'] }}; --ink:#1f2937; --muted:#6b7280; --line:#e5e7eb; --bg:#f6f7f9; --card:#fff; }
         @media (prefers-color-scheme: dark) { :root { --ink:#e5e7eb; --muted:#9ca3af; --line:#374151; --bg:#111827; --card:#1f2937; } }
         * { box-sizing: border-box; }
         body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
@@ -41,10 +41,17 @@
         @media (max-width:640px) { .gallery { grid-template-columns:1fr; } .gallery .main { max-height:260px; } .gallery .side { display:none; } }
         .cols { display:grid; grid-template-columns:2fr 1fr; gap:24px; } @media (max-width:820px) { .cols { grid-template-columns:1fr; } }
         ul.docs { list-style:none; padding:0; margin:0; } ul.docs li { padding:8px 0; border-top:1px solid var(--line); }
+        .preview-bar { background:#fef3c7; color:#92400e; font-size:.85rem; padding:8px 16px; text-align:center; border-bottom:1px solid #fcd34d; }
+        .hero { background-color:var(--brand); background-size:cover; background-position:center; color:#fff; border-radius:14px; padding:56px 28px; margin:0 0 20px; position:relative; overflow:hidden; }
+        .hero::before { content:''; position:absolute; inset:0; background:linear-gradient(90deg, rgba(0,0,0,.55), rgba(0,0,0,.15)); }
+        .hero > * { position:relative; } .hero h1 { color:#fff; font-size:2rem; margin-top:0; } .hero p { color:#f3f4f6; max-width:640px; margin-bottom:0; }
         footer { text-align:center; color:var(--muted); font-size:.8rem; padding:24px 16px 40px; }
     </style>
 </head>
 <body>
+@if($isPreview ?? false)
+<div class="preview-bar" data-preview-bar><strong>Preview.</strong> This is how visitors will see this page. Forms and bidding are switched off here. {{ $previewNote ?? '' }}</div>
+@endif
 <header class="top">
     <div class="bar">
         <a class="brand" href="{{ route('public.auctions.home', $agency->slug) }}">
@@ -68,8 +75,33 @@
     @yield('content')
 </main>
 <footer>
+    @if(($footerText ?? '') !== '')<div style="white-space:pre-line;margin-bottom:6px;">{{ $footerText }}</div>@endif
     &copy; {{ date('Y') }} {{ $branding['name'] }}
     @if($contactEmail || $contactPhone) · @if($contactEmail)<a href="mailto:{{ $contactEmail }}">{{ $contactEmail }}</a>@endif @if($contactPhone) {{ $contactPhone }}@endif @endif
 </footer>
+@if($isPreview ?? false)
+<script>
+    // Inside the Preview page: move around the preview, never the live site, and keep every form inert.
+    (function () {
+        var base = @json(url('/auctions/' . $agency->slug));
+        var frame = @json(route('corex.auctions.preview.frame'));
+        function tell(path) { try { parent.postMessage({ auctionPreviewPath: path }, '*'); } catch (e) {} }
+        document.addEventListener('click', function (e) {
+            var a = e.target.closest ? e.target.closest('a') : null;
+            if (!a) return;
+            var h = a.getAttribute('href') || '';
+            if (h === '' || h.charAt(0) === '#') return;
+            e.preventDefault();
+            if (h.indexOf(base) === 0) {
+                var path = h.substring(base.length).split('?')[0].replace(/\/$/, '') || '/';
+                location.href = frame + '?path=' + encodeURIComponent(path);
+            }
+        });
+        document.querySelectorAll('form').forEach(function (f) { f.addEventListener('submit', function (e) { e.preventDefault(); }); });
+        document.querySelectorAll('form button, form input[type=submit]').forEach(function (b) { b.style.opacity = '.6'; b.style.cursor = 'not-allowed'; });
+        tell(@json($previewPath ?? '/'));
+    })();
+</script>
+@endif
 </body>
 </html>

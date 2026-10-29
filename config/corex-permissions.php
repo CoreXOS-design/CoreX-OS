@@ -1067,6 +1067,8 @@ return [
         ['key' => 'auctions.hammer',            'label' => 'Knock Down / Pass In / Confirm a Sale', 'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 21],
         ['key' => 'auctions.results.view',      'label' => 'View Results',                   'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 22],
         ['key' => 'auctions.results.export',    'label' => 'Export Results',                 'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 23],
+        // Preview page (S9): looking needs auctions.view; changing the wording and pictures needs this.
+        ['key' => 'auctions.page.edit',         'label' => 'Edit the Public Auction Page',   'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 24],
         ['key' => 'auctions.enquiries.view_all', 'label' => "View All Branches' Enquiries",    'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 13],
     ],
 
@@ -1153,6 +1155,7 @@ return [
                 'auctions.enquiries.view', 'auctions.enquiries.manage',
                 'auctions.bidders.view', 'auctions.bidders.approve', 'auctions.bidders.review_documents', 'auctions.bids.view',
                 'auctions.room.operate', 'auctions.hammer', 'auctions.results.view', 'auctions.results.export',
+                'auctions.page.edit',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts', 'export_reports',
                 'access_agency_tracker', 'access_daily_activity', 'access_deal_register',
                 'access_listing_stock', 'access_tv_messages', 'access_worksheet_market',

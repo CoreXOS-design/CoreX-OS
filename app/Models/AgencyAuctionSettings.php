@@ -25,6 +25,7 @@ class AgencyAuctionSettings extends Model
         'default_increments', 'soft_close_minutes', 'reserve_visibility', 'show_bid_count', 'show_bidder_numbers',
         'registration_closes_hours', 'docs_required_individual', 'docs_required_company', 'terms_text',
         'notify_enquiry_to', 'outbid_emails', 'confirmation_days',
+        'hero_image_path', 'accent_color', 'how_it_works', 'footer_text', 'show_past_auctions',
     ];
 
     protected $casts = [
@@ -37,6 +38,7 @@ class AgencyAuctionSettings extends Model
         'show_bid_count' => 'boolean',
         'show_bidder_numbers' => 'boolean',
         'outbid_emails' => 'boolean',
+        'show_past_auctions' => 'boolean',
     ];
 
     public const RESERVE_VISIBILITY = ['hidden' => 'Do not show anything about the reserve', 'met_not_met' => 'Show "Reserve met" / "Reserve not met"'];
@@ -51,8 +53,34 @@ class AgencyAuctionSettings extends Model
     /** Bid ladder: [from_amount, increment] pairs, ascending. Amounts in the auction's currency. */
     public const DEFAULT_INCREMENTS = [[0, 5000], [500000, 10000], [1000000, 25000], [5000000, 50000]];
 
+    /**
+     * Unsaved edits shown in the Preview page: agency id => column => value. Set only for the duration of one preview render
+     * (see withPreview()); never persisted, and empty on every real request.
+     *
+     * @var array<int, array<string, mixed>>
+     */
+    private static array $previewOverrides = [];
+
+    /** Run $render with these unsaved values standing in for the saved settings, then put everything back. */
+    public static function withPreview(int $agencyId, array $overrides, callable $render): mixed
+    {
+        $before = self::$previewOverrides;
+        self::$previewOverrides[$agencyId] = $overrides;
+        try {
+            return $render();
+        } finally {
+            self::$previewOverrides = $before;
+        }
+    }
+
     private static function value(int $agencyId, string $column, mixed $default): mixed
     {
+        if (array_key_exists($column, self::$previewOverrides[$agencyId] ?? [])) {
+            $v = self::$previewOverrides[$agencyId][$column];
+
+            return $v === null || $v === '' ? $default : $v;
+        }
+
         $row = static::query()->where('agency_id', $agencyId)->first();
         $v = $row?->{$column};
 
@@ -76,6 +104,23 @@ class AgencyAuctionSettings extends Model
     public static function introTextFor(int $agencyId): string { return (string) static::value($agencyId, 'intro_text', ''); }
     public static function contactEmailFor(int $agencyId): string { return (string) static::value($agencyId, 'contact_email', ''); }
     public static function contactPhoneFor(int $agencyId): string { return (string) static::value($agencyId, 'contact_phone', ''); }
+    /** Public URL of the banner picture on the home page, or null. */
+    public static function heroImageUrlFor(int $agencyId): ?string
+    {
+        $path = static::value($agencyId, 'hero_image_path', null);
+
+        return $path ? asset('storage/' . ltrim((string) $path, '/')) : null;
+    }
+    /** The header colour (#rrggbb) the agency chose, or null to use its own brand colour. */
+    public static function accentColorFor(int $agencyId): ?string
+    {
+        $c = static::value($agencyId, 'accent_color', null);
+
+        return is_string($c) && preg_match('/^#[0-9a-fA-F]{6}$/', $c) ? $c : null;
+    }
+    public static function howItWorksFor(int $agencyId): string { return (string) static::value($agencyId, 'how_it_works', ''); }
+    public static function footerTextFor(int $agencyId): string { return (string) static::value($agencyId, 'footer_text', ''); }
+    public static function showPastAuctionsFor(int $agencyId): bool { return (bool) static::value($agencyId, 'show_past_auctions', true); }
     public static function referencePrefixFor(int $agencyId): string { return (string) static::value($agencyId, 'reference_prefix', 'AUC'); }
     public static function softCloseMinutesFor(int $agencyId): int { return (int) static::value($agencyId, 'soft_close_minutes', 5); }
     public static function reserveVisibilityFor(int $agencyId): string { return (string) static::value($agencyId, 'reserve_visibility', 'met_not_met'); }

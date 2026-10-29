@@ -31,7 +31,7 @@ class SiteController extends Controller
         $auctions = $this->site->auctions($agency);
 
         return view('public.auctions.home', $this->shared($agency) + [
-            'live' => $auctions->whereIn('status', ['published', 'open']),
+            'live' => $auctions->whereIn('status', ['draft', 'published', 'open']),
             'past' => $auctions->whereIn('status', ['closed', 'completed']),
         ]);
     }
@@ -110,6 +110,11 @@ class SiteController extends Controller
             'intro' => AgencyAuctionSettings::introTextFor((int) $agency->id),
             'contactEmail' => AgencyAuctionSettings::contactEmailFor((int) $agency->id),
             'contactPhone' => AgencyAuctionSettings::contactPhoneFor((int) $agency->id),
+            'accent' => AgencyAuctionSettings::accentColorFor((int) $agency->id) ?? $branding['colors']['default'],
+            'heroUrl' => AgencyAuctionSettings::heroImageUrlFor((int) $agency->id),
+            'howItWorks' => AgencyAuctionSettings::howItWorksFor((int) $agency->id),
+            'footerText' => AgencyAuctionSettings::footerTextFor((int) $agency->id),
+            'showPast' => AgencyAuctionSettings::showPastAuctionsFor((int) $agency->id),
             'buyer' => $buyer,
         ];
     }

@@ -20,6 +20,7 @@
         @csrf
         <section class="rounded-md p-5 space-y-4" style="background:var(--surface);border:1px solid var(--border);">
             <h2 class="text-sm font-bold" style="color:var(--text-primary);">Your public auction page</h2>
+            <p class="text-xs" style="color:var(--text-muted);">To see how it looks, and to change the banner picture and colour, use the <a href="{{ route('corex.auctions.preview') }}" class="underline">Preview page</a>.</p>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div><label class="{{ $label }}" style="color:var(--text-secondary);">Page title</label>
                     <input name="site_title" value="{{ old('site_title', $values['site_title']) }}" placeholder="Your agency name" class="{{ $field }}" style="{{ $fieldStyle }}"></div>
@@ -32,6 +33,12 @@
                     <input name="contact_phone" value="{{ old('contact_phone', $values['contact_phone']) }}" class="{{ $field }}" style="{{ $fieldStyle }}"></div>
                 <div class="md:col-span-2"><label class="{{ $label }}" style="color:var(--text-secondary);">Introduction shown on the page</label>
                     <textarea name="intro_text" rows="3" class="{{ $field }}" style="{{ $fieldStyle }}">{{ old('intro_text', $values['intro_text']) }}</textarea></div>
+                <div class="md:col-span-2"><label class="{{ $label }}" style="color:var(--text-secondary);">How bidding works (optional)</label>
+                    <textarea name="how_it_works" rows="3" class="{{ $field }}" style="{{ $fieldStyle }}">{{ old('how_it_works', $values['how_it_works']) }}</textarea></div>
+                <div class="md:col-span-2"><label class="{{ $label }}" style="color:var(--text-secondary);">Footer text (optional)</label>
+                    <textarea name="footer_text" rows="2" class="{{ $field }}" style="{{ $fieldStyle }}">{{ old('footer_text', $values['footer_text']) }}</textarea></div>
+                <div class="md:col-span-2"><input type="hidden" name="show_past_auctions" value="0">
+                    <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="show_past_auctions" value="1" @checked(old('show_past_auctions', $values['show_past_auctions']))> Show past auctions on the page</label></div>
                 <div><label class="{{ $label }}" style="color:var(--text-secondary);">Who is told about a new enquiry</label>
                     <select name="notify_enquiry_to" class="{{ $field }}" style="{{ $fieldStyle }}">
                         @foreach(\App\Models\AgencyAuctionSettings::NOTIFY_ENQUIRY_TO as $k => $l)<option value="{{ $k }}" @selected(old('notify_enquiry_to', $values['notify_enquiry_to']) === $k)>{{ $l }}</option>@endforeach

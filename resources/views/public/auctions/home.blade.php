@@ -1,8 +1,15 @@
 @extends('public.auctions._layout')
 @section('title', 'Auctions')
 @section('content')
+    @if($heroUrl)
+    <div class="hero" style="background-image:url('{{ $heroUrl }}');" data-hero>
+        <h1>{{ $siteTitle }}</h1>
+        @if($intro !== '')<p>{{ $intro }}</p>@endif
+    </div>
+    @else
     <h1>{{ $siteTitle }}</h1>
     @if($intro !== '')<p class="muted" style="max-width:720px;">{{ $intro }}</p>@endif
+    @endif
 
     @if(! $buyer)
     <div class="panel" style="margin:16px 0;">
@@ -23,7 +30,12 @@
         </div>
     @endif
 
-    @if($past->isNotEmpty())
+    @if($howItWorks !== '')
+    <h2>How bidding works</h2>
+    <div class="panel" style="white-space:pre-line;" data-how-it-works>{{ $howItWorks }}</div>
+    @endif
+
+    @if($showPast && $past->isNotEmpty())
     <h2>Past auctions</h2>
     <div class="grid">
         @foreach($past as $a)
