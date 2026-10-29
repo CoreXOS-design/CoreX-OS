@@ -210,13 +210,24 @@ final class TemplateReadinessReport
 
     private function r01Wording(Template $t, array $c): array
     {
-        $has = $this->isWeb($t)
-            ? (! empty($c['cds']['sections']) || ! empty($c['editor']['tagged_html']) || ! empty($this->col($t->getRawOriginal('sections'), true)) || ! empty($t->blade_view))
-            : ((int) $t->page_count > 0);
+        if (! $this->isWeb($t)) {
+            return (int) $t->page_count > 0
+                ? $this->check('R01', 'The document has wording', self::PASS, 'The template has its document content.')
+                : $this->check('R01', 'The document has wording', self::FAIL, 'There is no document content saved on this template.', 'Open it in the builder and save it once.');
+        }
+        // The package exporter moves the saved wording (sections or tagged text), never the generated page file: a template that has only the
+        // page file reads fine here but is refused at release ("cannot be exported"), so it is not ready.
+        $saved = ! empty($c['cds']['sections']) || (is_string($c['editor']['tagged_html'] ?? null) && trim((string) $c['editor']['tagged_html']) !== '');
+        if ($saved) {
+            return $this->check('R01', 'The document has wording', self::PASS, 'The template has its document content.');
+        }
+        $pageOnly = ! empty($t->blade_view) || ! empty($this->col($t->getRawOriginal('sections'), true));
 
-        return $has
-            ? $this->check('R01', 'The document has wording', self::PASS, 'The template has its document content.')
-            : $this->check('R01', 'The document has wording', self::FAIL, 'There is no document content saved on this template.', 'Open it in the builder and save it once.');
+        return $this->check(
+            'R01', 'The document has wording', self::FAIL,
+            $pageOnly ? 'The wording is held only in a generated page file, so the template cannot be moved to an agency.' : 'There is no document content saved on this template.',
+            'Open it in the builder and save it once.'
+        );
     }
 
     private function r02PageFile(Template $t, array $c): array

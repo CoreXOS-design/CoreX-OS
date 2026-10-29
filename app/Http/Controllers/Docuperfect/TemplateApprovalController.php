@@ -59,12 +59,17 @@ class TemplateApprovalController extends Controller
         $col = ['released_at' => 'docuperfect_template_releases.released_at', 'template' => 'st.name', 'state' => 'docuperfect_template_releases.state'][$sort];
         $query->orderBy($col, $dir)->orderByDesc('docuperfect_template_releases.id');
 
+        // One count per state, for the chips above the list (the same agency scope as the list itself).
+        $stateCounts = TemplateRelease::query()->selectRaw('state, count(*) as n')->groupBy('state')->pluck('n', 'state')->map(fn ($n) => (int) $n)->all();
+
         $setting = $agencyId > 0 ? AgencyDocumentAuthorisers::settings($agencyId) : ['user_ids' => [], 'roles' => []];
 
         return view('docuperfect.releases.approvals', [
             'releases' => $query->paginate(self::PER_PAGE)->withQueryString(),
             'filters' => ['q' => $q, 'state' => $state, 'from' => $from, 'to' => $to],
             'states' => TemplateRelease::STATES,
+            'stateCounts' => $stateCounts,
+            'canSetAuthorisers' => ! $user->isOwnerRole() && $user->hasPermission('esign.settings'),
             'sort' => $sort, 'dir' => $dir,
             'filtered' => $q !== '' || ($state !== TemplateRelease::STATE_AWAITING) || $from || $to,
             'canDecide' => ! $user->isOwnerRole() && AgencyDocumentAuthorisers::canAuthorise($user, $agencyId),

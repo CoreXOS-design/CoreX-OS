@@ -14,7 +14,7 @@
 | 4 | **Library** | Packs · Web Packs · Clause Library · Compile Studio |
 | 5 | **Templates** | Template Management · Field Groups · Named Fields · Document Types · Import Document · Template Packages · Releases · Approvals |
 | 5a | **Document workshop** (28 Oct 2026; own link, not a tab hub) | System Owner with `templates.release` only: the template list with where each is on the road to an agency, and Check readiness · Demo view · Verify · Release per row |
-| 5b | **Approve documents** (28 Oct 2026; own link) | An agency's named authorisers (`templates.approve_release`): the Approvals screen, with the waiting count |
+| 5b | **Approve documents** (28 Oct 2026; own link) | An agency's named authorisers (`templates.approve_release`): the Approvals screen, with the waiting count For an agency user the screen is headed "Documents from CoreX" with the three-line road, state chips, a Demo view button per row and a link to Who may authorise documents (esign-template-transfer.md §13.4b). |
 | 6 | **E-Sign Settings** | Recipient Presets · Recipient Templates · Finalisation Settings · How my signers sign · Who may authorise documents |
 
 Every label is unchanged. "Authorise Documents" is the My E-Sign Documents screen with `?filter=authorisation` (as its old menu
