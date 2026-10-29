@@ -89,7 +89,7 @@ final class PortalRefBackfillTest extends TestCase
     private function rawCapture(string $site, string $id): int
     {
         return (int) DB::table('portal_listings')->insertGetId([
-            'source_site' => $site, 'portal_listing_id' => $id, 'created_at' => now(), 'updated_at' => now(),
+            'agency_id' => $this->agencyId, 'source_site' => $site, 'portal_listing_id' => $id, 'created_at' => now(), 'updated_at' => now(),
         ]);
     }
 
@@ -279,7 +279,7 @@ final class PortalRefBackfillTest extends TestCase
         ]);
         $this->assertSame('p24:117743851', $alert->fresh()->canonical_ref);
 
-        $pl = PortalListing::create(['source_site' => 'www.property24.com', 'portal_listing_id' => '100352744']);
+        $pl = PortalListing::create(['agency_id' => $this->agencyId, 'source_site' => 'www.property24.com', 'portal_listing_id' => '100352744']);
         $this->assertSame('p24:100352744', $pl->fresh()->canonical_ref);
 
         $p = new Property();
