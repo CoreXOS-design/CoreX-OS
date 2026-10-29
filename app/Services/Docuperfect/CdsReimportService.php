@@ -70,6 +70,9 @@ class CdsReimportService
                     }
                 }
             }
+            foreach (CdsTableFields::walk($section) as $item) {
+                $add((string) ($item['field_name'] ?? ''), (string) ($item['label'] ?? ''));
+            }
         }
 
         return $fields;

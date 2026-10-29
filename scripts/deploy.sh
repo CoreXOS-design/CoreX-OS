@@ -710,6 +710,21 @@ for seeder in "${REF_SEEDERS[@]}"; do
 done
 ok "All ${#REF_SEEDERS[@]} reference seeders applied"
 
+# Seeder-owned reference data that must travel with a deploy (esign-import-blanks.md, 29 Oct 2026 - Johan).
+#
+# `deploy:sync-reference-data` runs EVERY seeder that implements App\Contracts\SyncableReferenceSeeder (opt-in marker, discovered under
+# database/seeders) plus `corex:sync-permissions --merge-defaults`. scripts/qa-deploy.sh has always run it; this script did not, so a
+# fix owned by one of those seeders (e.g. the Sales Mandatory Disclosure template's buyer signer, re-seeded from its JSON) reached QA1
+# and never Staging or live. The list of what runs is written to the deploy log first (--dry-run), then it is run for real.
+# Every one of those seeders is idempotent (find-or-update). NOTE for live: the two document-template seeders (Sales Mandatory
+# Disclosure, Addendum B) put the template's content back to the repo's JSON on every deploy, as they already do on QA1.
+log "  ⋯ Reference data sync - what will run:"
+php artisan deploy:sync-reference-data --dry-run >> "$LOG_FILE" 2>&1 \
+    || fail "deploy:sync-reference-data --dry-run failed (see $LOG_FILE)"
+php artisan deploy:sync-reference-data >> "$LOG_FILE" 2>&1 \
+    || fail "deploy:sync-reference-data failed (see $LOG_FILE) - on 'role_permissions is EMPTY' check the roles table, then re-run"
+ok "Reference data synced (deploy:sync-reference-data)"
+
 # Permissions sync (idempotent — config/corex-permissions.php is the source).
 #
 # DEPLOY-PERM-SAFE 2026-06-04 — switched from --seed-defaults to

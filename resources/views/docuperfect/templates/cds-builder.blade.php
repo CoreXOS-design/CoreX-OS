@@ -218,6 +218,31 @@
                     </div>
                 </template>
 
+                {{-- esign-import-blanks.md: with fields still open the template can still be SAVED (as work in progress); the readiness report then lists every open field and the template cannot be released until they are linked. --}}
+                <template x-if="!allMapped && totalTagCount > 0">
+                    <form x-ref="generateFormOpen" method="POST" action="{{ route('docuperfect.cds.generate') }}" class="inline" data-save-with-open-fields
+                          @submit.prevent="saveWithOpenFields($el)">
+                        @csrf
+                        <input type="hidden" name="draft_id" :value="draftId">
+                        <input type="hidden" name="template_name" :value="templateName">
+                        <input type="hidden" name="is_esign" :value="isEsign ? 1 : 0">
+                        <input type="hidden" name="esign_acknowledged" :value="esignAcknowledged ? 1 : 0">
+                        <input type="hidden" name="party_mode" :value="partyMode">
+                        <input type="hidden" name="allowed_delivery_modes" :value="deliveryModes.join(',')">
+                        <input type="hidden" name="security_tier" :value="securityTier">
+                        <input type="hidden" name="signing_parties" :value="JSON.stringify(templateSigningParties)">
+                        <input type="hidden" name="category" :value="templateCategory">
+                        <input type="hidden" name="document_type_id" :value="templateDocumentTypeId">
+                        <input type="hidden" name="document_look" :value="documentLook">
+                        <input type="hidden" name="signature_block" :value="signatureBlock">
+                        <input type="hidden" name="outstanding" :value="outstandingCount">
+                        <button type="submit"
+                                class="text-sm px-3 py-2 rounded-lg border border-emerald-400 bg-white hover:bg-emerald-50 text-emerald-800 transition-colors font-semibold whitespace-nowrap">
+                            Save with open fields
+                        </button>
+                    </form>
+                </template>
+
                 {{-- State 2: All linked --}}
                 <template x-if="allMapped && totalTagCount > 0">
                     <div class="flex items-center gap-3">
@@ -433,6 +458,7 @@
                                 <option value="{{ $dt->id }}">{{ $dt->name }}</option>
                                 @endforeach
                             </select>
+                            <p class="text-[10px] text-amber-700 mt-1" x-show="guessNote" x-text="guessNote" data-guess-note></p>
                         </div>
 
                         {{-- Document look --}}
@@ -460,6 +486,19 @@
                                 From document: the Word file's own signature table carries the signature and date places, so CoreX's Lessor / Lessee / Agent block is not added after it.
                             </p>
                         </div>
+
+                        {{-- esign-import-blanks.md - the Word file kept on this draft can be read again with the importer's current rules --}}
+                        @if(!empty($draftSourceName) && empty($sourceTemplateId))
+                        <div data-draft-source>
+                            <label class="text-[10px] font-semibold text-gray-500 uppercase block mb-1">Word file</label>
+                            <p class="text-[10px] text-gray-500 mb-1">{{ $draftSourceName }} is kept on this draft.</p>
+                            <form method="POST" action="{{ route('docuperfect.cds.builder.reread', $draftId) }}"
+                                  data-confirm="Reading the Word file again replaces what this draft shows and clears the field links you have made on it. Continue?" data-confirm-label="Read again">
+                                @csrf
+                                <button type="submit" class="corex-btn-outline text-xs px-3 py-1.5" data-reread>Re-read with current rules</button>
+                            </form>
+                        </div>
+                        @endif
 
                         {{-- Word file — Re-import from Word (spec: .ai/specs/cds-reimport-from-word.md) --}}
                         @if(!empty($sourceTemplate) && $sourceTemplate->template_type === 'cds')
@@ -1179,6 +1218,7 @@ function cdsEditor() {
         fieldGroups: @json($fieldGroups ?? []),
         namedFieldsAll: @json($namedFieldsAll ?? []),
         isLeaseDocument: @json($isLeaseDocument ?? false),
+        guessNote: '',
         showAllFields: false,
         aiBusy: false,
         aiNote: '',
@@ -1275,6 +1315,16 @@ function cdsEditor() {
             if (!this.hasSourceTemplate && this._esignNeedsAck()) {
                 this.isEsign = false;
             }
+        },
+
+        // Save while some fields are still unlinked: the open ones print as plain blanks and the readiness report flags each.
+        async saveWithOpenFields(formEl) {
+            const n = this.outstandingCount;
+            const ok = window.corexConfirm
+                ? await window.corexConfirm({ message: n + ' field(s) are not linked yet. Save the template anyway? It is saved as work in progress: the readiness report lists the open fields and the template cannot be released to an agency until they are linked.', confirmLabel: 'Save anyway' })
+                : true;
+            if (!ok) return;
+            return this.saveAndGenerate(formEl);
         },
 
         async saveAndGenerate(formEl) {
@@ -1490,7 +1540,14 @@ function cdsEditor() {
                     return; // Skip fresh parse path
                 }
 
-                // â”€â”€ FRESH PATH: convert CDS field spans to tags + auto-suggest â”€â”€
+                // â”€â”€ FRESH PATH: convert CDS field spans to tags + auto-suggest â”€â”€                // esign-import-blanks.md - the importer's guess at the category and document type (both stay editable).
+                const guess = @json($guess ?? null);
+                if (guess) {
+                    if (!this.templateCategory && guess.category) this.templateCategory = guess.category;
+                    if (!this.templateDocumentTypeId && guess.document_type_id) this.templateDocumentTypeId = String(guess.document_type_id);
+                    this.guessNote = guess.note || '';
+                }
+
                 // Convert CDS .corex-field spans to doc-tag system
                 // Handles: input fields, marker-based SIG (%%%%), marker-based INI (####)
                 const cdsFieldSpans = document.querySelectorAll('#docContainer .corex-field');
