@@ -15,15 +15,16 @@ use Illuminate\Console\Command;
  *
  *   --dry-run   load + validate + preview: says exactly what an import would create (field definitions, groups, the name clash, the
  *               lease link, whether the agency exists on THIS system). No row, no file, no log entry.
- *   --release   land it NOT live, awaiting the agency's approval (TemplateReleaseService::releaseFromPackage) — the way a document
- *               moves from QA1 to live. Without it the template is imported live, as the Template Packages screen does.
+ *   (always)    an import lands NOT live, awaiting the agency's approval (TemplateReleaseService::releaseFromPackage) — the way a document
+ *               moves from QA1 to live, and the same gate the Template Packages screen uses. There is no way to import straight to live.
+ *   --release   kept so older instructions still work; it changes nothing (releasing is the only route).
  *
  *   php artisan templates:import {file} --agency=ID [--actor=OWNER_USER_ID] [--dry-run] [--release] [--allow-no-document-type]
  * A name already used in the agency becomes "<name> v2"; nothing is ever replaced. Any refusal is printed in plain words and exits 1.
  */
 class TemplateImportCommand extends Command
 {
-    protected $signature = 'templates:import {file : path to the .cxpkg} {--agency= : agencies.id on THIS system} {--actor= : the CoreX owner\'s user id (needed to import for real)} {--dry-run : only say what would happen; write nothing} {--release : land it awaiting the agency\'s approval instead of live} {--allow-no-document-type : import without a document type when this system does not have it}';
+    protected $signature = 'templates:import {file : path to the .cxpkg} {--agency= : agencies.id on THIS system} {--actor= : the CoreX owner\'s user id (needed to import for real)} {--dry-run : only say what would happen; write nothing} {--release : accepted for older instructions; an import always lands awaiting the agency\'s approval} {--allow-no-document-type : import without a document type when this system does not have it}';
 
     protected $description = 'Import an e-sign template package (use --dry-run to see exactly what would happen without writing anything)';
 
@@ -104,21 +105,9 @@ class TemplateImportCommand extends Command
         }
 
         try {
-            if ($this->option('release')) {
-                foreach ($loaded as $pkg) {
-                    $r = $releases->releaseFromPackage($pkg, $agency, $actor, (bool) $this->option('allow-no-document-type'));
-                    $this->info('Released to ' . $agency->name . ' as template #' . $r->template_id . ' (version ' . $r->version . '), waiting for approval. It is not live until the agency approves it.');
-                }
-            } else {
-                $choices = [];
-                foreach ($previews as $p) {
-                    if ($p['clash']['exists']) {
-                        $choices[$p['index']] = TemplatePackageImporter::CHOICE_NEW_VERSION;
-                    }
-                }
-                foreach ($importer->import($loaded, $agency, $actor, $choices, (bool) $this->option('allow-no-document-type')) as $t) {
-                    $this->info('Imported into ' . $agency->name . ' as template #' . $t->id . ' "' . $t->name . '" (live).');
-                }
+            foreach ($loaded as $pkg) {
+                $r = $releases->releaseFromPackage($pkg, $agency, $actor, (bool) $this->option('allow-no-document-type'));
+                $this->info('Released to ' . $agency->name . ' as template #' . $r->template_id . ' (version ' . $r->version . '), waiting for approval. It is not live until the agency approves it.');
             }
         } catch (TemplateTransferException|TemplateReleaseException $e) {
             $this->error(trim($e->getMessage()));
