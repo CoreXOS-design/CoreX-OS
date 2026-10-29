@@ -189,6 +189,17 @@ final class PropertyIdentityResolverTest extends TestCase
         $this->assertNotSame($a->trackedProperty->id, $b->trackedProperty->id);
     }
 
+    public function test_a_door_number_that_differs_from_the_deeds_section_number_is_a_possible_match_only(): void
+    {
+        // a deeds file: section 5 of the scheme, no door number
+        $deeds = $this->resolve(['street_number' => '18', 'street_name' => 'Orange Rocks Road', 'suburb' => 'Margate', 'scheme_name' => 'Ishumi', 'section_number' => '5', 'property_type' => 'apartment'], ['type' => 'deeds_capture', 'ref' => 'cmainfo:ISHUMI/5']);
+        // our stock says "Unit 7": section 5 is not necessarily door 7
+        $stock = $this->mic('P24-116000007', ['street_number' => '18', 'street_name' => 'Orange Rocks Road', 'suburb' => 'Margate', 'unit_number' => '7', 'property_type' => 'apartment']);
+
+        $this->assertTrue($stock->created);
+        $this->assertSame($deeds->trackedProperty->id, $stock->possible[0]['id']);
+    }
+
     public function test_a_freehold_house_with_no_unit_links_on_address(): void
     {
         $base = ['street_number' => '12', 'street_name' => 'Beach Road', 'suburb' => 'Uvongo', 'property_type' => 'house'];
