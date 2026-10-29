@@ -15,7 +15,7 @@
             @if($work && $work->prospecting_status)
                 <strong style="color: var(--text-primary);">{{ $work->statusLabel() }}</strong>
                 @if($work->prospecting_reason) - {{ $work->prospecting_reason }}@endif
-                <span style="color: var(--text-muted);">({{ $work->statusSetBy?->name ?? 'someone' }}, {{ $work->status_set_at?->format('j M Y') }})</span>
+                @if($work->statusSetBy)<span style="color: var(--text-muted);">({{ $work->statusSetBy->name }}, {{ $work->status_set_at?->format('j M Y') }})</span>@endif
             @else
                 Nothing recorded yet
             @endif
