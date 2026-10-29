@@ -16,8 +16,21 @@
 <div class="w-full ws-fit gap-3" data-fixed-shell data-approvals-page>
 
     <div class="rounded-md px-6 py-4 corex-page-banner flex-shrink-0">
-        <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Approvals</h1>
+        <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $ownerView ? 'Approvals' : 'Documents from CoreX' }}</h1>
         <p class="text-xs" style="color: var(--text-muted);">Documents CoreX has prepared for your agency. A document only goes live — and can only be used by your agents — once someone you have chosen to authorise documents approves it.</p>
+        @unless($ownerView)
+            <ol class="text-xs mt-1 list-decimal pl-4" style="color: var(--text-secondary);" data-agency-workshop-how>
+                <li>CoreX builds the document and checks it is complete.</li>
+                <li>You look at it with sample data (Demo view), exactly as your clients will see it.</li>
+                <li>Someone you have chosen approves it, and it is live for your agents.</li>
+            </ol>
+        @endunless
+        <div class="flex flex-wrap items-center gap-2 mt-2" data-state-chips>
+            @foreach($states as $st)
+                <a href="{{ route('docuperfect.template-approvals.index', ['state' => $st]) }}" class="text-xs px-2 py-1 rounded-md" style="border: 1px solid var(--border); color: {{ $stateColour[$st] ?? 'var(--text-muted)' }};" data-state-chip="{{ $st }}">{{ TemplateRelease::stateLabel($st) }}: {{ $stateCounts[$st] ?? 0 }}</a>
+            @endforeach
+            @if($canSetAuthorisers)<a href="{{ route('docuperfect.esign.settings.document-authorisers') }}" class="text-xs underline ml-2" style="color: var(--text-muted);" data-link-authoriser-setting>Who may authorise documents</a>@endif
+        </div>
     </div>
 
     @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\DocumentTemplatesTabs::class])
@@ -70,6 +83,7 @@
                         <td class="px-4 py-2 text-xs whitespace-nowrap" style="color: var(--text-secondary);">{{ $r->released_at?->format('j M Y H:i') }}</td>
                         <td class="px-4 py-2 text-xs whitespace-nowrap" style="color: var(--text-secondary);">@if($r->decided_at){{ $r->decided_at->format('j M Y H:i') }}<br><span style="color: var(--text-muted);">{{ $r->decidedByUser?->name }}</span>@else — @endif</td>
                         <td class="px-4 py-2 text-right whitespace-nowrap">
+                            @if($r->template_id && in_array($r->state, ['awaiting_approval', 'live'], true))<a href="{{ route('docuperfect.templates.demo', $r->template_id) }}" class="corex-btn-outline text-xs px-3 py-1" data-demo-link>Demo view</a>@endif
                             <a href="{{ route('docuperfect.template-approvals.show', $r->id) }}" class="{{ ($canDecide && $r->state === 'awaiting_approval') ? 'corex-btn-primary' : 'corex-btn-outline' }} text-xs px-3 py-1">{{ ($canDecide && $r->state === 'awaiting_approval') ? 'Review and approve' : 'View' }}</a>
                         </td>
                     </tr>

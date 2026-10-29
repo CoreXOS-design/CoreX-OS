@@ -7,8 +7,8 @@
     $verdict = $readiness['verdict'];
     $verdictText = ['not_ready' => 'Not ready: something must be fixed first', 'ready_with_warnings' => 'Ready, with things worth a look', 'ready' => 'Ready'][$verdict];
     $verdictColour = ['not_ready' => 'var(--ds-crimson)', 'ready_with_warnings' => 'var(--ds-amber, #d97706)', 'ready' => 'var(--ds-green)'][$verdict];
-    $statusText = ['bound' => 'Linked', 'guessed' => 'Guessed', 'placeholder' => 'Placeholder', 'empty' => 'EMPTY', 'missing' => 'Not on the page'];
-    $statusColour = ['bound' => 'var(--ds-green)', 'guessed' => 'var(--ds-amber, #d97706)', 'placeholder' => 'var(--ds-amber, #d97706)', 'empty' => 'var(--ds-crimson)', 'missing' => 'var(--ds-crimson)'];
+    $statusText = ['bound' => 'Linked', 'known' => 'Filled', 'guessed' => 'Guessed', 'placeholder' => 'Placeholder', 'empty' => 'EMPTY', 'missing' => 'Not on the page'];
+    $statusColour = ['bound' => 'var(--ds-green)', 'known' => 'var(--ds-green)', 'guessed' => 'var(--ds-amber, #d97706)', 'placeholder' => 'var(--ds-amber, #d97706)', 'empty' => 'var(--ds-crimson)', 'missing' => 'var(--ds-crimson)'];
 @endphp
 <style>
     /* Fixed-shell page: menu and header stay put, the page itself does not scroll; the document pane and the side panel scroll inside themselves. */
@@ -77,6 +77,11 @@
                 @endforeach
             </div>
             <div class="demo-side-body">
+                <p class="text-xs mb-2 p-2 rounded-md" style="border: 1px solid var(--border); color: var(--text-secondary);" data-demo-context="{{ $demo['context']['key'] }}">
+                    Sample data for: <strong>{{ $demo['context']['label'] }}</strong>@if($demo['context']['parties'] !== [])
+                        . Sample people: @foreach($demo['context']['parties'] as $role => $p){{ $p['label'] }} {{ $p['name'] }}@if(! $loop->last), @endif @endforeach.
+                    @endif
+                </p>
 
                 {{-- Signers and places --}}
                 <div x-show="tab === 'places'" data-demo-panel="places">

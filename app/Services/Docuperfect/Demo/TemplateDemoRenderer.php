@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Docuperfect\Demo;
 
 use App\Models\Docuperfect\Template;
+use App\Services\Docuperfect\Demo\Contexts\DemoContextResolver;
 use App\Services\Docuperfect\Readiness\PartyLabels;
 use App\Services\Docuperfect\Readiness\TemplateReadinessReport;
 use App\Services\Docuperfect\WebTemplateBladeEnsurer;
@@ -45,7 +46,8 @@ final class TemplateDemoRenderer
             // role stays the key the page's markers use; the label is the plain name the document uses (shown on the per-page initials strip)
             $parties[] = ['role' => (string) $label, 'label' => PartyLabels::label($t, (string) $label)];
         }
-        $base = ['places' => $places, 'signers' => $signers, 'parties' => $parties, 'notes' => []];
+        $demoContext = app(DemoContextResolver::class)->for($t);
+        $base = ['places' => $places, 'signers' => $signers, 'parties' => $parties, 'notes' => [], 'context' => ['key' => $demoContext->key(), 'label' => $demoContext->label(), 'parties' => $demoContext->parties()]];
 
         if ((string) $t->render_type === 'pdf') {
             return $base + [
@@ -58,7 +60,7 @@ final class TemplateDemoRenderer
         $sample = $this->sampler->build($t, $ctx);
         $viewData = $sample['values'] + [
             'recipients_by_role' => $sample['recipients_by_role'],
-            'document_context' => 'rental',
+            'document_context' => $demoContext->documentContext($t),
         ];
         if (! empty($t->signing_parties)) {
             $viewData['signing_parties'] = $t->signing_parties;
@@ -143,7 +145,7 @@ final class TemplateDemoRenderer
                 $counts['missing']++;
             } else {
                 $f['status'] = $f['source'];
-                if ($f['source'] !== TemplateDemoSample::BOUND) {
+                if (! in_array($f['source'], [TemplateDemoSample::BOUND, TemplateDemoSample::KNOWN], true)) {
                     $counts['guessed']++;
                 }
             }

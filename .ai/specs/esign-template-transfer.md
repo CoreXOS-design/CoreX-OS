@@ -148,6 +148,10 @@ Hub tabs added to `DocumentTemplatesTabs`: **Releases** (owner only; permission 
 
 Authorisers are told: a domain event `TemplateReleased` with a listener that mails each person who may authorise (the agency's normal outbound mail path; inert on QA like all mail) and the count badge. No push, no WhatsApp.
 
+### 13.4b The agency's side of the workshop (29 Oct 2026, Johan: "the agency sees it in their workshop with demo data")
+
+The agency's screen is the **Approvals** tab / "Approve documents" menu item (§13.4, §13.4a). For an agency user the page is headed **"Documents from CoreX"** (the owner still sees "Approvals", read-only) and carries: the road in three plain lines (CoreX builds and checks it / you look at it with sample data, exactly as your clients will see it / someone you have chosen approves it and it is live for your agents); one chip per state with its count (waiting, live, declined, withdrawn, replaced; each a link to the list filtered to that state); a link to **Who may authorise documents** (shown only to someone holding `esign.settings`); and per row a **Demo view** button (waiting and live documents) next to Review, so the agency sees the document filled with the sample data of its own kind of document (demo-preview §3a) before it approves. Per side: CoreX's Document workshop is where documents are prepared and released; the agency never gets Verify or Release, only Demo view, Approve and Decline. No new route, key or table. The authoriser setting's changes are already in the release log (`authorisers_changed`).
+
 ### 13.4a Menu entries: "Document workshop" (owner) and "Approve documents" (agency) — 28 Oct 2026, Johan: "cannot even find the menu"
 
 Two Documents-menu items, each its own link (not a hub tab), shown only to the people who can open them:

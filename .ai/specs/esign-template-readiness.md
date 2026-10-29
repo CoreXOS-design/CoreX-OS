@@ -16,7 +16,7 @@ Result per check: `pass`, `warn` (should be looked at; does not block verificati
 
 | id | Title | Fail / warn rule | What to do (plain) |
 |---|---|---|---|
-| R01 | The document has wording | fail when the template has no document content (no saved sections, no tagged text, no page file) | "Open it in the builder and save it once." |
+| R01 | The document has wording | fail when the template has no document content, **and fail when the wording is held only in the generated page file** (no saved sections and no tagged text: the package exporter refuses such a template at release, so it is not ready; found on Addendum B, 29 Oct) | "Open it in the builder and save it once." |
 | R02 | The page file is there | warn when `blade_view` is empty or its file is missing (it is regenerated on first use) | "Open the template in the builder and Save to regenerate." |
 | R03 | Who signs is declared | fail when an e-sign template has no `signing_parties` | "Add the signers in Template settings." |
 | R04 | Every signer has a place to sign | fail for a declared client signer (owner / acquiring party) with no signature place anywhere (marks, zones, sections); **warn** when only the agent has none (the agent can still approve and send — Mega's lease is built this way); passes for every declared signer when the template uses CoreX's own signature block (`signature_block` = corex), because that block adds a place for each | "Place a signature for <party>." |
