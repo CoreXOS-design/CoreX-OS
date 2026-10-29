@@ -1537,6 +1537,9 @@
                 @permission('auctions.bidders.view')
                 <a href="{{ route('corex.auctions.bidders.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.bidders.*') ? 'active' : '' }}">Bidders</a>
                 @endpermission
+                @permission('auctions.invoices.view')
+                <a href="{{ route('corex.auctions.invoices.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.invoices.*') ? 'active' : '' }}">Invoices</a>
+                @endpermission
                 @permission('auctions.results.view')
                 <a href="{{ route('corex.auctions.results') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.results', 'corex.auctions.results.export') ? 'active' : '' }}">Results</a>
                 @endpermission

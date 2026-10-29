@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Agency;
 use App\Models\AgencyAuctionSettings;
 use App\Models\AuctionWatch;
+use App\Services\Auctions\AuctionFeeCalculator;
 use App\Services\Auctions\AuctionRegistrationService;
 use App\Services\Auctions\BidEngine;
 use App\Services\Auctions\BuyerAccountService;
@@ -23,6 +24,7 @@ class SiteController extends Controller
         private BuyerAccountService $buyers,
         private BidEngine $engine,
         private AuctionRegistrationService $registrations,
+        private AuctionFeeCalculator $fees,
     ) {}
 
     public function home(string $agencySlug)
@@ -44,6 +46,7 @@ class SiteController extends Controller
 
         return view('public.auctions.auction', $this->shared($agency) + [
             'auction' => $auction,
+            'feeNotice' => $this->fees->notice($auction),
             'lots' => $this->site->lots($auction),
             'documents' => $this->site->auctionDocuments($auction, $signedIn),
             'hiddenDocuments' => $signedIn ? 0 : $auction->documents()->withoutGlobalScopes()->where('visibility', 'registered')->count(),
@@ -62,6 +65,7 @@ class SiteController extends Controller
 
         return view('public.auctions.lot', $this->shared($agency) + [
             'auction' => $auction,
+            'feeNotice' => $this->fees->notice($auction),
             'lot' => $lot,
             'registration' => $registration,
             'registrationOpen' => $this->registrations->isOpen($auction),

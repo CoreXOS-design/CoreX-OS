@@ -22,6 +22,15 @@
 @elseif($kind === 'won')
 <h1 style="margin:0 0 10px;font-size:1.25rem;color:#111827;">Congratulations, you won</h1>
 <p style="margin:0 0 14px;color:#374151;">You are the winning bidder on <strong>Lot {{ $lot?->lot_number }} — {{ $lot?->displayTitle() }}</strong>@if(!empty($facts['amount'])) at <strong>{{ $facts['amount'] }}</strong>@endif. {{ $agencyName }} will be in touch about the next steps.</p>
+@elseif($kind === 'invoice')
+<h1 style="margin:0 0 10px;font-size:1.25rem;color:#111827;">Your invoice</h1>
+<p style="margin:0 0 14px;color:#374151;">Thank you for your purchase at <strong>{{ $auction->title }}</strong>. Your invoice {{ !empty($facts['number']) ? $facts['number'] . ' ' : '' }}is attached.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" style="font-size:.9375rem;color:#111827;width:100%;margin:0 0 14px;">
+<tr><td style="padding:3px 0;color:#6b7280;">Total payable</td><td><strong>{{ $facts['total'] ?? '' }}</strong></td></tr>
+<tr><td style="padding:3px 0;color:#6b7280;">Deposit</td><td>{{ $facts['deposit'] ?? '' }} by {{ $facts['deposit_due'] ?? '' }}</td></tr>
+<tr><td style="padding:3px 0;color:#6b7280;">Balance</td><td>{{ $facts['balance'] ?? '' }} by {{ $facts['balance_due'] ?? '' }}</td></tr>
+</table>
+@if(!empty($facts['payment_details']))<p style="margin:0 0 14px;padding:12px;background:#f9fafb;border-radius:8px;color:#111827;white-space:pre-line;">{{ $facts['payment_details'] }}</p>@endif
 @elseif($kind === 'not_accepted')
 <h1 style="margin:0 0 10px;font-size:1.25rem;color:#111827;">The seller did not accept the highest bid</h1>
 <p style="margin:0 0 14px;color:#374151;">Your bid {!! !empty($facts['amount']) ? 'of <strong>' . e($facts['amount']) . '</strong> ' : '' !!}on <strong>Lot {{ $lot?->lot_number }} — {{ $lot?->displayTitle() }}</strong> was the highest, but it was below the reserve and the seller chose not to accept it. The lot has been passed in. Thank you for bidding.</p>

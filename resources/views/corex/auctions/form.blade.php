@@ -91,6 +91,14 @@
                 </div>
             </template>
             <button type="button" @click="rows.push({from: '', inc: ''})" class="text-xs underline" style="color:var(--text-muted);">+ Add a line</button>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4" data-auction-fees>
+                <div><label class="{{ $label }}" style="color:var(--text-secondary);">Buyer's commission (% of the price)</label>
+                    <input type="number" step="0.01" min="0" max="50" name="buyers_commission_percent" value="{{ old('buyers_commission_percent', $auction->buyers_commission_percent) }}" placeholder="Agency default: {{ rtrim(rtrim(number_format($feeDefaults['commission'], 2, '.', ''), '0'), '.') ?: '0' }}" class="{{ $field }}" style="{{ $fieldStyle }}">
+                    <p class="text-[11px] mt-1" style="color:var(--text-muted);">Added to the price for the winning bidder, plus VAT. 0 charges none. Blank uses your agency default.</p></div>
+                <div><label class="{{ $label }}" style="color:var(--text-secondary);">Deposit (% of the price)</label>
+                    <input type="number" step="0.01" min="0" max="100" name="deposit_percent" value="{{ old('deposit_percent', $auction->deposit_percent) }}" placeholder="Agency default: {{ rtrim(rtrim(number_format($feeDefaults['deposit'], 2, '.', ''), '0'), '.') ?: '0' }}" class="{{ $field }}" style="{{ $fieldStyle }}">
+                    <p class="text-[11px] mt-1" style="color:var(--text-muted);">Buyers see these fees before they bid. They cannot be changed on an invoice already issued.</p></div>
+            </div>
             <div class="max-w-xs"><label class="{{ $label }}" style="color:var(--text-secondary);">Soft close (minutes)</label>
                 <input type="number" min="0" max="60" name="soft_close_minutes" value="{{ old('soft_close_minutes', $auction->soft_close_minutes) }}" placeholder="Agency default" class="{{ $field }}" style="{{ $fieldStyle }}">
                 <p class="text-[11px] mt-1" style="color:var(--text-muted);">A bid placed in the last few minutes extends the closing time by the same amount. Blank uses your agency setting.</p></div>

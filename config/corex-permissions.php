@@ -1069,6 +1069,9 @@ return [
         ['key' => 'auctions.results.export',    'label' => 'Export Results',                 'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 23],
         // Preview page (S9): looking needs auctions.view; changing the wording and pictures needs this.
         ['key' => 'auctions.page.edit',         'label' => 'Edit the Public Auction Page',   'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 24],
+        // Fees phase — bidder invoices (S10).
+        ['key' => 'auctions.invoices.view',     'label' => 'View Bidder Invoices',           'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 25],
+        ['key' => 'auctions.invoices.manage',   'label' => 'Issue / Record Payments / Cancel Invoices', 'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 26],
         ['key' => 'auctions.enquiries.view_all', 'label' => "View All Branches' Enquiries",    'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 13],
     ],
 
@@ -1156,6 +1159,7 @@ return [
                 'auctions.bidders.view', 'auctions.bidders.approve', 'auctions.bidders.review_documents', 'auctions.bids.view',
                 'auctions.room.operate', 'auctions.hammer', 'auctions.results.view', 'auctions.results.export',
                 'auctions.page.edit',
+                'auctions.invoices.view', 'auctions.invoices.manage',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts', 'export_reports',
                 'access_agency_tracker', 'access_daily_activity', 'access_deal_register',
                 'access_listing_stock', 'access_tv_messages', 'access_worksheet_market',
@@ -1367,6 +1371,7 @@ return [
                 'auctions.enquiries.view', 'auctions.enquiries.manage',
                 'auctions.bidders.view', 'auctions.bids.view',
                 'auctions.results.view',
+                'auctions.invoices.view',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity',
                 'communication_mailboxes.view', // AT-395 — own scope (scope_defaults)

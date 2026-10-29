@@ -44,6 +44,10 @@
                 @if($auction->stream_url)<p class="small"><a href="{{ $auction->stream_url }}" target="_blank" rel="noopener">Watch the live stream</a></p>@endif
             </div>
 
+            @if(($feeNotice ?? '') !== '')
+            <div class="panel" style="margin-top:16px;" data-fee-notice><strong>Fees</strong><p class="small" style="margin:.4rem 0 0;">{{ $feeNotice }}</p></div>
+            @endif
+
             <div class="panel" style="margin-top:16px;">
                 <strong>Documents</strong>
                 @if($documents->isEmpty())

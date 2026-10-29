@@ -37,6 +37,8 @@ class ResultController extends Controller
             'turnover' => (float) (clone $base)->where('auction_lots.status', AuctionLot::STATUS_SOLD)->sum('auction_lots.hammer_price'),
             'highest' => (float) (clone $base)->whereIn('auction_lots.status', [AuctionLot::STATUS_SOLD, AuctionLot::STATUS_SOLD_SUBJECT])->max('auction_lots.hammer_price'),
             'bids_per_lot' => $this->bidsPerLot($base),
+            'commission' => (float) \App\Models\AuctionInvoice::withoutGlobalScopes()->whereNull('deleted_at')->whereIn('status', ['issued', 'part_paid', 'paid'])
+                ->whereIn('lot_id', (clone $base)->pluck('auction_lots.id'))->sum('commission_amount'),
         ];
 
         $lots = $query->paginate(25)->withQueryString();

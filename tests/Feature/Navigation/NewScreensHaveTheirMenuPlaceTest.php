@@ -25,6 +25,7 @@ final class NewScreensHaveTheirMenuPlaceTest extends TestCase
             'corex.alerts-off.'    => ['group' => 'settings', 'item' => 'Users'],
             'corex.auctions.lots.' => ['group' => 'auctions', 'item' => 'Lots'],
             'corex.auctions.preview' => ['group' => 'auctions', 'item' => 'Preview page'],
+            'corex.auctions.invoices.' => ['group' => 'auctions', 'item' => 'Invoices'],
             'corex.auctions.bidders.' => ['group' => 'auctions', 'item' => 'Bidders'],
             'corex.auctions.bids.' => ['group' => 'auctions', 'item' => 'Bids'],
             'corex.auctions.enquiries.' => ['group' => 'auctions', 'item' => 'Enquiries'],

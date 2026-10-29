@@ -452,7 +452,8 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(\App\Events\Auction\BidderApproved::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleApproved']);
         Event::listen(\App\Events\Auction\BidderDeclined::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleDeclined']);
         Event::listen(\App\Events\Auction\LotOutbid::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleOutbid']);
-        Event::listen(\App\Events\Auction\AuctionLotSold::class, \App\Listeners\Auction\CreateDealOnLotSold::class);   // Deal first: the winner's email links to a finished sale
+        Event::listen(\App\Events\Auction\AuctionLotSold::class, \App\Listeners\Auction\CreateDealOnLotSold::class);
+        Event::listen(\App\Events\Auction\AuctionLotSold::class, \App\Listeners\Auction\CreateInvoiceOnLotSold::class);   // after the deal, so the draft knows it   // Deal first: the winner's email links to a finished sale
         Event::listen(\App\Events\Auction\AuctionLotSold::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleSold']);
         Event::listen(\App\Events\Auction\LotDeclinedBySeller::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleDeclinedBySeller']);
         Event::listen(\App\Events\Auction\AuctionLotSoldSubjectToConfirmation::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleSoldSubject']);

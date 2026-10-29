@@ -26,6 +26,7 @@ class AgencyAuctionSettings extends Model
         'registration_closes_hours', 'docs_required_individual', 'docs_required_company', 'terms_text',
         'notify_enquiry_to', 'outbid_emails', 'confirmation_days',
         'hero_image_path', 'accent_color', 'how_it_works', 'footer_text', 'show_past_auctions',
+        'buyers_commission_percent', 'buyers_commission_minimum', 'deposit_percent', 'deposit_due_days', 'balance_due_days', 'payment_details',
     ];
 
     protected $casts = [
@@ -39,6 +40,11 @@ class AgencyAuctionSettings extends Model
         'show_bidder_numbers' => 'boolean',
         'outbid_emails' => 'boolean',
         'show_past_auctions' => 'boolean',
+        'buyers_commission_percent' => 'float',
+        'buyers_commission_minimum' => 'float',
+        'deposit_percent' => 'float',
+        'deposit_due_days' => 'integer',
+        'balance_due_days' => 'integer',
     ];
 
     public const RESERVE_VISIBILITY = ['hidden' => 'Do not show anything about the reserve', 'met_not_met' => 'Show "Reserve met" / "Reserve not met"'];
@@ -120,6 +126,13 @@ class AgencyAuctionSettings extends Model
     }
     public static function howItWorksFor(int $agencyId): string { return (string) static::value($agencyId, 'how_it_works', ''); }
     public static function footerTextFor(int $agencyId): string { return (string) static::value($agencyId, 'footer_text', ''); }
+    /** Agency default buyer's commission, % of the hammer price. 0 = none (neutral until the agency sets it). */
+    public static function buyersCommissionPercentFor(int $agencyId): float { return max(0.0, (float) static::value($agencyId, 'buyers_commission_percent', 0)); }
+    public static function buyersCommissionMinimumFor(int $agencyId): float { return max(0.0, (float) static::value($agencyId, 'buyers_commission_minimum', 0)); }
+    public static function depositPercentFor(int $agencyId): float { return max(0.0, (float) static::value($agencyId, 'deposit_percent', 10)); }
+    public static function depositDueDaysFor(int $agencyId): int { return max(0, (int) static::value($agencyId, 'deposit_due_days', 3)); }
+    public static function balanceDueDaysFor(int $agencyId): int { return max(0, (int) static::value($agencyId, 'balance_due_days', 30)); }
+    public static function paymentDetailsFor(int $agencyId): string { return (string) static::value($agencyId, 'payment_details', ''); }
     public static function showPastAuctionsFor(int $agencyId): bool { return (bool) static::value($agencyId, 'show_past_auctions', true); }
     public static function referencePrefixFor(int $agencyId): string { return (string) static::value($agencyId, 'reference_prefix', 'AUC'); }
     public static function softCloseMinutesFor(int $agencyId): int { return (int) static::value($agencyId, 'soft_close_minutes', 5); }

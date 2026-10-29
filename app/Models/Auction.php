@@ -35,7 +35,7 @@ class Auction extends Model
     protected $fillable = [
         'agency_id', 'branch_id', 'reference', 'title', 'description', 'cover_image_path', 'format', 'type', 'currency',
         'status', 'starts_at', 'ends_at', 'registration_closes_at', 'venue_name', 'venue_address', 'lat', 'lng',
-        'stream_url', 'soft_close_minutes', 'is_single_property', 'published_at', 'cancelled_at', 'cancel_reason',
+        'stream_url', 'soft_close_minutes', 'buyers_commission_percent', 'deposit_percent', 'is_single_property', 'published_at', 'cancelled_at', 'cancel_reason',
         'completed_at', 'created_by',
     ];
 
@@ -48,6 +48,8 @@ class Auction extends Model
         'completed_at' => 'datetime',
         'is_single_property' => 'boolean',
         'soft_close_minutes' => 'integer',
+        'buyers_commission_percent' => 'float',
+        'deposit_percent' => 'float',
     ];
 
     public function creator()

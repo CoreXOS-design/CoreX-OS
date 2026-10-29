@@ -64,6 +64,11 @@ class AuctionLot extends Model
         return $this->hasMany(AuctionBid::class, 'lot_id')->withoutGlobalScope(\App\Models\Scopes\AgencyScope::class);
     }
 
+    public function invoice()
+    {
+        return $this->hasOne(AuctionInvoice::class, 'lot_id')->where('status', '!=', AuctionInvoice::STATUS_CANCELLED)->latest('id');
+    }
+
     /** True once any valid bid exists: the window, opening bid and reserve are then locked. */
     public function hasBids(): bool
     {

@@ -6190,6 +6190,24 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/create', [$A, 'create'])->middleware('permission:auctions.create')->name('create');
         Route::post('/', [$A, 'store'])->middleware('permission:auctions.create')->name('store');
 
+        // Invoices (S10) — before the wildcards.
+        Route::prefix('invoices')->name('invoices.')->middleware('permission:auctions.invoices.view')->group(function () {
+            $I = \App\Http\Controllers\CoreX\Auctions\InvoiceController::class;
+            $M = 'permission:auctions.invoices.manage';
+            Route::get('/', [$I, 'index'])->name('index');
+            Route::get('/{invoice}', [$I, 'show'])->whereNumber('invoice')->name('show');
+            Route::get('/{invoice}/pdf', [$I, 'pdf'])->whereNumber('invoice')->name('pdf');
+            Route::post('/for-lot/{lot}', [$I, 'createForLot'])->whereNumber('lot')->middleware($M)->name('for-lot');
+            Route::post('/{invoice}/issue', [$I, 'issue'])->whereNumber('invoice')->middleware($M)->name('issue');
+            Route::post('/{invoice}/resend', [$I, 'resend'])->whereNumber('invoice')->middleware($M)->name('resend');
+            Route::put('/{invoice}/notes', [$I, 'notes'])->whereNumber('invoice')->middleware($M)->name('notes');
+            Route::post('/{invoice}/payments', [$I, 'recordPayment'])->whereNumber('invoice')->middleware($M)->name('payments.store');
+            Route::delete('/{invoice}/payments/{payment}', [$I, 'voidPayment'])->whereNumber(['invoice', 'payment'])->middleware($M)->name('payments.void');
+            Route::post('/{invoice}/guarantee', [$I, 'guarantee'])->whereNumber('invoice')->middleware($M)->name('guarantee');
+            Route::post('/{invoice}/cancel', [$I, 'cancel'])->whereNumber('invoice')->middleware($M)->name('cancel');
+            Route::post('/{invoice}/restore', [$I, 'restore'])->whereNumber('invoice')->middleware($M)->name('restore');
+        });
+
         // The Preview page (S9) — before the wildcards.
         $PV = \App\Http\Controllers\CoreX\Auctions\PreviewController::class;
         Route::get('/preview', [$PV, 'index'])->middleware('permission:auctions.view')->name('preview');
@@ -7603,6 +7621,7 @@ Route::prefix('auctions/{agencySlug}')->where(['agencySlug' => '[A-Za-z0-9\-_]+'
         Route::get('/forgot', [$A, 'forgotForm'])->name('forgot');
         Route::get('/forgot/reset', [$A, 'resetForm'])->name('forgot.reset');
         Route::get('/account', [$A, 'account'])->name('account');
+        Route::get('/account/invoices/{invoice}/pdf', [$A, 'invoicePdf'])->whereNumber('invoice')->name('account.invoice');
     });
 
     Route::post('/signup', [$A, 'signupSend'])->middleware('throttle:6,1')->name('signup.send');

@@ -21,6 +21,15 @@
             <p class="muted small">You have not registered for an auction yet.</p>
         @endforelse
 
+        @if($invoices->isNotEmpty())
+        <h2>My invoices</h2>
+        @foreach($invoices as $inv)
+            <p class="small" style="margin:.3rem 0;" data-my-invoice>{{ $inv->number }} — Lot {{ $inv->lot?->lot_number }} — <strong>R {{ number_format((float) $inv->total_amount, 2, '.', ' ') }}</strong> —
+                {{ $inv->status === 'paid' ? 'Paid' : 'Owing R ' . number_format($inv->outstanding(), 2, '.', ' ') }} ·
+                <a href="{{ route('public.auctions.account.invoice', [$agency->slug, $inv->id]) }}" target="_blank">PDF</a></p>
+        @endforeach
+        @endif
+
         @if($won->isNotEmpty())
         <h2>Lots I have won</h2>
         @foreach($won as $w)

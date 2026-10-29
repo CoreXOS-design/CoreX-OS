@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Public\Auctions;
 
 use App\Http\Controllers\Controller;
 use App\Models\AgencyAuctionSettings;
+use App\Services\Auctions\AuctionFeeCalculator;
 use App\Services\Auctions\AuctionRegistrationService;
 use App\Services\Auctions\BuyerAccountService;
 use App\Services\Auctions\PublicAuctionSite;
@@ -16,6 +17,7 @@ class RegistrationController extends Controller
         private PublicAuctionSite $site,
         private BuyerAccountService $buyers,
         private AuctionRegistrationService $registrations,
+        private AuctionFeeCalculator $fees,
     ) {}
 
     public function form(Request $request, string $agencySlug, int $auction)
@@ -40,6 +42,7 @@ class RegistrationController extends Controller
             'requiredCompany' => $this->registrations->requiredKinds($auction, 'company'),
             'kinds' => AgencyAuctionSettings::DOCUMENT_KINDS,
             'terms' => AgencyAuctionSettings::termsTextFor((int) $agency->id),
+            'feeNotice' => $this->fees->notice($auction),
             'documents' => $this->site->auctionDocuments($auction, true),
             'type' => $type,
         ]);

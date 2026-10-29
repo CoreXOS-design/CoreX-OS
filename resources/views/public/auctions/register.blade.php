@@ -50,6 +50,7 @@
                 @endforeach
 
                 <h2>Conditions</h2>
+                @if(($feeNotice ?? '') !== '')<p class="small" style="margin-top:0;" data-fee-notice><strong>Fees.</strong> {{ $feeNotice }}</p>@endif
                 @if($documents->isNotEmpty())
                     <ul class="docs">@foreach($documents as $d)<li><a href="{{ route('public.auctions.auction.document', [$agency->slug, $auction->id, $d->id]) }}" target="_blank">{{ $d->name }}</a></li>@endforeach</ul>
                 @endif

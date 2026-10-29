@@ -180,6 +180,7 @@ class BuyerAuthController extends Controller
             'contact' => $this->buyers->contactFor($buyer, $agency),
             'registrations' => \App\Models\AuctionRegistration::withoutGlobalScopes()->whereNull('deleted_at')->with('auction')
                 ->where('agency_id', $agency->id)->where('client_user_id', $buyer->id)->latest('id')->get(),
+            'invoices' => $this->buyerInvoices($agency->id, $buyer->id),
             'won' => \App\Models\AuctionLot::withoutGlobalScopes()->whereNull('deleted_at')->with('auction')
                 ->whereIn('status', ['sold', 'sold_subject_to_confirmation'])
                 ->whereIn('winning_bid_id', \App\Models\AuctionBid::withoutGlobalScopes()->select('id')->whereIn('registration_id',
@@ -202,6 +203,29 @@ class BuyerAuthController extends Controller
         $contact->forceFill(['first_name' => $first, 'last_name' => $last, 'phone' => $data['phone'] ?? null])->saveQuietly();
 
         return back()->with('status', 'Your details were saved.');
+    }
+
+    /** Download one of MY invoices (issued, part paid or paid). Anyone else's, a draft or a cancelled one is a 404. */
+    public function invoicePdf(Request $request, string $agencySlug, int $invoice)
+    {
+        $agency = $this->site->agency($agencySlug);
+        $buyer = $this->buyers->current();
+        abort_unless($buyer, 403);
+
+        $row = $this->buyerInvoices($agency->id, $buyer->id)->firstWhere('id', $invoice);
+        abort_if($row === null, 404);
+
+        $service = app(\App\Services\Auctions\AuctionInvoiceService::class);
+
+        return response($service->pdf($row), 200, ['Content-Type' => 'application/pdf', 'Content-Disposition' => 'inline; filename="' . $service->filename($row) . '"']);
+    }
+
+    private function buyerInvoices(int $agencyId, int $clientUserId)
+    {
+        return \App\Models\AuctionInvoice::withoutGlobalScopes()->whereNull('deleted_at')->where('agency_id', $agencyId)
+            ->whereIn('status', \App\Models\AuctionInvoice::BUYER_VISIBLE)
+            ->whereIn('registration_id', \App\Models\AuctionRegistration::withoutGlobalScopes()->select('id')->where('agency_id', $agencyId)->where('client_user_id', $clientUserId))
+            ->with(['lot' => fn ($q) => $q->withoutGlobalScopes(), 'auction' => fn ($q) => $q->withoutGlobalScopes()])->latest('id')->get();
     }
 
     // ── helpers ────────────────────────────────────────────────────────────

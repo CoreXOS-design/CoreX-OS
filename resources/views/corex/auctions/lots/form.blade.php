@@ -106,6 +106,14 @@
         @endif
 
         @if($lot->status === 'sold')
+            @php $lotInvoice = $lot->invoice; @endphp
+            @permission('auctions.invoices.view')
+            @if($lotInvoice)
+                <p class="text-sm" data-lot-invoice>Invoice <a href="{{ route('corex.auctions.invoices.show', $lotInvoice->id) }}" class="underline">{{ $lotInvoice->number ?: '(draft)' }}</a> — {{ $lotInvoice->statusLabel() }}, R {{ number_format((float) $lotInvoice->total_amount, 2, '.', ' ') }}</p>
+            @elseif(auth()->user()->hasPermission('auctions.invoices.manage'))
+                <form method="POST" action="{{ route('corex.auctions.invoices.for-lot', $lot->id) }}">@csrf<button class="corex-btn-outline" data-create-invoice>Create the bidder's invoice</button></form>
+            @endif
+            @endpermission
             @if($lot->deal_id)
                 <p class="text-sm">A deal was opened for this sale. <a href="{{ route('deals-dr2.index') }}" class="underline">Open the Deal Register</a></p>
             @elseif($canHammer)

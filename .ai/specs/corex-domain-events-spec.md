@@ -414,6 +414,11 @@ The initial catalogue. Each row: event name, when it fires, payload, who emits i
 | `Auction\AuctionLotWithdrawn` | A lot was withdrawn; the property was released | `AuctionLot` | `AuctionLotService::withdraw()` | audit |
 | `Auction\LotDeclinedBySeller` | The seller declined the highest bid on a below-reserve sale; the lot was passed in | `AuctionLot` | `LotResultService::declineSale()` (with `AuctionLotPassedIn`) | `NotifyBidder` ("your bid was not accepted") |
 
+| `Auction\AuctionInvoiceIssued` | A bidder invoice was numbered and issued to the winning bidder (fees phase) | `AuctionInvoice` | `AuctionInvoiceService::issue()` | audit (the buyer is emailed the PDF by the service) |
+| `Auction\AuctionPaymentRecorded` | Money was recorded against a bidder invoice; the invoice may now be paid in full | `AuctionInvoice` | `AuctionInvoiceService::recordPayment()` | audit |
+
+`AuctionLotSold` also has a third listener, `CreateInvoiceOnLotSold` (drafts the bidder invoice after the Deal opens; idempotent).
+
 `AuctionLotSold` (above) now also carries `afterConfirmation` (true when the seller confirmed a below-reserve sale) and has a second listener, `CreateDealOnLotSold`, which opens the Deal (sync, idempotent: a second event never opens a second deal; failure is logged and never undoes the sale). The only §10 event not built yet is `LotClosingSoon`.
 
 This catalogue is **not exhaustive**. As new features ship, new events are added per E9.

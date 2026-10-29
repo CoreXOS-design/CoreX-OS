@@ -106,6 +106,7 @@
                 @if($buyer)
                     <p style="margin:12px 0 0;"><button type="button" class="btn ghost" id="watch-btn" style="padding:6px 12px;font-size:.85rem;">{{ $watching ? '★ Watching' : '☆ Watch this lot' }}</button></p>
                 @endif
+                @if(($feeNotice ?? '') !== '')<p class="small muted" style="margin:12px 0 0;" data-fee-notice>{{ $feeNotice }}</p>@endif
                 <div id="bid-msg" class="small" style="margin-top:10px;"></div>
             </div>
         </aside>

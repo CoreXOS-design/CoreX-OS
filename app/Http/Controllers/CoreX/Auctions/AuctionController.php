@@ -79,6 +79,7 @@ class AuctionController extends Controller
             'auction' => new Auction(['format' => 'timed', 'type' => 'real_estate', 'currency' => 'ZAR', 'status' => Auction::STATUS_DRAFT]),
             'rungs' => AgencyAuctionSettings::defaultIncrementsFor($agencyId),
             'branches' => Branch::query()->orderBy('name')->get(['id', 'name']),
+            'feeDefaults' => $this->feeDefaults($agencyId),
         ]);
     }
 
@@ -110,6 +111,7 @@ class AuctionController extends Controller
             'auction' => $auction,
             'rungs' => $auction->increments->map(fn ($i) => [(float) $i->from_amount, (float) $i->increment])->all(),
             'branches' => Branch::query()->orderBy('name')->get(['id', 'name']),
+            'feeDefaults' => $this->feeDefaults((int) $auction->agency_id),
         ]);
     }
 
@@ -219,6 +221,12 @@ class AuctionController extends Controller
         return Storage::disk('local')->download($doc->path, $doc->name . '.' . pathinfo($doc->path, PATHINFO_EXTENSION));
     }
 
+    /** The agency's default fee percentages, shown as the placeholder in the per-auction overrides. */
+    private function feeDefaults(int $agencyId): array
+    {
+        return ['commission' => AgencyAuctionSettings::buyersCommissionPercentFor($agencyId), 'deposit' => AgencyAuctionSettings::depositPercentFor($agencyId)];
+    }
+
     /** Direct-URL access is blocked at the query layer: an auction outside the user's scope is a 404, not merely unlinked. */
     private function find(Request $request, int $id, bool $withTrashed = false): Auction
     {
@@ -248,6 +256,8 @@ class AuctionController extends Controller
             'lng' => 'nullable|numeric|between:-180,180',
             'stream_url' => 'nullable|url|max:500',
             'soft_close_minutes' => 'nullable|integer|min:0|max:60',
+            'buyers_commission_percent' => 'nullable|numeric|min:0|max:50',
+            'deposit_percent' => 'nullable|numeric|min:0|max:100',
         ]);
 
         if (! empty($data['branch_id']) && ! Branch::query()->whereKey($data['branch_id'])->exists()) {

@@ -46,6 +46,28 @@
             </div>
         </section>
 
+        <section class="rounded-md p-5 space-y-4" style="background:var(--surface);border:1px solid var(--border);" data-fee-settings>
+            <h2 class="text-sm font-bold" style="color:var(--text-primary);">Fees and payment</h2>
+            <p class="text-xs" style="color:var(--text-muted);">What the winning bidder pays on top of the price, and when. Each auction can override the percentages. Leave the commission at 0 to charge none.</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div><label class="{{ $label }}" style="color:var(--text-secondary);">Buyer's commission (% of the price, before VAT)</label>
+                    <input type="number" step="0.01" min="0" max="50" name="buyers_commission_percent" value="{{ old('buyers_commission_percent', $values['buyers_commission_percent']) }}" class="{{ $field }}" style="{{ $fieldStyle }}"></div>
+                <div><label class="{{ $label }}" style="color:var(--text-secondary);">Minimum commission (R)</label>
+                    <input type="number" step="1" min="0" name="buyers_commission_minimum" value="{{ old('buyers_commission_minimum', $values['buyers_commission_minimum']) }}" class="{{ $field }}" style="{{ $fieldStyle }}"></div>
+                <div><label class="{{ $label }}" style="color:var(--text-secondary);">Deposit (% of the price)</label>
+                    <input type="number" step="0.01" min="0" max="100" name="deposit_percent" value="{{ old('deposit_percent', $values['deposit_percent']) }}" class="{{ $field }}" style="{{ $fieldStyle }}"></div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div><label class="{{ $label }}" style="color:var(--text-secondary);">Deposit due (days)</label>
+                        <input type="number" min="0" max="365" name="deposit_due_days" value="{{ old('deposit_due_days', $values['deposit_due_days']) }}" class="{{ $field }}" style="{{ $fieldStyle }}"></div>
+                    <div><label class="{{ $label }}" style="color:var(--text-secondary);">Balance due (days)</label>
+                        <input type="number" min="0" max="365" name="balance_due_days" value="{{ old('balance_due_days', $values['balance_due_days']) }}" class="{{ $field }}" style="{{ $fieldStyle }}"></div>
+                </div>
+                <div class="md:col-span-2"><label class="{{ $label }}" style="color:var(--text-secondary);">Payment details printed on invoices</label>
+                    <textarea name="payment_details" rows="3" placeholder="Bank, account holder, account number, branch code" class="{{ $field }}" style="{{ $fieldStyle }}">{{ old('payment_details', $values['payment_details']) }}</textarea>
+                    <p class="{{ $hint }}" style="color:var(--text-muted);">VAT on the commission uses the VAT rate set for your agency.</p></div>
+            </div>
+        </section>
+
         <section class="rounded-md p-5 space-y-4" style="background:var(--surface);border:1px solid var(--border);">
             <h2 class="text-sm font-bold" style="color:var(--text-primary);">Bidding</h2>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -36,6 +36,12 @@ class AuctionSettingsController extends Controller
                 'notify_enquiry_to' => AgencyAuctionSettings::notifyEnquiryToFor($agencyId),
                 'outbid_emails' => AgencyAuctionSettings::outbidEmailsFor($agencyId),
                 'confirmation_days' => AgencyAuctionSettings::confirmationDaysFor($agencyId),
+                'buyers_commission_percent' => AgencyAuctionSettings::buyersCommissionPercentFor($agencyId),
+                'buyers_commission_minimum' => AgencyAuctionSettings::buyersCommissionMinimumFor($agencyId),
+                'deposit_percent' => AgencyAuctionSettings::depositPercentFor($agencyId),
+                'deposit_due_days' => AgencyAuctionSettings::depositDueDaysFor($agencyId),
+                'balance_due_days' => AgencyAuctionSettings::balanceDueDaysFor($agencyId),
+                'payment_details' => AgencyAuctionSettings::paymentDetailsFor($agencyId),
                 'how_it_works' => AgencyAuctionSettings::howItWorksFor($agencyId),
                 'footer_text' => AgencyAuctionSettings::footerTextFor($agencyId),
                 'show_past_auctions' => AgencyAuctionSettings::showPastAuctionsFor($agencyId),
@@ -99,6 +105,12 @@ class AuctionSettingsController extends Controller
             'reserve_visibility' => $p . 'nullable|in:' . implode(',', array_keys(AgencyAuctionSettings::RESERVE_VISIBILITY)),
             'registration_closes_hours' => $p . 'nullable|integer|min:0|max:720',
             'confirmation_days' => $p . 'nullable|integer|min:1|max:60',
+            'buyers_commission_percent' => $p . 'nullable|numeric|min:0|max:50',
+            'buyers_commission_minimum' => $p . 'nullable|numeric|min:0|max:100000000',
+            'deposit_percent' => $p . 'nullable|numeric|min:0|max:100',
+            'deposit_due_days' => $p . 'nullable|integer|min:0|max:365',
+            'balance_due_days' => $p . 'nullable|integer|min:0|max:365',
+            'payment_details' => $p . 'nullable|string|max:2000',
             'how_it_works' => $p . 'nullable|string|max:5000',
             'footer_text' => $p . 'nullable|string|max:1000',
             'terms_text' => $p . 'nullable|string|max:20000',
@@ -114,7 +126,7 @@ class AuctionSettingsController extends Controller
     private function scalarWrites(array $data, ?Request $guardWithHas = null): array
     {
         $out = [];
-        foreach (['site_title', 'intro_text', 'contact_email', 'contact_phone', 'reference_prefix', 'soft_close_minutes', 'reserve_visibility', 'registration_closes_hours', 'confirmation_days', 'how_it_works', 'footer_text', 'terms_text', 'notify_enquiry_to'] as $key) {
+        foreach (['site_title', 'intro_text', 'contact_email', 'contact_phone', 'reference_prefix', 'soft_close_minutes', 'reserve_visibility', 'registration_closes_hours', 'confirmation_days', 'buyers_commission_percent', 'buyers_commission_minimum', 'deposit_percent', 'deposit_due_days', 'balance_due_days', 'payment_details', 'how_it_works', 'footer_text', 'terms_text', 'notify_enquiry_to'] as $key) {
             if ($guardWithHas && ! $guardWithHas->has($key)) {
                 continue;
             }

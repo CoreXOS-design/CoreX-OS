@@ -1,6 +1,6 @@
 # Auctions — Spec (REBUILD, v2)
 
-> Status: **APPROVED by Johan 2026-10-29. All four phases BUILT on QA2 (not yet Johan-tested, not promoted). Phase 2 of the *product* (fees, deposits, invoices, Direct sales, analytics) is not started.**
+> Status: **APPROVED by Johan 2026-10-29. All four phases, the Preview page and the fees/invoices phase (§17) BUILT on QA2 (not yet Johan-tested, not promoted). Not started: online card payments, seller's commission, Direct sales, deeper analytics.**
 > Supersedes: the AT-432 auctions spec and `auctions-advertising-mode.md` (both retired 2026-10-29; the old module was removed from QA2 in commit `0983bc5f2`).
 > Drafted: 2026-10-29 · Author: Claude (conductor lane) for Johan
 > Lane: QA2 first. Johan's go gates Staging; nothing reaches Live without Johan's specific order.
@@ -245,3 +245,27 @@ Models `Auction*` (+ `BidderDocument`); `app/Services/Auctions/` (BidEngine, Lot
 **Setup Wizard (NN #10a).** Surfaced in the Auctions step: *Show past auctions*, *How bidding works* text, *Footer text*. **Deliberately NOT in the wizard (Johan to confirm):** the banner picture and the accent colour — a picture cannot be uploaded in a step and the colour is best chosen while looking at the page; both live on the Preview page, which the step links to.
 
 **Acceptance.** A draft auction/lot previews; the public site 404s it. Unsaved edits appear in the preview and are not stored; Save stores them and the public page shows them. A visitor never sees a draft, another agency's page, or a staff-only banner. Forms in the preview do nothing. An agent cannot edit the page; another agency's auction cannot be previewed or edited by ID.
+
+---
+
+## 17. Fees, deposits and bidder invoices (product phase 2 — added 2026-11-04)
+
+**Decisions (Johan, 2026-11-04).** (1) The agency charges a **buyer's commission**: a percentage of the hammer price added on top for the buyer, plus VAT, **set per auction** with an agency default. (2) That commission **counts as normal commission on the deal** and splits with the listing agent the way every other sale does. (3) Money is handled by **invoice + manual recording**: CoreX produces the bidder's invoice and staff record the deposit and balance when the money arrives; no online card payments in this phase.
+
+**Pillars.** Deal (its `total_commission` = buyer's commission **incl. VAT**, the Deal Register's own convention), Contact (the invoice is for the winning bidder's contact), Property, Agent (listing agent's share via the deal).
+
+**The sum.** `commission = max(minimum, hammer × percent)` (ex VAT); `VAT = commission × VAT rate` (the agency's `vat_rate` setting, default 15%); `total payable = hammer + commission + VAT`; `deposit = hammer × deposit %`, due within *deposit_due_days* of the sale; `balance = total − deposit`, due within *balance_due_days*. All rounded to cents. The seller's side is untouched.
+
+**Settings (Settings → Auctions, also in the Setup Wizard step).** Defaults for the agency: *Buyer's commission %* (neutral default **0 = no commission**), *minimum commission*, *Deposit %* (default 10), *Deposit due (days)* (default 3), *Balance due (days)* (default 30), *Payment details* (bank details printed on the invoice; blank = invoice shows none). Per auction (Auction form): *Buyer's commission %* and *Deposit %* overrides (blank = agency default).
+
+**The invoice (S10 "Invoices").** One per sold lot, created as a **draft** the moment the lot is sold outright (or the seller confirms a below-reserve sale), after the Deal. The figures are a **snapshot** taken then (later settings changes never rewrite an invoice). Staff open it, can **Issue** it (assigns the number `{PREFIX}-INV-{year}-{0001}` per agency, emails the buyer as the agency with the PDF attached), **record payments** (deposit / balance / other; amount, date, reference — voidable with a reason), tick **bank guarantee received**, **cancel** (reason) and **restore**, and download the **PDF**. Status: draft → issued → part paid → paid, or cancelled; **overdue** is shown when a deposit or balance date has passed unpaid. Cannot be issued with a zero total. A cancelled invoice frees the lot to be invoiced again.
+
+**Screen S10 Invoices.** Search: invoice no., bidder, lot, property; sort (default newest); filters status, auction, outstanding-only, overdue-only, date range; OWN/BRANCH/AGENCY by the lot's property (same as Bids); archive = cancel, with restore. Permissions: `auctions.invoices.view`, `auctions.invoices.manage` (issue, payments, guarantee, cancel/restore). Branch manager: both; agent: view (own).
+
+**Buyer side.** Fees are disclosed before anyone bids: the auction and lot pages and the registration page state the buyer's commission %, "plus VAT", and the deposit % and due days. My account lists the buyer's issued invoices with a PDF download (only their own).
+
+**Events.** `AuctionInvoiceIssued`, `AuctionPaymentRecorded`. Results gets a "Commission earned" figure.
+
+**Not in this phase:** online card payments, seller's commission, refunds of deposits, bidder registration deposits, guarantees beyond a received/not-received tick with a note, calendar entries for deposit/balance dates (the list's Overdue filter covers it).
+
+**Acceptance.** A sale with a 7.5% commission on R1 000 000: commission R75 000, VAT R11 250, total R1 086 250; deposit 10% = R100 000, balance R986 250. The deal's commission is R86 250 (incl. VAT). Only the winner can see their invoice; another agency's invoice is unreachable by id; payments beyond the amount owing are refused; settings changes never alter an issued invoice.

@@ -15,8 +15,8 @@
 
     @if(session('status'))<div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,#10b981 12%,transparent);color:#10b981;">{{ session('status') }}</div>@endif
 
-    <div class="grid grid-cols-2 md:grid-cols-6 gap-3 text-sm" data-results-stats>
-        @foreach([['Lots sold', $stats['sold']], ['Awaiting seller', $stats['subject']], ['Passed in', $stats['passed_in']], ['Turnover', $money($stats['turnover'])], ['Highest price', $money($stats['highest'] ?: null)], ['Bids per lot', $stats['bids_per_lot']]] as [$label, $value])
+    <div class="grid grid-cols-2 md:grid-cols-7 gap-3 text-sm" data-results-stats>
+        @foreach([['Lots sold', $stats['sold']], ['Awaiting seller', $stats['subject']], ['Passed in', $stats['passed_in']], ['Turnover', $money($stats['turnover'])], ['Highest price', $money($stats['highest'] ?: null)], ['Bids per lot', $stats['bids_per_lot']], ['Commission earned (ex VAT)', $money($stats['commission'])]] as [$label, $value])
         <div class="rounded-md px-4 py-3" style="background:var(--surface);border:1px solid var(--border);"><div class="text-xs" style="color:var(--text-muted);">{{ $label }}</div><div class="font-bold" style="color:var(--text-primary);">{{ $value }}</div></div>
         @endforeach
     </div>

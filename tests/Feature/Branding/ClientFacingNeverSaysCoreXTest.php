@@ -201,6 +201,7 @@ final class ClientFacingNeverSaysCoreXTest extends TestCase
         'resources/views/compliance/fica/{pdf,completion-report}.blade.php',
         'resources/views/tools/evaluation-certificate/pdf.blade.php',
         'resources/views/proforma/pdf.blade.php',
+        'resources/views/corex/auctions/invoices/pdf.blade.php',
         'resources/views/deposit-interest-calculator/pdf.blade.php',
         'resources/views/emails/{signatures,sales,title-deeds,distribution,seller-outreach,presentations,matches,otp,client-auth,fica-request,proforma,deals,partials,rentals}/{,*/}*.blade.php',
         'resources/views/emails/{fica-request,otp,rental-application-*}.blade.php',

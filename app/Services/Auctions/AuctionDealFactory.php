@@ -16,8 +16,10 @@ use Illuminate\Support\Facades\DB;
  * service the Deal Register uses — never a parallel writer. The deal carries the property, the hammer price as the property
  * value, the seller(s) from the property, the winning bidder as buyer and the listing agent.
  *
- * Fees (buyer's premium, seller's commission) are phase 2 of the auctions product, so total_commission starts at 0 and the
- * remark says so: the agent captures the commission on the deal as for any other sale.
+
+ * The deal's commission is the buyer's commission INCLUDING VAT (the Deal Register's own convention), worked out by the same
+ * AuctionFeeCalculator that prices the bidder invoice; it splits with the listing agent like any other commission. An agency
+ * that charges no buyer's commission gets 0, to be captured on the deal as for any other sale.
  *
  * Refuses (and the lot page offers "Open deal" to retry) when the property has no linked seller — the same "no deal
  * without an owner" gate a manually captured deal must pass.
@@ -27,6 +29,7 @@ class AuctionDealFactory
     public function __construct(
         private readonly DealPropertyOwnerGate $ownerGate,
         private readonly Dr1PipelineService $pipelineService,
+        private readonly AuctionFeeCalculator $fees,
     ) {}
 
     /**
@@ -52,7 +55,10 @@ class AuctionDealFactory
         $winner = $bid ? AuctionRegistration::withoutGlobalScopes()->with('contact')->find($bid->registration_id) : null;
         $buyerName = $winner?->bidder_type === 'company' ? $winner->company_name : $winner?->contact?->full_name;
 
-        return DB::transaction(function () use ($lot, $property, $agencyId, $buyerName, $actorId) {
+        $auction = \App\Models\Auction::withTrashed()->withoutGlobalScopes()->with('increments')->find($lot->auction_id);
+        $commission = $auction ? $this->fees->dealCommission($auction, (float) $lot->hammer_price) : 0.0;
+
+        return DB::transaction(function () use ($lot, $property, $agencyId, $buyerName, $actorId, $commission) {
             $sellers = $property->contacts()->wherePivotIn('role', ['seller', 'co_seller', 'landlord'])->wherePivotNull('deleted_at')->get();
 
             $deal = new Deal();
@@ -66,7 +72,7 @@ class AuctionDealFactory
                 'property_id' => $property->id,
                 'property_address' => $property->address,
                 'property_value' => (float) $lot->hammer_price,
-                'total_commission' => 0,
+                'total_commission' => $commission,
                 'listing_split_percent' => 100,
                 'selling_split_percent' => 0,
                 'listing_external' => false,
@@ -79,7 +85,8 @@ class AuctionDealFactory
                 'commission_status' => 'Not Paid',
                 'link_source' => 'manual',
                 'link_confidence' => 'exact',
-                'remarks' => sprintf('Sold at auction (Lot %d) for R %s. Auction fees are not calculated yet: capture the commission here.', $lot->lot_number, number_format((float) $lot->hammer_price, 0, '.', ' ')),
+                'remarks' => sprintf('Sold at auction (Lot %d) for R %s.', $lot->lot_number, number_format((float) $lot->hammer_price, 0, '.', ' '))
+                    . ($commission > 0 ? sprintf(" Buyer's commission R %s (incl. VAT).", number_format($commission, 2, '.', ' ')) : ' No buyer\'s commission was charged: capture the commission here if one applies.'),
                 'created_by_id' => $actorId,
             ]);
             $deal->save();

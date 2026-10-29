@@ -20,7 +20,7 @@ class AuctionBidderMail extends Mailable
 {
     use Queueable, SerializesModels;
 
-    public const KINDS = ['approved', 'declined', 'outbid', 'won', 'subject_to_confirmation', 'not_accepted', 'ended'];
+    public const KINDS = ['approved', 'declined', 'outbid', 'won', 'subject_to_confirmation', 'not_accepted', 'ended', 'invoice'];
 
     public string $agencyName;
     public ?string $logoUrl;
@@ -33,6 +33,8 @@ class AuctionBidderMail extends Mailable
         public ?AuctionLot $lot,
         public string $url,
         public array $facts = [],
+        public ?string $attachmentBytes = null,
+        public ?string $attachmentName = null,
     ) {
         $agency = Agency::withoutGlobalScopes()->find($auction->agency_id);
         $this->agencyName = Agency::displayNameFor($agency, 'Auctions');
@@ -50,11 +52,22 @@ class AuctionBidderMail extends Mailable
             'outbid' => 'You have been outbid' . ($this->lot ? " on Lot {$this->lot->lot_number}" : ''),
             'won' => 'You won' . ($this->lot ? " Lot {$this->lot->lot_number}" : '') . " — {$this->auction->title}",
             'subject_to_confirmation' => 'You are the highest bidder' . ($this->lot ? " on Lot {$this->lot->lot_number}" : '') . ' — subject to confirmation',
+            'invoice' => 'Your invoice' . ($this->facts['number'] ?? false ? ' ' . $this->facts['number'] : '') . ($this->lot ? " — Lot {$this->lot->lot_number}" : ''),
             'not_accepted' => 'About your bid' . ($this->lot ? " on Lot {$this->lot->lot_number}" : '') . " — {$this->auction->title}",
             default => "The auction has ended — {$this->auction->title}",
         };
 
         return new Envelope(from: new Address(config('mail.from.address'), $this->agencyName), replyTo: $replyTo, subject: $subject);
+    }
+
+    /** The invoice email carries the PDF. */
+    public function attachments(): array
+    {
+        if ($this->attachmentBytes === null) {
+            return [];
+        }
+
+        return [\Illuminate\Mail\Mailables\Attachment::fromData(fn () => $this->attachmentBytes, $this->attachmentName ?: 'invoice.pdf')->withMime('application/pdf')];
     }
 
     public function content(): Content
