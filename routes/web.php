@@ -8071,6 +8071,8 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
         Route::get('/{trackedProperty}', function ($trackedProperty) {
             return redirect('/corex/market-intelligence/opportunities/' . $trackedProperty, 301);
         })->where('trackedProperty', '[0-9]+')->name('show');
+        // Lane B - the agency's own prospecting status on the property (not selling, mandate elsewhere, ...). Same permission as adding a comment.
+        Route::post('/{trackedProperty}/prospecting-status', [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'setProspectingStatus'])->name('prospecting-status');
         Route::post('/{trackedProperty}/promote', [\App\Http\Controllers\CoreX\TrackedPropertyController::class, 'promote'])->middleware('deny_assistant_property_write')->name('promote'); // AT-267 C2 — promote() creates agency stock
 
         // Phase C3 — address management on the TP detail page.

@@ -1693,7 +1693,15 @@ class MarketIntelligenceController extends Controller
         $externalRefsBySource = $tp->externalRefs->groupBy('source_type');
         $chain = $tp->source_chain ?? [];
 
+        // This agency's own record (Lane B). Own stock is re-read here so the flag is never stale; nothing is written unless it changed.
+        $workService = app(\App\Services\Prospecting\AgencyWorkService::class);
+        $work = $workService->syncOwnStock((int) $agencyId, (int) $tp->id);
+        $work->load(['statusSetBy:id,name', 'claimedBy:id,name']);
+
         return view('corex.market-intelligence.opportunity-detail', [
+            'work'                 => $work,
+            'workHistory'          => $workService->history((int) $agencyId, (int) $tp->id, 15)->load('user:id,name'),
+            'canSetStatus'         => $user->hasPermission('mic.comments.add'),
             'tp'                   => $tp,
             'linkedListings'       => $linkedListings,
             'externalRefsBySource' => $externalRefsBySource,

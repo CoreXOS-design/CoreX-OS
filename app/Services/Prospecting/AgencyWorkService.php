@@ -108,12 +108,14 @@ final class AgencyWorkService
         $isOwn = $propertyId !== null;
         $work = $this->find($agencyId, $trackedPropertyId);
         if (! $work && ! $isOwn) {
-            return $this->workFor($agencyId, $trackedPropertyId);   // nothing to record; still hand back a record
+            return new TrackedPropertyAgencyWork(['agency_id' => $agencyId, 'tracked_property_id' => $trackedPropertyId]);   // nothing to record: an unsaved, empty record
         }
         $work ??= $this->workFor($agencyId, $trackedPropertyId);
 
         $changed = (bool) $work->is_own_stock !== $isOwn || (int) $work->own_stock_property_id !== (int) $propertyId;
-        $work->forceFill(['is_own_stock' => $isOwn, 'own_stock_property_id' => $propertyId, 'own_stock_source' => $source, 'own_stock_synced_at' => now()])->save();
+        if ($changed || $work->own_stock_synced_at === null) {
+            $work->forceFill(['is_own_stock' => $isOwn, 'own_stock_property_id' => $propertyId, 'own_stock_source' => $source, 'own_stock_synced_at' => now()])->save();
+        }
         if ($changed) {
             $this->log($agencyId, $trackedPropertyId, Event::KIND_OWN_STOCK, $isOwn ? null : 'own stock', $isOwn ? 'own stock' : null, $source, null);
         }
@@ -133,7 +135,7 @@ final class AgencyWorkService
 
         $work = $this->find($agencyId, $trackedPropertyId);
         if (! $work && ! $claim) {
-            return $this->workFor($agencyId, $trackedPropertyId);
+            return new TrackedPropertyAgencyWork(['agency_id' => $agencyId, 'tracked_property_id' => $trackedPropertyId]);
         }
         $work ??= $this->workFor($agencyId, $trackedPropertyId);
 

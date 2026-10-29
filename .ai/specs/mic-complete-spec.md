@@ -1927,3 +1927,20 @@ For easy retrieval when planning future builds — these are decisions already m
 **Tests:** `tests/Feature/MarketIntelligence/ThisWeekTileConsistencyTest.php` — grouped count
 collapses cross-listed duplicates (3 rows / 2 groups → 2); every emitted tile URL is relative.
 Live-verified for Andre: matches 829==829, pocket 1==1, new-listings tile correctly hidden (0).
+
+---
+
+## Agency work layer (Lane B, 29 Oct 2026) - what is private to an agency
+
+Johan's rulings: the pool is public portal facts; every agency's own work (claims, comments, prospecting status, owner names and contacts, deed data, history) is that agency's
+and never seen by another. Full design, tables and decisions: `.ai/specs/property-identity.md` section 12.
+
+- **Per agency:** claims, comments, the prospecting status (Owner interested / contacted / not selling / mandate with another agency / do not contact) with its reason and history,
+  the own-stock flag, owner rows (names + ID numbers), all deed fields on the tracked property (including last sold price/date). **Stays shared only as the public advert facts
+  in `portal_advert_facts`.**
+- **Own stock** for the owning agency is flagged on its tracked property; the "Show in-stock too" tick still decides whether own stock is listed in the work list. Other agencies see
+  the same advert as ordinary other-agency stock.
+- **Property screen** (Opportunities > a property): "Your agency's notes on this property" - where it stands, our stock, claimed by, change form, history.
+- **Scoping:** the portal-capture tables and owner rows are now scoped by agency; the email-alert key is per agency. `MicAgencyScopeSweepTest` opens every MIC / tracked-property /
+  deeds list and by-id screen as a second agency and fails if any private fact of the first appears.
+- **Fill an agency's record from existing data:** `php artisan agency-work:backfill [--agency=N] [--dry-run]` (idempotent; run once on each box after deploy).

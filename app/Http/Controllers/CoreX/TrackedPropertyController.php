@@ -9,7 +9,9 @@ use App\Events\Prospecting\TrackedPropertyCommentAdded;
 use App\Http\Controllers\Controller;
 use App\Models\Prospecting\TrackedProperty;
 use App\Models\Prospecting\TrackedPropertyAddress;
+use App\Models\Prospecting\TrackedPropertyAgencyWork;
 use App\Models\Prospecting\TrackedPropertyComment;
+use App\Services\Prospecting\AgencyWorkService;
 use App\Services\Prospecting\TrackedPropertyMatchOrCreateService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -370,6 +372,32 @@ final class TrackedPropertyController extends Controller
         TrackedPropertyCommentAdded::dispatch($comment);
 
         return $this->commentsJsonResponse($trackedProperty, $user);
+    }
+
+    /**
+     * POST - set (or clear) THIS agency's prospecting status on the property, with an optional reason. Writes only to the agency's own work
+     * record (property-identity.md section 12) and its history; the property itself and every other agency are untouched.
+     */
+    public function setProspectingStatus(Request $request, TrackedProperty $trackedProperty)
+    {
+        $this->assertOwnership($request, $trackedProperty);
+        $user = $request->user();
+        if (! $user->hasPermission('mic.comments.add')) {
+            abort(403, 'You do not have permission to change where a property stands.');
+        }
+
+        $data = $request->validate([
+            'prospecting_status' => ['nullable', 'string', 'in:' . implode(',', array_keys(TrackedPropertyAgencyWork::STATUSES))],
+            'prospecting_reason' => ['nullable', 'string', 'max:500'],
+        ], ['prospecting_status.in' => 'Pick one of the listed statuses.']);
+
+        app(AgencyWorkService::class)->setStatus(
+            (int) $trackedProperty->agency_id, (int) $trackedProperty->id,
+            ($data['prospecting_status'] ?? '') !== '' ? $data['prospecting_status'] : null,
+            $data['prospecting_reason'] ?? null, (int) $user->id,
+        );
+
+        return redirect()->route('market-intelligence.opportunities.show', $trackedProperty->id)->with('status', 'Saved - your agency\'s notes on this property are updated.');
     }
 
     /**

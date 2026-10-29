@@ -124,3 +124,16 @@ scoping on every MIC list and export, direct-URL access blocked.
 3. **Deed price fields.** Confirm they count as private (my reading of "deed data, private, paid for"), with the last sold price/date staying shared.
 
 Nothing was built or changed in this step. On go: S1 first.
+
+---
+
+## 7. What was built (Lane B, 29 Oct 2026) - and the one call that changed the plan
+
+After this report lane A landed A1/A2: the shared pool is a NEW table `portal_advert_facts` (public facts, no agency) and `tracked_properties` stays one row per agency
+(property-identity.md section 3). So the "shared row" in section 1 does not exist and will not: the private columns in 2.1 and 2.2 are already on the agency's own row.
+**Call:** nothing was moved off those rows (it would have rewritten ~85 files for no extra privacy and contradicted lane A's spec). Built instead, one commit and one QA1
+deploy each: step 1 (`bc41adae5`, deployed `129e5985c`) agency columns on the three portal-capture tables, per-agency unique keys on those and on the email alerts;
+step 2 (`9a1aec154`) the work record + history, owners scoped by agency, `agency-work:backfill` (QA1: 2,165 records, 467 own stock, 84 claims, 54 Not selling, 605 history lines,
+0 owner rows without an agency); step 3 (`6b213fcee`) the two-agency sweep test + live upkeep of the record (claims, promotion, status, Not selling) + one unscoped
+company-properties read pinned to its agency; step 4 the agent-facing panel and status form. Ruling 3 (all deed-sourced fields private, including last sold price/date) is
+met by construction: those fields sit on the agency's row and lane A's pool allow-list excludes them. Full list of calls: property-identity.md section 12.3.

@@ -65,6 +65,8 @@
         </div>
     @endif
 
+    @include('corex.market-intelligence.partials._agency-work')
+
     {{-- CX-102 part 2 (2026-08-19, Johan) — "do not silently leave wrong data
          looking authoritative." A capture that enriched this record was later
          rejected as not actually being this property — the fields it wrote

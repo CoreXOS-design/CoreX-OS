@@ -180,9 +180,58 @@ Resolver: each key and its confidence (`exact`, `high`, `probable`, `weak`); uni
 Routes: one test per route in §7 (creates a tracked property link, no behaviour change on exact matches).
 Fixtures: real shapes (Pebble Beach 303 vs 304; 1166 Lynne Avenue portions; Uvongo / Uvongo Beach; relisted advert with a new id).
 
-## 12. Lane B — per-agency work layer (cc4 writes this section)
+## 12. Lane B - per-agency work layer (written by lane B / cc4; QA1 only)
 
-*(reserved for cc4: claim / status / comment tables, write-back to MIC, own-stock flag. Must read `claimed_by` / status only from the agency layer, and must treat the pool as read-only public facts.)*
+**What the shared pool is (lane A) and what this section adds.** The shared pool is `portal_advert_facts` (public portal facts, no agency). `tracked_properties`
+stays ONE ROW PER AGENCY PER PROPERTY, so the private columns on it (owner contact, deeds, bond, promotion, municipal value, last sold price/date, the archive /
+duplicate decision, `source_chain`) are already that agency's own layer and **stay where they are**: moving them to a second table would copy ~85 files' worth of
+reads for no extra privacy. Lane B therefore (1) closes the tables that were NOT scoped, (2) adds the agency's own work record for what is NEW per agency, (3) proves
+the privacy with a two-agency sweep. Johan's ruling (29 Oct, 3rd answer) stands: **every deed-sourced field is private to the agency that paid, including last sold
+price and date**; the pool carries portal-public facts only (lane A's allow-list already excludes them).
+
+### 12.1 Tables
+
+| Table | Scope | Holds |
+|---|---|---|
+| `portal_captures`, `portal_listings`, `portal_listing_observations` | `agency_id` NOT NULL + `BelongsToAgency` (step 1; backfill: capturing user's agency, else the first agency = HFC) | the extension's page captures. `portal_listings` is unique per `(agency_id, source_site, portal_listing_id)` |
+| `p24_listings` (email alerts) | already `agency_id`; unique key is now `(agency_id, p24_listing_number)` (was the number alone); the importer looks up inside its own agency explicitly | alert rows |
+| `tracked_property_owners` | `agency_id` NOT NULL + `BelongsToAgency`; the model stamps it from its tracked property on create | owner names + ID numbers from the paid deeds capture |
+| `tracked_property_agency_work` | unique `(agency_id, tracked_property_id)`, `BelongsToAgency`, soft delete | `prospecting_status` + `prospecting_reason` + who/when, `is_own_stock` + `own_stock_property_id` + `own_stock_source` (`promoted` / `advert`), `claimed_by_user_id` + `claimed_at` |
+| `tracked_property_agency_work_events` | `agency_id`, append-only | dated history of status / own-stock / claim changes (kind, from, to, reason, user) |
+
+Comments (`tracked_property_comments`) and claims (`prospecting_claims`) were already per agency and keep their own tables: the work record **points at** them
+(claim at a glance), it does not copy their history.
+
+### 12.2 Rules
+
+- **Only `App\Services\Prospecting\AgencyWorkService` reads or writes the work record.** Every method takes the agency explicitly (observers, jobs and commands have no
+  signed-in user); a work record cannot be made or found through another agency's tracked property (`DomainException`).
+- **Statuses** (fixed neutral list, plain words): Owner interested in selling / Owner contacted / Owner not selling / Mandate with another agency / Do not contact; or none.
+  Setting the same value again writes no history line; clearing clears the reason.
+- **Own stock** = the tracked property was promoted to one of the agency's live properties that is not `prospecting` or `not_selling`, OR one of its adverts is one of the
+  agency's on-market properties (the same `OnMarketStockService` rule the "Show in-stock too" tick and the IN STOCK badge use). It is per agency: the same advert is
+  own stock for the owner and other-agency stock for everyone else. The tick itself is unchanged and still decides whether own stock is listed.
+- **Kept current by:** `ProspectingClaimObserver` (claim created / released), `TrackedPropertyObserver` (promoted link changed), `PropertyObserver::saved` (status / portal refs
+  changed), `PropertyController::markNotSelling` (writes `not_selling` + the typed reason), and a re-read on the tracked property screen. `php artisan agency-work:backfill
+  [--agency=N] [--dry-run]` fills it from existing data (open claims, own stock, properties already Not selling); idempotent.
+- **Screen:** Market Intelligence > Opportunities > the property: panel "Your agency's notes on this property" (where it stands, our stock, claimed by, change form, history).
+  Route `POST /corex/tracked-properties/{id}/prospecting-status` (`corex.tracked-properties.prospecting-status`), permission `access_prospecting` + `mic.comments.add`
+  (no new permission key; Role Manager untouched). Not in the Setup Wizard: it is a work action, not a setting.
+- **Search / sort / filter / pagination:** no new list screen was added. Archive/restore: the work record soft-deletes and `workFor()` restores it (BUILD_STANDARD 5a).
+- **Agency 2's view never changes** when agency 1 claims, comments, sets a status or holds the stock: `tests/Feature/Prospecting/AgencyWorkLayerTest.php`,
+  `AgencyWorkScreenTest.php`, and the sweep `MicAgencyScopeSweepTest.php` (an admin of agency B opens 16 MIC / tracked-property / deeds lists and 12 by-id screens of
+  agency A's property; none shows A's street, owner, ID number, comment, status reason, alert number or bond holder, and by-id answers 404).
+- **Sharing the property row itself is not done and not planned here**: lane A's pool is `portal_advert_facts`. If a future step ever shares `tracked_properties`
+  rows, the work record is already keyed `(agency_id, tracked_property_id)` and `AgencyWorkService::assertOwn()` is the one line to relax.
+
+### 12.3 Lane B decisions (taken, not asked)
+
+1. Private columns stay on the per-agency `tracked_properties` row (see above) - nothing was moved or dropped.
+2. Own stock is NOT flagged for a property that is only `prospecting` (deeds-promoted, no mandate): on QA1 2,101 tracked properties carry a promoted link or a matching advert, 467 are
+   live own stock, the rest are prospecting / not-selling / stale.
+3. The status list is a fixed constant (a configurable list would need a wizard step under non-negotiable 10a); wording is neutral, nothing HFC-specific.
+4. `mic.comments.add` gates the status form: anyone who may add a comment may record where a property stands.
+5. Lane A's backfill test inserted `portal_listings` rows with no agency; it now names one (test-only change).
 
 ## 13. Steps and status
 
@@ -193,3 +242,6 @@ Fixtures: real shapes (Pebble Beach 303 vs 304; 1166 Lynne Avenue portions; Uvon
 | A3 | `PropertyIdentityResolver` + all routes through the door + settings fields | pending |
 | A4 | `property-identity:reconcile --dry-run` report for Johan | pending |
 | — | Possible-matches list, `--apply` merges | not in this lane; after Johan's review of A4 |
+| B1 | Lane B investigation | landed (QA1) `.ai/B1_AGENCY_WORK_LAYER_2026-10-29.md` |
+| B2 | portal-capture + alert tables per agency; work record; owners scoped; backfill | landed (QA1) - section 12 |
+| B3/B4 | two-agency privacy sweep; status panel + own-stock flag | landed (QA1) - section 12 |
