@@ -2385,6 +2385,13 @@ function cdsEditor() {
                     || (nf.source_type === 'property' && /expiry|lease_(start|end)|rental_amount|deposit/i.test(nf.source_column || '')))));
         },
 
+        // Does `hay` contain `needle` as whole words (not as the start of a longer word)?
+        _wholeWordIn(hay, needle) {
+            if (!needle) return false;
+            const esc = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return new RegExp('(^|[^a-z0-9])' + esc + '([^a-z0-9]|$)').test(hay);
+        },
+
         _findBestNamedFieldMatch(suggestedLabel, suggestedKey) {
             if (!suggestedLabel) return null;
             const needle = suggestedLabel.toLowerCase().trim();
@@ -2393,9 +2400,10 @@ function cdsEditor() {
             let match = pool.find(nf => nf.name.toLowerCase() === needle);
             if (match) return match;
 
+            // Whole words only: a blank called "Month" is not "Lease - Monthly rent", and "Time" is not "Lease time share".
             match = pool.find(nf => {
                 const name = nf.name.toLowerCase();
-                return needle.includes(name) || name.includes(needle);
+                return this._wholeWordIn(needle, name) || this._wholeWordIn(name, needle);
             });
             if (match) return match;
 
@@ -2405,7 +2413,7 @@ function cdsEditor() {
                 if (fieldPart) {
                     match = pool.find(nf => {
                         const name = nf.name.toLowerCase().replace(/_/g, ' ');
-                        return name.includes(fieldPart) || fieldPart.includes(name);
+                        return this._wholeWordIn(name, fieldPart) || this._wholeWordIn(fieldPart, name);
                     });
                 }
             }
