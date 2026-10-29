@@ -46,14 +46,14 @@ final class LeasePhraseMatcherTest extends TestCase
         $hit = (new LeasePhraseMatcher())->match($before, $after, $clause, $above, $prev);
 
         $this->assertNotNull($hit, "no lease field found for: {$before}");
-        $this->assertSame('lease.' . $expected, $hit['field_name']);
+        $this->assertSame('lease_' . $expected, $hit['field_name']);
         $this->assertSame('lease', $hit['source']);
     }
 
     public function test_the_agencys_own_name_for_its_lease_fee_is_recognised_without_any_agency_in_the_code(): void
     {
         $m = new LeasePhraseMatcher("Tenant Welcome Fee");
-        $this->assertSame('lease.lease_fee', $m->match("Tenant Welcome Fee\t\t", '')['field_name']);
+        $this->assertSame('lease_lease_fee', $m->match("Tenant Welcome Fee\t\t", '')['field_name']);
         $this->assertNull((new LeasePhraseMatcher())->match("Tenant Welcome Fee\t\t", ''));
     }
 
@@ -61,7 +61,7 @@ final class LeasePhraseMatcherTest extends TestCase
     {
         foreach ([['The lease shall commence on ', ''], ['The lease shall expire at midnight on ', ''], ['expire prior to the ', '']] as [$b, $a]) {
             $hit = (new LeasePhraseMatcher())->match($b, $a);
-            $this->assertStringStartsWith('lease.', $hit['field_name']);
+            $this->assertStringStartsWith('lease_', $hit['field_name']);
             $this->assertStringNotContainsString('deal.', $hit['field_name']);
             $this->assertStringNotContainsString('property.', $hit['field_name']);
         }

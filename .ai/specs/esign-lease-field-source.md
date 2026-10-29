@@ -33,13 +33,13 @@ only when the document heading says it is a lease (`isLeaseDocument`: "lease" / 
 inspection or application). Recognised: adults, other persons, rental shall be, rental in words, escalation % / in words / month,
 commence, expire at midnight, expire prior to (earliest termination), renewal period, pets, other conditions, agent service fee,
 net amount to owner, deposit, lease fee. A lease date is **never** linked to a mandate or property date: the matcher answers with
-`lease.*`, and the builder's own name matching excludes mandate / property dates in a lease (`_matchableFields`).
+`lease_*`, and the builder's own name matching excludes mandate / property dates in a lease (`_matchableFields`).
 
 The lease fee line is recognised by the name the importing **agency** gives it (Rentals settings "Lease fee label", passed in by
 `DocumentImporterController::generateCdsTemplate`) or the generic "lease / letting / placement / administration fee". No agency's
 wording is in the code.
 
-`CdsBindingSuggester` turns a `lease.<key>` answer into the Lease binding (`sf:lease`, editable by the agent). `CdsParserService::reidentifyFields`
+`CdsBindingSuggester` turns a `lease_<key>` answer (the page's own variable name) into the Lease binding (`sf:lease`, editable by the agent). `CdsParserService::reidentifyFields`
 re-reads an already imported document's blanks with the current rules (used to re-run a saved draft).
 
 ## 3. Label cleanup
@@ -71,3 +71,14 @@ The CDS Word import itself never calls AI.
 `LeaseFieldSource`, `LeasePhraseMatcher`, `FieldLabel`, `FieldCatalogue`, `CdsAiFieldSuggester`, `CdsParserService`, `CdsBindingSuggester`,
 `TemplateController`, `WebTemplateDataService`, `LeaseSigningLauncher`, `LeaseAgreementDocumentValues::dress`, `DocumentImporterController`,
 `cds-builder.blade.php`, `config/docuperfect-field-catalogue.php`, `Demo/Contexts/AbstractDemoContext` + `LeaseAgreementContext`, migration above.
+
+## 8. Known limits (29 Oct)
+
+- The CDS Word import finds fields only where the Word file has `@@@@` markers or dotted leaders (5+ dots). Plain underscore blanks
+  ("__________") are not fields, so a document written with underscore blanks imports with none and the author must add markers in
+  Word or place the fields by hand in the builder.
+- The builder offers "Save Template" only when every field is linked (or turned into a typed-by-hand field).
+- A draft keeps the parsed result, not the uploaded Word file; the Word file is stored only once a template is saved (re-import).
+  `CdsParserService::reidentifyFields` re-reads a saved parse with the current rules.
+- Staging's `scripts/deploy.sh` does not run `deploy:sync-reference-data`, so seeder-owned template fixes (e.g. the seeded
+  Sales Mandatory Disclosure's buyer signer) reach Staging/live only when the seeder is run by hand.

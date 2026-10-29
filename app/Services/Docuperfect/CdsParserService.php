@@ -2408,7 +2408,7 @@ class CdsParserService
                 $identification = $isLease
                     ? $lease->match($textBefore, $textAfter, $fullClauseText, $aboveSection, $previousLeaseKey)
                     : null;
-                $previousLeaseKey = $identification !== null ? substr($identification['field_name'], strlen('lease.')) : null;
+                $previousLeaseKey = $identification !== null ? substr($identification['field_name'], strlen('lease_')) : null;
                 $identification ??= $this->identifyField(
                     $textBefore, $textAfter, $fullClauseText
                 );
@@ -2564,6 +2564,10 @@ class CdsParserService
 
             ['match' => '/complex.*estate.*known/i', 'on' => 'before',
              'result' => ['label' => 'Complex Name', 'field_name' => 'property.complex_name', 'field_type' => 'text', 'source' => 'property', 'confidence' => 'high']],
+
+            // A blank followed by the word "(Property)" / "(Premises)" in brackets is the property's address.
+            ['match' => '/^\s*\(\s*(property|premises)\s*\)/i', 'on' => 'after',
+             'result' => ['label' => 'Property Address', 'field_name' => 'property.address', 'field_type' => 'text', 'source' => 'property', 'confidence' => 'high']],
 
             ['match' => '/\(street\)/i', 'on' => 'after',
              'result' => ['label' => 'Street', 'field_name' => 'property.street', 'field_type' => 'text', 'source' => 'property', 'confidence' => 'high']],
@@ -2793,7 +2797,7 @@ class CdsParserService
                     for ($j = $k - 1; $j > $i; $j--) {
                         if (($content[$j]['type'] ?? '') === 'text') { $mid .= (string) $content[$j]['value']; }
                     }
-                    if (str_starts_with((string) ($content[$i]['field_name'] ?? ''), 'lease.')) {
+                    if (str_starts_with((string) ($content[$i]['field_name'] ?? ''), 'lease_')) {
                         break; // the Lease source already named both halves
                     }
                     if (str_contains($mid, '(')) {
