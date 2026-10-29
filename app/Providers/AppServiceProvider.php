@@ -268,6 +268,8 @@ class AppServiceProvider extends ServiceProvider
         // Property identity C2 (section 15.2): runs AFTER the link above - a property added by hand that is the same property as one already in
         // Market Intelligence claims that record for the agent who added it. A user must be signed in (imports and seeders are not "by hand").
         \App\Models\Property::created(fn ($m) => auth()->check() ? app(\App\Services\Prospecting\CaptureClaimService::class)->claimFromManualProperty((int) $m->id, (int) auth()->id()) : null);
+        // Property identity C3 (section 15.3): one prospecting status per agency per property - a property whose status changed tells the agency's work record.
+        \App\Models\Property::saved(fn ($m) => $m->wasChanged('status') ? app(\App\Services\Prospecting\ProspectingStatusSync::class)->fromProperty($m, auth()->id() ? (int) auth()->id() : null) : null);
         \App\Models\MarketReports\MarketReportCompRow::created(fn ($m) => app(\App\Observers\PropertyIdentityLinkObserver::class)->compRowCreated($m));
         \App\Models\PresentationSoldComp::created(fn ($m) => app(\App\Observers\PropertyIdentityLinkObserver::class)->soldCompCreated($m));
         \App\Models\P24Listing::saved(fn ($m) => app(\App\Observers\PropertyIdentityLinkObserver::class)->alertSaved($m));

@@ -391,13 +391,17 @@ final class TrackedPropertyController extends Controller
             'prospecting_reason' => ['nullable', 'string', 'max:500'],
         ], ['prospecting_status.in' => 'Pick one of the listed statuses.']);
 
-        app(AgencyWorkService::class)->setStatus(
-            (int) $trackedProperty->agency_id, (int) $trackedProperty->id,
-            ($data['prospecting_status'] ?? '') !== '' ? $data['prospecting_status'] : null,
-            $data['prospecting_reason'] ?? null, (int) $user->id,
-        );
+        $work = app(AgencyWorkService::class);
+        $before = $work->find((int) $trackedProperty->agency_id, (int) $trackedProperty->id)?->prospecting_status;
+        $after = ($data['prospecting_status'] ?? '') !== '' ? $data['prospecting_status'] : null;
+        $work->setStatus((int) $trackedProperty->agency_id, (int) $trackedProperty->id, $after, $data['prospecting_reason'] ?? null, (int) $user->id);
 
-        return redirect()->route('market-intelligence.opportunities.show', $trackedProperty->id)->with('status', 'Saved - your agency\'s notes on this property are updated.');
+        // C3 (property-identity.md section 15.3): "Owner not selling" is also the property's Not selling (and back); the other statuses have no
+        // property equivalent. One status per agency per property, both sides telling the same story.
+        $changedProperties = app(\App\Services\Prospecting\ProspectingStatusSync::class)->toProperty((int) $trackedProperty->agency_id, (int) $trackedProperty->id, $before, $after, (int) $user->id);
+        $also = $changedProperties !== [] ? ($after === TrackedPropertyAgencyWork::STATUS_NOT_SELLING ? ' The property is now marked Not selling too.' : ' The property is back in Prospecting.') : '';
+
+        return redirect()->route('market-intelligence.opportunities.show', $trackedProperty->id)->with('status', 'Saved - your agency\'s notes on this property are updated.' . $also);
     }
 
     /**

@@ -256,6 +256,9 @@ Comments (`tracked_property_comments`) and claims (`prospecting_claims`) were al
 | B1 | Lane B investigation | landed (QA1) `.ai/B1_AGENCY_WORK_LAYER_2026-10-29.md` |
 | B2 | portal-capture + alert tables per agency; work record; owners scoped; backfill | landed (QA1) - section 12 |
 | B3/B4 | two-agency privacy sweep; status panel + own-stock flag | landed (QA1) - section 12 |
+| C1 | e-mail alerts tie to the property through the door; alerts on the property screen; Private Property alert import | landed (QA1) - section 15.1 |
+| C2 | deeds / hand capture claims its Market Intelligence property; counts in Road to Sold | landed (QA1) - section 15.2 |
+| C3 | one prospecting status per agency per property, both ways | landed (QA1) - section 15.3 |
 
 
 ## 14. A5 - one shared row per property / advert across agencies (design; built after A4 and after lane B's steps 1-4)
@@ -294,4 +297,19 @@ Comments (`tracked_property_comments`) and claims (`prospecting_claims`) were al
 - **Never over another agent:** if another agent in the agency holds an active claim, or a live pitch lock, on any advert of the property, nothing is claimed (outcome `held_by_other`). A new property (no Market Intelligence record), or one whose adverts are gone, claims nothing.
 - **Never across agencies:** every query names the agency; the claim, work record and Road to Sold prospect are all the capturing agency's own. Agency B's copy of the same house is not touched (test: `CaptureClaimTest::test_agency_privacy_...`).
 - **Road to Sold already-owned:** if another agent already works the property in Road to Sold, the Market Intelligence claim is still made and Road to Sold is left alone (`owned_by_other`); a closed story is not restarted (`closed`).
+
+### 15.3 C3 - one status per agency per property, both ways
+
+The agency's prospecting status lives on its work record (section 12). `ProspectingStatusSync` keeps the property side telling the same story, inside one agency (every query names the agency; the other agency's copy is never touched).
+
+| Happens | Effect |
+|---|---|
+| The "Not selling" button, or any save that makes a property Not selling | Work record: "Owner not selling", with the reason typed, who and when (one history line). Found through `tracked_property_id` (the door's link) as well as the promoted link - before, only the promoted link was found |
+| A property leaves Not selling | A "Not selling" on the work record is cleared ("The property is no longer marked Not selling"). Any other status (for example Do not contact) is left alone |
+| A Prospecting property becomes ours (draft or live, "mandate won") | "Owner not selling" and "Mandate with another agency" are cleared ("Now listed with us"); Owner interested / contacted / Do not contact stay. "Listed with us" itself is lane B's own-stock flag |
+| The Market Intelligence status form sets "Owner not selling" | The agency's Prospecting property on it becomes Not selling and its open claims are closed (adverts matched to the property and the Market Intelligence property's own adverts), exactly as the button does; the page says so |
+| The form leaves "Owner not selling" | That Not selling property goes back to Prospecting |
+| The form sets Owner interested / contacted / Mandate with another agency / Do not contact | The property is left alone (no equivalent). A live listing of ours is never switched off by a note |
+
+History is kept on the work record for every change (who, when, from, to, why). The claim-closing code moved out of `PropertyController::markNotSelling` into `ProspectingStatusSync::closeOpenClaims` so the button and the form share it. Not wired (no per-property status to carry): Road to Sold "park" reasons (they are per agent), and the deeds screen has no status of its own.
 

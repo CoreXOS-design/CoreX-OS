@@ -2473,62 +2473,19 @@ class PropertyController extends Controller
         // It survived review because the job is queued in production, so the
         // clear usually lands after the request — a timing accident, not a
         // guarantee. Capturing the ids up front makes it deterministic.
-        $matchedListingIds = \DB::table('prospecting_listings')
-            ->where('matched_property_id', $property->id)
-            ->whereNull('deleted_at')
-            ->pluck('id');
+        $sync = app(\App\Services\Prospecting\ProspectingStatusSync::class);
+        $matchedListingIds = $sync->matchedListingIds($property);
 
+        // C3 (property-identity.md section 15.3): saving the status writes the agency's ONE prospecting status on the tracked property (the
+        // Property saved hook -> ProspectingStatusSync::fromProperty), carrying this reason, whichever way the property is linked to it.
         $property->status = Property::STATUS_NOT_SELLING;
-        $property->save();
+        \App\Services\Prospecting\ProspectingStatusSync::withReason($reason, fn () => $property->save());
 
-        // Lane B: the agency's own record of the tracked property (the same status, with the reason and who set it) - never another agency's.
-        try {
-            $tpId = \App\Models\Prospecting\TrackedProperty::withoutGlobalScopes()->where('agency_id', $property->agency_id)->where('promoted_to_property_id', $property->id)->value('id');
-            if ($tpId) {
-                app(\App\Services\Prospecting\AgencyWorkService::class)->setStatus((int) $property->agency_id, (int) $tpId, 'not_selling', $reason !== '' ? $reason : null, auth()->id());
-            }
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning("Agency work not-selling record failed for property #{$property->id}: {$e->getMessage()}");
-        }
-
-        // Johan, 2026-08-27 — "the my claim has run its cycle... should fall off
-        // My Claims." Not Selling ends the cycle whether the MIC pitch was
-        // completed or not (two real cases hit this: a completed pitch marked
-        // Not Selling afterward, AND a deed linked but Continue never clicked —
-        // My Claims must not care which). Every ACTIVE claim pointing at this
-        // property — via its listing's matched_property_id (the incomplete-pitch
-        // path) OR the claim's own property_id (backfilled once the pitch
-        // completes, per ProspectingClaimService::consumeLockAsPermanentClaim())
-        // — is closed here, not just released: STATUS_NOT_INTERESTED is already
-        // the closest existing outcome ("owner declined — closes the claim") and
-        // is already one of the model's own CLOSING_STATUSES, so this reuses the
-        // vocabulary the whole feedback/reporting system already understands
-        // rather than inventing a new one. is_active=false is what actually
-        // drops it off the my_claims filter (whereHas('activeClaim', ...)); the
-        // status + note make the outcome findable, not silently vanished.
-        // $matchedListingIds was captured above, before the save — see the note there.
-        \App\Models\ProspectingClaim::where('agency_id', $property->agency_id)
-            ->where('is_active', true)
-            ->whereNull('released_at')
-            ->where(function ($q) use ($matchedListingIds, $property) {
-                $q->whereIn('prospecting_listing_id', $matchedListingIds)
-                  ->orWhere('property_id', $property->id);
-            })
-            ->update([
-                'status'          => \App\Models\ProspectingClaim::STATUS_NOT_INTERESTED,
-                'is_active'       => false,
-                'released_at'     => now(),
-                'release_reason'  => 'not_selling',
-                'feedback_at'     => now(),
-                'notes'           => \Illuminate\Support\Facades\DB::raw(
-                    "CONCAT(COALESCE(notes, ''), '\n[" . now()->format('Y-m-d H:i') . "] Marked Not selling — claim closed.')"
-                ),
-                'last_updated_at' => now(),
-            ]);
-        // Bulk query-builder ->update() above bypasses Eloquent model events, so
-        // ProspectingClaimObserver never sees it — bump the MIC counts cache
-        // version explicitly here (see ProspectingClaimObserver docblock).
-        \App\Models\ProspectingClaim::bumpCountsCacheVersion((int) $property->agency_id);
+        // Johan, 2026-08-27 — "the my claim has run its cycle... should fall off My Claims." Not Selling ends the cycle whether the MIC pitch was
+        // completed or not: every active claim on this property (via its adverts' matched_property_id or the claim's own property_id) is closed.
+        // $matchedListingIds was captured above, before the save. The close lives in ProspectingStatusSync so the Market Intelligence status form
+        // does exactly the same.
+        $sync->closeOpenClaims($property, $matchedListingIds);
 
         $actor = $request->user()?->name ?? 'Unknown user';
         $when = now()->format('j M Y, H:i');

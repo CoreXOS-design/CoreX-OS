@@ -631,3 +631,5 @@ Every Property24 alert row is tied to its property file by advert number (throug
 
 Claims (C2): a deeds capture or a hand-added property that is the same property as one in Market Intelligence claims it for the capturing agent (all its adverts, no activity points, work-record history line, Road to Sold prospect at Found). See `property-identity.md` section 15.2.
 
+Status (C3): the status on a property and the agency's status on the Market Intelligence property are one thing - "Not selling" set either side shows on both, and the history is kept. See `property-identity.md` section 15.3.
+
