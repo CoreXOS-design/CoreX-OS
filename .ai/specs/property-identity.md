@@ -250,8 +250,8 @@ Comments (`tracked_property_comments`) and claims (`prospecting_claims`) were al
 | A1 | This spec | landed (QA1) |
 | A2 | `PortalRef` normaliser + `canonical_ref` columns + model hooks + pool table (`portal_advert_facts`) + `property-refs:normalise` | landed (QA1) — dry-run report in the A2 build report; `--apply` not yet run |
 | A3 | `PropertyIdentityResolver` + all routes through the door + settings fields + link columns + the one address-line reader | landed (QA1) |
-| A4 | `property-identity:reconcile --dry-run` report for Johan | pending |
-| A5 | Make the property/advert row shared across agencies (§14) | after A4 and after lane B (cc4) steps 1-4 |
+| A4 | `property-identity:reconcile --dry-run` report for Johan (read-only; no `--apply` exists) | landed (QA1) |
+| A5 | Make the property/advert row shared across agencies (§14) | next - after Johan has seen the A4 report; lane B steps 1-4 have landed |
 | — | Possible-matches list, `--apply` merges | not in A2-A4; after Johan's review of A4 |
 | B1 | Lane B investigation | landed (QA1) `.ai/B1_AGENCY_WORK_LAYER_2026-10-29.md` |
 | B2 | portal-capture + alert tables per agency; work record; owners scoped; backfill | landed (QA1) - section 12 |
