@@ -204,6 +204,7 @@ class BuyerPipelineController extends Controller
                 'view' => 'list',
                 'buyers' => $buyers,
                 'wonBuyers' => $wonBuyers,
+                'wonDeals' => $this->wonDeals($wonBuyers),
                 'counts' => $this->stateCounts($user, $pipelineScope, $leadType),
                 'coreMatchCounts' => $this->coreMatchCounts($buyers->pluck('id')->merge($wonBuyers->pluck('id'))),
                 'pipelineScope' => $pipelineScope,
@@ -277,6 +278,7 @@ class BuyerPipelineController extends Controller
             'columnTotals' => $columnTotals,
             'columnLimit' => $columnLimit,
             'wonBuyers' => $wonBuyers,
+            'wonDeals' => $this->wonDeals($wonBuyers),
             // 2026-08-20 (Johan, reported for a meeting) — this call was
             // missing $leadType entirely: the kanban columns are built from
             // a query that DOES apply applyLeadTypeFilter() (line ~53
@@ -309,6 +311,32 @@ class BuyerPipelineController extends Controller
             'enteredFrom' => $request->get('entered_from'),
             'enteredTo' => $request->get('entered_to'),
         ]);
+    }
+
+    /**
+     * The Won / Success list shows, per buyer, the property of the LIVE deal that made them Won (the same
+     * "live" test as BuyerStateService: not declined, not archived). One query for the whole list; the newest
+     * live deal wins when a buyer is on more than one. A buyer someone moved to Won by hand has no deal, so
+     * they simply have no row here and the list shows a dash.
+     *
+     * @return \Illuminate\Support\Collection<int,object>  contact_id => {deal_id, deal_no, property_address}
+     */
+    private function wonDeals(\Illuminate\Support\Collection $wonBuyers): \Illuminate\Support\Collection
+    {
+        if ($wonBuyers->isEmpty()) {
+            return collect();
+        }
+
+        return DB::table('deal_contacts as dc')
+            ->join('deals as d', 'd.id', '=', 'dc.deal_id')
+            ->where('dc.role', 'buyer')
+            ->whereIn('dc.contact_id', $wonBuyers->pluck('id'))
+            ->whereNull('d.deleted_at')
+            ->whereRaw("COALESCE(d.accepted_status, '') <> 'D'")
+            ->orderByDesc('d.id')
+            ->get(['dc.contact_id', 'd.id as deal_id', 'd.deal_no', 'd.property_address'])
+            ->unique('contact_id')
+            ->keyBy('contact_id');
     }
 
     /**

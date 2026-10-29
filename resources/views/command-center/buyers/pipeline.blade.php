@@ -22,10 +22,30 @@
     $showsMixedTypes = !($isRentalEntry ?? false) && empty($leadType ?? null);
 @endphp
 {{-- Kanban view fills the content area (md:h-full / md:min-h-0 — same mechanism as the
-     Task board and Today page) so the four state columns are always viewport-tall and
-     scroll inside themselves, with Won / Success pinned beneath them. Below md the
-     columns stack and the page scrolls. List view keeps normal page flow. --}}
-<div class="w-full flex flex-col gap-5 {{ $view === 'kanban' ? 'md:h-full md:min-h-0' : '' }}">
+     Task board and Today page) so the four state columns own ALL the height left under the
+     filter bar and scroll inside themselves, with Won / Success a collapsed strip beneath
+     them (header + count; opens in place as a one-line-per-buyer list). The page itself does
+     not scroll. Below md the columns stack and the page scrolls. List view keeps normal page
+     flow. Fit proof: scripts/buyer-pipeline-fit-check.mjs; spec: buyer-pipeline.md "Kanban fits the screen". --}}
+<style>
+    /* Kanban: the content block is one column of flex items — chrome, the four columns (take the rest), the Won strip. */
+    @media (min-width: 768px) { .bp-kanban { gap: .75rem; } }
+    .bp-won { display: flex; flex-direction: column; flex: 0 0 auto; min-height: 0; }
+    @media (min-width: 768px) { .bp-kanban .bp-won.is-open { flex: 0 1 clamp(9rem, 23vh, 20rem); min-height: 6.5rem; } }
+    .bp-won-head { display: flex; align-items: center; gap: .5rem; width: 100%; padding: .6rem 1rem; background: none; border: 0; cursor: pointer; text-align: left; flex: 0 0 auto; }
+    .bp-won.is-open .bp-won-head { border-bottom: 2px solid var(--ds-green, #059669); }
+    .bp-won-head:focus-visible { outline: 2px solid var(--brand-icon, #0ea5e9); outline-offset: -2px; }
+    .bp-won-chev { width: .9rem; height: .9rem; flex: 0 0 auto; transition: transform .15s; color: var(--text-muted); }
+    .bp-won.is-open .bp-won-chev { transform: rotate(90deg); }
+    .bp-won-body { flex: 1 1 auto; min-height: 0; overflow: auto; max-height: 16rem; }
+    @media (min-width: 768px) { .bp-kanban .bp-won-body { max-height: none; } }
+    .bp-won-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: .75rem; }
+    .bp-won-table th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); color: var(--text-muted); font-weight: 600; text-align: left; padding: .35rem .75rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .bp-won-table td { padding: 0 .75rem; height: 2rem; line-height: 2rem; border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-muted); }
+    .bp-won-table tbody tr:hover td { background: var(--surface-2); }
+    .bp-won-table td a { color: var(--text-primary); font-weight: 600; text-decoration: none; }
+</style>
+<div class="w-full flex flex-col gap-5 {{ $view === 'kanban' ? 'bp-kanban md:h-full md:min-h-0' : '' }}">
     {{-- Header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -394,36 +414,64 @@
 
     {{-- Won / Success section (Johan 2026-08-13) — buyers who converted (linked to / bought a
          property) live HERE, out of the active pipeline above. Fed by BuyerStateService::markWon
-         off the ContactLinkedToProperty(role:buyer) event; terminal state, never decayed by cron. --}}
-    @php $wonBuyers = $wonBuyers ?? collect(); @endphp
-    <div class="rounded-md overflow-hidden md:shrink-0" style="background: var(--surface); border: 1px solid var(--border);">
-        <div class="px-4 py-3 flex items-center justify-between" style="border-bottom: 2px solid var(--ds-green, #059669);">
+         off the ContactLinkedToProperty(role:buyer) event; terminal state, never decayed by cron.
+         Johan 2026-10-29: a collapsed strip (header + count) at the bottom, opened in place as a dense
+         one-line-per-buyer list; open/closed is remembered per user (this browser). --}}
+    @php
+        $wonBuyers = $wonBuyers ?? collect();
+        $wonDeals = $wonDeals ?? collect();
+    @endphp
+    <div class="bp-won rounded-md overflow-hidden" data-bp-won
+         x-data="bpWon({{ (int) auth()->id() }})" :class="open ? 'is-open' : ''"
+         style="background: var(--surface); border: 1px solid var(--border);">
+        <button type="button" class="bp-won-head" data-bp-won-toggle @click="toggle()" :aria-expanded="open ? 'true' : 'false'" aria-controls="bp-won-body">
+            <svg class="bp-won-chev" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M7.2 4.2a1 1 0 0 1 1.4 0l5 5a1 1 0 0 1 0 1.4l-5 5a1 1 0 1 1-1.4-1.4L11.6 10 7.2 5.6a1 1 0 0 1 0-1.4Z" clip-rule="evenodd"/></svg>
             <span class="text-sm font-semibold" style="color: var(--text-primary);">Won / Success</span>
             <span class="ds-badge ds-badge-pill ds-badge-success">{{ number_format($counts['won'] ?? $wonBuyers->count()) }}</span>
+            <span class="text-xs ml-auto" style="color: var(--text-muted);" x-text="open ? 'Hide list' : 'Show list'">Show list</span>
+        </button>
+        <div id="bp-won-body" class="bp-won-body" x-show="open" style="display: none;">
+            @if($wonBuyers->isEmpty())
+                <div class="px-4 py-4 text-xs" style="color: var(--text-muted);">No won {{ $personNounPlural }} yet. When a {{ $personNoun }} is linked to a deal in the Deal Register, they move here automatically.</div>
+            @else
+                <table class="bp-won-table">
+                    <colgroup><col style="width: 24%"><col style="width: 20%"><col style="width: 14%"><col><col style="width: 90px"></colgroup>
+                    <thead><tr><th>Name</th><th>Agent</th><th>Last activity</th><th>Property</th><th>Status</th></tr></thead>
+                    <tbody>
+                        @foreach($wonBuyers as $buyer)
+                            @php
+                                $wonDeal = $wonDeals->get($buyer->id);
+                                $wonProperty = trim((string) ($wonDeal->property_address ?? ''));
+                            @endphp
+                            <tr>
+                                <td title="{{ $buyer->full_name }}"><a href="{{ route('command-center.buyers.show', $buyer) }}">{{ $buyer->full_name }}</a></td>
+                                <td title="{{ $buyer->agent->name ?? 'Unassigned' }}">{{ $buyer->agent->name ?? 'Unassigned' }}</td>
+                                <td>{{ $buyer->last_activity_at ? $buyer->last_activity_at->format('d M Y') : '—' }}</td>
+                                <td title="{{ $wonProperty }}">{{ $wonProperty !== '' ? $wonProperty : '—' }}</td>
+                                <td><span class="ds-badge ds-badge-success text-[10px] whitespace-nowrap">Won</span></td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            @endif
         </div>
-        @if($wonBuyers->isEmpty())
-            <div class="px-4 py-4 text-xs" style="color: var(--text-muted);">No won {{ $personNounPlural }} yet. When a {{ $personNoun }} is linked to a deal in the Deal Register, they move here automatically.</div>
-        @else
-            <div class="p-2 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 md:max-h-[30vh] overflow-y-auto corex-brand-scroll">
-                @foreach($wonBuyers as $buyer)
-                    <a href="{{ route('command-center.buyers.show', $buyer) }}"
-                       class="block p-3 rounded-md transition hover:opacity-80 no-underline"
-                       style="background: var(--surface-2); border: 1px solid var(--border);">
-                        <div class="flex items-center justify-between gap-2">
-                            <span class="text-sm font-semibold truncate" style="color: var(--text-primary);">{{ $buyer->full_name }}</span>
-                            <span class="ds-badge ds-badge-success text-[10px] whitespace-nowrap">Won</span>
-                        </div>
-                        <div class="text-xs mt-0.5 truncate" style="color: var(--text-muted);">
-                            {{ $buyer->agent->name ?? 'Unassigned' }}@if($buyer->last_activity_at) · {{ $buyer->last_activity_at->format('d M Y') }}@endif
-                        </div>
-                    </a>
-                @endforeach
-            </div>
-        @endif
     </div>
 </div>
 
 <script>
+// Won / Success strip: collapsed by default; the choice is remembered per user (key carries the user id, so two
+// people on one browser never inherit each other's). Browser storage may be blocked — then it simply starts closed.
+function bpWon(userId) {
+    const key = 'corex.buyerPipeline.wonOpen.' + userId;
+    return {
+        open: false,
+        init() { try { this.open = window.localStorage.getItem(key) === '1'; } catch (_) {} },
+        toggle() {
+            this.open = !this.open;
+            try { window.localStorage.setItem(key, this.open ? '1' : '0'); } catch (_) {}
+        },
+    };
+}
 function kanbanDrag() {
     return {
         draggingId: null,

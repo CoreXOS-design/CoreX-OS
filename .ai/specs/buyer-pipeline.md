@@ -121,3 +121,30 @@ Held until Johan orders the real run (manual, not part of deploy). Test: `tests/
   AT-74 protection window). Idempotent: a second run changes nothing.
 - Tests: `tests/Feature/Buyers/BuyerWonOnlyViaDealOrManualTest.php`, `tests/Feature/Buyers/BuyersBackfillWonLiveDealsTest.php`
   (part 2), `tests/Feature/Dr2/Dr2CaptureTest.php` (`…with_a_property_marks_its_buyer_won_without_the_link_listener`).
+
+## Kanban fits the screen; Won is a collapsed strip (2026-10-29, Johan)
+**Bug:** at 1366x768 the four working columns (New / Warm / Cold / Lost) got about 100px each — one card visible —
+because the Won / Success block under them was `shrink-0` with a card grid capped at 30vh (`pipeline.blade.php`,
+the Won block; the columns are `flex-1 min-h-0` and only got what was left after the banner, tabs, filter bar and Won).
+With Won populated (live owner: 37) Won took most of the screen.
+
+**Rules now (Kanban view; screen standard "fits 1366x768, tabbed pages do not scroll"):**
+- The four columns own all the height between the filter bar and the bottom of the content block and scroll inside
+  themselves (cards, "+N more · View all in List" stays). The page itself does not scroll at 1366x768 or 1920x1080.
+  The Kanban page's gap tightens from 20px to 12px (`.bp-kanban`); nothing else about the chrome changed.
+- **Won / Success is a collapsed strip** at the bottom: chevron, "Won / Success", the count, "Show list / Hide list".
+  **Collapsed is the default.** Opened, it expands in place into a **dense list, one line per buyer, never cards**:
+  Name (opens the buyer) · Agent · Last activity · Property · Status. It scrolls inside itself (sticky header) and takes
+  at most 23vh (min 9rem, max 20rem), so the columns keep their height.
+- **Property** = the property address of the buyer's newest LIVE deal (pending / granted / registered; not declined,
+  not archived — the same test as `BuyerStateService::dealIsLive`), read in one query (`wonDeals()`); a buyer moved to
+  Won by hand, or whose only deal was declined, shows "—". Same scope as the board (own / branch / agency).
+- **Remembered per user:** open/closed is stored in the browser under a key that carries the user's id
+  (`corex.buyerPipeline.wonOpen.<userId>`) — so two people on one browser never share a choice. It is per user *per
+  browser* (no server table); if browser storage is blocked it simply starts closed.
+- The same Won block renders under the List view (it is one block); List view's own table, filters and actions are
+  untouched and the page scrolls normally there.
+- Below the md breakpoint the columns stack and the page scrolls, as before.
+- No data-model, route, permission or card-behaviour change.
+- Proof: `scripts/buyer-pipeline-fit-check.mjs` (real Chromium, agent / branch manager / owner x 1366x768 and 1920x1080,
+  collapsed and expanded, remember-after-reload) and `tests/Feature/CoreMatches/BuyerPipelineWonStripTest.php`.
