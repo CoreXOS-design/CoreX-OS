@@ -50,6 +50,13 @@
         </div>
 
         <div>
+            <label class="ds-label block mb-1" for="agents_signed">Number of agents this agreement is for</label>
+            <input id="agents_signed" name="agents_signed" type="number" min="1" max="1000" value="{{ old('agents_signed') }}" class="ds-field w-28" inputmode="numeric">
+            <p class="text-xs mt-1" style="color: var(--text-muted);">Recorded on the agreement and used by Revenue for what the agency pays (the price list in Agency Billing). Leave empty if it is not agreed yet.</p>
+            @error('agents_signed')<p class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</p>@enderror
+        </div>
+
+        <div>
             <label class="ds-label block mb-1" for="take_on_month">Take-on month <span style="color: var(--ds-crimson);">*</span></label>
             <select id="take_on_month" name="take_on_month" required class="ds-field" style="min-width: 16rem;">
                 <option value="" disabled hidden @selected(old('take_on_month', $defaultTakeOn) === null || old('take_on_month', $defaultTakeOn) === '')>Choose the take-on month…</option>

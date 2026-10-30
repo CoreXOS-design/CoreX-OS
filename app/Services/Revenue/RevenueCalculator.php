@@ -3,7 +3,7 @@
 namespace App\Services\Revenue;
 
 use App\Models\RevenueBillingRecord;
-use App\Models\RevenuePriceList;
+use App\Models\Billing\BillingPriceList;
 use App\Models\RevenueProspect;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -19,22 +19,16 @@ use Illuminate\Support\Collection;
  */
 class RevenueCalculator
 {
-    private array $prices;
-
-    public function __construct(?array $prices = null)
+    /** Prices come from Agency Billing's dated price list (one store). */
+    public function listPrice(?int $users, int $branches = 1, ?Carbon $on = null): ?float
     {
-        $this->prices = $prices ?? RevenuePriceList::current();
-    }
-
-    /** Monthly price for this many active agents on the list, or null when it is on quotation / unknown. */
-    public function listPrice(?int $users, int $branches = 1): ?float
-    {
-        if (! $users || $users < 1 || $users >= (int) $this->prices['quote_from']) {
+        $list = BillingPriceList::asOf($on);
+        if (! $users || $users < 1 || $users >= $list['quote_from']) {
             return null;
         }
-        foreach ($this->prices['bands'] as $band) {
+        foreach ($list['bands'] as $band) {
             if ($users >= (int) $band['from'] && $users <= (int) $band['to']) {
-                return (float) $band['price'] + max(0, $branches - 1) * (float) $this->prices['branch_fee'];
+                return (float) $band['amount'] + max(0, $branches - max(1, (int) $list['included'])) * $list['branch_rate'];
             }
         }
 
@@ -62,14 +56,33 @@ class RevenueCalculator
 
     public function signedRow(RevenueBillingRecord $r, ?string $agency = null): array
     {
+        // The number of agents comes from the signed agreement when the agency has one (its agents_signed figure).
+        $fromAgreement = $this->agreementAgents($r->agency_id);
+        if ($fromAgreement) {
+            $r->users = $fromAgreement;
+        }
+        $usersFromAgreement = (bool) $fromAgreement;
         $monthly = $this->monthly($r);
 
         return [
             'record' => $r, 'name' => $r->name, 'agency' => $agency, 'users' => $r->users, 'branches' => (int) $r->branches, 'monthly' => $monthly,
             'price' => $monthly && $r->users ? round($monthly / $r->users, 2) : null, 'start' => $r->start_date, 'term' => $r->term_months,
             'override' => $r->override_monthly ? ($r->override_note ?: 'Special deal') : null,
-            'quote' => ! $monthly && $r->users && $r->users >= (int) $this->prices['quote_from'],
+            'quote' => ! $monthly && $r->users && $r->users >= BillingPriceList::asOf()['quote_from'],
+            'users_from_agreement' => $usersFromAgreement,
         ];
+    }
+
+    /** Agents signed for on the agency's completed CoreX subscription agreement (platform e-sign), or null. */
+    public function agreementAgents(?int $agencyId): ?int
+    {
+        if (! $agencyId || ! \Illuminate\Support\Facades\Schema::hasTable('platform_esign_documents')) {
+            return null;
+        }
+        $doc = \App\Models\PlatformEsign\Document::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNotNull('completed_at')->orderByDesc('completed_at')->first();
+        $n = (int) (((array) $doc?->rr_data)['agents_signed'] ?? 0);
+
+        return $n > 0 ? $n : null;
     }
 
     public function signedTotals(Collection $rows): array
@@ -126,9 +139,4 @@ class RevenueCalculator
         return $out;
     }
 
-    /** No VAT line: RR Technologies is not VAT-registered yet; the prices become VAT-inclusive later with no increase. */
-    public function vatLabel(): string
-    {
-        return '';
-    }
 }

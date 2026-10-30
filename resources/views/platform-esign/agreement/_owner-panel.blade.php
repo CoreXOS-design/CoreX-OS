@@ -11,6 +11,7 @@
         <span class="text-xs" style="color: var(--text-muted);">{{ $doc->wording?->label() }}</span>
     </div>
     <div class="px-5 py-4 space-y-3 text-sm">
+        @if(!empty(((array) $doc->rr_data)['agents_signed']))<p class="text-sm" style="color: var(--text-primary);" data-qa="agents-signed"><strong>Agents signed for:</strong> {{ ((array) $doc->rr_data)['agents_signed'] }}</p>@endif
         @php $discWords = \App\Services\PlatformEsign\Agreement\AgreementDiscount::summary((array) $doc->rr_data); @endphp
         @if($discWords)<div>Agreed discount: <strong>{{ $discWords }}</strong> <span style="color: var(--text-muted);">(off the whole monthly bill)</span></div>@endif
         @include('platform-esign.agreement._take-on-warning', ['doc' => $doc, 'lapse' => app(\App\Services\PlatformEsign\Agreement\AgreementService::class)->takeOnLapse($doc)])

@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\RevenueBillingRecord;
-use App\Models\RevenuePriceList;
 use App\Models\RevenueProspect;
 use App\Services\Revenue\RevenueCalculator;
 use Illuminate\Http\Request;
@@ -20,7 +19,7 @@ class RevenueController extends Controller
 
     public function index(Request $request)
     {
-        $tab = in_array($request->query('tab'), ['signed', 'pipeline', 'cashflow', 'prices'], true) ? $request->query('tab') : 'signed';
+        $tab = in_array($request->query('tab'), ['signed', 'pipeline', 'cashflow'], true) ? $request->query('tab') : 'signed';
         $q = trim((string) $request->query('q', ''));
         $dir = $request->query('dir') === 'desc' ? 'desc' : 'asc';
         $sort = (string) $request->query('sort', 'name');
@@ -34,7 +33,7 @@ class RevenueController extends Controller
             }
             $key = array_key_exists($sort, self::SIGNED_SORTS) ? $sort : 'name';
             $rows = $rows->sortBy(fn ($r) => is_string($r[$key] ?? null) ? strtolower($r[$key]) : ($key === 'start' ? ($r['start']?->timestamp ?? 0) : ($r[$key] ?? 0)), SORT_REGULAR, $dir === 'desc')->values();
-            $data += ['vat' => $this->calc->vatLabel(), 'rows' => $rows, 'totals' => $this->calc->signedTotals($rows), 'agencies' => DB::table('agencies')->orderBy('name')->pluck('name', 'id')];
+            $data += ['rows' => $rows, 'totals' => $this->calc->signedTotals($rows), 'agencies' => DB::table('agencies')->orderBy('name')->pluck('name', 'id')];
         } elseif ($tab === 'pipeline') {
             $rows = $archived
                 ? RevenueProspect::onlyTrashed()->get()->map(fn ($p) => ['prospect' => $p] + $this->calc->prospectMoney($p))
@@ -49,12 +48,10 @@ class RevenueController extends Controller
                 'start' => $r['prospect']->expected_start_month?->timestamp ?? 0, 'weighted' => $r['weighted'],
             };
             $rows = $rows->sortBy($val, SORT_REGULAR, $dir === 'desc')->values();
-            $data += ['vat' => $this->calc->vatLabel(), 'rows' => $rows, 'totals' => $this->calc->pipelineTotals($rows), 'agencies' => DB::table('agencies')->orderBy('name')->pluck('name', 'id')];
-        } elseif ($tab === 'prices') {
-            $data += ['vat' => $this->calc->vatLabel(), 'prices' => RevenuePriceList::current(), 'defaults' => RevenuePriceList::DEFAULTS];
+            $data += ['rows' => $rows, 'totals' => $this->calc->pipelineTotals($rows), 'agencies' => DB::table('agencies')->orderBy('name')->pluck('name', 'id')];
         } else {
             $flow = $this->calc->cashFlow();
-            $data += ['vat' => $this->calc->vatLabel(), 'flow' => $flow, 'max' => max(1, max(array_column($flow, 'total')))];
+            $data += ['flow' => $flow, 'max' => max(1, max(array_column($flow, 'total')))];
         }
 
         return view('admin.revenue.index', $data);
@@ -136,23 +133,5 @@ class RevenueController extends Controller
         $prospect->update(['stage' => 'signed', 'agency_id' => $data['agency_id'] ?? null, 'billing_record_id' => $record->id]);
 
         return redirect()->route('admin.revenue.index', ['tab' => 'signed'])->with('success', $record->name . ' is now a signed agency.');
-    }
-
-    // ── price list (owner-editable) ──────────────────────────────────────
-
-    public function savePrices(Request $request)
-    {
-        $data = $request->validate([
-            'bands' => 'required|array|min:1|max:20',
-            'bands.*.from' => 'required|integer|min:1|max:100000', 'bands.*.to' => 'required|integer|min:1|max:100000|gte:bands.*.from',
-            'bands.*.price' => 'required|numeric|min:0|max:100000000',
-            'quote_from' => 'required|integer|min:1|max:100000', 'branch_fee' => 'required|numeric|min:0|max:100000000',
-        ]);
-        $bands = collect($data['bands'])->map(fn ($b) => ['from' => (int) $b['from'], 'to' => (int) $b['to'], 'price' => $b['price'] + 0])->sortBy('from')->values()->all();
-        $row = RevenuePriceList::query()->first() ?? new RevenuePriceList();
-        $row->prices = ['bands' => $bands, 'quote_from' => (int) $data['quote_from'], 'branch_fee' => $data['branch_fee'] + 0];
-        $row->save();
-
-        return redirect()->route('admin.revenue.index', ['tab' => 'prices'])->with('success', 'Price list saved. Every figure now uses it.');
     }
 }

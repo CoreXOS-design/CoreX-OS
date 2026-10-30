@@ -29,9 +29,18 @@ use Illuminate\Support\Facades\DB;
  */
 class SubscriptionPricingService
 {
+    /** The date the quote in hand is for: the price list in force on it is the one used (a price change never rewrites history). */
+    private ?Carbon $asOf = null;
+
+    private function priceList(): array
+    {
+        return \App\Models\Billing\BillingPriceList::asOf($this->asOf);
+    }
+
     public function quoteFor(Agency $agency, ?Carbon $on = null): BillingQuote
     {
         $on = $on ?? Carbon::now();
+        $this->asOf = $on;
 
         $seats    = $this->billableSeats($agency);
         $branches = $this->branchCount($agency);
@@ -178,7 +187,7 @@ class SubscriptionPricingService
     /** @return list<array{from:int,to:int,amount:float}> */
     private function bands(): array
     {
-        return array_values((array) config('corex-billing.bands.bands', []));
+        return $this->priceList()['bands'];
     }
 
     /** The band a 'bandN' plan names, or null. */
@@ -230,7 +239,7 @@ class SubscriptionPricingService
         // Branches are plan-agnostic (spec §3 D2a): the first is included, each
         // one beyond that is charged — on Team as well as Agency.
         $included = (int) config('corex-billing.branches.included', 1);
-        $rate     = (float) config('corex-billing.branches.rate', 750.00);
+        $rate     = $this->priceList()['branch_rate'];
         $billable = max(0, $branches - $included);
 
         if ($billable > 0) {

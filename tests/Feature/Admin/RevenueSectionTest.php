@@ -4,7 +4,8 @@ namespace Tests\Feature\Admin;
 
 use App\Models\Agency;
 use App\Models\RevenueBillingRecord;
-use App\Models\RevenuePriceList;
+use App\Models\Billing\BillingPriceList;
+use App\Models\PlatformEsign\Document as PlatformDocument;
 use App\Models\RevenueProspect;
 use App\Models\Role;
 use App\Models\User;
@@ -103,11 +104,10 @@ class RevenueSectionTest extends TestCase
 
         $this->actingAs($admin)->get(route('admin.revenue.index'))->assertForbidden();
         $this->actingAs($admin)->post(route('admin.revenue.signed.store'), ['name' => 'X'])->assertForbidden();
-        $this->actingAs($admin)->post(route('admin.revenue.prices.save'), [])->assertForbidden();
         $this->assertSame(0, RevenueBillingRecord::count());
 
         $owner = $this->owner();
-        foreach (['signed', 'pipeline', 'cashflow', 'prices'] as $tab) {
+        foreach (['signed', 'pipeline', 'cashflow'] as $tab) {
             $this->actingAs($owner)->get(route('admin.revenue.index', ['tab' => $tab]))->assertOk()->assertSee('Revenue');
         }
     }
@@ -140,20 +140,51 @@ class RevenueSectionTest extends TestCase
         $this->actingAs($owner)->get(route('admin.revenue.index', ['tab' => 'pipeline']))->assertSee('No prospects')->assertDontSee('data-row="prospect"', false);
     }
 
-    public function test_the_owner_can_edit_the_price_list_and_every_figure_follows(): void
+    public function test_the_price_list_lives_in_agency_billing_is_dated_and_revenue_follows_it(): void
     {
         $owner = $this->owner();
         RevenueBillingRecord::create(['name' => 'Mega', 'users' => 1]);
-        $this->assertSame(450.0, (new RevenueCalculator())->listPrice(1));
+        $std = BillingPriceList::asOf();
+        $this->assertSame(450.0, $std['bands'][0]['amount'], 'no saved list = the standard published prices');
+        $bands = $std['bands'];
 
-        $d = RevenuePriceList::DEFAULTS;
-        $d['bands'][0]['price'] = 500;
-        $this->actingAs($owner)->post(route('admin.revenue.prices.save'), $d)->assertRedirect();
+        // a new list from today: Revenue follows at once
+        $bands[0]['amount'] = 500;
+        $this->actingAs($owner)->post(route('admin.billing.prices.save'), ['effective_from' => now()->toDateString(), 'bands' => $bands, 'branch_rate' => 800])->assertRedirect();
         $this->assertSame(500.0, (new RevenueCalculator())->listPrice(1));
+        $this->assertSame(500.0 + 800.0, (new RevenueCalculator())->listPrice(1, 2), 'the branch fee is on the same list');
         $this->actingAs($owner)->get(route('admin.revenue.index', ['tab' => 'signed']))->assertSee('R 500.00');
 
-        $d['bands'][0]['price'] = -5;
-        $this->actingAs($owner)->post(route('admin.revenue.prices.save'), $d)->assertSessionHasErrors('bands.0.price');
-        $this->assertSame(500.0, (new RevenueCalculator())->listPrice(1), 'a bad save changes nothing');
+        // a list dated in the future leaves today (history) alone
+        $bands[0]['amount'] = 650;
+        $future = now()->addMonths(2)->startOfMonth();
+        $this->actingAs($owner)->post(route('admin.billing.prices.save'), ['effective_from' => $future->toDateString(), 'bands' => $bands, 'branch_rate' => 800])->assertRedirect();
+        $this->assertSame(500.0, (new RevenueCalculator())->listPrice(1), 'today still uses the list in force today');
+        $this->assertSame(650.0, (new RevenueCalculator())->listPrice(1, 1, $future));
+        $this->actingAs($owner)->get(route('admin.billing.index'))->assertOk()->assertSee('Price list')->assertSee('Scheduled from');
+
+        // a date in the past would rewrite history: refused. Gaps in the bands: refused. Not the owner: refused.
+        $this->actingAs($owner)->post(route('admin.billing.prices.save'), ['effective_from' => now()->subDay()->toDateString(), 'bands' => $bands, 'branch_rate' => 800])->assertSessionHasErrors('effective_from');
+        $gap = $bands; unset($gap[1]); $gap = array_values($gap);   // 1 agent, then straight to 3-5: a hole at 2
+        $this->actingAs($owner)->post(route('admin.billing.prices.save'), ['effective_from' => $future->toDateString(), 'bands' => $gap, 'branch_rate' => 800])->assertSessionHasErrors('bands');
+        $agency = Agency::create(['name' => 'X Agency', 'slug' => 'x-agency']);
+        $admin = User::factory()->create(['role' => 'admin', 'agency_id' => $agency->id]);
+        $this->actingAs($admin)->post(route('admin.billing.prices.save'), ['effective_from' => now()->toDateString(), 'bands' => $bands, 'branch_rate' => 800])->assertForbidden();
+    }
+
+    public function test_signed_agencies_take_their_agent_count_from_the_signed_agreement(): void
+    {
+        $agency = Agency::create(['name' => 'Agreed Realty', 'slug' => 'agreed']);
+        RevenueBillingRecord::create(['name' => 'Agreed Realty', 'agency_id' => $agency->id, 'users' => 2]);   // typed figure, overridden by the agreement
+        PlatformDocument::withoutGlobalScopes()->forceCreate([
+            'title' => 'CoreX Subscription Agreement', 'status' => 'completed', 'source' => 'webdoc', 'agency_id' => $agency->id,
+            'completed_at' => now(), 'rr_data' => ['agents_signed' => '7', 'take_on_month' => '2026-11'],
+        ]);
+        $row = (new RevenueCalculator())->signed()->first();
+        $this->assertSame(7, $row['users']);
+        $this->assertTrue($row['users_from_agreement']);
+        $this->assertSame(2495.0, $row['monthly']);
+        $this->assertSame(7, (new RevenueCalculator())->agreementAgents($agency->id));
+        $this->assertNull((new RevenueCalculator())->agreementAgents(999999));
     }
 }

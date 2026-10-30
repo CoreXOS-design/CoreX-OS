@@ -113,7 +113,7 @@ class AgreementService
                 throw new \DomainException('Enter the quoted monthly fee as an amount in rand, for example 5995 or 5995.50.');
             }
         }
-        $rr = array_filter(['variation_text' => $varText] + $discount + ['plan_forced' => $forcedPlan, 'quoted_fee' => $quoted, 'take_on_month' => $takeOn, 'single_entry' => '1'], fn ($v) => $v !== '');
+        $rr = array_filter(['variation_text' => $varText] + $discount + ['plan_forced' => $forcedPlan, 'quoted_fee' => $quoted, 'take_on_month' => $takeOn, 'agents_signed' => (string) (int) ($d['agents_signed'] ?? 0), 'single_entry' => '1'], fn ($v) => $v !== '');
         if ($takeOn !== '') {
             $rr += AgreementTakeOn::freeze($dayRaw === '' ? null : (int) $dayRaw); // frozen onto this agreement: a later settings change never moves it
             $values = $values + AgreementTakeOn::values($takeOn, $rr);

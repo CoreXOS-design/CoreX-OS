@@ -25,13 +25,6 @@ return new class extends Migration
                 $t->softDeletes();
             });
         }
-        if (! Schema::hasTable('revenue_price_list')) {
-            Schema::create('revenue_price_list', function (Blueprint $t) {   // one row: the published CoreX prices, owner-editable
-                $t->id();
-                $t->json('prices');
-                $t->timestamps();
-            });
-        }
         if (! Schema::hasTable('revenue_prospects')) {
             Schema::create('revenue_prospects', function (Blueprint $t) {
                 $t->id();
@@ -54,7 +47,6 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::dropIfExists('revenue_price_list');
         Schema::dropIfExists('revenue_prospects');
         Schema::dropIfExists('revenue_billing_records');
     }

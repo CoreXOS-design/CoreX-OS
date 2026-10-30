@@ -532,3 +532,9 @@ database/schema/mysql-schema.sql                (schema:dump)
 .ai/specs/corex-domain-events-spec.md           (catalogue the 2 new events)
 .ai/CHAT_STARTER.md                             (per §8i)
 ```
+
+## Price list — owner-editable and dated (30 Oct 2026, Johan)
+The band prices and the branch fee are no longer config-only. Agency Billing (`/admin/billing`, owner only) shows the price list in force today and a "Change the prices" form: edit the bands (from / to / monthly price, contiguous from 1 agent; above the last band = on quotation) and the branch fee, with an **effective-from date (today or later)**. Saving adds a new `billing_price_lists` row; earlier lists are never edited, so a price change never rewrites history. `SubscriptionPricingService` reads the list in force on the quote's date (no row = `config/corex-billing.php` defaults). No VAT anywhere. **One price store:** the owner's Revenue screen (`revenue.md`) reads the same list. Discounts / custom amounts stay as built (§4), default empty. Migration `2026_12_31_110000_create_billing_price_lists`. Tests: `RevenueSectionTest` (price list), `BandPricingTest`, `SubscriptionPricingServiceTest`.
+
+## Agents signed for (30 Oct 2026)
+The CoreX subscription agreement (Platform E-Sign > send agreement) records **"Number of agents this agreement is for"** (`agents_signed`, in the agreement's `rr_data`) and shows it on the owner panel ("Agents signed for"). Revenue takes a signed agency's user count from its completed agreement; where there is none (or the agreement predates the field) the owner types it on the Revenue billing record.

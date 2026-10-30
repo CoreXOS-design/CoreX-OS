@@ -5730,7 +5730,6 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::middleware('owner_only')->prefix('admin/revenue')->name('admin.revenue.')->group(function () {
         $rc = \App\Http\Controllers\Admin\RevenueController::class;
         Route::get('/', [$rc, 'index'])->name('index');
-        Route::post('/prices', [$rc, 'savePrices'])->name('prices.save');
         Route::post('/signed', [$rc, 'saveSigned'])->name('signed.store');
         Route::put('/signed/{record}', [$rc, 'saveSigned'])->whereNumber('record')->name('signed.update');
         Route::delete('/signed/{record}', [$rc, 'archiveSigned'])->whereNumber('record')->name('signed.archive');
@@ -5744,6 +5743,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     Route::middleware('owner_only')->prefix('admin/billing')->name('admin.billing.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Admin\AgencyBillingController::class, 'index'])->name('index');
+        Route::post('/prices', [\App\Http\Controllers\Admin\AgencyBillingController::class, 'savePrices'])->name('prices.save');
         Route::put('/{agency}', [\App\Http\Controllers\Admin\AgencyBillingController::class, 'update'])->name('update');
     });
 

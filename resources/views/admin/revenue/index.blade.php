@@ -27,7 +27,7 @@
 <div class="w-full flex flex-col gap-3">
     <div class="rounded-md px-6 py-4 corex-page-banner">
         <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Revenue</h1>
-        <p class="text-xs" style="color: var(--text-muted);">What signed agencies pay CoreX, who is still coming, and the next 12 months. System owner only.</p>
+        <p class="text-xs" style="color: var(--text-muted);">What signed agencies pay CoreX, who is still coming, and the next 12 months. System owner only. Prices come from the price list in Agency Billing; no VAT is added.</p>
     </div>
     @if(session('success'))<div class="rounded-md px-4 py-2 text-xs" style="background: color-mix(in srgb, #16a34a 12%, transparent); color: var(--text-primary);">{{ session('success') }}</div>@endif
     @if($errors->any())<div class="rounded-md px-4 py-2 text-xs" style="background: color-mix(in srgb, #dc2626 12%, transparent); color: var(--text-primary);">{{ $errors->first() }}</div>@endif
@@ -36,7 +36,7 @@
         <a href="{{ route('admin.revenue.index', ['tab' => 'signed']) }}" class="{{ $tab === 'signed' ? 'on' : '' }}">Signed agencies</a>
         <a href="{{ route('admin.revenue.index', ['tab' => 'pipeline']) }}" class="{{ $tab === 'pipeline' ? 'on' : '' }}">Pipeline</a>
         <a href="{{ route('admin.revenue.index', ['tab' => 'cashflow']) }}" class="{{ $tab === 'cashflow' ? 'on' : '' }}">Cash flow</a>
-        <a href="{{ route('admin.revenue.index', ['tab' => 'prices']) }}" class="{{ $tab === 'prices' ? 'on' : '' }}">Price list</a>
+        <a href="{{ route('admin.billing.index') }}" title="The prices live in Agency Billing">Price list &rarr; Agency Billing</a>
     </div>
 
 @if(in_array($tab, ['signed', 'pipeline'], true))
@@ -79,7 +79,7 @@
             @forelse($rows as $r)
                 <tr data-row="signed">
                     <td>{{ $r['name'] }}@if($r['branches'] > 1)<span style="color:var(--text-muted);"> · {{ $r['branches'] }} branches</span>@endif @if($r['agency'] && $r['agency'] !== $r['name'])<span style="color:var(--text-muted);"> · {{ $r['agency'] }}</span>@endif</td>
-                    <td class="n">{{ $r['users'] ?? '—' }}</td>
+                    <td class="n">{{ $r['users'] ?? '—' }}@if($r['users_from_agreement'])<span style="color:var(--text-muted);" title="From the signed agreement"> (agreement)</span>@endif</td>
                     <td class="n">{!! $r['price'] !== null ? e($money($r['price'])) : '<span class="rv-miss">' . ($r['quote'] ? 'tailored quote' : 'set users') . '</span>' !!}</td>
                     <td class="n">{!! $r['monthly'] !== null ? e($money($r['monthly'])) . ($r['override'] ? ' <span title="Special deal replaces the price list" style="color:var(--text-muted);">(' . e($r['override']) . ')</span>' : '') : '<span class="rv-miss">' . ($r['quote'] ? 'tailored quote' : 'set price') . '</span>' !!}</td>
                     <td>{{ $r['start'] ? $r['start']->format('j M Y') : '—' }}</td>
@@ -162,28 +162,6 @@
                 <td class="n" data-total="weighted">{{ $money($totals['weighted']) }}</td><td colspan="2">weighted monthly</td></tr></tfoot>
         </table>
     </div>
-
-@elseif($tab === 'prices')
-    <form method="POST" action="{{ route('admin.revenue.prices.save') }}" class="rv-form" style="flex-direction:column;align-items:stretch;gap:10px;">
-        @csrf
-        <p class="text-xs" style="color:var(--text-muted);margin:0;">The published CoreX prices: one flat monthly price per band of ACTIVE agents, unlimited within the band. Change them here and every figure on this screen follows. A special deal for one agency or prospect (e.g. Founding Partner) is set on its own row. No setup fee. Billing starts on the 1st of the month after go-live. No VAT is added: the prices become VAT-inclusive later, with no increase.</p>
-        <table class="rv" style="max-width:420px;">
-            <thead><tr><th>From agent</th><th>To agent</th><th class="n">Monthly price (R)</th></tr></thead>
-            <tbody>
-            @foreach($prices['bands'] as $i => $b)
-                <tr><td><input name="bands[{{ $i }}][from]" type="number" min="1" value="{{ old("bands.$i.from", $b['from']) }}" style="width:80px;" {!! $inp !!}></td>
-                    <td><input name="bands[{{ $i }}][to]" type="number" min="1" value="{{ old("bands.$i.to", $b['to']) }}" style="width:80px;" {!! $inp !!}></td>
-                    <td class="n"><input name="bands[{{ $i }}][price]" type="number" step="0.01" min="0" value="{{ old("bands.$i.price", $b['price']) }}" style="width:110px;text-align:right;" {!! $inp !!}></td></tr>
-            @endforeach
-            </tbody>
-        </table>
-        <div class="flex flex-wrap gap-3">
-            <label>On quotation from (agents)<input name="quote_from" type="number" min="1" value="{{ old('quote_from', $prices['quote_from']) }}" {!! $inp !!}></label>
-            <label>Extra branch a month (R), first included<input name="branch_fee" type="number" step="0.01" min="0" value="{{ old('branch_fee', $prices['branch_fee']) }}" {!! $inp !!}></label>
-        </div>
-        @error('bands.*.to')<p class="text-xs" style="color:#b91c1c;margin:0;">{{ $message }}</p>@enderror
-        <div><button class="corex-btn-primary text-xs" type="submit">Save price list</button></div>
-    </form>
 
 @else
     <div class="rounded-md overflow-auto" style="border:1px solid var(--border);background:var(--surface);">

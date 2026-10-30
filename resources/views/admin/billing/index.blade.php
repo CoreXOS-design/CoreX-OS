@@ -49,6 +49,46 @@
         </div>
     @endif
 
+    {{-- Price list (owner-editable, dated): the band prices every quote and the Revenue screen use. --}}
+    <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);" data-qa="price-list">
+        <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
+            <strong class="text-sm" style="color: var(--text-primary);">Price list</strong>
+            <span class="text-xs" style="color: var(--text-muted);"> — one flat monthly price per band of active agents, unlimited within the band. In force today{{ $priceList['effective_from'] ? ' (from ' . $priceList['effective_from']->format('j M Y') . ')' : ' (the standard list)' }}. A new list takes effect on the date you choose; earlier months keep the price they had. No VAT is added.</span>
+        </div>
+        <div class="px-5 py-3 text-xs" style="color: var(--text-muted);">
+            @foreach($priceList['bands'] as $b)<span style="display:inline-block;margin-right:14px;">{{ $b['from'] === $b['to'] ? $b['from'] : $b['from'] . '–' . $b['to'] }} agents: <strong style="color: var(--text-primary);">R {{ number_format($b['amount'], 2, '.', ' ') }}</strong></span>@endforeach
+            <span style="display:inline-block;margin-right:14px;">{{ $priceList['quote_from'] }}+ agents: on quotation</span>
+            <span>Extra branch (first included): <strong style="color: var(--text-primary);">R {{ number_format($priceList['branch_rate'], 2, '.', ' ') }}</strong></span>
+            @foreach($scheduledLists as $l)<div style="margin-top:6px;">Scheduled from {{ $l->effective_from->format('j M Y') }}: {{ collect($l->bands)->map(fn ($b) => ($b['from'] === $b['to'] ? $b['from'] : $b['from'] . '–' . $b['to']) . ' = R ' . number_format($b['amount'], 0, '.', ' '))->implode(' · ') }} · branch R {{ number_format($l->branch_rate, 0, '.', ' ') }}</div>@endforeach
+        </div>
+        <details class="px-5 pb-4">
+            <summary class="text-xs cursor-pointer" style="color: var(--brand-icon, #0ea5e9);">Change the prices</summary>
+            <form method="POST" action="{{ route('admin.billing.prices.save') }}" class="mt-3 space-y-3">
+                @csrf
+                @error('bands')<p class="text-xs" style="color:#b91c1c;">{{ $message }}</p>@enderror
+                @error('effective_from')<p class="text-xs" style="color:#b91c1c;">{{ $message }}</p>@enderror
+                <table class="text-xs" style="border-collapse:collapse;">
+                    <thead><tr><th style="text-align:left;padding:2px 8px;">From agent</th><th style="text-align:left;padding:2px 8px;">To agent</th><th style="text-align:left;padding:2px 8px;">Monthly price (R)</th></tr></thead>
+                    <tbody>
+                    @foreach($priceList['bands'] as $i => $b)
+                        <tr>
+                            <td style="padding:2px 8px;"><input name="bands[{{ $i }}][from]" type="number" min="1" value="{{ old("bands.$i.from", $b['from']) }}" class="ds-field" style="width:80px;"></td>
+                            <td style="padding:2px 8px;"><input name="bands[{{ $i }}][to]" type="number" min="1" value="{{ old("bands.$i.to", $b['to']) }}" class="ds-field" style="width:80px;"></td>
+                            <td style="padding:2px 8px;"><input name="bands[{{ $i }}][amount]" type="number" step="0.01" min="0" value="{{ old("bands.$i.amount", $b['amount']) }}" class="ds-field" style="width:120px;"></td>
+                        </tr>
+                    @endforeach
+                    </tbody>
+                </table>
+                <div class="flex flex-wrap items-end gap-4 text-xs">
+                    <label>Extra branch a month (R), first included<br><input name="branch_rate" type="number" step="0.01" min="0" value="{{ old('branch_rate', $priceList['branch_rate']) }}" class="ds-field" style="width:140px;"></label>
+                    <label>Effective from<br><input name="effective_from" type="date" min="{{ now()->format('Y-m-d') }}" value="{{ old('effective_from', now()->addMonthNoOverflow()->startOfMonth()->format('Y-m-d')) }}" class="ds-field" required></label>
+                    <button type="submit" class="corex-btn-primary text-xs">Save new price list</button>
+                </div>
+            </form>
+        </details>
+    </div>
+
+
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm"
              style="background:color-mix(in srgb, var(--ds-crimson,#c41e3a) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson,#c41e3a) 30%, transparent); color:var(--text-primary);">
