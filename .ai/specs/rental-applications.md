@@ -15145,3 +15145,39 @@ No new setting, so nothing for the Setup Wizard (Non-negotiable 10a). No new per
 - Adding or removing a row in co-occupants / pets / affordability by the agent (correct in place only).
 - If an agent changes the applicant's e-mail address, the notice goes to the new address only.
 - A correction made after the application is approved does not reach the contact or lease (editing is refused after approval for that reason).
+
+## Co-applicant (AT-517, 30 Oct 2026)
+
+**Terms, everywhere (screens, mail, this spec):** "Main applicant" and "Co-applicant". Never "primary" / "secondary". One application, one property, two people at most in this round. The full N-applicant model is parked (see "Parked: N applicants" below).
+
+### Data
+- New nullable `rental_applications.co_applicant_contact_id` (indexed; migration `2027_01_03_100000_add_co_applicant_contact_id_to_rental_applications.php`). `contact_id` stays the Main applicant. No new table.
+- The Co-applicant's *details* stay in the existing `co_applicant` JSON block (22 fields, `CO_APPLICANT_FIELDS`, one cleaner `normaliseBlocks()`); the new column is only the *contact* link. `RentalApplication::coApplicantContact()`, `applicantContactIds()` (Main applicant first, then Co-applicant), and the scope `forApplicantContact($id)` (Main applicant OR Co-applicant) are the one way every screen and listener below asks "whose application is this".
+
+### Flow
+1. **New Application** (`RentalApplicationController::create/store`): the Main applicant picker as today, plus an optional "Co-applicant" picker (same search, same inline create-contact with the agency's duplicate check; "Remove Co-applicant"). The Co-applicant must be a different contact; the AT-485 "one live application per applicant" refusal now also looks at the Co-applicant (live as Main applicant or as Co-applicant on another application). A chosen Co-applicant pre-fills the `co_applicant` block (name, ID, e-mail, cell, address) from the contact.
+2. **Applicant form** (public link): unchanged. The applicant can still type a Co-applicant's details into the block themselves.
+3. **On return, review screen** (`partials/co-applicant-strip`, header strip): linked -> "Co-applicant: <name>" linking to the contact. Not linked but the block has details -> "Co-applicant captured: <name> - Create contact and link" (agent only, before a decision, not while the screen is locked for the authoriser). `POST corex/rental-applications/{id}/co-applicant/link` (`linkCoApplicant`, permission `rental_applications.create`) runs the existing duplicate check on the block (ID number / cell / e-mail, the agency's own match fields and mode) FIRST: a match is offered ("Use this contact" / "Create anyway", the latter only where the agency's duplicate mode allows it - `mayCreateDespiteMatch`), nothing is created while a match waits for a choice. Otherwise the contact is created (agency + branch of the application, identifiers through `ContactIdentifierService`) and linked. Audited (`co_applicant / contact_created_and_linked` or `contact_linked`).
+4. **Decisions cover both contacts together, never individually.** Approve / decline / withdraw stay one action on the application. Behind them: the Core Match ceiling (`SetRentalCoreMatchCeilingOnApproval`, and the save-time cap `ContactMatch::enforceRentalApprovedAmountCap`) applies to both contacts; the Tenant tag on approval (`AddTenantTypeOnRentalApproval`) and the derived contact status (`RecomputeRentalApplicationStatus`) run for both; the contact's Rental History tab and badge list the application for both (`Contact::visibleRentalApplicationsFor`); "Link as tenant" on an approved application (`linkTenantProperty` / `unlinkTenantProperty`) links and unlinks both as tenants of the property (a Co-applicant whose role has since changed is left as it is and logged, it never blocks the Main applicant's unlink).
+5. **Lease** (`LeaseController::applicationTenantSeed` / `existingCoApplicantContact`): the linked Co-applicant is seeded as the second tenant; the older "partner named on the application, matched on ID number" path (A16) now runs only when no Co-applicant is linked. Both names are on the lease (N-party `lease_tenants`). `LeaseSigningLauncher::recipientRows` already gives every lease tenant their own signer (agent -> tenants, Main applicant first -> landlords), so the Co-applicant is a tenant signer in the e-sign lease chain with no further change; their address fallback is the address typed in the Co-applicant block (not the Main applicant's).
+6. **Document splitter** (`PdfSplitterController::linkForRentalApplication`, `tools/pdf_splitter_review`): with a Co-applicant linked, each page has a selector - Main applicant (default) / Co-applicant / Both - and the page is filed to that contact's record (pages are grouped by document type AND by who they belong to; FICA kick-off sees both contacts). Without a Co-applicant the screen is exactly as before.
+
+### Screens / navigation / permissions
+No new page, so no new navigation entry. No new permission key: creating and linking uses `rental_applications.create` (same as link-as-tenant). Role Manager: nothing new to grant.
+
+### Settings / wizard
+No new setting, so nothing for the Setup Wizard (Non-negotiable 10a). The compulsory-field settings continue to apply to the application as before (the block is one registry entry).
+
+### What the Co-applicant block does NOT ask (reported, not widened)
+Compared with the Main applicant it has no: citizenship, work telephone, emergency contact, current living situation, current landlord / rent / dates, previous landlord, employer address, employment type, start date. And it has none of the per-person steps: no identity (OTP) confirmation of their own, no documents of their own (documents upload under the application), no FICA link of their own (the FICA gate reads the Main applicant's contact), no declaration signature and no credit-check (TPN) consent signature of their own.
+
+### Known limits
+- If the applicant retypes the Co-applicant as a different person after a contact was linked, the link is not changed; the review strip shows the linked contact. (Re-linking is a later step.)
+- Mails (invite, approval, decline) still go to the Main applicant only.
+- The FICA hard stop and the conditional-approval-on-FICA listener still read the Main applicant's contact only.
+
+### Parked: N applicants (not built)
+A real applicants table (any number, each with their own fields, OTP, documents, FICA, signature and TPN consent), the sequential send ("send to next applicant") and return-when-all-signed, copying the sales-document chain (`SalesDocumentController::approveAndSendNext` / `resend`, `SalesDocumentRecipient`: signing_order, waiting -> sent, own token per person), per-applicant document ownership, and "remove one applicant and continue" (this round approves or declines the whole group). Investigation notes: memory `multi-applicant-rental-application-investigation`.
+
+### Files
+`database/migrations/2027_01_03_100000_add_co_applicant_contact_id_to_rental_applications.php`, `app/Models/RentalApplication.php`, `app/Http/Controllers/CoreX/RentalApplicationController.php`, `resources/views/corex/rental-applications/{create,review}.blade.php`, `resources/views/corex/rental-applications/partials/co-applicant-strip.blade.php`, `routes/web.php`, `app/Listeners/Contact/{SetRentalCoreMatchCeilingOnApproval,AddTenantTypeOnRentalApproval,RecomputeRentalApplicationStatus}.php`, `app/Models/{ContactMatch,Contact}.php`, `app/Http/Controllers/CoreX/{ContactController,LeaseController}.php`, `app/Services/Rentals/LeaseSigningLauncher.php`, `app/Http/Controllers/Tools/PdfSplitterController.php`, `resources/views/tools/pdf_splitter_review.blade.php`. Test: `tests/Feature/RentalApplications/RentalApplicationCoApplicantAt517Test.php`.

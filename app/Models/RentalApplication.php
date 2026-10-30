@@ -1207,7 +1207,7 @@ class RentalApplication extends Model
     }
 
     protected $fillable = [
-        'agency_id', 'branch_id', 'contact_id', 'property_id', 'created_by_user_id',
+        'agency_id', 'branch_id', 'contact_id', 'co_applicant_contact_id', 'property_id', 'created_by_user_id',
         'status', 'delivery_mode', 'token', 'token_expires_at', 'submitted_at', 'draft_saved_at', 'submitted_for_approval_at', 'approved_rental_amount',
         // Johan, 2026-09-22 (property 4283) — same shape as
         // approved_rental_amount, captured optionally alongside it in
@@ -1297,6 +1297,35 @@ class RentalApplication extends Model
     public function contact(): BelongsTo
     {
         return $this->belongsTo(Contact::class)->withTrashed()->withoutGlobalScope(\App\Models\Scopes\ContactScope::class);
+    }
+
+    /** AT-517 - the Co-applicant's contact (null when there is none or the applicant's own typed details are not yet linked). Same reasoning as contact(). */
+    public function coApplicantContact(): BelongsTo
+    {
+        return $this->belongsTo(Contact::class, 'co_applicant_contact_id')->withTrashed()->withoutGlobalScope(\App\Models\Scopes\ContactScope::class);
+    }
+
+    /**
+     * AT-517 - every contact this application is for: the Main applicant, then the Co-applicant when one is linked.
+     * Approve / decline / withdraw act on all of them together, never one at a time.
+     *
+     * @return array<int,int>
+     */
+    public function applicantContactIds(): array
+    {
+        return array_values(array_unique(array_filter([
+            (int) $this->contact_id,
+            (int) $this->co_applicant_contact_id,
+        ])));
+    }
+
+    /** AT-517 - applications where this contact is the Main applicant OR the Co-applicant. */
+    public function scopeForApplicantContact($query, int $contactId)
+    {
+        return $query->where(function ($q) use ($contactId) {
+            $q->where('rental_applications.contact_id', $contactId)
+                ->orWhere('rental_applications.co_applicant_contact_id', $contactId);
+        });
     }
 
     /** Same reasoning as contact() above. */

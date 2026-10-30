@@ -4034,6 +4034,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.link-tenant-property');
         Route::delete('/{rentalApplication}/link-tenant-property', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'unlinkTenantProperty'])
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.unlink-tenant-property');
+        // AT-517 - review screen: "Co-applicant captured: <name> - Create contact and link" (duplicate check first).
+        Route::post('/{rentalApplication}/co-applicant/link', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'linkCoApplicant'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.co-applicant.link');
     });
 
     // .ai/specs/rental-command-centre.md — AT-441. Read-only cross-entity

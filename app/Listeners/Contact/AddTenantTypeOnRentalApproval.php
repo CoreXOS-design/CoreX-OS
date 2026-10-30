@@ -57,11 +57,22 @@ class AddTenantTypeOnRentalApproval
                 return;
             }
 
-            $contactId = $event->application->contact_id;
-            if (! $contactId) {
-                return;
+            // AT-517 - the Main applicant and the Co-applicant (when linked) are approved together.
+            foreach ($event->application->applicantContactIds() as $contactId) {
+                $this->tag((int) $contactId);
             }
+        } catch (\Throwable $e) {
+            Log::warning('AddTenantTypeOnRentalApproval failed', [
+                'rental_application_id' => $event->application->id ?? null,
+                'contact_id' => $event->application->contact_id ?? null,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
 
+    private function tag(int $contactId): void
+    {
+        try {
             $contact = Contact::withoutGlobalScopes()->find($contactId);
             if (! $contact) {
                 return;
@@ -98,8 +109,7 @@ class AddTenantTypeOnRentalApproval
             $contact->syncTypeAssignments($newParents, $keepTagIds);
         } catch (\Throwable $e) {
             Log::warning('AddTenantTypeOnRentalApproval failed', [
-                'rental_application_id' => $event->application->id ?? null,
-                'contact_id' => $event->application->contact_id ?? null,
+                'contact_id' => $contactId,
                 'error' => $e->getMessage(),
             ]);
         }
