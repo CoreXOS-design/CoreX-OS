@@ -174,16 +174,6 @@
         $fsNext = $screen['next'];
         $fsReturned = $screen['returned'];
         $fsAnchor = in_array($fsReturned['anchor'], ['owner-questions', 'owner-comment'], true) ? $fsReturned['anchor'] : 'wo-panel-' . $fsReturned['anchor'];
-        $fsButton = function (?array $b, bool $primary) {
-            if (! $b) { return ''; }
-            $cls = $primary ? 'corex-btn-primary text-xs' : 'corex-btn-outline text-xs';
-            $attr = $primary ? 'data-next-button' : 'data-next-secondary';
-            if ($b['kind'] === 'link') {
-                return '<a href="' . e($b['href']) . '" class="' . $cls . '" ' . $attr . '>' . e($b['label']) . '</a>';
-            }
-
-            return '<a href="#wo-panel-' . e($b['panel']) . '" class="' . $cls . '" data-wo-go="' . e($b['panel']) . '"' . (! empty($b['click']) ? ' data-wo-click="' . e($b['click']) . '"' : '') . ' ' . $attr . '>' . e($b['label']) . '</a>';
-        };
     @endphp
     <ol class="wo-strip" data-wo-strip aria-label="Where this fault is">
         @foreach($screen['steps'] as $st)
@@ -202,7 +192,7 @@
         <div class="jc-bar-half">
             <div class="jc-bar-next">
                 <div><span class="wo-next-label">Next</span><span data-next-text>{{ $fsNext['text'] }}</span></div>
-                <div class="wo-btnrow">{!! $fsButton($fsNext['button'], true) !!}{!! $fsButton($fsNext['secondary'], false) !!}</div>
+                <div class="wo-btnrow">@include('partials.next-button', ['b' => $fsNext['button'], 'primary' => true])@include('partials.next-button', ['b' => $fsNext['secondary'], 'primary' => false])</div>
             </div>
         </div>
     </div>
@@ -554,31 +544,11 @@
 })();
 </script>
 <script>
-// section 28.1 - the Returned | Next bar's button (and any "#..." link) opens the folded panel that holds its target, scrolls there and - when the button names one -
-// presses the control that was already on the page (the confirm dialog still asks before anything is sent). Nothing here submits anything by itself.
+// section 31 - the Next bar's button IS the action (a submit, or a dialog opened where the agent is). The only thing left here: a "#..." link in the Returned line opens the
+// folded panel that holds its target, so the thing it points at is visible. Nothing here presses anything.
 (function () {
     function openAround(el) { for (var d = el; d; d = d.parentElement) { if (d.tagName === 'DETAILS') { d.open = true; } } }
-    function press(root, list) {
-        list.split(';').map(function (x) { return x.trim(); }).filter(Boolean).forEach(function (sel) {
-            var t = root.querySelector(sel) || document.querySelector(sel);
-            if (!t) return;
-            if (t.tagName === 'SUMMARY') { t.parentElement.open = true; }
-            else if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT') { t.focus(); }
-            else { t.click(); }
-        });
-    }
     document.addEventListener('click', function (e) {
-        var go = e.target.closest ? e.target.closest('[data-wo-go]') : null;
-        if (go) {
-            e.preventDefault();
-            var panel = document.getElementById('wo-panel-' + go.getAttribute('data-wo-go'));
-            if (!panel) return;
-            openAround(panel);
-            panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            var sel = go.getAttribute('data-wo-click');
-            if (sel) { setTimeout(function () { press(panel, sel); }, 250); }
-            return;
-        }
         var a = e.target.closest ? e.target.closest('a[href^="#"]') : null;
         if (a && a.getAttribute('href').length > 1) {
             var t = document.getElementById(a.getAttribute('href').slice(1));
@@ -586,6 +556,24 @@
         }
     });
     if (location.hash.length > 1) { var h = document.getElementById(location.hash.slice(1)); if (h) { openAround(h); } }
+
+    // "Send to owner" in the Next bar submits "What the owner will see" to the send route; the contractor ticked under "Who goes to look first?" travels with it
+    var ov = document.getElementById('owner-version-form');
+    if (ov) {
+        ov.addEventListener('submit', function () {
+            ['assignment_type', 'agency_service_provider_id', 'rental_crew_id'].forEach(function (n) {
+                var i = ov.querySelector('input[data-ov-carry="' + n + '"]');
+                if (!i) { i = document.createElement('input'); i.type = 'hidden'; i.name = n; i.setAttribute('data-ov-carry', n); ov.appendChild(i); }
+                i.value = '';
+            });
+            var pick = document.querySelector('input[name="contractor_pick"]:checked');
+            if (!pick) { return; }
+            var crew = pick.value === 'crew';
+            ov.querySelector('input[data-ov-carry="assignment_type"]').value = crew ? 'internal' : 'outside_supplier';
+            if (!crew) { ov.querySelector('input[data-ov-carry="agency_service_provider_id"]').value = pick.value; }
+            else { var c = document.querySelector('input[name="d1_crew_pick"]:checked'); ov.querySelector('input[data-ov-carry="rental_crew_id"]').value = c ? c.value : ''; }
+        });
+    }
 })();
 </script>
 @endsection

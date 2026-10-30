@@ -32,10 +32,8 @@
         <div class="flex flex-wrap items-center gap-3" data-who-pays-collapsed>
             <span class="text-sm" style="color: var(--text-muted);">Decided once we know what was found.</span>
             @permission('rental_work_orders.manage_completion')
-            <details>
-                <summary class="corex-btn-outline text-xs cursor-pointer" style="{{ $wpBtn }}" data-wp-rule-open>Enter what was found</summary>
-                <div class="mt-2">@include('corex.rental-work-orders._who-pays-findings-form')</div>
-            </details>
+            <button type="button" class="corex-btn-outline text-xs" style="{{ $wpBtn }}" data-wp-rule-open onclick="window.dispatchEvent(new CustomEvent('corex-open', { detail: 'wp-rule' }))">Enter what was found</button>
+            <x-next-dialog name="wp-rule" title="What was found">@include('corex.rental-work-orders._who-pays-findings-form')</x-next-dialog>
             @endpermission
         </div>
     @else
@@ -99,8 +97,8 @@
 
     @permission('rental_work_orders.manage_completion')
     @if($wpHasFindings && $workOrder->status !== \App\Models\RentalWorkOrder::STATUS_CANCELLED)
-    <details>
-        <summary class="corex-btn-primary text-xs cursor-pointer" style="{{ $wpBtn }}" data-wp-rule-open>{{ $wpRuling ? 'Replace the ruling' : 'Rule who pays' }}</summary>
+    <button type="button" class="corex-btn-primary text-xs" style="{{ $wpBtn }}" data-wp-rule-open onclick="window.dispatchEvent(new CustomEvent('corex-open', { detail: 'wp-rule' }))">{{ $wpRuling ? 'Replace the ruling' : 'Rule who pays' }}</button>
+    <x-next-dialog name="wp-rule" title="{{ $wpRuling ? 'Replace the ruling' : 'Rule who pays' }}">
         <form method="POST" action="{{ route('corex.rental-work-orders.who-pays.rule', $workOrder) }}" enctype="multipart/form-data" class="space-y-2 mt-2 max-w-xl" id="wp-rule-form">
             @csrf
             <div>
@@ -134,7 +132,7 @@
                 sel.addEventListener('change', sync); sync();
             })();
         </script>
-    </details>
+    </x-next-dialog>
     @elseif(! $wpHasFindings)
         <p class="text-xs" style="color: var(--text-muted);">A ruling needs what was found and the cause first.</p>
     @endif

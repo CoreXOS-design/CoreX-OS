@@ -123,7 +123,8 @@ final class WorkOrderScreenStatesTest extends TestCase
 
         $this->assertNext($html, 'waiting_contractor', 'Waiting for Acme Plumbing to accept or quote.', 'Capture a quote');
         $this->assertMatchesRegularExpression('/<button type="submit" form="wo-send-job-form" class="corex-btn-outline text-xs" data-next-secondary>Send the job again<\/button>/', $html, '"Send the job again" is the secondary button beside it');
-        $this->assertStringContainsString('data-wo-click="[data-capture-quote-toggle]; [data-quote-amount]"', $html, 'the primary button opens the form with the cursor in Amount');
+        $this->assertStringContainsString('data-next-open="quote-capture"', $html, 'the primary button opens the capture dialog right there');
+        $this->assertStringContainsString('data-next-dialog="quote-capture"', $html);
         $this->assertSame('done', $this->step($html, 'contractor_sent'));
         $this->assertSame('current', $this->step($html, 'quote_in'));
     }
@@ -136,7 +137,7 @@ final class WorkOrderScreenStatesTest extends TestCase
         $html = $this->page($this->quoted(850.0));
 
         $n = $this->assertNext($html, 'quote_inside_limit', "Quote R850.00 is inside the owner's repair limit.", 'Authorise R850.00');
-        $this->assertStringContainsString('href="#cost-decision"', $n['raw']);
+        $this->assertStringContainsString('/cost/authorise', $n['raw'], 'section 31: the bar button IS the authorisation (its own POST), not a jump to the Cost panel');
         $this->assertSame('done', $this->step($html, 'quote_in'));
         $this->assertSame('current', $this->step($html, 'cost'));
         $this->assertStringContainsString('Not authorised yet', $html);
@@ -219,7 +220,7 @@ final class WorkOrderScreenStatesTest extends TestCase
 
         $n = $this->assertNext($html, 'extra_waiting', 'Extra work of R0.01 is waiting for the owner (new total R1,000.01).', "Record the owner's reply");
         $this->assertStringContainsString('cannot close', $n['text']);
-        $this->assertStringContainsString('data-wo-click="#variation-panel summary"', $n['raw']);
+        $this->assertStringContainsString('data-next-open="variation-decision"', $n['raw']);
         $this->assertStringContainsString('id="variation-panel"', $html);
     }
 
@@ -395,7 +396,7 @@ final class WorkOrderScreenStatesTest extends TestCase
         $this->assertSame(1, substr_count($html, '>Capture quote</button>'), 'ONE submit button');
         $this->assertStringContainsString('data-quote-amount', $html);
         $this->assertMatchesRegularExpression('/name="quote_date" required value="\d{4}-\d{2}-\d{2}"/', $html);
-        $this->assertStringContainsString('display:none;" data-capture-quote-toggle', $html, 'no second "Capture a quote" button above the form while the form is open');
+        $this->assertStringContainsString('data-next-dialog="quote-capture"', $html, 'the capture form lives in its dialog');
     }
 
     public function test_the_message_after_capturing_a_quote_no_longer_says_to_send_the_work_order(): void
