@@ -174,12 +174,19 @@ final class PropertyIdentityApplier
                     }
                 }
             } elseif ($g['verdict'] === 'cannot_compare') {
-                $addressed = array_values(array_filter($ids, fn ($i) => isset($tps[$i]) && trim((string) $tps[$i]->street_name) !== ''));
-                if (count($addressed) !== 1) {
+                // "has an address": a street outranks a suburb / complex / erf, which outranks an empty capture shell. The advert
+                // goes to the one file at the top rank, and only when every other file ranks strictly lower.
+                $ranks = [];
+                foreach ($ids as $i) {
+                    $ranks[$i] = isset($tps[$i]) ? $this->addressRank($tps[$i]) : 0;
+                }
+                $top = max($ranks);
+                $best = array_keys(array_filter($ranks, fn ($r) => $r === $top));
+                if ($top < 2 || count($best) !== 1) {
                     $out['left_no_address_anywhere']++;
                     continue;
                 }
-                $target = (int) $addressed[0];
+                $target = (int) $best[0];
                 $movedAny = false;
                 foreach ($ids as $from) {
                     if ((int) $from === $target) {
@@ -212,6 +219,22 @@ final class PropertyIdentityApplier
         }
 
         return $out;
+    }
+
+    /** 3 = a street (on the file or on any address row), 2 = a suburb / complex / erf / scheme, 1 = nothing but an advert. */
+    private function addressRank(TrackedProperty $tp): int
+    {
+        if (trim((string) $tp->street_name) !== ''
+            || DB::table('tracked_property_addresses')->where('tracked_property_id', $tp->id)->whereNull('deleted_at')->whereRaw("COALESCE(street_name,'') <> ''")->exists()) {
+            return 3;
+        }
+        foreach (['suburb', 'complex_name', 'erf_number', 'scheme_name'] as $col) {
+            if (trim((string) $tp->{$col}) !== '') {
+                return 2;
+            }
+        }
+
+        return 1;
     }
 
     // ================================================================================================================

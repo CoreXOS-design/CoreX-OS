@@ -111,6 +111,26 @@ final class PropertyIdentityApplyTest extends TestCase
         $this->assertSame(1, DB::table('property_match_decisions')->where('subject_type', 'identity_possible')->count());
     }
 
+    public function test_an_empty_capture_shell_attaches_to_a_suburb_only_file_but_two_equal_files_are_left(): void
+    {
+        $suburbOnly = $this->file(['suburb' => 'Ramsgate']);
+        $shell = $this->file([]);
+        $this->ref($suburbOnly, 'p24', 'P24-100000004');
+        $this->ref($shell, 'property24', '100000004');
+        $twinA = $this->file(['suburb' => 'Ramsgate']);
+        $twinB = $this->file(['suburb' => 'Ramsgate']);
+        $this->ref($twinA, 'p24', 'P24-100000005');
+        $this->ref($twinB, 'property24', '100000005');
+
+        $res = $this->applier()->advertClashes($this->agency->id, true);
+
+        $this->assertSame(1, $res['adverts_attached']);
+        $this->assertSame($suburbOnly->id, (int) DB::table('tracked_property_external_refs')->where('source_ref', '100000004')->value('tracked_property_id'));
+        $this->assertSame('duplicate', $shell->refresh()->status);
+        $this->assertSame($twinB->id, (int) DB::table('tracked_property_external_refs')->where('source_ref', '100000005')->value('tracked_property_id'), 'equally (un)addressed files are never joined on the advert alone');
+        $this->assertSame(1, $res['left_no_address_anywhere']);
+    }
+
     public function test_two_files_without_any_address_are_left_alone(): void
     {
         $a = $this->file([]);
