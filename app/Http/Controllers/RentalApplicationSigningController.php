@@ -995,10 +995,14 @@ class RentalApplicationSigningController extends Controller
         // the server, invisible on the form, no way for the applicant to
         // ever pass it.
         $requiredKeys = \App\Models\RentalApplicationQualifyingSetting::effectiveRequiredFieldKeysFor($application->agency_id);
-        [$rules, $attributes] = RentalApplication::submissionValidationRules($requiredKeys, $request->all(), $application->agency_id, $application->id);
+        [$rules, $attributes] = RentalApplication::submissionValidationRules($requiredKeys, $request->all(), $application->agency_id, $application->id, ! empty($application->co_applicant_contact_id));
         $validated = $request->validate($rules, [], $attributes);
 
-        $fields = collect($validated)->except(['declaration_signature', 'tpn_consent_signature'])->all();
+        $fields = collect($validated)->except(['declaration_signature', 'tpn_consent_signature', 'co_declaration_signature', 'co_tpn_consent_signature'])->all();
+        // AT-517 - the Co-applicant block is cleaned once more after validation, so no null or empty cell is ever stored.
+        if (array_key_exists('co_applicant', $fields)) {
+            $fields['co_applicant'] = RentalApplication::normaliseBlocks(['co_applicant' => $fields['co_applicant']])['co_applicant'];
+        }
         // Optional-and-empty must never error (BUILD_STANDARD §2) — a blank
         // string is stored as NULL, never coerced into breaking a date/decimal cast.
         $fields = array_map(fn ($v) => $v === '' ? null : $v, $fields);
@@ -1074,6 +1078,12 @@ class RentalApplicationSigningController extends Controller
 
             $this->storeSignature($application, 'declaration', $validated['declaration_signature'] ?? null, $request);
             $this->storeSignature($application, 'tpn_consent', $validated['tpn_consent_signature'] ?? null, $request);
+            // AT-517 - the Co-applicant's own signatures, same generation, same table. A resubmit with no Co-applicant left
+            // stores none (the earlier generation's rows stay as the record of that round).
+            if ($application->hasCoApplicant()) {
+                $this->storeSignature($application, 'co_declaration', $validated['co_declaration_signature'] ?? null, $request);
+                $this->storeSignature($application, 'co_tpn_consent', $validated['co_tpn_consent_signature'] ?? null, $request);
+            }
 
             \App\Models\RentalApplicationGeneration::seal($application, $request);
 

@@ -652,8 +652,31 @@
             </section>
             @endif
 
+            {{-- AT-517 - the Co-applicant signs the SAME form (the two are usually together): their own declaration and their own
+                 credit-check consent, shown only while a Co-applicant is captured (typed into the form above, or chosen by the agent). --}}
+            <div x-data="{ co: {{ ($application->hasCoApplicant() || ! empty(old('co_applicant'))) ? 'true' : 'false' }} }" @co-applicant-changed.window="co = $event.detail" x-show="co" x-cloak class="space-y-6" data-qa="co-applicant-signatures">
+                @if($fieldConfig['declaration_signature']['shown'])
+                <section data-progress-section="Co-applicant declaration">
+                    <h2 class="font-semibold text-slate-700 mb-2">Co-applicant — {{ $fieldConfig['declaration_signature']['label'] }} *</h2>
+                    <p class="text-xs text-slate-500 mb-2">{{ $fieldConfig['declaration_signature']['help_text'] ?? 'I hereby declare that all the above information given is true and accurate.' }}</p>
+                    @include('rental-applications.public._signature-pad', ['field' => 'co_declaration_signature', 'label' => 'co-applicant declaration'])
+                    @error('co_declaration_signature') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                </section>
+                @endif
+                @if($fieldConfig['tpn_consent_signature']['shown'])
+                <section data-progress-section="Co-applicant {{ $fieldConfig['tpn_consent_signature']['label'] }}">
+                    <h2 class="font-semibold text-slate-700 mb-2">Co-applicant — {{ $fieldConfig['tpn_consent_signature']['label'] }} *</h2>
+                    <p class="text-xs text-slate-500 mb-2">{{ $fieldConfig['tpn_consent_signature']['help_text'] ?? 'The tenant hereby consents that, and authorises the Landlord or agent to, at all times contact, request and obtain information from any credit provider or registered credit bureau relevant to an assessment of the tenant\'s creditworthiness.' }}</p>
+                    @include('rental-applications.public._signature-pad', ['field' => 'co_tpn_consent_signature', 'label' => 'co-applicant ' . $fieldConfig['tpn_consent_signature']['label']])
+                    @error('co_tpn_consent_signature') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                </section>
+                @endif
+            </div>
+
             <input type="hidden" name="declaration_signature" value="{{ old('declaration_signature') }}" x-ref="declaration_signature_input">
             <input type="hidden" name="tpn_consent_signature" value="{{ old('tpn_consent_signature') }}" x-ref="tpn_consent_signature_input">
+            <input type="hidden" name="co_declaration_signature" value="{{ old('co_declaration_signature') }}" x-ref="co_declaration_signature_input">
+            <input type="hidden" name="co_tpn_consent_signature" value="{{ old('co_tpn_consent_signature') }}" x-ref="co_tpn_consent_signature_input">
         </div>
     </form>
 
@@ -896,7 +919,7 @@ function rentalApplicationForm() {
         },
 
         isSignatureField(name) {
-            return name === 'declaration_signature' || name === 'tpn_consent_signature';
+            return ['declaration_signature', 'tpn_consent_signature', 'co_declaration_signature', 'co_tpn_consent_signature'].includes(name);
         },
 
         scheduleAutosave() {
@@ -926,6 +949,8 @@ function rentalApplicationForm() {
             delete data._token;
             delete data.declaration_signature;
             delete data.tpn_consent_signature;
+            delete data.co_declaration_signature;
+            delete data.co_tpn_consent_signature;
             return data;
         },
 
@@ -1140,8 +1165,17 @@ function rentalApplicationForm() {
             const decl = this.$refs.declaration_signature_input.value;
             const tpn = this.$refs.tpn_consent_signature_input.value;
             const missingSignatures = [];
-            if (declRequired && !decl) missingSignatures.push(declLabel);
-            if (tpnRequired && !tpn) missingSignatures.push(tpnLabel);
+            // AT-517 - while a Co-applicant is captured (any Co-applicant answer filled in, or chosen by the agent) BOTH people sign
+            // every signature the form shows; the server enforces the same rule.
+            const coCaptured = !!document.querySelector('[data-qa="co-applicant-signatures"]') && Alpine.$data(document.querySelector('[data-qa="co-applicant-signatures"]')).co;
+            const declShown = {{ $fieldConfig['declaration_signature']['shown'] ? 'true' : 'false' }};
+            const tpnShown = {{ $fieldConfig['tpn_consent_signature']['shown'] ? 'true' : 'false' }};
+            if ((declRequired || (coCaptured && declShown)) && !decl) missingSignatures.push(declLabel);
+            if ((tpnRequired || (coCaptured && tpnShown)) && !tpn) missingSignatures.push(tpnLabel);
+            if (coCaptured) {
+                if (declShown && !this.$refs.co_declaration_signature_input.value) missingSignatures.push('Co-applicant ' + declLabel);
+                if (tpnShown && !this.$refs.co_tpn_consent_signature_input.value) missingSignatures.push('Co-applicant ' + tpnLabel);
+            }
             if (missingSignatures.length) {
                 this.error = 'Please sign the following before submitting: ' + missingSignatures.join(', ') + '.';
                 return;

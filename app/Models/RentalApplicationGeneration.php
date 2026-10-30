@@ -111,6 +111,26 @@ class RentalApplicationGeneration extends Model
     }
 
     /**
+     * Nested objects with their keys in the order MySQL's JSON type stores them (shorter keys first, then bytewise); lists keep
+     * their order. The top level is left alone: computeHash() sorts it on both the seal and the verify side.
+     */
+    private static function inMysqlJsonOrder(array $snapshot): array
+    {
+        $order = static function (mixed $value) use (&$order): mixed {
+            if (! is_array($value)) {
+                return $value;
+            }
+            if (! array_is_list($value)) {
+                uksort($value, static fn ($a, $b) => [strlen((string) $a), (string) $a] <=> [strlen((string) $b), (string) $b]);
+            }
+
+            return array_map($order, $value);
+        };
+
+        return array_map($order, $snapshot);
+    }
+
+    /**
      * Seal the application's CURRENT live answer fields as the next
      * generation. Called from inside submit()'s own DB transaction, after
      * the new answers have already been written onto the live row and the
@@ -134,6 +154,13 @@ class RentalApplicationGeneration extends Model
         // (RentalApplicationCustomField::generateKey()), never a real
         // shipped column name.
         $snapshot = array_merge($snapshot, $application->custom_field_values ?? []);
+
+        // AT-517 - the four repeating blocks (the Co-applicant's answers among them) are nested objects, and MySQL's JSON column
+        // stores the keys of a nested object in its own order (shortest key first). computeHash() only sorts the TOP level, so a
+        // hash taken over the PHP order of a nested block never matched the same data read back, and verifyChain() reported
+        // tampering on a genuine row. Putting nested objects into MySQL's order BEFORE hashing makes the seal-time and
+        // verify-time encodings identical. Rows sealed earlier are not re-judged: verifyChain() and computeHash() are unchanged.
+        $snapshot = self::inMysqlJsonOrder($snapshot);
 
         $prev = self::latestFor($application->id);
         $prevHash = $prev?->content_hash;

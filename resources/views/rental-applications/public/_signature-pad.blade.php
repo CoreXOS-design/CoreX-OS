@@ -33,21 +33,29 @@
         if (!canvas || canvas.dataset.rentalSigInit) return;
         canvas.dataset.rentalSigInit = '1';
 
-        const ratio = window.devicePixelRatio || 1;
-        canvas.width = canvas.clientWidth * ratio;
-        canvas.height = canvas.clientHeight * ratio;
         const ctx = canvas.getContext('2d');
-        ctx.scale(ratio, ratio);
-        ctx.lineWidth = 2;
-        ctx.lineCap = 'round';
-        ctx.strokeStyle = '#1a365d';
-
         const oldSignature = @js($oldSignature ?: '');
-        if (oldSignature) {
-            const img = new Image();
-            img.onload = () => ctx.drawImage(img, 0, 0, canvas.clientWidth, canvas.clientHeight);
-            img.src = oldSignature;
+        // AT-517 - a pad inside a section that starts hidden (the Co-applicant's) has no width yet; it is sized the first time it
+        // is shown and touched. A visible pad is sized straight away, exactly as before.
+        let sized = false;
+        function size() {
+            if (sized || canvas.clientWidth === 0) return;
+            sized = true;
+            const ratio = window.devicePixelRatio || 1;
+            canvas.width = canvas.clientWidth * ratio;
+            canvas.height = canvas.clientHeight * ratio;
+            ctx.scale(ratio, ratio);
+            ctx.lineWidth = 2;
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = '#1a365d';
+            if (oldSignature) {
+                const img = new Image();
+                img.onload = () => ctx.drawImage(img, 0, 0, canvas.clientWidth, canvas.clientHeight);
+                img.src = oldSignature;
+            }
         }
+        size();
+        window.addEventListener('co-applicant-changed', () => setTimeout(size, 60));
 
         let drawing = false;
 
@@ -56,7 +64,7 @@
             const point = e.touches ? e.touches[0] : e;
             return { x: point.clientX - rect.left, y: point.clientY - rect.top };
         }
-        function start(e) { drawing = true; const p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); }
+        function start(e) { size(); drawing = true; const p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); }
         function move(e) {
             if (!drawing) return;
             e.preventDefault();

@@ -103,8 +103,10 @@
 @endphp
 
 <div class="corex-h2">Co-applicant / Spouse</div>
-@foreach(\App\Models\RentalApplication::CO_APPLICANT_FIELDS as $coKey => [$coLabel, $coKind])
-<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">{{ $coLabel }}: <span class="corex-field-value">{{ $coKind === 'money' ? $pdfMoney($pdfCo[$coKey] ?? null) : (($pdfCo[$coKey] ?? '') !== '' && $coKind === 'yesno' ? ucfirst($pdfCo[$coKey]) : ($pdfCo[$coKey] ?? '')) }}</span></span></div>
+{{-- AT-517 - the same questions as the Main applicant, in the agency's own wording; a field the agency hides is not printed. --}}
+@foreach(\App\Models\RentalApplication::coApplicantFieldDefs($application->displayFieldConfig()) as $coKey => $coDef)
+@continue(! $coDef['shown'])
+<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">{{ $coDef['label'] }}: <span class="corex-field-value">{{ \App\Models\RentalApplication::coApplicantDisplayValue($coKey, $pdfCo[$coKey] ?? null) }}</span></span></div>
 @endforeach
 
 <div class="corex-h2">Other People Who Will Live in the Property</div>
@@ -169,6 +171,17 @@
     @endif
 </div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Applicant Signature</span></div>
+@php $pdfCoSigns = $application->hasCoApplicant() || ! $application->isSubmitted(); @endphp
+@if($pdfCoSigns)
+<div class="corex-clause corex-clause-indent-1">
+    @if($coDeclaration = $application->coDeclarationSignature())
+        <img src="{{ \Illuminate\Support\Facades\Storage::disk('local')->path($coDeclaration->signature_path) }}" style="height:40px;">
+    @else
+        <span class="corex-field-value">_________________________</span>
+    @endif
+</div>
+<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Co-applicant Signature</span></div>
+@endif
 
 @php
     // Johan, 2026-09-20 — "hfc uses tpn so thats why we have that." The
@@ -194,6 +207,16 @@
     @endif
 </div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">{{ \App\Models\RentalApplication::creditBureauConsentCaption($creditBureauConsentLabel) }}</span></div>
+@if($pdfCoSigns)
+<div class="corex-clause corex-clause-indent-1">
+    @if($coTpn = $application->coTpnConsentSignature())
+        <img src="{{ \Illuminate\Support\Facades\Storage::disk('local')->path($coTpn->signature_path) }}" style="height:40px;">
+    @else
+        <span class="corex-field-value">_________________________</span>
+    @endif
+</div>
+<div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">Co-applicant Signature — {{ $creditBureauConsentLabel }}</span></div>
+@endif
 
 @if($application->token)
 <div class="corex-h2">Returning this application</div>

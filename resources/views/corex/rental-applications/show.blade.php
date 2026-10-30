@@ -257,6 +257,11 @@
             <div class="text-xs space-y-1" style="color: var(--text-secondary);">
                 <div>Declaration: {{ $rentalApplication->declarationSignature() ? '✓ Signed ' . $rentalApplication->declarationSignature()->signed_at->format('d M Y H:i') : 'Not yet signed' }}</div>
                 <div>TPN Consent: {{ $rentalApplication->tpnConsentSignature() ? '✓ Signed ' . $rentalApplication->tpnConsentSignature()->signed_at->format('d M Y H:i') : 'Not yet signed' }}</div>
+                @if($rentalApplication->hasCoApplicant())
+                    {{-- AT-517 - the Co-applicant signs the same form: their own declaration and consent. --}}
+                    <div data-qa="co-declaration-status">Co-applicant declaration: {{ $rentalApplication->coDeclarationSignature() ? '✓ Signed ' . $rentalApplication->coDeclarationSignature()->signed_at->format('d M Y H:i') : 'Not yet signed' }}</div>
+                    <div data-qa="co-tpn-status">Co-applicant TPN consent: {{ $rentalApplication->coTpnConsentSignature() ? '✓ Signed ' . $rentalApplication->coTpnConsentSignature()->signed_at->format('d M Y H:i') : 'Not yet signed' }}</div>
+                @endif
             </div>
         </div>
 
