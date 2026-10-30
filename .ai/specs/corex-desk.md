@@ -596,16 +596,21 @@ Infra (QA1 only): `corex-qa1-reverb.service`, nginx `location /app` in the `qate
 
 ## 12. Navigation links (added as built)
 
-CoreX Desk lives under the **Admin** section of the left menu as one group, **Desk** (Johan's ruling, 27 Oct 2026 — it was not findable before;
-it is not under Compliance or Settings; menu path **Admin › Desk**):
+CoreX Desk lives under the **Tools** section of the left menu as one group, **Desk** (menu path **Tools › Desk**). Johan's ruling, 27 Oct 2026:
+it was not findable before, so it left Compliance and Settings for the menu. **Moved again, 30 Oct 2026:** from Admin to Tools, because agents and
+branch managers never see the Admin section (`sidebar.section.admin`) and so never saw Desk. It is now gated only on the Desk permissions and the
+agency's `desk_enabled` — no role names, no dependency on the Admin section:
 
 | Menu item | Goes to | Visible to |
 |---|---|---|
-| **Desk console** | `/corex/desk` (`corex.desk.console`) | `desk.support` holders (owner roles; an agency's role only if its admin granted it) |
+| **Get help** | opens the Get help screen (same as the top-bar button; any `[data-desk-open]` button) | `desk.request_help` holders, while the agency has Desk switched on |
+| **Desk console** | `/corex/desk` (`corex.desk.console`) | `desk.support` holders (owner roles; an agency's role only if its admin granted it), while the agency has Desk switched on |
 | **Desk sessions** | `/corex/desk-log` (`corex.desk.log.index` / `.show`) — the audit list, moved out of Compliance › Reports & Logs | `desk.support` holders, and an agency admin (`manage_users`) for their own agency |
 | **Desk settings** | Company Settings › CoreX Desk tab (`admin.company-settings#desk`) — the agency switch and the take-over idle limit | anyone who may edit settings (`access_settings` / `manage_performance_settings`) |
 
-The group shows when the user holds `desk.support` or `manage_users`; the Admin section itself opens for a `desk.support` holder. Opening any
+The group shows when at least one child does. With the agency's Desk switched off, Get help and the console disappear (Get help in the top bar then
+shows the phone-support message); Desk sessions and Desk settings stay for those who hold their permission, so an admin can read the history and
+switch Desk back on. `desk.support` no longer opens the Admin section. Opening any
 `corex.desk.*` page opens the Desk panel. Other places:
 - **Get help** — top bar of every CoreX page (sidebar top row, left of the Ellie icon; both layouts, My Portal included).
 - **Extension** — the CoreX Chrome extension popup › *CoreX Desk* card (phase 3, section 13).

@@ -9,8 +9,9 @@ use Illuminate\Support\Facades\Route;
 use Tests\Feature\Desk\DeskTestCase;
 
 /**
- * CoreX Desk lives under the ADMIN menu group "Desk" (Johan, 27 Oct 2026): Desk console, Desk sessions (the audit, moved out of Compliance >
- * Reports & Logs) and Desk settings (a link into Company Settings > CoreX Desk). Spec .ai/specs/corex-desk.md section 12.
+ * CoreX Desk lives under the TOOLS menu group "Desk" (Johan, 27 Oct 2026 out of Compliance/Settings; moved from Admin to Tools 30 Oct 2026 so agents and
+ * branch managers see it): Get help, Desk console, Desk sessions (the audit) and Desk settings (a link into Company Settings > CoreX Desk). Gated on the
+ * Desk permissions and the agency's desk_enabled only. Spec .ai/specs/corex-desk.md section 12.
  */
 final class DeskMenuTest extends DeskTestCase
 {
@@ -23,7 +24,7 @@ final class DeskMenuTest extends DeskTestCase
     {
         $i = strpos($html, '<div class="corex-nav-panel-title">Desk</div>');
 
-        return $i === false ? '' : substr($html, $i, 1800);
+        return $i === false ? '' : substr($html, $i, 3200);
     }
 
     public function test_owner_roles_see_the_desk_group_with_all_three_pages(): void
@@ -31,8 +32,10 @@ final class DeskMenuTest extends DeskTestCase
         $html = $this->menu($this->owner());
         $panel = $this->deskPanel($html);
 
-        $this->assertStringContainsString("push('desk')", $html, 'the Desk group is in the Admin section');
+        $this->assertStringContainsString("push('desk')", $html, 'the Desk group is in the Tools section');
         $this->assertStringContainsString('>Desk</span>', $html);
+        $this->assertStringContainsString('data-desk-open', $panel);
+        $this->assertStringContainsString('>Get help</button>', $panel);
         $this->assertStringContainsString(route('corex.desk.console'), $panel);
         $this->assertStringContainsString('>Desk console</a>', $panel);
         $this->assertStringContainsString(route('corex.desk.log.index'), $panel);
@@ -45,6 +48,7 @@ final class DeskMenuTest extends DeskTestCase
     {
         $panel = $this->deskPanel($this->menu($this->agentIn($this->agencyA, 'admin')));
 
+        $this->assertStringContainsString('>Get help</button>', $panel);
         $this->assertStringNotContainsString('>Desk console</a>', $panel);
         $this->assertStringContainsString('>Desk sessions</a>', $panel, 'their own agency\'s audit, as before');
         $this->assertStringContainsString('>Desk settings</a>', $panel, 'they may edit the agency\'s settings');
@@ -58,12 +62,49 @@ final class DeskMenuTest extends DeskTestCase
         $this->assertStringContainsString('>Desk sessions</a>', $panel);
     }
 
-    public function test_an_ordinary_agent_sees_no_desk_group_at_all(): void
+    /** @return array<string, array{string}> */
+    public static function ordinaryRoles(): array
     {
-        $html = $this->menu($this->agentIn($this->agencyA, 'agent'));
+        return ['agent' => ['agent'], 'branch manager' => ['branch_manager']];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('ordinaryRoles')]
+    public function test_an_agent_and_a_branch_manager_see_desk_under_tools_with_only_get_help(string $role): void
+    {
+        $html = $this->menu($this->agentIn($this->agencyA, $role));
+        $panel = $this->deskPanel($html);
+
+        $this->assertStringContainsString("push('desk')", $html);
+        $this->assertLessThan(strpos($html, 'Admin</div>') ?: PHP_INT_MAX, strpos($html, "push('desk')"), 'Desk sits in Tools, before the Admin label');
+        $this->assertStringContainsString('>Get help</button>', $panel);
+        $this->assertStringContainsString('data-desk-open', $panel);
+        $this->assertStringNotContainsString('>Desk console</a>', $panel);
+        $this->assertStringNotContainsString('>Desk sessions</a>', $panel);
+        $this->assertStringNotContainsString('>Desk settings</a>', $panel);
+    }
+
+    public function test_a_role_without_desk_request_help_sees_no_desk_group(): void
+    {
+        \App\Models\RolePermission::where('role', 'viewer')->where('permission_key', 'desk.request_help')->delete();
+        \App\Services\PermissionService::clearCache();
+
+        $html = $this->menu($this->agentIn($this->agencyA, 'viewer'));
 
         $this->assertStringNotContainsString("push('desk')", $html);
         $this->assertSame('', $this->deskPanel($html));
+    }
+
+    public function test_with_desk_switched_off_the_agent_loses_it_and_the_admin_keeps_the_log_and_settings(): void
+    {
+        $this->agencyA->update(['desk_enabled' => false]);
+
+        $this->assertStringNotContainsString("push('desk')", $this->menu($this->agentIn($this->agencyA, 'agent')));
+
+        $panel = $this->deskPanel($this->menu($this->adminWithSupport($this->agencyA)));
+        $this->assertStringNotContainsString('>Get help</button>', $panel);
+        $this->assertStringNotContainsString('>Desk console</a>', $panel);
+        $this->assertStringContainsString('>Desk sessions</a>', $panel);
+        $this->assertStringContainsString('>Desk settings</a>', $panel, 'so an admin can switch Desk back on');
     }
 
     public function test_the_old_homes_are_gone_and_the_new_routes_are_the_only_ones(): void
@@ -75,7 +116,8 @@ final class DeskMenuTest extends DeskTestCase
         // not a Settings-menu item either
         $sidebar = (string) file_get_contents(resource_path('views/layouts/corex-sidebar.blade.php'));
         $this->assertStringNotContainsString('>CoreX Desk</a>', $sidebar);
-        $this->assertStringContainsString("'desk.support']))\n        <div class=\"corex-nav-divider\"></div>", $sidebar, 'the Admin section opens for a desk.support holder');
+        $this->assertStringNotContainsString("'view_payroll_reports', 'desk.support']))", $sidebar, 'desk.support no longer opens the Admin section');
+        $this->assertStringNotContainsString('Desk (slide-panel group, Admin)', $sidebar);
 
         $this->assertSame('corex/desk-log', Route::getRoutes()->getByName('corex.desk.log.index')->uri());
         $this->assertSame('corex/desk', Route::getRoutes()->getByName('corex.desk.console')->uri());
@@ -93,7 +135,7 @@ final class DeskMenuTest extends DeskTestCase
     public function test_the_spec_navigation_section_names_the_group_and_its_three_pages(): void
     {
         $spec = (string) file_get_contents(base_path('.ai/specs/corex-desk.md'));
-        foreach (['Admin › Desk', 'Desk console', 'Desk sessions', 'Desk settings', '/corex/desk-log'] as $term) {
+        foreach (['Tools › Desk', 'Get help', 'Desk console', 'Desk sessions', 'Desk settings', '/corex/desk-log'] as $term) {
             $this->assertStringContainsString($term, $spec, "section 12 must mention {$term}");
         }
     }
