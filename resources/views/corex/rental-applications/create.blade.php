@@ -7,6 +7,8 @@
     'contactName' => $oldContact ? trim($oldContact->first_name . ' ' . $oldContact->last_name) : '',
     'contactHasEmail' => (bool) $oldContact?->email,
     'contactEmail' => old('contact_email', ''),
+    'coApplicantId' => old('co_applicant_contact_id', $oldCoApplicant?->id ?? ''),
+    'coApplicantName' => $oldCoApplicant ? trim($oldCoApplicant->first_name . ' ' . $oldCoApplicant->last_name) : '',
     'propertyId' => old('property_id', $oldProperty?->id ?? ''),
     {{-- Johan, QA1 walk, 2026-09-21 — address first, never the listing's
          marketing title. Same fix as the search results below. --}}
@@ -16,7 +18,7 @@
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">New Rental Application</h1>
-                <p class="text-xs" style="color: var(--text-muted);">Pick a contact — everything else is optional and can be filled in later or by the applicant themselves.</p>
+        <p class="text-xs" style="color: var(--text-muted);">Pick the Main applicant (and a Co-applicant if there is one) — everything else is optional and can be filled in later or by the applicant themselves.</p>
             </div>
             @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
         </div>
@@ -36,7 +38,7 @@
         @csrf
 
         <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Contact <span style="color: var(--ds-crimson);">*</span></label>
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Main applicant <span style="color: var(--ds-crimson);">*</span></label>
             {{-- AT-485 - typing a new search drops the contact picked before (it used to stay selected, so Create/Enter
                  submitted the OLD contact); Enter in a search box never submits the form. --}}
             <input type="text" x-model="contactQuery" @input="contactTyped()" @input.debounce.300ms="searchContacts()"
@@ -53,7 +55,32 @@
                 </template>
             </div>
             <p class="text-xs mt-1" style="color: var(--text-muted);" x-show="selectedContactName" x-text="'Selected: ' + selectedContactName"></p>
-            <button type="button" @click="openQuickCreate()" class="text-xs mt-1 underline" style="color: var(--brand-icon, #0ea5e9);" data-tour="rops-ac-newcontact">Can't find them? Create a new contact</button>
+            <button type="button" @click="openQuickCreate('main')" class="text-xs mt-1 underline" style="color: var(--brand-icon, #0ea5e9);" data-tour="rops-ac-newcontact">Can't find them? Create a new contact</button>
+        </div>
+
+        {{-- AT-517 - the optional Co-applicant: a second contact on the same application (one property, two people). --}}
+        <div data-qa="co-applicant-picker">
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Co-applicant (optional)</label>
+            <input type="text" x-model="coQuery" @input="coTyped()" @input.debounce.300ms="searchCoApplicants()"
+                   @keydown.enter.prevent
+                   placeholder="Search contacts by name, phone or email…"
+                   class="prop-input">
+            <input type="hidden" name="co_applicant_contact_id" x-model="selectedCoApplicantId">
+            <div class="mt-1 rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" x-show="coResults.length">
+                <template x-for="c in coResults" :key="c.id">
+                    <button type="button" @click="selectCoApplicant(c)" class="list-row-hover block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary);">
+                        <span x-text="c.first_name + ' ' + c.last_name"></span>
+                        <span class="text-xs" style="color: var(--text-muted);" x-text="c.email || c.phone || ''"></span>
+                    </button>
+                </template>
+            </div>
+            <p class="text-xs mt-1" style="color: var(--text-muted);" x-show="selectedCoApplicantName" x-text="'Selected: ' + selectedCoApplicantName"></p>
+            <p class="text-xs mt-1" style="color: var(--ds-crimson);" x-show="selectedCoApplicantId && selectedCoApplicantId === selectedContactId">The Co-applicant must be a different person from the Main applicant.</p>
+            <p class="text-xs mt-1" style="color: var(--text-muted);">Their details pre-fill the Co-applicant section of the form. Leave empty if there is none &mdash; the applicant can still add one themselves.</p>
+            <div class="flex gap-3 mt-1">
+                <button type="button" @click="openQuickCreate('co')" class="text-xs underline" style="color: var(--brand-icon, #0ea5e9);">Can't find them? Create a new contact</button>
+                <button type="button" x-show="selectedCoApplicantId" @click="clearCoApplicant()" class="text-xs underline" style="color: var(--text-muted);">Remove Co-applicant</button>
+            </div>
         </div>
 
         {{-- AT-485 - the picked contact has no email: type one here, it is saved to the contact so the invite can be sent. --}}
@@ -90,7 +117,7 @@
 
         <div class="flex justify-end gap-2 pt-4" style="border-top: 1px solid var(--border);">
             <a href="{{ route('corex.rental-applications.index') }}" class="corex-btn-outline text-sm">Cancel</a>
-            <button type="submit" class="corex-btn-primary text-sm" :disabled="!selectedContactId" data-tour="rops-ac-create">Create</button>
+            <button type="submit" class="corex-btn-primary text-sm" :disabled="!selectedContactId || (selectedCoApplicantId && selectedCoApplicantId === selectedContactId)" data-tour="rops-ac-create">Create</button>
         </div>
     </form>
 
@@ -162,6 +189,8 @@ function rentalApplicationCreate(old) {
         contactQuery: old.contactName || '', contactResults: [], selectedContactId: old.contactId || '', selectedContactName: old.contactName || '',
         selectedContactHasEmail: !!old.contactHasEmail, contactEmail: old.contactEmail || '',
         propertyQuery: old.propertyLabel || '', propertyResults: [], selectedPropertyId: old.propertyId || '', selectedPropertyLabel: old.propertyLabel || '',
+        coQuery: old.coApplicantName || '', coResults: [], selectedCoApplicantId: old.coApplicantId || '', selectedCoApplicantName: old.coApplicantName || '',
+        quickCreateTarget: 'main',
         quickCreateOpen: false, quickCreateBusy: false, quickCreateError: '', quickCreateDuplicates: [], quickCreateMode: '',
         quickCreate: { first_name: '', last_name: '', phone: '', email: '' },
         async searchContacts() {
@@ -176,6 +205,37 @@ function rentalApplicationCreate(old) {
                 this.selectedContactName = '';
                 this.selectedContactHasEmail = false;
                 this.contactEmail = '';
+            }
+        },
+        async searchCoApplicants() {
+            if (this.coQuery.length < 2) { this.coResults = []; return; }
+            const res = await fetch('{{ route('corex.properties.contacts.search-global') }}?q=' + encodeURIComponent(this.coQuery));
+            this.coResults = await res.json();
+        },
+        coTyped() {
+            if (this.selectedCoApplicantId && this.coQuery.trim() !== this.selectedCoApplicantName.trim()) {
+                this.selectedCoApplicantId = '';
+                this.selectedCoApplicantName = '';
+            }
+        },
+        selectCoApplicant(c) {
+            this.selectedCoApplicantId = c.id;
+            this.selectedCoApplicantName = (c.first_name + ' ' + c.last_name).trim();
+            this.coResults = [];
+            this.coQuery = this.selectedCoApplicantName;
+        },
+        clearCoApplicant() {
+            this.selectedCoApplicantId = '';
+            this.selectedCoApplicantName = '';
+            this.coResults = [];
+            this.coQuery = '';
+        },
+        // The inline create-contact dialog serves both pickers; the target says which one receives the new contact.
+        pickCreated(c) {
+            if (this.quickCreateTarget === 'co') {
+                this.selectCoApplicant(c);
+            } else {
+                this.selectContact(c);
             }
         },
         selectContact(c) {
@@ -197,7 +257,8 @@ function rentalApplicationCreate(old) {
             this.propertyResults = [];
             this.propertyQuery = p.label;
         },
-        openQuickCreate() {
+        openQuickCreate(target) {
+            this.quickCreateTarget = target || 'main';
             this.quickCreate = { first_name: '', last_name: '', phone: '', email: '' };
             this.quickCreateError = '';
             this.quickCreateDuplicates = [];
@@ -207,8 +268,8 @@ function rentalApplicationCreate(old) {
             this.quickCreateOpen = false;
         },
         useDuplicate(d) {
-            this.selectContact({ id: d.id, first_name: d.name, last_name: '', email: d.email });
-            this.selectedContactName = d.name;
+            this.pickCreated({ id: d.id, first_name: d.name, last_name: '', email: d.email });
+            if (this.quickCreateTarget === 'co') { this.selectedCoApplicantName = d.name; } else { this.selectedContactName = d.name; }
             this.closeQuickCreate();
         },
         async submitQuickCreate(bypass) {
@@ -231,7 +292,7 @@ function rentalApplicationCreate(old) {
                     return;
                 }
                 const c = body.contact;
-                this.selectContact({ id: c.id, first_name: c.first_name, last_name: c.last_name, email: this.quickCreate.email });
+                this.pickCreated({ id: c.id, first_name: c.first_name, last_name: c.last_name, email: this.quickCreate.email });
                 this.closeQuickCreate();
             } catch (e) {
                 this.quickCreateError = 'Something went wrong — try again.';

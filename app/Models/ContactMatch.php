@@ -209,7 +209,8 @@ class ContactMatch extends Model
             return;
         }
 
-        $governingApplication = \App\Models\RentalApplication::where('contact_id', $match->contact_id)
+        // AT-517 - an approved Co-applicant is capped by the same application as the Main applicant.
+        $governingApplication = \App\Models\RentalApplication::forApplicantContact((int) $match->contact_id)
             ->where('status', 'approved')
             ->whereNotNull('approved_rental_amount')
             ->latest('id')

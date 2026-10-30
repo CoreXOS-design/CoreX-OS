@@ -43,7 +43,8 @@ class SetRentalCoreMatchCeilingOnApproval
 
             $matches = ContactMatch::withoutGlobalScopes()
                 ->where('agency_id', $application->agency_id)
-                ->where('contact_id', $application->contact_id)
+                // AT-517 - the Main applicant and the Co-applicant (when linked) are approved together, so both get the ceiling.
+                ->whereIn('contact_id', $application->applicantContactIds())
                 ->where('status', ContactMatch::STATUS_ACTIVE)
                 ->whereNull('deleted_at')
                 ->whereIn(DB::raw('LOWER(listing_type)'), ContactMatch::RENTAL_LISTING_TYPES)

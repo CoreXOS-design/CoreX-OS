@@ -352,6 +352,9 @@
                         @endif
                     @endif
                 </div>
+
+                {{-- AT-517 - Main applicant + Co-applicant: the linked Co-applicant, or the one the applicant typed (create + link). --}}
+                @include('corex.rental-applications.partials.co-applicant-strip', ['rentalApplication' => $rentalApplication, 'viewerRole' => $viewerRole, 'reviewLocked' => $reviewLocked ?? false])
             </div>
 
             <div class="flex items-center gap-2 flex-wrap md:justify-end flex-shrink-0" data-tour="rops-rv-actions">

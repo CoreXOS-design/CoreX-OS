@@ -548,7 +548,10 @@ class RentalApplicationController extends Controller
             $oldProperty = Property::findLinkableForRentalApplication((int) $request->query('property_id'), $request->user());
         }
 
-        return view('corex.rental-applications.create', compact('oldContact', 'oldProperty'));
+        // AT-517 - the optional Co-applicant, restored after a validation bounce (never read from the URL).
+        $oldCoApplicant = old('co_applicant_contact_id') ? Contact::find(old('co_applicant_contact_id')) : null;
+
+        return view('corex.rental-applications.create', compact('oldContact', 'oldProperty', 'oldCoApplicant'));
     }
 
     /**
@@ -660,13 +663,20 @@ class RentalApplicationController extends Controller
             'property_id' => ['nullable', 'integer'],
             // AT-485 - typed on the create screen when the picked contact has no email; saved to the contact below.
             'contact_email' => ['nullable', 'email', 'max:150'],
+            // AT-517 - the optional Co-applicant: a second contact on the same application, never the Main applicant again.
+            'co_applicant_contact_id' => ['nullable', 'integer', 'different:contact_id', new \App\Rules\ExistsInScope(Contact::class)],
         ]);
 
         $contact = Contact::findOrFail($validated['contact_id']);
+        $coApplicant = ! empty($validated['co_applicant_contact_id']) ? Contact::findOrFail($validated['co_applicant_contact_id']) : null;
 
         // AT-485 - one live application per applicant (any property). A second one is refused with a link to the first,
         // so a double-click or a second agent never starts a duplicate the applicant would receive twice.
+        // AT-517 - the same goes for the Co-applicant (live as Main applicant or as Co-applicant on another application).
         if ($existing = $this->existingApplicationFor($contact->id)) {
+            return $this->duplicateApplicationResponse($request, $existing, true);
+        }
+        if ($coApplicant && ($existing = $this->existingApplicationFor($coApplicant->id))) {
             return $this->duplicateApplicationResponse($request, $existing, true);
         }
 
@@ -701,8 +711,10 @@ class RentalApplicationController extends Controller
         // independent of whether the email-gated Send button is ever used.
         $application = RentalApplication::create(array_merge(
             $this->prefillFromContact($contact),
+            $coApplicant ? ['co_applicant' => $this->prefillCoApplicantFromContact($coApplicant)] : [],
             [
                 'contact_id' => $contact->id,
+                'co_applicant_contact_id' => $coApplicant?->id,
                 'property_id' => $property?->id,
                 'branch_id' => $request->user()->effectiveBranchId(),
                 'created_by_user_id' => $request->user()->id,
@@ -1379,7 +1391,41 @@ class RentalApplicationController extends Controller
             humanSummary: 'Linked ' . $contact->full_name . ' to ' . $property->buildDisplayAddress() . ' as tenant',
         );
 
-        $successMessage = 'Linked to ' . $property->buildDisplayAddress() . ' as tenant.';
+        // AT-517 - the Co-applicant is approved together with the Main applicant, so they are linked to the property together too.
+        $coContact = $rentalApplication->coApplicantContact;
+        if ($coContact) {
+            $coResult = \App\Services\Property\ContactPropertyLinker::link($coContact->id, $property->id, 'tenant');
+            if ($coResult->isNew) {
+                event(new \App\Events\Contact\ContactLinkedToProperty(
+                    contact: $coContact,
+                    property: $property,
+                    role: 'tenant',
+                    actorUserId: $request->user()?->id,
+                ));
+            }
+            if ($coResult->roleChanged) {
+                $audit->log(
+                    $rentalApplication,
+                    eventCategory: 'tenant_link',
+                    eventType: 'role_changed',
+                    user: $request->user(),
+                    oldValues: ['property_id' => $property->id, 'role' => $coResult->previousRole],
+                    newValues: ['property_id' => $property->id, 'role' => 'tenant'],
+                    humanSummary: $coContact->full_name . "'s role on " . $property->buildDisplayAddress() . ' changed from ' . $coResult->previousRole . ' to tenant',
+                );
+            }
+            $audit->log(
+                $rentalApplication,
+                eventCategory: 'tenant_link',
+                eventType: 'linked',
+                user: $request->user(),
+                oldValues: ['property_id' => $oldPropertyId],
+                newValues: ['property_id' => $property->id],
+                humanSummary: 'Linked ' . $coContact->full_name . ' (Co-applicant) to ' . $property->buildDisplayAddress() . ' as tenant',
+            );
+        }
+
+        $successMessage = 'Linked to ' . $property->buildDisplayAddress() . ' as tenant' . ($coContact ? ' (Main applicant and Co-applicant).' : '.');
 
         // leases.md §15.3 — straight on to the lease screen: tenant, property and the property's rent
         // filled in, the dates left for the agent. Only for someone who may create a lease; everyone
@@ -1426,6 +1472,20 @@ class RentalApplicationController extends Controller
                 'actual_role' => $e->actualRole,
             ]);
             return back()->with('error', 'This contact\'s role on this property has changed since the page loaded (now "' . $e->actualRole . '") — refresh and try again.');
+        }
+
+        // AT-517 - the Co-applicant was linked together with the Main applicant, so the link comes off together. A Co-applicant
+        // whose role has since changed is left exactly as it is (and logged) rather than blocking the Main applicant's unlink.
+        if ($rentalApplication->coApplicantContact) {
+            try {
+                \App\Services\Property\ContactPropertyLinker::unlink($rentalApplication->coApplicantContact->id, $property->id, 'tenant');
+            } catch (\App\Exceptions\Property\ContactPropertyRoleMismatchException $e) {
+                \Illuminate\Support\Facades\Log::warning('Rental application tenant-unlink: Co-applicant role mismatch, left as is', [
+                    'rental_application_id' => $rentalApplication->id,
+                    'contact_id' => $e->contactId,
+                    'actual_role' => $e->actualRole,
+                ]);
+            }
         }
 
         // No status to revert — linkTenantProperty() above no longer
@@ -1994,7 +2054,7 @@ class RentalApplicationController extends Controller
         }
 
         return RentalApplication::query()
-            ->where('contact_id', $contactId)
+            ->forApplicantContact($contactId)
             ->whereNotIn('status', $closed)
             ->when($exceptId, fn ($q) => $q->where('id', '!=', $exceptId))
             ->orderByDesc('id')
@@ -2039,6 +2099,148 @@ class RentalApplicationController extends Controller
                 $contact->address, $contact->suburb, $contact->city,
             ]))),
         ];
+    }
+
+    /**
+     * AT-517 - the Co-applicant block (the same 22-field block the applicant can type into) pre-filled from the picked
+     * Co-applicant contact, through the same normaliser every write path uses so blank cells never reach storage.
+     */
+    private function prefillCoApplicantFromContact(Contact $contact): ?array
+    {
+        return RentalApplication::normaliseBlocks(['co_applicant' => [
+            'full_name' => $contact->full_name,
+            'id_number' => $contact->id_number,
+            'email' => $contact->email,
+            'cell' => $contact->phone,
+            'address' => trim(implode(', ', array_filter([$contact->address, $contact->suburb, $contact->city]))),
+        ]])['co_applicant'];
+    }
+
+    /**
+     * AT-517 - the review screen's "Co-applicant captured: <name> - Create contact and link" button. The applicant typed a
+     * Co-applicant's details into the form, but no contact is linked yet. The existing duplicate check runs first (ID
+     * number / cell / email, the agency's own match rules): a match is OFFERED instead of creating a second record, and
+     * the agent chooses "Use this contact" or "Create anyway". Nothing is created without that choice when a match exists.
+     * Logged in the application's audit trail.
+     */
+    public function linkCoApplicant(Request $request, RentalApplication $rentalApplication, \App\Services\RentalApplications\RentalApplicationAuditService $audit)
+    {
+        $this->guardRentalApplication($rentalApplication);
+
+        if (in_array($rentalApplication->status, ['approved', 'declined', 'withdrawn'], true)) {
+            return back()->with('error', 'This application has already been decided, so a Co-applicant can no longer be linked.');
+        }
+        if ($rentalApplication->co_applicant_contact_id) {
+            return back()->with('error', 'A Co-applicant is already linked to this application.');
+        }
+
+        $block = (array) ($rentalApplication->co_applicant ?? []);
+        $name = trim((string) ($block['full_name'] ?? ''));
+        if ($name === '') {
+            return back()->with('error', "The Co-applicant's name is missing, so there is no contact to create. Pick an existing contact on the New Application screen instead.");
+        }
+
+        $validated = $request->validate([
+            'contact_id' => ['nullable', 'integer', new \App\Rules\ExistsInScope(Contact::class)],
+            'create_anyway' => ['nullable', 'boolean'],
+        ]);
+
+        $agencyId = (int) $rentalApplication->agency_id;
+        $phone = trim((string) ($block['cell'] ?? ''));
+        $email = trim((string) ($block['email'] ?? ''));
+        $idNumber = trim((string) ($block['id_number'] ?? ''));
+
+        $chosen = null;
+        if (! empty($validated['contact_id'])) {
+            $chosen = Contact::findOrFail($validated['contact_id']);
+            if ((int) $chosen->id === (int) $rentalApplication->contact_id) {
+                return back()->with('error', 'The Co-applicant cannot be the same contact as the Main applicant.');
+            }
+        } else {
+            $duplicateService = app(\App\Services\ContactDuplicateService::class);
+            $duplicates = $duplicateService->findDuplicatesForIdentifiers(
+                $phone !== '' ? [$phone] : [],
+                $email !== '' ? [$email] : [],
+                $idNumber !== '' ? $idNumber : null,
+                $agencyId,
+            )->reject(fn (Contact $c) => (int) $c->id === (int) $rentalApplication->contact_id);
+
+            if ($duplicates->isNotEmpty()) {
+                $mode = $duplicateService->resolveMode($agencyId);
+                $viewableIds = Contact::whereIn('id', $duplicates->pluck('id'))->pluck('id')->all();
+                $mayCreate = \App\Services\ContactDuplicateService::mayCreateDespiteMatch($mode, (string) $request->user()->effectiveRole());
+
+                if (! empty($validated['create_anyway'])) {
+                    if (! $mayCreate) {
+                        return back()->with('error', 'This looks like an existing contact and your agency does not allow a second record. Use the existing contact instead.');
+                    }
+                    $duplicates = collect(); // the agent was shown the match and chose to create anyway
+                }
+            }
+
+            if ($duplicates->isNotEmpty()) {
+                return back()->with('co_applicant_duplicates', [
+                    'mode' => $mode,
+                    'can_create_anyway' => $mayCreate,
+                    'contacts' => $duplicates->map(function (Contact $c) use ($mode, $viewableIds) {
+                        $canView = in_array($c->id, $viewableIds, true);
+                        $hide = $mode === 'hard_block_request' || ! $canView;
+
+                        return [
+                            'id' => $c->id,
+                            'name' => $c->full_name,
+                            'phone' => $hide ? null : $c->phone,
+                            'email' => $hide ? null : $c->email,
+                            'can_view' => $canView,
+                        ];
+                    })->values()->all(),
+                ]);
+            }
+        }
+
+        $created = false;
+        $contact = DB::transaction(function () use ($chosen, $name, $block, $phone, $email, $idNumber, $rentalApplication, $request, &$created) {
+            if ($chosen) {
+                return $chosen;
+            }
+
+            $parts = preg_split('/\s+/', $name) ?: [$name];
+            $last = count($parts) > 1 ? array_pop($parts) : '';
+            $created = true;
+
+            $new = Contact::create([
+                'contact_kind' => Contact::TYPE_NATURAL_PERSON,
+                'first_name' => implode(' ', $parts),
+                'last_name' => $last,
+                'id_number' => $idNumber !== '' ? $idNumber : null,
+                'agency_id' => $rentalApplication->agency_id,
+                'branch_id' => $rentalApplication->branch_id,
+                'created_by_user_id' => $request->user()->id,
+            ]);
+
+            app(\App\Services\Contacts\ContactIdentifierService::class)->syncIdentifiers(
+                $new,
+                $phone !== '' ? [['value' => $phone, 'label' => null, 'is_primary' => true]] : [],
+                $email !== '' ? [['value' => $email, 'label' => null, 'is_primary' => true]] : [],
+            );
+
+            return $new;
+        });
+
+        $rentalApplication->co_applicant_contact_id = $contact->id;
+        $rentalApplication->save();
+
+        $audit->log(
+            $rentalApplication,
+            eventCategory: 'co_applicant',
+            eventType: $created ? 'contact_created_and_linked' : 'contact_linked',
+            user: $request->user(),
+            oldValues: ['co_applicant_contact_id' => null],
+            newValues: ['co_applicant_contact_id' => $contact->id],
+            humanSummary: ($created ? 'Created contact and linked ' : 'Linked existing contact ') . $contact->full_name . ' as Co-applicant.',
+        );
+
+        return back()->with('success', ($created ? 'Contact created and linked' : 'Linked') . ': ' . $contact->full_name . ' is now the Co-applicant.');
     }
 
 }

@@ -560,7 +560,10 @@ class PdfSplitterController extends Controller
         abort_unless($contact, 422, 'This application has no linked contact.');
 
         $postedLabels = (array) $request->input('labels', []);
-        $allGroups    = [];
+        // AT-517 - with a Co-applicant linked, each page is filed to the Main applicant (the default), the Co-applicant, or both.
+        $coContact       = $rentalApplication->coApplicantContact;
+        $postedApplicant = (array) $request->input('applicant', []);
+        $allGroups       = [];
         foreach ($manifests as $manifest) {
             $manifestId  = $manifest['manifestId'];
             $base        = $manifest['base'];
@@ -571,16 +574,21 @@ class PdfSplitterController extends Controller
 
             [$finalLabels] = $this->resolveManifestLabels($postedLabels, $manifest, $pCount);
 
-            // Grouped by label only — one contact for the whole batch, so
-            // there is no per-page contact-set axis to also group on (unlike
-            // link()'s property-pivot multi-contact case).
+            // Grouped by label, and - only when a Co-applicant is linked - by which applicant(s) the page belongs to.
             $fileGroups = [];
             for ($p = 1; $p <= $pCount; $p++) {
                 $label = $finalLabels[$p];
-                if (! isset($fileGroups[$label])) {
-                    $fileGroups[$label] = ['label' => $label, 'contact_ids' => [$contact->id], 'pages' => []];
+                $who   = $coContact ? (string) (((array) ($postedApplicant[$manifestId] ?? []))[(string) $p] ?? 'main') : 'main';
+                $ids   = match ($who) {
+                    'co'    => [$coContact->id],
+                    'both'  => [$contact->id, $coContact->id],
+                    default => [$contact->id],
+                };
+                $key = $label . '|' . implode(',', $ids);
+                if (! isset($fileGroups[$key])) {
+                    $fileGroups[$key] = ['label' => $label, 'contact_ids' => $ids, 'pages' => []];
                 }
-                $fileGroups[$label]['pages'][] = $p;
+                $fileGroups[$key]['pages'][] = $p;
             }
             if (empty($fileGroups)) continue;
 
@@ -625,7 +633,7 @@ class PdfSplitterController extends Controller
                 'branch_id'      => $rentalApplication->branch_id,
                 'uploaded_by'    => $request->user()->id,
             ]);
-            $document->contacts()->syncWithoutDetaching([$contact->id]);
+            $document->contacts()->syncWithoutDetaching($g['contact_ids']);
             if ($rentalApplication->property_id) {
                 $document->properties()->syncWithoutDetaching([$rentalApplication->property_id]);
             }
@@ -641,6 +649,9 @@ class PdfSplitterController extends Controller
             $destSvc = app(AgencyComplianceDocTypeService::class);
             $routing = $destSvc->routingMapBySlugFor($agencyId);
             $attached = collect([$contact->id => $contact]);
+            if ($coContact) {
+                $attached->put($coContact->id, $coContact);
+            }
             $ficaResults = $this->kickoffMultiFica($allGroups, $routing, $agencyId, $attached, $request->user(), $ficaNote);
         }
 
@@ -656,7 +667,7 @@ class PdfSplitterController extends Controller
         session()->forget(['splitter_batch', 'splitter_skipped', 'splitter_context']);
 
         $redirect = redirect()->route('corex.rental-applications.review', $rentalApplication)
-            ->with('success', count($filedIds) . ' document' . (count($filedIds) === 1 ? '' : 's') . ' filed to ' . $contact->full_name . '.');
+            ->with('success', count($filedIds) . ' document' . (count($filedIds) === 1 ? '' : 's') . ' filed to ' . $contact->full_name . ($coContact ? ' / ' . $coContact->full_name : '') . '.');
         if (! empty($ficaResults)) {
             $redirect->with('splitter_fica_results', $ficaResults);
         } elseif ($ficaNote) {
@@ -1176,14 +1187,16 @@ class PdfSplitterController extends Controller
         // already implicitly chosen. $rentalApplicationContact drives a
         // fixed "Filing to: {name}" statement instead — no picker at all.
         $rentalApplicationContact = null;
+        $rentalApplicationCoApplicant = null;
         if (is_array($splitterContext) && !empty($splitterContext['rental_application_id'])) {
             $ra = RentalApplication::find($splitterContext['rental_application_id']);
             $rentalApplicationContact = $ra?->contact;
+            $rentalApplicationCoApplicant = $ra?->coApplicantContact; // AT-517
         }
 
         return view('tools.pdf_splitter_review', compact(
             'manifests', 'canFica', 'canLinkDeal', 'routing', 'roleSets', 'roleLabels', 'skipped', 'missingCount',
-            'prefillProperty', 'rentalApplicationContact'
+            'prefillProperty', 'rentalApplicationContact', 'rentalApplicationCoApplicant'
         ));
     }
 

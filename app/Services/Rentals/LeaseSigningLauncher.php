@@ -700,7 +700,20 @@ class LeaseSigningLauncher
                 ->latest('id')
                 ->value('current_residential_address');
 
-            return trim((string) $fromApplication);
+            if (trim((string) $fromApplication) !== '') {
+                return trim((string) $fromApplication);
+            }
+
+            // AT-517 - a Co-applicant's own address is the one typed in the application's Co-applicant block, not the Main applicant's.
+            $coBlock = \App\Models\RentalApplication::query()
+                ->where('co_applicant_contact_id', $contact->id)
+                ->whereNotNull('co_applicant')
+                ->orderByRaw("CASE WHEN status = 'approved' THEN 0 ELSE 1 END")
+                ->latest('id')
+                ->value('co_applicant');
+            $coBlock = is_string($coBlock) ? (json_decode($coBlock, true) ?: []) : (array) $coBlock;
+
+            return trim((string) ($coBlock['address'] ?? ''));
         }
 
         return '';
