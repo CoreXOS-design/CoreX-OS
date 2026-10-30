@@ -95,7 +95,7 @@ final class JobCardShowReworkTest extends TestCase
         $html = $this->page($card);
         $this->assertStringContainsString('data-stage="in_progress"', $html);
         $this->assertSame('Send the crew their link', $this->nextButton($html));
-        $this->assertMatchesRegularExpression('/data-jc-go data-next-secondary>Record the sign-off</', $html);
+        $this->assertMatchesRegularExpression('/data-next-secondary data-next-open="jc-worker-signoff"[^>]*>Record the sign-off</', $html);
 
         // the crew is done -> the agent signs it off, then completes it
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.worker-sign-off', $card), ['worker_sign_off_name' => 'Sam'])->assertSessionHasNoErrors();
@@ -135,7 +135,7 @@ final class JobCardShowReworkTest extends TestCase
         $buttons = (new \DOMXPath($dom))->query("//*[@id='jc-quote-box']//*[(self::a or self::button) and contains(@class,'corex-btn-primary')]");
         $this->assertSame(1, $buttons->length, 'one primary button in the Money & approval card');
         $this->assertSame("Record the owner's decision", trim($buttons->item(0)->textContent));
-        $this->assertSame('[data-cost-owner-decision-open]', $buttons->item(0)->getAttribute('data-jc-click'));
+        $this->assertSame('cost-owner-decision', $buttons->item(0)->getAttribute('data-next-open'));
         $this->assertStringContainsString('data-cost-owner-decision-open', $html, 'the box it presses exists');
     }
 

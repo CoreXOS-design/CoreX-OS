@@ -198,8 +198,10 @@ final class RentalJobCardScreen
         $amount = $stage['quote']['amount'];
         $wo = $card->workOrder;
         $awaiting = ($c['awaitingLines'] ?? collect())->count();
-        $form = fn (string $label, string $id) => ['kind' => 'form', 'label' => $label, 'form' => $id];
-        $go = fn (string $label, string $target, ?string $click = null, ?string $focus = null) => ['kind' => 'go', 'label' => $label, 'target' => $target, 'click' => $click, 'focus' => $focus];
+        // section 31 - the Next button IS the action (NextAction): a submit, a dialog opened where the agent is, or - for the lines editor that IS this card's body - a cursor in the field
+        $form = fn (string $label, string $id) => NextAction::form($label, $id);
+        $go = fn (string $label, string $target, ?string $click = null, ?string $focus = null) => NextAction::focus($label, $target, $focus);
+        $authoriseUrl = $wo ? route('corex.rental-work-orders.cost.authorise', $wo) : null;
         $quoteButton = ($c['quoteFormOn'] ?? false) && $stage['can']['price'] ? $form($stage['quote']['button'], 'jc-send-quote-form') : null;
         $resendQuote = ($c['quoteFormOn'] ?? false) && $stage['can']['price'] && ($c['quoteChanged'] ?? false) ? $form('Re-send quote to owner', 'jc-send-quote-form') : null;
         $crewTold = (bool) ($c['crewSent'] ?? false);
@@ -215,7 +217,7 @@ final class RentalJobCardScreen
                 } elseif ($stage['unpriced'] > 0) {
                     $out = ['text' => 'Price every line first (' . $stage['unpriced'] . ' ' . ($stage['unpriced'] === 1 ? 'line has' : 'lines have') . ' no price yet).', 'button' => $go('Price the lines', '#jc-lines'), 'tone' => 'warn'];
                 } elseif (! $stage['prices_on']) {
-                    $out = ['text' => 'Assign the crew and book a date.', 'button' => $go('Assign the crew', '#jc-crew', null, '[data-assign-crew-select]')];
+                    $out = ['text' => 'Assign the crew and book a date.', 'button' => NextAction::open('Assign the crew', 'jc-assign-crew')];
                 } else {
                     $out = ['text' => $stage['quote']['intent'] === 'confirm' ? 'Confirm the price: ' . self::money($amount) . '.' : 'Send the ' . self::money($amount) . ' quote to the owner for approval.', 'button' => $quoteButton, 'tone' => 'warn'];
                 }
@@ -224,10 +226,10 @@ final class RentalJobCardScreen
                 $pending = $wo?->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING;
                 if ($stage['quote']['within'] && ! $pending) {
                     $out = ['text' => 'Price confirmed at ' . self::money($amount) . '. Authorise the cost to open booking.', 'tone' => 'warn',
-                        'button' => ($can['record_approval'] ?? false) ? $go('Authorise ' . self::money($amount), '#jc-money', '[data-cost-authorise]') : null];
+                        'button' => ($can['record_approval'] ?? false) && $authoriseUrl ? NextAction::post('Authorise ' . self::money($amount), $authoriseUrl) : null];
                 } else {
                     $out = ['text' => 'Waiting for the owner to approve ' . self::money($amount) . '.', 'tone' => 'warn',
-                        'button' => ($can['record_approval'] ?? false) ? $go("Record the owner's decision", '#jc-money', '[data-cost-owner-decision-open]') : null,
+                        'button' => ($can['record_approval'] ?? false) ? NextAction::open("Record the owner's decision", 'cost-owner-decision') : null,
                         'secondary' => $resendQuote];
                 }
                 break;
@@ -236,10 +238,10 @@ final class RentalJobCardScreen
                 break;
             case 'approved':
                 if (! $card->rental_crew_id) {
-                    $out = ['text' => 'Approved. Assign the crew, then book the date.', 'tone' => 'ok', 'button' => ($can['create'] ?? false) ? $go('Assign the crew', '#jc-crew', null, '[data-assign-crew-select]') : null];
+                    $out = ['text' => 'Approved. Assign the crew, then book the date.', 'tone' => 'ok', 'button' => ($can['create'] ?? false) ? NextAction::open('Assign the crew', 'jc-assign-crew') : null];
                 } else {
                     $out = ['text' => 'Approved. Book the date for the work.', 'tone' => 'ok',
-                        'button' => ($can['create'] ?? false) ? $go('Book the date', '#jc-crew', null, '[name="scheduled_at"]') : null, 'secondary' => $crewSend];
+                        'button' => ($can['create'] ?? false) ? NextAction::open('Book the date', 'jc-schedule') : null, 'secondary' => $crewSend];
                 }
                 break;
             case 'scheduled':
@@ -251,7 +253,7 @@ final class RentalJobCardScreen
                 }
                 break;
             case 'in_progress':
-                $sign = ($can['sign_off'] ?? false) && $stage['can']['worker_sign_off'] ? $go('Record the sign-off', '#jc-signoff') : null;
+                $sign = ($can['sign_off'] ?? false) && $stage['can']['worker_sign_off'] ? NextAction::open('Record the sign-off', 'jc-worker-signoff') : null;
                 $out = ['text' => 'The work is under way. Waiting for the crew to finish.', 'tone' => 'info', 'button' => $crewSend ?? $sign, 'secondary' => $crewSend ? $sign : null];
                 break;
             case 'signed_off':
@@ -260,11 +262,11 @@ final class RentalJobCardScreen
                         'button' => ($can['sign_off'] ?? false) && $stage['can']['agent_sign_off'] ? $form('Agent sign-off', 'jc-agent-signoff-form') : null];
                 } else {
                     $out = ['text' => 'Both sign-offs are in. Choose who pays and complete the job card.', 'tone' => 'ok',
-                        'button' => ($can['sign_off'] ?? false) && $stage['can']['complete'] ? $go('Mark complete', '#jc-signoff', null, '#complete-paid-by') : null];
+                        'button' => ($can['sign_off'] ?? false) && $stage['can']['complete'] ? NextAction::open('Mark complete', 'jc-complete') : null];
                 }
                 break;
             case 'disputed':
-                $out = ['text' => 'The tenant says the work is not complete. It is back with the crew.', 'tone' => 'danger', 'button' => $go('Resolve dispute', '#jc-completion')];
+                $out = ['text' => 'The tenant says the work is not complete. It is back with the crew.', 'tone' => 'danger', 'button' => NextAction::focus('Resolve dispute', '#jc-completion')];
                 break;
             case 'completed':
                 $out = ['text' => 'Completed' . ($card->completed_at ? ' ' . $fmt($card->completed_at) : '') . '.', 'tone' => 'ok'];

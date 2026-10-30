@@ -18,7 +18,7 @@
     } : null;
     $mcMoney = fn ($v) => 'R' . number_format((float) $v, 2);
     $mcNb = $screen['next']['button'] ?? null;
-    $mcNbIsMoney = $mcNb && (($mcNb['kind'] === 'form' && $mcNb['form'] === 'jc-send-quote-form') || ($mcNb['kind'] === 'go' && ($mcNb['target'] ?? '') === '#jc-money'));
+    $mcNbIsMoney = $mcNb && (($mcNb['kind'] === 'form' && $mcNb['form'] === 'jc-send-quote-form') || (in_array($mcNb['kind'], ['post', 'open'], true) && ($mcNb['action'] ?? $mcNb['dialog'] ?? '') !== '' && (str_contains((string) ($mcNb['action'] ?? ''), '/cost/authorise') || ($mcNb['dialog'] ?? '') === 'cost-owner-decision')));
     $mcLandlord = $jobCard->property?->landlordContact();
     $mcBaseline = (bool) $mcWo?->hasApprovedBaseline();
     $mcCanSendQuote = $isOpen && auth()->user()->hasPermission('rental_job_cards.send_quote');
@@ -111,10 +111,10 @@
             @if($mcNb['kind'] === 'form')
                 <button type="submit" form="{{ $mcNb['form'] }}" class="corex-btn-primary text-xs w-full" data-quote-button data-quote-intent="{{ $mcQuote['intent'] }}" style="min-height:34px;">{{ $mcNb['label'] }}</button>
             @else
-                <a href="#jc-money" class="corex-btn-primary text-xs w-full" data-jc-go data-jc-click="{{ $mcNb['click'] }}" style="min-height:34px; display:inline-flex; align-items:center; justify-content:center;">{{ $mcNb['label'] }}</a>
+                @include('partials.next-button', ['b' => $mcNb, 'primary' => true])
             @endif
         @elseif($mcNeedsDecision && $mcCanRecord)
-            <a href="#jc-money" class="corex-btn-primary text-xs w-full" data-jc-go data-jc-click="[data-cost-owner-decision-open]" style="min-height:34px; display:inline-flex; align-items:center; justify-content:center;">Record the owner's decision</a>
+            <button type="button" class="corex-btn-primary text-xs w-full" data-next-open="cost-owner-decision" onclick="window.dispatchEvent(new CustomEvent('corex-open', { detail: 'cost-owner-decision' }))" style="min-height:34px;">Record the owner's decision</button>
         @elseif($mcQuoteFormOn && ($quoteChanged ?? false))
             <button type="submit" form="jc-send-quote-form" class="corex-btn-primary text-xs w-full" data-quote-button data-quote-intent="{{ $mcQuote['intent'] }}" style="min-height:34px;">{{ $mcQuote['button'] }}</button>
         @endif

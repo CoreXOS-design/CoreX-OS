@@ -171,8 +171,8 @@ final class WorkOrderCompletionAndDateTimeTest extends TestCase
         $html = $this->page($wo);
 
         $this->assertSame('go_ahead_sent', $this->nextKey($html));
-        $this->assertMatchesRegularExpression('/data-wo-click="\[data-complete-work-order\]"[^>]*data-next-button|data-next-button[^>]*data-wo-click="\[data-complete-work-order\]"/', $html);
-        $this->assertStringContainsString('>Mark the work as complete</a>', $html);
+        $this->assertStringContainsString('data-next-open="complete-work"', $html);
+        $this->assertStringContainsString('>Mark the work as complete</button>', $html);
         $this->assertStringContainsString('data-complete-work-order', $html);
         $this->assertStringContainsString('id="complete-work-order-form"', $html);
         $this->assertStringContainsString('id="wo-start-progress-form"', $html, '"Mark in progress" is still there, small, for crews');

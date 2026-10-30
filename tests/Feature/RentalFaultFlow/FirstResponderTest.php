@@ -310,7 +310,7 @@ final class FirstResponderTest extends TestCase
         $this->assertStringContainsString('Send to owner to authorise', $html);
         $this->assertSame(1, preg_match_all('/data-inspect-choice/', $html), 'ONE shared two-button block');
         $this->assertSame(1, preg_match_all('/data-send-to-inspect/', $html));
-        $this->assertSame(1, preg_match_all('/\sdata-send-to-owner-to-authorise(?=[\s>])/', $html), 'the bar only POINTS at the button (data-wo-click); there is one real button');
+        $this->assertSame(1, preg_match_all('/\sdata-send-to-owner-to-authorise(?=[\s>])/', $html), 'the bar button is its own submit (section 31); the panel has the one real button');
         $this->assertStringContainsString(e("Owner's handyman"), $html); // the second first-responder is a row of the picker
         // the two buttons are the same size: the same utility classes on both
         $this->assertSame(2, preg_match_all('/class="corex-btn-(?:primary|outline) text-xs w-full"[^>]*data-(?:send-to-inspect|send-to-owner-to-authorise)/', $html));

@@ -46,18 +46,6 @@
 
     $jcBar = $screen['next'];
     $jcReturned = $screen['returned'];
-    $jcButton = function (?array $b, bool $primary) {
-        if (! $b) { return ''; }
-        $cls = $primary ? 'corex-btn-primary text-xs' : 'corex-btn-outline text-xs';
-        $attr = $primary ? 'data-next-button' : 'data-next-secondary';
-        if ($b['kind'] === 'form') {
-            return '<button type="submit" form="' . e($b['form']) . '" class="' . $cls . '" ' . $attr . '>' . e($b['label']) . '</button>';
-        }
-        return '<a href="' . e($b['target']) . '" class="' . $cls . '" data-jc-go'
-            . (! empty($b['click']) ? ' data-jc-click="' . e($b['click']) . '"' : '')
-            . (! empty($b['focus']) ? ' data-jc-focus="' . e($b['focus']) . '"' : '')
-            . ' ' . $attr . '>' . e($b['label']) . '</a>';
-    };
 @endphp
 
 @section('content')
@@ -124,7 +112,7 @@
         <div class="jc-bar-half">
             <div class="jc-bar-next">
                 <div><span class="wo-next-label">Next</span><span data-next-text>{{ $jcBar['text'] }}</span></div>
-                <div class="wo-btnrow">{!! $jcButton($jcBar['button'], true) !!}{!! $jcButton($jcBar['secondary'], false) !!}</div>
+                <div class="wo-btnrow">@include('partials.next-button', ['b' => $jcBar['button'], 'primary' => true])@include('partials.next-button', ['b' => $jcBar['secondary'], 'primary' => false])</div>
             </div>
         </div>
     </div>
@@ -208,6 +196,62 @@
         </div>
     </div>
 </div>
+{{-- section 31 - the dialogs the Next bar opens where the agent is: the same forms the cards below carry, with nothing to scroll to or press for anyone. --}}
+@permission('rental_job_cards.create')
+@if($isOpen)
+<x-next-dialog name="jc-assign-crew" title="{{ $jobCard->rental_crew_id ? 'Change the crew' : 'Assign the crew' }}">
+    <form method="POST" action="{{ route('corex.rental-job-cards.assign-crew', $jobCard) }}" class="space-y-3" data-assign-crew-dialog-form>
+        @csrf
+        <select name="rental_crew_id" required aria-label="Crew" class="w-full rounded-md px-2 text-sm" style="border: 1px solid var(--border); height: 38px;">
+            <option value="">Select crew…</option>
+            @foreach($crews as $c)<option value="{{ $c->id }}" @selected($jobCard->rental_crew_id === $c->id)>{{ $c->name }}</option>@endforeach
+        </select>
+        <button type="submit" class="corex-btn-primary text-xs">{{ $jobCard->rental_crew_id ? 'Change' : 'Assign' }}</button>
+    </form>
+</x-next-dialog>
+@if($stage['can']['schedule'])
+<x-next-dialog name="jc-schedule" title="Book the date">
+    <form method="POST" action="{{ route('corex.rental-job-cards.schedule', $jobCard) }}" class="space-y-3" data-schedule-dialog-form>
+        @csrf
+        <div class="grid grid-cols-2 gap-2">
+            <label class="text-xs"><span style="color: var(--text-muted); display:block;">Scheduled</span>
+                <input type="datetime-local" name="scheduled_at" value="{{ old('scheduled_at', $jobCard->scheduleInputValue('scheduled_at')) }}" aria-label="Scheduled" class="w-full rounded-md px-2 text-sm" style="border: 1px solid var(--border); height: 38px;"></label>
+            <label class="text-xs"><span style="color: var(--text-muted); display:block;">Due</span>
+                <input type="datetime-local" name="due_at" value="{{ old('due_at', $jobCard->scheduleInputValue('due_at')) }}" aria-label="Due" class="w-full rounded-md px-2 text-sm" style="border: 1px solid var(--border); height: 38px;"></label>
+        </div>
+        <button type="submit" class="corex-btn-primary text-xs">Set</button>
+    </form>
+</x-next-dialog>
+@endif
+@endif
+@endpermission
+@permission('rental_job_cards.sign_off')
+@if($isOpen && ! $jobCard->worker_signed_off_at && $stage['can']['worker_sign_off'])
+<x-next-dialog name="jc-worker-signoff" title="Record the crew's sign-off">
+    <form method="POST" action="{{ route('corex.rental-job-cards.worker-sign-off', $jobCard) }}" class="space-y-3" data-worker-signoff-dialog-form>
+        @csrf
+        <input type="text" name="worker_sign_off_name" maxlength="191" required value="{{ $jobCard->crew && $jobCard->crew->members->count() === 1 ? $jobCard->crew->members->first()->name : '' }}" placeholder="Who signed the work off" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+        <p class="text-xs" style="color: var(--text-muted);">This records that the crew has done the work. It cannot be undone.</p>
+        <button type="submit" class="corex-btn-primary text-xs">Record sign-off</button>
+    </form>
+</x-next-dialog>
+@endif
+@if($isOpen && $stage['can']['complete'])
+<x-next-dialog name="jc-complete" title="Complete the job card">
+    <form method="POST" action="{{ route('corex.rental-job-cards.complete', $jobCard) }}" class="space-y-3" data-complete-dialog-form>
+        @csrf
+        <label class="text-xs font-medium" for="complete-paid-by-dlg">Who pays for this job?</label>
+        <select id="complete-paid-by-dlg" name="paid_by" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+            <option value="owner">Owner</option>
+            <option value="tenant">Tenant</option>
+            <option value="deposit_deduction">Deposit deduction</option>
+            <option value="not_yet_paid">Not yet paid</option>
+        </select>
+        <button type="submit" class="corex-btn-primary text-xs">Complete job card</button>
+    </form>
+</x-next-dialog>
+@endif
+@endpermission
 @endsection
 
 @push('scripts')
@@ -353,8 +397,8 @@ function catalogueLinePicker(items, opts) {
     };
 }
 
-// AT-460 - the Returned / Next bar and the cards point at places on this page ("data-jc-go"): scroll there (opening a folded block on the way), flash it, and - when the
-// button names one - press the control that does the job (data-jc-click) or put the cursor in it (data-jc-focus). Nothing here submits anything by itself.
+// AT-460 / section 31 - the Returned line and the lines-editor buttons point at places on this card ("data-jc-go"): scroll there (opening a folded block on the way), flash it and, when
+// the button names a field (data-jc-focus), put the cursor in it. The Next bar's real actions are submits or dialogs now; nothing here presses anything.
 (function () {
     function open(el) { for (var n = el; n; n = n.parentElement) { if (n.tagName === 'DETAILS') { n.open = true; } } }
     document.addEventListener('click', function (e) {
@@ -368,10 +412,8 @@ function catalogueLinePicker(items, opts) {
         if (target.scrollIntoView) { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
         target.classList.add('jc-flash');
         setTimeout(function () { target.classList.remove('jc-flash'); }, 1800);
-        var click = a.getAttribute('data-jc-click');
         var focus = a.getAttribute('data-jc-focus');
         setTimeout(function () {
-            if (click) { var c = target.querySelector(click) || document.querySelector(click); if (c) { open(c); c.click(); } }
             if (focus) { var f = document.querySelector(focus); if (f) { open(f); f.focus({ preventScroll: true }); } }
         }, 350);
     });

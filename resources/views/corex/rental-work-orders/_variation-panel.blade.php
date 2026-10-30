@@ -73,8 +73,8 @@
                         @csrf
                         <button type="submit" class="corex-btn-outline text-xs">Resend request</button>
                     </form>
-                    <details>
-                        <summary class="corex-btn-outline text-xs cursor-pointer" style="display:inline-block;">Record the owner's reply</summary>
+                    <button type="button" class="corex-btn-outline text-xs" onclick="window.dispatchEvent(new CustomEvent('corex-open', { detail: 'variation-decision' }))">Record the owner's reply</button>
+                    <x-next-dialog name="variation-decision" title="Record the owner's reply">
                         <form method="POST" action="{{ route('corex.rental-work-orders.variations.decision', [$workOrder, $vp]) }}" class="space-y-2 pt-2">
                             @csrf
                             <input type="hidden" name="revision" value="{{ $vp->revision }}">
@@ -99,7 +99,7 @@
                             </div>
                             <button type="submit" class="corex-btn-primary text-xs">Save the owner's reply</button>
                         </form>
-                    </details>
+                    </x-next-dialog>
                     @endpermission
                 </div>
             @endif

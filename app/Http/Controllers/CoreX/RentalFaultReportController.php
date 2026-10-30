@@ -475,6 +475,7 @@ class RentalFaultReportController extends Controller
                 'send_to_owner' => $user->hasPermission('rental_fault_reports.send_to_owner'),
                 'record_approval' => $user->hasPermission('rental_fault_reports.record_approval'),
                 'raise_work_order' => $user->hasPermission('rental_fault_reports.raise_work_order'),
+                'create' => $user->hasPermission('rental_fault_reports.create'),
             ],
             'inspectBlock' => $inspectBlock, 'recordBlock' => $recordBlock, 'ownerHold' => $ownerHold, 'ownerQueries' => $ownerQueries,
             'canOpenWorkOrder' => $user->hasFeature('rental-work-orders'),

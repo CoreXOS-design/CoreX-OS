@@ -24,7 +24,7 @@
     $js = $contractorStatus;
     $screen = app(\App\Services\Rentals\RentalWorkOrderScreen::class)->build($workOrder, [
         'proceed' => $proceed, 'selectedQuote' => $selectedQuote, 'costActive' => $costActive, 'costRepair' => $costRepair, 'costMeasure' => $costMeasure,
-        'js' => $js, 'finishedRound' => $woFinishedRound, 'can' => $woCan,
+        'js' => $js, 'finishedRound' => $woFinishedRound, 'can' => $woCan, 'can_manage_contractors' => ! empty($canManageContractors),
     ]);
     $woNext = $screen['next'];
     $woPanels = $screen['panels'];
@@ -159,20 +159,9 @@
          @if($woNext['key'] === 'reported_finished') data-reported-finished-step @endif
          @if($woNext['key'] === 'owner_arranges') data-owner-route @endif>
         <div class="wo-next-text"><span class="wo-next-label">Next</span><span data-next-text>{{ $woNext['text'] }}</span></div>
-        @php $nb2 = $woNext['secondary'] ?? null; @endphp
         <div class="wo-btnrow">
-        @if($nb)
-            @if($nb['kind'] === 'note')
-                <span class="text-xs font-semibold" style="color: var(--text-muted);" data-ask-branch-manager>{{ $nb['label'] }}</span>
-            @elseif($nb['kind'] === 'form')
-                <button type="submit" form="{{ $nb['form'] }}" class="corex-btn-primary text-xs" data-next-button>{{ $nb['label'] }}</button>
-            @elseif($nb['kind'] === 'link')
-                <a href="{{ $nb['href'] }}" class="corex-btn-primary text-xs" data-next-button>{{ $nb['label'] }}</a>
-            @else
-                <a href="{{ $panelHref($nb['panel']) }}" class="corex-btn-primary text-xs" data-wo-go="{{ $nb['panel'] }}" @if($nb['click']) data-wo-click="{{ $nb['click'] }}" @endif data-next-button @if($nb['panel'] === 'cost') data-go-to-cost @endif>{{ $nb['label'] }}</a>
-            @endif
-        @endif
-        @if($nb2)<button type="submit" form="{{ $nb2['form'] }}" class="corex-btn-outline text-xs" data-next-secondary>{{ $nb2['label'] }}</button>@endif
+            @include('partials.next-button', ['b' => $nb, 'primary' => true])
+            @include('partials.next-button', ['b' => $woNext['secondary'] ?? null, 'primary' => false])
         </div>
     </div>
 
@@ -415,8 +404,8 @@
                 @endif
 
                 {{-- choose / change the contractor: the SAME single rule as the owner portal and the pre-send warning --}}
-                <details class="text-xs" @if(! $woProv) open @endif>
-                    <summary class="cursor-pointer font-semibold" data-choose-contractor>{{ $woProv ? 'Choose a different contractor' : 'Choose the contractor' }}</summary>
+                <button type="button" class="corex-btn-outline text-xs" data-choose-contractor onclick="window.dispatchEvent(new CustomEvent('corex-open', { detail: 'choose-contractor' }))">{{ $woProv ? 'Choose a different contractor' : 'Choose the contractor' }}</button>
+                <x-next-dialog name="choose-contractor" title="{{ $woProv ? 'Choose a different contractor' : 'Choose the contractor' }}">
                     <form method="POST" action="{{ route('corex.rental-work-orders.contractor.appoint', $workOrder) }}" class="space-y-2 pt-2" x-data="{ chosenContractor: '{{ (int) $workOrder->agency_service_provider_id ?: '' }}' }">
                         @csrf
                         @if($classes['suits']->isEmpty() && $classes['category'])
@@ -446,7 +435,7 @@
                         @include('partials.contractor-inspect-choice', ['notices' => $classes['suits']->concat($classes['others'])->mapWithKeys(fn ($c) => [(string) $c['id'] => ['name' => $c['name'], 'text' => $c['callout_notice'], 'status' => $c['callout_status']]])->all(), 'model' => 'chosenContractor'])
                         <button type="submit" class="corex-btn-outline text-xs" data-appoint-contractor-submit>Choose and send the job</button>
                     </form>
-                </details>
+                </x-next-dialog>
             </div>
         @else
             <p class="text-xs" style="color: var(--text-muted);">{{ $woPanels['contractor'] }}</p>
@@ -571,8 +560,8 @@
             $captureCollapsed = $workOrder->quotes->isNotEmpty() && $quoteFormErrors->isEmpty();
             $quotePickList = \App\Models\DealV2\AgencyServiceProvider::active()->maintenanceContractors()->pickerOrder()->get();
         @endphp
-        <details data-capture-quote @unless($captureCollapsed) open @endunless>
-            <summary class="corex-btn-outline text-xs cursor-pointer" style="{{ $captureCollapsed ? 'display:inline-flex; align-items:center; min-height:34px; list-style:none;' : 'display:none;' }}" data-capture-quote-toggle>Capture a quote</summary>
+        <button type="button" class="corex-btn-outline text-xs" style="display:inline-flex; align-items:center; min-height:34px;" data-capture-quote-toggle onclick="window.dispatchEvent(new CustomEvent('corex-open', { detail: 'quote-capture' }))">Capture a quote</button>
+        <x-next-dialog name="quote-capture" title="Capture a quote" :open="$quoteFormErrors->isNotEmpty()">
             <form method="POST" action="{{ route('corex.rental-work-orders.quotes.store', $workOrder) }}" enctype="multipart/form-data" class="space-y-3 pt-3" x-data="{ chosen: '{{ (int) old('agency_service_provider_id', $workOrder->agency_service_provider_id) ?: '' }}' }" data-quote-form>
                 @csrf
                 @if($quoteFormErrors->isNotEmpty())
@@ -626,7 +615,7 @@
                 @endif
                 <div><button type="submit" class="corex-btn-primary text-xs" style="height:38px;">Capture quote</button></div>
             </form>
-        </details>
+        </x-next-dialog>
         @endif
         @elseif(! $woReportedFinished)
             <p class="text-xs" style="color: var(--text-muted);" data-ask-branch-manager>{{ $woAsk }}</p>
@@ -757,7 +746,7 @@
             @endphp
             <div class="wo-btnrow">
                 @if($canCompleteNow)
-                    <button type="button" onclick="document.getElementById('complete-work-order-form').classList.toggle('hidden')" class="corex-btn-primary text-xs" data-complete-work-order>Mark the work as complete</button>
+                    <button type="button" onclick="window.dispatchEvent(new CustomEvent('corex-open', { detail: 'complete-work' }))" class="corex-btn-primary text-xs" data-complete-work-order>Mark the work as complete</button>
                 @elseif($woCan['complete'])
                     <span class="text-xs" style="color: var(--text-muted);" data-complete-later>The work can be marked complete once the cost is authorised and the go-ahead has gone.</span>
                 @endif
@@ -770,7 +759,8 @@
                 @endif
             </div>
             @if($woCan['complete'])
-            <form id="complete-work-order-form" method="POST" action="{{ route('corex.rental-work-orders.complete', $workOrder) }}" enctype="multipart/form-data" class="{{ $completeOpen ? '' : 'hidden ' }}space-y-3">
+            <x-next-dialog name="complete-work" title="Mark the work as complete" :open="$completeOpen">
+            <form id="complete-work-order-form" method="POST" action="{{ route('corex.rental-work-orders.complete', $workOrder) }}" enctype="multipart/form-data" class="space-y-3">
                 @csrf
                 @unless($workOrder->reported_fault_report_id)
                 {{-- section 28.7: a job from a fault has ONE place for who pays - the "Who pays" panel - so this form does not ask (the server keeps "not yet paid" until it is ruled). Any other job asks, Owner first. --}}
@@ -829,6 +819,7 @@
                 <p class="text-xs" style="color: var(--text-muted);">{{ $completionRequiresPhoto ? 'A "completed" photo is required before this can be saved.' : 'A "completed" photo is optional.' }}</p>
                 <button type="submit" class="corex-btn-primary text-xs">Mark complete</button>
             </form>
+            </x-next-dialog>
             @endif
         @elseif($isInternal && $isOpen)
             <p class="text-xs" style="color: var(--text-muted);">Our crew starts and completes this job from the job card.</p>
@@ -964,6 +955,28 @@
         </form>
     </div>
 </div>
+{{-- section 31 - dialogs the Next bar opens where the agent is (nothing scrolls, nothing is pressed for anyone) --}}
+@if($woCan['record_approval'])
+<x-next-dialog name="quote-pick" title="Choose the quote the owner is asked about">
+    <ul class="space-y-2 text-sm" data-quote-pick-list>
+        @foreach($workOrder->quotes->whereNull('declined_at') as $pq)
+            <li class="flex flex-wrap items-center justify-between gap-2">
+                <span>{{ $pq->supplier?->displayName() ?? 'Unknown supplier' }} &mdash; <strong>{{ $money($pq->ownerFacingAmount()) }}</strong></span>
+                <form method="POST" action="{{ route('corex.rental-work-orders.quotes.select', [$workOrder, $pq]) }}">@csrf<button type="submit" class="corex-btn-primary text-xs">Select</button></form>
+            </li>
+        @endforeach
+    </ul>
+</x-next-dialog>
+<x-next-dialog name="cost-typed" title="Approve the cost" :open="$errors->has('typed_amount')">
+    <form method="POST" action="{{ route('corex.rental-work-orders.cost.authorise', $workOrder) }}" class="space-y-3" data-cost-typed-form>
+        @csrf
+        <p class="text-xs" style="color: var(--text-muted);">Nothing is priced yet. For a small job inside the owner's repair limit, type the amount you authorise. It is saved under your name and the owner is told.</p>
+        <div><label class="wo-lbl" for="wo-typed-amount">Amount (R)</label>
+            <input id="wo-typed-amount" type="number" name="typed_amount" step="0.01" min="0.01" required class="wo-ctl" data-cost-typed></div>
+        <button type="submit" class="corex-btn-primary text-xs">Authorise</button>
+    </form>
+</x-next-dialog>
+@endif
 {{-- AT-452 round 2 (H) - the contractor popups open over this screen. --}}
 @if(!empty($canManageContractors))
     @include('partials.contractor-popups')
@@ -982,30 +995,10 @@
         window.CorexPhotoViewer.open({ photos: JSON.parse(JSON.stringify(photos)), index: parseInt(b.getAttribute('data-open-wo-photo'), 10) || 0, editable: false, returnFocus: b });
     });
 })();
-// section 24 - the Next bar's button, and any "#..." link, opens the collapsed panel that holds its target, scrolls there, and (for "Authorise", "Record the owner's decision" ...) presses the control that was already on the page.
+// section 31 - the Next bar's button IS the action (a submit, or a dialog opened where you are). Only a "#..." link still opens the folded panel that holds its target.
 (function () {
     function openAround(el) { for (var d = el; d; d = d.parentElement) { if (d.tagName === 'DETAILS') { d.open = true; } } }
-    function press(root, list) {
-        list.split(';').map(function (x) { return x.trim(); }).filter(Boolean).forEach(function (sel) {
-            var t = root.querySelector(sel) || document.querySelector(sel);
-            if (!t) return;
-            if (t.tagName === 'SUMMARY') { t.parentElement.open = true; }
-            else if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT') { t.focus(); }
-            else { t.click(); }
-        });
-    }
     document.addEventListener('click', function (e) {
-        var go = e.target.closest ? e.target.closest('[data-wo-go]') : null;
-        if (go) {
-            e.preventDefault();
-            var panel = document.getElementById('wo-panel-' + go.getAttribute('data-wo-go'));
-            if (!panel) return;
-            openAround(panel);
-            panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            var sel = go.getAttribute('data-wo-click');
-            if (sel) { setTimeout(function () { press(panel, sel); }, 250); }
-            return;
-        }
         var a = e.target.closest ? e.target.closest('a[href^="#"]') : null;
         if (a && a.getAttribute('href').length > 1) {
             var t = document.getElementById(a.getAttribute('href').slice(1));
