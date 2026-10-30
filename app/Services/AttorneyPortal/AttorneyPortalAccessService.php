@@ -16,6 +16,8 @@ use DomainException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 
 /**
@@ -96,7 +98,8 @@ class AttorneyPortalAccessService
             throw new DomainException('That access belongs to another agency.');
         }
         if ($access->revoked_at === null) {
-            $access->forceFill(['revoked_at' => now(), 'revoked_by_id' => $actor->id])->save();
+            // revoking also ends the password and the sign-in choice: a re-invited attorney chooses again
+            $access->forceFill(['revoked_at' => now(), 'revoked_by_id' => $actor->id, 'password' => null, 'password_set_at' => null, 'sign_in_choice' => null])->save();
             AttorneyPortalLogger::record($access, 'revoked', ['meta' => ['by_user_id' => $actor->id]]);
         }
         $this->endSessions($access);
@@ -229,6 +232,12 @@ class AttorneyPortalAccessService
             return null;
         }
 
+        return $this->beginSession($access, $request, 'signed_in');
+    }
+
+    /** Start a portal session for a person who has proved who they are (code or password); returns the raw cookie token. */
+    private function beginSession(AttorneyPortalAccess $access, Request $request, string $event): string
+    {
         $raw = Str::random(64);
         AttorneyPortalSession::create([
             'access_id'  => $access->id,
@@ -240,9 +249,84 @@ class AttorneyPortalAccessService
         $access->forceFill([
             'last_login_at' => now(), 'last_login_ip' => $request->ip(), 'login_count' => $access->login_count + 1,
         ])->save();
-        AttorneyPortalLogger::record($access, 'signed_in', [], $request);
+        AttorneyPortalLogger::record($access, $event, [], $request);
 
         return $raw;
+    }
+
+    // ── Sign-in method: an emailed PIN each time, or a password (same rules and lockout as the client portal logins) ──
+
+    /** Seconds the person is locked out of password sign-in (10 wrong tries in 5 minutes, the client portal's own rule), or 0. */
+    public function passwordLockedFor(string $email, Request $request): int
+    {
+        $key = $this->loginKey($email, $request);
+
+        return RateLimiter::tooManyAttempts($key, 10) ? max(1, RateLimiter::availableIn($key)) : 0;
+    }
+
+    /** Email + password: a session token, or null (and a wrong try is counted). Only a usable, not-revoked access with a password set can sign in. */
+    public function passwordSignIn(string $email, string $password, Request $request): ?string
+    {
+        $key = $this->loginKey($email, $request);
+        $access = $this->passwordAccessesFor($email)->first(fn (AttorneyPortalAccess $a) => Hash::check($password, (string) $a->password));
+        if (! $access) {
+            RateLimiter::hit($key, 300);
+            $any = $this->passwordAccessesFor($email)->first();
+            if ($any) {
+                AttorneyPortalLogger::record($any, 'password_failed', [], $request);
+            }
+
+            return null;
+        }
+        RateLimiter::clear($key);
+
+        return $this->beginSession($access, $request, 'signed_in_password');
+    }
+
+    /** Forgot password: email the PIN. Always quiet about whether the address is known. Returns 'cooldown'/'hourly' only when a send was blocked. */
+    public function sendResetPin(string $email, Request $request): ?string
+    {
+        $access = $this->passwordAccessesFor($email)->first();
+
+        return $access ? $this->sendCode($access, $request) : null;
+    }
+
+    /** The PIN from "forgot password": a session token and the access, or null. */
+    public function verifyResetPin(string $email, string $code, Request $request): ?array
+    {
+        foreach ($this->passwordAccessesFor($email) as $access) {
+            if ($raw = $this->verifyCode($access, $code, $request)) {
+                return [$raw, $access];
+            }
+        }
+
+        return null;
+    }
+
+    public function setPassword(AttorneyPortalAccess $access, string $password, Request $request): void
+    {
+        $access->forceFill(['password' => $password, 'password_set_at' => now(), 'sign_in_choice' => 'password'])->save();
+        AttorneyPortalLogger::record($access, 'password_set', [], $request);
+    }
+
+    public function choosePin(AttorneyPortalAccess $access, Request $request): void
+    {
+        $access->forceFill(['password' => null, 'password_set_at' => null, 'sign_in_choice' => 'pin'])->save();
+        AttorneyPortalLogger::record($access, 'pin_chosen', [], $request);
+    }
+
+    /** @return \Illuminate\Support\Collection<int,AttorneyPortalAccess> usable accesses on this email that signed up for a password */
+    private function passwordAccessesFor(string $email): \Illuminate\Support\Collection
+    {
+        return AttorneyPortalAccess::withoutGlobalScope(AgencyScope::class)
+            ->whereRaw('lower(email) = ?', [strtolower(trim($email))])
+            ->where('sign_in_choice', 'password')->whereNotNull('password')
+            ->get()->filter(fn (AttorneyPortalAccess $a) => $this->usable($a))->values();
+    }
+
+    private function loginKey(string $email, Request $request): string
+    {
+        return 'attorney.login:' . $request->ip() . ':' . strtolower(trim($email));
     }
 
     /** The live session behind a cookie token, with its access still usable - or null. */

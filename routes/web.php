@@ -68,6 +68,14 @@ Route::prefix('attorney')->middleware(['recipient.link'])->group(function () {
     Route::post('/p/{token}/verify', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'verify'])
         ->middleware('throttle:10,1')->where('token', '[A-Za-z0-9]+')->name('attorney.verify');
     Route::get('/signed-out', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'signedOut'])->name('attorney.signed-out');
+    // Sign-in method: email + password for attorneys who chose one; the forgot-password flow emails the PIN.
+    $ap = \App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class;
+    Route::get('/', fn () => redirect()->route('attorney.sign-in'));
+    Route::get('/sign-in', [$ap, 'signInForm'])->middleware('throttle:30,1')->name('attorney.sign-in');
+    Route::post('/sign-in', [$ap, 'signIn'])->middleware('throttle:10,1')->name('attorney.sign-in.post');
+    Route::get('/forgot-password', [$ap, 'forgotForm'])->middleware('throttle:30,1')->name('attorney.forgot');
+    Route::post('/forgot-password', [$ap, 'forgot'])->middleware('throttle:10,1')->name('attorney.forgot.post');
+    Route::post('/forgot-password/verify', [$ap, 'resetVerify'])->middleware('throttle:10,1')->name('attorney.forgot.verify');
     // attorney-portal.md 15 - the signed link in a "new documents" email: same code sign-in, then straight to that deal.
     Route::get('/open/{access}/{deal}', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'open'])->middleware(['signed', 'throttle:30,1'])->whereNumber(['access', 'deal'])->name('attorney.open');
     Route::post('/open/{access}/{deal}/code', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'openCode'])->middleware(['signed', 'throttle:10,1'])->whereNumber(['access', 'deal'])->name('attorney.open.code');
@@ -79,6 +87,9 @@ Route::prefix('attorney')->middleware(['recipient.link'])->group(function () {
         Route::get('/deals/{deal}/documents/{document}/{mode?}', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'document'])
             ->whereNumber(['deal', 'document'])->whereIn('mode', ['download', 'view'])->name('attorney.document');
         Route::post('/sign-out', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'signOut'])->name('attorney.sign-out');
+        Route::get('/account', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'account'])->name('attorney.account');
+        Route::post('/account/pin', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'choosePin'])->name('attorney.account.pin');
+        Route::post('/account/password', [\App\Http\Controllers\AttorneyPortal\AttorneyPortalController::class, 'savePassword'])->name('attorney.account.password');
     });
 });
 

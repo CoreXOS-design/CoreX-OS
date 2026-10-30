@@ -23,7 +23,10 @@ class AttorneyPortalAccess extends Model
         'agency_id', 'service_provider_id', 'service_provider_contact_id', 'email', 'token_hash',
         'invited_by_id', 'invited_at', 'expires_at', 'revoked_at', 'revoked_by_id',
         'last_login_at', 'last_login_ip', 'login_count',
+        'sign_in_choice', 'password', 'password_set_at',
     ];
+
+    protected $hidden = ['password', 'token_hash'];
 
     protected $casts = [
         'invited_at'    => 'datetime',
@@ -31,6 +34,8 @@ class AttorneyPortalAccess extends Model
         'revoked_at'    => 'datetime',
         'last_login_at' => 'datetime',
         'login_count'   => 'integer',
+        'password'      => 'hashed',
+        'password_set_at' => 'datetime',
     ];
 
     public static function hashToken(string $token): string

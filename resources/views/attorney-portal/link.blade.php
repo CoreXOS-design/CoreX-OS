@@ -31,6 +31,7 @@
                 <button type="submit" class="btn ghost">Send me a new code</button>
             </form>
         @endif
+        <p class="muted" style="margin-top:18px;font-size:.85rem;">Already set a password? <a href="{{ route('attorney.sign-in') }}">Sign in with your email and password</a>.</p>
         @if(($throttled ?? null) !== 'hourly')
         <p class="muted" style="margin-top:18px;font-size:.85rem;">The code works for 10 minutes. Nobody else can open your deals with this link.</p>
         @endif

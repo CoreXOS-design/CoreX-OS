@@ -54,7 +54,8 @@
         @if(!empty($personName))
             <span class="who">
                 <span>{{ $personName }}@if(!empty($firmName)) &middot; {{ $firmName }}@endif</span>
-                @if(request()->routeIs('attorney.deals', 'attorney.deal'))
+                @if(request()->routeIs('attorney.deals', 'attorney.deal', 'attorney.account'))
+                    <a href="{{ route('attorney.account') }}" style="color:#fff;font-size:.85rem;">Sign-in &amp; password</a>
                     <form method="POST" action="{{ route('attorney.sign-out') }}">@csrf<button type="submit">Sign out</button></form>
                 @endif
             </span>
@@ -62,6 +63,16 @@
     </div>
 </header>
 <main>
+    @if(!empty($needsChoice) && request()->routeIs('attorney.deals', 'attorney.deal'))
+        <div class="card" style="border-color:var(--btn);">
+            <h2>How would you like to sign in next time?</h2>
+            <p class="sub" style="margin-bottom:12px;">Choose once. You can change it later under "Sign-in &amp; password".</p>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                <form method="POST" action="{{ route('attorney.account.pin') }}">@csrf<button type="submit" class="btn ghost">Keep using an emailed PIN each time</button></form>
+                <a href="{{ route('attorney.account') }}" class="btn">Set up a password</a>
+            </div>
+        </div>
+    @endif
     @yield('content')
 </main>
 </body>
