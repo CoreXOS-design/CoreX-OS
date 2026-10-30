@@ -191,11 +191,48 @@ class AttorneyPortalHttpTest extends TestCase
         $page->assertSee('#' . $d1['deal']->deal_no, false)->assertSee('Annelise vd Merwe')->assertSee('Pieter Buyer')->assertSee('Agent Smith')->assertSee($w['agent']->fresh()->cell);
         // the documents sit under their own deal as single lines with a Download link - no page change needed
         $page->assertSee('OTP.pdf')->assertSee('MANDATE.pdf')->assertSee(route('attorney.document', [$d1['deal']->id, $otp->id, 'download']), false);
+        // every PDF line also has a View button next to Download: the same route in 'view' mode, opened in a new tab
+        $page->assertSee(route('attorney.document', [$d1['deal']->id, $otp->id, 'view']), false);
+        $this->assertSame(2, substr_count($page->getContent(), 'data-ap-view'), 'View sits next to Download on each of the two PDFs');
+        $this->assertSame(2, substr_count($page->getContent(), 'data-ap-download'));
+        $this->assertStringContainsString('target="_blank" rel="noopener" data-ap-view', $page->getContent());
         $page->assertSee('No documents have been shared on this deal yet');
         // the plain deal page stays as a fallback link
         $page->assertSee(route('attorney.deal', $d2['deal']->id), false);
         // the document count is a number per deal
         $this->assertMatchesRegularExpression('/<td>2<\/td>/', $page->getContent());
+    }
+
+    public function test_each_document_line_says_whose_it_is_seller_side_then_buyer_side_then_deal(): void
+    {
+        $w = $this->world();
+        foreach (['otp', 'mandate', 'fica'] as $slug) {
+            $this->matrix($w['agency']->id, $slug, ['transfer_attorney']);
+        }
+        $d = $this->deal($w, $this->transferTo($w, $w['a']), ['address' => '7 Kingfisher Road']);
+        $seller = \App\Models\Contact::withoutGlobalScopes()->whereIn('id', \DB::table('deal_contacts')->where('deal_id', $d['deal']->id)->where('role', 'seller')->pluck('contact_id'))->firstOrFail();
+        $buyer  = \App\Models\Contact::withoutGlobalScopes()->whereIn('id', \DB::table('deal_contacts')->where('deal_id', $d['deal']->id)->where('role', 'buyer')->pluck('contact_id'))->firstOrFail();
+        $stranger = \App\Models\Contact::withoutGlobalScopes()->create(['agency_id' => $w['agency']->id, 'first_name' => 'Not', 'last_name' => 'AParty']);
+
+        $dealDoc  = $this->filedDoc($d, 'otp');                                  // tied to nobody: "Deal"
+        $buyerDoc = $this->filedDoc($d, 'fica');
+        $buyerDoc->contacts()->syncWithoutDetaching([$buyer->id => ['party_role' => 'buyer']]);
+        $sellerDoc = $this->filedDoc($d, 'mandate');
+        $sellerDoc->contacts()->syncWithoutDetaching([$seller->id => ['party_role' => 'seller'], $stranger->id => ['party_role' => 'other']]);
+
+        [, $cookie] = $this->signIn($w['a'], $w['agent']);
+        $html = $this->withUnencryptedCookies($this->jar($cookie))->get(route('attorney.deals'))->assertOk()->getContent();
+
+        $sellerName = trim((string) ($seller->full_name ?: $seller->first_name . ' ' . $seller->last_name));
+        $buyerName  = trim((string) ($buyer->full_name ?: $buyer->first_name . ' ' . $buyer->last_name));
+        $this->assertStringContainsString('Belongs to', $html);
+        $this->assertStringContainsString('Seller · ' . $sellerName, $html);
+        $this->assertStringContainsString('Buyer · ' . $buyerName, $html);
+        $this->assertStringNotContainsString('AParty', $html, 'a contact who is not a party of this deal is never named');
+        // grouped: the seller's paper, then the buyer's, then the deal's own
+        $this->assertTrue(strpos($html, 'MANDATE.pdf') < strpos($html, 'FICA.pdf') && strpos($html, 'FICA.pdf') < strpos($html, 'OTP.pdf'));
+        $this->assertStringContainsString('data-ap-sort', $html);
+        $this->assertStringContainsString('>Deal</td>', $html);
     }
 
     public function test_one_search_box_finds_a_deal_by_number_address_suburb_party_or_agent(): void
