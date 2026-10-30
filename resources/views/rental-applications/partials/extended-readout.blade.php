@@ -15,7 +15,7 @@
 <div class="mt-3 pt-2 space-y-3 text-xs" style="border-top: 1px solid var(--border);" data-qa="review-extended">
     @if($roCo !== [])
     <div data-qa="review-co-applicant">
-        <p class="font-semibold mb-1" style="color: var(--text-secondary);">Co-applicant / spouse</p>
+        <p class="font-semibold mb-1" style="color: var(--text-secondary);">Co-applicant</p>
         <dl class="grid grid-cols-2 gap-x-4 gap-y-1">
             @foreach(\App\Models\RentalApplication::coApplicantFieldDefs($application->displayFieldConfig()) as $k => $coDef)
                 @if(isset($roCo[$k]))
