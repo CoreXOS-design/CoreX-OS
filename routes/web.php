@@ -5726,6 +5726,22 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // owner_only and DELIBERATELY no permission key — a permission key is grantable
     // via Role Manager, and an agency admin handed it would see (and set) every other
     // agency's commercial terms. Same rationale as Dev Settings / Demo Access below.
+    // System owner > Revenue: signed agencies, prospect pipeline, 12-month cash flow. Owner only, no permission key BY DESIGN (commercial terms).
+    Route::middleware('owner_only')->prefix('admin/revenue')->name('admin.revenue.')->group(function () {
+        $rc = \App\Http\Controllers\Admin\RevenueController::class;
+        Route::get('/', [$rc, 'index'])->name('index');
+        Route::post('/prices', [$rc, 'savePrices'])->name('prices.save');
+        Route::post('/signed', [$rc, 'saveSigned'])->name('signed.store');
+        Route::put('/signed/{record}', [$rc, 'saveSigned'])->whereNumber('record')->name('signed.update');
+        Route::delete('/signed/{record}', [$rc, 'archiveSigned'])->whereNumber('record')->name('signed.archive');
+        Route::post('/signed/{id}/restore', [$rc, 'restoreSigned'])->whereNumber('id')->name('signed.restore');
+        Route::post('/pipeline', [$rc, 'saveProspect'])->name('pipeline.store');
+        Route::put('/pipeline/{prospect}', [$rc, 'saveProspect'])->whereNumber('prospect')->name('pipeline.update');
+        Route::delete('/pipeline/{prospect}', [$rc, 'archiveProspect'])->whereNumber('prospect')->name('pipeline.archive');
+        Route::post('/pipeline/{id}/restore', [$rc, 'restoreProspect'])->whereNumber('id')->name('pipeline.restore');
+        Route::post('/pipeline/{prospect}/convert', [$rc, 'convert'])->whereNumber('prospect')->name('pipeline.convert');
+    });
+
     Route::middleware('owner_only')->prefix('admin/billing')->name('admin.billing.')->group(function () {
         Route::get('/', [\App\Http\Controllers\Admin\AgencyBillingController::class, 'index'])->name('index');
         Route::put('/{agency}', [\App\Http\Controllers\Admin\AgencyBillingController::class, 'update'])->name('update');

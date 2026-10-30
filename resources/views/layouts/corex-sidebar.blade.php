@@ -362,6 +362,7 @@
         'admin.agency-setup-progress',
         'admin.ai-usage.*',
         'admin.billing.*',
+        'admin.revenue.*',
         'admin.agency-timelines.*'
     )) {
         $activeGroup = 'agency';
@@ -2852,6 +2853,9 @@
                      and an agency admin handed it would see every other agency's commercial terms.
                      Already inside if($isOwner). Spec: agency-billing.md §9. --}}
                 <a href="{{ route('admin.billing.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.billing.*') ? 'active' : '' }}">Agency Billing</a>
+
+                {{-- Revenue (system owner): signed agencies, prospect pipeline, 12-month cash flow. Owner only, no permission key BY DESIGN. --}}
+                <a href="{{ route('admin.revenue.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.revenue.*') ? 'active' : '' }}">Revenue</a>
 
                 {{-- Agency Timeline (AT-447) — the recorded onboarding plan per agency + its shareable public link.
                      Owner-only, no permission key BY DESIGN (spec agency-timeline-and-platform-esign.md §5). --}}
