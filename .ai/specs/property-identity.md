@@ -311,5 +311,16 @@ Comments (`tracked_property_comments`) and claims (`prospecting_claims`) were al
 ### 16.3 Possible-matches screen (built)
 `/corex/prospecting/possible-matches` (route `corex.possible-matches.*`, a tab of Real Estate > Market intelligence, permission `prospecting_setup.manage` + `access_prospecting`, feature `prospecting`). One line per pending `identity_possible` decision of the viewer's agency; every query and every by-id action is agency-scoped (direct id outside the agency = 404). **Search:** street, number, suburb, complex, erf, advert number, record number (either side). **Sort:** how sure, found-by, address, date (default highest first, then newest). **Filter:** show (waiting/joined/not the same/everything), kind of pair, found-by, date range. **Pagination** 25. **Empty state** "Nothing to confirm - every match was certain." **Actions, one click each:** *Same property* (our listing: link it to the captured property, other candidates for that listing are closed without a veto; two captured properties: merge via `TrackedPropertyMerger`, the loser flagged duplicate, never deleted) - *Not the same* (a permanent veto the resolver respects) - *Undo* (a "not the same" back to waiting; a confirmed own-listing link unlinked; a confirmed merge cannot be undone from the screen - it can from the journal).
 
-### 16.4 Apply log
-(filled in as each step lands - see below)
+### 16.4 Apply log (QA1, 30 Oct 2026; code `d0af3e3ba`)
+Rollback: git tag `pre-identity-apply-2026-10-30` (= QA1 `a56eee35c`, pushed) and DB dump `/mnt/HC_Volume_103099143/qa1-identity-apply-2026-10-30/corex_qa1-pre-apply-20261030-1256.sql.gz` (289 MB, gunzip-tested). Per step: the dry-run diff, the apply report and the row journal are in `.../diffs/`; before/after counts in `counts-*.txt`.
+
+| Step | Before | After |
+|---|---|---|
+| 0 `property-refs:normalise --apply` | everything already canonical since 29 Oct | 0 rows written (idempotent re-run, 58,311 distinct adverts) |
+| 1 own-stock joins | 0 properties linked; 0 pending pairs | **319 linked** (exact/portal_ref 103; high: address_unit 86, address_history 53, scheme_unit 32, fuzzy 31, gps 14); **1,326 candidate pairs** from 1,124 listings recorded as pending; 3,183 listings have no match; `promoted_to_property_id` untouched |
+| 2 advert clashes | 4,714 adverts on 2+ files | **3,485 adverts attached** to the file with an address (3,519 refs, 3,414 captures, 1,472 alerts, 92 MIC rows moved); **3,427 emptied shells flagged duplicate**; **1,158 pairs flagged** (943 possible, 215 different houses); 71 left (no file with an address); 0 files merged (no group had files that all agree); 1,229 adverts remain on 2+ files = 943 + 215 + 71 |
+| 3 split over-merged | 201 files with 6+ adverts | **159 files split into 1,146 new files**, 1,332 adverts moved (1,364 refs, 181 alerts, 32 captures); files with 6+ adverts 201 -> 83 |
+| 4 share | pool, shared properties, contributions all 0 | **42,339 adverts in the pool; 39,219 shared properties; 42,339 contribution records (agency 1 only); 39,219 files and 40,790 MIC rows point at the shared row**; 1,033 components skipped (several files of one agency - the pairs awaiting review); agency 20: 0 rows; privacy self-check clean (no agency column, no private column on the shared side) |
+
+**Note on the A4 numbers:** the split plan is 159 / 1,146 rather than A4's 153 / 1,139 because step 2 attached adverts to some files first; the apply plans against the data as it stands.
+**Open:** 2,484 pairs wait on the possible-matches screen (1,326 own-listing + 1,158 advert pairs); MIC `matched_property_id` ("claimed") is unchanged at 1,072 - claims are written by the capture / claim paths (C2), not by the join; the suburb-centre pin repair is not part of this apply.
