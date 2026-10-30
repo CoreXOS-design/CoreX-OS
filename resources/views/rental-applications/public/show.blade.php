@@ -166,68 +166,11 @@
                     @if($fieldConfig['id_number']['shown'])
                     <x-rental-application-field name="id_number" :label="$fieldConfig['id_number']['label']" :hint="$fieldConfig['id_number']['help_text']" :order="$fieldConfig['id_number']['order']" :value="$application->id_number" :required="in_array('id_number', $requiredFieldKeys, true)" />
                     @endif
-                    {{--
-                        Ruling 1, AT-392 round 5, 2026-09-13 — marital_status
-                        converts from free text to a real select (agency-
-                        configurable option list, RentalApplicationQualifying
-                        Setting::maritalStatusOptionsFor()) so the spouse-
-                        fields condition below can actually fire. A stored
-                        value that predates this select (or that doesn't
-                        match the agency's current option list) is SHOWN, not
-                        blanked — Johan: existing values "must not be
-                        destroyed."
-
-                        .ai/specs/rental-application-field-config.md — the
-                        outer x-data scope stays UNCONDITIONAL (it's what the
-                        nested spouse x-show depends on) even when
-                        marital_status itself is hidden — only the marital_status
-                        FIELD's own div, and each spouse field independently,
-                        are gated on their own shown state.
-                    --}}
-                    <div x-data="{
-                            maritalStatus: {{ Js::from(old('marital_status', $application->marital_status)) }},
-                            spouseImplyingLabels: {{ Js::from(collect($maritalStatusOptions)->where('implies_spouse', true)->pluck('label')->values()) }}
-                         }" class="contents">
-                        @if($fieldConfig['marital_status']['shown'])
-                        <div style="order: {{ $fieldConfig['marital_status']['order'] }}">
-                            <label class="block text-xs text-slate-500 mb-1">{{ $fieldConfig['marital_status']['label'] }} @if(in_array('marital_status', $requiredFieldKeys, true)) *@endif</label>
-                            <select name="marital_status" x-model="maritalStatus"
-                                    @if(in_array('marital_status', $requiredFieldKeys, true)) required aria-required="true" @endif
-                                    class="w-full rounded-lg border px-3 py-2 text-sm {{ $errors->has('marital_status') ? 'border-red-400' : 'border-slate-300' }}">
-                                <option value="">— Select —</option>
-                                @foreach($maritalStatusOptions as $option)
-                                    <option value="{{ $option['label'] }}">{{ $option['label'] }}</option>
-                                @endforeach
-                                @php $knownLabels = collect($maritalStatusOptions)->pluck('label'); @endphp
-                                @if($application->marital_status && ! $knownLabels->contains($application->marital_status))
-                                    <option value="{{ $application->marital_status }}" selected>{{ $application->marital_status }} (previously recorded)</option>
-                                @endif
-                            </select>
-                            @if($fieldConfig['marital_status']['help_text'])
-                                <p class="text-[11px] text-slate-400 mt-1">{{ $fieldConfig['marital_status']['help_text'] }}</p>
-                            @endif
-                            @error('marital_status') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
-                        </div>
-                        @endif
-                        @if($fieldConfig['citizenship']['shown'])
+                    {{-- Marital status + spouse fields: ONE shared block for the Main applicant and the Co-applicant (partials/marital-fields). --}}
+                    @include('rental-applications.partials.marital-fields', ['prefix' => '', 'values' => ['marital_status' => $application->marital_status, 'spouse_name' => $application->spouse_name, 'spouse_id' => $application->spouse_id]])
+                    @if($fieldConfig['citizenship']['shown'])
                         <x-rental-application-field name="citizenship" :label="$fieldConfig['citizenship']['label']" :hint="$fieldConfig['citizenship']['help_text']" :order="$fieldConfig['citizenship']['order']" :value="$application->citizenship" :required="in_array('citizenship', $requiredFieldKeys, true)" />
                         @endif
-                        {{--
-                            x-show (not x-if), same reasoning as the landlord
-                            section below — never destroys data the applicant
-                            already typed just because they're mid-selecting.
-                        --}}
-                        <div x-show="spouseImplyingLabels.includes(maritalStatus)" x-cloak class="contents">
-                            @if($fieldConfig['spouse_name']['shown'])
-                            <x-rental-application-field name="spouse_name" :label="$fieldConfig['spouse_name']['label']" :hint="$fieldConfig['spouse_name']['help_text']" :order="$fieldConfig['spouse_name']['order']" :value="$application->spouse_name"
-                                required-expr="spouseImplyingLabels.includes(maritalStatus) && {{ in_array('spouse_name', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
-                            @endif
-                            @if($fieldConfig['spouse_id']['shown'])
-                            <x-rental-application-field name="spouse_id" :label="$fieldConfig['spouse_id']['label']" :hint="$fieldConfig['spouse_id']['help_text']" :order="$fieldConfig['spouse_id']['order']" :value="$application->spouse_id"
-                                required-expr="spouseImplyingLabels.includes(maritalStatus) && {{ in_array('spouse_id', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
-                            @endif
-                        </div>
-                    </div>
                     @if($fieldConfig['contact_method']['shown'] ?? true)
                     @if($fieldConfig['email']['shown'])
                     <x-rental-application-field name="email" :label="$fieldConfig['email']['label']" :hint="$fieldConfig['email']['help_text']" :order="$fieldConfig['email']['order']" type="email" :value="$application->email" :required="in_array('email', $requiredFieldKeys, true)" />

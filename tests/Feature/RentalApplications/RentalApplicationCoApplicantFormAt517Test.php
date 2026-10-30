@@ -277,6 +277,109 @@ final class RentalApplicationCoApplicantFormAt517Test extends TestCase
         $this->assertSame('returned', $application->fresh()->status);
     }
 
+    // ═══ Marital status: the Co-applicant's block IS the Main applicant's block ═══
+
+    /** The option labels of one <select name="..."> in the page. */
+    private function selectOptions(string $html, string $name): array
+    {
+        $this->assertSame(1, preg_match('/<select[^>]*name="' . preg_quote($name, '/') . '"[^>]*>(.*?)<\/select>/s', $html, $m), "select $name is on the page");
+        preg_match_all('/<option[^>]*>(.*?)<\/option>/s', $m[1], $o);
+
+        return array_map(fn ($t) => trim(html_entity_decode($t)), $o[1]);
+    }
+
+    public function test_the_co_applicants_marital_block_is_the_main_applicants_block_with_the_same_options_and_spouse_fields(): void
+    {
+        $application = $this->application();
+
+        $html = $this->get(route('rental-applications.public.show', $application->token))->assertOk()->getContent();
+
+        $this->assertSame($this->selectOptions($html, 'marital_status'), $this->selectOptions($html, 'co_applicant[marital_status]'), 'same control, same options');
+        $this->assertSame($this->selectOptions($html, 'marriage_regime'), $this->selectOptions($html, 'co_applicant[marriage_regime]'), 'same "how married" list');
+        $this->assertContains('Married', $this->selectOptions($html, 'co_applicant[marital_status]'));
+        foreach (['spouse_name', 'spouse_id'] as $f) {
+            $this->assertStringContainsString('name="' . $f . '"', $html);
+            $this->assertStringContainsString('name="co_applicant[' . $f . ']"', $html);
+        }
+        // The spouse fields show on the same condition (a status that implies a spouse), by the same x-show, in both blocks.
+        $this->assertSame(2, substr_count($html, 'x-show="spouseImplyingLabels.includes(maritalStatus)"'));
+        $this->assertStringContainsString('data-qa="co-marital-block"', $html);
+        $this->assertStringContainsString('data-qa="co-marriage-regime"', $html);
+    }
+
+    public function test_an_agencys_own_marital_list_drives_both_blocks(): void
+    {
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
+            'marital_status_options' => [['label' => 'Single', 'implies_spouse' => false], ['label' => 'Civil union', 'implies_spouse' => true]],
+        ]);
+        $application = $this->application();
+
+        $html = $this->get(route('rental-applications.public.show', $application->token))->assertOk()->getContent();
+
+        $this->assertSame(['— Select —', 'Single', 'Civil union'], $this->selectOptions($html, 'marital_status'));
+        $this->assertSame(['— Select —', 'Single', 'Civil union'], $this->selectOptions($html, 'co_applicant[marital_status]'));
+        // The statuses that imply a spouse reach both blocks, and only that one.
+        $this->assertSame(2, preg_match_all('/spouseImplyingLabels: ([^\n]*)\n/', $html, $m));
+        foreach ($m[1] as $labels) {
+            $this->assertStringContainsString('Civil union', $labels);
+            $this->assertStringNotContainsString('Single', $labels);
+        }
+    }
+
+    public function test_the_co_applicants_spouse_fields_are_compulsory_on_the_same_condition_as_the_main_applicants(): void
+    {
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
+            'required_field_keys' => array_merge(RentalApplicationQualifyingSetting::DEFAULT_REQUIRED_FIELD_KEYS, ['marital_status', 'spouse_name', 'spouse_id']),
+        ]);
+        $application = $this->application();
+        $sigs = ['co_declaration_signature' => self::SIG, 'co_tpn_consent_signature' => self::SIG];
+        $main = ['marital_status' => 'Single'];
+
+        // Married with no spouse details: refused for the Co-applicant, exactly as it would be for the Main applicant.
+        $this->submitForm($application, $main + ['co_applicant' => $this->coBlock(['marital_status' => 'Married'])] + $sigs)
+            ->assertSessionHasErrors(['co_applicant.spouse_name', 'co_applicant.spouse_id'])
+            ->assertSessionDoesntHaveErrors(['co_applicant.marital_status']);
+        // The typed answers survive the bounce.
+        $this->assertSame('Married', session()->getOldInput('co_applicant.marital_status'));
+
+        // No marital status chosen: refused (compulsory for the Main applicant, so for them too); the spouse fields are not asked.
+        $this->submitForm($application, $main + ['co_applicant' => $this->coBlock()] + $sigs)
+            ->assertSessionHasErrors(['co_applicant.marital_status'])
+            ->assertSessionDoesntHaveErrors(['co_applicant.spouse_name', 'co_applicant.spouse_id']);
+
+        // A status that does not imply a spouse: the spouse fields are not asked.
+        $this->submitForm($application, $main + ['co_applicant' => $this->coBlock(['marital_status' => 'Divorced'])] + $sigs)->assertRedirect();
+        $this->assertSame('Divorced', $application->fresh()->co_applicant['marital_status'], 'stored as the agency\'s own label');
+    }
+
+    public function test_a_co_applicant_married_to_someone_else_keeps_their_own_spouse_fields(): void
+    {
+        $application = $this->application();
+
+        $this->submitForm($application, ['marital_status' => 'Single', 'co_applicant' => $this->coBlock([
+            'marital_status' => 'Married', 'spouse_name' => 'Thabo Dlamini', 'spouse_id' => '8001015800083', 'marriage_regime' => 'In community of property',
+        ]), 'co_declaration_signature' => self::SIG, 'co_tpn_consent_signature' => self::SIG])->assertRedirect();
+
+        $co = $application->fresh()->co_applicant;
+        $this->assertSame('Married', $co['marital_status']);
+        $this->assertSame('Thabo Dlamini', $co['spouse_name']);
+        $this->assertSame('8001015800083', $co['spouse_id']);
+        $this->assertSame('In community of property', $co['marriage_regime']);
+        $this->assertNull($application->fresh()->spouse_name, 'and the Main applicant\'s own spouse fields are separate');
+    }
+
+    public function test_a_marital_status_or_spouse_field_the_agency_hid_is_not_asked_of_the_co_applicant_either(): void
+    {
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], ['hidden_field_keys' => ['spouse_id', 'marriage_regime']]);
+        $html = $this->get(route('rental-applications.public.show', $this->application()->token))->assertOk()->getContent();
+
+        $this->assertStringContainsString('name="co_applicant[spouse_name]"', $html);
+        $this->assertStringNotContainsString('name="co_applicant[spouse_id]"', $html);
+        $this->assertStringNotContainsString('name="co_applicant[marriage_regime]"', $html);
+        $this->assertStringNotContainsString('name="spouse_id"', $html);
+        $this->assertStringNotContainsString('name="marriage_regime"', $html);
+    }
+
     // ═══ The form and the printed application show both signature blocks ═══
 
     public function test_the_applicant_form_carries_the_co_applicants_signature_pads_and_hidden_inputs(): void

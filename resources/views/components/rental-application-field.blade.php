@@ -37,19 +37,24 @@
     word. A short hint directly under the field, not just a stricter
     label, is the more robust fix for exactly the error he described.
 --}}
+@php
+    // AT-517 - a nested name (co_applicant[spouse_name]) is looked up in old() and in the error bag by its dotted form
+    // (co_applicant.spouse_name); a plain name is unchanged.
+    $dotName = str_replace(['[', ']'], ['.', ''], $name);
+@endphp
 <div @if($order !== null) style="order: {{ (int) $order }}" @endif @if(str_contains($name, 'bank_account')) data-desk-mask @endif>
     <label class="block text-xs text-slate-500 mb-1">{{ $label }}@if($requiredExpr)<span x-show="{{ $requiredExpr }}" x-cloak> *</span>@elseif($required) *@endif</label>
-    <input type="{{ $type }}" name="{{ $name }}" value="{{ old($name, $value) }}"
+    <input type="{{ $type }}" name="{{ $name }}" value="{{ old($dotName, $value) }}"
            @if($inputmode) inputmode="{{ $inputmode }}" @endif
            @if($min !== null) min="{{ $min }}" @endif
            @if($max !== null) max="{{ $max }}" @endif
            @if($requiredExpr) x-bind:required="{{ $requiredExpr }}" x-bind:aria-required="{{ $requiredExpr }}"
            @elseif($required) required aria-required="true" @endif
-           class="w-full rounded-lg border px-3 py-2 text-sm {{ $errors->has($name) ? 'border-red-400' : 'border-slate-300' }}">
+           class="w-full rounded-lg border px-3 py-2 text-sm {{ $errors->has($dotName) ? 'border-red-400' : 'border-slate-300' }}">
     @if($hint)
         <p class="text-[11px] text-slate-400 mt-1">{{ $hint }}</p>
     @endif
-    @error($name)
+    @error($dotName)
         <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
     @enderror
 </div>
