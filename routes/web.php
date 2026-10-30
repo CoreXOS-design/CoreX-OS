@@ -2414,7 +2414,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/sessions/{id}/control/end', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'controlEnd'])->whereNumber('id')->middleware('throttle:desk-state')->name('control.end');
     });
 
-    // CoreX Desk sessions log - the permanent audit (Admin > Desk > Desk sessions; moved out of Compliance, Johan 27 Oct 2026).
+    // CoreX Desk sessions log - the permanent audit (Tools > Desk > Desk sessions; moved out of Compliance, Johan 27 Oct 2026).
     // desk.support holders, or an agency admin (manage_users) for their own agency. Own agency only; owner roles see all.
     // Spec .ai/specs/corex-desk.md sections 5, 9 and 12. No agency.required: an owner reads every agency's sessions without switching into one.
     Route::prefix('desk-log')->name('corex.desk.log.')->middleware('permission:desk.support,manage_users')->group(function () {
