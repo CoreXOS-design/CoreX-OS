@@ -127,14 +127,23 @@ final class RentalApplicationCorrectDetailsAt516Test extends TestCase
             $html = $mail->render();
             $this->assertTrue($mail->hasTo('sipho@example.co.za'));
             $this->assertStringContainsString('was updated by Test Rentals', $html);
-            $this->assertMatchesRegularExpression('/ID number: 8501015800083 (→|&rarr;) 8001015800083/u', html_entity_decode($html));
-            $this->assertMatchesRegularExpression('/Employer name: Acme Pty Ltd (→|&rarr;) Beta CC/u', html_entity_decode($html));
+            $text = html_entity_decode($html);
+            // An ID number is masked: only the position that changed is shown (Johan's example), never the whole number.
+            $this->assertMatchesRegularExpression('/ID number: \*5\*{11} (→|&rarr;) \*0\*{11}/u', $text);
+            $this->assertStringNotContainsString('8501015800083', $text);
+            $this->assertStringNotContainsString('8001015800083', $text);
+            // A field that is not sensitive stays in clear.
+            $this->assertMatchesRegularExpression('/Employer name: Acme Pty Ltd (→|&rarr;) Beta CC/u', $text);
             // The agent's cell is stored normalised (+27...), so match the shape: name, then a phone number.
             $this->assertMatchesRegularExpression('/If this is wrong, please contact Anna Agent, \+?[0-9 ]{9,}\./', $html);
 
             return true;
         });
 
+        // The stored log keeps the full values (evidence); only the email / panel are masked.
+        $stored = RentalApplicationFieldChange::where('rental_application_id', $application->id)->where('field_key', 'id_number')->sole();
+        $this->assertSame('8501015800083', $stored->old_value);
+        $this->assertSame('8001015800083', $stored->new_value);
         $this->assertSame(2, RentalApplicationFieldChange::where('rental_application_id', $application->id)->whereNotNull('emailed_at')->count());
         $this->assertDatabaseHas('rental_application_status_history', [
             'rental_application_id' => $application->id,
@@ -142,6 +151,33 @@ final class RentalApplicationCorrectDetailsAt516Test extends TestCase
         ]);
         $this->assertTrue($application->statusHistory()->get()->contains(fn ($h) => str_starts_with((string) $h->note, 'Emailed the applicant the corrected details')));
         $this->assertDatabaseHas('rental_application_audit_log', ['rental_application_id' => $application->id, 'event_type' => 'details_corrected_mail_sent']);
+    }
+
+    public function test_a_bank_account_of_a_different_length_shows_only_its_last_four_in_the_email_and_the_panel(): void
+    {
+        $application = $this->submittedApplication(['bank_account_no' => '6200000001']);
+
+        $this->correct($application, ['bank_account_no' => '620000000099']);
+
+        Mail::assertQueued(RentalApplicationDetailsUpdatedMail::class, function (RentalApplicationDetailsUpdatedMail $mail) {
+            $text = html_entity_decode($mail->render());
+            $this->assertMatchesRegularExpression('/Bank account number: \*{6}0001 (→|&rarr;) \*{8}0099/u', $text);
+            $this->assertStringNotContainsString('6200000001', $text);
+            $this->assertStringNotContainsString('620000000099', $text);
+
+            return true;
+        });
+
+        // The Changes panel (not the rest of the screen, which shows the record's own current values) is masked.
+        $html = $this->actingAs($this->agent)->get(route('corex.rental-applications.review', $application))->assertOk()->getContent();
+        $start = strpos($html, 'data-qa="field-changes-panel"');
+        $this->assertNotFalse($start);
+        $panel = substr($html, $start, strpos($html, '</ul>', $start) - $start);
+        $this->assertStringContainsString('******0001', $panel);
+        $this->assertStringContainsString('********0099', $panel);
+        $this->assertStringNotContainsString('620000000099', $panel);
+        $this->assertStringNotContainsString('6200000001', $panel);
+        $this->assertSame('620000000099', $application->fresh()->bank_account_no, 'the record itself holds the full number');
     }
 
     public function test_nothing_is_changed_and_nothing_is_sent_when_no_value_differs(): void
@@ -219,8 +255,10 @@ final class RentalApplicationCorrectDetailsAt516Test extends TestCase
             ->assertOk()
             ->assertSee('data-qa="field-changes-panel"', false)
             ->assertSee('ID number')
-            ->assertSee('8501015800083')
-            ->assertSee('8001015800083')
+            ->assertSee('*5***********')
+            ->assertSee('*0***********')
+            ->assertDontSee('8501015800083')
+            ->assertDontSee('8001015800083')
             ->assertSee('Anna Agent');
 
         $this->actingAs($this->agent)->get(route('corex.rental-applications.review.details.edit', $application))

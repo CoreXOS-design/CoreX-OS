@@ -888,11 +888,11 @@ class RentalApplicationReviewController extends Controller
             return redirect()->route('corex.rental-applications.review', $rentalApplication)->with('success', 'Nothing was different, so nothing was changed.');
         }
 
-        $lines = collect($rows)->map(fn ($row) => [
-            'label' => $row->field_label,
-            'old' => $editor->displayValue($rentalApplication, $row->field_key, $row->old_value),
-            'new' => $editor->displayValue($rentalApplication, $row->field_key, $row->new_value),
-        ])->all();
+        $lines = collect($rows)->map(function ($row) use ($editor, $rentalApplication) {
+            [$old, $new] = $editor->displayPair($rentalApplication, $row->field_key, $row->old_value, $row->new_value);
+
+            return ['label' => $row->field_label, 'old' => $old, 'new' => $new];
+        })->all();
 
         $sent = $mailer->sendDetailsUpdated($rentalApplication, $lines, $request->user());
 
