@@ -15135,6 +15135,13 @@ Tests: `tests/Feature/RentalApplications/RentalApplicationFullerFormTest.php`.
 - Signatures: unchanged - the applicant re-signs, `submit()` stores the new signatures under the next `generation` and seals a new generation; the original signature rows and files are never overwritten (proved again in `RentalApplicationCorrectDetailsAt516Test`). The OTP / identity gate behaves exactly as before (first submission only; a resubmit has already passed the return gate).
 - While the application is `reopened` with ticked fields, the review screen and the Reopened list show **"Sent back to correct: <fields>"**. The marker is cleared when the applicant resubmits (`markSubmitted()`) or the agent takes the application back (`cancelReopen()`).
 
+### Masking identity and account numbers (Johan, 30 Oct 2026, security)
+- **Which fields.** ID number, spouse ID number, bank account number, income tax number (the same four fields on the co-applicant block too), and a passport number key if the form ever gets one (there is no passport field today). Listed in `SensitiveValueMask::SENSITIVE_KEYS`. Custom (agency-defined) fields are never masked - the system cannot tell what an agency's custom question holds; an agency that adds an ID-type custom question should know it prints in clear.
+- **Where.** The corrected-details email to the applicant AND the Changes panel never show a full old or new value of those fields. Both go through one helper, `App\Support\SensitiveValueMask`, via `RentalApplicationDetailEditor::displayPair()` - no second copy.
+- **Rule.** Same length: the positions that changed are shown in clear, every other position is `*` (`8501015800083` -> `8001015800083` reads `*5***********` -> `*0***********`). Different lengths, or more than half of the characters changed: only the last 4 characters of each, the rest `*` (a value of 4 or fewer characters is all `*`). A blank side stays blank.
+- **Stored rows are unchanged.** `rental_application_field_changes` keeps the full old and new values (evidence); masking is display/email only. The agent's own Correct details form and the Submitted Application summary show the record's current values as before; the audit-trail screen shows only summaries (labels), never values.
+- Tests: `tests/Unit/SensitiveValueMaskTest.php`, plus the masked cases in `RentalApplicationCorrectDetailsAt516Test`.
+
 ### Settings / wizard
 No new setting, so nothing for the Setup Wizard (Non-negotiable 10a). No new permission key.
 

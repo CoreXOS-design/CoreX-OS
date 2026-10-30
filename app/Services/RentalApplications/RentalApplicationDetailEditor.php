@@ -7,6 +7,7 @@ use App\Models\RentalApplicationCustomField;
 use App\Models\RentalApplicationFieldChange;
 use App\Models\RentalApplicationStatusHistory;
 use App\Models\User;
+use App\Support\SensitiveValueMask;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -81,11 +82,30 @@ class RentalApplicationDetailEditor
         return $fields;
     }
 
-    /** Plain-words value for a log line / email / panel (yes/no, dates, money, choice labels). */
+    /**
+     * Old and new of one change, in plain words, ready for the email and the Changes panel - the only way either shows a change.
+     * An identity / account number (SensitiveValueMask::SENSITIVE_KEYS) is masked, showing only the characters that changed;
+     * every other field is shown in clear.
+     *
+     * @return array{0: string, 1: string} [old, new]
+     */
+    public function displayPair(RentalApplication $application, string $path, ?string $old, ?string $new): array
+    {
+        if (SensitiveValueMask::isSensitive($path)) {
+            return array_map(fn ($v) => $v === null || $v === '' ? '(blank)' : $v, SensitiveValueMask::pair($old, $new));
+        }
+
+        return [$this->displayValue($application, $path, $old), $this->displayValue($application, $path, $new)];
+    }
+
+    /** Plain-words value for a log line / email / panel (yes/no, dates, money, choice labels). A sensitive number is never shown in full. */
     public function displayValue(RentalApplication $application, string $path, ?string $value): string
     {
         if ($value === null || $value === '') {
             return '(blank)';
+        }
+        if (SensitiveValueMask::isSensitive($path)) {
+            return SensitiveValueMask::lastFour($value);
         }
         $def = $this->definitions($application)[$path] ?? null;
         $type = $def['type'] ?? 'text';
