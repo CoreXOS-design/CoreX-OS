@@ -841,13 +841,109 @@ class RentalApplicationReviewController extends Controller
             ->with('success', 'Decline sent to the applicant.');
     }
 
+    /**
+     * AT-516 - the page where an agent corrects what the applicant typed. Same lock as the rest of the review screen: not while
+     * the application is with the authoriser (423 on the POST, a plain redirect with the reason here), and only once it has come
+     * back from the applicant and before it is decided.
+     */
+    public function editDetails(Request $request, RentalApplication $rentalApplication, \App\Services\RentalApplications\RentalApplicationDetailEditor $editor): View|RedirectResponse
+    {
+        $this->guardRentalApplication($rentalApplication);
+
+        if ($reason = $editor->lockReason($rentalApplication)) {
+            return redirect()->route('corex.rental-applications.review', $rentalApplication)->with('error', $reason);
+        }
+
+        $rentalApplication->load(['contact', 'property']);
+        $fields = collect($editor->fields($rentalApplication))->groupBy('section');
+
+        return view('corex.rental-applications.edit-details', [
+            'rentalApplication' => $rentalApplication,
+            'sections' => $fields,
+        ]);
+    }
+
+    /**
+     * AT-516 - save the agent's corrections. Writes the live values and the change log (never the sealed submission), then emails
+     * the applicant one line per corrected field from the agency's mailbox and logs that email on the application.
+     */
+    public function updateDetails(Request $request, RentalApplication $rentalApplication, \App\Services\RentalApplications\RentalApplicationDetailEditor $editor, RentalApplicationMailer $mailer, RentalApplicationAuditService $audit)
+    {
+        $this->guardRentalApplication($rentalApplication);
+
+        $validated = $request->validate([
+            'f' => ['required', 'array'],
+            'note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        try {
+            $rows = $editor->apply($rentalApplication, $validated['f'], $request->user(), $validated['note'] ?? null);
+        } catch (\DomainException $e) {
+            // The same refusal the other review writes give while the file is with the authoriser (HTTP 423 there); this is a
+            // page form, so it goes back to the review screen with the reason on it.
+            return redirect()->route('corex.rental-applications.review', $rentalApplication)->with('error', $e->getMessage());
+        }
+
+        if ($rows === []) {
+            return redirect()->route('corex.rental-applications.review', $rentalApplication)->with('success', 'Nothing was different, so nothing was changed.');
+        }
+
+        $lines = collect($rows)->map(fn ($row) => [
+            'label' => $row->field_label,
+            'old' => $editor->displayValue($rentalApplication, $row->field_key, $row->old_value),
+            'new' => $editor->displayValue($rentalApplication, $row->field_key, $row->new_value),
+        ])->all();
+
+        $sent = $mailer->sendDetailsUpdated($rentalApplication, $lines, $request->user());
+
+        if ($sent) {
+            \App\Models\RentalApplicationFieldChange::whereIn('id', collect($rows)->pluck('id'))->update(['emailed_at' => now()]);
+        }
+        RentalApplicationStatusHistory::record(
+            $rentalApplication,
+            $rentalApplication->status,
+            $rentalApplication->status,
+            $request->user(),
+            ($sent ? 'Emailed the applicant the corrected details: ' : 'Could not email the applicant the corrected details: ') . collect($lines)->pluck('label')->implode(', '),
+        );
+        $audit->log(
+            $rentalApplication,
+            eventCategory: 'agent',
+            eventType: $sent ? 'details_corrected_mail_sent' : 'details_corrected_mail_failed',
+            user: $request->user(),
+            newValues: ['to' => $rentalApplication->recipientEmail(), 'fields' => collect($lines)->pluck('label')->all()],
+            humanSummary: $sent ? 'Emailed the applicant the corrected details.' : 'The corrected-details email to the applicant could not be sent.',
+        );
+
+        return redirect()->route('corex.rental-applications.review', $rentalApplication)->with(
+            $sent ? 'success' : 'error',
+            $sent
+                ? 'Details corrected - the applicant has been emailed what changed.'
+                : 'Details corrected, but the email to the applicant could not be sent - check their email address.',
+        );
+    }
+
     public function reopen(Request $request, RentalApplication $rentalApplication, RentalApplicationMailer $mailer, RentalApplicationAuditService $audit)
     {
         $this->guardRentalApplication($rentalApplication);
 
         $validated = $request->validate([
             'note' => ['required', 'string', 'max:2000'],
+            // AT-516 - reason "Correct details": the fields the applicant must correct (keys of the application form).
+            'correction_fields' => ['nullable', 'array', 'max:80'],
+            'correction_fields.*' => ['string', 'max:120'],
         ]);
+
+        $correctionFields = array_values(array_unique($validated['correction_fields'] ?? []));
+        if ($correctionFields !== []) {
+            $allowed = array_merge(
+                array_keys(RentalApplication::fieldValidationRules()),
+                collect($rentalApplication->displayFieldConfig())->filter(fn ($c) => ($c['is_custom'] ?? false) && ($c['field_type'] ?? null) !== 'file')->keys()->all(),
+            );
+            if ($unknown = array_diff($correctionFields, $allowed)) {
+                return response()->json(['error' => 'One of the fields ticked is not a field on this application.'], 422);
+            }
+        }
 
         if (! in_array($rentalApplication->status, RentalApplication::REOPENABLE_STATUSES, true)) {
             return response()->json(['error' => 'This application can\'t be reopened from its current status.'], 422);
@@ -881,6 +977,7 @@ class RentalApplicationReviewController extends Controller
         $rentalApplication->reopened_at = now();
         $rentalApplication->reopened_by_user_id = $request->user()->id;
         $rentalApplication->reopened_note = $validated['note'];
+        $rentalApplication->correction_fields = $correctionFields === [] ? null : $correctionFields;
         $rentalApplication->token_expires_at = now()->addDays($expiryDays);
         $rentalApplication->save();
 
@@ -889,7 +986,8 @@ class RentalApplicationReviewController extends Controller
             $fromStatus,
             'reopened',
             $request->user(),
-            'Reopened for the applicant: ' . $validated['note'],
+            'Reopened for the applicant: ' . $validated['note']
+                . ($correctionFields === [] ? '' : ' (Correct: ' . implode(', ', $rentalApplication->correctionFieldLabels()) . ')'),
         );
 
         $audit->log(
@@ -900,7 +998,7 @@ class RentalApplicationReviewController extends Controller
             isOverride: $isOverrideReopen,
             reason: $validated['note'],
             oldValues: ['status' => $fromStatus],
-            newValues: ['status' => 'reopened'],
+            newValues: ['status' => 'reopened'] + ($correctionFields === [] ? [] : ['correction_fields' => $correctionFields]),
             humanSummary: $isOverrideReopen
                 ? "Reopened a {$fromStatus} application (override)"
                 : 'Reopened for the applicant',

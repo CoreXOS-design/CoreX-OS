@@ -548,6 +548,8 @@ class RentalApplicationSigningController extends Controller
         $application->submitted_for_approval_at = null;
         $application->applicant_notified_at = null;
         $application->submitted_at = now();
+        // AT-516 - the fields the agent asked to have corrected have now been answered; the "sent back to correct" marker ends.
+        $application->correction_fields = null;
         if ($isResubmit) {
             $application->current_generation = $application->current_generation + 1;
         }

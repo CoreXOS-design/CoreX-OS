@@ -1215,7 +1215,7 @@ class RentalApplication extends Model
         // the tenant-link precedence chain (view-readonly.blade.php) falls
         // back to the property's own deposit_amount when this is absent.
         'approved_deposit_amount',
-        'current_generation', 'reopened_at', 'reopened_by_user_id', 'reopened_note',
+        'current_generation', 'reopened_at', 'reopened_by_user_id', 'reopened_note', 'correction_fields',
         // Submission identity gate, 2026-09-13 — safe to mass-assign despite
         // being internal-tracking columns: the public form's own fill($fields)
         // call sites (submit()/autosave()) only ever pass keys drawn from
@@ -1266,6 +1266,7 @@ class RentalApplication extends Model
         'children' => 'integer',
         'field_config_snapshot' => 'array',
         'custom_field_values' => 'array',
+        'correction_fields' => 'array',
         'co_applicant' => 'array',
         'co_occupants' => 'array',
         'pets' => 'array',
@@ -1400,6 +1401,27 @@ class RentalApplication extends Model
         return $this->belongsToMany(Document::class, 'rental_application_document')
             ->withPivot('attached_by')
             ->withTimestamps();
+    }
+
+    /** AT-516 - what an agent corrected on the live values after the applicant submitted, newest first. */
+    public function fieldChanges(): HasMany
+    {
+        return $this->hasMany(RentalApplicationFieldChange::class)->orderByDesc('created_at')->orderByDesc('id');
+    }
+
+    /** AT-516 - the human labels of the fields the agent asked the applicant to correct (empty when it was not a "Correct details" send-back). */
+    public function correctionFieldLabels(): array
+    {
+        $keys = (array) ($this->correction_fields ?? []);
+        if ($keys === []) {
+            return [];
+        }
+        $config = $this->displayFieldConfig();
+
+        return array_values(array_map(
+            fn ($key) => $config[$key]['label'] ?? \Illuminate\Support\Str::headline(str_replace('_', ' ', (string) $key)),
+            $keys,
+        ));
     }
 
     /** AT-392 — the status change trail, newest first. */

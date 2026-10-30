@@ -5184,6 +5184,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Reopen/resubmit, 2026-09-08 — send a returned/under-assessment
         // application back to the applicant to fix an answer and re-sign.
         Route::post('/{rentalApplication}/review/reopen', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'reopen'])->name('corex.rental-applications.review.reopen');
+        // AT-516 - the agent corrects what the applicant typed (returned / under assessment only; locked while with the authoriser).
+        Route::get('/{rentalApplication}/review/details', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'editDetails'])->name('corex.rental-applications.review.details.edit');
+        Route::post('/{rentalApplication}/review/details', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'updateDetails'])->name('corex.rental-applications.review.details.update');
         // AT-392 — the agent's wishlist step on the approval leg, reusing
         // the Core Matches form/drawer. Not under /contacts/{contact}/matches
         // because the redirect target and guard are review-screen-specific.

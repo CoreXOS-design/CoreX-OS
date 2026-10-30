@@ -15112,3 +15112,36 @@ A letting agency's own paper application asks for more than the first V8 form di
 Tests: `tests/Feature/RentalApplications/RentalApplicationFullerFormTest.php`.
 
 **Summary heading.** A first line of the tenant information summary that starts with `#` is printed as the list's own heading (the agency's wording); without one the heading is "Tenant information summary". `ApplicationTerms::for()` returns it as `summary_heading` and the bank block carries `note`. Tests: `ApplicationTermsSettingsTest`.
+
+## Correct applicant-entered details (AT-516, 30 Oct 2026)
+
+**Why.** An applicant mistypes an ID number, an employer, a bank account. The agent finds it once the application is back and today can only send the whole thing back. Two answers: the agent fixes it themselves and the applicant is told, or the agent asks the applicant to fix named fields.
+
+### A. Agent corrects a detail
+
+- **When.** Only while the application is `returned` or `under_assessment` and **not** with the authoriser. While `submitted_for_approval_at` is set the screen is read-only (the existing authoriser lock, `RentalApplication::isPendingAuthorisation()`); approved, declined, withdrawn and reopened are refused too. Reason: once approved, the details have already flowed to the contact/lease; while reopened, the applicant owns the form.
+- **Where.** Review screen -> **Changes** panel -> "Correct details" -> `GET /corex/rental-applications/{id}/review/details` (`corex.rental-applications.review.details.edit`), saved by `POST` to the same URL (`...details.update`). Same permission as the rest of the review screen (`rental_applications.view` + the existing own/branch/agency guard); **no new permission key**, so nothing for Role Manager.
+- **What is editable.** Every applicant-entered field the form knows (`RentalApplication::fieldValidationRules()`: personal, employment, banking, vehicle, lease requirement, ...), each cell of the co-applicant block, each existing row of co-occupants / pets / affordability lines (corrected in place - rows are not added or removed here; sending it back is for that), and the non-file custom answers. New values are judged by the SAME rules the applicant's form uses (e.g. email must be an email); a refused value saves nothing.
+- **Evidence rule (non-negotiable).** The applicant's signed submission is the sealed `rental_application_generations` row written by `RentalApplicationGeneration::seal()` at every submit (append-only, hash-chained). That IS the snapshot - no second one is built. The correction writes only the current values on `rental_applications` plus a change log; the sealed row, its hash chain and the signed PDF are never touched or regenerated. The next applicant resubmit seals a new generation that includes whatever is then current (the applicant re-signed it).
+- **Change log** - table `rental_application_field_changes` (append-only; model `RentalApplicationFieldChange`, `BelongsToAgency`): `rental_application_id`, `agency_id`, `batch_uuid` (one per save), `generation` (the sealed round current at the time), `field_key` (a column key, or a path such as `co_occupants.0.name` / `custom_field_values.<key>`), `field_label`, `old_value`, `new_value`, `changed_by_user_id`, `note` (optional), `emailed_at`, `created_at`. Only fields whose value really changed get a row ("12000" vs "12000.00" is no change). Also written: a status-history row and an audit-log row (`details_corrected`).
+- **Changes panel** on the review screen (agent and authoriser, read-only for the authoriser): one line per change - field, old -> new, who, when, note. Search/sort/filter do not apply (it is a short per-application log, newest first, last 50); empty state: "Nothing corrected since the applicant submitted."
+- **Email.** Saving emails the applicant automatically from the agency mailbox (`RentalApplicationDetailsUpdatedMail`, queued on `mail`, same base/footer as the other applicant mails): "Your rental application for <property> was updated by <agency>:" then one line per field `<label>: <old> -> <new>`, then "If this is wrong, please contact <agent name>, <agent tel>." It goes to the application's current e-mail address (`RentalApplication::recipientEmail()`). The send is logged on the application (status history "Emailed the applicant the corrected details: ...", audit `details_corrected_mail_sent` / `_failed`, `emailed_at` on the change rows). A failed send does not undo the correction; the agent is told on screen.
+- **Multi-agency.** Agency name, agent name/phone and footer all come from the sending agent's own agency; no wording or address is HFC's.
+
+### B. Send back to correct details
+
+- The existing **Send back to applicant** dialog (reopen path, i.e. `ReviewController::reopen()`) gains a collapsed list **"Ask them to correct specific details"**: tick the fields, add the note (still required). Ticked keys are stored in `rental_applications.correction_fields` (JSON). Unticked = the old general send-back, unchanged.
+- The applicant's link reopens **pre-filled** (unchanged reopen behaviour) with a "Please correct:" list under the agent's note and the ticked inputs highlighted (scrolled to the first). The reopen email lists the same fields.
+- Signatures: unchanged - the applicant re-signs, `submit()` stores the new signatures under the next `generation` and seals a new generation; the original signature rows and files are never overwritten (proved again in `RentalApplicationCorrectDetailsAt516Test`). The OTP / identity gate behaves exactly as before (first submission only; a resubmit has already passed the return gate).
+- While the application is `reopened` with ticked fields, the review screen and the Reopened list show **"Sent back to correct: <fields>"**. The marker is cleared when the applicant resubmits (`markSubmitted()`) or the agent takes the application back (`cancelReopen()`).
+
+### Settings / wizard
+No new setting, so nothing for the Setup Wizard (Non-negotiable 10a). No new permission key.
+
+### Files
+`database/migrations/2027_01_02_100000_create_rental_application_field_changes_and_correction_fields.php`, `app/Models/RentalApplicationFieldChange.php`, `app/Services/RentalApplications/RentalApplicationDetailEditor.php`, `app/Mail/RentalApplicationDetailsUpdatedMail.php`, `resources/views/emails/rental-application-details-updated.blade.php`, `resources/views/corex/rental-applications/edit-details.blade.php`, `.../partials/field-changes.blade.php`, plus edits to `RentalApplicationReviewController` (`editDetails`, `updateDetails`, `reopen`), `RentalApplicationMailer`, `RentalApplication`, `RentalApplicationSigningController::markSubmitted`, `RentalApplicationController::cancelReopen`, `review.blade.php`, `index.blade.php`, `public/show.blade.php`, `emails/rental-application-reopened.blade.php`, `routes/web.php`. Tests: `tests/Feature/RentalApplications/RentalApplicationCorrectDetailsAt516Test.php`.
+
+### Not built (said plainly)
+- Adding or removing a row in co-occupants / pets / affordability by the agent (correct in place only).
+- If an agent changes the applicant's e-mail address, the notice goes to the new address only.
+- A correction made after the application is approved does not reach the contact or lease (editing is refused after approval for that reason).
