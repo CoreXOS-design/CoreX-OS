@@ -52,21 +52,7 @@
         <x-rental-application-field name="income_tax_no" :label="$label('income_tax_no')" :hint="$hint('income_tax_no')" :order="$ord('income_tax_no')" :value="$application->income_tax_no" :required="$req('income_tax_no')" />
         @endif
         @if($on('marriage_regime'))
-        <div style="@if($ord('marriage_regime') !== null)order: {{ (int) $ord('marriage_regime') }}@endif">
-            <label class="block text-xs text-slate-500 mb-1">{{ $label('marriage_regime') }}</label>
-            @php $regimeValue = old('marriage_regime', $application->marriage_regime); @endphp
-            <select name="marriage_regime" class="{{ $input }}">
-                <option value="">— Select —</option>
-                @foreach($coRegimeOptions as $opt)
-                    <option value="{{ $opt }}" @selected($regimeValue === $opt)>{{ $opt }}</option>
-                @endforeach
-                @if($regimeValue && ! in_array($regimeValue, $coRegimeOptions, true))
-                    <option value="{{ $regimeValue }}" selected>{{ $regimeValue }} (previously recorded)</option>
-                @endif
-            </select>
-            <p class="text-[11px] text-slate-400 mt-1">{{ $hint('marriage_regime') ?? 'Only if you are married.' }}</p>
-            @error('marriage_regime') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
-        </div>
+        @include('rental-applications.partials.marriage-regime-field', ['prefix' => '', 'value' => $application->marriage_regime])
         @endif
         @if($on('years_employed'))
         <x-rental-application-field name="years_employed" :label="$label('years_employed')" :hint="$hint('years_employed')" :order="$ord('years_employed')" :value="$application->years_employed" :required="$req('years_employed')" />
@@ -132,20 +118,16 @@
 @php
     $coDefs = \App\Models\RentalApplication::coApplicantFieldDefs($fieldConfig, $requiredFieldKeys);
     $coMaritalOptions = $maritalStatusOptions ?? \App\Models\RentalApplicationQualifyingSetting::maritalStatusOptionsFor($application->agency_id);
-    $coSpouseStatuses = collect($coMaritalOptions)->filter(fn ($o) => $o['implies_spouse'] ?? false)->pluck('label')->map(fn ($l) => mb_strtolower(trim((string) $l)))->values()->all();
     $coInitial = [
         'living' => (string) ($co['current_living_situation'] ?? ''),
         'employment' => (string) ($co['employment_type'] ?? ''),
-        'marital' => mb_strtolower(trim((string) ($co['marital_status'] ?? ''))),
         'judgments' => (string) ($co['judgments'] ?? ''),
         'stillLiving' => ! empty($co['current_rental_still_living']),
-        'spouseStatuses' => $coSpouseStatuses,
         'any' => ! empty(array_filter($co, fn ($v) => $v !== null && $v !== '')) || ! empty($application->co_applicant_contact_id),
     ];
     $coGroupShow = [
         'renting' => "living === 'renting'",
         'employed' => "employment === 'permanently_employed'",
-        'married' => 'spouseStatuses.includes(marital)',
     ];
 @endphp
 <{{ $tag }} @if($isPublic) data-progress-section="Co-applicant" @endif data-qa="ext-co-applicant"
@@ -155,6 +137,19 @@
     <p class="text-[11px] text-slate-400 mb-3">{{ $hint('co_applicant') ?? 'Complete this if your spouse or someone else is applying with you. Leave it blank if you are applying alone. Whoever is added here signs this form too.' }}</p>
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         @foreach($coDefs as $coKey => $def)
+            {{-- Marital status, the spouse fields and "how married" are the Main applicant's own blocks, rendered by the same partials
+                 (named co_applicant[...]): same control, same options, same condition, same settings. --}}
+            @if($coKey === 'marital_status')
+                @include('rental-applications.partials.marital-fields', ['prefix' => 'co_applicant', 'maritalStatusOptions' => $coMaritalOptions, 'values' => ['marital_status' => $co['marital_status'] ?? null, 'spouse_name' => $co['spouse_name'] ?? null, 'spouse_id' => $co['spouse_id'] ?? null]])
+                @continue
+            @endif
+            @continue(in_array($coKey, ['spouse_name', 'spouse_id'], true))
+            @if($coKey === 'marriage_regime')
+                @if($def['shown'])
+                    @include('rental-applications.partials.marriage-regime-field', ['prefix' => 'co_applicant', 'value' => $co['marriage_regime'] ?? null])
+                @endif
+                @continue
+            @endif
             @continue(! $def['shown'])
             @php
                 $coValue = $co[$coKey] ?? '';
@@ -177,23 +172,6 @@
                             <option value="">— Select —</option>
                             <option value="no">No</option>
                             <option value="yes">Yes</option>
-                        </select>
-                    @elseif($coKind === 'regime')
-                        <select name="{{ $coName }}" class="{{ $input }}">
-                            <option value="">— Select —</option>
-                            @foreach($coRegimeOptions as $opt)
-                                <option value="{{ $opt }}" @selected($coValue === $opt)>{{ $opt }}</option>
-                            @endforeach
-                        </select>
-                    @elseif($coKind === 'marital')
-                        <select name="{{ $coName }}" x-model="marital" class="{{ $input }}">
-                            <option value="">— Select —</option>
-                            @foreach($coMaritalOptions as $opt)
-                                <option value="{{ mb_strtolower(trim((string) $opt['label'])) }}" @selected(mb_strtolower(trim((string) $coValue)) === mb_strtolower(trim((string) $opt['label'])))>{{ $opt['label'] }}</option>
-                            @endforeach
-                            @if($coValue !== '' && ! collect($coMaritalOptions)->contains(fn ($o) => mb_strtolower(trim((string) $o['label'])) === mb_strtolower(trim((string) $coValue))))
-                                <option value="{{ mb_strtolower(trim((string) $coValue)) }}" selected>{{ $coValue }} (previously recorded)</option>
-                            @endif
                         </select>
                     @elseif($coKind === 'living')
                         <select name="{{ $coName }}" x-model="living" class="{{ $input }}">
