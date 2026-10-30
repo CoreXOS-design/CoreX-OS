@@ -7,6 +7,7 @@ namespace App\Http\Controllers\CoreX;
 use App\Http\Controllers\Controller;
 use App\Models\PropertyMatchDecision;
 use App\Models\Prospecting\TrackedProperty;
+use App\Services\Prospecting\CaptureClaimService;
 use App\Services\Prospecting\PropertyIdentityResolver;
 use App\Services\Prospecting\PropertyMatchDecisionService;
 use App\Services\Prospecting\TrackedPropertyMerger;
@@ -135,6 +136,11 @@ class PossibleMatchesController extends Controller
                     'tracked_property_id' => $target->id, 'identity_confidence' => 'confirmed', 'identity_method' => 'agent_confirmed',
                 ]);
                 $message = $updated ? 'Linked: our listing now sits on that captured property.' : 'That listing no longer exists.';
+                if ($updated) {
+                    // own stock matched to Market Intelligence counts as claimed (spec §16.5)
+                    $r = app(CaptureClaimService::class)->claimFromJoin($propertyId);
+                    $message .= $r['claimed'] > 0 ? ' Its Market Intelligence adverts are now claimed for the listing\'s agent.' : '';
+                }
                 // the other candidates for the same listing are moot — closed, not vetoed
                 DB::table('property_match_decisions')->where('agency_id', $agencyId)->where('subject_type', PropertyIdentityResolver::DECISION_SUBJECT)
                     ->where('subject_key', $d->subject_key)->where('id', '<>', $d->id)->whereNull('confirmed_at')->whereNull('rejected_at')

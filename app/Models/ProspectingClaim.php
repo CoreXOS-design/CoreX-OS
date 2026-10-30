@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\Cache;
@@ -51,10 +52,22 @@ class ProspectingClaim extends Model
         return $since ? (int) $since->diffInDays(now()) : 0;
     }
 
+    /**
+     * A claim on an advert that is recognised as the agency's own stock (prospecting_listings.matched_property_id is set) is the agency
+     * holding its own listing, not a prospect an agent has to work: it never goes stale, so it is never warned about or sent to the
+     * move-or-keep review.
+     */
+    public function isOwnStockClaim(): bool
+    {
+        return $this->prospecting_listing_id
+            && DB::table('prospecting_listings')->where('id', $this->prospecting_listing_id)->whereNotNull('matched_property_id')->exists();
+    }
+
     /** Warn-worthy: active, unworked ≥ warn_days, and not already warned since last worked. */
     public function needsStaleWarning(int $warnDays): bool
     {
         return $this->is_active
+            && ! $this->isOwnStockClaim()
             && $this->released_at === null
             && $this->warned_at === null
             && $this->staleAgeDays() >= $warnDays;
@@ -64,6 +77,7 @@ class ProspectingClaim extends Model
     public function isStaleForReview(int $releaseDays): bool
     {
         return $this->is_active
+            && ! $this->isOwnStockClaim()
             && $this->released_at === null
             && $this->staleAgeDays() >= $releaseDays;
     }

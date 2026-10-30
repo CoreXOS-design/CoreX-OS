@@ -53,7 +53,7 @@ class StaleClaimController extends Controller
             ->whereNull('released_at')
             ->when($filters['agent_id'] !== '', fn ($q) => $q->where('user_id', (int) $filters['agent_id']))
             ->get()
-            ->filter(fn ($c) => $c->staleAgeDays() >= $warnDays)
+            ->filter(fn ($c) => $c->staleAgeDays() >= $warnDays && ! $c->isOwnStockClaim())
             ->sortByDesc(fn ($c) => $c->staleAgeDays())
             ->values();
 
