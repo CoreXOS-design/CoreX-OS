@@ -209,7 +209,7 @@ return [
         'affects' => 'Whether the Market Intelligence and Prospecting areas appear and whether CoreX builds its property-intelligence dataset from your activity. Off hides them; captured data is kept.',
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_prospecting'], 'sidebar_section' => 'real-estate',
-        'settings_section' => null, 'route_prefixes' => ['prospecting', 'corex/market-intelligence', 'corex/tracked-properties'], 'global_flag' => null,
+        'settings_section' => null, 'route_prefixes' => ['prospecting', 'corex/market-intelligence', 'corex/tracked-properties', 'corex/prospecting'], 'global_flag' => null,
         'permission_modules' => ['prospecting', 'mic', 'market_intelligence', 'deeds_capture'],
     ],
     'road-to-sold' => [

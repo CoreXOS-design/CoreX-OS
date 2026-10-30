@@ -114,6 +114,7 @@ final class RealEstateMenuTabsTest extends TestCase
                 'importer' => fn (User $u) => $mic($u) && $p($u, 'mic.upload_reports'),
                 'deeds-capture' => fn (User $u) => $f($u, 'deeds-capture') && $p($u, 'deeds_capture.access'),
                 'address-review' => fn (User $u) => $f($u, 'address-review') && $p($u, 'address_review.manage'),
+                'possible-matches' => fn (User $u) => $mic($u) && $p($u, 'prospecting_setup.manage'),
                 'stale-claims' => fn (User $u) => $mic($u) && $p($u, 'prospecting_setup.manage'),
             ],
             'properties' => [
@@ -184,7 +185,7 @@ final class RealEstateMenuTabsTest extends TestCase
                 }
             }
         }
-        $this->assertSame(5 * 26, $checked);
+        $this->assertSame(5 * 27, $checked);
     }
 
     public function test_the_real_estate_menu_has_the_hub_items_and_budgets_and_none_of_the_old_ones(): void

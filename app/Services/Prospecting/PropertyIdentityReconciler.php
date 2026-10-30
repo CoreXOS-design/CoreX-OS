@@ -116,14 +116,39 @@ final class PropertyIdentityReconciler
     /** @return array<string, mixed> */
     private function refClashes(int $agencyId, int $samples): array
     {
+        $out = ['groups' => 0, 'same_address' => 0, 'possible' => 0, 'different_address' => 0, 'cannot_compare' => 0, 'unreadable' => 0, 'files_involved' => 0, 'samples' => ['different_address' => [], 'same_address' => []]];
+        $involved = [];
+
+        foreach ($this->clashGroups($agencyId) as $g) {
+            $out['groups']++;
+            $out[$g['verdict']]++;
+            foreach ($g['file_ids'] as $i) {
+                $involved[$i] = true;
+            }
+            if (isset($out['samples'][$g['verdict']]) && count($out['samples'][$g['verdict']]) < $samples) {
+                $out['samples'][$g['verdict']][] = ['advert' => $g['canonical'], 'files' => array_map(fn ($i) => ['file' => $i, 'address' => isset($g['tps'][$i]) ? $g['tps'][$i]->displayAddress() : '?'], $g['file_ids'])];
+            }
+        }
+        $out['files_involved'] = count($involved);
+
+        return $out;
+    }
+
+    /**
+     * Every advert held on more than one property file of the agency, with the verdict of comparing the files'
+     * addresses (the worst pair decides): same_address | cannot_compare | possible | different_address | unreadable.
+     * Shared by the A4 report and the apply step so the two can never disagree about a group.
+     *
+     * @return \Generator<int, array{canonical:string, file_ids:list<int>, verdict:string, tps:array<int,TrackedProperty>}>
+     */
+    public function clashGroups(int $agencyId): \Generator
+    {
         $groups = DB::table('tracked_property_external_refs as r')
             ->where('r.agency_id', $agencyId)->whereNull('r.deleted_at')->whereNotNull('r.canonical_ref')
             ->select('r.canonical_ref', DB::raw('COUNT(DISTINCT r.tracked_property_id) as files'))
             ->groupBy('r.canonical_ref')->havingRaw('COUNT(DISTINCT r.tracked_property_id) > 1')->get();
-
-        $out = ['groups' => $groups->count(), 'same_address' => 0, 'possible' => 0, 'different_address' => 0, 'cannot_compare' => 0, 'unreadable' => 0, 'files_involved' => 0, 'samples' => ['different_address' => [], 'same_address' => []]];
         $settings = AddressMatchSetting::forAgency($agencyId);
-        $involved = [];
+        $rank = ['same_address' => 0, 'cannot_compare' => 1, 'possible' => 2, 'different_address' => 3, 'unreadable' => 4];
 
         foreach ($groups->pluck('canonical_ref')->chunk(300) as $chunk) {
             $rows = DB::table('tracked_property_external_refs')->where('agency_id', $agencyId)->whereNull('deleted_at')
@@ -150,23 +175,13 @@ final class PropertyIdentityReconciler
                         $tier === AddressMatchScorer::TIER_POSSIBLE || $tier === AddressMatchScorer::TIER_STREET_ONLY       => 'possible',
                         default                                                                                             => 'cannot_compare', // one or both files hold no address to compare
                     };
-                    $rank = ['same_address' => 0, 'cannot_compare' => 1, 'possible' => 2, 'different_address' => 3, 'unreadable' => 4];
                     if ($rank[$this_] > $rank[$worst]) {
                         $worst = $this_;
                     }
                 }
-                $out[$worst]++;
-                foreach ($ids as $i) {
-                    $involved[$i] = true;
-                }
-                if (isset($out['samples'][$worst]) && count($out['samples'][$worst]) < $samples) {
-                    $out['samples'][$worst][] = ['advert' => $canonical, 'files' => $ids->map(fn ($i) => ['file' => $i, 'address' => isset($tps[$i]) ? $tps[$i]->displayAddress() : '?'])->all()];
-                }
+                yield ['canonical' => (string) $canonical, 'file_ids' => $ids->map(fn ($i) => (int) $i)->all(), 'verdict' => $worst, 'tps' => $tps->all()];
             }
         }
-        $out['files_involved'] = count($involved);
-
-        return $out;
     }
 
     // ---- 2b. duplicate own-stock rows -------------------------------------------------------------------------------
@@ -205,28 +220,7 @@ final class PropertyIdentityReconciler
         $out = ['files_with_many_adverts' => $candidates->count(), 'looks_like_relist_history' => 0, 'over_merged' => 0, 'adverts_on_over_merged' => 0, 'proposed_new_files' => 0, 'file_ids' => [], 'samples' => []];
 
         foreach ($candidates as $c) {
-            $rows = DB::table('prospecting_listings')->where('agency_id', $agencyId)->whereNull('deleted_at')->where('tracked_property_id', $c->tracked_property_id)
-                ->get(['id', 'portal_source', 'portal_ref', 'canonical_ref', 'address', 'suburb']);
-
-            $groups = [];
-            $units = [];
-            $numbers = [];
-            foreach ($rows as $r) {
-                $addr = trim((string) $r->address);
-                if ($addr === '' || strcasecmp($addr, 'Address not available') === 0) {
-                    $groups['(no address)'][] = $r;
-                    continue;
-                }
-                $p = $this->parser->parse(['address' => $addr, 'suburb' => $r->suburb]);
-                $key = trim(($p['street_number'] ?? '') . '|' . ($p['street_core'] ?? '') . '|' . ($p['unit_number'] ?? ''), '|');
-                $groups[$key !== '' ? $key : mb_strtolower($addr)][] = $r;
-                if (! empty($p['unit_number'])) {
-                    $units[$p['unit_number']] = true;
-                }
-                if (! empty($p['street_number'])) {
-                    $numbers[$p['street_number']] = true;
-                }
-            }
+            ['groups' => $groups, 'units' => $units, 'numbers' => $numbers] = $this->groupFileAdverts($agencyId, (int) $c->tracked_property_id);
             $real = array_filter($groups, fn ($k) => $k !== '(no address)', ARRAY_FILTER_USE_KEY);
             $overMerged = count($units) >= 2 || count($numbers) >= 2 || (count($real) >= 2 && $c->n >= 10);
 
@@ -250,6 +244,40 @@ final class PropertyIdentityReconciler
         usort($out['samples'], fn ($a, $b) => $b['adverts'] <=> $a['adverts']);
 
         return $out;
+    }
+
+    /**
+     * The adverts of one property file, grouped by the address each one carries (street number | street | unit). The
+     * group "(no address)" holds adverts that show no address. Shared by the A4 report and the split step.
+     *
+     * @return array{groups: array<string, list<object>>, units: array<string,bool>, numbers: array<string,bool>}
+     */
+    public function groupFileAdverts(int $agencyId, int $trackedPropertyId): array
+    {
+        $rows = DB::table('prospecting_listings')->where('agency_id', $agencyId)->whereNull('deleted_at')->where('tracked_property_id', $trackedPropertyId)
+            ->orderBy('id')->get(['id', 'portal_source', 'portal_ref', 'canonical_ref', 'address', 'suburb']);
+
+        $groups = [];
+        $units = [];
+        $numbers = [];
+        foreach ($rows as $r) {
+            $addr = trim((string) $r->address);
+            if ($addr === '' || strcasecmp($addr, 'Address not available') === 0) {
+                $groups['(no address)'][] = $r;
+                continue;
+            }
+            $p = $this->parser->parse(['address' => $addr, 'suburb' => $r->suburb]);
+            $key = trim(($p['street_number'] ?? '') . '|' . ($p['street_core'] ?? '') . '|' . ($p['unit_number'] ?? ''), '|');
+            $groups[$key !== '' ? $key : mb_strtolower($addr)][] = $r;
+            if (! empty($p['unit_number'])) {
+                $units[$p['unit_number']] = true;
+            }
+            if (! empty($p['street_number'])) {
+                $numbers[$p['street_number']] = true;
+            }
+        }
+
+        return ['groups' => $groups, 'units' => $units, 'numbers' => $numbers];
     }
 
     private function propertyLabel(Property $p): string
