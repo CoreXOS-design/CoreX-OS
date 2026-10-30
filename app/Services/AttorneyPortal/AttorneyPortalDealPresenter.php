@@ -45,12 +45,7 @@ class AttorneyPortalDealPresenter
             'visible_until'   => $until,
             'latest_document' => $filed ? Carbon::parse($filed) : null,
             'document_count'  => $docs->count(),
-            'files'           => $docs->map(fn ($d) => [
-                'id'    => (int) $d->id,
-                'type'  => $d->documentType?->label ?: 'Document',
-                'name'  => (string) $d->original_name,
-                'filed' => $d->filed_at ? Carbon::parse($d->filed_at) : null,
-            ])->sortByDesc(fn ($f) => $f['filed']?->timestamp ?? 0)->values()->all(),
+            'files'           => $this->files($deal, $docs),
             'roles'           => $roles,
         ];
     }
@@ -153,6 +148,40 @@ class AttorneyPortalDealPresenter
     }
 
     /** Buyer/seller names: the deal's own parties first, the captured name text as the fallback. */
+    /**
+     * The document lines of one deal: type, name, date, whether it can open in the browser, and WHOSE it is.
+     * "Belongs to" reads the document's own contact link (document_contacts, written when it was filed to the deal's
+     * parties) but only for people who are seller or buyer on THIS deal - never another contact the file touches.
+     * A document tied to no party of the deal is "Deal". Grouped seller side, buyer side, then deal; newest first inside.
+     */
+    private function files(Deal $deal, $docs): array
+    {
+        $side = [];   // contact id => 'seller' | 'buyer'
+        foreach (DB::table('deal_contacts')->where('deal_id', $deal->id)->whereIn('role', ['seller', 'co_seller', 'buyer', 'co_buyer'])->get(['contact_id', 'role']) as $r) {
+            $side[(int) $r->contact_id] ??= str_contains($r->role, 'seller') ? 'seller' : 'buyer';
+        }
+        $names = $side === [] ? collect() : Contact::withoutGlobalScopes()->where('agency_id', $deal->agency_id)->whereIn('id', array_keys($side))->get()
+            ->mapWithKeys(fn ($c) => [(int) $c->id => trim((string) ($c->full_name ?: ($c->first_name . ' ' . $c->last_name)))]);
+        $links = $side === [] || $docs->isEmpty() ? collect() : DB::table('document_contacts')
+            ->whereIn('document_id', $docs->pluck('id'))->whereIn('contact_id', array_keys($side))->get(['document_id', 'contact_id'])->groupBy('document_id');
+
+        return $docs->map(function ($d) use ($side, $names, $links) {
+            $who = collect($links->get($d->id, []))->map(fn ($l) => ['side' => $side[(int) $l->contact_id], 'name' => $names->get((int) $l->contact_id, '')])
+                ->filter(fn ($w) => $w['name'] !== '')->sortBy(fn ($w) => $w['side'] === 'seller' ? 0 : 1)->values();
+            $rank = $who->isEmpty() ? 2 : ($who->contains(fn ($w) => $w['side'] === 'seller') ? 0 : 1);
+
+            return [
+                'id'    => (int) $d->id,
+                'type'  => $d->documentType?->label ?: 'Document',
+                'name'  => (string) $d->original_name,
+                'filed' => $d->filed_at ? Carbon::parse($d->filed_at) : null,
+                'view'  => $d->inlineMimeType() !== null,   // PDF / image: can open in the browser; anything else is download only
+                'whose' => $who->isEmpty() ? 'Deal' : $who->map(fn ($w) => ($w['side'] === 'seller' ? 'Seller' : 'Buyer') . ' · ' . $w['name'])->implode(', '),
+                'rank'  => $rank,
+            ];
+        })->sort(fn ($a, $b) => [$a['rank'], -($b['filed']?->timestamp ?? 0)] <=> [$b['rank'], -($a['filed']?->timestamp ?? 0)])->values()->all();
+    }
+
     private function partyNames(Deal $deal, string $role): string
     {
         $roles = $role === 'buyer' ? ['buyer', 'co_buyer'] : ['seller', 'co_seller'];

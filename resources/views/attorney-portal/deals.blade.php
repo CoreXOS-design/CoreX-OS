@@ -41,9 +41,13 @@
     tr.deal.open .ap-chev { transform: rotate(90deg); }
     .ap-grid .pill { font-size: .72rem; padding: 1px 8px; }
     tr.files > td { white-space: normal; background: #f9fafb; padding: 6px 8px 10px 40px; }
-    table.ap-files { table-layout: fixed; width: 100%; max-width: 900px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+    table.ap-files { table-layout: fixed; width: 100%; max-width: 1100px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
     .ap-files td, .ap-files th { padding: 3px 8px; font-size: .82rem; }
-    .ap-files td.dl { text-align: right; width: 6.5rem; }
+    .ap-files th { text-align: left; font-weight: 600; color: var(--muted, #6b7280); border-bottom: 1px solid var(--line); }
+    .ap-files th.sortable { cursor: pointer; }
+    .ap-files td, .ap-files th { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ap-files td.dl { text-align: right; width: 9.5rem; white-space: nowrap; }
+    .ap-files a.dl + a.dl { margin-left: .9rem; }
     .ap-files a.dl { color: var(--brand); font-weight: 600; text-decoration: none; }
     .ap-note { font-size: .8rem; color: var(--muted); margin: 0 0 4px; }
     .ap-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; font-size: .85rem; color: var(--muted); }
@@ -117,14 +121,16 @@
                             <p class="ap-note" style="margin:0;">No documents have been shared on this deal yet. You will get an email when there are some.</p>
                         @else
                             <table class="ap-files">
-                                <colgroup><col style="width:190px"><col><col style="width:110px"><col style="width:104px"></colgroup>
+                                <colgroup><col style="width:170px"><col><col style="width:250px"><col style="width:110px"><col style="width:152px"></colgroup>
+                                <thead><tr><th>Document</th><th>File name</th><th class="sortable" data-ap-sort title="Sort by who the document belongs to">Belongs to ↕</th><th>Date filed</th><th></th></tr></thead>
                                 <tbody>
                                 @foreach($r['files'] as $f)
-                                    <tr>
+                                    <tr data-rank="{{ $f['rank'] }}" data-who="{{ strtolower($f['whose']) }}">
                                         <td title="{{ $f['type'] }}">{{ $f['type'] }}</td>
                                         <td title="{{ $f['name'] }}">{{ $f['name'] }}</td>
+                                        <td title="{{ $f['whose'] }}">{{ $f['whose'] }}</td>
                                         <td class="muted">{{ $f['filed'] ? $f['filed']->format('j M Y') : '—' }}</td>
-                                        <td class="dl"><a class="dl" href="{{ route('attorney.document', [$r['id'], $f['id'], 'download']) }}" data-ap-download>Download</a></td>
+                                        <td class="dl">@if($f['view'])<a class="dl" href="{{ route('attorney.document', [$r['id'], $f['id'], 'view']) }}" target="_blank" rel="noopener" data-ap-view>View</a>@endif<a class="dl" href="{{ route('attorney.document', [$r['id'], $f['id'], 'download']) }}" data-ap-download>Download</a></td>
                                     </tr>
                                 @endforeach
                                 </tbody>
@@ -159,6 +165,17 @@
                 row.setAttribute('aria-expanded', open ? 'true' : 'false');
             }
             grid.addEventListener('click', function (e) {
+                var th = e.target.closest('th[data-ap-sort]');
+                if (th) {   // sort this deal's documents by who they belong to (toggles A-Z / Z-A)
+                    var body = th.closest('table').tBodies[0];
+                    var dir = th.getAttribute('data-dir') === 'asc' ? 'desc' : 'asc';
+                    th.setAttribute('data-dir', dir);
+                    Array.prototype.slice.call(body.rows).sort(function (a, b) {
+                        var x = a.getAttribute('data-who'), y = b.getAttribute('data-who');
+                        return (x < y ? -1 : x > y ? 1 : 0) * (dir === 'asc' ? 1 : -1);
+                    }).forEach(function (r) { body.appendChild(r); });
+                    return;
+                }
                 if (e.target.closest('a')) return;
                 var row = e.target.closest('tr.deal');
                 if (row) toggle(row);
