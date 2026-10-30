@@ -44,12 +44,12 @@ final class DeskMenuTest extends DeskTestCase
         $this->assertStringContainsString('>Desk settings</a>', $panel);
     }
 
-    public function test_an_agency_admin_without_desk_support_sees_the_log_and_the_settings_but_not_the_console(): void
+    public function test_a_default_agency_admin_sees_get_help_the_console_the_log_and_the_settings(): void
     {
         $panel = $this->deskPanel($this->menu($this->agentIn($this->agencyA, 'admin')));
 
         $this->assertStringContainsString('>Get help</button>', $panel);
-        $this->assertStringNotContainsString('>Desk console</a>', $panel);
+        $this->assertStringContainsString('>Desk console</a>', $panel);
         $this->assertStringContainsString('>Desk sessions</a>', $panel, 'their own agency\'s audit, as before');
         $this->assertStringContainsString('>Desk settings</a>', $panel, 'they may edit the agency\'s settings');
     }
@@ -69,7 +69,7 @@ final class DeskMenuTest extends DeskTestCase
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('ordinaryRoles')]
-    public function test_an_agent_and_a_branch_manager_see_desk_under_tools_with_only_get_help(string $role): void
+    public function test_an_agent_and_a_branch_manager_see_desk_under_tools_with_get_help_the_console_and_the_log(string $role): void
     {
         $html = $this->menu($this->agentIn($this->agencyA, $role));
         $panel = $this->deskPanel($html);
@@ -78,9 +78,18 @@ final class DeskMenuTest extends DeskTestCase
         $this->assertLessThan(strpos($html, 'Admin</div>') ?: PHP_INT_MAX, strpos($html, "push('desk')"), 'Desk sits in Tools, before the Admin label');
         $this->assertStringContainsString('>Get help</button>', $panel);
         $this->assertStringContainsString('data-desk-open', $panel);
+        $this->assertStringContainsString('>Desk console</a>', $panel);
+        $this->assertStringContainsString('>Desk sessions</a>', $panel);
+        $this->assertStringNotContainsString('>Desk settings</a>', $panel, 'only those who may edit the agency settings');
+    }
+
+    public function test_a_viewer_sees_get_help_only(): void
+    {
+        $panel = $this->deskPanel($this->menu($this->agentIn($this->agencyA, 'viewer')));
+
+        $this->assertStringContainsString('>Get help</button>', $panel);
         $this->assertStringNotContainsString('>Desk console</a>', $panel);
         $this->assertStringNotContainsString('>Desk sessions</a>', $panel);
-        $this->assertStringNotContainsString('>Desk settings</a>', $panel);
     }
 
     public function test_a_role_without_desk_request_help_sees_no_desk_group(): void
@@ -99,8 +108,9 @@ final class DeskMenuTest extends DeskTestCase
         $this->agencyA->update(['desk_enabled' => false]);
 
         $this->assertStringNotContainsString("push('desk')", $this->menu($this->agentIn($this->agencyA, 'agent')));
+        $this->assertStringNotContainsString("push('desk')", $this->menu($this->agentIn($this->agencyA, 'viewer')));
 
-        $panel = $this->deskPanel($this->menu($this->adminWithSupport($this->agencyA)));
+        $panel = $this->deskPanel($this->menu($this->agentIn($this->agencyA, 'admin')));
         $this->assertStringNotContainsString('>Get help</button>', $panel);
         $this->assertStringNotContainsString('>Desk console</a>', $panel);
         $this->assertStringContainsString('>Desk sessions</a>', $panel);

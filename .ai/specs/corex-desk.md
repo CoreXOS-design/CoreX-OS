@@ -361,8 +361,8 @@ Johan: a permanent audit so claims can be proven or dismissed.
   When off, no session can be started for that agency and Get help shows the phone-support message.
 - Role Manager keys (`config/corex-permissions.php`, synced by `corex:sync-permissions`):
   - `desk.request_help` — default for every role.
-  - `desk.support` — granted to the owner role; available per agency so an agency admin can run Desk for their own agents.
-    An agency admin sees **only own-agency** sessions; cross-agency only for owner roles.
+  - `desk.support` — owner roles, and (since 30 Oct 2026) admin, office admin, branch manager and agent by default; not the viewer. Editable per agency in
+    Role Manager. A non-owner supporter sees **only own-agency** sessions; cross-agency only for owner roles. See section 12, "Who can give support".
 - Console route group: `permission:desk.support`.
 
 ## 7. Technical design
@@ -604,19 +604,34 @@ agency's `desk_enabled` — no role names, no dependency on the Admin section:
 | Menu item | Goes to | Visible to |
 |---|---|---|
 | **Get help** | opens the Get help screen (same as the top-bar button; any `[data-desk-open]` button) | `desk.request_help` holders, while the agency has Desk switched on |
-| **Desk console** | `/corex/desk` (`corex.desk.console`) | `desk.support` holders (owner roles; an agency's role only if its admin granted it), while the agency has Desk switched on |
-| **Desk sessions** | `/corex/desk-log` (`corex.desk.log.index` / `.show`) — the audit list, moved out of Compliance › Reports & Logs | `desk.support` holders, and an agency admin (`manage_users`) for their own agency |
+| **Desk console** | `/corex/desk` (`corex.desk.console`) | `desk.support` holders (by default admin, office admin, branch manager and agent, plus owner roles — see "Who can give support" below), while the agency has Desk switched on |
+| **Desk sessions** | `/corex/desk-log` (`corex.desk.log.index` / `.show`) — the audit list, moved out of Compliance › Reports & Logs | `desk.support` holders and an agency admin (`manage_users`), for their own agency; with Desk switched off, `manage_users` only |
 | **Desk settings** | Company Settings › CoreX Desk tab (`admin.company-settings#desk`) — the agency switch and the take-over idle limit | anyone who may edit settings (`access_settings` / `manage_performance_settings`) |
 
 The group shows when at least one child does. With the agency's Desk switched off, Get help and the console disappear (Get help in the top bar then
-shows the phone-support message); Desk sessions and Desk settings stay for those who hold their permission, so an admin can read the history and
-switch Desk back on. `desk.support` no longer opens the Admin section. Opening any
+shows the phone-support message); Desk sessions (for `manage_users`, an agency admin) and Desk settings (for those who may edit settings) stay, so an admin can read the history and
+switch Desk back on; an agent or branch manager then sees no Desk group at all. `desk.support` no longer opens the Admin section. Opening any
 `corex.desk.*` page opens the Desk panel. Other places:
 - **Get help** — top bar of every CoreX page (sidebar top row, left of the Ellie icon; both layouts, My Portal included).
 - **Extension** — the CoreX Chrome extension popup › *CoreX Desk* card (phase 3, section 13).
 - **Take over** — console › *Request control* (needs `desk.control`); the agent answers in the red bar (CoreX page) or the bar on the shared tab.
 - **Agency switch** — Company Settings › *CoreX Desk* tab, and the Setup Wizard's last step (*Access & finish*); both post to `corex.settings.desk`.
 - Removed: the *Desk sessions* tab of Compliance › Reports & Logs, and the old *CoreX Desk* item in the Settings menu.
+
+### Who can give support (default grants, Johan 30 Oct 2026)
+
+Any colleague may offer support, not only CoreX staff. Default grants (`config/corex-permissions.php`, applied by `corex:sync-permissions --merge-defaults`
+as part of `deploy:sync-reference-data`; it only adds missing rows, so an agency's Role Manager changes are kept):
+
+| Role | `desk.request_help` (ask) | `desk.support` (see a colleague's window) | `desk.control` (ask to take control) |
+|---|---|---|---|
+| Owner roles | yes | yes (every agency) | yes |
+| Admin, Office admin, Branch manager, Agent | yes | yes (own agency only) | yes |
+| Viewer | yes | no | no |
+
+Unchanged rules: a supporter only ever reaches sessions of their **own agency** (owner roles: every agency); control still needs the asking agent's **Allow
+each time** (14b); everything is audited. An agency can still remove either permission from any role in Role Manager. Before this ruling `desk.support` and
+`desk.control` were excluded from the admin default and held by owner roles only, so no one in an agency could run the console.
 
 ## 13. Phase 3 — extension tabs (built 27 Oct 2026, QA1)
 

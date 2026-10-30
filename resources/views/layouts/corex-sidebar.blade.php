@@ -2454,7 +2454,7 @@
         @endif
 
         {{-- Desk (slide-panel group, TOOLS) - CoreX Desk: Get help for everyone who holds desk.request_help, the support console (desk.support),
-             the sessions log (desk.support, or manage_users for an agency admin's own agency) and the agency's setting (manage_performance_settings).
+             the sessions log (desk.support, or manage_users for an agency admin's own agency; with Desk switched off only manage_users) and the agency's setting (manage_performance_settings).
              Johan's ruling 30 Oct 2026 (it was under Admin, which agents and branch managers never see). Gated only on those permissions and the
              agency's desk_enabled: Get help and the console need Desk switched on; the log and the settings link stay so an admin can read the history
              and switch it back on. The group shows when any child does. Spec .ai/specs/corex-desk.md section 12. --}}
@@ -2462,7 +2462,7 @@
             $deskOn = $user && app(\App\Services\Desk\DeskSessionService::class)->agencyAllowsDesk($user->effectiveAgencyId());
             $deskHelp = $deskOn && $user->hasPermission('desk.request_help');
             $deskConsole = $deskOn && $user->hasPermission('desk.support');
-            $deskLog = $user && $user->hasAnyPermission(['desk.support', 'manage_users']);
+            $deskLog = $user && $user->hasAnyPermission(['desk.support', 'manage_users']) && ($deskOn || $user->hasPermission('manage_users'));
             $deskSettings = $user && $user->hasPermission('manage_performance_settings');
         @endphp
         @if($deskHelp || $deskConsole || $deskLog || $deskSettings)
@@ -2496,7 +2496,9 @@
 
                 {{-- The audit of every session: an agency admin reads their own agency's, owner roles every agency's --}}
                 @if($user && $user->hasAnyPermission(['desk.support', 'manage_users']))
+                @if($deskLog)
                 <a href="{{ route('corex.desk.log.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.desk.log.*') ? 'active' : '' }}">Desk sessions</a>
+                @endif
                 @endif
 
                 {{-- The agency's own switch + take-over idle limit live in Company Settings --}}

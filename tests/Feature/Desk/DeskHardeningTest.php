@@ -147,12 +147,12 @@ final class DeskHardeningTest extends DeskTestCase
         $this->assertStringContainsString('no-store', (string) $res->headers->get('Cache-Control'));
 
         $this->actingAs($other)->postJson($url)->assertNotFound();                                   // another supporter in the same session
-        $this->actingAs($agent)->postJson($url)->assertForbidden();                                  // the agent has no desk.support: not their endpoint
+        $this->actingAs($agent)->postJson($url)->assertNotFound();                                   // the agent holds desk.support now but never for their own session: not their endpoint
         $this->actingAs($this->owner())->postJson($url)->assertNotFound();                            // an owner who never joined this session
 
         // no desk.control, no key - even for the person the control was granted to
-        $admin = $this->adminWithSupport($this->agencyA);
-        $this->actingAs($admin)->postJson($url)->assertForbidden();
+        $viewOnly = $this->viewOnlySupport($this->agencyA);   // desk.support without desk.control
+        $this->actingAs($viewOnly)->postJson($url)->assertForbidden();
 
         $this->desk->endControlBySupport($s->fresh(), $support);
         $this->actingAs($support)->postJson($url)->assertNotFound();                                 // control ended: no key
