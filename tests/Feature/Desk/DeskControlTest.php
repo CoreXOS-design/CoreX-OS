@@ -214,7 +214,7 @@ final class DeskControlTest extends DeskTestCase
     {
         [$s, $agent, $support] = $this->live();
 
-        $viewOnly = $this->adminWithSupport($this->agencyA);                  // desk.support but not desk.control
+        $viewOnly = $this->viewOnlySupport($this->agencyA);                   // desk.support but not desk.control
         $this->assertFalse($viewOnly->hasPermission('desk.control'));
         $this->expectException(DeskControlException::class);
         try {
@@ -372,8 +372,8 @@ final class DeskControlTest extends DeskTestCase
         [$s, $agent, $support] = $this->live();
 
         $this->actingAs($this->agentIn($this->agencyA))->postJson("/api/v1/desk/sessions/{$s->id}/control/respond", ['allow' => true])->assertNotFound();   // a colleague
-        $this->actingAs($agent)->postJson("/corex/desk/sessions/{$s->id}/control/request", ['tab' => 'main'])->assertForbidden();                          // the agent is not support
-        $this->actingAs($this->adminWithSupport($this->agencyA))->postJson("/corex/desk/sessions/{$s->id}/control/request", ['tab' => 'main'])->assertForbidden();   // view-only support
+        $this->actingAs($agent)->postJson("/corex/desk/sessions/{$s->id}/control/request", ['tab' => 'main'])->assertNotFound();                             // the asking agent holds support now (30 Oct 2026) but never for their own session
+        $this->actingAs($this->viewOnlySupport($this->agencyA))->postJson("/corex/desk/sessions/{$s->id}/control/request", ['tab' => 'main'])->assertForbidden();   // view-only support
         $this->actingAs($this->owner())->postJson("/corex/desk/sessions/{$s->id}/control/request", ['tab' => 'main'])->assertStatus(409);                   // an owner who did not join
 
         // desk.control granted to the agency's admin through Role Manager: still only their own agency's sessions.
@@ -385,13 +385,18 @@ final class DeskControlTest extends DeskTestCase
         $this->actingAs($adminB)->postJson("/corex/desk/sessions/{$s->id}/control/request", ['tab' => 'main'])->assertNotFound();   // another agency's session
     }
 
-    public function test_a_default_admin_does_not_get_desk_control_but_owners_and_granted_roles_do(): void
+    public function test_admin_branch_manager_agent_and_office_admin_get_desk_control_by_default_the_viewer_does_not(): void
     {
-        $this->assertFalse($this->agentIn($this->agencyA, 'admin')->hasPermission('desk.control'));
-        $this->assertFalse($this->agentIn($this->agencyA, 'agent')->hasPermission('desk.control'));
+        foreach (['admin', 'branch_manager', 'agent', 'office_admin'] as $role) {
+            $this->assertTrue($this->agentIn($this->agencyA, $role)->hasPermission('desk.control'), $role);
+            $this->assertTrue($this->agentIn($this->agencyA, $role)->hasPermission('desk.support'), $role);
+        }
+        $this->assertFalse($this->agentIn($this->agencyA, 'viewer')->hasPermission('desk.control'));
+        $this->assertFalse($this->agentIn($this->agencyA, 'viewer')->hasPermission('desk.support'));
         $this->assertTrue($this->owner()->hasPermission('desk.control'));
         $this->assertContains('desk.control', array_column(config('corex-permissions.permissions'), 'key'));
-        $this->assertContains('desk.control', config('corex-permissions.role_defaults.admin.exclude'));
+        $this->assertNotContains('desk.control', config('corex-permissions.role_defaults.admin.exclude'));
+        $this->assertNotContains('desk.support', config('corex-permissions.role_defaults.admin.exclude'));
     }
 
     public function test_the_extension_token_flow_for_a_shared_tab(): void

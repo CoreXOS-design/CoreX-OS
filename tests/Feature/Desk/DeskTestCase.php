@@ -69,6 +69,15 @@ abstract class DeskTestCase extends TestCase
         return User::factory()->create(['agency_id' => null, 'role' => 'super_admin', 'is_active' => true]);
     }
 
+    /** A viewer given desk.support only (no desk.control): a view-only supporter. The viewer has neither by default. */
+    protected function viewOnlySupport(Agency $agency): User
+    {
+        RolePermission::firstOrCreate(['role' => 'viewer', 'permission_key' => 'desk.support', 'agency_id' => $agency->id], ['scope' => 'all']);
+        PermissionService::clearCache();
+
+        return $this->agentIn($agency, 'viewer');
+    }
+
     /** An agency admin who has been granted desk.support in Role Manager (admin does not get it by default). */
     protected function adminWithSupport(Agency $agency): User
     {
