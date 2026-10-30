@@ -85,7 +85,7 @@ if [[ "$ENV_NAME" == "staging" ]]; then
     EXPECT_APP_ENV="staging"
 else
     DIR="/corex"
-    BRANCH="main"
+    BRANCH="Prod"   # live checkout tracks origin/Prod (verified 2026-09-04), not main
     DB_NAME_DEFAULT="hfc_prod"
     EXPECT_APP_ENV="production"
 fi

@@ -590,25 +590,25 @@ final class AiTemplateMultiTypeAndMustIncludeTest extends TestCase
      * version is now checked for words on top of each other like any design: the retry is told which two clash; a version that
      * still clashes is dropped and that type uses the main design.
      */
-    public function test_a_land_version_with_two_facts_on_top_of_each_other_is_retried_and_kept_once_they_are_apart(): void
+    public function test_a_land_version_with_two_facts_on_top_of_each_other_is_pulled_apart_without_a_retry(): void
     {
+        // Johan 2026-10-30: the checker now moves clashing boxes apart itself, so no retry is spent on it.
         [$agency, $user] = $this->agencyWithUser();
         $this->seedTypes($agency, self::TYPES);
         $fake = $this->smartAi(variant: function (string $type, int $forOption, array $default, int $round) {
-            return $this->landWithPlotFacts($default, $round === 1 ? 40 : 360);
+            return $this->landWithPlotFacts($default, 40);
         });
         $this->actingAs($user);
 
         $gen = $this->builder()->generate($user, 'x', 'facebook', null, null, 'auto', false, ['Vacant Land / Plot']);
 
-        $this->assertSame(1 + 1 + 1, $fake->calls(), 'defaults + the type + one retry');
-        $retry = collect($fake->requests)->last()['user'];
-        $this->assertStringContainsString('(erf_size at x 40, y 590) and Element', $retry);
-        $this->assertStringContainsString('(price_per_m2 at x 40, y 590) sit on top of each other', $retry);
+        $this->assertSame(1 + 1, $fake->calls(), 'defaults + the type, no retry');
         foreach ($gen->options_json as $opt) {
             $land = collect($opt['variants']['Vacant Land / Plot']['layout']['elements'])->keyBy('field');
-            $this->assertSame(40, (int) $land['erf_size']['x']);
-            $this->assertSame(360, (int) $land['price_per_m2']['x'], 'the kept version is the one with the two facts side by side');
+            $e = $land['erf_size'];
+            $p = $land['price_per_m2'];
+            $apart = $e['x'] + $e['w'] <= $p['x'] || $p['x'] + $p['w'] <= $e['x'] || $e['y'] + $e['h'] <= $p['y'] || $p['y'] + $p['h'] <= $e['y'];
+            $this->assertTrue($apart, 'the two facts no longer share space');
         }
     }
 

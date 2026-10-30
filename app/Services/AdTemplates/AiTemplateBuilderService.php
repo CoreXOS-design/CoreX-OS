@@ -936,7 +936,8 @@ LISTING FACTS ({$this->factList($forbidden)}) are filled in per listing. A fact 
 - Which facts exist depends on the listing: rent_per_month and available_from only on rentals; levy, rates_taxes, erf_size and price_per_m2 only on sales; pet_friendly only when pets are allowed; {$showDayNote}auction_date and auction_venue only for auction listings. A template meant for every listing should not depend on any one of them; a template for one kind of listing (e.g. a rental look) can lean on that kind's facts.
 {$pillsQrNote}
 DESIGN RULES
-1. Include at least one property photo ({$photoWords}), usually big. Photos are cropped to their box, so give them sensible proportions.
+1. Include at least one property photo ({$photoWords}), usually big. Photos are cropped to their box, so give them sensible proportions. Exception: when the idea is about the AGENT (advertise an agent, a "property wanted" ad), the agent's own photo (agent_avatar, big) may be the picture instead.
+   Keep every text box clear of every other: stack lines with a gap and never place two text boxes on the same spot.
 2. Real values are filled in later. Leave room: a price such as "R 12 500 000" needs about 14 characters of width, a title up to 40 characters, an address up to 50.
 3. Headlines look best at 28+ and the price at 40+; text must be easy to read on a phone (minimum size is in HARD LIMITS).
 4. Put a gradient or colour block under any text that sits on a photo, or give the text a pill - text straight on a photo is rejected unless shadowOn is true. Contrast rules are in HARD LIMITS.
