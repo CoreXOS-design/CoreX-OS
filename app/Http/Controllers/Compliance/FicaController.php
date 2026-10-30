@@ -661,6 +661,9 @@ class FicaController extends Controller
         $reportPath = app(\App\Services\Compliance\FicaCompletionReportService::class)->generate($submission);
         if ($reportPath) {
             $submission->update(['pdf_path' => $reportPath]);
+            // The summary report is a client document too: file it to the contact (typed FICA) so a deal's attorney
+            // sees it where the distribution matrix ticks FICA for them. Never blocks the approval.
+            $this->fileCompletionReportToContact($submission->fresh());
         }
 
         Log::info('FICA compliance officer approved', [
@@ -1477,6 +1480,48 @@ class FicaController extends Controller
                 'filed_by'      => Auth::id(),
                 'filed_at'      => now()->toDateTimeString(),
             ]);
+        }
+    }
+
+    /**
+     * The frozen FICA completion report, filed as a Document (type FICA) on the contact. The attorney portal reaches
+     * documents filed to a deal's own seller/buyer, narrowed by the distribution matrix, so this is what makes the
+     * report visible to the attorney (and POPIA-bound: only where the matrix ticks FICA for their role). Once per
+     * submission; failure is logged and never blocks the approval.
+     */
+    private function fileCompletionReportToContact(FicaSubmission $submission): void
+    {
+        $contact = $submission->contact;
+        if (! $contact || ! $submission->pdf_path || ! Storage::disk('local')->exists($submission->pdf_path)) {
+            return;
+        }
+        $typeId = DocumentType::where('slug', 'fica')->value('id');
+        if (! $typeId || Document::withoutGlobalScopes()->where('source_type', 'fica_report')->where('source_id', $submission->id)->exists()) {
+            return;
+        }
+
+        try {
+            $local = Storage::disk('local');
+            $bytes = $local->get($submission->pdf_path);
+            $cipher = app(\App\Services\Security\MediaCipher::class);
+            $path = "contact-documents/{$contact->id}/" . Str::uuid() . '.pdf';
+            $local->put($path, $cipher->enabled() ? $cipher->encrypt($bytes) : $bytes);
+
+            $document = Document::create([
+                'agency_id'        => $submission->agency_id,
+                'original_name'    => 'FICA completion report - ' . trim((string) $contact->full_name) . '.pdf',
+                'storage_path'     => $path,
+                'disk'             => 'local',
+                'mime_type'        => 'application/pdf',
+                'size'             => strlen($bytes),
+                'document_type_id' => $typeId,
+                'source_type'      => 'fica_report',
+                'source_id'        => $submission->id,
+                'uploaded_by'      => Auth::id(),
+            ]);
+            $document->contacts()->syncWithoutDetaching([$contact->id]);
+        } catch (\Throwable $e) {
+            Log::warning('FICA completion report could not be filed to the contact', ['submission_id' => $submission->id, 'error' => $e->getMessage()]);
         }
     }
 

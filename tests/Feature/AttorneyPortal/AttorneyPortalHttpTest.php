@@ -203,6 +203,22 @@ class AttorneyPortalHttpTest extends TestCase
         $this->assertMatchesRegularExpression('/<td>2<\/td>/', $page->getContent());
     }
 
+    public function test_a_document_whose_file_is_missing_is_a_404_and_is_not_logged_as_viewed(): void
+    {
+        $w = $this->world();
+        $this->matrix($w['agency']->id, 'otp', ['transfer_attorney']);
+        $d = $this->deal($w, $this->transferTo($w, $w['a']));
+        $otp = $this->filedDoc($d, 'otp');
+        \Illuminate\Support\Facades\Storage::disk('local')->delete($otp->storage_path);   // row is there, file is not
+
+        [, $cookie] = $this->signIn($w['a'], $w['agent']);
+        $this->withUnencryptedCookies($this->jar($cookie))->get(route('attorney.document', [$d['deal']->id, $otp->id, 'view']))->assertNotFound();
+
+        $events = \App\Models\AttorneyPortalLog::where('document_id', $otp->id)->get();
+        $this->assertFalse($events->contains(fn ($e) => in_array($e->event, ['document_viewed', 'document_downloaded'], true)), 'nothing was delivered, so nothing is logged as delivered');
+        $this->assertTrue($events->contains(fn ($e) => $e->event === 'refused'));
+    }
+
     public function test_each_document_line_says_whose_it_is_seller_side_then_buyer_side_then_deal(): void
     {
         $w = $this->world();

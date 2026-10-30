@@ -215,10 +215,14 @@ class AttorneyPortalController extends Controller
         }
 
         $inline = $mode === 'view' ? $doc->inlineMimeType() : null;
-        AttorneyPortalLogger::record($access, $inline ? 'document_viewed' : 'document_downloaded', ['deal_id' => $model->id, 'document_id' => $doc->id], $request);
 
+        // The file itself must be there before anything is logged as viewed or downloaded.
         $bytes = $doc->decryptedContents();
-        abort_if($bytes === null, 404);
+        if ($bytes === null) {
+            AttorneyPortalLogger::record($access, 'refused', ['deal_id' => $model->id, 'document_id' => $doc->id, 'meta' => ['why' => 'file_missing']], $request);
+            abort(404);
+        }
+        AttorneyPortalLogger::record($access, $inline ? 'document_viewed' : 'document_downloaded', ['deal_id' => $model->id, 'document_id' => $doc->id], $request);
         $name = str_replace(['"', "\r", "\n"], '', (string) $doc->original_name);
 
         return response($bytes, 200, [
