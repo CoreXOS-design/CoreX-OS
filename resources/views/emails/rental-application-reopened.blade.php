@@ -19,6 +19,15 @@
             {{ $note }}
         </div>
 
+        @if(!empty($correctionLabels))
+            <p style="margin-bottom: 4px;">Please check and correct:</p>
+            <ul style="margin-top: 0;">
+                @foreach($correctionLabels as $label)
+                    <li>{{ $label }}</li>
+                @endforeach
+            </ul>
+        @endif
+
         <p>Your previous answers are still there — you only need to fix what's
            mentioned above. You'll need to sign again once you've made the change.</p>
 

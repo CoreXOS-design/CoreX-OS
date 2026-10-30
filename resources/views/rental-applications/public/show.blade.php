@@ -90,6 +90,15 @@
             @else
                 <p>Please review and update the details below, then submit again.</p>
             @endif
+            {{-- AT-516 - a "Correct details" send-back: the fields to fix are listed here and highlighted below. --}}
+            @if(! empty($application->correction_fields))
+                <p class="mt-2 font-semibold">Please correct:</p>
+                <ul class="list-disc list-inside" data-qa="correction-labels">
+                    @foreach($application->correctionFieldLabels() as $correctionLabel)
+                        <li>{{ $correctionLabel }}</li>
+                    @endforeach
+                </ul>
+            @endif
         </div>
     @elseif($application->status === 'in_progress')
         {{--
@@ -1174,6 +1183,27 @@ function rentalApplicationForm() {
                     target.focus({ preventScroll: true });
                 }
             }
+        });
+    </script>
+@endif
+@if($isFreshReopen && ! empty($application->correction_fields))
+    {{-- AT-516 - highlight the fields the agent asked to have corrected (and scroll to the first one). --}}
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var keys = @json(array_values($application->correction_fields));
+            var first = null;
+            keys.forEach(function (k) {
+                var sel = ['[name="' + k + '"]', '[name="' + k + '[]"]', '[name^="' + k + '["]', '[name="custom_field_values[' + k + ']"]'].join(',');
+                document.querySelectorAll(sel).forEach(function (el) {
+                    if (el.type === 'hidden') { return; }
+                    el.style.outline = '2px solid #f59e0b';
+                    el.style.outlineOffset = '1px';
+                    var wrap = el.closest('div');
+                    if (wrap) { wrap.style.background = '#fffbeb'; wrap.style.borderRadius = '8px'; }
+                    first = first || el;
+                });
+            });
+            if (first) { first.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
         });
     </script>
 @endif

@@ -31,6 +31,8 @@ class RentalApplicationReopenedMail extends BaseSignatureMail implements ShouldQ
     public string $onlineUrl;
     public string $expiresAt;
     public string $note;
+    /** AT-516 - labels of the fields the agent asked to have corrected (empty when it was a general send-back). */
+    public array $correctionLabels = [];
 
     public function __construct(public RentalApplication $application, string $note)
     {
@@ -39,6 +41,7 @@ class RentalApplicationReopenedMail extends BaseSignatureMail implements ShouldQ
         $this->onlineUrl   = route('rental-applications.public.show', $application->token);
         $this->expiresAt   = $application->token_expires_at->format('d M Y');
         $this->note        = $note;
+        $this->correctionLabels = $application->correctionFieldLabels();
     }
 
     public function envelope(): Envelope

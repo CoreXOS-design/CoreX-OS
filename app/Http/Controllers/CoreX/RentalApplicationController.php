@@ -1667,6 +1667,7 @@ class RentalApplicationController extends Controller
 
         DB::transaction(function () use ($rentalApplication, $validated, $request, $audit) {
             $rentalApplication->status = 'returned';
+            $rentalApplication->correction_fields = null; // AT-516
             $rentalApplication->save();
 
             RentalApplicationStatusHistory::record(
