@@ -449,3 +449,14 @@ None blocking. Approve the spec (or say what to change) and E-1 starts.
 
 - **One design per click.** Each "Design it" makes ONE design (`OPTIONS = 1`), not three — three per click cost too much (4 generations ≈ R30 on 2026-10-23). With property types ticked, that one design still gets its per-type versions. The monthly allowance is unchanged (one unit per successful click).
 - **Every AI-designed ad ends with "Registered with the PPRA".** `App\Services\AdTemplates\AdPpraFooter` puts it in on the server (never the model): a full-width 40px strip at the bottom, white 16px text on 85% black, zIndex 100. Any model element mentioning the PPRA is removed first (no duplicates, no misspellings). The prompt reserves the strip; it is added before `AdLayoutValidator`, so a design that puts words or pictures in the strip is rejected by the overlap rule and retried with that reason. Wording is neutral — true for every South African agency. Ads saved before this date and hand-built templates are not changed.
+
+## AI ad checker repairs instead of refusing (Johan, 2026-10-30 — do not re-ask)
+
+Cause: company ad "agent, property wanted" failed twice, and the property-ad creator failed 9 attempts in a row (23-29 Oct), because the shared layout checker (`AdLayoutValidator`) refused any design with boxes on top of each other, words over a shape's edge, or a corner ribbon too small for the user's words, and the AI's single retry usually repeated the mistake. Applies to BOTH creators (property templates and company ads), all agencies; nothing is HFC-specific.
+
+- **Overlaps are pulled apart** (`separateOverlaps`): for each clashing pair the smallest up/down/left/right move of either box that keeps both clear of everything else, inside the canvas and above the compulsory PPRA strip, and no more than 40% of a canvas side. No such move = still refused (and retried) as before. Every move is listed in the design's repair notes.
+- **Words over a shape's edge are moved wholly onto it** (`clampTextToShapes`) when their box fits the shape's safe area; otherwise still refused.
+- **Corner ribbon grows before any word is cut**: font down to the 16 minimum, then the band grows (corner kept, up to 60% of the shorter canvas side), and only then are words cut. Fixes "Corner ribbon missing" failures where the user's own ribbon words were cut.
+- **Agent ads**: in a property template, the agent photo (`agent_avatar`) now counts as the picture, so "advertise an agent" / "property wanted" designs are accepted; the prompt says so. Company ads never required a property photo.
+- The plain `validate()` still refuses clashes (it does not repair). Tests: `tests/Unit/AdTemplates/AdLayoutValidatorSelfRepairTest.php` (no database); `AiTemplateOverlapGuardTest` and `AiTemplateMultiTypeAndMustIncludeTest` updated for the new behaviour.
+- No new setting (rule 10a: nothing to surface in the wizard).
