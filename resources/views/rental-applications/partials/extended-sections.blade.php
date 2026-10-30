@@ -122,32 +122,105 @@
 </{{ $tag }}>
 @endif
 
-{{-- ── Co-applicant / spouse ─────────────────────────────────────────────────────────────────── --}}
+{{-- ── Co-applicant ──────────────────────────────────────────────────────────────────────────────
+     AT-517 - the Co-applicant is asked what the Main applicant is asked, in the Main applicant's order, under the agency's
+     own wording / hidden / compulsory settings for each field (RentalApplication::coApplicantFieldDefs reads them from the
+     Main applicant's definition - there is no second copy of the rules). The conditional groups behave as they do for the
+     Main applicant: landlord details only while renting, employer details only when permanently employed, spouse details only
+     for a marital status that implies a spouse. Their signatures are further down the form (public/show). --}}
 @if($on('co_applicant'))
-<{{ $tag }} @if($isPublic) data-progress-section="Co-applicant" @endif data-qa="ext-co-applicant">
+@php
+    $coDefs = \App\Models\RentalApplication::coApplicantFieldDefs($fieldConfig, $requiredFieldKeys);
+    $coMaritalOptions = $maritalStatusOptions ?? \App\Models\RentalApplicationQualifyingSetting::maritalStatusOptionsFor($application->agency_id);
+    $coSpouseStatuses = collect($coMaritalOptions)->filter(fn ($o) => $o['implies_spouse'] ?? false)->pluck('label')->map(fn ($l) => mb_strtolower(trim((string) $l)))->values()->all();
+    $coInitial = [
+        'living' => (string) ($co['current_living_situation'] ?? ''),
+        'employment' => (string) ($co['employment_type'] ?? ''),
+        'marital' => mb_strtolower(trim((string) ($co['marital_status'] ?? ''))),
+        'judgments' => (string) ($co['judgments'] ?? ''),
+        'stillLiving' => ! empty($co['current_rental_still_living']),
+        'spouseStatuses' => $coSpouseStatuses,
+        'any' => ! empty(array_filter($co, fn ($v) => $v !== null && $v !== '')) || ! empty($application->co_applicant_contact_id),
+    ];
+    $coGroupShow = [
+        'renting' => "living === 'renting'",
+        'employed' => "employment === 'permanently_employed'",
+        'married' => 'spouseStatuses.includes(marital)',
+    ];
+@endphp
+<{{ $tag }} @if($isPublic) data-progress-section="Co-applicant" @endif data-qa="ext-co-applicant"
+    x-data="{ ...{{ Js::from($coInitial) }}, refreshAny() { this.any = !![...$el.querySelectorAll('[name^=\'co_applicant[\']')].find(e => (e.type === 'checkbox' ? e.checked : String(e.value || '').trim() !== '')); $dispatch('co-applicant-changed', this.any); } }"
+    @input="refreshAny()" @change="refreshAny()" x-init="$nextTick(() => $dispatch('co-applicant-changed', any))">
     <h2 class="{{ $h2 }}" style="{{ $h2Style }}">{{ $label('co_applicant') }}@if($req('co_applicant')) *@endif</h2>
-    <p class="text-[11px] text-slate-400 mb-3">{{ $hint('co_applicant') ?? 'Complete this if your spouse or someone else is applying with you. Leave it blank if you are applying alone.' }}</p>
+    <p class="text-[11px] text-slate-400 mb-3">{{ $hint('co_applicant') ?? 'Complete this if your spouse or someone else is applying with you. Leave it blank if you are applying alone. Whoever is added here signs this form too.' }}</p>
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        @foreach(\App\Models\RentalApplication::CO_APPLICANT_FIELDS as $coKey => [$coLabel, $coKind])
-            @php $coValue = $co[$coKey] ?? ''; @endphp
-            <div>
-                <label class="block text-xs text-slate-500 mb-1">{{ $coLabel }}</label>
-                @if($coKind === 'yesno')
-                    <select name="co_applicant[{{ $coKey }}]" class="{{ $input }}">
-                        <option value="">— Select —</option>
-                        <option value="no" @selected($coValue === 'no')>No</option>
-                        <option value="yes" @selected($coValue === 'yes')>Yes</option>
-                    </select>
-                @elseif($coKind === 'regime')
-                    <select name="co_applicant[{{ $coKey }}]" class="{{ $input }}">
-                        <option value="">— Select —</option>
-                        @foreach($coRegimeOptions as $opt)
-                            <option value="{{ $opt }}" @selected($coValue === $opt)>{{ $opt }}</option>
-                        @endforeach
-                    </select>
+        @foreach($coDefs as $coKey => $def)
+            @continue(! $def['shown'])
+            @php
+                $coValue = $co[$coKey] ?? '';
+                $coKind = $def['kind'];
+                $coName = 'co_applicant[' . $coKey . ']';
+                $coShowExpr = $coGroupShow[$def['group']] ?? null;
+                if ($coKey === 'judgments_details') { $coShowExpr = "judgments === 'yes'"; }
+                $coStar = $isPublic && $def['required'] ? ' *' : '';
+            @endphp
+            <div @if($coShowExpr) x-show="{{ $coShowExpr }}" x-cloak @endif class="{{ in_array($coKind, ['long'], true) ? 'sm:col-span-2' : '' }}">
+                @if($coKind === 'bool')
+                    <label class="inline-flex items-center gap-2 text-sm text-slate-700 mt-5">
+                        <input type="checkbox" name="{{ $coName }}" value="1" x-model="stillLiving" @checked(! empty($coValue)) class="rounded border-slate-300">
+                        {{ $def['label'] }}
+                    </label>
                 @else
-                    <input type="{{ $coKind === 'email' ? 'email' : 'text' }}" name="co_applicant[{{ $coKey }}]" value="{{ $coValue }}" @if($coKind === 'money') inputmode="decimal" @endif class="{{ $input }}">
+                    <label class="block text-xs text-slate-500 mb-1">{{ $def['label'] }}{{ $coStar }}</label>
+                    @if($coKind === 'yesno')
+                        <select name="{{ $coName }}" x-model="judgments" class="{{ $input }}">
+                            <option value="">— Select —</option>
+                            <option value="no">No</option>
+                            <option value="yes">Yes</option>
+                        </select>
+                    @elseif($coKind === 'regime')
+                        <select name="{{ $coName }}" class="{{ $input }}">
+                            <option value="">— Select —</option>
+                            @foreach($coRegimeOptions as $opt)
+                                <option value="{{ $opt }}" @selected($coValue === $opt)>{{ $opt }}</option>
+                            @endforeach
+                        </select>
+                    @elseif($coKind === 'marital')
+                        <select name="{{ $coName }}" x-model="marital" class="{{ $input }}">
+                            <option value="">— Select —</option>
+                            @foreach($coMaritalOptions as $opt)
+                                <option value="{{ mb_strtolower(trim((string) $opt['label'])) }}" @selected(mb_strtolower(trim((string) $coValue)) === mb_strtolower(trim((string) $opt['label'])))>{{ $opt['label'] }}</option>
+                            @endforeach
+                            @if($coValue !== '' && ! collect($coMaritalOptions)->contains(fn ($o) => mb_strtolower(trim((string) $o['label'])) === mb_strtolower(trim((string) $coValue))))
+                                <option value="{{ mb_strtolower(trim((string) $coValue)) }}" selected>{{ $coValue }} (previously recorded)</option>
+                            @endif
+                        </select>
+                    @elseif($coKind === 'living')
+                        <select name="{{ $coName }}" x-model="living" class="{{ $input }}">
+                            <option value="">— Select —</option>
+                            @foreach(\App\Models\RentalApplication::CURRENT_LIVING_SITUATION_LABELS as $val => $text)
+                                <option value="{{ $val }}" @selected($coValue === $val)>{{ $text }}</option>
+                            @endforeach
+                        </select>
+                    @elseif($coKind === 'employment')
+                        <select name="{{ $coName }}" x-model="employment" class="{{ $input }}">
+                            <option value="">— Select —</option>
+                            @foreach(\App\Models\RentalApplication::EMPLOYMENT_TYPE_LABELS as $val => $text)
+                                <option value="{{ $val }}" @selected($coValue === $val)>{{ $text }}</option>
+                            @endforeach
+                        </select>
+                    @elseif($coKind === 'long')
+                        <textarea name="{{ $coName }}" rows="2" class="{{ $input }}">{{ $coValue }}</textarea>
+                    @elseif($coKind === 'date')
+                        <input type="date" name="{{ $coName }}" value="{{ $coValue }}" @if($coKey === 'current_rental_to') :disabled="stillLiving" @endif class="{{ $input }}">
+                    @elseif($coKind === 'int')
+                        <input type="number" min="1" max="31" name="{{ $coName }}" value="{{ $coValue }}" class="{{ $input }}">
+                    @else
+                        <input type="{{ $coKind === 'email' ? 'email' : 'text' }}" name="{{ $coName }}" value="{{ $coValue }}" @if($coKind === 'money') inputmode="decimal" @endif class="{{ $input }}">
+                    @endif
+                    @if($def['help_text'])<p class="text-[11px] text-slate-400 mt-1">{{ $def['help_text'] }}</p>@endif
                 @endif
+                @error('co_applicant.' . $coKey) <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
             </div>
         @endforeach
     </div>

@@ -17,9 +17,9 @@
     <div data-qa="review-co-applicant">
         <p class="font-semibold mb-1" style="color: var(--text-secondary);">Co-applicant / spouse</p>
         <dl class="grid grid-cols-2 gap-x-4 gap-y-1">
-            @foreach(\App\Models\RentalApplication::CO_APPLICANT_FIELDS as $k => [$lbl, $kind])
+            @foreach(\App\Models\RentalApplication::coApplicantFieldDefs($application->displayFieldConfig()) as $k => $coDef)
                 @if(isset($roCo[$k]))
-                    <dt style="color: var(--text-muted);">{{ $lbl }}</dt><dd>{{ $kind === 'money' ? $roMoney($roCo[$k]) : ($kind === 'yesno' ? ucfirst($roCo[$k]) : $roCo[$k]) }}</dd>
+                    <dt style="color: var(--text-muted);">{{ $coDef['label'] }}</dt><dd>{{ \App\Models\RentalApplication::coApplicantDisplayValue($k, $roCo[$k]) }}</dd>
                 @endif
             @endforeach
         </dl>
