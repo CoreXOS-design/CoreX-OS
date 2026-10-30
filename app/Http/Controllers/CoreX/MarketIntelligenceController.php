@@ -1521,6 +1521,9 @@ class MarketIntelligenceController extends Controller
             ->withoutGlobalScopes()
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
+            // A file folded into another by the property-identity merges (spec property-identity.md §16) is flagged
+            // duplicate and kept for the audit trail — it must not be counted or listed twice.
+            ->where('status', '<>', TrackedProperty::STATUS_DUPLICATE)
             // Deeds captures live on their own "Deeds Capture" screen and must never
             // mix into Opportunities (Johan's directive). Exclude them here.
             ->where(function ($q) {
@@ -1546,8 +1549,8 @@ class MarketIntelligenceController extends Controller
 
         // Filter chip — primary filter from §5.4.3.
         match ($filter) {
-            'with_address'      => $query->whereHas('primaryAddress', fn ($q) => $q->whereNotNull('street_name')),
-            'without_address'   => $query->whereDoesntHave('primaryAddress', fn ($q) => $q->whereNotNull('street_name')),
+            'with_address'      => $query->hasStreet(),
+            'without_address'   => $query->lacksStreet(),
             'company_stock'     => $query->where(function ($q) {
                                        $q->where('status', TrackedProperty::STATUS_PROMOTED)
                                          ->orWhereNotNull('promoted_to_property_id');
@@ -1606,7 +1609,7 @@ class MarketIntelligenceController extends Controller
                 ->whereDoesntHave('prospectingListings.activeClaim')
                 ->count(),
             'with_address'      => (clone $base)
-                ->whereHas('primaryAddress', fn ($q) => $q->whereNotNull('street_name'))
+                ->hasStreet()
                 ->count(),
             'promoted_to_stock' => (clone $base)
                 ->where(function ($q) {

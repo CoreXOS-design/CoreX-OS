@@ -34,6 +34,8 @@ final class MarketIntelligenceTabs extends TabHub
                 'feature' => 'deeds-capture', 'permissions' => ['deeds_capture.access']],
             'address-review' => ['label' => 'Address review', 'route' => 'corex.address-review.index', 'match' => ['corex.address-review.index'], 'old' => 'Address Review',
                 'feature' => 'address-review', 'permissions' => ['address_review.manage']],
+            'possible-matches' => ['label' => 'Possible matches', 'route' => 'corex.possible-matches.index', 'match' => ['corex.possible-matches.*'], 'old' => null,
+                'feature' => 'prospecting', 'permissions' => ['access_prospecting', 'prospecting_setup.manage']],
             'stale-claims' => ['label' => 'Stale claims', 'route' => 'market-intelligence.stale-review', 'match' => ['market-intelligence.stale-review*'], 'old' => 'Stale claims review',
                 'feature' => 'prospecting', 'permissions' => ['access_prospecting', 'prospecting_setup.manage']],
         ];

@@ -252,7 +252,7 @@ Comments (`tracked_property_comments`) and claims (`prospecting_claims`) were al
 | A3 | `PropertyIdentityResolver` + all routes through the door + settings fields + link columns + the one address-line reader | landed (QA1) |
 | A4 | `property-identity:reconcile --dry-run` report for Johan (read-only; no `--apply` exists) | landed (QA1) |
 | A5 | Shared advert / property rows across agencies (§14): tables, internal contribution record, `property-identity:share --dry-run` | landed (QA1); the share itself is not applied - Johan reviews A4 + A5 together |
-| — | Possible-matches list, `--apply` merges | not in A2-A4; after Johan's review of A4 |
+| — | Possible-matches list, `--apply` merges | built 30 Oct (§16) after Johan's go; apply results in §16.4 |
 | B1 | Lane B investigation | landed (QA1) `.ai/B1_AGENCY_WORK_LAYER_2026-10-29.md` |
 | B2 | portal-capture + alert tables per agency; work record; owners scoped; backfill | landed (QA1) - section 12 |
 | B3/B4 | two-agency privacy sweep; status panel + own-stock flag | landed (QA1) - section 12 |
@@ -283,3 +283,44 @@ Comments (`tracked_property_comments`) and claims (`prospecting_claims`) were al
 **Applying it later (not built):** create the `shared_properties` and fill `shared_property_id` only for groups the report marks clean; groups needing a merge or split wait for the A4 decisions; the contribution record is backfilled from the existing MIC rows. Johan reviews A4 and A5 together first.
 
 **Search / sort / filter / pagination, navigation, permissions:** no new screen and no new permission — the build adds tables, an internal model and a console report. Archive / restore: shared rows are never deleted by an agency (they are shared); an agency's own pointer is cleared with its own row.
+
+
+## 16. Apply (30 Oct 2026, Johan's go - QA1 only; Staging is the safety copy)
+
+**Command:** `php artisan property-identity:apply <step> [--dry-run|--apply] [--agency=] [--exclude-agency=20] [--journal-dir=]`. Steps run in this order, one at a time:
+`own-stock-joins` -> `advert-clashes` -> `split-over-merged` -> `share`. Default is dry run (the diff is saved to `storage/app/reports/property-identity-apply-<step>-dry-run-*.md/.json`); `--apply` re-plans against the live data, writes only what the plan says and writes a row-level journal (`table, id, column, old, new`, JSON lines) so a step can be undone from the journal as well as from the DB dump. Refuses to run outside QA / local / testing. Services: `PropertyIdentityApplier` (plans + applies), `TrackedPropertyMerger` (the only code that moves rows between two files). The A4 reconciler now exposes `clashGroups()` and `groupFileAdverts()` so the report and the apply can never disagree about a group.
+
+### 16.1 Johan's rulings (relayed 30 Oct, followed as written)
+1. `property-refs:normalise --apply` first.
+2. Own stock -> file: the high-confidence joins are applied; the "possible" ones are **not** merged - they go to the possible-matches list.
+3. Same advert on two files: merge where the addresses agree; the "different houses" files stay separate and are flagged as possible; an advert on a file with **no address** attaches to the file that **has** one; two files are never merged on the advert number alone when their units differ.
+4. Over-merged files are split by unit as the dry run proposed.
+5. Then A5 share (public facts only, contributed-by kept). The Staging-copied test agency (20) is excluded from every step.
+6. Then the possible-matches screen (§9), then every screen figure re-run (shown vs data).
+
+### 16.2 Decisions taken while building (technical, recorded - not asked)
+- **A join is a link, not a claim.** `properties.tracked_property_id` + `identity_confidence` + `identity_method` are set; `promoted_to_property_id` is never touched.
+- **Agency 20 is left out of all four steps**, not only the share (it is a copy of HFC's stock, 3,393 identical Property24 numbers).
+- **Which clash groups merge.** Only groups whose files **all agree on the address** (scorer tier exact). A4 found 0 of those, so the apply merges no two files on its own; the work is the attach and the flagging. Groups that "possibly agree" (943) or show different addresses (215) are recorded as pending pairs, one per extra file. Groups where **no** file has an address (and groups where more than one has one but cannot be compared) are left alone and counted - there is nothing to attach to.
+- **Attach.** One advert moves (its external refs, MIC rows, portal-capture rows, e-mail alerts - every row carrying that canonical advert on the emptied file) to the single file that has a street. A file left with nothing at all (no adverts, owner, work record, deeds, promotion, comments, RTS rows) is flagged `status=duplicate`, `duplicate_of_tracked_property_id` = the receiving file. Never deleted. A file with anything else on it stays active.
+- **Possible candidates for an own listing:** the probable ones, at most 3 per listing, best score first; a weak (GPS-only) candidate is listed only when it is the single one. This keeps the review list one line per *real* question instead of five GPS neighbours per unit.
+- **Split.** The address group at the file's own address stays on the file; if none matches, the biggest group stays; the "no address" adverts stay. Every other group becomes a **new file** made only from the adverts' own public facts (address parts, suburb, type, rooms, erf size, last price) - never the old file's owner, deeds, erf or valuation - without GPS (the geocoder pins it later). Adverts move with their refs, MIC rows, captures and alerts. The old file's work record, comments, RTS holds and flags stay on the old file.
+- **Share.** Components (agency files joined by a shared advert) that are clean are shared; a component with several files of one agency (not merged by §16.1) or with an over-merged file is skipped and counted. The public facts of an advert come from the advert's own MIC row (never from a file, which may hold deeds data); a pin is shared only from a non-deeds file with a street/exact/high pin. Status maps onto the pool's four states (`under_offer` = active). The contribution record keeps who contributed (internal, agency-scoped).
+- **Merged files are hidden from Opportunities** (`status <> duplicate`) so a merge is not counted twice.
+
+### 16.3 Possible-matches screen (built)
+`/corex/prospecting/possible-matches` (route `corex.possible-matches.*`, a tab of Real Estate > Market intelligence, permission `prospecting_setup.manage` + `access_prospecting`, feature `prospecting`). One line per pending `identity_possible` decision of the viewer's agency; every query and every by-id action is agency-scoped (direct id outside the agency = 404). **Search:** street, number, suburb, complex, erf, advert number, record number (either side). **Sort:** how sure, found-by, address, date (default highest first, then newest). **Filter:** show (waiting/joined/not the same/everything), kind of pair, found-by, date range. **Pagination** 25. **Empty state** "Nothing to confirm - every match was certain." **Actions, one click each:** *Same property* (our listing: link it to the captured property, other candidates for that listing are closed without a veto; two captured properties: merge via `TrackedPropertyMerger`, the loser flagged duplicate, never deleted) - *Not the same* (a permanent veto the resolver respects) - *Undo* (a "not the same" back to waiting; a confirmed own-listing link unlinked; a confirmed merge cannot be undone from the screen - it can from the journal).
+
+### 16.4 Apply log (QA1, 30 Oct 2026; code `d0af3e3ba`)
+Rollback: git tag `pre-identity-apply-2026-10-30` (= QA1 `a56eee35c`, pushed) and DB dump `/mnt/HC_Volume_103099143/qa1-identity-apply-2026-10-30/corex_qa1-pre-apply-20261030-1256.sql.gz` (289 MB, gunzip-tested). Per step: the dry-run diff, the apply report and the row journal are in `.../diffs/`; before/after counts in `counts-*.txt`.
+
+| Step | Before | After |
+|---|---|---|
+| 0 `property-refs:normalise --apply` | everything already canonical since 29 Oct | 0 rows written (idempotent re-run, 58,311 distinct adverts) |
+| 1 own-stock joins | 0 properties linked; 0 pending pairs | **319 linked** (exact/portal_ref 103; high: address_unit 86, address_history 53, scheme_unit 32, fuzzy 31, gps 14); **1,326 candidate pairs** from 1,124 listings recorded as pending; 3,183 listings have no match; `promoted_to_property_id` untouched |
+| 2 advert clashes | 4,714 adverts on 2+ files | **3,485 adverts attached** to the file with an address (3,519 refs, 3,414 captures, 1,472 alerts, 92 MIC rows moved); **3,427 emptied shells flagged duplicate**; **1,158 pairs flagged** (943 possible, 215 different houses); 71 left (no file with an address); 0 files merged (no group had files that all agree); 1,229 adverts remain on 2+ files = 943 + 215 + 71 |
+| 3 split over-merged | 201 files with 6+ adverts | **159 files split into 1,146 new files**, 1,332 adverts moved (1,364 refs, 181 alerts, 32 captures); files with 6+ adverts 201 -> 83 |
+| 4 share | pool, shared properties, contributions all 0 | **42,339 adverts in the pool; 39,219 shared properties; 42,339 contribution records (agency 1 only); 39,219 files and 40,790 MIC rows point at the shared row**; 1,033 components skipped (several files of one agency - the pairs awaiting review); agency 20: 0 rows; privacy self-check clean (no agency column, no private column on the shared side) |
+
+**Note on the A4 numbers:** the split plan is 159 / 1,146 rather than A4's 153 / 1,139 because step 2 attached adverts to some files first; the apply plans against the data as it stands.
+**Open:** 2,484 pairs wait on the possible-matches screen (1,326 own-listing + 1,158 advert pairs); MIC `matched_property_id` ("claimed") is unchanged at 1,072 - claims are written by the capture / claim paths (C2), not by the join; the suburb-centre pin repair is not part of this apply.

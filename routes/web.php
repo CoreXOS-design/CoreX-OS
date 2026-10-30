@@ -8237,6 +8237,19 @@ Route::middleware(['auth', 'permission:address_review.manage'])
             ->whereIn('kind', ['property', 'tracked'])->whereNumber('id')->name('restore');
     });
 
+// Possible matches (spec .ai/specs/property-identity.md §9) — the agency admin's one-line-per-pair review list of
+// property matches CoreX could not be sure about. Same permission as the Stale-claims review (prospecting_setup.manage);
+// every query and every by-id lookup is filtered to the viewer's agency, a direct URL by id outside it is a 404.
+Route::middleware(['auth', 'permission:prospecting_setup.manage'])
+    ->prefix('corex/prospecting/possible-matches')
+    ->name('corex.possible-matches.')
+    ->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\PossibleMatchesController::class, 'index'])->name('index');
+        Route::post('/{id}/confirm', [\App\Http\Controllers\CoreX\PossibleMatchesController::class, 'confirm'])->whereNumber('id')->name('confirm');
+        Route::post('/{id}/reject', [\App\Http\Controllers\CoreX\PossibleMatchesController::class, 'reject'])->whereNumber('id')->name('reject');
+        Route::post('/{id}/restore', [\App\Http\Controllers\CoreX\PossibleMatchesController::class, 'restore'])->whereNumber('id')->name('restore');
+    });
+
 // Deeds-capture duplicate-match take rule (Johan, 2026-08-21) — BM/admin approval
 // queue for a match in the approval band. Same permission gate as the analogous
 // MIC stale-claim review (prospecting_setup.manage) — reused, not invented.

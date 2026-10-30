@@ -206,6 +206,25 @@ final class TrackedProperty extends Model
     }
 
     /**
+     * Files that carry a street — on the file itself, or on any of its address rows (not only the primary one: only
+     * a few hundred files have a primary address row, while thousands carry a street). The Opportunities "with address"
+     * tile and filter use this one definition.
+     */
+    public function scopeHasStreet($query)
+    {
+        return $query->where(function ($q) {
+            $q->whereRaw("COALESCE(tracked_properties.street_name, '') <> ''")
+              ->orWhereHas('addresses', fn ($a) => $a->whereRaw("COALESCE(street_name, '') <> ''"));
+        });
+    }
+
+    public function scopeLacksStreet($query)
+    {
+        return $query->whereRaw("COALESCE(tracked_properties.street_name, '') = ''")
+            ->whereDoesntHave('addresses', fn ($a) => $a->whereRaw("COALESCE(street_name, '') <> ''"));
+    }
+
+    /**
      * Deeds Capture screen data scope (Johan, 2026-08-20). Mirrors
      * ProspectingListing::scopeVisibleTo() exactly — same option set, same
      * shape — swapping in the deeds-specific "own" column. tracked_properties
