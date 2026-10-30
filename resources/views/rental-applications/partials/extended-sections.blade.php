@@ -1,7 +1,7 @@
 {{--
     Fuller application (26 Oct 2026) - rental-applications.md "Fuller application". The facts and blocks a letting agency's own
     paper application asks that the first V8 form did not: tax number, how married, employment length and pay day, previous
-    landlord, banking, judgments, vehicle, a co-applicant / spouse, the other people who will live there, pets, and the tenant's own
+    landlord, banking, judgments, vehicle, a co-applicant, the other people who will live there, pets, and the tenant's own
     monthly income and expenses.
 
     ONE partial, included by BOTH the applicant's form (rental-applications/public/show) and the agent's capture form
@@ -113,7 +113,7 @@
      own wording / hidden / compulsory settings for each field (RentalApplication::coApplicantFieldDefs reads them from the
      Main applicant's definition - there is no second copy of the rules). The conditional groups behave as they do for the
      Main applicant: landlord details only while renting, employer details only when permanently employed, spouse details only
-     for a marital status that implies a spouse. Their signatures are further down the form (public/show). --}}
+     for a marital status that implies a spouse (inside each applicant's own marital block). Their signatures are further down the form (public/show). --}}
 @if($on('co_applicant'))
 @php
     $coDefs = \App\Models\RentalApplication::coApplicantFieldDefs($fieldConfig, $requiredFieldKeys);
@@ -134,7 +134,7 @@
     x-data="{ ...{{ Js::from($coInitial) }}, refreshAny() { this.any = !![...$el.querySelectorAll('[name^=\'co_applicant[\']')].find(e => (e.type === 'checkbox' ? e.checked : String(e.value || '').trim() !== '')); $dispatch('co-applicant-changed', this.any); } }"
     @input="refreshAny()" @change="refreshAny()" x-init="$nextTick(() => $dispatch('co-applicant-changed', any))">
     <h2 class="{{ $h2 }}" style="{{ $h2Style }}">{{ $label('co_applicant') }}@if($req('co_applicant')) *@endif</h2>
-    <p class="text-[11px] text-slate-400 mb-3">{{ $hint('co_applicant') ?? 'Complete this if your spouse or someone else is applying with you. Leave it blank if you are applying alone. Whoever is added here signs this form too.' }}</p>
+    <p class="text-[11px] text-slate-400 mb-3">{{ $hint('co_applicant') ?? 'Complete this if someone else is applying with you. Leave it blank if you are applying alone. Whoever is added here signs this form too.' }}</p>
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         @foreach($coDefs as $coKey => $def)
             {{-- Marital status, the spouse fields and "how married" are the Main applicant's own blocks, rendered by the same partials
@@ -155,7 +155,9 @@
                 $coValue = $co[$coKey] ?? '';
                 $coKind = $def['kind'];
                 $coName = 'co_applicant[' . $coKey . ']';
-                $coShowExpr = $coGroupShow[$def['group']] ?? null;
+                // Shown on the Main applicant's condition: years employed and pay day are always asked there (they are only COMPULSORY for a
+                // permanently employed applicant - the validation group), so they are not hidden here either.
+                $coShowExpr = in_array($coKey, ['years_employed', 'pay_date'], true) ? null : ($coGroupShow[$def['group']] ?? null);
                 if ($coKey === 'judgments_details') { $coShowExpr = "judgments === 'yes'"; }
                 $coStar = $isPublic && $def['required'] ? ' *' : '';
             @endphp

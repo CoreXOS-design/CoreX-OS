@@ -102,7 +102,7 @@
     );
 @endphp
 
-<div class="corex-h2">Co-applicant / Spouse</div>
+<div class="corex-h2">Co-applicant</div>
 {{-- AT-517 - the same questions as the Main applicant, in the agency's own wording; a field the agency hides is not printed. --}}
 @foreach(\App\Models\RentalApplication::coApplicantFieldDefs($application->displayFieldConfig()) as $coKey => $coDef)
 @continue(! $coDef['shown'])

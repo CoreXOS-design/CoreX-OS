@@ -253,7 +253,8 @@ class RentalApplication extends Model
      * see CO_APPLICANT_MAIN_KEY), in the order of the Main applicant's own form sections. Everything that is a RULE - the
      * label an agency gave it, whether it is shown, whether it is compulsory, its validation - is read from the Main
      * applicant's definition of that same field (coApplicantFieldDefs(), coApplicantValidationRules()); this list only says
-     * which fields a Co-applicant has and how a value is cleaned and shown.
+     * which fields a Co-applicant has and how a value is cleaned and shown. The ORDER is the order the Main applicant's applicant form
+     * shows them in (personal, emergency contact, living situation, employment, "more about you", banking and vehicle).
      *
      * kinds: text, email, money, date, int, bool, long (multi-line text), yesno, regime (how married), marital (agency list),
      * living (current living situation), employment (employment type).
@@ -289,15 +290,16 @@ class RentalApplication extends Model
         'employer_name' => ['Employer name', 'text'],
         'employer_position' => ['Employer position', 'text'],
         'employer_tel' => ['Employer telephone', 'text'],
-        'employer_address' => ['Employer address', 'long'],
         'monthly_salary' => ['Gross monthly income, before deductions', 'money'],
-        'years_employed' => ['Years employed', 'text'],
-        'pay_date' => ['Pay day', 'text'],
-        // Rental history, banking and vehicle
-        'previous_landlord_name' => ['Previous landlord name', 'text'],
-        'previous_landlord_tel' => ['Previous landlord telephone', 'text'],
+        'employer_address' => ['Employer address', 'long'],
+        // More about you (the Main applicant's form shows these five, then the previous landlord)
         'income_tax_no' => ['Income tax number', 'text'],
         'marriage_regime' => ['How married', 'regime'],
+        'years_employed' => ['Years employed', 'text'],
+        'pay_date' => ['Pay day', 'text'],
+        'previous_landlord_name' => ['Previous landlord name', 'text'],
+        'previous_landlord_tel' => ['Previous landlord telephone', 'text'],
+        // Banking, judgments and vehicle
         'bank_name' => ['Bank', 'text'],
         'bank_account_no' => ['Bank account number', 'text'],
         'judgments' => ['Any judgments against you?', 'yesno'],
@@ -839,7 +841,7 @@ class RentalApplication extends Model
             'car_colour' => 'Car colour',
             'car_year' => 'Car year',
             'car_reg' => 'Car registration',
-            'co_applicant' => 'Co-applicant / spouse details',
+            'co_applicant' => 'Co-applicant',
             'co_occupants' => 'Other people who will live in the property',
             'pets' => 'Pets',
             'affordability' => 'Monthly income and expenses',

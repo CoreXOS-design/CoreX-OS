@@ -215,7 +215,7 @@ final class RentalApplicationFullerFormTest extends TestCase
 
         $html = view('corex.rental-applications.pdf', ['application' => $app, 'agency' => $this->agency, 'branch' => $this->branch])->render();
 
-        $this->assertStringContainsString('Co-applicant / Spouse', $html);
+        $this->assertStringContainsString('Co-applicant', $html);
         $this->assertGreaterThanOrEqual(3, preg_match_all('/<td>(?:&nbsp;|\\xC2\\xA0)<\/td>/', $html), 'three empty co-occupant rows to write in');
         $this->assertStringContainsString('Bond / current rent', $html, 'the standard expense lines print so the tenant can fill them in by hand');
     }

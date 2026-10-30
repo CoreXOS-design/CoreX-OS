@@ -380,6 +380,71 @@ final class RentalApplicationCoApplicantFormAt517Test extends TestCase
         $this->assertStringNotContainsString('name="marriage_regime"', $html);
     }
 
+    // ═══ Heading, intro line, and every Main applicant field present for the Co-applicant ═══
+
+    public function test_the_section_is_called_co_applicant_and_its_intro_does_not_mention_a_spouse(): void
+    {
+        $html = $this->get(route('rental-applications.public.show', $this->application()->token))->assertOk()->getContent();
+
+        $this->assertSame(1, preg_match('/data-qa="ext-co-applicant".*?<h2[^>]*>(.*?)<\/h2>\s*<p[^>]*>(.*?)<\/p>/s', $html, $m));
+        $this->assertSame('Co-applicant', trim(strip_tags($m[1])));
+        $this->assertStringNotContainsStringIgnoringCase('spouse', $m[2], 'the intro line');
+        $this->assertStringContainsString('Complete this if someone else is applying with you', $m[2]);
+        $this->assertStringNotContainsString('Co-applicant / spouse', $html);
+        $this->assertStringNotContainsString('Co-applicant / Spouse', view('corex.rental-applications.pdf', ['application' => $this->application(), 'agency' => $this->agency, 'branch' => $this->branch])->render());
+    }
+
+    public function test_every_personal_field_the_main_applicant_has_is_asked_of_the_co_applicant_including_years_employed_and_pay_day(): void
+    {
+        $html = $this->get(route('rental-applications.public.show', $this->application()->token))->assertOk()->getContent();
+
+        // The Main applicant's personal fields = the form sections that describe the person (not the lease requirement, not the
+        // signatures, not the repeating blocks), plus the "more about you" / banking / vehicle fields.
+        $mainKeys = collect(array_merge(
+            RentalApplication::SUBMISSION_FIELD_SECTIONS['Personal Details'],
+            RentalApplication::SUBMISSION_FIELD_SECTIONS['Emergency Contact'],
+            RentalApplication::SUBMISSION_FIELD_SECTIONS['Current Living Situation'],
+            RentalApplication::SUBMISSION_FIELD_SECTIONS['Employment'],
+            RentalApplication::SUBMISSION_FIELD_SECTIONS['Rental history, banking and vehicle'],
+            ['current_rental_still_living'],
+        ))->reject(fn ($k) => $k === 'contact_method')->unique()->values();
+
+        $missing = $mainKeys->reject(function ($key) use ($html) {
+            $coKey = array_search($key, RentalApplication::CO_APPLICANT_MAIN_KEY, true) ?: $key;
+
+            return str_contains($html, 'name="co_applicant[' . $coKey . ']"');
+        })->all();
+        $this->assertSame([], $missing, 'Main applicant fields with no Co-applicant counterpart');
+
+        // ... and nothing else is on the Co-applicant list that the Main applicant does not have.
+        $extra = collect(array_keys(RentalApplication::CO_APPLICANT_FIELDS))->map(fn ($k) => RentalApplication::coMainKey($k))->diff($mainKeys)->values()->all();
+        $this->assertSame([], $extra);
+
+        // Years employed and pay day are always asked (as for the Main applicant); they are not hidden behind "permanently employed".
+        foreach (['years_employed', 'pay_date'] as $key) {
+            $this->assertSame(1, preg_match('/<div([^>]*)>\s*<label[^>]*>[^<]*<\/label>\s*<input[^>]*name="co_applicant\[' . $key . '\]"/s', $html, $m), $key);
+            $this->assertStringNotContainsString('x-show', $m[1], "$key is not conditional");
+        }
+        // Employer details remain conditional on permanently employed, exactly as for the Main applicant.
+        $this->assertSame(1, preg_match('/<div([^>]*)>\s*<label[^>]*>[^<]*<\/label>\s*<input[^>]*name="co_applicant\[employer_name\]"/s', $html, $m));
+        $this->assertStringContainsString("employment === 'permanently_employed'", html_entity_decode($m[1], ENT_QUOTES));
+    }
+
+    public function test_years_employed_and_pay_day_are_compulsory_for_the_co_applicant_only_when_permanently_employed_like_the_main_applicant(): void
+    {
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
+            'required_field_keys' => array_merge(RentalApplicationQualifyingSetting::DEFAULT_REQUIRED_FIELD_KEYS, ['years_employed', 'pay_date']),
+        ]);
+        $application = $this->application();
+        $sigs = ['co_declaration_signature' => self::SIG, 'co_tpn_consent_signature' => self::SIG];
+        $main = ['years_employed' => '2', 'pay_date' => '25th', 'employment_type' => 'permanently_employed', 'employer_name' => 'Acme'];
+
+        $this->submitForm($application, $main + ['co_applicant' => $this->coBlock(['employment_type' => 'permanently_employed'])] + $sigs)
+            ->assertSessionHasErrors(['co_applicant.years_employed', 'co_applicant.pay_date']);
+        $this->submitForm($application, $main + ['co_applicant' => $this->coBlock()] + $sigs)
+            ->assertSessionDoesntHaveErrors(['co_applicant.years_employed', 'co_applicant.pay_date']);
+    }
+
     // ═══ The form and the printed application show both signature blocks ═══
 
     public function test_the_applicant_form_carries_the_co_applicants_signature_pads_and_hidden_inputs(): void
