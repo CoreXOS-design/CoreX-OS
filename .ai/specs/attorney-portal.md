@@ -232,3 +232,11 @@ Discoverability: until now the portal could only be found from a supplier contac
 - **Scoping:** the page reads only this agency's contacts, firms and accesses (agency filtered by hand; another agency's people never appear). Read-only apart from the two existing POST routes.
 - **Navigation:** Deals menu, between *Unfiled deal emails* and *Deal settings*; the Deals group stays open on this page.
 - **Files:** `DealV2/AttorneyPortalOverviewController`, view `dr2/attorney-portal-overview.blade.php`, sidebar entry, tests `AttorneyPortalOverviewTest`.
+
+## 17. Sign-in method: emailed PIN or password (30 Oct 2026, Johan)
+- After the **first** emailed-PIN sign-in the deals page shows a card: "Keep using an emailed PIN each time" or "Set up a password". Shown until chosen. The choice is stored on the attorney's access (`attorney_portal_accesses.sign_in_choice` = `pin` | `password`, `password` hashed, `password_set_at`) and changed any time at `/attorney/account` ("Sign-in & password" in the portal header).
+- **Password sign-in:** `/attorney/sign-in` (email + password). Same rules as the client portal logins: 8+ characters entered twice, 10 wrong tries in 5 minutes locks that email+IP, plus a 10/minute route throttle. Only a usable (not revoked, not expired, portal on) access that chose a password can sign in. Wrong tries are logged (`password_failed`), sign-ins as `signed_in_password`.
+- **Change password** (account page) asks for the current password. **Forgot password** (`/attorney/forgot-password`) emails the normal PIN (same 60-second pause / 10 an hour per contact limits, same quiet answer for unknown addresses); a correct PIN signs them in and lets them choose a new password without the old one (valid 15 minutes).
+- **Revoking** access in Deals > Attorney Portal clears the password and the choice; a re-invited attorney chooses again.
+- **Deals > Attorney Portal overview** has a "How they sign in" column: Password / Emailed PIN / Not chosen yet.
+- Migration `2026_12_30_120000_add_sign_in_choice_to_attorney_portal_accesses`. Tests: `AttorneyPortalPasswordSignInTest` (9).

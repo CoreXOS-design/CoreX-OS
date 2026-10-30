@@ -115,6 +115,7 @@ class AttorneyPortalOverviewController extends Controller
                 'firm'       => (string) ($firms[$c->service_provider_id] ?? ''),
                 'email'      => (string) ($c->email ?? ''),
                 'deals'      => $scope->visibleDeals($probe)->count(),
+                'sign_in'    => ! $access || $access->revoked_at ? '—' : match ($access->sign_in_choice) { 'password' => 'Password', 'pin' => 'Emailed PIN', default => 'Not chosen yet' },
                 'last_login' => $access?->last_login_at,
                 'invited_at' => $access?->invited_at,
                 'expires_at' => $access?->expires_at,

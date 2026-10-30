@@ -114,6 +114,7 @@
                         <th scope="col"><a href="{{ $sortUrl('firm') }}">Firm{{ $arrow('firm') }}</a></th>
                         <th scope="col"><a href="{{ $sortUrl('deals') }}">Deals they can see{{ $arrow('deals') }}</a></th>
                         <th scope="col"><a href="{{ $sortUrl('login') }}">Last signed in{{ $arrow('login') }}</a></th>
+                        <th scope="col">How they sign in</th>
                         <th scope="col"><a href="{{ $sortUrl('status') }}">Link{{ $arrow('status') }}</a></th>
                         <th scope="col" style="text-align:right;">&nbsp;</th>
                     </tr>
@@ -126,6 +127,7 @@
                             <td>{{ $r['firm'] !== '' ? $r['firm'] : '—' }}</td>
                             <td>{{ $r['deals'] }}</td>
                             <td>{{ $r['last_login'] ? $r['last_login']->format('j M Y H:i') : ($r['status'] === 'none' ? '—' : 'Not yet') }}</td>
+                            <td>{{ $r['sign_in'] }}</td>
                             <td>
                                 <span class="po-pill {{ $cls }}">{{ $label }}</span>
                                 @if($r['status'] === 'live' && $r['expires_at'])<span class="po-sub">Works until {{ $r['expires_at']->format('j M Y') }}</span>@endif

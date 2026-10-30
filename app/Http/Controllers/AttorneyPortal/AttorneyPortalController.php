@@ -233,6 +233,108 @@ class AttorneyPortalController extends Controller
         ]);
     }
 
+    // ── sign-in method: emailed PIN each time, or email + password ──
+
+    public function signInForm()
+    {
+        return view('attorney-portal.sign-in', $this->plainShell());
+    }
+
+    public function signIn(Request $request)
+    {
+        $data = $request->validate(['email' => ['required', 'email', 'max:255'], 'password' => ['required', 'string', 'max:200']]);
+
+        if ($wait = $this->service->passwordLockedFor($data['email'], $request)) {
+            return back()->withInput(['email' => $data['email']])->withErrors(['password' => 'Too many wrong tries. Please try again in ' . $this->waitText($wait) . ', or use "Forgot password" to get a PIN.']);
+        }
+        $raw = $this->service->passwordSignIn($data['email'], $data['password'], $request);
+        if (! $raw) {
+            return back()->withInput(['email' => $data['email']])->withErrors(['password' => 'That email and password do not match. If you have not set a password, use the link in your email instead.']);
+        }
+
+        return redirect()->route('attorney.deals')->withCookie($this->sessionCookie($request, $raw));
+    }
+
+    public function forgotForm(Request $request)
+    {
+        return view('attorney-portal.forgot', $this->plainShell() + ['email' => session('forgot_email'), 'sent' => (bool) session('forgot_sent')]);
+    }
+
+    public function forgot(Request $request)
+    {
+        $data = $request->validate(['email' => ['required', 'email', 'max:255']]);
+        $blocked = $this->service->sendResetPin($data['email'], $request);
+        if ($blocked === 'hourly') {
+            return back()->withErrors(['email' => 'Too many PINs were requested. Please try again later.']);
+        }
+
+        // the same answer whether or not the address is known
+        return redirect()->route('attorney.forgot')->with(['forgot_sent' => true, 'forgot_email' => $data['email']]);
+    }
+
+    public function resetVerify(Request $request)
+    {
+        $data = $request->validate(['email' => ['required', 'email', 'max:255'], 'code' => ['required', 'string', 'max:12']]);
+        $found = $this->service->verifyResetPin($data['email'], $data['code'], $request);
+        if (! $found) {
+            return redirect()->route('attorney.forgot')->with(['forgot_sent' => true, 'forgot_email' => $data['email']])
+                ->withErrors(['code' => 'That PIN is not right, or it has expired. Ask for a new one.']);
+        }
+        [$raw, $access] = $found;
+        session()->put('attorney_reset_ok_' . $access->id, now()->timestamp);
+
+        return redirect()->route('attorney.account')->withCookie($this->sessionCookie($request, $raw));
+    }
+
+    public function account(Request $request)
+    {
+        $access = $this->access($request);
+        $resetOk = (int) session('attorney_reset_ok_' . $access->id, 0) > now()->subMinutes(15)->timestamp;
+
+        return view('attorney-portal.account', $this->shell($access) + [
+            'choice' => $access->sign_in_choice, 'hasPassword' => $access->sign_in_choice === 'password' && $access->password, 'resetOk' => $resetOk,
+        ]);
+    }
+
+    public function choosePin(Request $request)
+    {
+        $this->service->choosePin($this->access($request), $request);
+
+        return redirect()->route('attorney.account')->with('saved', 'Done. You will get an emailed PIN each time you sign in.');
+    }
+
+    public function savePassword(Request $request)
+    {
+        $access  = $this->access($request);
+        $hasOne  = $access->sign_in_choice === 'password' && $access->password;
+        $resetOk = (int) session('attorney_reset_ok_' . $access->id, 0) > now()->subMinutes(15)->timestamp;
+
+        $rules = ['password' => ['required', 'confirmed', \Illuminate\Validation\Rules\Password::min(8)]];
+        if ($hasOne && ! $resetOk) {
+            $rules['current_password'] = ['required', 'string'];
+        }
+        $data = $request->validate($rules);
+        if ($hasOne && ! $resetOk && ! \Illuminate\Support\Facades\Hash::check($data['current_password'], (string) $access->password)) {
+            return back()->withErrors(['current_password' => 'Your current password is not right.']);
+        }
+
+        $this->service->setPassword($access, $data['password'], $request);
+        session()->forget('attorney_reset_ok_' . $access->id);
+
+        return redirect()->route('attorney.account')->with('saved', $hasOne ? 'Your password was changed.' : 'Your password is set. Next time you can sign in with your email and password.');
+    }
+
+    private function sessionCookie(Request $request, string $raw)
+    {
+        return cookie(config('attorney-portal.cookie'), $raw, (int) config('attorney-portal.session_hours', 12) * 60, '/attorney', null, $request->isSecure(), true, false, 'lax');
+    }
+
+    /** The plain frame for pages with no one signed in yet. */
+    private function plainShell(): array
+    {
+        return ['agencyName' => 'Your agent', 'agencyLogo' => null, 'brandColor' => '#0b2a4a', 'buttonColor' => '#00b4d8'];
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────
 
     /**
@@ -322,6 +424,7 @@ class AttorneyPortalController extends Controller
             'buttonColor' => $branding['colors']['button'],
             'personName'  => $access->displayName(),
             'firmName'    => $access->firm?->name,
+            'needsChoice' => $access->sign_in_choice === null,
         ];
     }
 
