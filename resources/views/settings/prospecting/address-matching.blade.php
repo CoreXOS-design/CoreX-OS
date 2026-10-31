@@ -93,6 +93,15 @@
             <p class="text-xs mt-1" style="color:var(--text-muted);">A "same street, nothing else agrees" candidate below this score is not even kept as a possible match. Standard: 85.</p>
         </div>
 
+        <div>
+            <input type="hidden" name="same_address_sweep_present" value="1">
+            <label class="inline-flex items-center gap-2 text-sm font-semibold" style="color:var(--text-secondary);">
+                <input type="checkbox" name="same_address_sweep" value="1" data-qa="same-address-sweep" @checked(old('same_address_sweep_present') ? old('same_address_sweep') : $settings['same_address_sweep'])>
+                Tidy up same-address properties after every import
+            </label>
+            <p class="text-xs mt-1" style="color:var(--text-muted);">After an import, houses and stands that share the same street number, street, unit and suburb are merged into one property (nothing is deleted; the older record is kept as a duplicate). Flats with no unit number, and anything less certain, are never merged: they wait on the Possible matches list for an agent to decide. Standard: on.</p>
+        </div>
+
         <div class="flex flex-wrap items-center gap-3">
             <button type="submit" class="text-sm font-semibold px-5 py-2 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Save address matching settings</button>
             <button type="submit" name="reset" value="1" formnovalidate class="text-sm px-4 py-2 rounded-md" style="background:transparent; border:1px solid var(--border); color:var(--text-primary);"

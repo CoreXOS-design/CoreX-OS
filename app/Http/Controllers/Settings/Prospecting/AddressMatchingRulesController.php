@@ -66,6 +66,8 @@ class AddressMatchingRulesController extends Controller
             'fuzzy_threshold'               => (int) ($v['fuzzy_threshold'] ?? $current['fuzzy_threshold']),
             'auto_merge_min_confidence'     => $v['auto_merge_min_confidence'] ?? $current['auto_merge_min_confidence'],
             'auto_claim_min_confidence'     => $v['auto_claim_min_confidence'] ?? $current['auto_claim_min_confidence'],
+            // a form that does not carry the switch (a partial post) never turns it off
+            'same_address_sweep'            => $request->has('same_address_sweep_present') ? $request->boolean('same_address_sweep') : $current['same_address_sweep'],
         ]);
 
         return back()->with('status', 'Address matching settings saved.');
