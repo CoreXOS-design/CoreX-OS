@@ -15,6 +15,9 @@ use Illuminate\Database\Query\Builder;
  */
 final class MicWorkTiles
 {
+    /** Bump when a tile's face/number logic changes, so a deploy never serves the previous face from the 10-minute cache. */
+    private const CACHE_VERSION = 3;
+
     /** number => [key, full title (tooltip), what a click does: filter | strip | panel, short label shown on the tile] */
     public const TILES = [
         1 => ['stuck', 'Stuck on the market', 'filter', 'Stuck'],
@@ -112,7 +115,7 @@ final class MicWorkTiles
     {
         $shown ??= $this->shownFor($agencyId);
 
-        return 'mic-work:tiles:' . $agencyId . ':' . $user->id . ':' . md5(json_encode($shown) . (class_exists(self::CC5_SETTINGS) ? json_encode(app(self::CC5_SETTINGS)::for($agencyId)->areas()) : '') . count($this->tiles) . count($this->panels) . (class_exists(self::CC5_SERVICE) ? 'c5' : ''));
+        return 'mic-work:tiles:v' . self::CACHE_VERSION . ':' . $agencyId . ':' . $user->id . ':' . md5(json_encode($shown) . (class_exists(self::CC5_SETTINGS) ? json_encode(app(self::CC5_SETTINGS)::for($agencyId)->areas()) : '') . count($this->tiles) . count($this->panels) . (class_exists(self::CC5_SERVICE) ? 'c5' : ''));
     }
 
     /** @return list<array<string, mixed>> */
