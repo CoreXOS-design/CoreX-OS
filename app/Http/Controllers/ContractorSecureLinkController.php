@@ -302,6 +302,8 @@ class ContractorSecureLinkController extends Controller
 
         $quote = $workOrder->recordQuote($data, null, 'via contractor link');
         app(\App\Services\Rentals\RentalContractorJobService::class)->recordResponse($workOrder, \App\Services\Rentals\RentalContractorJobService::RESPONSE_QUOTE, null, $quote);
+        // section 31.4 - the quote is selected for the agent; inside the owner's repair limit it is authorised and the go-ahead goes out by itself
+        app(\App\Services\Rentals\RentalQuoteAutoAdvanceService::class)->afterQuote($workOrder, $quote);
 
         $record->forceFill(['last_used_at' => now()])->save();
 

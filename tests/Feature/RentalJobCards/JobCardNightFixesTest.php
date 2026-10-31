@@ -108,18 +108,14 @@ final class JobCardNightFixesTest extends TestCase
         $this->assertStringNotContainsString('approved automatically', strtolower($html), 'section 22.6: nothing is approved by itself');
         $this->assertStringContainsString('data-cost-decision', $html, 'the cost is approved in "Approve the cost", on this page too');
 
+        // section 31.4 (Johan, 30 Oct 2026): inside the owner's repair limit the confirmed price is authorised by itself - nothing goes to the owner for approval and nothing waits for a second press
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $card))->assertSessionHasNoErrors()
-            ->assertSessionHas('success', fn ($m) => str_contains($m, 'Nothing is approved yet') && str_contains($m, 'nothing was sent to the owner'));
-        $this->assertSame([], $this->sent(RentalOwnerQuoteMail::class), 'no mail to the owner');
+            ->assertSessionHas('success', fn ($m) => str_contains($m, 'authorised') && str_contains($m, 'open for booking'));
+        $this->assertSame([], $this->sent(RentalOwnerQuoteMail::class), 'no QUOTE mail to the owner - the owner is only told what was authorised');
         $this->assertSame(RentalWorkOrder::APPROVAL_NOT_REQUIRED, $wo->fresh()->owner_approval_status);
-        $this->assertNull($wo->fresh()->approved_amount, 'confirming the price approves nothing');
-        $this->assertSame(RentalJobCard::STATUS_QUOTED, $card->fresh()->status);
+        $this->assertEquals(345.0, (float) $wo->fresh()->approved_amount);
 
-        $after = $this->page($card);
-        $this->assertStringContainsString('Price confirmed - cost to authorise', $after);
-
-        // the agent authorises it - now the card is approved and can be booked
-        $this->authoriseCostOf($wo->fresh());
+        $this->authoriseCostOf($wo->fresh());   // a stale press afterwards is a harmless repeat
         $this->assertSame(RentalJobCard::STATUS_APPROVED, $card->fresh()->status);
         $this->assertStringContainsString('Approved - ready to book', $this->page($card));
     }
@@ -189,10 +185,9 @@ final class JobCardNightFixesTest extends TestCase
         // draft
         $this->assertSame('draft', $this->stage($card)['key']);
 
-        // price confirmed: inside the limit, but NOT approved until the agent authorises the cost (section 22.6)
+        // price confirmed: inside the limit, so the cost is authorised by itself (section 31.4) and the card is approved
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $card))->assertSessionHasNoErrors();
-        $this->assertSame('quoted', $this->stage($card)['key']);
-        $this->authoriseCostOf($wo->fresh());
+        $this->authoriseCostOf($wo->fresh());   // a stale press is a harmless repeat
         $this->assertSame('approved', $this->stage($card)['key']);
         $html = $this->page($card);
         $this->assertStringContainsString($u('corex.rental-job-cards.schedule'), $html);
@@ -368,14 +363,16 @@ final class JobCardNightFixesTest extends TestCase
 
         $this->assertStringContainsString('data-crew-picker', $html);
         $this->assertStringContainsString('Team 1', $html);
-        $this->assertStringContainsString("crew: '{$this->crew->id}'", $html, 'the only crew is the default');
-        $this->assertStringContainsString('No crew yet', $html);
+        // section 31.4: no default to tick and no "No crew yet" - every crew has its own Assign button, which makes the job card and sends their link
+        $this->assertStringContainsString('name="pick" value="c:' . $this->crew->id . '"', $html);
+        $this->assertStringContainsString('Assign Team 1', $html);
+        $this->assertStringNotContainsString('No crew yet', $html);
 
-        // more than one: nothing is pre-chosen, and the list is searchable
+        // more than one: each has its own button, and the list is searchable
         RentalCrew::create(['agency_id' => $this->agency->id, 'name' => 'Team 2', 'email' => 't2@example.invalid', 'created_by_user_id' => $this->admin->id]);
         $html = $this->actingAs($this->admin)->get(route('corex.rental-fault-reports.show', $fault))->getContent();
-        $this->assertStringContainsString("crew: ''", $html);
-        $this->assertStringContainsString('x-model="crewQ"', $html);
+        $this->assertStringContainsString('data-picker-search', $html);
+        $this->assertStringContainsString('Assign Team 2', $html);
         $this->assertStringContainsString('Team 2', $html);
     }
 

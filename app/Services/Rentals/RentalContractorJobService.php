@@ -309,6 +309,15 @@ class RentalContractorJobService
             $this->markOrdered($wo, $by);
         }
         $this->tell($wo, self::EV_SENT, $what . ' - ' . $this->address($wo), trim(($d->recipient_name ?: '') . ' by ' . $d->channelLabel() . ': ' . $wo->title));
+
+        // section 31.4 - the tenant hears it too (once): the job is with a contractor / the crew
+        try {
+            if ($wo->reported_fault_report_id && ($fault = \App\Models\RentalFaultReport::withoutGlobalScopes()->find($wo->reported_fault_report_id))) {
+                app(RentalPortalNotificationService::class)->notifyTenantJobSent($fault, $d->recipient_kind === RentalJobDispatch::KIND_CREW, $d->recipient_name);
+            }
+        } catch (\Throwable $e) {
+            report($e);   // telling the tenant must never undo or fail the send
+        }
     }
 
     /** The first counted send moves a reported work order to ordered (the tenant's progress line reads `ordered_at`) and opens the contractor's "pending" answer. */

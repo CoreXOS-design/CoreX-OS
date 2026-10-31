@@ -117,6 +117,9 @@ final class RentalWorkOrderScreen
         $btnForm = fn (string $label, string $form) => NextAction::form($label, $form);
         $btnOpen = fn (string $label, string $dialog) => NextAction::open($label, $dialog);
         $authoriseUrl = route('corex.rental-work-orders.cost.authorise', $wo);
+        // section 31.4 - above the repair limit the owner authorises: on their link (it was sent), or the agent presses ONE button with the owner's yes already in hand
+        $ownerQuick = NextAction::post('Owner authorised by phone/WhatsApp', route('corex.rental-work-orders.cost.owner-authorised', $wo));
+        $ownerSend = fn (string $label) => NextAction::post($label, route('corex.rental-work-orders.cost.send-to-owner', $wo));
         // AT-494 - a money decision the person may not make: no dead button, the sentence that tells them who can
         $ask = NextAction::note(RentalWorkOrderApprovalRules::ASK_MANAGER);
         $canApprove = (bool) ($can['record_approval'] ?? false);
@@ -170,7 +173,7 @@ final class RentalWorkOrderScreen
                     'button' => $wo->jobCard ? NextAction::link('Open the job card', route('corex.rental-job-cards.show', $wo->jobCard)) : null];
             } elseif ($wo->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING || ($m['amount'] !== null && ! ($repair['agent_can'] ?? false))) {
                 $next = ['key' => 'cost_owner', 'tone' => 'warn', 'text' => 'Our crew price of ' . self::money($m['amount']) . ' must be approved by the owner.' . ($sentToOwner ? ' Sent to the owner ' . $fmt($sentToOwner) . '.' : ''), 'panel' => 'cost',
-                    'button' => $canApprove ? $btnOpen("Record the owner's decision", 'cost-owner-decision') : $ask];
+                    'button' => $canApprove ? $ownerQuick : $ask];
             } elseif ($m['amount'] !== null) {
                 $next = ['key' => 'cost_inside_limit', 'tone' => 'info', 'text' => 'Our crew price of ' . self::money($m['amount']) . " is inside the owner's repair limit.", 'panel' => 'cost',
                     'button' => $canApprove ? NextAction::post('Authorise ' . self::money($m['amount']), $authoriseUrl) : $ask];
@@ -200,14 +203,15 @@ final class RentalWorkOrderScreen
                 $next = ['key' => 'same_call', 'tone' => 'ok', 'text' => 'Quote ' . $amount . ' is in, and the owner approved up to ' . self::money($sameCall['figure']) . ' on the same call as the go-ahead (' . $sameCall['via'] . ', ' . $sameCall['when'] . ').', 'panel' => 'cost',
                     'button' => $canApprove ? $btnForm('Use it - approve ' . self::money($sameCall['figure']), 'wo-same-call-form') : $ask];
             } elseif ($selected && $wo->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING) {
-                $next = ['key' => 'waiting_owner', 'tone' => 'warn', 'text' => 'Quote ' . $amount . ' is in. The owner must approve it' . ($sentToOwner ? ' - sent to the owner ' . $fmt($sentToOwner) : '') . '.', 'panel' => 'cost',
-                    'button' => $canApprove ? $btnOpen("Record the owner's decision", 'cost-owner-decision') : $ask];
+                $next = ['key' => 'waiting_owner', 'tone' => 'warn', 'text' => 'Quote ' . $amount . ' is in. The owner must approve it' . ($sentToOwner ? ' - sent to the owner ' . $fmt($sentToOwner) : ' - it has not been sent to them yet') . '.', 'panel' => 'cost',
+                    'button' => $canApprove ? ($sentToOwner ? $ownerQuick : $ownerSend('Send to owner for approval')) : $ask,
+                    'secondary' => $canApprove ? ($sentToOwner ? $ownerSend('Send to owner again') : $ownerQuick) : null];
             } elseif ($selected && ($repair['agent_can'] ?? false)) {
                 $next = ['key' => 'quote_inside_limit', 'tone' => 'info', 'text' => 'Quote ' . $amount . " is inside the owner's repair limit.", 'panel' => 'cost',
                     'button' => $canApprove ? NextAction::post('Authorise ' . $amount, $authoriseUrl) : $ask];
             } elseif ($selected) {
                 $next = ['key' => 'quote_needs_owner', 'tone' => 'warn', 'text' => 'Quote ' . $amount . " is above the owner's repair limit (or none is set), so the owner decides.", 'panel' => 'cost',
-                    'button' => $canApprove ? $btnOpen("Record the owner's decision", 'cost-owner-decision') : $ask];
+                    'button' => $canApprove ? $ownerQuick : $ask];
             } elseif ($wo->quotes->isNotEmpty()) {
                 $next = ['key' => 'quote_not_selected', 'tone' => 'warn', 'text' => 'No quote chosen yet - the owner has not been asked. Choose one of the quotes.', 'panel' => 'quotes',
                     'button' => $canQuote ? $btnOpen('Choose a quote', 'quote-pick') : $ask];

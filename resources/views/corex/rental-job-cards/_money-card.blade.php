@@ -18,7 +18,7 @@
     } : null;
     $mcMoney = fn ($v) => 'R' . number_format((float) $v, 2);
     $mcNb = $screen['next']['button'] ?? null;
-    $mcNbIsMoney = $mcNb && (($mcNb['kind'] === 'form' && $mcNb['form'] === 'jc-send-quote-form') || (in_array($mcNb['kind'], ['post', 'open'], true) && ($mcNb['action'] ?? $mcNb['dialog'] ?? '') !== '' && (str_contains((string) ($mcNb['action'] ?? ''), '/cost/authorise') || ($mcNb['dialog'] ?? '') === 'cost-owner-decision')));
+    $mcNbIsMoney = $mcNb && (($mcNb['kind'] === 'form' && $mcNb['form'] === 'jc-send-quote-form') || (in_array($mcNb['kind'], ['post', 'open'], true) && ($mcNb['action'] ?? $mcNb['dialog'] ?? '') !== '' && (str_contains((string) ($mcNb['action'] ?? ''), '/cost/authorise') || str_contains((string) ($mcNb['action'] ?? ''), '/cost/owner-authorised') || ($mcNb['dialog'] ?? '') === 'cost-owner-decision')));
     $mcLandlord = $jobCard->property?->landlordContact();
     $mcBaseline = (bool) $mcWo?->hasApprovedBaseline();
     $mcCanSendQuote = $isOpen && auth()->user()->hasPermission('rental_job_cards.send_quote');

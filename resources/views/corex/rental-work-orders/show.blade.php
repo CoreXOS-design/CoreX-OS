@@ -406,7 +406,7 @@
                 {{-- choose / change the contractor: the SAME single rule as the owner portal and the pre-send warning --}}
                 <button type="button" class="corex-btn-outline text-xs" data-choose-contractor onclick="window.dispatchEvent(new CustomEvent('corex-open', { detail: 'choose-contractor' }))">{{ $woProv ? 'Choose a different contractor' : 'Choose the contractor' }}</button>
                 <x-next-dialog name="choose-contractor" title="{{ $woProv ? 'Choose a different contractor' : 'Choose the contractor' }}">
-                    <form method="POST" action="{{ route('corex.rental-work-orders.contractor.appoint', $workOrder) }}" class="space-y-2 pt-2" x-data="{ chosenContractor: '{{ (int) $workOrder->agency_service_provider_id ?: '' }}' }">
+                    <form method="POST" action="{{ route('corex.rental-work-orders.contractor.appoint', $workOrder) }}" class="space-y-2 pt-2">
                         @csrf
                         @if($classes['suits']->isEmpty() && $classes['category'])
                             <p class="font-semibold" data-no-contractor-suits>No contractor loaded for {{ $classes['type'] ?: $classes['category'] }}.
@@ -422,18 +422,19 @@
                             @if($group['rows']->isNotEmpty())
                                 <div class="font-semibold pt-1" data-contractor-group>{{ $classes['category'] ? $group['label'] : 'Contractors' }}</div>
                                 @foreach($group['rows'] as $c)
-                                    <label class="flex flex-wrap items-center gap-2 rounded-md px-2 py-1" style="border: 1px solid var(--border);" data-contractor-row="{{ $c['id'] }}">
-                                        <input type="radio" name="agency_service_provider_id" value="{{ $c['id'] }}" x-model="chosenContractor" @checked((int) $workOrder->agency_service_provider_id === $c['id'])>
-                                        <span class="font-medium">{{ $c['name'] }}</span>
-                                        @if($c['trades'])<span style="color: var(--text-muted);">{{ $c['trades'] }}</span>@endif
-                                        @if(! $c['has_contact'])<span class="ds-badge ds-badge-danger" data-no-contact-details>no contact details</span>@endif
-                                        <span style="color: var(--text-muted);" data-callout-suffix="{{ $c['callout_status'] }}">- {{ $c['callout'] }}</span>
-                                    </label>
+                                    <div class="flex flex-wrap items-center justify-between gap-2 rounded-md px-2 py-1" style="border: 1px solid var(--border);" data-contractor-row="{{ $c['id'] }}">
+                                        <span class="min-w-0">
+                                            <span class="font-medium">{{ $c['name'] }}</span>
+                                            @if($c['trades'])<span style="color: var(--text-muted);">{{ $c['trades'] }}</span>@endif
+                                            @if(! $c['has_contact'])<span class="ds-badge ds-badge-danger" data-no-contact-details>no contact details</span>@endif
+                                            <span style="color: var(--text-muted);" data-callout-suffix="{{ $c['callout_status'] }}">- {{ $c['callout'] }}</span>
+                                        </span>
+                                        {{-- section 31.4 - one press: choose this contractor and send them the job --}}
+                                        <button type="submit" name="agency_service_provider_id" value="{{ $c['id'] }}" class="{{ (int) $workOrder->agency_service_provider_id === $c['id'] ? 'corex-btn-outline' : 'corex-btn-primary' }} text-xs" data-appoint-contractor-submit>Send to {{ $c['name'] }}</button>
+                                    </div>
                                 @endforeach
                             @endif
                         @endforeach
-                        @include('partials.contractor-inspect-choice', ['notices' => $classes['suits']->concat($classes['others'])->mapWithKeys(fn ($c) => [(string) $c['id'] => ['name' => $c['name'], 'text' => $c['callout_notice'], 'status' => $c['callout_status']]])->all(), 'model' => 'chosenContractor'])
-                        <button type="submit" class="corex-btn-outline text-xs" data-appoint-contractor-submit>Choose and send the job</button>
                     </form>
                 </x-next-dialog>
             </div>

@@ -150,7 +150,8 @@ final class WorkOrderScreenStatesTest extends TestCase
         $wo = $this->quoted(2000.0);
         $html = $this->page($wo);
 
-        $n = $this->assertNext($html, 'waiting_owner', 'Quote R2,000.00 is in. The owner must approve it', "Record the owner's decision");
+        $n = $this->assertNext($html, 'waiting_owner', 'Quote R2,000.00 is in. The owner must approve it', 'Owner authorised by phone/WhatsApp');   // section 31.4: the quote already went to the owner on selection, so the one click is the agent's record of the owner's yes; "Send to owner again" sits beside it
+        $this->assertStringContainsString('Send to owner again', $n['raw']);
         $this->assertStringContainsString('data-quote-sent-to-owner', $n['raw']);
         $this->assertStringContainsString('Waiting for the owner', $html);
         $this->assertSame('current', $this->step($html, 'cost'));
@@ -405,7 +406,7 @@ final class WorkOrderScreenStatesTest extends TestCase
         $this->ownerLimits(1500.0);
         $wo = $this->externalWorkOrder();
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.quotes.store', $wo), ['agency_service_provider_id' => $sup->id, 'amount' => 850, 'quote_date' => now()->toDateString(), 'detail_text' => 'x'])
-            ->assertSessionHas('success', 'Quote captured. Authorise its cost under "Approve the cost".');
+            ->assertSessionHas('success', "Quote captured and selected. It is inside the owner's repair limit, so it has been authorised and the go-ahead is on its way.");   // section 31.4: no second press
 
         $this->ownerLimits(500.0);
         $wo2 = $this->externalWorkOrder();

@@ -229,7 +229,7 @@ final class RentalJobCardScreen
                         'button' => ($can['record_approval'] ?? false) && $authoriseUrl ? NextAction::post('Authorise ' . self::money($amount), $authoriseUrl) : null];
                 } else {
                     $out = ['text' => 'Waiting for the owner to approve ' . self::money($amount) . '.', 'tone' => 'warn',
-                        'button' => ($can['record_approval'] ?? false) ? NextAction::open("Record the owner's decision", 'cost-owner-decision') : null,
+                        'button' => ($can['record_approval'] ?? false) && $wo ? NextAction::post('Owner authorised by phone/WhatsApp', route('corex.rental-work-orders.cost.owner-authorised', $wo)) : null,
                         'secondary' => $resendQuote];
                 }
                 break;

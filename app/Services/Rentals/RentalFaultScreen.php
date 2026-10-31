@@ -194,9 +194,12 @@ final class RentalFaultScreen
             case 'appoint':
                 $ok = ($can['raise_work_order'] ?? false) && $f->workOrderBlockReason() === null;
                 $out = [
-                    'text' => $f->status === RentalFaultReport::STATUS_OWNER_HANDLING ? 'The owner is handling this themselves.' : 'The owner approved. Choose who does the work and the work order is made from this fault.',
+                    'text' => $f->status === RentalFaultReport::STATUS_OWNER_HANDLING ? 'The owner is handling this themselves.' : 'The owner approved. Press Send to on the contractor or crew below - the work order is made from this fault and their link goes out.',
                     'tone' => 'ok',
-                    'button' => $ok ? NextAction::form('Create work order', 'raise-work-order-form') : null,
+                    // section 31.4 - the property's default contractor (or the owner's own pick) is one press right here; otherwise the picker below is the action
+                    'button' => $ok && ! empty($c['defaultSupplier']) && $f->approval_route !== RentalFaultReport::ROUTE_OWNER_HANDLES
+                        ? NextAction::post('Send to ' . $c['defaultSupplier']['name'], route('corex.rental-fault-reports.raise-work-order', $f), ['pick' => 's:' . $c['defaultSupplier']['id']])
+                        : null,
                 ];
                 if ($f->status === RentalFaultReport::STATUS_OWNER_HANDLING) {
                     $out['button'] = null;

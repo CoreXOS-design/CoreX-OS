@@ -4927,6 +4927,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_work_orders.record_approval')->name('corex.rental-work-orders.cost.owner-decision');
         Route::post('/{rentalWorkOrder}/cost/use-same-call', [\App\Http\Controllers\CoreX\RentalWorkOrderCostController::class, 'useSameCall'])
             ->middleware('permission:rental_work_orders.record_approval')->name('corex.rental-work-orders.cost.use-same-call');
+        // section 31.4 - one-click owner authority: "Owner authorised by phone/WhatsApp" and "Send to owner for approval"
+        Route::post('/{rentalWorkOrder}/cost/owner-authorised', [\App\Http\Controllers\CoreX\RentalWorkOrderCostController::class, 'ownerAuthorised'])
+            ->middleware('permission:rental_work_orders.record_approval')->name('corex.rental-work-orders.cost.owner-authorised');
+        Route::post('/{rentalWorkOrder}/cost/send-to-owner', [\App\Http\Controllers\CoreX\RentalWorkOrderCostController::class, 'sendToOwner'])
+            ->middleware('permission:rental_work_orders.record_approval')->name('corex.rental-work-orders.cost.send-to-owner');
         Route::post('/{rentalWorkOrder}/emergency-approval/{approval}/void', [\App\Http\Controllers\CoreX\RentalEmergencyApprovalController::class, 'void'])
             ->middleware('permission:rental_work_orders.record_emergency_approval')->name('corex.rental-work-orders.emergency-approval.void');
         Route::get('/{rentalWorkOrder}/emergency-approval/{approval}/attachment', [\App\Http\Controllers\CoreX\RentalEmergencyApprovalController::class, 'attachment'])

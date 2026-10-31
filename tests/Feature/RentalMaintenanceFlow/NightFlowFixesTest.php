@@ -137,8 +137,8 @@ final class NightFlowFixesTest extends TestCase
 
         $this->postQuote($wo, 300)->assertSessionHasNoErrors();
         $this->assertSame(RentalWorkOrder::APPROVAL_NOT_REQUIRED, $wo->fresh()->owner_approval_status, 'inside the owner\'s repair limit: the owner is not asked');
-        $this->assertNull($wo->fresh()->approved_amount, 'section 22.6: and nothing is approved until the agent authorises it');
-        $this->authoriseCostOf($wo->fresh());
+        $this->assertEquals(300.0, (float) $wo->fresh()->approved_amount, 'section 31.4 (Johan, 30 Oct 2026): inside the owner\'s repair limit the cost is authorised by itself - no second press');
+        $this->authoriseCostOf($wo->fresh());   // a stale page pressing Authorise afterwards is a harmless repeat
         $this->assertNotNull($wo->fresh()->approved_amount);
         $first = $wo->quotes()->first();
         $this->assertTrue((bool) $first->is_selected);
@@ -466,8 +466,8 @@ final class NightFlowFixesTest extends TestCase
         $wo = $this->externalWorkOrder();
         $at = now()->addDays(2)->setTime(9, 0)->format('Y-m-d\TH:i');
         $this->postQuote($wo, 300);
-        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.appointment.store', $wo), ['appointment_at' => $at])->assertSessionHasErrors();   // inside the limit is not approved yet
-        $this->authoriseCostOf($wo->fresh());
+        // section 31.4: inside the limit the quote is authorised on capture, so the appointment is allowed straight away
+        $this->authoriseCostOf($wo->fresh());   // a stale press is a harmless repeat
 
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.appointment.store', $wo), ['appointment_at' => $at])->assertSessionHasNoErrors();
         $this->assertNotNull($wo->fresh()->appointment_at);
@@ -568,8 +568,8 @@ final class NightFlowFixesTest extends TestCase
         $this->assertSame($supplier->id, (int) $wo->fresh()->agency_service_provider_id);
         $this->assertFalse($wo->fresh()->updates()->where('update_type', 'supplier_changed')->exists());
 
-        // section 22.6: a quote inside the owner's limit is still NOT approved by itself - the agent authorises it
-        $this->assertNull($wo->fresh()->approved_amount);
+        // section 31.4: a quote inside the owner's limit IS authorised by itself now (the job stays with the contractor it was sent to)
+        $this->assertNotNull($wo->fresh()->approved_amount);
         $this->authoriseCostOf($wo->fresh());
         $this->assertNotNull($wo->fresh()->approved_amount);
 
