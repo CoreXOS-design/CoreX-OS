@@ -24,7 +24,7 @@
 
 <x-mic-page-header
     title="Work"
-    subtitle="{{ ($micView ?? 'properties') === 'properties' ? 'Every property we know about, one row each - both portals, alerts and deeds together' . (\App\Services\Prospecting\MicWork\MicWorkList::hasScores() ? ', ranked by opportunity score.' : ', newest activity first.') : 'Per-advert list - listings to action, ranked by suggested next step.' }}">
+    subtitle="{{ ($micView ?? 'adverts') === 'properties' ? 'Every property we know about, one row each - both portals, alerts and deeds together' . (\App\Services\Prospecting\MicWork\MicWorkList::hasScores() ? ', ranked by opportunity score.' : ', newest activity first.') : 'Your prospecting worklist — listings to action, ranked by suggested next step.' }}">
     <x-slot:actions>
         {{-- Slot: filter ticks. AJAX swap target (display:contents = no layout box),
              so a tick toggle refreshes this in place without a full reload. --}}
@@ -44,7 +44,7 @@
 </div>
 
 
-@if(($micView ?? 'properties') === 'properties')
+@if(($micView ?? 'adverts') === 'properties')
 <div id="mic-slot-listings" data-tour="mic-listings">
 @include('corex.market-intelligence.partials._work-property-list')
 </div>
@@ -85,7 +85,7 @@
 @endif
 </div>{{-- /full-width container --}}
 
-@if(($micView ?? 'properties') !== 'properties')
+@if(($micView ?? 'adverts') !== 'properties')
 @include('corex.market-intelligence._slideover')
 @endif
 

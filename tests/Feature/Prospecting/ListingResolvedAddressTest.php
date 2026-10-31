@@ -88,10 +88,10 @@ final class ListingResolvedAddressTest extends TestCase
 
     public function test_work_page_under_with_address_only_never_says_no_address_yet_for_a_file_with_a_street(): void
     {
-        $tp = $this->tp($this->agency, 'P24-118000005', '13', 'Newport Road Road');
+        $tp = $this->tp($this->agency, 'P24-118000005', '13', 'Newport Road');
         $this->listing($this->agency, 'PP-T4203603', null, $tp);
 
         $this->actingAs($this->admin)->get(route('market-intelligence.work', ['address_filter' => 'with_address']))
-            ->assertOk()->assertSee('PP-T4203603', false)->assertSee('13 Newport Road Road', false)->assertDontSee('No address yet', false);
+            ->assertOk()->assertSee('PP-T4203603', false)->assertSee('13 Newport Road', false)->assertDontSee('No address yet', false);
     }
 }

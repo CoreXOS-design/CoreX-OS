@@ -570,9 +570,30 @@ class MarketIntelligenceController extends Controller
         }
         $kpiCountBase = clone $query;
 
-        // mic-work-tab.md 2.1 D: the default Work view is ONE ROW PER PROPERTY FILE, built from this same filtered query. ?view=adverts keeps the
-        // old per-advert list. Everything below this block is the per-advert path (buyer tiers, suggested actions, claims) and is skipped.
-        $micView = $request->query('view') === 'adverts' ? 'adverts' : 'properties';
+        // The classic per-advert list (grouped by property group) is THE Work screen. The property-per-row view (mic-work-tab.md 2.1 D) stays reachable
+        // at ?view=properties, unlinked, until Johan decides what to do with it. The new parts are additive on the classic list.
+        $micView = $request->query('view') === 'properties' ? 'properties' : 'adverts';
+
+        // Record card (2.1 E): one file's card, fetched on first expand under a row. Same filters as the page (the JS passes the page's query string), so a
+        // file is only served when this viewer's scoped list can reach it; another agency's file is a 404.
+        if ($request->filled('_card')) {
+            $fid = (int) $request->query('_card');
+            abort_unless($fid > 0 && (clone $query)->where('tracked_property_id', $fid)->exists(), 404);
+            $rec = app(\App\Services\Prospecting\MicWork\MicWorkList::class)->forFiles([$fid], (int) $agencyId)[0] ?? abort(404);
+
+            return response(view('corex.market-intelligence.partials._work-record-card', ['r' => $rec])->render());
+        }
+
+        // The tile row is the slow part when it is not cached (cc5/cc4 queries): the page does not wait for it. A cold page gets placeholders and the
+        // browser fetches the row from this same URL with _tiles=1 (HTML of the tile row + any open panel). Never deferred in tests unless asked.
+        if ($request->boolean('_tiles')) {
+            [$workTiles, $workPanel] = $this->workTilesData($request, (int) $agencyId, $user, $isProspectingManager);
+
+            return response(view('corex.market-intelligence.partials._work-tiles', ['workTiles' => $workTiles, 'workPanel' => $workPanel, 'tilesDeferred' => false])->render());
+        }
+        $tilesDeferred = (! app()->runningUnitTests() || $request->boolean('_defer_tiles'))
+            && \App\Services\Prospecting\MicWork\MicWorkTiles::fromContainer()->cachedRow((int) $agencyId, $user) === null;
+
         if ($micView === 'properties') {
             $defaultSort = \App\Services\Prospecting\MicWork\MicWorkList::defaultSort();
             $sortKey = match ((string) $request->query('sort', $defaultSort)) { 'last_seen_at' => 'last_seen', 'first_seen_at' => 'time', default => (string) $request->query('sort', $defaultSort) };
@@ -581,15 +602,6 @@ class MarketIntelligenceController extends Controller
                 $kpiCountBase, (int) $agencyId, $sortKey, (string) $request->query('dir', 'desc'), max(1, (int) $request->query('page', 1)), $request->boolean('include_in_stock') && $isProspectingManager,
             );
             $defaultSortKey = $defaultSort;
-            // The tile row is the slow part when it is not cached (cc5/cc4 queries): the page does not wait for it. A cold page gets placeholders and the
-            // browser fetches the row from this same URL with _tiles=1 (HTML of the tile row + any open panel). Never deferred in tests unless asked.
-            if ($request->boolean('_tiles')) {
-                [$workTiles, $workPanel] = $this->workTilesData($request, (int) $agencyId, $user, $isProspectingManager);
-
-                return response(view('corex.market-intelligence.partials._work-tiles', ['workTiles' => $workTiles, 'workPanel' => $workPanel, 'tilesDeferred' => false])->render());
-            }
-            $micTilesSvc = \App\Services\Prospecting\MicWork\MicWorkTiles::fromContainer();
-            $tilesDeferred = (! app()->runningUnitTests() || $request->boolean('_defer_tiles')) && $micTilesSvc->cachedRow((int) $agencyId, $user) === null;
             [$workTiles, $workPanel] = $tilesDeferred ? [[], ['ready' => false, 'rows' => [], 'around' => []]] : $this->workTilesData($request, (int) $agencyId, $user, $isProspectingManager);
             $isManager = $isProspectingManager;
             if ($isFragment) {
@@ -604,10 +616,17 @@ class MarketIntelligenceController extends Controller
         }
 
         // Sorting
-        $sortBy = $request->get('sort', 'last_seen_at');
+        // Score (mic-work-tab.md 3) is the default sort once cc5 has computed it; the old sorts all still work. It orders by the file's stored score, so it
+        // runs on the full-hydration path (the SQL-paginated fast path knows plain columns only).
+        $hasScores = \App\Services\Prospecting\MicWork\MicWorkList::hasScores();
+        $sortBy = $request->get('sort', $hasScores ? 'score' : 'last_seen_at');
         $sortDir = $request->get('dir', 'desc');
         $allowedSorts = ['last_seen_at', 'first_seen_at', 'price', 'suburb'];
-        if (in_array($sortBy, $allowedSorts)) {
+        if ($sortBy === 'score' && $hasScores) {
+            $query->orderByRaw('(SELECT s.score FROM mic_file_stats s WHERE s.agency_id = prospecting_listings.agency_id AND s.tracked_property_id = prospecting_listings.tracked_property_id) IS NULL')
+                ->orderByRaw('(SELECT s.score FROM mic_file_stats s WHERE s.agency_id = prospecting_listings.agency_id AND s.tracked_property_id = prospecting_listings.tracked_property_id) ' . ($sortDir === 'asc' ? 'asc' : 'desc'))
+                ->orderBy('last_seen_at', 'desc');
+        } elseif (in_array($sortBy, $allowedSorts)) {
             $query->orderBy($sortBy, $sortDir === 'asc' ? 'asc' : 'desc');
         } else {
             $query->orderBy('last_seen_at', 'desc');
@@ -631,7 +650,7 @@ class MarketIntelligenceController extends Controller
         $page = (int) $request->get('page', 1);
         $perPage = 50;
         $pageResolver = app(\App\Services\Prospecting\ProspectingListingPageResolver::class);
-        $useFastPath = $pageResolver->canUseFastPath($request, $isProspectingManager, $selectedBuyerId);
+        $useFastPath = $sortBy !== 'score' && $pageResolver->canUseFastPath($request, $isProspectingManager, $selectedBuyerId);
         $injectedStockCountBySuburb = [];
 
         if ($useFastPath) {
@@ -1103,6 +1122,7 @@ class MarketIntelligenceController extends Controller
             ->enrich($listings->items(), $agencyId);
 
         $sourceByListingId = app(\App\Services\Prospecting\PropertySourceFacts::class)->forListings((int) $agencyId, $listings->items());
+        $rowExtras = $this->classicRowExtras($listings->items(), (int) $agencyId);
 
         $listingIdsForTiers = collect($listings->items())->pluck('id')->all();
         $buyerTiers = app(\App\Services\Prospecting\BuyerMatchTierService::class)
@@ -1205,6 +1225,7 @@ class MarketIntelligenceController extends Controller
                 'listings'                       => $listings,
                 'listingStates'                  => $listingStates,
                 'sourceByListingId'              => $sourceByListingId,
+                'rowExtras'                      => $rowExtras,
                 'buyerTiers'                     => $buyerTiers,
                 'tierConfig'                     => $tierConfig,
                 'suggestedActions'               => $suggestedActions,
@@ -1252,7 +1273,7 @@ class MarketIntelligenceController extends Controller
                 ->count(),
         );
 
-        [$workTiles, $workPanel] = $this->workTilesData($request, (int) $agencyId, $user, $isProspectingManager);
+        [$workTiles, $workPanel] = $tilesDeferred ? [[], ['ready' => false, 'rows' => [], 'around' => []]] : $this->workTilesData($request, (int) $agencyId, $user, $isProspectingManager);
 
         return view('corex.market-intelligence.work', compact(
             'listings', 'users', 'claimStats', 'regenerating',
@@ -1284,6 +1305,7 @@ class MarketIntelligenceController extends Controller
             // never touches $listing itself.
             'displayAddressByListingId',
             'sourceByListingId',
+            'rowExtras', 'tilesDeferred',
         ));
     }
 
@@ -1319,6 +1341,38 @@ class MarketIntelligenceController extends Controller
                 }
             }
         }
+    }
+
+    /**
+     * The additive Work-tab bits on the classic rows (spec 2.1 B, C, D): per listing id the file's score + reason codes (mic_file_stats), the file id the
+     * record card opens, and the "Possible match" pairs. One batched read each, bound to the agency.
+     *
+     * @param  iterable<ProspectingListing>  $items
+     * @return array<int, array{tp:?int, score:?float, reasons:list<string>, pairs:list<int>}>
+     */
+    private function classicRowExtras(iterable $items, int $agencyId): array
+    {
+        $tpIds = [];
+        foreach ($items as $l) {
+            if ($l->tracked_property_id) {
+                $tpIds[(int) $l->tracked_property_id] = true;
+            }
+        }
+        $ids = array_keys($tpIds);
+        $stats = ($ids && \App\Services\Prospecting\MicWork\MicWorkList::hasFileStats())
+            ? \DB::table('mic_file_stats')->where('agency_id', $agencyId)->whereIn('tracked_property_id', $ids)->get(['tracked_property_id', 'score', 'reason_1', 'reason_2'])->keyBy('tracked_property_id') : collect();
+        $pairs = $ids ? app(\App\Services\Prospecting\MicWork\MicWorkList::class)->possiblePairs($agencyId, $ids) : [];
+        $out = [];
+        foreach ($items as $l) {
+            $tp = $l->tracked_property_id ? (int) $l->tracked_property_id : null;
+            $st = $tp ? $stats->get($tp) : null;
+            $out[(int) $l->id] = [
+                'tp' => $tp, 'score' => $st && $st->score !== null ? (float) $st->score : null,
+                'reasons' => $st ? array_values(array_filter([$st->reason_1, $st->reason_2])) : [], 'pairs' => $tp ? ($pairs[$tp] ?? []) : [],
+            ];
+        }
+
+        return $out;
     }
 
     /**

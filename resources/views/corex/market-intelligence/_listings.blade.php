@@ -20,7 +20,7 @@
     $showProspectedBadge = $_micAgencyId
         ? (bool) (\App\Models\Agency::where('id', $_micAgencyId)->value('show_prospected_badge') ?? true)
         : true;
-    $sortBy = request('sort', 'last_seen_at');
+    $sortBy = request('sort', \App\Services\Prospecting\MicWork\MicWorkList::hasScores() ? 'score' : 'last_seen_at');
     $sortDir = request('dir', 'desc');
 
     // Preserve all other filters when changing sort.
@@ -33,12 +33,15 @@
     };
 
     $sortOptions = [
+        'score'         => 'Opportunity score',
         'last_seen_at'  => 'Last seen',
         'first_seen_at' => 'First seen',
         'price'         => 'Price',
         'suburb'        => 'Suburb',
         'buyer_matches' => 'Buyer demand',
     ];
+
+    if (! \App\Services\Prospecting\MicWork\MicWorkList::hasScores()) { unset($sortOptions['score']); }
 
     // ── Trust strip (display-only) ───────────────────────────────────────
     // Two numbers on this page can legitimately disagree because they dedupe
@@ -238,6 +241,7 @@
                         'display_address' => $displayAddressByListingId[(int) $_lid] ?? null,
                     ];
                 @endphp
+                <div x-data="{ card: false, loaded: false, html: '' }" data-qa="row-wrap">
                 @include('corex.market-intelligence._listing-row', [
                     'listing'   => $listing,
                     'state'     => $_state,
@@ -250,7 +254,13 @@
                     'commentCounts' => $commentCounts ?? [],
                     'canViewComments' => $canViewComments ?? false,
                     'source' => ($sourceByListingId ?? [])[$_lid] ?? null,
+                    'extras' => ($rowExtras ?? [])[$_lid] ?? null,
                 ])
+                {{-- Record card (mic-work-tab.md 2.1 E): fetched on first "Card" click, so the list itself stays as light as it was. --}}
+                <div x-show="card" x-cloak data-qa="record-card-host" style="border-bottom: 1px solid var(--border);">
+                    <div x-html="html || '<div style=&quot;padding:10px 14px; font-size:.75rem; color:var(--text-muted);&quot;>Loading the record…</div>'"></div>
+                </div>
+                </div>
             @endforeach
         </div>
 

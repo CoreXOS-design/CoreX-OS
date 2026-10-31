@@ -175,6 +175,37 @@
 
         {{-- Line 3: state tags + demand microbar --}}
         <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+            {{-- mic-work-tab.md 2.1 B/C/D/E - ADDITIVE: opportunity score + reasons, source icons (with the envelope), Possible match chip, record-card toggle.
+                 Nothing above or below is replaced. --}}
+            @php
+                $xt = $extras ?? null;
+                $xs = $source ?? null;
+                $iconChip = 'display:inline-block; padding: 0 4px; border: 1px solid var(--border); border-radius: 3px; font-size: .625rem; font-weight: 700; line-height: 1.4; color: var(--text-secondary);';
+                $portalsHere = collect($listing->portals ?? [['source' => $listing->portal_source]])->pluck('source')->unique();
+            @endphp
+            <span data-qa="row-additions" @click.stop style="display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+                @if($xt && $xt['score'] !== null)
+                    <span data-qa="score-badge" title="Opportunity score" style="font-size: .75rem; font-weight: 700; color: var(--text-primary);">Score {{ number_format($xt['score'], 0) }}</span>
+                    @foreach(array_slice($xt['reasons'], 0, 2) as $rc)<span data-qa="reason-chip" style="font-size: .6875rem; color: var(--text-muted);">· {{ \App\Services\Prospecting\MicWork\MicWorkList::REASON_LABELS[$rc] ?? $rc }}</span>@endforeach
+                @endif
+                <span data-qa="source-icons" style="display: inline-flex; gap: 2px;">
+                    @if($portalsHere->contains('p24'))<span style="{{ $iconChip }}">P24</span>@endif
+                    @if($portalsHere->contains('pp'))<span style="{{ $iconChip }}">PP</span>@endif
+                    @if(!empty($xs['alert']))<span data-qa="envelope" style="{{ $iconChip }} padding: 1px 4px;" title="In a P24 alert email"><svg viewBox="0 0 16 12" width="14" height="10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="display:block;"><rect x="1" y="1" width="14" height="10" rx="1.5"/><path d="M1.5 2.2 8 7l6.5-4.8"/></svg></span>@endif
+                    @if($isCompanyStock)<span style="{{ $iconChip }} color: var(--brand-icon);" title="Our stock">Stock</span>@endif
+                    @if(!empty($xs['deeds']))<span style="{{ $iconChip }}" title="Deeds captured">Deeds</span>@endif
+                </span>
+                @if($xt && !empty($xt['pairs']))
+                    <a href="{{ count($xt['pairs']) === 1 ? route('corex.possible-matches.index', ['pair' => $xt['pairs'][0]]) : route('corex.possible-matches.index', ['file' => $xt['tp']]) }}" data-qa="possible-match-chip"
+                       title="CoreX is not sure this is the same property as another file. Click to review." style="font-size:.625rem; font-weight:700; padding: 0 5px; border: 1px solid var(--ds-amber, #f59e0b); border-radius: 3px; color: var(--ds-amber, #f59e0b); text-decoration:none;">Possible match{{ count($xt['pairs']) > 1 ? ' (' . count($xt['pairs']) . ')' : '' }}</a>
+                @endif
+                @if($xt && $xt['tp'])
+                    <button type="button" data-qa="card-toggle" title="Open the record card: adverts, price history, alerts, deeds, nearby sales, buyers, our history"
+                            @click.stop="card = !card; if (card && !loaded) { loaded = true; fetch(location.pathname + location.search + (location.search ? '&' : '?') + '_card={{ $xt['tp'] }}', { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.ok ? r.text() : Promise.reject()).then(h => html = h).catch(() => { html = '<div style=&quot;padding:10px 14px;font-size:.75rem;color:var(--ds-crimson,#dc2626);&quot;>The record card could not load - try again.</div>'; loaded = false; }); }"
+                            style="font-size: .6875rem; padding: 0 6px; border: 1px solid var(--border); border-radius: 3px; background: transparent; color: var(--brand-icon); cursor: pointer;"><span x-text="card ? 'Card ▴' : 'Card ▾'">Card ▾</span></button>
+                @endif
+            </span>
+
             {{-- IN STOCK badge — company stock = EXACT portal_ref match to one of
                  our own properties (Johan's model), not the fuzzy address match. --}}
             @if($isCompanyStock)

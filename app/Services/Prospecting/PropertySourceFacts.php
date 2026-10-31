@@ -117,7 +117,7 @@ final class PropertySourceFacts
      * List rows: per listing id, the source tag and the alert marker.
      *
      * @param  iterable<\App\Models\ProspectingListing>  $listings
-     * @return array<int, array{tag:string, alert:bool, change:?array{old:float,new:float,date:string}, last_seen:?string}>
+     * @return array<int, array{tag:string, alert:bool, deeds:bool, change:?array{old:float,new:float,date:string}, last_seen:?string}>
      */
     public function forListings(int $agencyId, iterable $listings): array
     {
@@ -159,6 +159,7 @@ final class PropertySourceFacts
             $out[(int) $l->id] = [
                 'tag' => $alert ? 'Email alert' : ($deeds ? 'Deeds' : 'Extension'),
                 'alert' => $alert !== null,
+                'deeds' => (bool) $deeds,
                 'change' => $alert['change'] ?? null,
                 'last_seen' => $alert['last_seen'] ?? null,
             ];
