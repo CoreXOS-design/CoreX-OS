@@ -209,6 +209,7 @@ final class AdRenderTest extends TestCase
         (new RenderAdJob('b1', $r, 'bf_emma'))->handle($ok);
         $row = AdRender::where('batch_id', 'b1')->first();
         $this->assertSame('ready', $row->status);
+        $this->assertStringStartsWith('training-videos-auto/ads/b1/', $row->file_name, 'ads live in their own private folder on the data volume');
         Storage::disk('local')->assertExists($row->file_name);
         Storage::disk('local')->assertExists($row->poster_name);
         $this->assertSame(1080, $row->width);

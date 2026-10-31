@@ -67,6 +67,7 @@ await inject();
 // A recording shows the SCREEN, not the environment around it: dismiss the app's own first-visit guided tour (it would sit on top of everything) and hide the
 // test-site banners that QA/Staging put above the page.
 async function tidy() {
+  if (job.ad) await page.addStyleTag({ content: '#__tv-cursor { display: none !important; }' }).catch(() => {});   // an ad shows the screen itself, no cursor dot
   await page.addStyleTag({ content: '.driver-popover, .driver-overlay, .driver-stage { display: none !important; }' }).catch(() => {});
   await page.evaluate(() => {
     const cb = document.querySelector('.driver-popover input[type=checkbox]'); if (cb && !cb.checked) cb.click();

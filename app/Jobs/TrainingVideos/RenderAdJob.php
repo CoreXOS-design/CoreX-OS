@@ -38,7 +38,7 @@ class RenderAdJob implements ShouldQueue
         AdRender::where('batch_id', $this->batchId)->update(['status' => 'rendering', 'progress_percent' => 2, 'stage' => 'Starting']);
         $work = rtrim((string) config('training-videos.auto.work_dir'), '/') . '/ad-' . $this->batchId;
         $disk = Storage::disk((string) config('training-videos.auto.disk', 'local'));
-        $folder = rtrim((string) config('training-videos.ads.folder'), '/') . '/' . $this->batchId;
+        $folder = rtrim((string) config('training-videos.auto.ads.folder'), '/') . '/' . $this->batchId;
         try {
             $made = $composer->render($this->request, $this->voiceKey, $work, function (string $stage, int $pct) {
                 AdRender::where('batch_id', $this->batchId)->update(['stage' => $stage, 'progress_percent' => $pct]);

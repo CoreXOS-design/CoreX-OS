@@ -235,7 +235,7 @@ class AdComposer
         if (! $id) {
             return null;
         }
-        $f = rtrim((string) config('training-videos.ads.music_dir'), '/') . '/' . basename($id);
+        $f = rtrim((string) config('training-videos.auto.ads.music_dir'), '/') . '/' . basename($id);
 
         return is_file($f) ? $f : null;
     }
