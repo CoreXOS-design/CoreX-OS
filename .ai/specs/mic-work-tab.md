@@ -293,3 +293,27 @@ QA1 (agency 1): **41,081 files scored** — min 2.5, avg 16.1, max 89.3; 1,066 f
 | Property files with an erf | 41,724 | 40,022 |
 Files: 1,721 carried an erf equal to a cleared advert's; **1,702 cleared**, 16 kept (deeds capture), 3 kept (another advert shows a real equal erf), 0 kept for another source (every erf contributor on those files was a P24/PP tile). Re-run = 0. **Not changed, for a decision:** the shared pool (`portal_advert_facts`) carries the same wrong erf on 1,810 rows (public facts other agencies read); the files' own `floor_size_m2` was not filled from the advert (not asked).
 
+
+### 11.1b Market context per file — contract for step 5.9 (written 31 Oct 16:15, BEFORE build; cc6 lays the record card out against this)
+
+**Storage.** Sibling table `mic_file_context`, PK (`agency_id`, `tracked_property_id`), one row per file that has portal adverts, rebuilt by `php artisan mic:refresh-stats` (nothing is computed at page load). **Read API:** `App\Services\MarketIntelligence\Context\FileContext::forFiles(int $agencyId, array $trackedPropertyIds): array<int, array>` → keyed by tracked_property_id, each value exactly the shape below (JSON columns already decoded; a file without a row is simply absent). Model `App\Models\MicFileContext` for direct joins. Every figure is for the file's agency only; **no personal names are stored here** — only ids; names stay on the property page.
+
+| Field | Type | Source / rule |
+|---|---|---|
+| `sale_class` | `freehold` \| `sectional` \| `land` \| null | from the file's canonical type (5.2) and whether it sits in a complex: apartment → sectional; house / farm → freehold; land → land; townhouse → sectional if the file has a complex / scheme / unit, else freehold; other / unknown → null (no figures) |
+| `suburb_id` | int \| null | `p24_suburb_id` of the file |
+| `suburb_avg_sold_12m` | int (rand) \| null | average sale price in the file's suburb and `sale_class`, sales dated in the last 12 months. **null when `suburb_avg_sold_n` < 3.** Sale pool = cc2's `CanonicalComps` (CMA, duplicates excluded; CMA type is a title label, so its class comes from sectional-vs-freehold basis, `land` rows from the type) + deeds-captured sales (`tracked_properties.last_known_sold_*` where `deeds_captured_at` is set; real type) + our `sold_stock`; the same sale in two sources counts once (same suburb + price + date) |
+| `suburb_avg_sold_n` | int | the sample size behind the figure (always stored, also when the figure is null) |
+| `suburb_r_per_m2` | int (rand/m²) \| null | average price per m² for that suburb and class: **erf** size for freehold / land, **floor** size for sectional; never mixed. null when `suburb_r_per_m2_n` < 3 |
+| `suburb_r_per_m2_n`, `suburb_r_per_m2_basis` | int, `erf` \| `floor` | sample with a usable size; the basis used |
+| `own_size_m2`, `own_size_basis` | int \| null, `erf` \| `floor` | the file's size on the same basis: lead advert first (sectional: floor size, else the advert's single size; freehold: erf), then the property file |
+| `own_r_per_m2` | int \| null | lead advert's asking price / `own_size_m2`; null when no price or size |
+| `own_vs_suburb_pct` | decimal(6,1) \| null | (own_r_per_m2 / suburb_r_per_m2 − 1) × 100; positive = above the suburb figure; null when either side is null |
+| `asking_vs_avg_sold_pct` | decimal(6,1) \| null | (lead asking price / suburb_avg_sold_12m − 1) × 100; null when the average is null |
+| `nearby_sales` | array, 0–3 | `[{address:?string, sold_on:'Y-m-d', price:int, r_per_m2:?int, source:'cma'\|'deeds'\|'our_sold_stock', match:'street'\|'complex'\|'suburb'}]`. Last 24 months. Chosen by preference **same street → same complex → same suburb + class** (then newest within a tier), returned **newest first**; never the file's own sale. `r_per_m2` null when the sale has no size |
+| `last_deeds_sale` | object \| null | `{sold_on:?date, registered_on:?date, price:?int, sale_type:?string, buyer_type:?'individual'\|'company'\|'trust'}` for a file with a deeds capture; `buyer_type` only when held |
+| `matched_buyers` | object | `{strong:int, mid:int, top:[{contact_id:int, score:int}]}` — same counts as `mic_file_stats` (cold/lost excluded), `top` = the 3 best-scoring buyers (ids only, best first) |
+| `our_history` | object | `{claims:int, last_claim:?{agent_id:int, claimed_at:datetime, status:string, reason:?string}, work_status:?string, work_reason:?string, mandates:[{property_id:int, listed_on:?date, expires_on:?date, price:?int, mandate_type:?string, status:string}]}` — claims on any advert of the file (all time), the last claim with its agent id and release / not-on-market reason, the agency work-record status (e.g. `not_selling`) and reason, and our past properties/mandates on the file |
+| `computed_at` | datetime | |
+
+Settings: `MicAgencySetting::contextMinSales()` (default 3) = the n below which a figure is null. No hard-coded suburb or agency anywhere; all thresholds are the agency's.
