@@ -26,7 +26,7 @@
                 <div data-qa="suggested-areas" style="margin-top: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); font-size: .8125rem;">
                     <strong>Suggested from your work:</strong>
                     @foreach($suggested as $sg)
-                        <span style="white-space: nowrap;" title="{{ $sg['stock'] }} of your properties · {{ $sg['claims'] }} claims · {{ $sg['leads'] }} leads">{{ $sg['name'] }} ({{ $sg['stock'] }} stock · {{ $sg['claims'] }} claims · {{ $sg['leads'] }} leads)</span>{{ $loop->last ? '' : ' ·' }}
+                        <span style="white-space: nowrap;" title="{{ $sg['stock'] }} of your properties now · {{ $sg['claims'] }} claims and {{ $sg['leads'] }} leads in the last 12 months">{{ $sg['label'] }} ({{ $sg['stock'] }} stock · {{ $sg['claims'] }} claims · {{ $sg['leads'] }} leads)</span>{{ $loop->last ? '' : ' ·' }}
                     @endforeach
                     <button type="button" id="tick-suggested" data-ids="{{ json_encode(array_column($suggested, 'id')) }}" class="corex-btn-outline text-xs" style="margin-left: 8px;">Tick suggested</button>
                     <span style="color: var(--text-muted); font-size: .75rem;">(then press Save)</span>
@@ -35,7 +35,7 @@
             <input type="text" id="areas-filter" data-qa="areas-filter" placeholder="Filter suburbs…" autocomplete="off" style="{{ $in }} width: 260px; margin-top: 8px;">
             <div style="display:flex; flex-wrap:wrap; gap: 4px 16px; margin-top: 6px; max-height: 170px; overflow-y: auto;" data-qa="areas-list">
                 @forelse($suburbs as $sub)
-                    <label data-name="{{ strtolower($sub->name) }}" style="font-size:.8125rem;"><input type="checkbox" name="areas[]" value="{{ $sub->id }}" @checked(in_array((int) $sub->id, array_map('intval', old('areas', $values['areas']))))> {{ \App\Services\Prospecting\MicWork\MicWorkList::titleSuburb($sub->name) }}</label>
+                    <label data-name="{{ strtolower($sub->label . ' ' . $sub->name) }}" style="font-size:.8125rem;"><input type="checkbox" name="areas[]" value="{{ $sub->id }}" @checked(in_array((int) $sub->id, array_map('intval', old('areas', $values['areas']))))> {{ $sub->label }}</label>
                 @empty
                     <span style="font-size:.8125rem; color: var(--text-muted);">No suburbs yet - type them below.</span>
                 @endforelse

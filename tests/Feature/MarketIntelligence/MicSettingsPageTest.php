@@ -98,27 +98,37 @@ final class MicSettingsPageTest extends TestCase
         $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload(['working_suburb_min_count' => 0]))->assertSessionHasErrors('working_suburb_min_count');
     }
 
-    public function test_areas_have_a_filter_ticked_first_and_suggestions_from_the_agencys_own_work(): void
+    public function test_areas_have_a_filter_ticked_first_and_suggestions_come_from_the_one_working_suburbs_source(): void
     {
-        $mk = fn ($name, $slug, $pid) => DB::table('p24_suburbs')->insertGetId(['name' => $name, 'slug' => $slug, 'p24_id' => $pid, 'created_at' => now(), 'updated_at' => now()]);
-        $zulu = $mk('ZULU BAY', 'zulu-bay', 987101);
-        $alpha = $mk('Alpha Beach', 'alpha-beach', 987102);
-        $busy = $mk('Busy Bay', 'busy-bay', 987103);
-        $quiet = $mk('Quiet Bay', 'quiet-bay', 987104);
-        foreach ([[$busy, 2, 1, 1], [$quiet, 1, 0, 1]] as [$sub, $stock, $claimed, $leads]) {
-            DB::table('mic_file_stats')->insert(['agency_id' => $this->agency->id, 'tracked_property_id' => 900000 + $sub, 'p24_suburb_id' => $sub, 'own_stock' => $stock, 'claimed' => $claimed,
-                'leads_total' => $leads, 'computed_at' => now()]);
+        $country = DB::table('p24_countries')->insertGetId(['p24_id' => 987800, 'name' => 'South Africa', 'created_at' => now(), 'updated_at' => now()]);
+        $prov = DB::table('p24_provinces')->insertGetId(['p24_id' => 987900, 'p24_country_id' => $country, 'name' => 'KwaZulu-Natal', 'created_at' => now(), 'updated_at' => now()]);
+        $cityA = DB::table('p24_cities')->insertGetId(['p24_id' => 987901, 'p24_province_id' => $prov, 'name' => 'Port Shepstone', 'created_at' => now(), 'updated_at' => now()]);
+        $cityB = DB::table('p24_cities')->insertGetId(['p24_id' => 987902, 'p24_province_id' => $prov, 'name' => 'Durban', 'created_at' => now(), 'updated_at' => now()]);
+        $mk = fn ($name, $slug, $pid, $city) => DB::table('p24_suburbs')->insertGetId(['name' => $name, 'slug' => $slug, 'p24_id' => $pid, 'p24_city_id' => $city, 'created_at' => now(), 'updated_at' => now()]);
+        $zulu = $mk('ZULU BAY', 'zulu-bay', 987101, $cityA);
+        $alpha = $mk('Alpha Beach', 'alpha-beach', 987102, $cityA);
+        $busy = $mk('Glenmore', 'glenmore-a', 987103, $cityA);
+        $twin = $mk('Glenmore', 'glenmore-b', 987104, $cityB);
+        $quiet = $mk('Quiet Bay', 'quiet-bay', 987105, $cityA);
+        // cc4's WorkingSuburbs::counts(): stock = the agency's own files in the suburb (mic_file_stats.own_stock), qualifies at 3 together
+        foreach ([[$busy, 3], [$twin, 4], [$quiet, 1]] as [$sub, $n]) {
+            for ($i = 0; $i < $n; $i++) {
+                DB::table('mic_file_stats')->insert(['agency_id' => $this->agency->id, 'tracked_property_id' => 900000 + $sub * 10 + $i, 'p24_suburb_id' => $sub, 'own_stock' => 1, 'computed_at' => now()]);
+            }
         }
         \App\Models\MicAgencySetting::saveValues($this->agency->id, ['areas' => [$zulu, $alpha]]);
 
         $html = $this->actingAs($this->admin)->get(route('market-intelligence.settings'))->assertOk()->getContent();
+        $text = preg_replace('/\s+/', ' ', $html);
         $this->assertStringContainsString('data-qa="areas-filter"', $html);
         $this->assertStringContainsString('data-qa="suggested-areas"', $html);
-        $this->assertStringContainsString('Busy Bay (2 stock · 1 claims · 1 leads)', preg_replace('/\s+/', ' ', $html));
-        $this->assertStringNotContainsString('Quiet Bay (', $html, 'under 3 together is not suggested');
+        $this->assertStringContainsString('Glenmore (Port Shepstone) (3 stock · 0 claims · 0 leads)', $text);
+        $this->assertStringContainsString('Glenmore (Durban) (4 stock · 0 claims · 0 leads)', $text, 'same name twice = the town after the name');
+        $this->assertStringNotContainsString('Quiet Bay (1 stock', $text, 'under 3 together is not suggested');
         $this->assertStringContainsString('Tick suggested', $html);
         $this->assertLessThan(strpos($html, 'value="' . $busy . '"'), strpos($html, 'value="' . $alpha . '"'), 'ticked suburbs come first');
         $this->assertStringContainsString('Zulu Bay', $html, 'suburbs print in title case');
+        $this->assertSame(array_column((new \App\Services\Prospecting\MicWork\WorkingSuburbs())->counts($this->agency->id), 'stock', 'suburb_id')[$twin], 4, 'same figures as cc4\'s own list');
     }
 }
 

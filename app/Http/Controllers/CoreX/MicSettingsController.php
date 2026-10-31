@@ -27,11 +27,11 @@ final class MicSettingsController extends Controller
         // Suburbs the agency has adverts in, plus any it already listed, as the area picker.
         $known = DB::table('prospecting_listings as l')->join('p24_suburbs as s', 's.id', '=', 'l.p24_suburb_id')
             ->where('l.agency_id', $agencyId)->whereNull('l.deleted_at')->whereNull('s.deleted_at')
-            ->groupBy('s.id', 's.name')->orderBy('s.name')->get(['s.id', 's.name'])->keyBy('id');
+            ->leftJoin('p24_cities as ci', 'ci.id', '=', 's.p24_city_id')->groupBy('s.id', 's.name', 'ci.name')->orderBy('s.name')->get(['s.id', 's.name', 'ci.name as city'])->keyBy('id');
         $chosen = $s->areas();
         $extra = array_diff($chosen, $known->keys()->all());
         if ($extra) {
-            DB::table('p24_suburbs')->whereIn('id', $extra)->get(['id', 'name'])->each(fn ($r) => $known->put($r->id, $r));
+            DB::table('p24_suburbs as s')->leftJoin('p24_cities as ci', 'ci.id', '=', 's.p24_city_id')->whereIn('s.id', $extra)->get(['s.id', 's.name', 'ci.name as city'])->each(fn ($r) => $known->put($r->id, $r));
         }
 
         // ticked suburbs first, then A-Z; plus the suggestions from the agency's own work
@@ -39,9 +39,15 @@ final class MicSettingsController extends Controller
         $suburbsSorted = $known->values()->sortBy([fn ($a, $b) => (in_array((int) $b->id, $chosen, true) <=> in_array((int) $a->id, $chosen, true)), fn ($a, $b) => strcasecmp($a->name, $b->name)])->values();
         foreach ($suggested as $sg) {
             if (! $known->has($sg['id'])) {
-                $suburbsSorted->push((object) ['id' => $sg['id'], 'name' => $sg['name']]);
+                $suburbsSorted->push((object) ['id' => $sg['id'], 'name' => $sg['name'], 'city' => $sg['city']]);
             }
         }
+
+        // two suburbs with the same name carry their town so the agent can tell them apart
+        $dupes = $suburbsSorted->groupBy(fn ($r) => mb_strtolower(trim((string) $r->name)))->filter(fn ($g) => $g->count() > 1)->keys()->flip();
+        $suburbsSorted->each(fn ($r) => $r->label = \App\Services\Prospecting\MicWork\MicWorkList::titleSuburb($r->name) . ($dupes->has(mb_strtolower(trim((string) $r->name))) && ! empty($r->city) ? ' (' . \App\Services\Prospecting\MicWork\MicWorkList::titleSuburb($r->city) . ')' : ''));
+        $sgDupes = collect($suggested)->groupBy(fn ($r) => mb_strtolower($r['name']))->filter(fn ($g) => $g->count() > 1)->keys()->flip();
+        $suggested = array_map(fn ($sg) => $sg + ['label' => $sg['name'] . ($sgDupes->has(mb_strtolower($sg['name'])) && $sg['city'] ? ' (' . $sg['city'] . ')' : '')], $suggested);
 
         return view('corex.market-intelligence.settings', [
             'suggested' => $suggested,
