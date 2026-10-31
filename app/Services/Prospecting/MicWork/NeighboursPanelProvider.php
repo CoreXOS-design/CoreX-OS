@@ -8,6 +8,7 @@ use App\Models\ProspectingListing;
 use App\Models\User;
 use App\Services\Prospecting\MicWork\Contracts\PanelProvider;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -48,7 +49,8 @@ final class NeighboursPanelProvider implements PanelProvider
                 ->whereNotNull('t.deeds_registered_date')->where('t.deeds_registered_date', '>=', $since->toDateString())->orderByDesc('t.deeds_registered_date')->limit(self::PER_TYPE)
                 ->get(['t.id', 't.street_number', 't.street_name', 't.unit_number', 't.complex_name', 't.complex_id', 't.scheme_name', 't.suburb', 't.property_type', 't.last_known_sold_price', 't.deeds_registered_date']) as $t) {
                 $rows[] = ['id' => 'registered:' . $t->id, 'type' => 'registered', 'address' => $this->line($t) ?: 'Address not shown', 'suburb' => (string) $t->suburb, 'property_type' => $t->property_type,
-                    'price' => $t->last_known_sold_price !== null ? (int) $t->last_known_sold_price : null, 'date' => (string) $t->deeds_registered_date, 'has_address' => $this->resolvable($t)];
+                    'price' => $t->last_known_sold_price !== null ? (int) $t->last_known_sold_price : null, 'date' => (string) $t->deeds_registered_date, 'date_kind' => 'registered',
+                    'date_label' => 'registered ' . Carbon::parse($t->deeds_registered_date)->format('j M'), 'has_address' => $this->resolvable($t)];
             }
         }
         foreach (['sold' => ProspectingListing::PORTAL_STATUS_SOLD, 'under_offer' => ProspectingListing::PORTAL_STATUS_UNDER_OFFER] as $key => $status) {
@@ -65,7 +67,8 @@ final class NeighboursPanelProvider implements PanelProvider
                 ->get(['t.id', 't.street_number', 't.street_name', 't.unit_number', 't.complex_name', 't.complex_id', 't.scheme_name', 't.suburb', 'l.address as advert_address', 'l.suburb as advert_suburb', 'l.property_type', 'l.price',
                     DB::raw('l.portal_status_changed_at as at')]) as $t) {
                 $rows[] = ['id' => $key . ':' . $t->id, 'type' => $key, 'address' => $this->line($t) ?: ((string) $t->advert_address ?: 'Address not shown'), 'suburb' => (string) ($t->suburb ?: $t->advert_suburb),
-                    'property_type' => $t->property_type, 'price' => $t->price !== null ? (int) $t->price : null, 'date' => Carbon::parse($t->at)->toDateString(), 'has_address' => $this->resolvable($t)];
+                    'property_type' => $t->property_type, 'price' => $t->price !== null ? (int) $t->price : null, 'date' => Carbon::parse($t->at)->toDateString(), 'date_kind' => 'seen',
+                    'date_label' => 'seen ' . Carbon::parse($t->at)->format('j M'), 'has_address' => $this->resolvable($t)];
             }
         }
         if ($suburb !== '') {
@@ -78,6 +81,36 @@ final class NeighboursPanelProvider implements PanelProvider
         $unknown = array_values(array_filter($rows, fn ($r) => ! $r['has_address']));
 
         return array_merge(array_slice($known, 0, 300), array_slice($unknown, 0, 300));
+    }
+
+    /**
+     * The numbers on the face of tile 10 (contract 11.3.I): `count` = `triggers_this_month` (dated triggers this month that have an address, so have homes
+     * around them), `triggers_without_address` (this month, listed separately), `neighbours_open` = homes around this month's triggers that nobody has
+     * claimed and nobody has contacted yet. Computed from the trigger list and cached for 30 minutes per agency (it opens every trigger's street).
+     *
+     * @return array{count:int, reason:string, note:?string, triggers_this_month:int, triggers_without_address:int, neighbours_open:int}
+     */
+    public function summary(int $agencyId, User $user): array
+    {
+        return Cache::remember('mic:tile10:summary:' . $agencyId, 1800, function () use ($agencyId, $user) {
+            $rows = collect($this->rows($agencyId, $user, ['months' => 0]));
+            $withAddress = $rows->where('has_address', true)->values();
+            $open = [];
+            foreach ($withAddress->take(120) as $trigger) {
+                foreach ($this->around($agencyId, $user, $trigger['id']) as $n) {
+                    if (empty($n['claimed']) && ($n['last_contact'] ?? null) === null) {
+                        $open[mb_strtolower((string) $n['address'])] = true;
+                    }
+                }
+            }
+
+            return [
+                'count' => $withAddress->count(), 'triggers_this_month' => $withAddress->count(), 'triggers_without_address' => $rows->where('has_address', false)->count(),
+                'neighbours_open' => count($open),
+                'reason' => $withAddress->count() . ' sales and registrations this month, ' . count($open) . ' neighbours not yet contacted or claimed',
+                'note' => $rows->where('has_address', false)->count() > 0 ? $rows->where('has_address', false)->count() . ' more have no address' : null,
+            ];
+        });
     }
 
     public function around(int $agencyId, User $user, string $triggerId): array
@@ -151,7 +184,7 @@ final class NeighboursPanelProvider implements PanelProvider
         foreach ($picked as $n => $side) {
             $f = $known[$n] ?? null;
             $row = $f ? $this->rowsFor($agencyId, collect([$f]), $side)[0] : ['address' => $register[$n] ?: ($n . ' ' . $t->street_name . ', ' . $t->suburb), 'owner' => null, 'on_market' => false,
-                'last_contact' => null, 'property_id' => null, 'side' => $side];
+                'last_contact' => null, 'property_id' => null, 'side' => $side, 'claimed' => false];
             $out[] = $row + ['number' => $n];
         }
 
@@ -166,9 +199,11 @@ final class NeighboursPanelProvider implements PanelProvider
             ->whereIn('tracked_property_id', $ids)->distinct()->pluck('tracked_property_id')->flip();
         $contact = DB::table('tracked_property_agency_work_events')->where('agency_id', $agencyId)->whereIn('tracked_property_id', $ids)
             ->selectRaw('tracked_property_id, MAX(occurred_at) as at')->groupBy('tracked_property_id')->pluck('at', 'tracked_property_id');
+        $claimed = DB::table('tracked_property_agency_work')->where('agency_id', $agencyId)->whereNull('deleted_at')->whereIn('tracked_property_id', $ids)->whereNotNull('claimed_by_user_id')
+            ->pluck('tracked_property_id')->flip();
         $owners = DB::table('contacts')->where('agency_id', $agencyId)->whereIn('id', $files->pluck('owner_contact_id')->filter()->all())->get(['id', 'first_name', 'last_name'])->keyBy('id');
 
-        return $files->map(function ($f) use ($onMarket, $contact, $owners, $side) {
+        return $files->map(function ($f) use ($onMarket, $contact, $owners, $claimed, $side) {
             $o = $f->owner_contact_id && $f->deeds_captured_at ? ($owners[$f->owner_contact_id] ?? null) : null;
 
             return [
@@ -178,6 +213,7 @@ final class NeighboursPanelProvider implements PanelProvider
                 'last_contact' => isset($contact[$f->id]) ? Carbon::parse($contact[$f->id])->format('j M Y') : null,
                 'property_id'  => (int) $f->id,
                 'side'         => $side,
+                'claimed'      => isset($claimed[$f->id]),
             ];
         })->values()->all();
     }

@@ -17,6 +17,12 @@ final class MicTileSettings
         return max(1, self::int($agencyId, 'refreshIntervalDays', 7));
     }
 
+    /** tile 11's face number counts working suburbs read longer ago than this (conductor, 31 Oct: 14 days) */
+    public static function refreshStaleDays(int $agencyId): int
+    {
+        return max(1, self::int($agencyId, 'refreshStaleDays', 14));
+    }
+
     /** the window tile 3 counts "under offer, sold or gone" in */
     public static function goneTileDays(int $agencyId): int
     {

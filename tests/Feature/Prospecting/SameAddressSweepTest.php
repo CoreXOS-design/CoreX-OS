@@ -192,4 +192,24 @@ final class SameAddressSweepTest extends TestCase
             'portal_ref' => 'P24-' . $n, 'portal_url' => 'https://www.property24.com/x/' . $n, 'suburb' => 'Port Edward', 'price' => $price, 'bedrooms' => $beds, 'bathrooms' => 2,
             'property_type' => 'House', 'first_seen_at' => now(), 'last_seen_at' => now(), 'is_active' => true, 'listing_type' => 'sale'])->save();
     }
+    public function test_a_missing_street_type_goes_to_review_and_different_types_are_different_streets(): void
+    {
+        $road = $this->file(['street_number' => '2', 'street_name' => 'Duke Road', 'suburb' => 'Margate', 'suburb_normalised' => 'margate']);
+        $bare = $this->file(['street_number' => '2', 'street_name' => 'Duke', 'suburb' => 'Margate', 'suburb_normalised' => 'margate']);
+        $drive = $this->file(['street_number' => '8', 'street_name' => 'Marine Drive', 'suburb' => 'Margate', 'suburb_normalised' => 'margate']);
+        $parade = $this->file(['street_number' => '8', 'street_name' => 'Marine Parade', 'suburb' => 'Margate', 'suburb_normalised' => 'margate']);
+        $abbr = $this->file(['street_number' => '5', 'street_name' => 'Beach Rd', 'suburb' => 'Margate', 'suburb_normalised' => 'margate']);
+        $full = $this->file(['street_number' => '5', 'street_name' => 'Beach Road', 'suburb' => 'Margate', 'suburb_normalised' => 'margate']);
+
+        $r = $this->sweep('exact');
+
+        $this->assertSame('active', $this->fileStatus($road));
+        $this->assertSame('active', $this->fileStatus($bare), 'a missing type is never merged on its own');
+        $this->assertSame(1, $r['type_gap_groups']);
+        $this->assertStringContainsString('missing the street type', (string) DB::table('property_match_decisions')->where('subject_key', 'like', 'same_address:%')->value('reason'));
+        $this->assertSame('active', $this->fileStatus($drive));
+        $this->assertSame('active', $this->fileStatus($parade), 'Drive and Parade are different streets');
+        $this->assertSame(1, $r['merged_files'], '"Beach Rd" and "Beach Road" are the same street type and merge');
+        $this->assertNotSame($this->fileStatus($abbr), $this->fileStatus($full));
+    }
 }

@@ -28,8 +28,14 @@ final class RefreshStatusPanelProvider implements PanelProvider
         $interval = MicTileSettings::refreshIntervalDays($agencyId);
         $reads = app(CrawlRecords::class)->lastCrawlBySuburb($agencyId)->groupBy('suburb_id');
 
-        $suburbIds = DB::table('prospecting_listings')->where('agency_id', $agencyId)->whereNull('deleted_at')->where('is_active', 1)->whereNotNull('p24_suburb_id')
-            ->distinct()->pluck('p24_suburb_id')->merge($reads->keys())->unique()->values();
+        // OUR working suburbs (stock, claims, leads, or listed as areas in MIC Settings) come first; every other suburb only when "show all" is on
+        $working = $this->workingSuburbs($agencyId);
+        $showAll = ! empty($filters['show_all']) || $working === [];
+        $suburbIds = collect(array_keys($working));
+        if ($showAll) {
+            $suburbIds = DB::table('prospecting_listings')->where('agency_id', $agencyId)->whereNull('deleted_at')->where('is_active', 1)->whereNotNull('p24_suburb_id')
+                ->distinct()->pluck('p24_suburb_id')->merge($reads->keys())->merge($suburbIds)->unique()->values();
+        }
         if ($suburbIds->isEmpty()) {
             return [];
         }
@@ -79,15 +85,75 @@ final class RefreshStatusPanelProvider implements PanelProvider
                 'area_url'    => $s->p24_id && $s->city ? P24AreaPageLinks::areaUrls($s->slug ?: $slug($s->name), $slug($s->city), $slug($s->province) ?: 'kwazulu-natal', (int) $s->p24_id)['trends'] : null,
                 'area_read_at' => ($areaRead[(int) $s->p24_id] ?? null) ? Carbon::parse($areaRead[(int) $s->p24_id])->toDateString() : null,
                 'mine'        => isset($mine[$s->id]),
+                'working'     => isset($working[$s->id]),
+                'working_why' => $working[$s->id] ?? [],
                 'p24_approx'  => $p24 !== null && ! $p24Real,
                 'pp_approx'   => $ppRead !== null && ! $ppReal,
                 'approx_label' => ($p24 !== null && ! $p24Real) || ($ppRead !== null && ! $ppReal) ? 'approx (before crawl tracking)' : null,
             ];
         }
-        // the viewer's suburbs first, then never read, then oldest read
-        usort($rows, fn ($a, $b) => [$a['mine'] ? 0 : 1, $a['age_days'] === null ? 0 : 1, -($a['age_days'] ?? 0)] <=> [$b['mine'] ? 0 : 1, $b['age_days'] === null ? 0 : 1, -($b['age_days'] ?? 0)]);
+        // our working suburbs first, then the rest; inside each: never read first, then the oldest read
+        usort($rows, fn ($a, $b) => [$a['working'] ? 0 : 1, $a['mine'] ? 0 : 1, $a['age_days'] === null ? 0 : 1, -($a['age_days'] ?? 0)] <=> [$b['working'] ? 0 : 1, $b['mine'] ? 0 : 1, $b['age_days'] === null ? 0 : 1, -($b['age_days'] ?? 0)]);
 
         return $rows;
+    }
+
+    /**
+     * The numbers on the face of tile 11 (contract 11.3.I), over OUR working suburbs only: `count` = `oldest_age_days` (the oldest read, in days; null when
+     * a working suburb was never read - see `never_read`), `older_than_14d` = working suburbs never read or read longer ago than the agency's stale limit
+     * (default 14 days), `working_suburbs` = how many there are. Approximate reads count, flagged in the rows.
+     *
+     * @return array{count:?int, reason:string, note:?string, oldest_age_days:?int, older_than_14d:int, never_read:int, working_suburbs:int, stale_after_days:int}
+     */
+    public function summary(int $agencyId, User $user): array
+    {
+        $stale = MicTileSettings::refreshStaleDays($agencyId);
+        $rows = collect($this->rows($agencyId, $user, ['show_all' => false]))->where('working', true)->values();
+        $ages = $rows->pluck('age_days')->filter(fn ($a) => $a !== null);
+        $never = $rows->filter(fn ($r) => $r['age_days'] === null)->count();
+        $older = $rows->filter(fn ($r) => $r['age_days'] === null || $r['age_days'] > $stale)->count();
+        $oldest = $ages->isEmpty() ? null : (int) $ages->max();
+
+        return [
+            'count' => $oldest, 'oldest_age_days' => $oldest, 'older_than_14d' => $older, 'never_read' => $never, 'working_suburbs' => $rows->count(), 'stale_after_days' => $stale,
+            'reason' => $rows->isEmpty() ? 'No working suburbs yet' : 'Oldest read ' . ($oldest === null ? 'never' : $oldest . ' days ago') . '; ' . $older . ' of ' . $rows->count() . ' working suburbs older than ' . $stale . ' days',
+            'note' => $rows->contains(fn ($r) => $r['p24_approx'] || $r['pp_approx']) ? 'some reads are approximate (before crawl tracking)' : null,
+        ];
+    }
+
+    /**
+     * Suburbs (our p24_suburbs.id) the agency actually works: it holds stock there, has a claim or a lead there (cc5's per-file figures), or lists it as an
+     * area in the MIC Settings. Returns suburb id => reasons (`area`, `stock`, `claim`, `lead`).
+     *
+     * @return array<int,list<string>>
+     */
+    public function workingSuburbs(int $agencyId): array
+    {
+        $out = [];
+        $add = function ($id, string $why) use (&$out) {
+            if ($id) {
+                $out[(int) $id] = array_values(array_unique(array_merge($out[(int) $id] ?? [], [$why])));
+            }
+        };
+        try {
+            if (class_exists('App\\Models\\MicAgencySetting')) {
+                foreach ((\App\Models\MicAgencySetting::for($agencyId))->areas() as $id) {
+                    $add($id, 'area');
+                }
+            }
+        } catch (\Throwable $e) {
+            // settings unavailable: the other sources still count
+        }
+        if (\Illuminate\Support\Facades\Schema::hasTable('mic_file_stats')) {
+            foreach (DB::table('mic_file_stats')->where('agency_id', $agencyId)->whereNotNull('p24_suburb_id')->where(fn ($q) => $q->where('own_stock', 1)->orWhere('claimed', 1)->orWhere('leads_total', '>', 0))
+                ->groupBy('p24_suburb_id')->selectRaw('p24_suburb_id, MAX(own_stock) as stock, MAX(claimed) as claim, MAX(leads_total) as leads')->get() as $r) {
+                $r->stock ? $add($r->p24_suburb_id, 'stock') : null;
+                $r->claim ? $add($r->p24_suburb_id, 'claim') : null;
+                $r->leads > 0 ? $add($r->p24_suburb_id, 'lead') : null;
+            }
+        }
+
+        return $out;
     }
 
     public function around(int $agencyId, User $user, string $triggerId): array

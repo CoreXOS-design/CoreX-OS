@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Prospecting\Matching;
 
 use App\Models\AddressMatchSetting;
+use App\Models\Prospecting\TrackedProperty;
 use App\Services\Prospecting\TrackedPropertyMerger;
 use Illuminate\Support\Facades\DB;
 
@@ -17,7 +18,7 @@ use Illuminate\Support\Facades\DB;
  */
 final class PortalGroupLinker
 {
-    public function __construct(private readonly TrackedPropertyMerger $merger, private readonly ReviewPairs $pairs)
+    public function __construct(private readonly TrackedPropertyMerger $merger, private readonly ReviewPairs $pairs, private readonly AdvertEvidence $evidence)
     {
     }
 
@@ -39,7 +40,7 @@ final class PortalGroupLinker
             ->join('tracked_properties as t', function ($j) use ($agencyId) {
                 $j->on('t.id', '=', 'l.tracked_property_id')->where('t.agency_id', $agencyId)->whereNull('t.deleted_at')->whereIn('t.status', ['active', 'promoted']);
             })
-            ->get(['m.p24_group_id as gid', 'l.canonical_ref as ref', 't.id as fid', 'l.bedrooms as beds', 'l.property_type as ptype', 'l.price',
+            ->get(['m.p24_group_id as gid', 'l.canonical_ref as ref', 'l.address as advert_address', 'l.suburb as advert_suburb', 't.id as fid', 'l.bedrooms as beds', 'l.property_type as ptype', 'l.price',
                 't.street_number', 't.street_name', 't.suburb', 't.unit_number', 't.erf_number', 't.complex_name']);
 
         foreach ($rows->groupBy('gid') as $members) {
@@ -71,7 +72,18 @@ final class PortalGroupLinker
                     }
                     continue;
                 }
-                foreach ($files[$fid]->pluck('ref')->unique() as $ref) {
+                $anchorFile = TrackedProperty::queryWithoutAgencyScope()->where('agency_id', $agencyId)->find($anchor);
+                foreach ($files[$fid]->unique('ref') as $member) {
+                    $ref = $member->ref;
+                    // AT-520 4.8: the advert's OWN address / suburb must not contradict the file it is about to join (a Sibaya advert never joins a Port Edward house)
+                    $bad = $anchorFile ? $this->evidence->advertVsFile($agencyId, ['address' => $member->advert_address, 'suburb' => $member->advert_suburb], $anchorFile) : null;
+                    if ($bad !== null) {
+                        $out['contradictions']++;
+                        if ($this->pairs->queue($agencyId, $anchor, $fid, 'portal_group', 'Property24 groups these adverts as one property, but ' . $bad['reason'] . '.', null, $apply)) {
+                            $out['review_pairs']++;
+                        }
+                        continue;
+                    }
                     $this->merger->moveAdvert($agencyId, (string) $ref, $fid, $anchor, $apply, 'portal-group');
                     $out['adverts_moved']++;
                     if ($apply) {

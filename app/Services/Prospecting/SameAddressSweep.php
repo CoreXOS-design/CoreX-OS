@@ -6,6 +6,7 @@ namespace App\Services\Prospecting;
 
 use App\Models\AddressMatchSetting;
 use App\Models\Prospecting\TrackedProperty;
+use App\Services\Address\AddressParser;
 use App\Services\Prospecting\Matching\AdvertEvidence;
 use Illuminate\Support\Facades\DB;
 
@@ -39,11 +40,20 @@ final class SameAddressSweep
         $out = ['scope' => $scope, 'apply' => $apply, 'groups' => 0, 'files' => 0, 'merged_files' => 0, 'merge_refused' => 0, 'review_pairs' => 0, 'vetoed' => 0, 'flat_groups' => 0, 'big_groups' => 0, 'contradictions' => 0, 'actions' => []];
 
         $spread = (float) AddressMatchSetting::forAgency($agencyId)['portal_group_price_spread'];
-        foreach ($this->groups($agencyId, $scope) as $ids) {
+        foreach ($this->groups($agencyId, $scope) as $group) {
+            $ids = $group['ids'];
             $out['groups']++;
             $out['files'] += count($ids);
             $tps = TrackedProperty::queryWithoutAgencyScope()->where('agency_id', $agencyId)->whereIn('id', $ids)->orderBy('id')->get()->all();
             if (count($tps) < 2) {
+                continue;
+            }
+            // "2 Duke Road" and "2 Duke": same number and street name, one record is missing the street type - likely the same property, never merged on that alone
+            if ($group['type_gap']) {
+                $out['type_gap_groups'] = ($out['type_gap_groups'] ?? 0) + 1;
+                foreach (array_slice($tps, 1) as $other) {
+                    $this->review($agencyId, $tps[0], $other, 'Same street number and street name, but one record is missing the street type (for example "Duke Road" and "Duke") - probably the same property.', $apply, $out);
+                }
                 continue;
             }
             $unit = trim((string) ($tps[0]->unit_number ?? ''));
@@ -84,7 +94,12 @@ final class SameAddressSweep
         return $out;
     }
 
-    /** @return list<list<int>> file ids per same-address group (2 or more files) */
+    /**
+     * Same-address groups (2 or more files). The street is compared by its CORE name and street TYPE (the parser's reading), so "Duke Road", "Duke Rd"
+     * and "Duke" are one street; two different types ("Marine Drive", "Marine Parade") never are. `type_gap` = some files carry the type and some do not.
+     *
+     * @return list<array{ids:list<int>, type_gap:bool}>
+     */
     public function groups(int $agencyId, string $scope): array
     {
         $rows = DB::table('tracked_properties')->where('agency_id', $agencyId)->whereNull('deleted_at')->whereIn('status', ['active', 'promoted'])
@@ -92,18 +107,34 @@ final class SameAddressSweep
             ->whereRaw("TRIM(COALESCE(street_name,'')) <> ''")->whereRaw("TRIM(COALESCE(street_number,'')) <> ''")
             ->get(['id', 'street_number', 'street_name', 'unit_number', 'suburb', 'suburb_normalised']);
 
+        $parser = new AddressParser();
         $buckets = [];
         foreach ($rows as $r) {
             $sub = trim((string) ($r->suburb_normalised ?: mb_strtolower(trim((string) $r->suburb))));
             if (($scope === 'no-suburb' && $sub !== '') || ($scope === 'exact' && $sub === '')) {
                 continue;
             }
-            $key = mb_strtolower(trim((string) $r->street_number)) . '|' . preg_replace('/\s+/u', ' ', mb_strtolower(trim((string) $r->street_name)))
-                . '|' . $sub . '|' . mb_strtolower(trim((string) ($r->unit_number ?? '')));
-            $buckets[$key][] = (int) $r->id;
+            [$num, $core, $type] = $parser->numberAndCore((string) $r->street_number, (string) $r->street_name);
+            $num ??= mb_strtolower(trim((string) $r->street_number));
+            $core ??= preg_replace('/\s+/u', ' ', mb_strtolower(trim((string) $r->street_name)));
+            $key = $num . '|' . $core . '|' . $sub . '|' . mb_strtolower(trim((string) ($r->unit_number ?? '')));
+            $buckets[$key][] = ['id' => (int) $r->id, 'type' => $type];
         }
 
-        return array_values(array_filter($buckets, fn (array $ids) => count($ids) >= 2));
+        $groups = [];
+        foreach ($buckets as $items) {
+            if (count($items) < 2) {
+                continue;
+            }
+            $types = array_values(array_unique(array_filter(array_column($items, 'type'))));
+            if (count($types) > 1) {
+                continue; // two different street types are two different streets
+            }
+            $typed = count(array_filter($items, fn ($i) => $i['type'] !== null));
+            $groups[] = ['ids' => array_column($items, 'id'), 'type_gap' => $typed > 0 && $typed < count($items)];
+        }
+
+        return $groups;
     }
 
     /** @param list<TrackedProperty> $tps */
