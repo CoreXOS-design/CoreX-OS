@@ -96,7 +96,7 @@ final class MicStatsBuilder
     {
         $now = $ctx['now'];
         $adverts = DB::table('prospecting_listings')->where('agency_id', $agencyId)->whereIn('tracked_property_id', $ids)->whereNull('deleted_at')
-            ->get(['id', 'tracked_property_id', 'portal_source', 'portal_ref', 'is_active', 'price', 'first_seen_at', 'listed_date', 'p24_suburb_id', 'property_type', 'bedrooms'])
+            ->get(['id', 'tracked_property_id', 'portal_source', 'portal_ref', 'is_active', 'price', 'first_seen_at', 'listed_date', 'p24_suburb_id', 'property_type', 'bedrooms', 'advertiser_type'])
             ->groupBy('tracked_property_id');
 
         $tps = DB::table('tracked_properties')->where('agency_id', $agencyId)->whereIn('id', $ids)
@@ -105,13 +105,29 @@ final class MicStatsBuilder
         $own = DB::table('tracked_property_agency_work')->where('agency_id', $agencyId)->whereNull('deleted_at')->whereIn('tracked_property_id', $ids)
             ->pluck('is_own_stock', 'tracked_property_id');
 
-        $cuts = DB::table('prospecting_price_history as h')->join('prospecting_listings as pl', 'pl.id', '=', 'h.prospecting_listing_id')
+        // "Some live advert on this file was cut" - valid cuts only (a history row with a NULL / 0 price is a capture glitch, not a cut).
+        $cutsAny = DB::table('prospecting_price_history as h')->join('prospecting_listings as pl', 'pl.id', '=', 'h.prospecting_listing_id')
             ->where('pl.agency_id', $agencyId)->whereIn('pl.tracked_property_id', $ids)->where('pl.is_active', 1)->whereNull('pl.deleted_at')
-            ->whereColumn('h.new_price', '<', 'h.old_price')
-            ->groupBy('pl.tracked_property_id')
-            ->selectRaw('pl.tracked_property_id as tp, COUNT(*) as n, SUM(h.old_price - h.new_price) as amt, MAX(h.changed_at) as last_at, '
-                . 'SUM(h.changed_at >= ?) as c30, SUM(h.changed_at >= ?) as c90', [$now->copy()->subDays(30), $now->copy()->subDays(90)])
-            ->get()->keyBy('tp');
+            ->where('h.new_price', '>', 0)->whereColumn('h.new_price', '<', 'h.old_price')
+            ->groupBy('pl.tracked_property_id')->selectRaw('pl.tracked_property_id as tp, COUNT(DISTINCT pl.id) as n')->pluck('n', 'tp');
+
+        // The LEAD advert of each file = the live advert with the lowest asking price (ties: seen first, then lowest id). The price move and the
+        // cut figures shown for the file come from that ONE advert's own history - never mixed across adverts.
+        $lead = [];
+        foreach ($adverts as $tpId => $set) {
+            $live = $set->where('is_active', 1);
+            $lead[$tpId] = $live->sort(function ($x, $y) {
+                $key = fn ($a) => [(int) $a->price > 0 ? 0 : 1, (int) $a->price, (string) $a->first_seen_at, (int) $a->id];
+
+                return $key($x) <=> $key($y);
+            })->first();
+        }
+        $leadIds = collect($lead)->filter()->map(fn ($a) => (int) $a->id)->values()->all();
+        $history = $leadIds === [] ? collect() : DB::table('prospecting_price_history')->whereIn('prospecting_listing_id', $leadIds)
+            ->orderBy('changed_at')->orderBy('id')->get(['prospecting_listing_id', 'old_price', 'new_price', 'changed_at'])->groupBy('prospecting_listing_id');
+        $claimed = DB::table('prospecting_claims as c')->join('prospecting_listings as pl', 'pl.id', '=', 'c.prospecting_listing_id')
+            ->where('c.agency_id', $agencyId)->where('c.is_active', 1)->whereNull('c.released_at')->whereNull('c.deleted_at')
+            ->where('pl.is_active', 1)->whereIn('pl.tracked_property_id', $ids)->distinct()->pluck('pl.tracked_property_id')->flip();
 
         $buyerRows = DB::table('prospecting_buyer_matches as m')
             ->join('prospecting_listings as pl', 'pl.id', '=', 'm.prospecting_listing_id')
@@ -144,7 +160,7 @@ final class MicStatsBuilder
                 }
             }
 
-            $price = $active->pluck('price')->filter(fn ($p) => (int) $p > 0)->min();
+            $price = $active->pluck('price')->filter(fn ($p) => (int) $p > 0)->min();   // = the lead advert's price
             $price = $price !== null ? (int) $price : ($tp && (int) $tp->last_known_asking_price > 0 ? (int) $tp->last_known_asking_price : null);
 
             $suburb = $tp->p24_suburb_id ?? $ads->pluck('p24_suburb_id')->filter()->first();
@@ -163,8 +179,22 @@ final class MicStatsBuilder
                 ? $this->dom->forAdverts($agencyId, $active, $ctx['settings']->domApproxWindowDays(), $now)
                 : \App\Services\MarketIntelligence\Dom\DomResult::unknown();
 
-            $cut = $cuts->get($id);
-            $lead = $leads->get($id);
+            $leadAd = $lead[$id] ?? null;
+            $cutN = 0; $cutAmt = 0; $c30 = 0; $c90 = 0; $lastCut = null; $priceFirst = null; $priceMove = null;
+            if ($leadAd) {
+                $leadPrice = (int) $leadAd->price > 0 ? (int) $leadAd->price : null;
+                foreach ($history->get($leadAd->id, collect()) as $h) {
+                    $o = (int) $h->old_price; $n2 = (int) $h->new_price;
+                    if ($priceFirst === null && $o > 0) { $priceFirst = $o; }
+                    if ($o > 0 && $n2 > 0 && $n2 < $o) {
+                        $cutN++; $cutAmt += $o - $n2; $lastCut = $h->changed_at;
+                        if (Carbon::parse($h->changed_at)->gte($now->copy()->subDays(30))) { $c30++; }
+                        if (Carbon::parse($h->changed_at)->gte($now->copy()->subDays(90))) { $c90++; }
+                    }
+                }
+                if ($leadPrice !== null && $priceFirst !== null) { $priceMove = $leadPrice - $priceFirst; }
+            }
+            $lead2 = $leads->get($id);
 
             $rows[] = [
                 'agency_id' => $agencyId, 'tracked_property_id' => $id,
@@ -177,10 +207,12 @@ final class MicStatsBuilder
                 'own_stock' => ! empty($own[$id]) ? 1 : 0,
                 'adverts_active' => min(65535, $active->count()), 'adverts_total' => min(65535, $ads->count()),
                 'buyers_strong' => min(65535, $strong), 'buyers_mid' => min(65535, $mid),
-                'leads_total' => min(65535, (int) ($lead->n ?? 0)), 'leads_30d' => min(65535, (int) ($lead->d30 ?? 0)),
-                'cuts_count' => min(65535, (int) ($cut->n ?? 0)), 'cut_amount' => (int) ($cut->amt ?? 0),
-                'cuts_30d' => min(65535, (int) ($cut->c30 ?? 0)), 'cuts_90d' => min(65535, (int) ($cut->c90 ?? 0)),
-                'last_cut_at' => $cut->last_at ?? null,
+                'leads_total' => min(65535, (int) ($lead2->n ?? 0)), 'leads_30d' => min(65535, (int) ($lead2->d30 ?? 0)),
+                'lead_listing_id' => $leadAd ? (int) $leadAd->id : null, 'price_first' => $priceFirst, 'price_move' => $priceMove,
+                'cuts_count' => min(65535, $cutN), 'cut_amount' => $cutAmt, 'cuts_30d' => min(65535, $c30), 'cuts_90d' => min(65535, $c90),
+                'cuts_any' => min(65535, (int) ($cutsAny[$id] ?? 0)), 'last_cut_at' => $lastCut,
+                'owner_advert' => $active->contains(fn ($a) => $a->advertiser_type === 'owner') ? 1 : 0,
+                'claimed' => isset($claimed[$id]) ? 1 : 0,
                 'relisted' => $relisted ? 1 : 0,
                 'dom_days' => $dom->days !== null ? min(65535, $dom->days) : null, 'dom_mode' => $dom->mode,
                 'computed_at' => $now,

@@ -82,7 +82,7 @@ final class TileService
 
         $q = match ($key) {
             'stuck' => $this->files((int) $agencyId, $viewer, $scope)->where('f.has_active_advert', 1)->where('f.own_stock', 0)
-                ->where(fn ($w) => $w->where('f.cuts_count', '>', 0)->orWhere('f.relisted', 1)->orWhere('f.dom_days', '>=', $settings->stuckDomDays())),
+                ->where(fn ($w) => $w->where('f.cuts_any', '>', 0)->orWhere('f.relisted', 1)->orWhere('f.dom_days', '>=', $settings->stuckDomDays())),
             'our_stock' => DB::table('properties as f')->where('f.agency_id', $agencyId)->whereNull('f.deleted_at')->where('f.listing_type', 'sale')
                 ->whereIn(DB::raw('LOWER(f.status)'), self::ON_MARKET)->whereNotNull('f.tracked_property_id')
                 ->when($scope !== 'all', fn ($w) => $w->whereIn('f.id', Property::query()->visibleTo($viewer)->select('id')->toBase())),
@@ -95,6 +95,12 @@ final class TileService
         };
 
         return $q?->select('f.tracked_property_id');
+    }
+
+    /** mic_file_stats (alias f) for the viewer's agency, restricted to the files the viewer may see. */
+    public function visibleFiles(User $viewer): Builder
+    {
+        return $this->files((int) $viewer->effectiveAgencyId(), $viewer);
     }
 
     /** mic_file_stats (alias f) for the agency, restricted to the files the viewer may see. */
@@ -152,9 +158,9 @@ final class TileService
     private function stuck(int $agencyId, User $viewer, MicAgencySetting $settings): TileResult
     {
         $row = $this->files($agencyId, $viewer)->where('f.has_active_advert', 1)->where('f.own_stock', 0)->selectRaw(
-            'COUNT(*) as market, SUM(f.cuts_count > 0) as with_cut, SUM(f.cuts_30d > 0) as cut_30d, SUM(f.cuts_count >= 2) as cut_2plus, '
+            'COUNT(*) as market, SUM(f.cuts_any > 0) as with_cut, SUM(f.cuts_30d > 0) as cut_30d, SUM(f.cuts_count >= 2) as cut_2plus, '
             . 'SUM(f.relisted) as relisted, SUM(f.dom_days >= ?) as long_dom, '
-            . 'SUM(f.cuts_count > 0 OR f.relisted = 1 OR f.dom_days >= ?) as stuck', [$settings->stuckDomDays(), $settings->stuckDomDays()]
+            . 'SUM(f.cuts_any > 0 OR f.relisted = 1 OR f.dom_days >= ?) as stuck', [$settings->stuckDomDays(), $settings->stuckDomDays()]
         )->first();
 
         $meta = ['with_cut' => (int) $row->with_cut, 'cut_30d' => (int) $row->cut_30d, 'cut_2plus' => (int) $row->cut_2plus,
@@ -291,7 +297,7 @@ final class TileService
 
         return new TileResult(8, 'p24_alerts', $week,
             $week === 0 && $drops === 0
-                ? sprintf('No new alerts in 7 days (last alert seen %s) · %s%% of alert adverts matched', $last ? Carbon::parse($last)->format('j M') : '–', $meta['matched_pct'])
+                ? sprintf('No new alerts in 7 days · last alert %s · %s%% of alert adverts matched', $last ? Carbon::parse($last)->format('j M') : 'never', $meta['matched_pct'])
                 : sprintf('%d new alert advert%s this week · %d price drop%s · %s%% matched to a property', $week, $week === 1 ? '' : 's', $drops, $drops === 1 ? '' : 's', $meta['matched_pct']),
             $this->filter('p24_alerts'), false, null, $meta);
     }

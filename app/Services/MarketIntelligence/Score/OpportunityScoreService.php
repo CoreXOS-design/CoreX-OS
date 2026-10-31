@@ -114,6 +114,12 @@ final class OpportunityScoreService
         $stuckDom = $settings->stuckDomDays();
         $rows = [];
         foreach ($files as $id => $f) {
+            // Our own stock is not a prospect: it carries no prospecting score (the list excludes it by default).
+            if ((int) $f->own_stock === 1) {
+                $rows[] = ['agency_id' => $agencyId, 'tracked_property_id' => $id, 'score' => null, 'score_seller' => null, 'score_buyer' => null, 'score_pocket' => null,
+                    'score_known' => null, 'score_reachable' => null, 'reason_1' => null, 'reason_2' => null];
+                continue;
+            }
             $tp = $tps->get($id);
             $pocket = $pockets->get($f->p24_suburb_id . '|' . $f->type_key . '|' . $f->beds . '|' . $f->band);
             $active = (int) $f->has_active_advert === 1;
