@@ -23,6 +23,7 @@ const log = (m) => console.log(`[${now().toFixed(1)}s] ${m}`);
 const browser = await puppeteer.launch({ executablePath: job.chromium, headless: true, args: ['--no-sandbox', '--disable-gpu', '--hide-scrollbars'] });
 const page = await browser.newPage();
 await page.setViewport({ width: job.viewport.width, height: job.viewport.height, deviceScaleFactor: 1 });
+await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);   // readable on every screen, whatever the training user's OS theme
 const host = new URL(job.baseUrl).hostname;
 await page.setCookie({ name: job.cookie.name, value: job.cookie.value, domain: host, path: '/', httpOnly: true, secure: job.baseUrl.startsWith('https') });
 const resp = await page.goto(job.baseUrl.replace(/\/$/, '') + job.url, { waitUntil: 'networkidle2', timeout: 90000 });
@@ -50,6 +51,19 @@ const inject = () => page.evaluate(() => {
   window.__tvClickFx = () => { const c = document.getElementById('__tv-cursor'); c.classList.remove('click'); void c.offsetWidth; c.classList.add('click'); };
 });
 await inject();
+
+// A recording shows the SCREEN, not the environment around it: dismiss the app's own first-visit guided tour (it would sit on top of everything) and hide the
+// test-site banners that QA/Staging put above the page.
+async function tidy() {
+  await page.addStyleTag({ content: '.driver-popover, .driver-overlay, .driver-stage { display: none !important; }' }).catch(() => {});
+  await page.evaluate(() => {
+    const cb = document.querySelector('.driver-popover input[type=checkbox]'); if (cb && !cb.checked) cb.click();
+    const btn = [...document.querySelectorAll('.driver-popover button')].find((b) => /close tour/i.test(b.textContent)); if (btn) btn.click();
+    document.querySelectorAll('body *').forEach((e) => { const t = (e.textContent || '').trim(); if (e.offsetHeight > 0 && e.offsetHeight < 60 && e.children.length < 4 && (/^QA ·|^STAGING ·|This is a test site/i.test(t.slice(0, 40)) )) e.style.display = 'none'; });
+  }).catch(() => {});
+}
+await sleep(2500);
+await tidy();
 
 if (job.probe) {
   const missing = [];
@@ -94,7 +108,7 @@ for (const [i, s] of job.steps.entries()) {
       if (s.action === 'click' && pt) { await page.evaluate(() => window.__tvClickFx()); await sleep(250); await page.click(s.selector).catch(async () => { await page.evaluate((sel) => document.querySelector(sel)?.click(), s.selector); }); }
       else if (s.action === 'type' && pt) { await page.click(s.selector).catch(() => {}); await page.type(s.selector, s.value || '', { delay: 70 }); }
       else if (s.action === 'press') { await page.keyboard.press(s.value); }
-      else if (s.action === 'goto') { await page.goto(job.baseUrl.replace(/\/$/, '') + s.value, { waitUntil: 'networkidle2', timeout: 60000 }); await inject(); }
+      else if (s.action === 'goto') { await page.goto(job.baseUrl.replace(/\/$/, '') + s.value, { waitUntil: 'networkidle2', timeout: 60000 }); await inject(); await tidy(); }
     }
   } catch (e) { rec1.error = String(e.message || e).slice(0, 200); log(`step ${i + 1} error: ${rec1.error}`); }
   const left = stepEnd - at();
@@ -104,7 +118,7 @@ for (const [i, s] of job.steps.entries()) {
   timeline.steps.push(rec1);
   log(`step ${i + 1}/${job.steps.length} ${s.action} ${rec1.found ? 'ok' : 'NOT FOUND'} (${(rec1.end - rec1.start).toFixed(1)}s)`);
 }
-await inject().catch(() => {});   // a click may have navigated: make sure the helpers exist for the outro card
+await inject().catch(() => {}); await tidy();   // a click may have navigated: make sure the helpers exist for the outro card
 timeline.outro = await card(job.outro);
 timeline.total = at();
 await rec.stop();
