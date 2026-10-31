@@ -442,6 +442,9 @@ return [
         ['key' => 'assign_training',         'label' => 'Assign Training',                 'section' => 'training',         'type' => 'access',  'module' => 'training',         'sort_order' => 3],
         ['key' => 'training.view',           'label' => 'View',                            'section' => 'training',         'type' => 'action',  'module' => 'training',         'sort_order' => 10],
         ['key' => 'training.manage',         'label' => 'Manage',                          'section' => 'training',         'type' => 'action',  'module' => 'training',         'sort_order' => 11],
+        // AT-525 - the auto-generated how-to videos (spec .ai/specs/training-videos.md section 9): everybody who can use a screen may watch its video; making / re-making one is an admin job.
+        ['key' => 'training_videos.view',    'label' => 'Watch how-to videos',             'section' => 'training',         'type' => 'action',  'module' => 'training',         'sort_order' => 20],
+        ['key' => 'training_videos.generate','label' => 'Generate / regenerate how-to videos','section' => 'training',        'type' => 'action',  'module' => 'training',         'sort_order' => 21],
 
         // ── Communication ──
         ['key' => 'access_communication',    'label' => 'Access Communication',            'section' => 'communication',    'type' => 'access',  'module' => 'communication',    'sort_order' => 1],
@@ -1269,7 +1272,7 @@ return [
                 'access_supervision', 'manage_supervision',
                 'supervision.view', 'supervision.manage',
                 'access_training', 'assign_training',
-                'training.view', 'training.manage',
+                'training.view', 'training.manage', 'training_videos.view',
                 'access_communication', 'send_messages', 'manage_announcements',
                 'communication.view', 'communication.send', 'communication.manage',
                 'access_client_portal', 'manage_clients',
@@ -1447,7 +1450,7 @@ return [
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',
                 'targets.view',
                 'access_my_portal', 'upload_own_documents', 'edit_own_profile', 'view_agency_documents',
-                'access_training', 'training.view',
+                'access_training', 'training.view', 'training_videos.view',
                 'access_communication', 'send_messages',
                 'communication.view', 'communication.send',
                 'triage_communications',
@@ -1607,7 +1610,7 @@ return [
                 // narrowed to view-only despite that being this role's usual
                 // pattern elsewhere in this file.
                 'rental_inventories.view', 'rental_inventories.create',
-                'access_training', 'training.view',
+                'access_training', 'training.view', 'training_videos.view',
                 'access_communication', 'communication.view',
                 'access_client_portal',
                 'access_document_library',
@@ -1816,7 +1819,7 @@ return [
                 'sidebar.section.agents', 'sidebar.section.tools', 'supervision.manage', 'supervision.view',
                 'targets.archive', 'targets.create', 'targets.edit', 'targets.view',
                 'templates.archive', 'templates.create', 'templates.edit', 'templates.view',
-                'testimonials.publish', 'training.manage', 'training.view', 'triage_communications',
+                'testimonials.publish', 'training.manage', 'training.view', 'training_videos.view', 'triage_communications',
                 'tv_messages.archive', 'tv_messages.create', 'tv_messages.edit', 'tv_messages.view',
                 'upload_documents_library', 'upload_own_documents', 'use_ellie_voice', 'use_property_image_ai',
                 'users.archive', 'users.create', 'users.edit', 'users.view',

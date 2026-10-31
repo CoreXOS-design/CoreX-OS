@@ -3600,6 +3600,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // authenticated user; the list itself is filtered to the tours they can access.
     Route::get('/guided-tours', [\App\Http\Controllers\CoreX\GuidedToursController::class, 'index'])->middleware('feature:guided-tours')->name('corex.guided-tours.index');
 
+    // AT-525 (spec .ai/specs/training-videos.md section 9) - the Training library of auto-generated how-to videos. Signed-in users with training_videos.view;
+    // the files are on the private disk and are streamed here (range requests). Generate / Regenerate needs training_videos.generate (checked in the controller too).
+    Route::prefix('training-library')->name('corex.training-library.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\TrainingLibraryController::class, 'index'])->middleware('permission:training_videos.view')->name('index');
+        Route::get('/{screenKey}', [\App\Http\Controllers\CoreX\TrainingLibraryController::class, 'show'])->middleware('permission:training_videos.view')->where('screenKey', '[a-z0-9-]+')->name('show');
+        Route::get('/{screenKey}/file/{kind}', [\App\Http\Controllers\CoreX\TrainingLibraryController::class, 'file'])->middleware('permission:training_videos.view')->where('screenKey', '[a-z0-9-]+')->where('kind', 'mp4|jpg|vtt')->name('file');
+        Route::post('/{screenKey}/generate', [\App\Http\Controllers\CoreX\TrainingLibraryController::class, 'generate'])->middleware('permission:training_videos.generate')->where('screenKey', '[a-z0-9-]+')->name('generate');
+    });
+
     // Settings (admin only)
     Route::get('/settings', [CoreXSettingsController::class, 'index'])->middleware(['permission:access_settings', 'agency.required'])->name('corex.settings');
 
