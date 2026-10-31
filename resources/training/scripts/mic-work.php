@@ -24,17 +24,22 @@ return [
             'why' => 'Press one to see only those houses, so you phone the likeliest sellers first.',
         ],
         [
-            'selector' => '[data-qa="work-row"] > div', 'action' => 'click',
-            'narration' => 'Click a house to see everything we know about it.',
+            'selector' => '[data-qa="card-toggle"]', 'action' => 'click',
+            'narration' => 'Press Card on a house to see everything we know about it.',
             'why' => 'The adverts, price changes and owner are all in one place, so you do not search five screens.',
         ],
         [
-            'selector' => '[data-qa="work-row"] a.corex-btn-outline', 'action' => 'highlight',
-            'narration' => 'To go after it, press Claim.',
+            'selector' => '.mi-suggested-chip', 'action' => 'highlight',
+            'narration' => 'Press Pitch now to write to the owner.',
+            'why' => 'It holds the house for you, and shows the buyers waiting in that area.',
+        ],
+        [
+            'selector' => '[data-tour="mic-claim"] button', 'action' => 'highlight',
+            'narration' => 'To hold a house without pitching yet, press Claim.',
             'why' => 'Then it is yours, and no colleague phones the same owner.',
         ],
         [
-            'selector' => '[data-qa="row-sources"] span[title="Seen in a P24 e-mail alert"]', 'action' => 'highlight',
+            'selector' => '[data-qa="envelope"]', 'action' => 'highlight',
             'narration' => 'This envelope means a Property24 alert email matched this house.',
             'why' => 'Those emails arrive first, so you hear about price drops early.',
         ],
