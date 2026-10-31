@@ -19,6 +19,7 @@
     </source>
     <php>
         <env name="APP_ENV" value="testing"/>
+        <env name="P24_ALLOW_NONPROD_DESYNDICATION" value="true"/>
         <env name="PROPERTY_IDENTITY_LINK_ON_CREATE" value="false"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>

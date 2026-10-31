@@ -1,0 +1,16 @@
+[Unit]
+Description=CoreX QA2 Laravel queue worker - training-videos (dedicated lane; AT-523: a queue the code dispatches to must have a worker) - QA-scoped, do not use for live/staging
+After=network.target mysql.service
+
+[Service]
+User=www-data
+Group=www-data
+Restart=always
+RestartSec=3
+WorkingDirectory=/corex-qa2
+ExecStart=/usr/bin/nice -n 19 /usr/bin/php /corex-qa2/artisan queue:work --queue=training-videos --sleep=3 --tries=2 --timeout=3660 --max-time=3600 --memory=512
+StandardOutput=append:/var/log/corex-qa2-queue-training-videos.log
+StandardError=append:/var/log/corex-qa2-queue-training-videos.log
+
+[Install]
+WantedBy=multi-user.target

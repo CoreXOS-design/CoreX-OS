@@ -914,6 +914,14 @@ else
     note_problem "php artisan queue:restart failed — running workers were NOT signalled to reload (host-level restart below still applies)"
 fi
 
+# 10a-2. AT-523 - which queues does THIS code dispatch to, and does a worker here drain each? Printed, never fatal: a worker is a host change.
+if cov="$(php artisan corex:queue-workers-check 2>&1)"; then
+    ok "every queue the code dispatches to has a worker on this host"
+else
+    warn "queue workers vs the queues the code dispatches to - a queue has NO WORKER on this host:"
+    printf '%s\n' "$cov" | sed 's/^/      /' | tee -a "$LOG_FILE" >/dev/null 2>&1 || printf '%s\n' "$cov"
+fi
+
 # 10b. Host-level worker manager — auto-detect. AT-357: the box's supervisord
 # is SHARED across environments (corex-worker-live x2, corex-worker-live-mail,
 # corex-worker-live-matching, corex-worker-staging all show up in one

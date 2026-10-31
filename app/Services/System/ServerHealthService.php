@@ -172,6 +172,7 @@ class ServerHealthService
             'fpm'            => $this->safe(fn () => $this->fpmPool()),
             'mysql'          => $this->safe(fn () => $this->mysql()),
             'queue_workers'  => $this->safe(fn () => $this->supervisorWorkers->status()),
+            'watchdog'       => $this->safe(fn () => \App\Services\System\QueueWatchdogService::publicState()),
         ];
     }
 

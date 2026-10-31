@@ -178,6 +178,8 @@ return [
         'sandbox'        => env('P24_EXDEV_SANDBOX', true),
         'image_base_url' => env('P24_EXDEV_IMAGE_BASE_URL', ''),
         'api_version'    => 'v53',
+        // AT-523 - off production the de-list jobs do not call P24 / Private Property unless this is switched on for that environment (DesyndicatePropertyFromPortalsJob).
+        'allow_non_production_desyndication' => (bool) env('P24_ALLOW_NONPROD_DESYNDICATION', false),
         // First-ever leads pull (no cursor yet) reaches back this many days so a
         // newly-onboarded agency captures the FULL window P24 still retains,
         // not just the last few days. P24 v53 rejects `after` older than 30 days,

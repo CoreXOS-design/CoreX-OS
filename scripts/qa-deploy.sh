@@ -329,6 +329,9 @@ for unit in "$WORKER" "$WORKER-mail"; do
     sudo systemctl restart "$unit" 2>&1 | tail -1 || systemctl restart "$unit" 2>&1 | tail -1
 done
 php artisan queue:restart 2>&1 | tail -1
+# AT-523 - which queues does THIS code dispatch to, and does a worker here drain each? Loud, never fatal (a worker is a host change, see scripts/qa1/systemd/).
+echo "-- 10a. queue workers vs the queues the code dispatches to --"
+php artisan corex:queue-workers-check 2>&1 | tail -20 || echo "   WARNING: at least one queue has no worker - jobs sent to it will sit unprocessed"
 # Never let the host's worker units drift from the repo's record of them (the 2026-10-07 mail stall
 # came from mail sharing a worker with an 8-minute job). Loud, non-fatal.
 for unit in "$WORKER" "$WORKER-mail" "$WORKER-buyer-matching"; do
