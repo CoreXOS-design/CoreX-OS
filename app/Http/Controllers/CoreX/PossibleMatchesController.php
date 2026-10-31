@@ -84,6 +84,11 @@ class PossibleMatchesController extends Controller
         if ($source !== '') {
             $q->where('d.strategy', $source);
         }
+        if (ctype_digit((string) $request->query('file', ''))) {
+            // from the Work tab: every pair that involves exactly this property file (either side), by its id - not a text search
+            $fid = (int) $request->query('file');
+            $q->where(fn ($w) => $w->where('d.matched_id', $fid)->orWhereRaw("CAST(JSON_UNQUOTE(JSON_EXTRACT(d.incoming_facts, '$.incoming_tracked_property_id')) AS UNSIGNED) = ?", [$fid]));
+        }
         if (ctype_digit((string) $request->query('pair', ''))) {
             $q->where('d.id', (int) $request->query('pair')); // from the Work tab's "Possible match" chip: exactly this pair
         }
