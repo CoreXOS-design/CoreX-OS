@@ -105,6 +105,9 @@ class Property extends Model
      */
     public ?string $cycleStartReason = null;
 
+    /** Statuses that are not stock the agency holds: a Market-Intelligence-only row, a not-selling note, an unpublished draft, an archived row. */
+    public const NOT_OWN_STOCK_STATUSES = ['prospecting', 'not_selling', 'draft', 'archived'];
+
     /**
      * Off-market / terminal listing statuses — the single source of truth for
      * "this listing is NOT live on the market". Everything else (for_sale, incl.

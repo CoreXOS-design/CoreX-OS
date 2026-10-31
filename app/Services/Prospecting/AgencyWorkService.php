@@ -97,6 +97,15 @@ final class AgencyWorkService
             }
         }
         if ($propertyId === null) {
+            // an own listing joined to this file by the identity join / a confirmed "same property" (properties.tracked_property_id)
+            $linked = Property::withoutGlobalScopes()->where('agency_id', $agencyId)->where('tracked_property_id', $trackedPropertyId)->whereNull('deleted_at')
+                ->whereNotIn('status', Property::NOT_OWN_STOCK_STATUSES)->orderBy('id')->value('id');
+            if ($linked) {
+                $propertyId = (int) $linked;
+                $source = 'linked';
+            }
+        }
+        if ($propertyId === null) {
             $listings = ProspectingListing::withoutGlobalScopes()->where('agency_id', $agencyId)->where('tracked_property_id', $trackedPropertyId)->whereNull('deleted_at')->get();
             $map = $listings->isEmpty() ? [] : $this->stock->stockMapForListings($listings, $agencyId);
             if ($map !== []) {

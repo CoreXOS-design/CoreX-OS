@@ -108,6 +108,7 @@ final class PropertyIdentityResolver
             : $this->find((int) $property->agency_id, $facts, $source);
 
         if ($result->trackedProperty !== null) {
+            $alreadyHere = (int) $property->tracked_property_id === (int) $result->trackedProperty->id;
             Property::withoutEvents(function () use ($property, $result) {
                 \Illuminate\Support\Facades\DB::table('properties')->where('id', $property->id)->update([
                     'tracked_property_id' => $result->trackedProperty->id,
@@ -115,6 +116,14 @@ final class PropertyIdentityResolver
                     'identity_method'     => $result->created ? 'new_file' : $result->method,
                 ]);
             });
+
+            // Own stock matched to Market Intelligence counts as claimed (property-identity.md §16.5): an existing listing that is newly joined
+            // to a file recognises the file's adverts as ours and claims them for its agent. A brand-new file has no adverts; a link that did
+            // not change has nothing new to claim; a property that was only just created keeps lane C's rule (claimed for the person who
+            // added it, nothing for an import or a job - CaptureClaimService::claimFromManualProperty) - the back-fill command covers those.
+            if (! $result->created && ! $alreadyHere && ! $property->wasRecentlyCreated && in_array($result->confidence, ['exact', 'high'], true)) {
+                app(CaptureClaimService::class)->claimFromJoin((int) $property->id);
+            }
         }
 
         return $result;

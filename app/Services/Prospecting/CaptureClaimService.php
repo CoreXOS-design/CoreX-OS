@@ -39,6 +39,7 @@ final class CaptureClaimService
 {
     public const ORIGIN_DEEDS = 'deeds';
     public const ORIGIN_MANUAL = 'manual';
+    public const ORIGIN_JOIN = 'join';
 
     public const OUTCOME_CLAIMED = 'claimed';
     public const OUTCOME_ALREADY = 'already_yours';
@@ -49,7 +50,7 @@ final class CaptureClaimService
     public const OUTCOME_NO_USER = 'no_user';
 
     private const RANK = ['weak' => 1, 'probable' => 2, 'high' => 3, 'exact' => 4];
-    private const ORIGIN_TEXT = [self::ORIGIN_DEEDS => 'a deeds capture', self::ORIGIN_MANUAL => 'a property added by hand'];
+    private const ORIGIN_TEXT = [self::ORIGIN_DEEDS => 'a deeds capture', self::ORIGIN_MANUAL => 'a property added by hand', self::ORIGIN_JOIN => 'one of the agency\'s own listings'];
     private const MAX_ADVERTS = 20;
 
     public function __construct(private readonly AgencyWorkService $work)
@@ -59,7 +60,7 @@ final class CaptureClaimService
     /**
      * @return array{outcome:string, listing_ids:list<int>, holder_user_id:?int, road_to_sold:?string}
      */
-    public function claim(int $agencyId, int $trackedPropertyId, int $userId, string $origin, ?string $confidence, bool $createdNewFile, ?int $propertyId = null): array
+    public function claim(int $agencyId, int $trackedPropertyId, int $userId, string $origin, ?string $confidence, bool $createdNewFile, ?int $propertyId = null, bool $placeOnRoadToSold = true): array
     {
         $out = ['outcome' => self::OUTCOME_NEW_FILE, 'listing_ids' => [], 'holder_user_id' => null, 'road_to_sold' => null];
         if ($createdNewFile) {
@@ -109,12 +110,69 @@ final class CaptureClaimService
             $this->work->syncClaim($agencyId, $trackedPropertyId, 'Claimed from ' . $text);
         }
 
-        $rts = $this->placeOnRoadToSold($agencyId, $trackedPropertyId, $user, $propertyId, $origin);
+        $rts = $placeOnRoadToSold ? $this->placeOnRoadToSold($agencyId, $trackedPropertyId, $user, $propertyId, $origin) : 'skipped';
 
         return [
             'outcome' => $todo === [] ? self::OUTCOME_ALREADY : self::OUTCOME_CLAIMED,
             'listing_ids' => $todo, 'holder_user_id' => $owner, 'road_to_sold' => $rts,
         ];
+    }
+
+    /**
+     * Own stock matched to Market Intelligence counts as claimed (Johan, 29 Oct ruling, applied 30 Oct): once an own listing sits on its
+     * property file (the identity join, a review-screen "Same property", or the resolver going forward), the file's Market Intelligence
+     * adverts are
+     *   - recognised as ours (prospecting_listings.matched_property_id, where still empty - never overwritten);
+     *   - claimed for the listing's agent, exactly like a capture claim (claim rows, the agency's work record, Road to Sold for a sale
+     *     listing) - unless another agent already holds or is pitching one of them;
+     * and the work record's own-stock flag is re-derived (the file now has an own listing on it). Another agency's view is never touched:
+     * every query is bound to the property's own agency.
+     *
+     * @return array{outcome:string, matched:int, claimed:int, holder_user_id:?int, road_to_sold:?string, own_stock:bool}
+     */
+    public function claimFromJoin(int $propertyId): array
+    {
+        $none = ['outcome' => 'skipped', 'matched' => 0, 'claimed' => 0, 'holder_user_id' => null, 'road_to_sold' => null, 'own_stock' => false];
+        try {
+            $p = DB::table('properties')->where('id', $propertyId)->whereNull('deleted_at')
+                ->first(['id', 'agency_id', 'agent_id', 'tracked_property_id', 'identity_confidence', 'status', 'listing_type']);
+            if (! $p || ! $p->tracked_property_id || ! $p->agency_id) {
+                return $none;
+            }
+            $agencyId = (int) $p->agency_id;
+            $tp = TrackedProperty::withoutGlobalScopes()->where('agency_id', $agencyId)->find($p->tracked_property_id);
+            if (! $tp || $tp->status === TrackedProperty::STATUS_DUPLICATE) {
+                return ['outcome' => 'file_gone'] + $none;
+            }
+            if (in_array((string) $p->status, \App\Models\Property::NOT_OWN_STOCK_STATUSES, true)) {
+                return ['outcome' => 'not_own_stock'] + $none;   // a prospecting / not-selling / draft row is not stock yet
+            }
+
+            // 1. recognise the file's adverts as ours (never overwrite another property)
+            $matched = ProspectingListing::withoutGlobalScopes()->where('agency_id', $agencyId)->where('tracked_property_id', $tp->id)
+                ->whereNull('deleted_at')->whereNull('matched_property_id')
+                ->update(['matched_property_id' => $propertyId, 'matched_at' => now()]);
+
+            // 2. claim them for the listing's agent
+            $claim = ['outcome' => self::OUTCOME_NO_MIC_RECORD, 'listing_ids' => [], 'holder_user_id' => null, 'road_to_sold' => null];
+            if ($p->agent_id) {
+                $confidence = match ((string) $p->identity_confidence) {
+                    'confirmed', 'exact' => 'exact',
+                    default              => (string) $p->identity_confidence ?: null,
+                };
+                $claim = $this->claim($agencyId, (int) $tp->id, (int) $p->agent_id, self::ORIGIN_JOIN, $confidence, false, $propertyId, (string) $p->listing_type !== 'rental');
+            }
+
+            // 3. the work record's own-stock flag (the file has an own listing on it now)
+            $own = $this->work->syncOwnStock($agencyId, (int) $tp->id);
+
+            return ['outcome' => $claim['outcome'], 'matched' => $matched, 'claimed' => count($claim['listing_ids']), 'holder_user_id' => $claim['holder_user_id'],
+                'road_to_sold' => $claim['road_to_sold'], 'own_stock' => (bool) $own->is_own_stock];
+        } catch (\Throwable $e) {
+            Log::warning('Own-stock claim after a join failed (the link stands)', ['property_id' => $propertyId, 'error' => $e->getMessage()]);
+
+            return ['outcome' => 'failed'] + $none;
+        }
     }
 
     /**
