@@ -105,7 +105,12 @@ class AdComposer
         // 4. the cards, at every format's size
         $progress('Drawing the cards', 50);
         $brand['logo_file'] = $this->logoFile($brand);
-        $cardDefs = [['id' => 'hook', 'html' => $this->cards->hookHtml($brand, (string) $script['hook']['text'], $script['hook']['accent'] ?? null)]];
+        $badge = (array) ($script['hook']['badge'] ?? []);
+        $badge = trim((string) ($badge['text'] ?? '')) !== '' || ! empty($badge['example']) ? $badge : null;
+        $cardDefs = [['id' => 'hook', 'html' => $this->cards->hookHtml($brand, (string) $script['hook']['text'], $script['hook']['accent'] ?? null, $script['hook']['sub'] ?? null, $badge)]];
+        if ($badge) {
+            $cardDefs[] = ['id' => 'badge', 'transparent' => true, 'html' => $this->cards->badgeHtml($brand, $badge)];
+        }
         if ($proof !== '') {
             $cardDefs[] = ['id' => 'proof', 'html' => $this->cards->lineHtml($brand, $proof)];
         }
@@ -283,7 +288,18 @@ class AdComposer
         $ass = $work . '/captions-' . $shape['key'] . '.ass';
         file_put_contents($ass, $this->captions->ass($cues, $shape));
         $esc = fn (string $v) => str_replace(["\\", ':', "'"], ["\\\\", '\\:', "\\'"], $v);
-        $filters[] = implode('', $labels) . 'concat=n=' . count($labels) . ':v=1:a=0[vcat]';
+        $filters[] = implode('', $labels) . 'concat=n=' . count($labels) . ':v=1:a=0[vcat0]';
+        if (isset($cards['badge'])) {
+            // the "Example" / demo badge sits over every shot (not on the cards, which already carry it or none)
+            array_push($args, '-loop', '1', '-framerate', (string) self::FPS, '-t', (string) round($total, 2), '-i', $cards['badge']);
+            $shotStart = collect($segs)->firstWhere('type', 'beat')['start'];
+            $shotEnd = collect($segs)->where('type', 'beat')->last();
+            $filters[] = "[{$inIdx}:v]format=rgba[bd]";
+            $filters[] = "[vcat0][bd]overlay=0:0:enable='between(t," . round($shotStart, 2) . ',' . round($shotEnd['start'] + $shotEnd['dur'], 2) . ")'[vcat]";
+            $inIdx++;
+        } else {
+            $filters[] = '[vcat0]null[vcat]';
+        }
         $filters[] = "[vcat]ass=filename='" . $esc($ass) . "':fontsdir='" . $esc(base_path('resources/fonts/inter')) . "'[vout]";
         array_push($args, '-i', $audio);
         $mp4 = $work . '/ad-' . $shape['key'] . '.mp4';

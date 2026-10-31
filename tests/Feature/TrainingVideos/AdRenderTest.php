@@ -94,6 +94,29 @@ final class AdRenderTest extends TestCase
         $this->assertStringContainsString('over the 15 seconds chosen', implode(' ', $v->problems($long)));
     }
 
+    public function test_andres_style_fields_are_accepted_and_only_their_limits_are_kept(): void
+    {
+        $v = app(AdRequestValidator::class);
+        $ok = $this->request(['script' => ['hook' => ['sub' => 'Your best leads are already on your screen', 'badge' => ['text' => '3 hot leads', 'example' => true, 'source' => '']], 'cta' => ['follow' => 'Follow us on Facebook']],
+            'brand' => ['follow_line' => 'Follow us on Facebook', 'socials' => ['facebook' => 'https://facebook.com/corexos']]]);
+        $this->assertSame([], $v->problems($ok), 'extra look fields are never a reason to refuse an ad');
+
+        $bad = $this->request(['script' => ['hook' => ['sub' => 'one two three four five six seven eight nine ten eleven', 'badge' => ['text' => 'FAR TOO MANY LETTERS HERE']]]]);
+        $t = implode("\n", $v->problems($bad));
+        $this->assertStringContainsString('under the question is over 10 words', $t);
+        $this->assertStringContainsString('at most 14 letters', $t);
+
+        $cards = app(\App\Services\TrainingVideos\Ads\AdCards::class);
+        $brand = $ok['brand'];
+        $html = ($cards->hookHtml($brand, 'Still guessing which owners to phone?', 'guessing', 'Your best leads are already on your screen', ['text' => '3 hot leads', 'example' => true]))(AdFormat::get('9:16'));
+        $this->assertStringContainsString('Example', $html, 'a demo number is always labelled');
+        $this->assertStringContainsString('3 HOT LEADS', $html);
+        $this->assertStringContainsString('YOUR BEST LEADS', mb_strtoupper($html) ?: 'x');
+        $end = ($cards->endHtml($brand, ['line' => 'Join CoreX', 'sub' => 'Book a demo', 'follow' => 'Follow us on Facebook']))(AdFormat::get('9:16'));
+        $this->assertStringContainsString('border-radius:999px', $end, 'the call to action is the cyan pill');
+        $this->assertStringContainsString('Follow us on Facebook', $end);
+    }
+
     public function test_queue_makes_one_row_per_format_dispatches_once_and_returns_the_same_ad_when_it_is_already_ready(): void
     {
         Bus::fake();

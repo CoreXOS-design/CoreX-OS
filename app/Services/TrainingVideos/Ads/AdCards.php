@@ -14,7 +14,7 @@ class AdCards
 {
     /**
      * @param  array<string,mixed>  $brand
-     * @param  array<int,array{id:string,html:string}>  $cards  by card id: 'hook', 'proof', 'end'
+     * @param  array<int,array{id:string,html:\Closure,transparent?:bool}>  $cards  by card id: 'hook', 'proof', 'end', 'badge' (a transparent overlay)
      * @param  array<int,string>  $formats
      * @return array<string,array<string,string>> format => card id => png path
      */
@@ -29,7 +29,7 @@ class AdCards
                 $html = $dir . "/{$c['id']}-{$shape['key']}.html";
                 $png = $dir . "/{$c['id']}-{$shape['key']}.png";
                 file_put_contents($html, $c['html']($shape));
-                $items[] = ['html' => $html, 'out' => $png, 'width' => $shape['w'], 'height' => $shape['h']];
+                $items[] = ['html' => $html, 'out' => $png, 'width' => $shape['w'], 'height' => $shape['h'], 'transparent' => ! empty($c['transparent'])];
                 $out[$f][$c['id']] = $png;
             }
         }
@@ -45,7 +45,7 @@ class AdCards
         return $out;
     }
 
-    private function head(array $brand, array $shape): string
+    private function head(array $brand, array $shape, bool $transparent = false): string
     {
         $c = (array) ($brand['colours'] ?? []);
         $bg1 = $c['primary'] ?? '#0b2a4a';
@@ -62,7 +62,7 @@ class AdCards
 @font-face{font-family:'Inter';font-weight:400;src:url('{$font}/Inter-400.ttf')}
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{width:{$shape['w']}px;height:{$shape['h']}px;overflow:hidden}
-body{font-family:'Inter',sans-serif;color:{$text};background:linear-gradient(145deg,{$bg1},{$bg2});}
+body{font-family:'Inter',sans-serif;color:{$text};background:" . ($transparent ? 'transparent' : "linear-gradient(145deg,{$bg1},{$bg2})") . ";}
 .safe{position:absolute;left:{$side}%;right:{$side}%;top:{$top}%;bottom:{$bottom}%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:" . round($shape['h'] * 0.025) . "px}
 </style></head><body>";
     }
@@ -80,10 +80,30 @@ body{font-family:'Inter',sans-serif;color:{$text};background:linear-gradient(145
         return '<div style="font-weight:700;font-size:' . $size . 'px;letter-spacing:-0.04em;line-height:1">' . e($parts[0]) . (isset($parts[1]) ? ' <span style="color:' . e($accent) . '">' . e($parts[1]) . '</span>' : '') . '</div>';
     }
 
-    /** The opening question: capitals, one word in the accent colour. */
-    public function hookHtml(array $brand, string $text, ?string $accent): \Closure
+    /** The cyan circle in the top-right corner (inside the safe zone). A demo / example number always carries the word "Example" (spec 9.16.5). */
+    private function badgeInner(array $brand, array $shape, array $badge): string
     {
-        return function (array $shape) use ($brand, $text, $accent) {
+        $a = $brand['colours']['accent'] ?? '#33c4e0';
+        $d = (int) round($shape['w'] * 0.21);
+        $top = (int) round($shape['h'] * max(0.05, $shape['content_top'] - 0.005));
+        $right = (int) round($shape['w'] * 0.08);
+        $label = ! empty($badge['example']) ? '<div style="font-size:' . (int) round($d * 0.13) . 'px;font-weight:700;letter-spacing:.08em;text-transform:uppercase">Example</div>' : '';
+        $text = mb_strtoupper(mb_substr(trim((string) ($badge['text'] ?? '')), 0, 14));
+
+        return '<div style="position:absolute;top:' . $top . 'px;right:' . $right . 'px;width:' . $d . 'px;height:' . $d . 'px;border-radius:50%;background:' . e($a) . ';color:#0b2a4a;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;line-height:1.05;box-shadow:0 8px 30px rgba(0,0,0,.35)">'
+            . $label . '<div style="font-size:' . (int) round($d * 0.2) . 'px;font-weight:700;max-width:88%">' . e($text) . '</div></div>';
+    }
+
+    /** The badge alone on a transparent card: laid over every shot so a demo number is labelled wherever it shows. */
+    public function badgeHtml(array $brand, array $badge): \Closure
+    {
+        return fn (array $shape) => $this->head($brand, $shape, true) . $this->badgeInner($brand, $shape, $badge) . '</body></html>';
+    }
+
+    /** The opening question: capitals, one word in the accent colour. */
+    public function hookHtml(array $brand, string $text, ?string $accent, ?string $sub = null, ?array $badge = null): \Closure
+    {
+        return function (array $shape) use ($brand, $text, $accent, $sub, $badge) {
             $a = $brand['colours']['accent'] ?? '#33c4e0';
             $size = (int) round($shape['w'] * ($shape['w'] > $shape['h'] ? 0.058 : 0.098));
             $safe = e(mb_strtoupper($text));
@@ -91,8 +111,11 @@ body{font-family:'Inter',sans-serif;color:{$text};background:linear-gradient(145
                 $safe = preg_replace('/' . preg_quote(e(mb_strtoupper($accent)), '/') . '/u', '<span style="color:' . e($a) . '">' . e(mb_strtoupper($accent)) . '</span>', $safe, 1);
             }
 
-            return $this->head($brand, $shape) . '<div class="safe"><div style="font-weight:700;font-size:' . $size . 'px;line-height:1.12;letter-spacing:-0.02em">' . $safe . '</div></div>'
-                . '<div style="position:absolute;left:0;right:0;top:' . round($shape['h'] * ($shape['content_top'] - 0.07)) . 'px;display:flex;justify-content:center;opacity:.9">' . $this->mark($brand, (int) round($shape['w'] * 0.04)) . '</div></body></html>';
+            $subHtml = trim((string) $sub) !== '' ? '<div style="font-weight:600;font-size:' . (int) round($size * 0.42) . 'px;line-height:1.2;opacity:.95;max-width:92%">' . e((string) $sub) . '</div>' : '';
+
+            return $this->head($brand, $shape) . '<div class="safe"><div style="font-weight:700;font-size:' . $size . 'px;line-height:1.12;letter-spacing:-0.02em">' . $safe . '</div>' . $subHtml . '</div>'
+                . '<div style="position:absolute;left:0;right:0;top:' . round($shape['h'] * ($shape['content_top'] - 0.07)) . 'px;display:flex;justify-content:center;opacity:.9">' . $this->mark($brand, (int) round($shape['w'] * 0.04)) . '</div>'
+                . ($badge ? $this->badgeInner($brand, $shape, $badge) : '') . '</body></html>';
         };
     }
 
@@ -125,7 +148,9 @@ body{font-family:'Inter',sans-serif;color:{$text};background:linear-gradient(145
             $html = $this->head($brand, $shape) . '<div class="safe">' . $this->mark($brand, (int) round($w * 0.085))
                 . '<div style="font-weight:700;font-size:' . $big . 'px;line-height:1.05;color:' . e($a) . '">' . e((string) ($cta['line'] ?? 'Join CoreX')) . '</div>';
             if (trim((string) ($cta['sub'] ?? '')) !== '') {
-                $html .= '<div style="font-weight:600;font-size:' . $mid . 'px;line-height:1.25;max-width:92%">' . e((string) $cta['sub']) . '</div>';
+                // the call to action as the cyan pill button with an arrow (the look of Andre's ads, spec 9.16.5)
+                $html .= '<div style="display:inline-flex;align-items:center;gap:' . (int) round($mid * 0.5) . 'px;background:' . e($a) . ';color:#0b2a4a;font-weight:700;font-size:' . $mid . 'px;line-height:1.1;padding:' . (int) round($mid * 0.5) . 'px ' . (int) round($mid * 1.0) . 'px;border-radius:999px;max-width:92%">'
+                    . e((string) $cta['sub']) . ' <span style="font-size:' . (int) round($mid * 1.1) . 'px">&rarr;</span></div>';
             }
             $html .= '<div style="font-weight:600;font-size:' . $mid . 'px;line-height:1.5">' . implode('<br>', array_map('e', $contact)) . '</div>';
             if ($socials) {

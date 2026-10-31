@@ -11,7 +11,7 @@ try {
     await page.setViewport({ width: it.width, height: it.height, deviceScaleFactor: 1 });
     await page.goto('file://' + it.html, { waitUntil: 'networkidle0', timeout: 60000 });
     await page.evaluate(() => document.fonts.ready);
-    await page.screenshot({ path: it.out, type: 'png' });
+    await page.screenshot({ path: it.out, type: 'png', omitBackground: !!it.transparent });
     await page.close();
   }
 } finally {

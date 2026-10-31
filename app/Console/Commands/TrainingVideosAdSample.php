@@ -10,7 +10,7 @@ use Illuminate\Console\Command;
 /** AT-525 / AT-527 - render a SAMPLE ad of a training script (its first steps, invented training data only) straight through the render door: for checking the renderer without Ad Studio. */
 class TrainingVideosAdSample extends Command
 {
-    protected $signature = 'training-videos:ad-sample {screen=mic-work : the training script to film} {--length=30} {--formats=9:16,1:1,16:9} {--voice=} {--sync : render now instead of queueing}';
+    protected $signature = 'training-videos:ad-sample {screen=mic-work : the training script to film} {--length=30} {--formats=9:16,1:1,16:9} {--voice=} {--sync : render now instead of queueing} {--demo-badge : add a sub-line and an Example circle (the look of spec 9.16.5)}';
     protected $description = 'Render a sample video ad of a training script through AdRenderer (spec 9.16.1).';
 
     public function handle(AdRenderer $renderer): int
@@ -38,6 +38,11 @@ class TrainingVideosAdSample extends Command
                 'website' => 'https://corexos.co.za', 'contact_email' => 'johan@corexos.co.za', 'phone' => '+27 76 618 5578', 'join_line' => 'Join CoreX', 'cta_line' => 'Run your agency on CoreX',
                 'tagline' => 'HFC runs on CoreX, and we keep expanding it.', 'socials' => []],
         ];
+        if ($this->option('demo-badge')) {
+            $request['script']['hook']['sub'] = 'Your best leads are already on your screen';
+            $request['script']['hook']['badge'] = ['text' => '3 hot leads', 'example' => true, 'source' => ''];
+            $request['script']['cta']['follow'] = 'Follow us on Facebook';
+        }
         if ($this->option('sync')) {
             config(['queue.default' => 'sync']);
         }

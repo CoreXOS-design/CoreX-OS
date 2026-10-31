@@ -51,11 +51,20 @@ class AdRequestValidator
                 $p[] = 'The accent word "' . $acc . '" is not in the opening question.';
             }
         }
+        // optional look fields (spec 9.16.5): never a reason to refuse a request, only a limit to keep
+        $sub = trim((string) ($hook['sub'] ?? ''));
+        if ($sub !== '' && str_word_count($sub) > 10) {
+            $p[] = 'The line under the question is over 10 words.';
+        }
+        $badgeText = trim((string) ($hook['badge']['text'] ?? ''));
+        if ($badgeText !== '' && mb_strlen($badgeText) > 14) {
+            $p[] = 'The circle in the corner holds at most 14 letters.';
+        }
         $beats = array_values((array) ($script['beats'] ?? []));
         if ($beats === [] || count($beats) > 8) {
             $p[] = 'An ad needs 1 to 8 shots.';
         }
-        $lines = ['The opening question' => $hookText];
+        $lines = ['The opening question' => $hookText, 'The line under the question' => $sub, 'The circle in the corner' => $badgeText];
         foreach ($beats as $i => $b) {
             $n = $i + 1;
             $text = trim((string) ($b['benefit'] ?? ''));
