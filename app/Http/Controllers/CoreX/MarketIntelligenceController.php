@@ -155,7 +155,10 @@ class MarketIntelligenceController extends Controller
             $actionPreset,
             ['log_outcomes', 'my_claims', 'expiring'],
             true,
-        ) || $claimFilter === 'my_claims';
+        ) || $claimFilter === 'my_claims'
+            // the tiles that describe the offer / sold / gone adverts and OUR OWN stock show those adverts: the canvass defaults (active only, own stock and
+            // pitch-locked hidden) would empty exactly the list the tile counted
+            || in_array((string) $request->query('tile'), \App\Services\Prospecting\MicWork\MicWorkTiles::SHOW_EVERYTHING, true);
 
         // F.1: default to canvassing pool only (exclude already-mandated stock).
         // Manager toggle ?include_in_stock=1 bypasses for audit purposes.
@@ -1135,6 +1138,7 @@ class MarketIntelligenceController extends Controller
 
         $sourceByListingId = app(\App\Services\Prospecting\PropertySourceFacts::class)->forListings((int) $agencyId, $listings->items());
         $rowExtras = $this->classicRowExtras($listings->items(), (int) $agencyId);
+        $tileNote = $this->tileNote($request, $listings->total(), (int) $agencyId, $user);
 
         $listingIdsForTiers = collect($listings->items())->pluck('id')->all();
         $buyerTiers = app(\App\Services\Prospecting\BuyerMatchTierService::class)
@@ -1317,7 +1321,7 @@ class MarketIntelligenceController extends Controller
             // never touches $listing itself.
             'displayAddressByListingId',
             'sourceByListingId',
-            'rowExtras', 'tilesDeferred',
+            'rowExtras', 'tilesDeferred', 'tileNote',
         ));
     }
 
@@ -1353,6 +1357,30 @@ class MarketIntelligenceController extends Controller
                 }
             }
         }
+    }
+
+    /**
+     * The one line under the tile row when a tile filter is on: what the tile counted and what the list below counts (they are different units - a tile counts
+     * PROPERTIES, the list counts ROWS, and a property whose P24 and PP adverts are not linked yet shows as more than one row), and how fresh the figures are.
+     *
+     * @return array{title:string, rows:int, count:?int, unit:?string, asOf:?string}|null
+     */
+    private function tileNote(Request $request, int $rows, int $agencyId, $user): ?array
+    {
+        $key = (string) $request->query('tile');
+        $n = \App\Services\Prospecting\MicWork\MicWorkTiles::numberForKey($key);
+        if ($key === '' || $n === null) {
+            return null;
+        }
+        $svc = \App\Services\Prospecting\MicWork\MicWorkTiles::fromContainer();
+        $tile = collect($svc->cachedRow($agencyId, $user) ?? [])->firstWhere('key', $key);
+        $stamp = $svc->statsStamp($agencyId);
+
+        return [
+            'title' => \App\Services\Prospecting\MicWork\MicWorkTiles::TILES[$n][1], 'rows' => $rows,
+            'count' => $tile && ($tile['unit'] ?? null) === 'properties' ? $tile['count'] : null, 'unit' => $tile['unit'] ?? null,
+            'asOf' => $stamp !== '' ? \Carbon\Carbon::parse($stamp)->timezone(config('app.timezone'))->format('j M H:i') : null,
+        ];
     }
 
     /**

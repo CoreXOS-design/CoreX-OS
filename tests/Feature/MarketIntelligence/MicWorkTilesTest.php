@@ -158,4 +158,51 @@ final class MicWorkTilesTest extends TestCase
         // _card is the same: a person who opens it directly gets the page
         $this->actingAs($this->admin)->get('/corex/market-intelligence?_card=1')->assertOk()->assertSee('Properties matched', false);
     }
+
+    private function fileTile(int $number, ?\Closure $ids, int $count = 1, array $extra = []): void
+    {
+        $p = new class($number, $ids, $count) implements TileProvider {
+            public function __construct(private int $n, private ?\Closure $ids, private int $count) {}
+            public function tile(): int { return $this->n; }
+            public function summary(int $agencyId, User $user): array { return ['count' => $this->count, 'reason' => 'x']; }
+            public function propertyIds(int $agencyId, User $user): ?Builder { return $this->ids ? ($this->ids)() : null; }
+        };
+        $this->app->instance('test.tile' . $number, $p);
+        $this->app->tag('test.tile' . $number, 'mic.work.tiles');
+    }
+
+    private function advert(\App\Models\Prospecting\TrackedProperty $tp, string $ref, array $extra = []): \App\Models\ProspectingListing
+    {
+        return \App\Models\ProspectingListing::withoutGlobalScopes()->create(array_merge([
+            'agency_id' => $this->agency->id, 'portal_source' => 'p24', 'portal_ref' => $ref, 'portal_url' => 'https://p.test/' . $ref, 'address' => '1 Test Road', 'suburb' => 'Margate',
+            'property_type' => 'House', 'price' => 900000, 'captured_by_user_id' => $this->admin->id, 'tracked_property_id' => $tp->id, 'first_seen_at' => now(), 'last_seen_at' => now(), 'is_active' => true,
+        ], $extra));
+    }
+
+    public function test_the_offer_sold_gone_tile_shows_the_inactive_adverts_it_counted_and_a_tile_without_a_list_is_not_a_link(): void
+    {
+        $tp = app(\App\Services\Prospecting\TrackedPropertyMatchOrCreateService::class)->matchOrCreate($this->agency->id, ['street_number' => '1', 'street_name' => 'Test Road', 'suburb' => 'Margate'], ['type' => 'p24', 'ref' => 'P24-140000001']);
+        $this->advert($tp, 'P24-140000001', ['is_active' => false, 'portal_status' => 'sold']);
+        $this->fileTile(3, fn () => DB::table('tracked_properties')->select('id')->where('id', $tp->id), 1);
+        $this->fileTile(9, null, 23); // market prices: no list of properties
+
+        $page = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['tile' => 'gone']))->assertOk();
+        $page->assertSee('P24-140000001', false); // the default "active adverts only" would have emptied exactly the list the tile counted
+        $html = $page->getContent();
+        $this->assertSame(1, preg_match('/<div data-qa="tile-9"/', $html), 'a tile with no list is a plain block, not a link');
+        $this->assertSame(1, preg_match('/<a href="[^"]*tile=gone"[^>]*data-qa="tile-3"|data-qa="tile-3"[^>]*>/', $html));
+    }
+
+    public function test_an_active_tile_says_what_it_counted_and_what_the_list_counts_and_how_fresh_it_is(): void
+    {
+        $tp = app(\App\Services\Prospecting\TrackedPropertyMatchOrCreateService::class)->matchOrCreate($this->agency->id, ['street_number' => '2', 'street_name' => 'Owner Road', 'suburb' => 'Margate'], ['type' => 'p24', 'ref' => 'P24-140000002']);
+        $this->advert($tp, 'P24-140000002', ['advertiser_type' => 'owner']);
+        $this->fileTile(2, fn () => DB::table('tracked_properties')->select('id')->where('id', $tp->id), 1);
+        // the cached tile row must exist for the note to carry the tile's own number (a cold page defers the tiles)
+        $this->actingAs($this->admin)->get(route('market-intelligence.work'))->assertOk();
+        $note = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['tile' => 'owner']))->assertOk();
+        $note->assertSee('data-qa="tile-note"', false)->assertSee('Owner selling', false)->assertSee('rows below', false)->assertSee('Clear this tile', false);
+        $this->assertSame(1, preg_match('/1\s+properties\s+→\s+1\s+rows below/u', strip_tags($note->getContent())), 'properties -> rows, both numbers');
+    }
 }
+

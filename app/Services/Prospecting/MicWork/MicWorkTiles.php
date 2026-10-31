@@ -15,8 +15,14 @@ use Illuminate\Database\Query\Builder;
  */
 final class MicWorkTiles
 {
+    /** What the big number counts when the tile's own sub-line does not say so (the number is property FILES; the list below counts rows). */
+    public const UNITS = ['stuck' => 'properties', 'owner' => 'properties', 'gone' => 'properties'];
+
+    /** Tiles whose click widens the list past the canvass defaults (active adverts only, our own stock hidden, pitch-locked hidden): their numbers include those. */
+    public const SHOW_EVERYTHING = ['gone', 'our_stock', 'lead_sources'];
+
     /** Bump when a tile's face/number logic changes, so a deploy never serves the previous face from the 10-minute cache. */
-    private const CACHE_VERSION = 4;
+    private const CACHE_VERSION = 5;
 
     /** number => [key, full title (tooltip), what a click does: filter | strip | panel, short label shown on the tile] */
     public const TILES = [
@@ -102,7 +108,7 @@ final class MicWorkTiles
     public function row(int $agencyId, User $user, ?array $shown = null): array
     {
         // The tile numbers are stored counts that move slowly; a per-viewer cache (10 minutes) keeps the page fast (mic-work-tab.md 6.6).
-        return \Illuminate\Support\Facades\Cache::remember($this->cacheKey($agencyId, $user, $shown), 600, fn () => $this->buildRow($agencyId, $user, $shown ?? $this->shownFor($agencyId)));
+        return \Illuminate\Support\Facades\Cache::remember($this->cacheKey($agencyId, $user, $shown), 300, fn () => $this->buildRow($agencyId, $user, $shown ?? $this->shownFor($agencyId)));
     }
 
     /** The cached tile row, or null when it would have to be built (the page then loads the tiles after itself instead of waiting for them). */
@@ -111,11 +117,22 @@ final class MicWorkTiles
         return \Illuminate\Support\Facades\Cache::get($this->cacheKey($agencyId, $user, null));
     }
 
+    /**
+     * When the stored per-file figures were last computed (cc5's mic_file_stats). It is part of the tile cache key, so the moment stats are recomputed
+     * - nightly, or for a file after a match / merge through FileStatsRefresher - the tiles are rebuilt from them instead of serving an older row.
+     * Itself cached for a minute.
+     */
+    public function statsStamp(int $agencyId): string
+    {
+        return (string) MicWorkList::remember('stats-stamp:' . $agencyId, 60, fn () => \Illuminate\Support\Facades\Schema::hasTable('mic_file_stats')
+            ? (string) \Illuminate\Support\Facades\DB::table('mic_file_stats')->where('agency_id', $agencyId)->max('computed_at') : '');
+    }
+
     private function cacheKey(int $agencyId, User $user, ?array $shown): string
     {
         $shown ??= $this->shownFor($agencyId);
 
-        return 'mic-work:tiles:v' . self::CACHE_VERSION . ':' . $agencyId . ':' . $user->id . ':' . md5(json_encode($shown) . (class_exists(self::CC5_SETTINGS) ? json_encode(app(self::CC5_SETTINGS)::for($agencyId)->areas()) : '') . count($this->tiles) . count($this->panels) . (class_exists(self::CC5_SERVICE) ? 'c5' : ''));
+        return 'mic-work:tiles:v' . self::CACHE_VERSION . ':' . $agencyId . ':' . $this->statsStamp($agencyId) . ':' . $user->id . ':' . md5(json_encode($shown) . (class_exists(self::CC5_SETTINGS) ? json_encode(app(self::CC5_SETTINGS)::for($agencyId)->areas()) : '') . count($this->tiles) . count($this->panels) . (class_exists(self::CC5_SERVICE) ? 'c5' : ''));
     }
 
     /** @return list<array<string, mixed>> */
@@ -150,6 +167,13 @@ final class MicWorkTiles
                     'count' => null, 'reason' => $panelReady ? 'Open' : 'Coming', 'note' => null];
             }
         }
+
+        foreach ($out as &$t) {
+            $t['unit'] = self::UNITS[$t['key']] ?? null;
+            // a tile whose service gives no list of properties (market prices; panels aside) must not look like a filter: its click would show everything
+            $t['linkable'] = $t['kind'] === 'panel' ? $t['ready'] : ($t['ready'] && $this->propertyIds($t['key'], $agencyId, $user) !== null);
+        }
+        unset($t);
 
         return $out;
     }

@@ -44,7 +44,7 @@
     @foreach($workTiles as $t)
         @php
             $isActive = $t['kind'] === 'panel' ? $activePanel === $t['number'] : $activeTile === $t['key'];
-            $clickable = $t['ready'];
+            $clickable = $t['ready'] && ($t['linkable'] ?? true);
             $href = $t['kind'] === 'panel'
                 ? $tileUrl($isActive ? [] : ['panel' => $t['number']])
                 : $tileUrl($isActive ? [] : ['tile' => $t['key']]);
@@ -57,7 +57,7 @@
                 <div style="font-size: .9375rem; font-weight: 700; line-height: 1.4; color: {{ $isActive ? 'var(--brand-icon)' : 'var(--text-primary)' }};">{{ $t['display'] }}</div>
                 <div style="font-size: 0.6875rem; line-height: 1.25; color: var(--text-muted);">{{ $t['note'] ?? $t['reason'] }}</div>
             @elseif($t['count'] !== null)
-                <div style="font-size: 1.0625rem; font-weight: 700; line-height: 1.3; color: {{ $isActive ? 'var(--brand-icon)' : 'var(--text-primary)' }};">{{ number_format($t['count']) }}</div>
+                <div style="font-size: 1.0625rem; font-weight: 700; line-height: 1.3; color: {{ $isActive ? 'var(--brand-icon)' : 'var(--text-primary)' }};">{{ number_format($t['count']) }}@if(!empty($t['unit']))<span style="font-size: .6875rem; font-weight: 600; color: var(--text-muted);"> {{ $t['unit'] }}</span>@endif</div>
                 <div style="font-size: 0.6875rem; line-height: 1.25; color: var(--text-muted);">{{ $t['note'] ?? $t['reason'] }}</div>
             @elseif($t['ready'] && $t['kind'] === 'panel')
                 <div style="font-size: .8125rem; font-weight: 700; line-height: 1.6; color: {{ $isActive ? 'var(--brand-icon)' : 'var(--text-primary)' }};">Open ▸</div>
