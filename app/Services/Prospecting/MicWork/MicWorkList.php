@@ -37,13 +37,24 @@ final class MicWorkList
     /** @return list<string> */
     public static function sortKeys(): array
     {
-        return array_merge(array_keys(self::SORTS), self::hasFileStats() ? ['score', 'buyers'] : []);
+        return array_merge(array_keys(self::SORTS), self::hasFileStats() ? ['buyers'] : [], self::hasScores() ? ['score'] : []);
     }
 
     /** Opportunity score once cc5's stored stats exist; until then newest activity first. */
     public static function defaultSort(): string
     {
-        return self::hasFileStats() ? 'score' : 'last_seen';
+        return self::hasScores() ? 'score' : 'last_seen';
+    }
+
+    /** True once cc5's score has actually been computed for this agency (the stats table can exist with every score still empty). */
+    public static function hasScores(): bool
+    {
+        if (! self::hasFileStats()) {
+            return false;
+        }
+        $agencyId = (int) (auth()->user()?->effectiveAgencyId() ?? 0);
+
+        return \Illuminate\Support\Facades\Cache::remember("mic-work:has-scores:$agencyId", 300, fn () => DB::table('mic_file_stats')->where('agency_id', $agencyId)->whereNotNull('score')->exists());
     }
 
     public static function hasFileStats(): bool
@@ -215,6 +226,7 @@ final class MicWorkList
                 'flags' => $flags,
                 'buyers' => (int) $list->sum(fn ($a) => (int) ($buyers[$a->id] ?? 0)),
                 'buyers_strong' => $st->buyers_strong ?? null,
+                'buyers_mid' => $st->buyers_mid ?? null,
                 'claimed_by' => $w->claimed_by ?? null,
                 'work_status' => $w->prospecting_status ?? null,
                 'work_reason' => $w->prospecting_reason ?? null,

@@ -24,7 +24,7 @@
 
 <x-mic-page-header
     title="Work"
-    subtitle="{{ ($micView ?? 'properties') === 'properties' ? 'Every property we know about, one row each - both portals, alerts and deeds together' . (\App\Services\Prospecting\MicWork\MicWorkList::hasFileStats() ? ', ranked by opportunity score.' : ', newest activity first.') : 'Per-advert list - listings to action, ranked by suggested next step.' }}">
+    subtitle="{{ ($micView ?? 'properties') === 'properties' ? 'Every property we know about, one row each - both portals, alerts and deeds together' . (\App\Services\Prospecting\MicWork\MicWorkList::hasScores() ? ', ranked by opportunity score.' : ', newest activity first.') : 'Per-advert list - listings to action, ranked by suggested next step.' }}">
     <x-slot:actions>
         {{-- Slot: filter ticks. AJAX swap target (display:contents = no layout box),
              so a tick toggle refreshes this in place without a full reload. --}}
