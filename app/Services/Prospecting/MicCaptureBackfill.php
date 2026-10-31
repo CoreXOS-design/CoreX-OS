@@ -15,12 +15,14 @@ use Illuminate\Support\Facades\Storage;
  *   p24-groups   P24's own "Listed by N Estate Agencies" statement, read from the stored raw search pages
  *   floor-sizes  property_size_m2 from portal_listings.current_fields_json.size_m2 (the tile's FLOOR size) where empty
  *   sale-agency  P24 owner adverts stored with the owner icon's alt text "Sale" as the agency -> owner, agency blank
+ *   erf-floor    the old extension stored a tile's single size (a FLOOR size on flats) as the erf: clear that erf on the advert
+ *                (and on the property file that inherited it) once the advert has its real floor size, unless another source gives the erf
  *
  * Only fills what is empty / corrects the one known defect; never overwrites a value an agent or a later capture set.
  */
 final class MicCaptureBackfill
 {
-    public const STEPS = ['p24-groups', 'floor-sizes', 'sale-agency'];
+    public const STEPS = ['p24-groups', 'floor-sizes', 'sale-agency', 'erf-floor'];
 
     /** @var resource|null */
     private $journal = null;
@@ -246,6 +248,115 @@ final class MicCaptureBackfill
                     }
                 }
             });
+        }
+
+        return $stats;
+    }
+
+    // ── erf-floor ────────────────────────────────────────────────────────────────────────────────
+
+    /** Sources whose erf is only the portal TILE's single size - the conflated value. Anything else that contributed an erf wins. */
+    private const TILE_SOURCES = ['p24', 'pp'];
+
+    public function erfFloor(bool $apply, array $exclude = [20]): array
+    {
+        $adverts = fn () => DB::table('prospecting_listings')->whereNull('deleted_at')->whereNotNull('property_size_m2')->whereNotNull('erf_size_m2')
+            ->whereRaw('ABS(erf_size_m2 - property_size_m2) < 0.01')
+            ->when($exclude !== [], fn ($q) => $q->whereNotIn('agency_id', $exclude));
+        $tpWithErf = fn () => DB::table('tracked_properties')->whereNotNull('erf_size_m2')->when($exclude !== [], fn ($q) => $q->whereNotIn('agency_id', $exclude));
+
+        $stats = [
+            'before' => [
+                'adverts_with_erf' => (int) DB::table('prospecting_listings')->whereNull('deleted_at')->whereNotNull('erf_size_m2')->count(),
+                'adverts_erf_equals_floor' => (int) $adverts()->count(),
+                'files_with_erf' => (int) $tpWithErf()->count(),
+            ],
+            'adverts_kept_listing_page_read' => 0, 'adverts_to_clear' => 0,
+            'files_whose_erf_matches_a_cleared_advert' => 0, 'files_kept_deeds' => 0, 'files_kept_other_source' => 0, 'files_kept_real_erf_on_another_advert' => 0,
+            'files_to_clear' => 0, 'pool_rows_carrying_the_same_wrong_erf_not_changed' => 0,
+        ];
+
+        // adverts: a listing-page read gives the real erf, so those are kept
+        $clear = [];   // advert id => [tp id, old erf]
+        $adverts()->select('id', 'tracked_property_id', 'erf_size_m2', 'details_read_at', 'canonical_ref')->orderBy('id')->get()->each(function ($r) use (&$clear, &$stats) {
+            if ($r->details_read_at !== null) {
+                $stats['adverts_kept_listing_page_read']++;
+
+                return;
+            }
+            $clear[(int) $r->id] = ['tp' => $r->tracked_property_id ? (int) $r->tracked_property_id : null, 'erf' => (float) $r->erf_size_m2, 'ref' => $r->canonical_ref];
+        });
+        $stats['adverts_to_clear'] = count($clear);
+
+        // files that inherited the wrong erf
+        $byTp = [];
+        foreach ($clear as $a) {
+            if ($a['tp']) {
+                $byTp[$a['tp']][] = $a['erf'];
+            }
+        }
+        $clearTp = [];   // tp id => old erf
+        foreach (array_chunk(array_keys($byTp), 500) as $ids) {
+            $realErf = DB::table('prospecting_listings')->whereIn('tracked_property_id', $ids)->whereNull('deleted_at')->whereNotNull('erf_size_m2')
+                ->where(fn ($q) => $q->whereNotNull('details_read_at')->orWhere(fn ($q2) => $q2->whereNotNull('property_size_m2')->whereRaw('ABS(erf_size_m2 - property_size_m2) >= 0.01')))
+                ->select('tracked_property_id', 'erf_size_m2')->get()->groupBy('tracked_property_id');
+            DB::table('tracked_properties')->whereIn('id', $ids)->whereNotNull('erf_size_m2')
+                ->select('id', 'erf_size_m2', 'deeds_captured_at', 'capture_kind', 'source_chain')->get()->each(function ($t) use ($byTp, $realErf, &$clearTp, &$stats) {
+                    $erf = (float) $t->erf_size_m2;
+                    if (! collect($byTp[$t->id])->contains(fn ($v) => abs($v - $erf) < 0.01)) {
+                        return;                                     // the file's erf is not the advert's wrong one
+                    }
+                    $stats['files_whose_erf_matches_a_cleared_advert']++;
+                    if ($t->deeds_captured_at !== null || $t->capture_kind === 'deeds_capture') {
+                        $stats['files_kept_deeds']++;
+
+                        return;
+                    }
+                    foreach ((json_decode((string) $t->source_chain, true) ?: []) as $e) {
+                        if (in_array('erf_size_m2', $e['fields_contributed'] ?? [], true) && ! in_array($e['type'] ?? '', self::TILE_SOURCES, true)) {
+                            $stats['files_kept_other_source']++;
+
+                            return;
+                        }
+                    }
+                    if (($realErf[$t->id] ?? collect())->contains(fn ($a) => abs((float) $a->erf_size_m2 - $erf) < 0.01)) {
+                        $stats['files_kept_real_erf_on_another_advert']++;
+
+                        return;
+                    }
+                    $clearTp[(int) $t->id] = $erf;
+                });
+        }
+        $stats['files_to_clear'] = count($clearTp);
+
+        // the shared pool carries the same conflated erf for these adverts: counted, not changed (public facts, other agencies read it)
+        foreach (array_chunk($clear, 500, true) as $chunk) {
+            $refs = array_values(array_filter(array_map(fn ($a) => $a['ref'], $chunk)));
+            if ($refs) {
+                $stats['pool_rows_carrying_the_same_wrong_erf_not_changed'] += (int) DB::table('portal_advert_facts')->whereIn('canonical_ref', $refs)->whereNotNull('erf_size_m2')->count();
+            }
+        }
+
+        if ($apply) {
+            DB::transaction(function () use ($clear, $clearTp) {
+                foreach ($clear as $id => $a) {
+                    $n = DB::table('prospecting_listings')->where('id', $id)->whereNotNull('erf_size_m2')->update(['erf_size_m2' => null]);
+                    if ($n) {
+                        $this->log('prospecting_listings', (string) $id, 'erf_size_m2', $a['erf'], null);
+                    }
+                }
+                foreach ($clearTp as $id => $erf) {
+                    $n = DB::table('tracked_properties')->where('id', $id)->whereNotNull('erf_size_m2')->update(['erf_size_m2' => null]);
+                    if ($n) {
+                        $this->log('tracked_properties', (string) $id, 'erf_size_m2', $erf, null);
+                    }
+                }
+            });
+            $stats['after'] = [
+                'adverts_with_erf' => (int) DB::table('prospecting_listings')->whereNull('deleted_at')->whereNotNull('erf_size_m2')->count(),
+                'adverts_erf_equals_floor' => (int) $adverts()->count(),
+                'files_with_erf' => (int) $tpWithErf()->count(),
+            ];
         }
 
         return $stats;

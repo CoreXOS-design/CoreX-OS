@@ -69,12 +69,12 @@ final class TileServiceTest extends TestCase
     public function test_stuck_tile_counts_cuts_relisted_and_long_dom_for_this_agency_only_and_filters_the_list(): void
     {
         [$cut, $relisted, $old, $fresh] = [$this->tp($this->a), $this->tp($this->a), $this->tp($this->a), $this->tp($this->a)];
-        $this->fileStat($this->a, $cut, ['cuts_count' => 2, 'cuts_30d' => 1, 'dom_days' => 10]);
+        $this->fileStat($this->a, $cut, ['cuts_count' => 2, 'cuts_any' => 2, 'cuts_30d' => 1, 'dom_days' => 10]);
         $this->fileStat($this->a, $relisted, ['relisted' => 1, 'dom_days' => 10]);
         $this->fileStat($this->a, $old, ['dom_days' => 120]);
         $this->fileStat($this->a, $fresh, ['dom_days' => 5]);
-        $this->fileStat($this->a, $this->tp($this->a), ['own_stock' => 1, 'cuts_count' => 1, 'dom_days' => 200]);   // our own: not "stuck on the market"
-        $this->fileStat($this->b, $this->tp($this->b), ['cuts_count' => 5]);
+        $this->fileStat($this->a, $this->tp($this->a), ['own_stock' => 1, 'cuts_count' => 1, 'cuts_any' => 1, 'dom_days' => 200]);   // our own: not "stuck on the market"
+        $this->fileStat($this->b, $this->tp($this->b), ['cuts_count' => 5, 'cuts_any' => 5]);
 
         $t = app(TileService::class)->tile(1, $this->admin);
         $this->assertSame(3, $t->count);
@@ -85,6 +85,28 @@ final class TileServiceTest extends TestCase
         $ids = app(TileService::class)->fileIds('stuck', $this->admin)->pluck('tracked_property_id')->all();
         sort($ids);
         $this->assertSame([$cut, $relisted, $old], $ids);
+    }
+
+    public function test_owner_tile_counts_live_owner_adverts_unclaimed_first_for_this_agency_only(): void
+    {
+        $provider = app(\App\Services\MarketIntelligence\Pockets\OwnerAdvertTileProvider::class);
+        $this->assertSame(2, $provider->tile());
+
+        [$free, $claimed, $notOwner, $own] = [$this->tp($this->a), $this->tp($this->a), $this->tp($this->a), $this->tp($this->a)];
+        $this->fileStat($this->a, $free, ['owner_advert' => 1, 'claimed' => 0, 'dom_days' => 90]);
+        $this->fileStat($this->a, $claimed, ['owner_advert' => 1, 'claimed' => 1, 'dom_days' => 200]);
+        $this->fileStat($this->a, $notOwner, ['owner_advert' => 0]);
+        $this->fileStat($this->a, $own, ['owner_advert' => 1, 'own_stock' => 1]);
+        $this->fileStat($this->b, $this->tp($this->b), ['owner_advert' => 1]);
+
+        $s = $provider->summary($this->a, $this->admin);
+        $this->assertSame(2, $s['count']);
+        $this->assertSame('2 owners advertising privately', $s['reason']);
+        $this->assertSame('1 not yet claimed', $s['note']);
+
+        $ids = $provider->propertyIds($this->a, $this->admin)->pluck('tracked_property_id')->all();
+        sort($ids);
+        $this->assertSame([$free, $claimed], $ids);
     }
 
     public function test_fast_sellers_says_too_little_data_below_the_minimum_and_a_number_above_it(): void
@@ -126,6 +148,7 @@ final class TileServiceTest extends TestCase
         $t = app(TileService::class)->tile(8, $this->admin);
         $this->assertSame(0, $t->count);
         $this->assertStringContainsString('No new alerts in 7 days', $t->reason);
+        $this->assertStringContainsString('last alert ' . now()->subDays(30)->format('j M'), $t->reason);
 
         DB::table('p24_listings')->insert(['agency_id' => $this->a, 'p24_listing_number' => 'P24-2', 'asking_price' => 900_000, 'first_seen_date' => now()->toDateString(), 'last_seen_date' => now()->toDateString(), 'created_at' => now(), 'updated_at' => now()]);
         DB::table('p24_listings')->insert(['agency_id' => $this->b, 'p24_listing_number' => 'P24-3', 'asking_price' => 900_000, 'first_seen_date' => now()->toDateString(), 'last_seen_date' => now()->toDateString(), 'created_at' => now(), 'updated_at' => now()]);

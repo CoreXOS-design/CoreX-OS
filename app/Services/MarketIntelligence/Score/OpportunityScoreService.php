@@ -114,13 +114,20 @@ final class OpportunityScoreService
         $stuckDom = $settings->stuckDomDays();
         $rows = [];
         foreach ($files as $id => $f) {
+            // Our own stock is not a prospect: it carries no prospecting score (the list excludes it by default).
+            if ((int) $f->own_stock === 1) {
+                $rows[] = ['agency_id' => $agencyId, 'tracked_property_id' => $id, 'score' => null, 'score_seller' => null, 'score_buyer' => null, 'score_pocket' => null,
+                    'score_known' => null, 'score_reachable' => null, 'reason_1' => null, 'reason_2' => null];
+                continue;
+            }
             $tp = $tps->get($id);
             $pocket = $pockets->get($f->p24_suburb_id . '|' . $f->type_key . '|' . $f->beds . '|' . $f->band);
             $active = (int) $f->has_active_advert === 1;
 
             // seller
             $seller = [
-                'price_cuts'    => min(40, ((int) $f->cuts_count > 0 ? 30 : 0) + ((int) $f->cuts_count >= 2 || (int) $f->cuts_90d > 0 ? 10 : 0)),
+                // a cut only counts while the lead advert is still BELOW where it started (a cut that was later reversed is not a seller signal)
+                'price_cuts'    => min(40, ($cutCredit = (int) $f->cuts_count > 0 && ($f->price_move === null || (int) $f->price_move < 0)) ? 30 + ((int) $f->cuts_count >= 2 || (int) $f->cuts_90d > 0 ? 10 : 0) : 0),
                 'relisted'      => (int) $f->relisted === 1 ? 20 : 0,
                 'long_dom'      => $f->dom_days === null ? 0 : ((int) $f->dom_days >= 2 * $stuckDom ? 30 : ((int) $f->dom_days >= $stuckDom ? 20 : 0)),
                 'owner_selling' => isset($privately[$id]) ? 30 : 0,

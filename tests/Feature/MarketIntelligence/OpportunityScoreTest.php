@@ -159,4 +159,87 @@ final class OpportunityScoreTest extends TestCase
         (new RefreshMicFileStatsJob($this->a, $hot))->handle(app(MicStatsBuilder::class));
         $this->assertNotNull(DB::table('mic_file_stats')->where('agency_id', $this->a)->where('tracked_property_id', $hot)->value('score'));
     }
+
+    public function test_our_own_stock_carries_no_prospecting_score(): void
+    {
+        [$hot] = $this->seedPair();
+        DB::table('tracked_property_agency_work')->insert(['agency_id' => $this->a, 'tracked_property_id' => $hot, 'is_own_stock' => 1, 'created_at' => now(), 'updated_at' => now()]);
+
+        app(MicStatsBuilder::class)->refreshAgency($this->a);
+
+        $row = DB::table('mic_file_stats')->where('agency_id', $this->a)->where('tracked_property_id', $hot)->first();
+        $this->assertSame(1, (int) $row->own_stock);
+        $this->assertNull($row->score);
+        $this->assertNull($row->reason_1);
+    }
+
+    public function test_the_price_move_comes_from_one_advert_only_never_mixed_across_adverts(): void
+    {
+        $tp = $this->file($this->a);
+        // an old, dead advert at R1.499m with a glitch history, and a live advert at R700k with no history: no move may be invented
+        $dead = $this->advert($this->a, $tp, 'P24-OLD', ['is_active' => 0, 'price' => 1_499_000]);
+        DB::table('prospecting_price_history')->insert([
+            ['prospecting_listing_id' => $dead, 'old_price' => 1_499_000, 'new_price' => null, 'changed_at' => now()->subDays(60), 'created_at' => now(), 'updated_at' => now()],
+            ['prospecting_listing_id' => $dead, 'old_price' => 0, 'new_price' => 4_500_000, 'changed_at' => now()->subDays(59), 'created_at' => now(), 'updated_at' => now()],
+        ]);
+        $live = $this->advert($this->a, $tp, 'PP-T1', ['portal_source' => 'pp', 'price' => 700_000]);
+
+        // a second file: two LIVE adverts, the lead (cheaper) one was cut 950k -> 900k -> 850k, the dearer one was cut 2m -> 1.9m
+        $tp2 = $this->file($this->a);
+        $lead = $this->advert($this->a, $tp2, 'P24-L', ['price' => 850_000]);
+        $other = $this->advert($this->a, $tp2, 'PP-O', ['portal_source' => 'pp', 'price' => 1_900_000]);
+        DB::table('prospecting_price_history')->insert([
+            ['prospecting_listing_id' => $lead, 'old_price' => 950_000, 'new_price' => 900_000, 'changed_at' => now()->subDays(20), 'created_at' => now(), 'updated_at' => now()],
+            ['prospecting_listing_id' => $lead, 'old_price' => 900_000, 'new_price' => 850_000, 'changed_at' => now()->subDays(5), 'created_at' => now(), 'updated_at' => now()],
+            ['prospecting_listing_id' => $other, 'old_price' => 2_000_000, 'new_price' => 1_900_000, 'changed_at' => now()->subDays(3), 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
+        app(MicStatsBuilder::class)->refreshAgency($this->a);
+
+        $one = DB::table('mic_file_stats')->where('agency_id', $this->a)->where('tracked_property_id', $tp)->first();
+        $this->assertSame($live, (int) $one->lead_listing_id);
+        $this->assertSame(700_000, (int) $one->price);
+        $this->assertNull($one->price_move, 'no valid history on the lead advert = no move, not 1.499m -> 700k');
+        $this->assertSame(0, (int) $one->cuts_count);
+        $this->assertSame(0, (int) $one->cut_amount);
+
+        $two = DB::table('mic_file_stats')->where('agency_id', $this->a)->where('tracked_property_id', $tp2)->first();
+        $this->assertSame($lead, (int) $two->lead_listing_id);
+        $this->assertSame(950_000, (int) $two->price_first);
+        $this->assertSame(-100_000, (int) $two->price_move, "the lead advert's own move only (950k -> 850k)");
+        $this->assertSame(2, (int) $two->cuts_count, "that advert's cut count only");
+        $this->assertSame(100_000, (int) $two->cut_amount);
+        $this->assertSame(2, (int) $two->cuts_any, 'both live adverts were cut: tile 1 still sees it');
+    }
+
+    public function test_the_claimed_and_owner_flags_are_stored(): void
+    {
+        $tp = $this->file($this->a);
+        $ad = $this->advert($this->a, $tp, 'P24-1', ['advertiser_type' => 'owner']);
+        DB::table('prospecting_claims')->insert(['agency_id' => $this->a, 'prospecting_listing_id' => $ad, 'user_id' => $this->agent->id, 'status' => 'claimed', 'claimed_at' => now(), 'is_active' => 1, 'created_at' => now(), 'updated_at' => now()]);
+
+        app(MicStatsBuilder::class)->refreshAgency($this->a);
+
+        $row = DB::table('mic_file_stats')->where('agency_id', $this->a)->where('tracked_property_id', $tp)->first();
+        $this->assertSame(1, (int) $row->owner_advert);
+        $this->assertSame(1, (int) $row->claimed);
+    }
+
+    public function test_a_cut_that_was_later_reversed_earns_no_price_cut_credit(): void
+    {
+        $tp = $this->file($this->a);
+        $ad = $this->advert($this->a, $tp, 'P24-R', ['price' => 1_020_000]);
+        DB::table('prospecting_price_history')->insert([
+            ['prospecting_listing_id' => $ad, 'old_price' => 1_000_000, 'new_price' => 950_000, 'changed_at' => now()->subDays(20), 'created_at' => now(), 'updated_at' => now()],
+            ['prospecting_listing_id' => $ad, 'old_price' => 950_000, 'new_price' => 1_020_000, 'changed_at' => now()->subDays(5), 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
+        app(MicStatsBuilder::class)->refreshAgency($this->a);
+
+        $row = DB::table('mic_file_stats')->where('agency_id', $this->a)->where('tracked_property_id', $tp)->first();
+        $this->assertSame(1, (int) $row->cuts_count);
+        $this->assertSame(20_000, (int) $row->price_move, 'net: above where it started');
+        $this->assertNotSame('price_cuts', $row->reason_1);
+        $this->assertNotSame('price_cuts', $row->reason_2);
+    }
 }
