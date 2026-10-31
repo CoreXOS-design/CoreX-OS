@@ -109,6 +109,7 @@
                 <span>
                     @if(!empty($r['p24_url']))<a href="{{ $r['p24_url'] }}" target="_blank" rel="noopener" style="color: var(--brand-icon); text-decoration:none;">Open in P24</a>@endif
                     @if(!empty($r['pp_url']))&nbsp;<a href="{{ $r['pp_url'] }}" target="_blank" rel="noopener" style="color: var(--brand-icon); text-decoration:none;">Open in PP</a>@endif
+                    @if(!empty($r['area_url']))&nbsp;<a href="{{ $r['area_url'] }}" target="_blank" rel="noopener" data-qa="read-area-pages" title="{{ !empty($r['area_read_at']) ? 'Area pages last read ' . $r['area_read_at'] : 'Area pages never read' }}" style="color: var(--brand-icon); text-decoration:none;">Read area pages</a>@endif
                 </span>
             </div>
         @empty
