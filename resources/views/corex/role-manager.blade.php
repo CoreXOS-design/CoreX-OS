@@ -27,17 +27,17 @@
 
         {{-- Tabs --}}
         <div class="flex gap-1 rounded-md p-1 w-fit" style="background:var(--surface-2);">
-            <button type="button" @click="activeTab = 'permissions'"
+            <button type="button" @click="activeTab = 'permissions'" data-tour="rm-tab-permissions"
                     class="px-4 py-2 rounded-md text-sm font-medium transition-all duration-300"
                     :style="activeTab === 'permissions' ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:transparent;color:var(--text-secondary);'">
                 Permissions Matrix
             </button>
-            <button type="button" @click="activeTab = 'users'"
+            <button type="button" @click="activeTab = 'users'" data-tour="rm-tab-users"
                     class="px-4 py-2 rounded-md text-sm font-medium transition-all duration-300"
                     :style="activeTab === 'users' ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:transparent;color:var(--text-secondary);'">
                 User Roles
             </button>
-            <button type="button" @click="activeTab = 'roles'"
+            <button type="button" @click="activeTab = 'roles'" data-tour="rm-tab-roles"
                     class="px-4 py-2 rounded-md text-sm font-medium transition-all duration-300"
                     :style="activeTab === 'roles' ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:transparent;color:var(--text-secondary);'">
                 Roles
@@ -74,7 +74,7 @@
                 {{-- Role switcher --}}
                 <div class="flex items-center gap-3 mb-4 flex-wrap">
                     <label class="text-xs font-semibold" style="color:var(--text-muted);">Editing role:</label>
-                    <div class="flex gap-1 flex-wrap">
+                    <div class="flex gap-1 flex-wrap" data-tour="rm-role-pills">
                         @foreach($roles as $role)
                         <button type="button"
                                 @click="switchRole('{{ $role->name }}')"
@@ -133,7 +133,7 @@
                 @endif
 
                 {{-- Two-column layout: Feature tabs (left) + Permission detail (right) --}}
-                <div class="flex flex-col lg:flex-row gap-4 items-stretch lg:items-start">
+                <div class="flex flex-col lg:flex-row gap-4 items-stretch lg:items-start" data-tour="rm-matrix">
 
                     {{-- LEFT: Vertical feature tabs --}}
                     <div class="w-full lg:w-52 flex-shrink-0 rounded-md overflow-y-auto lg:sticky lg:top-4" style="background:var(--surface); border:1px solid var(--border); max-height:calc(100vh - 8rem);">
@@ -545,7 +545,7 @@
                         <h3 class="font-semibold text-sm" style="color:var(--text-primary);">Roles</h3>
                         <p class="text-xs mt-0.5" style="color:var(--text-muted);">{{ number_format($roles->count()) }} roles defined</p>
                     </div>
-                    <button type="button" @click="openAddRole()"
+                    <button type="button" @click="openAddRole()" data-tour="rm-add-role"
                             class="corex-btn-primary px-3 py-1.5 text-xs font-semibold">
                         + Add New Role
                     </button>
@@ -625,7 +625,7 @@
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Label <span class="text-red-500">*</span></label>
-                        <input type="text" name="label" x-model="roleForm.label"
+                        <input type="text" name="label" data-tour="rm-role-label" x-model="roleForm.label"
                                @input="if(!editRoleId) roleForm.name = roleForm.label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')"
                                class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300"
                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;"
@@ -706,7 +706,7 @@
                             onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
                         Cancel
                     </button>
-                    <button type="submit"
+                    <button type="submit" data-tour="rm-role-save"
                             class="corex-btn-primary px-4 py-2 text-xs font-semibold">
                         <span x-text="editRoleId ? 'Update Role' : 'Create Role'"></span>
                     </button>

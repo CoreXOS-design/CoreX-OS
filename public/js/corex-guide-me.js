@@ -9,7 +9,7 @@
  *   change          the list was changed
  *   appear:<css>    that element is now on screen
  *   url:<path>      the page moved to that path
- * Controls: Pause, Replay, Skip, Voice on/off (remembered in the browser), Close; "Step 3 of 9".
+ * Controls: Pause, Replay, Skip, Voice on/off (remembered in the browser), Close; "Guide 3 of 9".
  * Off the path (the box vanishes, or the agent leaves the page) the tour stops quietly and asks "Carry on where you left off?" when they come back to the screen.
  * The first press of "Guide me" is the click that lets the browser play sound.
  *
@@ -65,7 +65,13 @@
         this.cleanups = []; this.prompt = null;
     }
 
-    Player.prototype.voiceOn = function () { return store('voice') ? store('voice').getItem(VOICE_KEY) !== 'off' : true; };
+    Player.prototype.voiceIcon = function () {
+    var on = this.voiceOn();
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="15" height="15" style="display:block"><path d="M3 9v6h4l5 5V4L7 9H3z"/>' +
+        (on ? '<path d="M16.5 12a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06A9 9 0 0 0 14 3.23z"/>' : '<path d="M16 9.4 17.4 8 20 10.6 22.6 8 24 9.4 21.4 12 24 14.6 22.6 16 20 13.4 17.4 16 16 14.6 18.6 12z"/>') + '</svg>';
+};
+
+Player.prototype.voiceOn = function () { return store('voice') ? store('voice').getItem(VOICE_KEY) !== 'off' : true; };
 
     // ---- start / resume ---------------------------------------------------------------------------------------------------------------------------------
     Player.prototype.start = function (cfg, fromIndex) {
@@ -149,7 +155,7 @@
         if (run !== this.runId) return;
         this.driver.highlight({
             element: el,
-            popover: { title: 'Step ' + (i + 1) + ' of ' + this.steps.length, description: this.bodyHtml(step, withIntro && i === 0), showButtons: [], popoverClass: 'corex-tour corex-narrated' },
+            popover: { title: 'Guide ' + (i + 1) + ' of ' + this.steps.length, description: this.bodyHtml(step, withIntro && i === 0), showButtons: [], popoverClass: 'corex-tour corex-narrated' },
         });
         this.speak(step.audio_url, withIntro && i === 0 ? this.data.intro && this.data.intro.audio_url : null);
         this.arm(step, run);
@@ -178,27 +184,30 @@
         if (!step) return;
         var bar = document.createElement('div');
         bar.setAttribute('data-cgm-bar', '');
-        bar.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center;';
-        function btn(label, attr, fn, primary) {
+        bar.style.cssText = 'display:flex;flex-wrap:nowrap;gap:4px;margin-top:10px;align-items:center;';
+        function btn(label, attr, fn, primary, tip) {
             var b = document.createElement('button');
-            b.type = 'button'; b.textContent = label; b.setAttribute(attr, '');
-            b.style.cssText = 'font-size:12px;padding:4px 9px;border-radius:6px;cursor:pointer;border:1px solid var(--border,#d1d5db);background:' + (primary ? 'var(--brand-icon,#0ea5e9);color:#fff;border-color:transparent;' : 'var(--surface-2,#f8fafc);color:inherit;');
+            b.type = 'button'; b.setAttribute(attr, '');
+            if (typeof label === 'string') b.textContent = label; else b.innerHTML = label.html;
+            if (tip) { b.title = tip; b.setAttribute('aria-label', tip); }
+            b.style.cssText = 'font-size:12px;line-height:1.2;padding:4px 7px;border-radius:6px;cursor:pointer;white-space:nowrap;border:1px solid var(--border,#d1d5db);background:' + (primary ? 'var(--brand-icon,#0ea5e9);color:#fff;border-color:transparent;' : 'var(--surface-2,#f8fafc);color:inherit;');
             b.addEventListener('click', function (ev) { ev.preventDefault(); ev.stopPropagation(); fn(); });
             bar.appendChild(b);
             return b;
         }
         var done = parseDone(step.done);
-        if (done.kind === 'none') btn(this.i === this.steps.length - 1 ? 'Finish' : 'Got it →', 'data-cgm-next', function () { self.advance(); }, true);
+        if (done.kind === 'none') btn(this.i === this.steps.length - 1 ? 'Finish' : 'Got it \u2192', 'data-cgm-next', function () { self.advance(); }, true);
         this.confirmBtn = null;
         if (done.kind === 'input') {
-            this.confirmBtn = btn('This is right →', 'data-cgm-confirm', function () { self.advance(); }, true);
+            this.confirmBtn = btn('That\u2019s right \u2192', 'data-cgm-confirm', function () { self.advance(); }, true);
             this.confirmBtn.style.display = hasValidValue(controlIn(q(step.target || step.selector))) ? '' : 'none';
         }
         btn(this.paused ? 'Resume' : 'Pause', 'data-cgm-pause', function () { self.togglePause(); });
-        btn('Replay', 'data-cgm-replay', function () { self.speak(step.audio_url, null); });
-        btn('Skip', 'data-cgm-skip', function () { self.advance(); });
-        btn(this.voiceOn() ? 'Voice: on' : 'Voice: off', 'data-cgm-mute', function () { self.toggleVoice(); });
-        btn('Close', 'data-cgm-close', function () { self.close(); });
+        btn('Replay', 'data-cgm-replay', function () { self.speak(step.audio_url, null); }, false, 'Hear this step again');
+        btn('Skip', 'data-cgm-skip', function () { self.advance(); }, false, 'Skip this step');
+        var mute = btn({ html: this.voiceIcon() }, 'data-cgm-mute', function () { self.toggleVoice(); }, false, this.voiceOn() ? 'Voice is on. Press to switch it off.' : 'Voice is off. Press to switch it on.');
+        mute.style.marginLeft = 'auto';
+        btn('Close', 'data-cgm-close', function () { self.close(); }, false, 'Close the guide');
         var host = popover.footer && popover.footer.parentNode ? popover.footer.parentNode : popover.wrapper;
         if (popover.footer) popover.footer.style.display = 'none';
         host.appendChild(bar);
@@ -230,7 +239,7 @@
         setItem(VOICE_KEY, on ? 'off' : 'on', 'voice');
         if (on && this.audio) { try { this.audio.pause(); } catch (e) {} }
         var b = document.querySelector('[data-cgm-mute]');
-        if (b) b.textContent = this.voiceOn() ? 'Voice: on' : 'Voice: off';
+        if (b) { b.innerHTML = this.voiceIcon(); b.title = this.voiceOn() ? 'Voice is on. Press to switch it off.' : 'Voice is off. Press to switch it on.'; }
         if (!on) this.speak(this.steps[this.i] && this.steps[this.i].audio_url, null);
     };
 
@@ -320,7 +329,7 @@
         card.setAttribute('data-cgm-prompt', '');
         card.className = 'driver-popover corex-tour corex-narrated';
         card.style.cssText = 'position:fixed;right:16px;bottom:72px;z-index:100001;max-width:300px;padding:14px;border-radius:10px;box-shadow:0 10px 30px rgba(15,23,42,.35);background:var(--surface,#fff);color:var(--text,#0f172a);border:1px solid var(--border,#e5e7eb);';
-        card.innerHTML = '<div style="font-weight:700;margin-bottom:4px;">Carry on where you left off?</div><div style="font-size:13px;margin-bottom:10px;">You are on step ' + (index + 1) + ' of the guide. Do you want to carry on?</div>';
+        card.innerHTML = '<div style="font-weight:700;margin-bottom:4px;">Carry on where you left off?</div><div style="font-size:13px;margin-bottom:10px;">You are on guide step ' + (index + 1) + '. Do you want to carry on?</div>';
         var row = document.createElement('div');
         row.style.cssText = 'display:flex;gap:8px;';
         var yes = document.createElement('button'); yes.type = 'button'; yes.textContent = 'Carry on'; yes.setAttribute('data-cgm-carry-on', '');

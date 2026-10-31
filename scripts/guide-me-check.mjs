@@ -91,18 +91,20 @@ if (!LIVE) {
     let page = await fixture();
     await clickSel(page, '#guide-me');
     await page.waitForSelector('.driver-popover', { timeout: 5000 });
-    ok((await title(page)) === 'Step 1 of 5', 'the first press of Guide me opens "Step 1 of 5"');
+    ok((await title(page)) === 'Guide 1 of 5', 'the first press of Guide me opens "Guide 1 of 5"');
+    const oneRow = (pg) => pg.$$eval('[data-cgm-bar] button', (bs) => new Set(bs.filter((b) => b.style.display !== 'none').map((b) => b.offsetTop)).size === 1);
+    ok(await oneRow(page), 'the buttons sit on one row');
     ok(await has(page, '[data-cgm-pause]') && await has(page, '[data-cgm-replay]') && await has(page, '[data-cgm-skip]') && await has(page, '[data-cgm-mute]') && await has(page, '[data-cgm-close]'), 'Pause, Replay, Skip, Voice and Close are on the bubble');
     ok((await text(page, '.driver-popover-description')).includes('Press Add.') && (await text(page, '.driver-popover-description')).includes('It starts a viewing.'), 'the bubble carries the same words as the voice (what to do, then why)');
     await wait(600);
     let played = await page.evaluate(() => window.__played);
     ok(played[0] === '/a/intro.mp3' && played[1] === '/a/1.mp3', 'the voice speaks the intro and then step 1 (' + played.join(', ') + ')');
     await wait(1500);
-    ok((await title(page)) === 'Step 1 of 5', 'the tour WAITS: nothing done, so it has not moved on');
+    ok((await title(page)) === 'Guide 1 of 5', 'the tour WAITS: nothing done, so it has not moved on');
 
     await clickSel(page, '#add');
-    await page.waitForFunction(() => (document.querySelector('.driver-popover-title') || {}).innerText === 'Step 2 of 5', { timeout: 4000 }).catch(() => {});
-    ok((await title(page)) === 'Step 2 of 5', 'clicking the button moves on to step 2');
+    await page.waitForFunction(() => (document.querySelector('.driver-popover-title') || {}).innerText === 'Guide 2 of 5', { timeout: 4000 }).catch(() => {});
+    ok((await title(page)) === 'Guide 2 of 5', 'clicking the button moves on to step 2');
     await wait(500);
     played = await page.evaluate(() => window.__played);
     ok(played.includes('/a/2.mp3'), 'step 2 is spoken');
@@ -110,21 +112,22 @@ if (!LIVE) {
 
     await page.type('#title', 'Viewing with Thandi');
     await wait(900);
-    ok((await title(page)) === 'Step 2 of 5', 'typing alone does not rush the tour on (it waits until the field is left)');
-    ok(await page.$eval('[data-cgm-confirm]', (e) => e.style.display !== 'none'), 'a valid value offers "This is right"');
+    ok((await title(page)) === 'Guide 2 of 5', 'typing alone does not rush the tour on (it waits until the field is left)');
+    ok(await page.$eval('[data-cgm-confirm]', (e) => e.style.display !== 'none'), 'a valid value offers "That\u2019s right"');
+    ok(await oneRow(page), 'even with the extra button the row stays one row');
     await page.$eval('#title', (e) => e.blur());
-    await page.waitForFunction(() => (document.querySelector('.driver-popover-title') || {}).innerText === 'Step 3 of 5', { timeout: 4000 }).catch(() => {});
-    ok((await title(page)) === 'Step 3 of 5', 'a valid value in the field moves on to step 3');
+    await page.waitForFunction(() => (document.querySelector('.driver-popover-title') || {}).innerText === 'Guide 3 of 5', { timeout: 4000 }).catch(() => {});
+    ok((await title(page)) === 'Guide 3 of 5', 'a valid value in the field moves on to step 3');
 
     await page.select('#kind', 'viewing');
-    await page.waitForFunction(() => (document.querySelector('.driver-popover-title') || {}).innerText === 'Step 4 of 5', { timeout: 4000 }).catch(() => {});
-    ok((await title(page)) === 'Step 4 of 5', 'choosing in the list moves on to step 4');
+    await page.waitForFunction(() => (document.querySelector('.driver-popover-title') || {}).innerText === 'Guide 4 of 5', { timeout: 4000 }).catch(() => {});
+    ok((await title(page)) === 'Guide 4 of 5', 'choosing in the list moves on to step 4');
     ok(!((await page.evaluate(() => window.__played)).includes('/a/4.mp3')), 'a step with no clip yet shows its words and plays nothing');
     await wait(900);
-    ok((await title(page)) === 'Step 4 of 5', 'step 4 waits for the green box to appear');
+    ok((await title(page)) === 'Guide 4 of 5', 'step 4 waits for the green box to appear');
     await page.$eval('#ready', (e) => { e.style.display = 'block'; });
-    await page.waitForFunction(() => (document.querySelector('.driver-popover-title') || {}).innerText === 'Step 5 of 5', { timeout: 4000 }).catch(() => {});
-    ok((await title(page)) === 'Step 5 of 5', 'the expected element appearing moves on to step 5');
+    await page.waitForFunction(() => (document.querySelector('.driver-popover-title') || {}).innerText === 'Guide 5 of 5', { timeout: 4000 }).catch(() => {});
+    ok((await title(page)) === 'Guide 5 of 5', 'the expected element appearing moves on to step 5');
     ok(await has(page, '[data-cgm-next]') && (await text(page, '[data-cgm-next]')).includes('Finish'), 'a read-only last step ends with a Finish button');
     await clickSel(page, '[data-cgm-next]');
     await wait(500);
@@ -140,7 +143,7 @@ if (!LIVE) {
     await clickSel(page, '[data-cgm-pause]');
     ok((await text(page, '[data-cgm-pause]')) === 'Resume' && (await text(page, '[data-cgm-note]')).includes('Paused'), 'Pause says Resume and says it is paused');
     await clickSel(page, '#add'); await wait(900);
-    ok((await title(page)) === 'Step 1 of 5', 'while paused a click does not move the tour on');
+    ok((await title(page)) === 'Guide 1 of 5', 'while paused a click does not move the tour on');
     await clickSel(page, '[data-cgm-pause]');
     ok((await text(page, '[data-cgm-pause]')) === 'Pause', 'Resume puts the tour back on');
 
@@ -149,7 +152,7 @@ if (!LIVE) {
     ok((await page.evaluate(() => window.__played)).length === before + 1, 'Replay speaks the step again');
 
     await clickSel(page, '[data-cgm-mute]'); await wait(200);
-    ok((await page.evaluate(() => window.localStorage.getItem('corex.guide.voice'))) === 'off' && (await text(page, '[data-cgm-mute]')) === 'Voice: off', 'Voice off is remembered in the browser');
+    ok((await page.evaluate(() => window.localStorage.getItem('corex.guide.voice'))) === 'off' && (await page.$eval('[data-cgm-mute]', (e) => e.title)).includes('Voice is off'), 'Voice off is remembered in the browser');
     const muted = (await page.evaluate(() => window.__played)).length;
     await clickSel(page, '[data-cgm-replay]'); await wait(300);
     ok((await page.evaluate(() => window.__played)).length === muted, 'with the voice off nothing is spoken (text only)');
@@ -157,8 +160,8 @@ if (!LIVE) {
     await clickSel(page, '[data-cgm-mute]');
 
     await clickSel(page, '[data-cgm-skip]');
-    await page.waitForFunction(() => (document.querySelector('.driver-popover-title') || {}).innerText === 'Step 2 of 5', { timeout: 4000 }).catch(() => {});
-    ok((await title(page)) === 'Step 2 of 5', 'Skip moves to the next step without doing this one');
+    await page.waitForFunction(() => (document.querySelector('.driver-popover-title') || {}).innerText === 'Guide 2 of 5', { timeout: 4000 }).catch(() => {});
+    ok((await title(page)) === 'Guide 2 of 5', 'Skip moves to the next step without doing this one');
     await clickSel(page, '[data-cgm-close]'); await wait(300);
     ok(!(await has(page, '.driver-popover')), 'Close ends the tour') ;
     ok((await page.evaluate(() => window.__ended)).some((e) => e.completed === false), 'and says it was not completed');
@@ -168,7 +171,7 @@ if (!LIVE) {
     page = await fixture();
     await clickSel(page, '#guide-me'); await page.waitForSelector('.driver-popover');
     await clickSel(page, '#add');
-    await page.waitForFunction(() => (document.querySelector('.driver-popover-title') || {}).innerText === 'Step 2 of 5', { timeout: 4000 }).catch(() => {});
+    await page.waitForFunction(() => (document.querySelector('.driver-popover-title') || {}).innerText === 'Guide 2 of 5', { timeout: 4000 }).catch(() => {});
     await page.$eval('#panel', (e) => { e.style.display = 'none'; });
     await page.waitForSelector('[data-cgm-prompt]', { timeout: 5000 }).catch(() => {});
     ok(await has(page, '[data-cgm-prompt]'), 'when the box disappears the tour pauses and asks');
@@ -176,8 +179,8 @@ if (!LIVE) {
     ok(!(await has(page, '.driver-popover-title')), 'the spotlight is gone while it waits');
     await page.$eval('#panel', (e) => { e.style.display = 'block'; });
     await clickSel(page, '[data-cgm-carry-on]');
-    await page.waitForFunction(() => (document.querySelector('.driver-popover-title') || {}).innerText === 'Step 2 of 5', { timeout: 4000 }).catch(() => {});
-    ok((await title(page)) === 'Step 2 of 5' && !(await has(page, '[data-cgm-prompt]')), 'Carry on puts the tour back on the same step');
+    await page.waitForFunction(() => (document.querySelector('.driver-popover-title') || {}).innerText === 'Guide 2 of 5', { timeout: 4000 }).catch(() => {});
+    ok((await title(page)) === 'Guide 2 of 5' && !(await has(page, '[data-cgm-prompt]')), 'Carry on puts the tour back on the same step');
     await page.$eval('#panel', (e) => { e.style.display = 'none'; });
     await page.waitForSelector('[data-cgm-prompt]', { timeout: 5000 }).catch(() => {});
     await clickSel(page, '[data-cgm-stop]');
@@ -189,7 +192,7 @@ if (!LIVE) {
     await page.evaluate(() => window.sessionStorage.setItem('corex.guide.narrated', JSON.stringify({ screen: 'fixture-screen', i: 2, at: Date.now() })));
     const offered = await page.evaluate(() => window.CoreXGuideMe.offerResume(window.__cfg));
     ok(offered === true && (await has(page, '[data-cgm-prompt]')), 'back on the screen part-way through, it offers to carry on');
-    ok((await text(page, '[data-cgm-prompt]')).includes('step 3'), 'and names the step');
+    ok((await text(page, '[data-cgm-prompt]')).includes('guide step 3'), 'and names the step');
     const other = await page.evaluate(() => { window.sessionStorage.setItem('corex.guide.narrated', JSON.stringify({ screen: 'another-screen', i: 2, at: Date.now() })); document.querySelector('[data-cgm-prompt]').remove(); return window.CoreXGuideMe.offerResume(window.__cfg); });
     ok(other === false, 'a place saved on another screen is not offered here');
     await page.close();
@@ -210,14 +213,14 @@ if (!LIVE) {
     await page.click('[data-guide-me-button]');
     await page.waitForSelector('.driver-popover', { timeout: 15000 }).catch(() => {});
     const t1 = await title(page);
-    ok(/^Step 1 of \d+$/.test(t1), 'the guide opens: ' + t1);
+    ok(/^Guide 1 of \d+$/.test(t1), 'the guide opens: ' + t1);
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `${SCREEN}-1.png`) });
     const total = Number((t1.match(/of (\d+)/) || [0, 0])[1]);
     const played = await page.evaluate(() => window.__played);
     ok(played.length >= 1 && played.every((u) => u.includes('/api/v1/training-tours/')), 'the voice clips come from the tour API: ' + played.join(', '));
     // do each step like an agent: type into a field, press a button, change a list
     for (let n = 1; n <= total; n++) {
-        const want = `Step ${n} of ${total}`;
+        const want = `Guide ${n} of ${total}`;
         await page.waitForFunction((w) => (document.querySelector('.driver-popover-title') || {}).innerText === w, { timeout: 15000 }, want).catch(() => {});
         if ((await title(page)) !== want) { ok(false, 'reached ' + want + ' (saw "' + (await title(page)) + '")'); break; }
         const ex = (await text(page, '.driver-popover-description')).match(/For example: (.+)/);

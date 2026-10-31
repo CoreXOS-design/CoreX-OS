@@ -188,6 +188,12 @@ final class NarratedTourTest extends TestCase
     {
         Bus::fake();
         Cache::flush();
+        // clips are never made by the API on its own while the switch is off (the default)
+        $this->actingAs($this->agent)->getJson(route('api.v1.training-tours.show', 'book-a-viewing'))->assertOk();
+        Bus::assertNotDispatched(MakeTourAudioJob::class);
+
+        config(['training-videos.auto.tour_audio_on_demand' => true]);
+        Cache::flush();
         $res = $this->actingAs($this->agent)->getJson(route('api.v1.training-tours.show', 'book-a-viewing'))->assertOk();
         $res->assertJsonPath('key', 'book-a-viewing')->assertJsonPath('title', 'Book a viewing')->assertJsonPath('audio_ready', false);
         $this->assertCount(4, $res->json('steps'));

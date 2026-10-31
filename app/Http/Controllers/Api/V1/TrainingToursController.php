@@ -36,7 +36,7 @@ class TrainingToursController extends Controller
         $agency = Agency::withoutGlobalScopes()->find($request->user()->agency_id);
         $voice = $this->voices->keyFor($agency);
         $servedVoice = $this->servedVoice($script, $voice);
-        if (! $this->audio->ready($script, $voice)) {
+        if (! $this->audio->ready($script, $voice) && config('training-videos.auto.tour_audio_on_demand', false)) {
             MakeTourAudioJob::ensure($script->key(), $voice); // once, in the background; the player carries on with text meanwhile
         }
 

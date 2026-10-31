@@ -273,7 +273,7 @@
                                     $matchExpr = "matchesSearch(" . json_encode(strtolower($item['label'] . ' ' . ($item['keywords'] ?? ''))) . ")";
                                 @endphp
                                 @if($item['type'] === 'section')
-                                    <button type="button"
+                                    <button type="button" data-tour="settings-rail-{{ $item['key'] }}"
                                             @click="activeSection = '{{ $item['key'] }}'; $nextTick(() => window.scrollTo({top:0, behavior:'smooth'}))"
                                             x-show="{{ $matchExpr }}"
                                             :class="activeSection === '{{ $item['key'] }}' ? 'font-semibold' : ''"
@@ -282,7 +282,7 @@
                                         {{ $item['label'] }}
                                     </button>
                                 @else
-                                    <a href="{{ $item['href'] }}"
+                                    <a href="{{ $item['href'] }}" data-tour="settings-rail-{{ $item['key'] }}"
                                        x-show="{{ $matchExpr }}"
                                        class="flex items-center justify-between gap-2 px-3 py-2 rounded-md text-sm no-underline transition-colors duration-150 hover:bg-[color:var(--surface-2)]"
                                        style="color:var(--text-secondary);">

@@ -110,6 +110,9 @@ return [
         ],
 
         // The voice every agency starts with; an agency picks its own in the Training library (agencies.training_video_voice).
+        // AT-526: may the narrated tour's API start making voice clips by itself the first time it finds one missing? OFF until Johan has picked the CoreX voice
+        // (31 Oct): clips are then made only by `php artisan training-videos:tour-audio`. Set TRAINING_TOUR_AUDIO_ON_DEMAND=true to switch the automatic making on.
+        'tour_audio_on_demand' => (bool) env('TRAINING_TOUR_AUDIO_ON_DEMAND', false),
         'default_voice' => env('TRAINING_DEFAULT_VOICE', 'bf_emma'),
         // The LAST-RESORT voice: used only when the chosen voice's engine is not installed on this server (never on a runtime error - a video must not change voice half way).
         'fallback_voice' => env('TRAINING_FALLBACK_VOICE', 'jenny'),
