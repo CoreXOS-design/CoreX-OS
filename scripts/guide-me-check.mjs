@@ -221,15 +221,28 @@ if (!LIVE) {
         await page.waitForFunction((w) => (document.querySelector('.driver-popover-title') || {}).innerText === w, { timeout: 15000 }, want).catch(() => {});
         if ((await title(page)) !== want) { ok(false, 'reached ' + want + ' (saw "' + (await title(page)) + '")'); break; }
         const ex = (await text(page, '.driver-popover-description')).match(/For example: (.+)/);
-        const sel = await page.evaluate(() => { const el = document.querySelector('.driver-active-element'); return el ? (el.id ? '#' + el.id : null) : null; });
-        if (SHOTS && n < total) await page.screenshot({ path: path.join(SHOTS, `${SCREEN}-${n}.png`) });
-        if (ex && sel) {
-            await page.$eval(sel, (e) => { e.focus(); e.value = ''; });
-            await page.type(sel, ex[1].trim());
-            await page.$eval(sel, (e) => e.blur());
-        } else if (await has(page, '[data-cgm-next]')) {
-            await clickSel(page, '[data-cgm-next]');
-        } else { await clickSel(page, '[data-cgm-skip]'); }
+        if (SHOTS) { await wait(1200); await page.screenshot({ path: path.join(SHOTS, `${SCREEN}-${n}.png`) }); }   // after the spotlight has finished moving
+        // what the agent would do on this step: type / choose, press the highlighted button, or just read and press "Got it"
+        const did = await page.evaluate(async (example) => {
+            const active = document.querySelector('.driver-active-element');
+            if (!active) return 'no-element';
+            const ctl = active.matches('input,select,textarea') ? active : active.querySelector('input:not([type=hidden]):not([type=checkbox]),select,textarea');
+            if (example && ctl && ctl.tagName === 'SELECT') {
+                const opt = Array.from(ctl.options).find((o) => o.value === example.trim() || o.text.trim().toLowerCase() === example.trim().toLowerCase());
+                if (!opt) return 'no-option';
+                ctl.value = opt.value; ctl.dispatchEvent(new Event('input', { bubbles: true })); ctl.dispatchEvent(new Event('change', { bubbles: true }));
+                return 'chose';
+            }
+            if (example && ctl) { ctl.focus(); ctl.value = ''; return 'type'; }
+            return 'none';
+        }, ex ? ex[1].trim() : null);
+        if (did === 'type') {
+            await page.keyboard.type(ex[1].trim());
+            await page.evaluate(() => { const a = document.querySelector('.driver-active-element'); const c = a.matches('input,select,textarea') ? a : a.querySelector('input,textarea'); if (c) c.blur(); });
+        } else if (did === 'none') {
+            if (await has(page, '[data-cgm-next]')) await clickSel(page, '[data-cgm-next]');
+            else await page.evaluate(() => { const a = document.querySelector('.driver-active-element'); if (a) a.click(); });   // a click step: press the highlighted button
+        } else if (did !== 'chose') { await clickSel(page, '[data-cgm-skip]'); }
         await wait(700);
     }
     await wait(800);

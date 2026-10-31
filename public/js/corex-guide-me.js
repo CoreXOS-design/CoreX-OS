@@ -143,6 +143,10 @@
         if (!found) return this.show(i + (dir || 1), dir || 1);   // not on this screen (a box only some roles see): never dead-end
 
         var el = q(sel);
+        // A box inside a panel that scrolls on its own (the diary's New Event panel) can be "on screen" yet clipped below the fold: bring it into view first.
+        try { el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' }); } catch (e) { try { el.scrollIntoView(); } catch (e2) {} }
+        await sleep(150);
+        if (run !== this.runId) return;
         this.driver.highlight({
             element: el,
             popover: { title: 'Step ' + (i + 1) + ' of ' + this.steps.length, description: this.bodyHtml(step, withIntro && i === 0), showButtons: [], popoverClass: 'corex-tour corex-narrated' },
