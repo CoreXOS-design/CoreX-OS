@@ -940,6 +940,37 @@ class RentalJobCardController extends Controller
         return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Job card completed.');
     }
 
+    /**
+     * Section 31.6 - ONE "Close" for an own-crew job: the agent's sign-off (if not given yet) and the completion are one press, in one transaction - both or neither.
+     * The crew's own mark-done (worker sign-off) must already be in; the hard stops (a missing completed photo, a final cost above the authorised amount, an open request for
+     * extra money, a paused job) are the same ones the completion always ran, answered in the same plain words.
+     */
+    public function close(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
+
+        $validated = $request->validate([
+            'paid_by' => ['nullable', 'in:' . implode(',', [
+                \App\Models\RentalWorkOrder::PAID_BY_OWNER, \App\Models\RentalWorkOrder::PAID_BY_TENANT,
+                \App\Models\RentalWorkOrder::PAID_BY_DEPOSIT_DEDUCTION, \App\Models\RentalWorkOrder::PAID_BY_NOT_YET_PAID,
+            ])],
+        ]);
+
+        try {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($rentalJobCard, $service, $request, $validated) {
+                $card = $rentalJobCard->fresh();
+                if (! $card->agent_signed_off_at) {
+                    $card->agentSignOff($request->user());
+                }
+                $service->complete($card->fresh(), $request->user(), $validated['paid_by'] ?? null);
+            });
+        } catch (\LogicException $e) {
+            return back()->withErrors(['rental_job_card' => $e->getMessage()]);
+        }
+
+        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Job closed. The owner and the tenant have been told.');
+    }
+
     public function cancel(Request $request, RentalJobCard $rentalJobCard): RedirectResponse
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);

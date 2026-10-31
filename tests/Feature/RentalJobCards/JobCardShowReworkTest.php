@@ -93,18 +93,15 @@ final class JobCardShowReworkTest extends TestCase
         $this->assertSame('Send the crew their link', $this->nextButton($html));
         $this->assertMatchesRegularExpression('/data-next-secondary data-next-open="jc-worker-signoff"[^>]*>Record the sign-off</', $html);
 
-        // the crew is done -> the agent signs it off, then completes it
+        // the crew is done -> ONE Close (section 31.6): the agent's sign-off and the completion are the same press
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.worker-sign-off', $card), ['worker_sign_off_name' => 'Sam'])->assertSessionHasNoErrors();
         $html = $this->page($card);
         $this->assertStringContainsString('data-stage="signed_off"', $html);
-        $this->assertSame('Agent sign-off', $this->nextButton($html));
-        $this->assertStringContainsString('id="jc-agent-signoff-form"', $html);
-
-        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.agent-sign-off', $card))->assertSessionHasNoErrors();
-        $this->assertSame('Mark complete', $this->nextButton($this->page($card)));
+        $this->assertSame('Close', $this->nextButton($html));
+        $this->assertStringContainsString('/close"', $html, 'the button is its own POST to the close route');
 
         // closed -> no button
-        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.complete', $card), ['paid_by' => 'owner'])->assertSessionHasNoErrors();
+        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.close', $card), ['paid_by' => 'owner'])->assertSessionHasNoErrors();
         $html = $this->page($card);
         $this->assertNull($this->nextButton($html));
         $this->assertStringContainsString('Completed', $this->nextText($html));

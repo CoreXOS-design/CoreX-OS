@@ -194,7 +194,7 @@ final class WorkOrderScreenStatesTest extends TestCase
         app(\App\Services\Rentals\RentalWorkOrderService::class)->sendContractorWorkOrder($wo->fresh(), $this->admin);
         $html = $this->page($wo);
 
-        $this->assertNext($html, 'go_ahead_sent', 'Approved. Go-ahead sent to Quote Plumbing', 'Mark the work as complete');
+        $this->assertNext($html, 'go_ahead_sent', 'Approved. Go-ahead sent to Quote Plumbing', 'Close');   // section 31.6: ONE Close
         $this->assertStringContainsString('id="wo-start-progress-form"', $html, '"Mark in progress" stays as a small secondary action');
         $this->assertStringNotContainsString('form="wo-start-progress-form"', $html, 'but it is no longer the Next button');
         $this->assertStringContainsString('data-go-ahead-sent', $html, 'the contractor panel shows the same date');
@@ -205,7 +205,7 @@ final class WorkOrderScreenStatesTest extends TestCase
 
         $wo->fresh()->startProgress($this->admin);
         $html = $this->page($wo);
-        $this->assertNext($html, 'in_progress', 'Work is in progress.', 'Mark the work as complete');
+        $this->assertNext($html, 'in_progress', 'Work is in progress.', 'Close');
         $this->assertStringContainsString('data-complete-work-order', $html);
         $this->assertSame('current', $this->step($html, 'completed'));
         $this->assertMatchesRegularExpression('/id="wo-panel-completion"[^>]* open/', $html);
@@ -380,7 +380,7 @@ final class WorkOrderScreenStatesTest extends TestCase
         $tenant = \App\Models\Contact::withoutGlobalScope(\App\Scopes\AgencyScope::class)->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'first_name' => 'Thandi', 'last_name' => 'Mokoena']);
 
         $wo->forceFill(['tenant_confirmed_at' => \Illuminate\Support\Carbon::parse('2026-10-13 14:10', 'Africa/Johannesburg'), 'tenant_confirmed_fixed' => true, 'tenant_confirmed_by_contact_id' => $tenant->id])->save();
-        $this->assertNext($this->page($wo), 'tenant_finished', 'Thandi Mokoena says the work is finished (13 Oct 2026 14:10).', 'Mark the work as complete');
+        $this->assertNext($this->page($wo), 'tenant_finished', 'Thandi Mokoena says the work is finished (13 Oct 2026 14:10).', 'Close');
 
         $wo->forceFill(['tenant_confirmed_fixed' => false, 'tenant_confirmation_note' => 'It still drips'])->save();
         $this->assertNext($this->page($wo), 'tenant_not_fixed', 'Tenant says it is NOT fixed - It still drips', 'Send the contractor back');
