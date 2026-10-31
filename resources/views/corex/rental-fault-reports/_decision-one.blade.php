@@ -39,11 +39,12 @@
                     const h = document.createElement('input'); h.type = 'hidden'; h.name = el.name; h.value = el.value; h.setAttribute('data-ov-clone', ''); f.appendChild(h);
                 }
             }
-            const msg = choice === 'inspect'
-                ? (crew ? 'The job card is made for the crew now' : n.name + ' gets the job and their private link now') + ', and the owner is told at once' + (n.text ? ' (' + n.text + ')' : '') + '. Anything they quote still has to be authorised before the work starts.'
-                : 'The owner receives this fault on their link' + (!this.picked || crew ? '' : ' with ' + n.name + (n.text ? ' (' + n.text + ')' : '') + ' proposed') + ', and chooses \'Send someone to look and quote\' or \'Decline\'.';
-            const ok = await window.corexConfirm({ title: choice === 'inspect' ? 'Send ' + n.name + ' to inspect?' : 'Send to the owner to authorise?', message: msg, confirmLabel: choice === 'inspect' ? 'Send ' + n.name + ' to inspect' : 'Send to owner' });
-            if (!ok) { return; }
+            // section 31.3 - "Send to owner" is a plain press: no dialog (the owner is only ASKED, nothing is committed). Sending someone to inspect still confirms: it spends the owner's money.
+            if (choice === 'inspect') {
+                const msg = (crew ? 'The job card is made for the crew now' : n.name + ' gets the job and their private link now') + ', and the owner is told at once' + (n.text ? ' (' + n.text + ')' : '') + '. Anything they quote still has to be authorised before the work starts.';
+                const ok = await window.corexConfirm({ title: 'Send ' + n.name + ' to inspect?', message: msg, confirmLabel: 'Send ' + n.name + ' to inspect' });
+                if (!ok) { return; }
+            }
             this.busy = true; f.action = this.urls[choice]; f.submit();
         }
      }">
