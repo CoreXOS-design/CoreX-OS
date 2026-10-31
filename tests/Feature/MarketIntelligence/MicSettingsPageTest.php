@@ -124,7 +124,7 @@ final class MicSettingsPageTest extends TestCase
         $this->assertStringContainsString('data-qa="suggested-areas"', $html);
         $this->assertStringContainsString('Glenmore (Port Shepstone) (3 stock · 0 claims · 0 leads)', $text);
         $this->assertStringContainsString('Glenmore (Durban) (4 stock · 0 claims · 0 leads)', $text, 'same name twice = the town after the name');
-        $this->assertStringNotContainsString('Quiet Bay (1 stock', $text, 'under 3 together is not suggested');
+        $this->assertStringContainsString('Quiet Bay (1 stock', $text, 'one stock is enough: the min-3 rule was replaced by the 4.11 ruling (stock, claims, a named search or a ticked Area)');
         $this->assertStringContainsString('Tick suggested', $html);
         $this->assertLessThan(strpos($html, 'value="' . $busy . '"'), strpos($html, 'value="' . $alpha . '"'), 'ticked suburbs come first');
         $this->assertStringContainsString('Zulu Bay', $html, 'suburbs print in title case');
