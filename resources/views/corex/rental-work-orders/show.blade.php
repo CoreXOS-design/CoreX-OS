@@ -163,6 +163,10 @@
             @include('partials.next-button', ['b' => $nb, 'primary' => true])
             @include('partials.next-button', ['b' => $woNext['secondary'] ?? null, 'primary' => false])
         </div>
+        @if(! empty($woNext['blocker']))
+            {{-- section 31.6 - a hard stop on closing, in words, with the fix beside it --}}
+            <p class="text-xs font-semibold w-full" style="color: var(--ds-crimson); margin: 0;" data-close-blocker>{{ $woNext['blocker']['text'] }}@if(! empty($woNext['blocker']['href'])) <a class="underline" href="{{ $woNext['blocker']['href'] }}">{{ $woNext['blocker']['label'] }}</a>@endif</p>
+        @endif
     </div>
 
     {{-- D. the two summary cards: facts only --}}

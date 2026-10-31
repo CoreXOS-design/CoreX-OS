@@ -113,6 +113,9 @@
             <div class="jc-bar-next">
                 <div><span class="wo-next-label">Next</span><span data-next-text>{{ $jcBar['text'] }}</span></div>
                 <div class="wo-btnrow">@include('partials.next-button', ['b' => $jcBar['button'], 'primary' => true])@include('partials.next-button', ['b' => $jcBar['secondary'], 'primary' => false])</div>
+                @if(! empty($jcBar['blocker']))
+                    <p class="text-xs font-semibold" style="color: var(--ds-crimson); margin: 6px 0 0;" data-close-blocker>{{ $jcBar['blocker']['text'] }}@if(! empty($jcBar['blocker']['href'])) <a class="underline" href="{{ $jcBar['blocker']['href'] }}">{{ $jcBar['blocker']['label'] }}</a>@endif</p>
+                @endif
             </div>
         </div>
     </div>
@@ -236,9 +239,9 @@
     </form>
 </x-next-dialog>
 @endif
-@if($isOpen && $stage['can']['complete'])
-<x-next-dialog name="jc-complete" title="Complete the job card">
-    <form method="POST" action="{{ route('corex.rental-job-cards.complete', $jobCard) }}" class="space-y-3" data-complete-dialog-form>
+@if($isOpen && ($stage['can']['complete'] || $stage['can']['agent_sign_off']))
+<x-next-dialog name="jc-complete" title="Close the job">
+    <form method="POST" action="{{ route('corex.rental-job-cards.close', $jobCard) }}" class="space-y-3" data-complete-dialog-form>
         @csrf
         <label class="text-xs font-medium" for="complete-paid-by-dlg">Who pays for this job?</label>
         <select id="complete-paid-by-dlg" name="paid_by" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">

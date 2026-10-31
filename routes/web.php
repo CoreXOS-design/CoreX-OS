@@ -5098,6 +5098,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_job_cards.sign_off')->name('corex.rental-job-cards.tenant-confirm');
         Route::post('/{rentalJobCard}/complete', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'complete'])
             ->middleware('permission:rental_job_cards.sign_off')->name('corex.rental-job-cards.complete');
+        // section 31.6 - ONE "Close" on the crew route: the agent's sign-off (when not yet given) and the completion in a single press
+        Route::post('/{rentalJobCard}/close', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'close'])
+            ->middleware('permission:rental_job_cards.sign_off')->name('corex.rental-job-cards.close');
         Route::post('/{rentalJobCard}/cancel', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'cancel'])
             ->middleware('permission:rental_job_cards.cancel')->name('corex.rental-job-cards.cancel');
         Route::delete('/{rentalJobCard}', [\App\Http\Controllers\CoreX\RentalJobCardController::class, 'destroy'])
