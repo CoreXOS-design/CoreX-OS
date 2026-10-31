@@ -77,6 +77,7 @@ final class RunSameAddressSweepJob implements ShouldQueue
             // AT-520 4.4: P24 groups, same-agency twins, complexes and map points follow the same trigger, each behind its own agency switch
             $result['rules'] = $rules->run($this->agencyId, true);
             Log::info('same-address sweep (after import)', ['agency_id' => $this->agencyId] + $result);
+            RefreshTileSummariesJob::dispatch($this->agencyId);   // tile 10's stored face numbers follow the new data
         } finally {
             $merger->journalTo(null);
         }

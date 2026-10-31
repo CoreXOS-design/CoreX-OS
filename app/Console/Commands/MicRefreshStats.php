@@ -31,6 +31,7 @@ final class MicRefreshStats extends Command
             }
             $t = microtime(true);
             $r = $builder->refreshAgency($agencyId);
+            app(\App\Services\Prospecting\MicWork\NeighboursPanelProvider::class)->refreshSummary($agencyId);   // AT-520 4.10: tile 10's stored face numbers
             $this->line(sprintf('agency %d: %d file rows, %d stale removed, %d pocket rows, %d scored, %d context rows (%.1fs)', $agencyId, $r['files'], $r['stale_removed'], $r['pockets'], $r['scored'], $r['context'], microtime(true) - $t));
         }
 

@@ -83,34 +83,66 @@ final class NeighboursPanelProvider implements PanelProvider
         return array_merge(array_slice($known, 0, 300), array_slice($unknown, 0, 300));
     }
 
+    /** the stored face numbers are calculated again when older than this (the nightly refresh and every import also refresh them) */
+    private const SUMMARY_STALE_HOURS = 6;
+
     /**
      * The numbers on the face of tile 10 (contract 11.3.I): `count` = `triggers_this_month` (dated triggers this month that have an address, so have homes
      * around them), `triggers_without_address` (this month, listed separately), `neighbours_open` = homes around this month's triggers that nobody has
-     * claimed and nobody has contacted yet. Computed from the trigger list and cached for 30 minutes per agency (it opens every trigger's street).
+     * claimed and nobody has contacted yet. READ FROM STORAGE (`mic_tile_summaries`, written by `refreshSummary()`): the calculation opens every trigger's
+     * street and takes ~18 s, so the tile row never waits on it. Nothing stored yet = a "being calculated" placeholder and a queued calculation.
      *
-     * @return array{count:int, reason:string, note:?string, triggers_this_month:int, triggers_without_address:int, neighbours_open:int}
+     * @return array{count:int, reason:string, note:?string, triggers_this_month:int, triggers_without_address:int, neighbours_open:int, computed_at:?string, pending:bool}
      */
     public function summary(int $agencyId, User $user): array
     {
-        return Cache::remember('mic:tile10:summary:' . $agencyId, 1800, function () use ($agencyId, $user) {
-            $rows = collect($this->rows($agencyId, $user, ['months' => 0]));
-            $withAddress = $rows->where('has_address', true)->values();
-            $open = [];
-            foreach ($withAddress->take(120) as $trigger) {
-                foreach ($this->around($agencyId, $user, $trigger['id']) as $n) {
-                    if (empty($n['claimed']) && ($n['last_contact'] ?? null) === null) {
-                        $open[mb_strtolower((string) $n['address'])] = true;
-                    }
+        $row = Schema::hasTable('mic_tile_summaries') ? DB::table('mic_tile_summaries')->where('agency_id', $agencyId)->where('tile', 'neighbours')->first() : null;
+        if ($row === null || $row->computed_at === null || Carbon::parse($row->computed_at)->lt(now()->subHours(self::SUMMARY_STALE_HOURS))) {
+            $this->queueRefresh($agencyId);
+        }
+        if ($row !== null) {
+            return json_decode((string) $row->payload, true) + ['computed_at' => $row->computed_at, 'pending' => false];
+        }
+
+        return ['count' => 0, 'triggers_this_month' => 0, 'triggers_without_address' => 0, 'neighbours_open' => 0, 'reason' => 'Being calculated', 'note' => 'the first calculation is running', 'computed_at' => null, 'pending' => true];
+    }
+
+    /** Calculate the face numbers (slow) and store them. Called by the nightly `mic:refresh-stats`, the after-import job and the queued refresh. */
+    public function refreshSummary(int $agencyId): array
+    {
+        $t = microtime(true);
+        $rows = collect($this->rows($agencyId, new User(), ['months' => 0]));
+        $withAddress = $rows->where('has_address', true)->values();
+        $open = [];
+        foreach ($withAddress->take(120) as $trigger) {
+            foreach ($this->around($agencyId, new User(), $trigger['id']) as $n) {
+                if (empty($n['claimed']) && ($n['last_contact'] ?? null) === null) {
+                    $open[mb_strtolower((string) $n['address'])] = true;
                 }
             }
+        }
+        $payload = [
+            'count' => $withAddress->count(), 'triggers_this_month' => $withAddress->count(), 'triggers_without_address' => $rows->where('has_address', false)->count(),
+            'neighbours_open' => count($open),
+            'reason' => $withAddress->count() . ' sales and registrations this month, ' . count($open) . ' neighbours not yet contacted or claimed',
+            'note' => $rows->where('has_address', false)->count() > 0 ? $rows->where('has_address', false)->count() . ' more have no address' : null,
+        ];
+        DB::table('mic_tile_summaries')->updateOrInsert(['agency_id' => $agencyId, 'tile' => 'neighbours'], ['payload' => json_encode($payload), 'computed_at' => now(),
+            'took_ms' => (int) ((microtime(true) - $t) * 1000), 'updated_at' => now(), 'created_at' => now()]);
 
-            return [
-                'count' => $withAddress->count(), 'triggers_this_month' => $withAddress->count(), 'triggers_without_address' => $rows->where('has_address', false)->count(),
-                'neighbours_open' => count($open),
-                'reason' => $withAddress->count() . ' sales and registrations this month, ' . count($open) . ' neighbours not yet contacted or claimed',
-                'note' => $rows->where('has_address', false)->count() > 0 ? $rows->where('has_address', false)->count() . ' more have no address' : null,
-            ];
-        });
+        return $payload;
+    }
+
+    /** one queued calculation per agency per 10 minutes */
+    private function queueRefresh(int $agencyId): void
+    {
+        try {
+            if (Cache::add('mic:tile10:refresh-queued:' . $agencyId, 1, 600)) {
+                \App\Jobs\Prospecting\RefreshTileSummariesJob::dispatch($agencyId);
+            }
+        } catch (\Throwable $e) {
+            // never block the tile row
+        }
     }
 
     public function around(int $agencyId, User $user, string $triggerId): array

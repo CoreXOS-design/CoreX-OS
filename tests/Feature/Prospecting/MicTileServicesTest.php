@@ -265,7 +265,13 @@ final class MicTileServicesTest extends TestCase
 
         $p = new NeighboursPanelProvider();
         $rows = collect($p->rows($this->a->id, $this->u, ['months' => 0]));
+        $pending = $p->summary($this->a->id, $this->u);
+        $this->assertTrue($pending['pending'], 'nothing stored yet: a placeholder, never a wait');
+        $p->refreshSummary($this->a->id);
+        $t = microtime(true);
         $s = $p->summary($this->a->id, $this->u);
+        $this->assertLessThan(0.3, microtime(true) - $t, 'read from storage in under 300 ms');
+        $this->assertFalse($s['pending']);
 
         $this->assertSame('registered ' . now()->format('j M'), $rows->firstWhere('id', 'registered:' . $trigger->id)['date_label']);
         $this->assertSame('seen ' . now()->subDays(3)->format('j M'), $rows->firstWhere('id', 'sold:' . $sold->id)['date_label']);
@@ -302,7 +308,7 @@ final class MicTileServicesTest extends TestCase
         $this->assertSame(['Ramsgate', 'Uvongo', 'Ballito Gardens Estate'], array_column($all, 'suburb'), 'with "show all" the rest follow, after ours');
         $this->assertTrue($all[0]['working']);
         $this->assertFalse($all[2]['working']);
-        $this->assertSame(['area', 'import'], $all[0]['working_why']);
+        $this->assertSame(['area'], $all[0]['working_why']);
         $this->assertSame('Ramsgate', $p->summary($this->a->id, $this->u)['oldest_suburb']);
 
         $s = $p->summary($this->a->id, $this->u);
@@ -360,37 +366,51 @@ final class MicTileServicesTest extends TestCase
         DB::table('portal_leads')->insert(['agency_id' => $this->a->id, 'portal' => 'p24', 'lead_type' => 'enquiry', 'name' => 'Lead', 'lead_source_raw' => '{}', 'listing_id' => $propertyId, 'received_at' => now()->subMonths($monthsAgo), 'created_at' => now(), 'updated_at' => now()]);
     }
 
-    public function test_a_suburb_is_ours_where_the_agency_imports_or_holds_stock_or_claims_unless_hidden(): void
+    private function search(string $url, string $portal = 'p24'): void
+    {
+        DB::table('prospecting_searches')->insert(['agency_id' => $this->a->id, 'user_id' => $this->u->id, 'portal_source' => $portal, 'search_url' => $url, 'search_description' => 'x', 'listing_count' => 1, 'total_results' => 1, 'pages_captured' => 1,
+            'captured_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+    }
+
+    public function test_a_suburb_is_ours_where_the_agency_searched_for_it_or_holds_stock_or_claims_unless_hidden(): void
     {
         $country = (int) DB::table('p24_countries')->insertGetId(['name' => 'South Africa', 'p24_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
         $province = (int) DB::table('p24_provinces')->insertGetId(['name' => 'KwaZulu-Natal', 'p24_id' => 2, 'p24_country_id' => $country, 'created_at' => now(), 'updated_at' => now()]);
         $city = (int) DB::table('p24_cities')->insertGetId(['name' => 'Margate', 'p24_id' => 376, 'p24_province_id' => $province, 'created_at' => now(), 'updated_at' => now()]);
-        $imported = $this->suburb('Margate', 6001, $city);
+        $named = $this->suburb('Uvongo', 6359, $city);          // a results page for the suburb itself
+        $inList = $this->suburb('Pennington', 6309, $city);     // named in an advanced search's s= list
         $claimed = $this->suburb('Shakas Rock', 6002, $city);
         $ticked = $this->suburb('Ramsgate', 6003, $city);
         $mistake = $this->suburb('Durban North', 6004, $city);
-        $nothing = $this->suburb('Umzumbe', 6005, $city);
-        $l = $this->advert($this->file(), 'active', 0);
-        DB::table('prospecting_listings')->where('id', $l->id)->update(['p24_suburb_id' => $imported]);
-        $l = $this->advert($this->file(), 'active', 0);
-        DB::table('prospecting_listings')->where('id', $l->id)->update(['p24_suburb_id' => $mistake]);
+        $alertOnly = $this->suburb('Umzumbe', 6005, $city);
+        $townWide = $this->suburb('Southport', 6344, $city);
+        $this->search('https://www.property24.com/for-sale/uvongo/margate/kwazulu-natal/6359/p2');
+        $this->search('https://www.property24.com/for-sale/advanced-search/results?sp=cid%3d194%26s%3d6309%2c6004');
+        $this->search('https://www.property24.com/for-sale/margate/kwazulu-natal/814');                 // a TOWN page names no suburb
+        $this->search('https://www.property24.com/for-sale/alias/hibiscus-coast/102/kwazulu-natal/2');  // a region
+        $this->search('https://www.property24.com/for-sale/advanced-search/results?sp=cid%3d6344');     // town ids are not suburbs
         $this->claim($claimed);
-        $this->lead($nothing);                                   // a lead alone no longer makes a suburb ours
+        DB::table('p24_listings')->insert(['agency_id' => $this->a->id, 'p24_listing_number' => '1', 'asking_price' => 1, 'first_seen_date' => now()->toDateString(), 'last_seen_date' => now()->toDateString(), 'suburb' => 'Umzumbe', 'created_at' => now(), 'updated_at' => now()]);   // an alert email advert
+        $l = $this->advert($this->file(), 'active', 0);
+        DB::table('prospecting_listings')->where('id', $l->id)->update(['p24_suburb_id' => $townWide]);   // imported by a wide page
+        $this->lead($alertOnly);
         $svc = new \App\Services\Prospecting\MicWork\WorkingSuburbs();
         \App\Models\MicAgencySetting::saveValues($this->a->id, ['areas' => [$ticked], 'hidden_suburbs' => [$mistake]]);
 
         $counts = collect($svc->counts($this->a->id))->keyBy('suburb');
         $ids = $svc->ids($this->a->id);
 
-        $this->assertSame(['import'], $ids[$imported], 'one imported advert is enough: why would we import where we do not work');
+        $this->assertSame(['search'], $ids[$named]);
+        $this->assertSame(['search'], $ids[$inList]);
         $this->assertSame(['claim'], $ids[$claimed]);
         $this->assertSame(['area'], $ids[$ticked]);
-        $this->assertArrayNotHasKey($mistake, $ids, '"Hide this suburb"');
-        $this->assertTrue($counts['Durban North']['hidden']);
-        $this->assertFalse($counts['Durban North']['qualifies']);
-        $this->assertArrayNotHasKey($nothing, $ids, 'a portal lead alone is information, not a working suburb');
+        $this->assertArrayNotHasKey($mistake, $ids, '"Hide this suburb" (it was named in a search by mistake)');
+        $this->assertArrayNotHasKey($alertOnly, $ids, 'a P24 alert email advert does not make a suburb ours');
+        $this->assertArrayNotHasKey($townWide, $ids, 'an advert imported by a town-wide page does not make a suburb ours');
+        $this->assertSame(1, $counts['Southport']['adverts'], 'still counted, for information');
+        $this->assertSame(1, $counts['Umzumbe']['alerts']);
         $this->assertSame(1, $counts['Umzumbe']['leads']);
-        $this->assertSame(1, $counts['Margate']['adverts']);
+        $this->assertTrue($counts['Durban North']['hidden']);
 
         \App\Models\MicAgencySetting::saveValues($this->a->id, ['areas' => [$mistake]]);
         $this->assertArrayHasKey($mistake, $svc->ids($this->a->id), 'a suburb ticked as an Area stays even if also hidden');

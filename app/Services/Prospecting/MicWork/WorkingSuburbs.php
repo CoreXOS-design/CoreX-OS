@@ -9,19 +9,18 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Which suburbs are OUR working suburbs, and the counts behind each (mic-work-tab.md 11.3.K, rewritten by Johan's ruling of 31 Oct 19:08:
- * "if we import stock then it should count as one of our suburbs - why would I want to import stock if I don't want to work that area?").
+ * Which suburbs are OUR working suburbs, and the counts behind each (mic-work-tab.md 11.3.K; Johan's ruling of 31 Oct, read by the conductor 19:30).
  *
- * A suburb is ours when the agency IMPORTED adverts there (the MIC extension capture or the portal email alerts, either portal), OR holds own stock or
- * a claim there, OR has it ticked as an Area in the MIC Settings - unless the agency chose "Hide this suburb" (a suburb imported by mistake). A ticked
- * Area stays even if hidden. The old minimum-count rule and "leads alone" are gone (leads are still counted, for information only).
+ * A suburb is ours when ANY of these is true: the agency ran a crawl or search that NAMED it (a deliberate import - not the P24 alert emails, which are a feed
+ * the agency does not choose suburb by suburb, and not a town-wide or region-wide page); it holds own stock or a claim there; it is ticked as an Area in the MIC
+ * Settings. "Hide this suburb" removes one imported by mistake (an Area stays even if also hidden). Adverts, alerts and leads are counted for information only.
  *
  * `counts()` is the single source for Settings > Areas "Suggested from your work"; `ids()` is the working set the panel and tile 11 use.
  */
 final class WorkingSuburbs
 {
     /**
-     * @return list<array{suburb_id:int, suburb:string, adverts:int, alerts:int, stock:int, claims:int, leads:int, total:int, why:list<string>, qualifies:bool, is_area:bool, hidden:bool}>
+     * @return list<array{suburb_id:int, suburb:string, searches:int, adverts:int, alerts:int, stock:int, claims:int, leads:int, total:int, why:list<string>, qualifies:bool, is_area:bool, hidden:bool}>
      */
     public function counts(int $agencyId): array
     {
@@ -33,21 +32,18 @@ final class WorkingSuburbs
                 }
             }
         };
-        // imported: every advert the agency's extension captured, any portal, any age (a suburb it once imported is one it works)
+        // searched: suburbs the agency's own crawls / searches NAMED (a results page for that suburb). A town-wide or region-wide page names no suburb, and the
+        // P24 alert emails are a feed the agency does not choose suburb by suburb: neither makes a suburb ours. Adverts and alerts are counted for information only.
+        foreach ($this->searchedSuburbs($agencyId) as $sid => $n) {
+            $by[$sid]['searches'] = $n;
+        }
         $add(DB::table('prospecting_listings')->where('agency_id', $agencyId)->whereNull('deleted_at')->whereNotNull('p24_suburb_id')
             ->groupBy('p24_suburb_id')->selectRaw('p24_suburb_id as sid, COUNT(*) as n')->get(), 'adverts');
-        // imported by email alert (the alert rows carry the suburb as text)
-        $alertIds = [];
-        foreach (['p24_listings', 'pp_alert_listings'] as $table) {
-            foreach (DB::table($table)->where('agency_id', $agencyId)->whereNull('deleted_at')->whereRaw("TRIM(COALESCE(suburb,'')) <> ''")->groupBy('suburb')->selectRaw('suburb, COUNT(*) as n')->get() as $r) {
-                $id = SuburbResolver::resolve((string) $r->suburb)['p24_suburb_id'];
-                if ($id) {
-                    $alertIds[(int) $id] = ($alertIds[(int) $id] ?? 0) + (int) $r->n;
-                }
+        foreach (DB::table('p24_listings')->where('agency_id', $agencyId)->whereNull('deleted_at')->whereRaw("TRIM(COALESCE(suburb,'')) <> ''")->groupBy('suburb')->selectRaw('suburb, COUNT(*) as n')->get() as $r) {
+            $id = SuburbResolver::resolve((string) $r->suburb)['p24_suburb_id'];
+            if ($id) {
+                $by[(int) $id]['alerts'] = ($by[(int) $id]['alerts'] ?? 0) + (int) $r->n;
             }
-        }
-        foreach ($alertIds as $id => $n) {
-            $by[$id]['alerts'] = $n;
         }
         if (Schema::hasTable('mic_file_stats')) {
             $add(DB::table('mic_file_stats')->where('agency_id', $agencyId)->where('own_stock', 1)->whereNotNull('p24_suburb_id')
@@ -72,24 +68,25 @@ final class WorkingSuburbs
             $isArea = isset($areas[$id]);
             $isHidden = isset($hidden[$id]);
             $why = array_values(array_filter([
-                $isArea ? 'area' : null, ($c['adverts'] ?? 0) > 0 ? 'import' : null, ($c['alerts'] ?? 0) > 0 ? 'alert' : null,
+                $isArea ? 'area' : null, ($c['searches'] ?? 0) > 0 ? 'search' : null,
                 ($c['stock'] ?? 0) > 0 ? 'stock' : null, ($c['claims'] ?? 0) > 0 ? 'claim' : null,
             ]));
             $out[] = [
-                'suburb_id' => (int) $id, 'suburb' => (string) ($names[$id] ?? ('#' . $id)),
+                'suburb_id' => (int) $id, 'suburb' => (string) ($names[$id] ?? ('#' . $id)), 'searches' => $c['searches'] ?? 0,
                 'adverts' => $c['adverts'] ?? 0, 'alerts' => $c['alerts'] ?? 0, 'stock' => $c['stock'] ?? 0, 'claims' => $c['claims'] ?? 0, 'leads' => $c['leads'] ?? 0,
                 'total' => ($c['stock'] ?? 0) + ($c['claims'] ?? 0) + ($c['leads'] ?? 0),
                 'why' => $why, 'is_area' => $isArea, 'hidden' => $isHidden,
                 'qualifies' => $isArea || (! $isHidden && $why !== []),
             ];
         }
-        usort($out, fn ($a, $b) => [$b['adverts'] + $b['alerts'] + $b['total'], $a['suburb']] <=> [$a['adverts'] + $a['alerts'] + $a['total'], $b['suburb']]);
+        $weight = fn (array $r) => $r['searches'] + $r['stock'] + $r['claims'];
+        usort($out, fn ($a, $b) => [(int) $b['qualifies'], $weight($b), $a['suburb']] <=> [(int) $a['qualifies'], $weight($a), $b['suburb']]);
 
         return $out;
     }
 
     /**
-     * The working set: suburb id => why (`area`, `import`, `alert`, `stock`, `claim`).
+     * The working set: suburb id => why (`area`, `search`, `stock`, `claim`).
      *
      * @return array<int,list<string>>
      */
@@ -103,6 +100,63 @@ final class WorkingSuburbs
         }
 
         return $out;
+    }
+
+    /**
+     * Suburbs (our p24_suburbs.id => number of searches) the agency's searches named. A P24 results URL names a suburb in its path
+     * (`/for-sale/<suburb>/<town>/<province>/<id>` - two names before the province) or in `s=` of an advanced search; one name is a TOWN, `/alias/` a region and
+     * `cid=` towns: none of those names a suburb. A numeric or named `crawl_suburb` (cc3) counts too. PrivatePropertys ids are not mapped, so PP searches add nothing.
+     *
+     * @return array<int,int>
+     */
+    public function searchedSuburbs(int $agencyId): array
+    {
+        $byP24 = DB::table('p24_suburbs')->pluck('id', 'p24_id')->all();
+        $found = [];
+        $count = function (int $p24Id) use ($byP24, &$found) {
+            if (isset($byP24[$p24Id])) {
+                $found[(int) $byP24[$p24Id]] = ($found[(int) $byP24[$p24Id]] ?? 0) + 1;
+            }
+        };
+        foreach (DB::table('prospecting_searches')->where('agency_id', $agencyId)->get(['search_url', 'portal_source', 'crawl_suburb']) as $r) {
+            if (trim((string) $r->crawl_suburb) !== '') {
+                $id = ctype_digit((string) $r->crawl_suburb) ? (int) $r->crawl_suburb : (int) (SuburbResolver::resolve((string) $r->crawl_suburb)['p24_suburb_id'] ?? 0);
+                if ($id > 0) {
+                    $found[$id] = ($found[$id] ?? 0) + 1;
+                }
+            }
+            if ($r->portal_source !== 'p24' || ! $r->search_url) {
+                continue;
+            }
+            $u = parse_url((string) $r->search_url);
+            $segments = array_values(array_filter(explode('/', (string) ($u['path'] ?? '')), fn ($x) => $x !== ''));
+            if (! str_contains((string) ($u['path'] ?? ''), '/alias/') && preg_match('~^[a-z-]*for-sale$~', $segments[0] ?? '')) {
+                $names = [];
+                foreach (array_slice($segments, 1) as $seg) {
+                    if (ctype_digit($seg) || preg_match('~^p\d+$~', $seg) || in_array($seg, ['kwazulu-natal', 'gauteng', 'western-cape', 'eastern-cape', 'free-state', 'limpopo', 'mpumalanga', 'north-west', 'northern-cape'], true)) {
+                        break;
+                    }
+                    $names[] = $seg;
+                }
+                $last = array_values(array_filter($segments, 'ctype_digit'));
+                if (count($names) >= 2 && $last !== []) {
+                    $count((int) end($last));
+                }
+            }
+            parse_str((string) ($u['query'] ?? ''), $q);
+            $sp = [];
+            if (isset($q['sp'])) {
+                parse_str((string) $q['sp'], $sp);
+            }
+            $list = $sp['s'] ?? ($q['s'] ?? null);
+            foreach (is_string($list) && $list !== '' ? explode(',', $list) : [] as $x) {
+                if (ctype_digit(trim($x))) {
+                    $count((int) trim($x));
+                }
+            }
+        }
+
+        return $found;
     }
 
     /** @return list<int> the Areas ticked in the MIC Settings (our p24_suburbs.id) */
