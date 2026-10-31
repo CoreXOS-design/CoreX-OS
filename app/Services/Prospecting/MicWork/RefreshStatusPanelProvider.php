@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Tile 11 "Market data last refreshed" (contract 11.3.F / 11.9): one row per suburb the agency works, oldest first, the viewer's own suburbs first,
- * with when each portal was last READ COMPLETELY (the crawl record: complete and unfiltered) and a link to start the refresh. `overdue` = either portal
+ * with when each portal was last READ COMPLETELY (the crawl record: complete and unfiltered; until one exists, the newest advert sighting there, flagged `*_approx`) and a link to start the refresh. `overdue` = either portal
  * never read, or the older read is past the agency's refresh interval (default 7 days).
  */
 final class RefreshStatusPanelProvider implements PanelProvider
@@ -35,6 +35,11 @@ final class RefreshStatusPanelProvider implements PanelProvider
         $mine = DB::table('prospecting_listings')->where('agency_id', $agencyId)->where('captured_by_user_id', $user->id)->whereNotNull('p24_suburb_id')
             ->distinct()->pluck('p24_suburb_id')->flip();
         $scopeMine = ($filters['scope'] ?? 'all') === 'mine';
+        // Until real crawl records exist for a suburb + portal, the last read is APPROXIMATED from the newest time an advert there was seen on that portal
+        // (every read of a suburb refreshes its adverts). A real, complete crawl replaces it. Marked approx in the row.
+        $approx = DB::table('prospecting_listings')->where('agency_id', $agencyId)->whereNull('deleted_at')->whereNotNull('p24_suburb_id')
+            ->selectRaw('p24_suburb_id as sid, portal_source as portal, MAX(last_seen_at) as at')->groupBy('p24_suburb_id', 'portal_source')->get()
+            ->groupBy('sid')->map(fn ($g) => $g->pluck('at', 'portal'));
 
         $sub = DB::table('p24_suburbs as s')->leftJoin('p24_cities as c', 'c.id', '=', 's.p24_city_id')->leftJoin('p24_provinces as pr', 'pr.id', '=', 'c.p24_province_id')
             ->whereIn('s.id', $suburbIds->all())->whereNull('s.deleted_at')
@@ -47,9 +52,11 @@ final class RefreshStatusPanelProvider implements PanelProvider
             if ($scopeMine && ! isset($mine[$s->id])) {
                 continue;
             }
-            $at = fn (string $portal) => optional(collect($reads[$s->id] ?? [])->firstWhere('portal', $portal))->finished_at;
-            $p24 = $at('p24');
-            $ppRead = $at('pp');
+            $real = fn (string $portal) => optional(collect($reads[$s->id] ?? [])->firstWhere('portal', $portal))->finished_at;
+            $p24Real = $real('p24');
+            $ppReal = $real('pp');
+            $p24 = $p24Real ?: ($approx[$s->id]['p24'] ?? null);
+            $ppRead = $ppReal ?: ($approx[$s->id]['pp'] ?? null);
             $known = collect([$p24, $ppRead])->filter()->map(fn ($d) => Carbon::parse($d));
             $age = $known->isEmpty() ? null : (int) $known->min()->diffInDays(now());
             $slug = fn (?string $v) => trim((string) preg_replace('/[^a-z0-9]+/', '-', mb_strtolower((string) $v)), '-');
@@ -64,6 +71,9 @@ final class RefreshStatusPanelProvider implements PanelProvider
                 'p24_url'     => $s->p24_id && $s->city ? 'https://www.property24.com/for-sale/' . ($s->slug ?: $slug($s->name)) . '/' . $slug($s->city) . '/' . ($slug($s->province) ?: 'kwazulu-natal') . '/' . $s->p24_id : null,
                 'pp_url'      => $ppId ? 'https://www.privateproperty.co.za/for-sale/advanced-search?si=' . $ppId . '&sorttype=Default&sortorder=Ascending' : null,
                 'mine'        => isset($mine[$s->id]),
+                'p24_approx'  => $p24 !== null && ! $p24Real,
+                'pp_approx'   => $ppRead !== null && ! $ppReal,
+                'approx_label' => ($p24 !== null && ! $p24Real) || ($ppRead !== null && ! $ppReal) ? 'approx (before crawl tracking)' : null,
             ];
         }
         // the viewer's suburbs first, then never read, then oldest read

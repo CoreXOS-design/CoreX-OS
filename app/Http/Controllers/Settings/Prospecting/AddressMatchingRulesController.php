@@ -59,6 +59,7 @@ class AddressMatchingRulesController extends Controller
             'map_point_distance_m'          => ['sometimes', 'integer', 'min:25', 'max:1000'],
             'unit_split_min_adverts'        => ['sometimes', 'integer', 'min:3', 'max:30'],
             'unit_split_price_spread'       => ['sometimes', 'numeric', 'min:1.2', 'max:10'],
+            'unit_split_land_size_gap_pct'  => ['sometimes', 'integer', 'min:2', 'max:50'],
         ]);
 
         $current = AddressMatchSetting::forAgency($agencyId);
@@ -108,6 +109,7 @@ class AddressMatchingRulesController extends Controller
             'map_point_distance_m'       => (int) ($v['map_point_distance_m'] ?? $current['map_point_distance_m']),
             'unit_split_min_adverts'     => (int) ($v['unit_split_min_adverts'] ?? $current['unit_split_min_adverts']),
             'unit_split_price_spread'    => (float) ($v['unit_split_price_spread'] ?? $current['unit_split_price_spread']),
+            'unit_split_land_size_gap_pct' => (int) ($v['unit_split_land_size_gap_pct'] ?? $current['unit_split_land_size_gap_pct']),
         ];
     }
 }

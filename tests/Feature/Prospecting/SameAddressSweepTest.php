@@ -156,4 +156,40 @@ final class SameAddressSweepTest extends TestCase
         $this->assertSame('active', $this->fileStatus($theirs));
         $this->assertSame('active', $this->fileStatus($deeds));
     }
+    public function test_same_address_houses_whose_adverts_contradict_go_to_review_not_to_a_merge(): void
+    {
+        $one = $this->file(['street_name' => 'Newport Road', 'street_number' => '13', 'suburb' => 'Port Edward', 'suburb_normalised' => 'port edward']);
+        $two = $this->file(['street_name' => 'Newport Road', 'street_number' => '13', 'suburb' => 'Port Edward', 'suburb_normalised' => 'port edward']);
+        $this->advertOn($one, 5, 700_000);
+        $this->advertOn($two, 6, 1_499_000);
+
+        $r = $this->sweep('exact');
+
+        $this->assertSame(0, $r['merged_files']);
+        $this->assertSame(1, $r['contradictions']);
+        $this->assertSame(1, $r['review_pairs']);
+        $this->assertSame('active', $this->fileStatus($one));
+        $this->assertSame('active', $this->fileStatus($two));
+        $this->assertStringContainsString('different bedrooms', (string) DB::table('property_match_decisions')->where('subject_key', 'like', 'same_address:%')->value('reason'));
+    }
+
+    public function test_same_address_houses_with_matching_adverts_still_merge(): void
+    {
+        $one = $this->file(['street_name' => 'Newport Road', 'street_number' => '13', 'suburb' => 'Port Edward', 'suburb_normalised' => 'port edward']);
+        $two = $this->file(['street_name' => 'Newport Road', 'street_number' => '13', 'suburb' => 'Port Edward', 'suburb_normalised' => 'port edward']);
+        $this->advertOn($one, 5, 700_000);
+        $this->advertOn($two, 5, 720_000);
+
+        $this->assertSame(1, $this->sweep('exact')['merged_files']);
+    }
+
+    private function advertOn(TrackedProperty $tp, int $beds, int $price): void
+    {
+        static $n = 119000000;
+        $n++;
+        $l = new \App\Models\ProspectingListing();
+        $l->forceFill(['agency_id' => $tp->agency_id, 'captured_by_user_id' => \App\Models\User::factory()->create(['agency_id' => $tp->agency_id])->id, 'tracked_property_id' => $tp->id, 'portal_source' => 'p24',
+            'portal_ref' => 'P24-' . $n, 'portal_url' => 'https://www.property24.com/x/' . $n, 'suburb' => 'Port Edward', 'price' => $price, 'bedrooms' => $beds, 'bathrooms' => 2,
+            'property_type' => 'House', 'first_seen_at' => now(), 'last_seen_at' => now(), 'is_active' => true, 'listing_type' => 'sale'])->save();
+    }
 }

@@ -43,13 +43,13 @@ final class UnitSplitReviewTest extends TestCase
             'street_number' => '1', 'street_name' => 'Ocean Club Drive', 'suburb' => 'Zimbali']);
     }
 
-    private function advert(TrackedProperty $tp, int $beds, int $price, int $baths = 2): ProspectingListing
+    private function advert(TrackedProperty $tp, int $beds, int $price, int $baths = 2, array $extra = []): ProspectingListing
     {
         $this->n++;
         $l = new ProspectingListing();
         $l->forceFill(['agency_id' => $tp->agency_id, 'captured_by_user_id' => $this->admin->id, 'tracked_property_id' => $tp->id, 'portal_source' => 'p24', 'portal_ref' => 'P24-' . $this->n,
             'portal_url' => 'https://www.property24.com/x/' . $this->n, 'suburb' => 'Zimbali', 'price' => $price, 'bedrooms' => $beds, 'bathrooms' => $baths, 'property_type' => 'Apartment',
-            'first_seen_at' => now()->subDays(100 - ($this->n % 50)), 'last_seen_at' => now(), 'is_active' => true, 'listing_type' => 'sale'])->save();
+            'first_seen_at' => now()->subDays(100 - ($this->n % 50)), 'last_seen_at' => now(), 'is_active' => true, 'listing_type' => 'sale'])->forceFill($extra)->save();
 
         return $l->fresh();
     }
@@ -156,5 +156,44 @@ final class UnitSplitReviewTest extends TestCase
         $this->assertSame(2, $this->review()['proposals']);
         $this->assertSame(0, DB::table('property_match_decisions')->where('agency_id', $this->b->id)->count(), "the other agency's file got nothing");
         $this->assertNotNull($theirs);
+    }
+    private function stand(TrackedProperty $tp, int $price, ?float $size): ProspectingListing
+    {
+        return $this->advert($tp, 0, $price, 0, ['property_type' => 'Vacant Land', 'bedrooms' => null, 'bathrooms' => null, 'erf_size_m2' => $size]);
+    }
+
+    public function test_vacant_land_of_different_sizes_under_one_street_address_is_offered_as_separate_stands(): void
+    {
+        $tp = TrackedProperty::queryWithoutAgencyScope()->create(['agency_id' => $this->a->id, 'status' => 'active', 'first_seen_at' => now(), 'street_number' => '22', 'street_name' => 'Avon Road', 'suburb' => 'Southbroom']);
+        // 5 adverts from several agencies: two for the 1,000 m2 stand (same stand, two agencies), two for a 2,000 m2 stand, one for a 4,500 m2 stand
+        $this->stand($tp, 200_000, 1000.0);
+        $this->stand($tp, 210_000, 1010.0);
+        $this->stand($tp, 600_000, 2000.0);
+        $this->stand($tp, 650_000, 2000.0);
+        $this->stand($tp, 1_100_000, 4500.0);
+
+        $r = $this->review();
+
+        $this->assertSame(1, $r['files_proposed']);
+        $this->assertSame(2, $r['proposals'], 'the two-advert stands stay/leave as groups; the biggest group stays, every other stand is one item');
+        $labels = DB::table('property_match_decisions')->whereRaw("JSON_UNQUOTE(JSON_EXTRACT(incoming_facts, '$.kind')) = 'unit_split'")->get()->map(fn ($d) => json_decode($d->incoming_facts, true)['label']);
+        $this->assertTrue($labels->contains(fn ($l) => str_contains($l, '4,500 m2')), $labels->implode(' | '));
+    }
+
+    public function test_the_same_stand_advertised_by_several_agencies_is_not_proposed_and_a_land_size_gap_is_a_setting(): void
+    {
+        $tp = TrackedProperty::queryWithoutAgencyScope()->create(['agency_id' => $this->a->id, 'status' => 'active', 'first_seen_at' => now(), 'street_number' => '22', 'street_name' => 'Avon Road', 'suburb' => 'Southbroom']);
+        foreach ([200_000, 210_000, 250_000, 300_000, 400_000] as $p) {
+            $this->stand($tp, $p, 1000.0); // one stand, five adverts
+        }
+        $this->assertSame(0, $this->review()['proposals']);
+
+        $other = TrackedProperty::queryWithoutAgencyScope()->create(['agency_id' => $this->a->id, 'status' => 'active', 'first_seen_at' => now(), 'street_number' => '24', 'street_name' => 'Avon Road', 'suburb' => 'Southbroom']);
+        foreach ([1000.0, 1050.0, 1100.0, 1150.0, 1200.0] as $i => $size) {
+            $this->stand($other, 200_000 + $i * 10_000, $size);
+        }
+        $this->assertSame(0, $this->review()['proposals'], 'steps of about 5% are under the 10% gap: one stand');
+        AddressMatchSetting::query()->updateOrCreate(['agency_id' => $this->a->id], ['unit_split_land_size_gap_pct' => 3]);
+        $this->assertGreaterThan(0, $this->review()['proposals'], 'an agency that wants a 3% gap sees them as different stands');
     }
 }

@@ -100,6 +100,7 @@ final class TrackedProperty extends Model
     protected static function booted(): void
     {
         static::creating(function (TrackedProperty $tp) {
+            $tp->street_name = \App\Support\Address\StreetTypes::collapseDoubled($tp->street_name);
             if (empty($tp->external_id)) {
                 $tp->external_id = (string) Str::uuid();
             }
@@ -114,6 +115,9 @@ final class TrackedProperty extends Model
         });
 
         static::updating(function (TrackedProperty $tp) {
+            if ($tp->isDirty('street_name')) {
+                $tp->street_name = \App\Support\Address\StreetTypes::collapseDoubled($tp->street_name);
+            }
             if ($tp->isDirty('suburb')) {
                 $tp->suburb_normalised = static::normaliseSuburb($tp->suburb);
             }

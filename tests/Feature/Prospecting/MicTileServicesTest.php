@@ -101,7 +101,9 @@ final class MicTileServicesTest extends TestCase
         $this->assertGreaterThanOrEqual(1, count($thisMonth));
         $this->assertSame('5 Beach Road, Uvongo', collect($all)->firstWhere('type', 'registered')['address']);
         $this->assertSame(2_100_000, collect($all)->firstWhere('type', 'registered')['price']);
-        $this->assertSame($all, collect($all)->sortByDesc('date')->values()->all(), 'newest first');
+        $this->assertSame('registered', $all[0]['type'], 'deeds registrations come first, then portal sold / under offer');
+        $this->assertSame(['under_offer', 'sold'], collect($all)->whereIn('type', ['sold', 'under_offer'])->pluck('type')->values()->all(), 'newest first inside the portal group (5 days ago, then 40)');
+        $this->assertTrue(collect($all)->every(fn ($r) => $r['has_address']));
         $this->assertSame(['sold'], collect($p->rows($this->a->id, $this->u, ['months' => 6, 'type' => 'sold']))->pluck('type')->all());
         $this->assertSame([], $p->rows($this->a->id, $this->u, ['months' => 6, 'suburb' => 'Margate']), "another agency's Margate trigger is not ours");
     }
@@ -189,11 +191,11 @@ final class MicTileServicesTest extends TestCase
         $this->assertSame(2, $rows['Uvongo']['age_days']);
         $this->assertTrue($rows['Ramsgate']['overdue'], 'the older read is 20 days old');
         $this->assertSame(20, $rows['Ramsgate']['age_days']);
-        $this->assertTrue($rows['Margate Beach']['overdue']);
-        $this->assertNull($rows['Margate Beach']['p24_read_at']);
-        $this->assertNull($rows['Margate Beach']['age_days']);
+        $this->assertTrue($rows['Margate Beach']['overdue'], 'PP was never read');
+        $this->assertTrue($rows['Margate Beach']['p24_approx'], 'an incomplete crawl does not count; the newest advert sighting stands in, flagged approximate');
+        $this->assertNull($rows['Margate Beach']['pp_read_at']);
         $this->assertSame('https://www.property24.com/for-sale/uvongo/margate/kwazulu-natal/6359', $rows['Uvongo']['p24_url']);
-        $this->assertSame('Margate Beach', array_values($rows->all())[0]['suburb'] ?? null, 'never read comes first');
+        $this->assertSame('Ramsgate', array_values($rows->all())[0]['suburb'] ?? null, 'the oldest read comes first');
         $this->assertSame([], (new RefreshStatusPanelProvider())->rows($this->b->id, $this->u, ['scope' => 'all']), "another agency's suburbs are not ours");
     }
 
@@ -205,5 +207,44 @@ final class MicTileServicesTest extends TestCase
         $panels = collect(app()->tagged('mic.work.panels'))->map(fn ($p) => $p->tile())->sort()->values()->all();
         $this->assertSame([10, 11], $panels);
         $this->assertNotNull($tiles);
+    }
+    public function test_tile_10_puts_triggers_without_an_address_last_and_never_dates_a_status_we_did_not_watch(): void
+    {
+        $withAddress = $this->file(['street_number' => '7']);
+        $this->advert($withAddress, 'sold', 10);
+        $hidden = $this->file(['street_number' => null, 'street_name' => null]);
+        $this->advert($hidden, 'sold', 2);
+        // first noticed already sold (the status "changed" the moment we first saw the advert): no known date, not a dated trigger
+        $unwatched = $this->file(['street_number' => '9']);
+        $this->advert($unwatched, 'sold', 0, ['first_seen_at' => now()->subHours(2), 'portal_status_changed_at' => now()->subHour()]);
+
+        $rows = (new NeighboursPanelProvider())->rows($this->a->id, $this->u, ['months' => 6]);
+
+        $this->assertSame(['sold:' . $withAddress->id, 'sold:' . $hidden->id], array_column($rows, 'id'), 'the unwatched change is not listed; the address-less trigger comes last');
+        $this->assertTrue($rows[0]['has_address']);
+        $this->assertFalse($rows[1]['has_address']);
+    }
+
+    public function test_tile_11_uses_the_newest_advert_sighting_as_an_approximate_read_until_a_real_crawl_exists(): void
+    {
+        $country = (int) DB::table('p24_countries')->insertGetId(['name' => 'South Africa', 'p24_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        $province = (int) DB::table('p24_provinces')->insertGetId(['name' => 'KwaZulu-Natal', 'p24_id' => 2, 'p24_country_id' => $country, 'created_at' => now(), 'updated_at' => now()]);
+        $city = (int) DB::table('p24_cities')->insertGetId(['name' => 'Margate', 'p24_id' => 376, 'p24_province_id' => $province, 'created_at' => now(), 'updated_at' => now()]);
+        $uvongo = $this->suburb('Uvongo', 6359, $city);
+        $ramsgate = $this->suburb('Ramsgate', 6371, $city);
+        foreach ([$uvongo, $ramsgate] as $sid) {
+            $l = $this->advert($this->file(), 'active', 0);
+            DB::table('prospecting_listings')->where('id', $l->id)->update(['p24_suburb_id' => $sid, 'last_seen_at' => now()->subDays($sid === $uvongo ? 2 : 12)]);
+        }
+        $this->crawl($ramsgate, 'p24', 1);                                                 // a real, complete crawl for Ramsgate on P24 only
+
+        $rows = collect((new RefreshStatusPanelProvider())->rows($this->a->id, $this->u, ['scope' => 'all']))->keyBy('suburb');
+
+        $this->assertTrue($rows['Uvongo']['p24_approx']);
+        $this->assertSame(2, $rows['Uvongo']['age_days']);
+        $this->assertSame('approx (before crawl tracking)', $rows['Uvongo']['approx_label']);
+        $this->assertNull($rows['Uvongo']['pp_read_at'], 'no PP sighting at all');
+        $this->assertFalse($rows['Ramsgate']['p24_approx'], 'a real crawl replaces the approximation');
+        $this->assertSame(1, (int) \Illuminate\Support\Carbon::parse($rows['Ramsgate']['p24_read_at'])->diffInDays(now()));
     }
 }

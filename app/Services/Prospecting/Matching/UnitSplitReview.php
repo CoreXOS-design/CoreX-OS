@@ -47,7 +47,7 @@ final class UnitSplitReview
                     ->where(fn ($w) => $w->whereNull('t.capture_kind')->orWhere('t.capture_kind', '<>', 'deeds_capture'));
             })
             ->where('l.agency_id', $agencyId)->whereNull('l.deleted_at')->whereNotNull('l.canonical_ref')->where('l.price', '>', 0)
-            ->get(['l.id', 'l.canonical_ref as ref', 'l.price', 'l.bedrooms as beds', 'l.bathrooms as baths', 'l.property_type as ptype', 'l.first_seen_at', 'l.tracked_property_id as fid'])
+            ->get(['l.id', 'l.canonical_ref as ref', 'l.price', 'l.bedrooms as beds', 'l.bathrooms as baths', 'l.property_type as ptype', 'l.erf_size_m2 as erf', 'l.first_seen_at', 'l.tracked_property_id as fid'])
             ->groupBy('fid');
 
         foreach ($files as $fid => $adverts) {
@@ -56,10 +56,7 @@ final class UnitSplitReview
                 continue;
             }
             $out['files_checked']++;
-            if ($adverts->max('price') / max(1, $adverts->min('price')) <= $spread) {
-                continue;
-            }
-            $groups = $this->groups($adverts, $step);
+            $groups = $this->groupsFor($adverts, $spread, $step, (int) $s['unit_split_land_size_gap_pct']);
             if (count($groups) < 2) {
                 continue;
             }
@@ -72,6 +69,49 @@ final class UnitSplitReview
         }
 
         return $out;
+    }
+
+    /**
+     * Everything on a file as flats / stands: adverts of a house or flat are grouped by rooms + type + price steps (only when the file's non-land adverts
+     * spread wider than the agency's gap - price changes of one home stay one group); VACANT LAND adverts are grouped by stand size (sizes more than
+     * `$landGapPct` percent apart are different stands; a land advert with no size stays where it is). Biggest group first.
+     *
+     * @param  \Illuminate\Support\Collection<int,object> $adverts
+     * @return list<\Illuminate\Support\Collection<int,object>>
+     */
+    public function groupsFor($adverts, float $spread, float $step, int $landGapPct): array
+    {
+        $isLand = fn ($a) => preg_match('/land|vacant|stand|plot|erf/i', (string) $a->ptype) === 1;
+        $land = $adverts->filter($isLand)->values();
+        $built = $adverts->reject($isLand)->values();
+        $groups = [];
+        if ($built->isNotEmpty()) {
+            $wide = $built->max('price') / max(1, $built->min('price')) > $spread;
+            $groups = $wide ? $this->groups($built, $step) : [$built];
+        }
+        $sized = $land->filter(fn ($a) => (float) $a->erf > 0)->sortBy('erf')->values();
+        $unsized = $land->reject(fn ($a) => (float) $a->erf > 0)->values();
+        $run = collect();
+        $landGroups = [];
+        foreach ($sized as $a) {
+            if ($run->isNotEmpty() && (float) $a->erf / (float) $run->last()->erf > 1 + $landGapPct / 100) {
+                $landGroups[] = $run;
+                $run = collect();
+            }
+            $run->push($a);
+        }
+        if ($run->isNotEmpty()) {
+            $landGroups[] = $run;
+        }
+        if ($unsized->isNotEmpty() && $landGroups !== []) {
+            $landGroups[0] = $landGroups[0]->concat($unsized);
+        } elseif ($unsized->isNotEmpty()) {
+            $landGroups[] = $unsized;
+        }
+        $all = array_merge($groups, $landGroups);
+        usort($all, fn ($x, $y) => [$y->count(), (string) $x->min('first_seen_at')] <=> [$x->count(), (string) $y->min('first_seen_at')]);
+
+        return $all;
     }
 
     /**
@@ -111,7 +151,10 @@ final class UnitSplitReview
             return false;
         }
         $f = $group->first();
-        $label = count($refs) . ' advert' . (count($refs) === 1 ? '' : 's') . ': ' . ($f->beds ?? '?') . ' bed ' . ($f->baths ?? '?') . ' bath ' . trim((string) $f->ptype)
+        $isLand = preg_match('/land|vacant|stand|plot|erf/i', (string) $f->ptype) === 1;
+        $what = $isLand ? trim((string) $f->ptype) . ((float) $f->erf > 0 ? ', ' . number_format((float) $f->erf, 0, '.', ',') . ' m2' : ', size not shown')
+            : ($f->beds ?? '?') . ' bed ' . ($f->baths ?? '?') . ' bath ' . trim((string) $f->ptype);
+        $label = count($refs) . ' advert' . (count($refs) === 1 ? '' : 's') . ': ' . $what
             . ', R' . number_format((float) $group->min('price'), 0, '.', ',') . ($group->min('price') != $group->max('price') ? ' to R' . number_format((float) $group->max('price'), 0, '.', ',') : '')
             . ' (' . implode(', ', array_slice($refs, 0, 4)) . (count($refs) > 4 ? ', ...' : '') . ')';
         if ($apply) {

@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services\Prospecting;
 
+use App\Models\AddressMatchSetting;
 use App\Models\Prospecting\TrackedProperty;
+use App\Services\Prospecting\Matching\AdvertEvidence;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -25,16 +27,18 @@ final class SameAddressSweep
     public function __construct(
         private readonly TrackedPropertyMerger $merger,
         private readonly PropertyMatchDecisionService $decisions,
+        private readonly AdvertEvidence $evidence,
     ) {
     }
 
     /**
-     * @return array{scope:string, apply:bool, groups:int, files:int, merged_files:int, merge_refused:int, review_pairs:int, vetoed:int, flat_groups:int, big_groups:int, actions:list<array<string,mixed>>}
+     * @return array{scope:string, apply:bool, groups:int, files:int, merged_files:int, merge_refused:int, review_pairs:int, vetoed:int, flat_groups:int, big_groups:int, contradictions:int, actions:list<array<string,mixed>>}
      */
     public function run(int $agencyId, string $scope, bool $apply, string $step = 'same-address'): array
     {
-        $out = ['scope' => $scope, 'apply' => $apply, 'groups' => 0, 'files' => 0, 'merged_files' => 0, 'merge_refused' => 0, 'review_pairs' => 0, 'vetoed' => 0, 'flat_groups' => 0, 'big_groups' => 0, 'actions' => []];
+        $out = ['scope' => $scope, 'apply' => $apply, 'groups' => 0, 'files' => 0, 'merged_files' => 0, 'merge_refused' => 0, 'review_pairs' => 0, 'vetoed' => 0, 'flat_groups' => 0, 'big_groups' => 0, 'contradictions' => 0, 'actions' => []];
 
+        $spread = (float) AddressMatchSetting::forAgency($agencyId)['portal_group_price_spread'];
         foreach ($this->groups($agencyId, $scope) as $ids) {
             $out['groups']++;
             $out['files'] += count($ids);
@@ -56,6 +60,11 @@ final class SameAddressSweep
             foreach (array_slice($tps, 1) as $other) {
                 if ($this->vetoed($agencyId, $win, $other)) {
                     $out['vetoed']++;
+                    continue;
+                }
+                if (($why = $this->evidence->contradiction($agencyId, (int) $win->id, (int) $other->id, $spread)) !== null) {
+                    $out['contradictions']++;
+                    $this->review($agencyId, $win, $other, 'Same address, but ' . $why . ' - may be two different properties.', $apply, $out);
                     continue;
                 }
                 [$w, $l] = $this->merger->chooseWinner($win, $other);
