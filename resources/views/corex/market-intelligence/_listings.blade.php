@@ -249,6 +249,7 @@
                     'selectedScore' => $listing->selected_buyer_score ?? null,
                     'commentCounts' => $commentCounts ?? [],
                     'canViewComments' => $canViewComments ?? false,
+                    'source' => ($sourceByListingId ?? [])[$_lid] ?? null,
                 ])
             @endforeach
         </div>

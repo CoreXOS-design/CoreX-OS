@@ -65,6 +65,7 @@
         </div>
     @endif
 
+    @include('corex.market-intelligence.partials._source-line', ['facts' => $sourceFacts ?? null])
     @include('corex.market-intelligence.partials._agency-work')
     @include('corex.market-intelligence.partials._alert-facts')
 

@@ -186,6 +186,19 @@
             </a>
             @endif
 
+            {{-- Where we know this advert from: Email alert / Deeds / Extension, plus the last alert price change when the advert has an alert. --}}
+            @if(!empty($source))
+            <span data-qa="source-tag" style="{{ $source['tag'] === 'Email alert' ? $tagTeal : $tagNeutral }}"
+                  title="{{ $source['tag'] === 'Email alert' ? 'This advert is also in the portal e-mail alerts your agency receives.' : ($source['tag'] === 'Deeds' ? 'The property file has a deeds capture.' : 'Captured with the browser extension only.') }}">
+                {{ $source['tag'] }}
+            </span>
+            @if($source['alert'])
+            <span data-qa="alert-marker" style="{{ $tagNeutral }}" title="Last portal e-mail alert price change for this advert.">
+                alert @if($source['change'])R {{ number_format($source['change']['old'], 0, '.', ',') }} → R {{ number_format($source['change']['new'], 0, '.', ',') }} · {{ $source['change']['date'] }}@elseif($source['last_seen'])· seen {{ $source['last_seen'] }}@endif
+            </span>
+            @endif
+            @endif
+
             {{-- Possible-match hint (2026-08-22, Johan — the 43 Ridge investigation:
                  "it should have been caught in mic before it was shown as pitch
                  now"). ADVISORY ONLY — never suppresses the row, never blocks a

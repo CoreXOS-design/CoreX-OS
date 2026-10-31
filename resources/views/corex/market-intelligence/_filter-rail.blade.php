@@ -90,6 +90,7 @@
         $activePills[] = ['label' => $lo . ' – ' . $hi,                                                                          'remove' => $urlWithout(['price_min','price_max'])];
     }
     if (in_array($activeStatus, ['0', 0], true))         $activePills[] = ['label' => 'Status · removed',                        'remove' => $urlWithout('is_active')];
+    if (request('source') && isset(\App\Services\Prospecting\PropertySourceFacts::FILTERS[request('source')])) $activePills[] = ['label' => 'Source · ' . \App\Services\Prospecting\PropertySourceFacts::FILTERS[request('source')], 'remove' => $urlWithout('source')];
     if ($activeCapturedBy) {
         $u = $captureUsers->firstWhere('id', (int) $activeCapturedBy);
         $activePills[] = ['label' => 'Captured · ' . ($u->name ?? '?'),                                                          'remove' => $urlWithout('captured_by')];
@@ -396,6 +397,20 @@
             @foreach([['1','Active'],['0','Removed'],['all','All']] as [$val, $lbl])
                 @php $isActive = (string) $activeStatus === (string) $val; @endphp
                 <a href="{{ $urlWith(['is_active' => $val]) }}" style="{{ $isActive ? $activeRowStyle : $rowStyle }}">
+                    <span>{{ $lbl }}</span>
+                </a>
+            @endforeach
+        </div>
+    </div>
+
+    {{-- By source (email alert / extension / deeds) --}}
+    <div x-data="{ open: {{ request('source') ? 'true' : 'false' }} }" style="border-bottom: 1px solid var(--border);">
+        <button @click="open = !open" type="button" style="{{ $sectionTitleStyle }}; width: 100%; text-align: left; background: none; border: none; cursor: pointer; padding: 8px 12px;">
+            <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 12px;"></span> By source
+        </button>
+        <div x-show="open" x-cloak>
+            @foreach(\App\Services\Prospecting\PropertySourceFacts::FILTERS as $val => $lbl)
+                <a href="{{ $urlWith(['source' => request('source') === $val ? null : $val]) }}" data-qa="source-filter-{{ $val }}" style="{{ request('source') === $val ? $activeRowStyle : $rowStyle }}">
                     <span>{{ $lbl }}</span>
                 </a>
             @endforeach
