@@ -84,6 +84,12 @@ class MarketIntelligenceController extends Controller
         // AFTER the paginator was built, so page links carried _fragments=1 and a
         // full-navigation "next page" click hit the JSON branch → raw JSON dump.
         $request->query->remove('_fragments');
+        // The page's own helper fetches (_tiles / _card) are the only requests that may carry these. A person who lands on a URL that has them (a link the
+        // fragment once built, a bookmark) gets the full page, and no link on it carries them forward.
+        if (! $request->ajax()) {
+            $request->query->remove('_tiles');
+            $request->query->remove('_card');
+        }
 
         // F.3 — the legacy ->with('activeClaim.user') eager-load is gone.
         // All claim state for the row is now read from $listingStates['claims']
@@ -576,7 +582,7 @@ class MarketIntelligenceController extends Controller
 
         // Record card (2.1 E): one file's card, fetched on first expand under a row. Same filters as the page (the JS passes the page's query string), so a
         // file is only served when this viewer's scoped list can reach it; another agency's file is a 404.
-        if ($request->filled('_card')) {
+        if ($request->filled('_card') && $request->ajax()) {
             $fid = (int) $request->query('_card');
             abort_unless($fid > 0 && (clone $query)->where('tracked_property_id', $fid)->exists(), 404);
             $rec = app(\App\Services\Prospecting\MicWork\MicWorkList::class)->forFiles([$fid], (int) $agencyId)[0] ?? abort(404);
@@ -586,7 +592,9 @@ class MarketIntelligenceController extends Controller
 
         // The tile row is the slow part when it is not cached (cc5/cc4 queries): the page does not wait for it. A cold page gets placeholders and the
         // browser fetches the row from this same URL with _tiles=1 (HTML of the tile row + any open panel). Never deferred in tests unless asked.
-        if ($request->boolean('_tiles')) {
+        // The tile fragment is for the page's own fetch (it sends X-Requested-With). Someone who navigates to ?_tiles=1 - by a link the fragment once wrongly
+        // carried, a bookmark, a pasted URL - gets the full page, never the bare tile row.
+        if ($request->boolean('_tiles') && $request->ajax()) {
             [$workTiles, $workPanel] = $this->workTilesData($request, (int) $agencyId, $user, $isProspectingManager);
 
             return response(view('corex.market-intelligence.partials._work-tiles', ['workTiles' => $workTiles, 'workPanel' => $workPanel, 'tilesDeferred' => false])->render());

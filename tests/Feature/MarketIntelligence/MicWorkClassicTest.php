@@ -108,9 +108,9 @@ final class MicWorkClassicTest extends TestCase
         $tpB = $this->tp($this->b, 'P24-120000031', '9', 'Beach Road');
         $this->advert($this->b, 'p24', 'P24-120000031', $tpB);
 
-        $this->actingAs($this->admin)->get(route('market-intelligence.work', ['_card' => $tp->id]))->assertOk()
+        $this->actingAs($this->admin)->withHeaders(['X-Requested-With' => 'XMLHttpRequest'])->get(route('market-intelligence.work', ['_card' => $tp->id]))->assertOk()
             ->assertSee('Adverts', false)->assertSee('Open the property page', false)->assertSee('P24-120000030', false);
-        $this->actingAs($this->admin)->get(route('market-intelligence.work', ['_card' => $tpB->id]))->assertNotFound();
+        $this->actingAs($this->admin)->withHeaders(['X-Requested-With' => 'XMLHttpRequest'])->get(route('market-intelligence.work', ['_card' => $tpB->id]))->assertNotFound();
     }
 
     public function test_the_old_search_still_works_and_also_finds_the_files_address(): void

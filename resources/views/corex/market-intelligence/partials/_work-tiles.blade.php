@@ -4,7 +4,7 @@
     $activePanel = (int) request('panel');
     $tileUrl = function (array $params) {
         // panel-specific params never survive a panel change or close (months / type / trigger; its suburb filter too)
-        $drop = ['page', 'tile', 'panel', 'trigger', 'months', 'type', 'show_all'] + (request('panel') ? [7 => 'suburb'] : []);
+        $drop = array_merge(['page', 'tile', 'panel', 'trigger', 'months', 'type', 'show_all', '_tiles', '_defer_tiles', '_card'], request('panel') ? ['suburb'] : []);
         $merged = array_merge(request()->except($drop), $params);
         foreach ($merged as $k => $v) if ($v === null || $v === '') unset($merged[$k]);
         return route('market-intelligence.work', $merged);
