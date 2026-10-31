@@ -24,6 +24,7 @@ final class TrainingMicSeederTest extends TestCase
 
         $this->assertGreaterThanOrEqual(25, DB::table('tracked_properties')->where('agency_id', $aid)->count());
         $this->assertSame(0, DB::table('tracked_properties')->where('agency_id', $other->id)->count());
+        $this->assertSame(0, DB::table('tracked_properties')->where('agency_id', $other->id)->count());
         foreach (['prospecting_listings', 'p24_listings', 'tracked_property_agency_work', 'tracked_property_external_refs'] as $t) {
             $this->assertGreaterThan(0, DB::table($t)->where('agency_id', $aid)->count(), $t);
             $this->assertSame(0, DB::table($t)->where('agency_id', '!=', $aid)->count(), $t . ' must hold nothing for any other agency');

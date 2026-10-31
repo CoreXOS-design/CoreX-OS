@@ -16,7 +16,7 @@ use Illuminate\Support\Str;
  * advert links on the .invalid domain. No real portal advert, deeds name or owner can appear in a recording (POPIA). Rows are written straight into the agency's own
  * tables (agency_id = the training agency), so nothing here is visible to, or counted for, any other agency.
  *
- * Idempotent: it does nothing when the agency already has tracked properties; reset() clears this agency's MIC rows first (hard delete is fine - they are throw-away demo
+ * Idempotent: it does nothing when the agency already has adverts; reset() clears this agency's MIC rows first (hard delete is fine - they are throw-away demo
  * rows of a flagged training agency, never client data).
  */
 class TrainingMicSeeder
@@ -28,7 +28,7 @@ class TrainingMicSeeder
             throw new \RuntimeException('The MIC training data is only ever written to a training agency.');
         }
         $aid = (int) $agency->id;
-        if (DB::table('tracked_properties')->where('agency_id', $aid)->exists()) {
+        if (DB::table('prospecting_listings')->where('agency_id', $aid)->exists()) {   // (not tracked_properties: the agency's own stock already files itself there)
             return 0;
         }
         $now = now();
