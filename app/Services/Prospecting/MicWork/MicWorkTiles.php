@@ -20,12 +20,12 @@ final class MicWorkTiles
         1 => ['stuck', 'Stuck on the market', 'filter'],
         2 => ['owner', 'Owner selling privately', 'filter'],
         3 => ['gone', 'Under offer, sold or gone', 'filter'],
-        4 => ['stock', 'Where our stock sits', 'strip'],
-        5 => ['fastest', 'What sells fastest for us', 'strip'],
-        6 => ['leads', 'Where our leads come from', 'strip'],
-        7 => ['buyers', 'Buyers waiting, stock short', 'filter'],
-        8 => ['alerts', 'New from P24 alerts', 'filter'],
-        9 => ['prices', 'Market prices here', 'strip'],
+        4 => ['our_stock', 'Where our stock sits', 'strip'],
+        5 => ['fast_sellers', 'What sells fastest for us', 'strip'],
+        6 => ['lead_sources', 'Where our leads come from', 'strip'],
+        7 => ['buyers_waiting', 'Buyers waiting, stock short', 'filter'],
+        8 => ['p24_alerts', 'New from P24 alerts', 'filter'],
+        9 => ['market_prices', 'Market prices here', 'strip'],
         10 => ['neighbours', 'Neighbours of a sale', 'panel'],
         11 => ['refresh', 'Market data last refreshed', 'panel'],
     ];
@@ -47,6 +47,31 @@ final class MicWorkTiles
         foreach ($panelProviders as $p) {
             $this->panels[$p->tile()] = $p;
         }
+    }
+
+    /** cc5's numbers (tiles 1, 4-9; spec 11.1). Absent until their service lands - then those tiles say Coming. */
+    private const CC5_SERVICE = 'App\\Services\\MarketIntelligence\\Pockets\\TileService';
+    private const CC5_SETTINGS = 'App\\Models\\MicAgencySetting';
+
+    /** @return array<int, object>  TileResult by tile number */
+    private function cc5Results(User $user): array
+    {
+        if (! class_exists(self::CC5_SERVICE)) {
+            return [];
+        }
+        try {
+            return app(self::CC5_SERVICE)->forViewer($user);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('MIC Work tiles: cc5 TileService failed', ['error' => $e->getMessage()]);
+
+            return [];
+        }
+    }
+
+    /** Tiles the agency shows (Settings; default all eleven). */
+    public function shownFor(int $agencyId): array
+    {
+        return class_exists(self::CC5_SETTINGS) ? array_map('intval', app(self::CC5_SETTINGS)::for($agencyId)->tilesShown()) : range(1, 11);
     }
 
     public static function fromContainer(): self
@@ -73,12 +98,20 @@ final class MicWorkTiles
      */
     public function row(int $agencyId, User $user, ?array $shown = null): array
     {
+        $shown ??= $this->shownFor($agencyId);
+        $cc5 = $this->cc5Results($user);
         $out = [];
         foreach (self::TILES as $n => [$key, $title, $kind]) {
             if ($shown !== null && ! in_array($n, $shown, true)) {
                 continue;
             }
             $provider = $this->tiles[$n] ?? null;
+            if (! $provider && isset($cc5[$n])) {
+                $r = $cc5[$n];
+                $out[] = ['number' => $n, 'key' => $key, 'title' => $title, 'kind' => $kind, 'ready' => true,
+                    'count' => $r->tooLittleData ? null : $r->count, 'reason' => $r->reason, 'note' => $r->tooLittleData ? $r->tooLittleMessage : null];
+                continue;
+            }
             $panelReady = $kind === 'panel' && isset($this->panels[$n]);
             if ($provider) {
                 $s = $provider->summary($agencyId, $user);
@@ -97,8 +130,14 @@ final class MicWorkTiles
     public function propertyIds(?string $key, int $agencyId, User $user): ?Builder
     {
         $n = self::numberForKey($key);
+        if ($n === null) {
+            return null;
+        }
+        if (isset($this->tiles[$n])) {
+            return $this->tiles[$n]->propertyIds($agencyId, $user);
+        }
 
-        return $n !== null && isset($this->tiles[$n]) ? $this->tiles[$n]->propertyIds($agencyId, $user) : null;
+        return class_exists(self::CC5_SERVICE) && in_array($n, [1, 4, 5, 6, 7, 8, 9], true) ? app(self::CC5_SERVICE)->fileIds($key, $user) : null;
     }
 
     public function panel(int $number): ?PanelProvider

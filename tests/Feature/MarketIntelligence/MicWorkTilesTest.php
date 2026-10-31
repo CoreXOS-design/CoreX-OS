@@ -54,7 +54,7 @@ final class MicWorkTilesTest extends TestCase
         $this->actingAs($this->admin)->get(route('market-intelligence.work'))
             ->assertOk()->assertSee('alert adverts this week', false);
         // the tile filter reaches the list query without error and narrows it to the provider's (empty) set
-        $this->actingAs($this->admin)->get(route('market-intelligence.work', ['tile' => 'alerts']))->assertOk();
+        $this->actingAs($this->admin)->get(route('market-intelligence.work', ['tile' => 'p24_alerts']))->assertOk();
     }
 
     public function test_panels_say_coming_without_a_service_and_render_rows_with_one(): void
