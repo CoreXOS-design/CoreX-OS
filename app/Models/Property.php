@@ -1301,6 +1301,8 @@ class Property extends Model
         // approved for syndication.
         'syndication_approved_at'     => 'datetime',
         'portal_sold_until'           => 'date',
+        'under_offer_at'              => 'datetime',
+        'sold_at'                     => 'datetime',
         'listing_cycle'               => 'integer',
         'compliance_evidence_flags'   => 'array',
         'first_marketed_at'           => 'datetime',

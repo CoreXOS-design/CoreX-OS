@@ -321,6 +321,8 @@ class SoldStockService
         }
         $price ??= $record?->sold_price;
         $date  ??= $record?->sold_date;
+        // MIC 5.4: the moment the status went Sold (properties.sold_at) beats the audit / updated_at guess below.
+        $date  ??= DB::table('properties')->where('id', $property->id)->value('sold_at');
         if (! $date && $historic) {
             // Backfill of a sale that predates this feature and carries no deal / sold record: the best evidence of WHEN it
             // sold is the audit-log moment the status became Sold, else the property's last update - never "today".

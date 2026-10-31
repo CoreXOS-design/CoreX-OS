@@ -565,6 +565,12 @@ class PropertyObserver
         // MUST stay FIRST in saved(): later steps (AutoEventService::onPropertyUpdated saves last_activity_at)
         // reset Eloquent's changes, after which wasChanged('status') is false and the hook would silently do nothing.
         if ($property->wasChanged('status')) {
+            // MIC 5.4 (AT-524): the ONE place under_offer_at / sold_at are stamped. Runs BEFORE the sold-stock snapshot, which reads sold_at.
+            try {
+                app(\App\Services\Properties\PropertyOfferSoldDates::class)->recordTransition($property);
+            } catch (\Throwable $e) {
+                Log::warning("Offer/sold date stamp failed for property #{$property->id}: {$e->getMessage()}");
+            }
             try {
                 app(\App\Services\SoldStock\SoldStockService::class)->onStatusChanged($property);
             } catch (\Throwable $e) {
