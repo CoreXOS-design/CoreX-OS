@@ -24,7 +24,7 @@
 
 <x-mic-page-header
     title="Work"
-    subtitle="Your prospecting worklist — listings to action, ranked by suggested next step.">
+    subtitle="{{ ($micView ?? 'properties') === 'properties' ? 'Every property we know about, one row each - both portals, alerts and deeds together' . (\App\Services\Prospecting\MicWork\MicWorkList::hasFileStats() ? ', ranked by opportunity score.' : ', newest activity first.') : 'Per-advert list - listings to action, ranked by suggested next step.' }}">
     <x-slot:actions>
         {{-- Slot: filter ticks. AJAX swap target (display:contents = no layout box),
              so a tick toggle refreshes this in place without a full reload. --}}
@@ -44,6 +44,11 @@
 </div>
 
 
+@if(($micView ?? 'properties') === 'properties')
+<div id="mic-slot-listings" data-tour="mic-listings">
+@include('corex.market-intelligence.partials._work-property-list')
+</div>
+@else
 {{-- Sticky offset is the main area's own top padding (p-4 / lg:p-6), set in the
      <style> block below, so the strip pins flush to the top edge of the scroll
      area — at top:0 a padding-high band above it showed the list scrolling
@@ -77,9 +82,12 @@
     </main>
 </div>
 
+@endif
 </div>{{-- /full-width container --}}
 
+@if(($micView ?? 'properties') !== 'properties')
 @include('corex.market-intelligence._slideover')
+@endif
 
 {{-- ─────────────────────────────────────────────────────────────────────────
      Tick refresh (cc6) — AJAX partial swap, no full-page reload.

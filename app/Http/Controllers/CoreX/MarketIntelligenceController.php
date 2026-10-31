@@ -575,6 +575,28 @@ class MarketIntelligenceController extends Controller
         }
         $kpiCountBase = clone $query;
 
+        // mic-work-tab.md 2.1 D: the default Work view is ONE ROW PER PROPERTY FILE, built from this same filtered query. ?view=adverts keeps the
+        // old per-advert list. Everything below this block is the per-advert path (buyer tiers, suggested actions, claims) and is skipped.
+        $micView = $request->query('view') === 'adverts' ? 'adverts' : 'properties';
+        if ($micView === 'properties') {
+            $sortKey = match ((string) $request->query('sort', 'last_seen')) { 'last_seen_at' => 'last_seen', 'first_seen_at' => 'time', default => (string) $request->query('sort', 'last_seen') };
+            $sortKey = in_array($sortKey, \App\Services\Prospecting\MicWork\MicWorkList::sortKeys(), true) ? $sortKey : 'last_seen';
+            $listings = app(\App\Services\Prospecting\MicWork\MicWorkList::class)->page(
+                $kpiCountBase, (int) $agencyId, $sortKey, (string) $request->query('dir', 'desc'), max(1, (int) $request->query('page', 1)),
+            );
+            [$workTiles, $workPanel] = $this->workTilesData($request, (int) $agencyId, $user, $isProspectingManager);
+            $isManager = $isProspectingManager;
+            if ($isFragment) {
+                return response()->json([
+                    'listings' => view('corex.market-intelligence.partials._work-property-list', compact('listings'))->render(),
+                    'headerActions' => view('corex.market-intelligence.partials._header-actions', ['showTicks' => false, 'isManager' => $isManager])->render(),
+                    'statsStrip' => '', 'filterRail' => '', 'buyerLegend' => '',
+                ]);
+            }
+
+            return view('corex.market-intelligence.work', compact('listings', 'workTiles', 'workPanel', 'micView', 'isProspectingManager', 'isManager'));
+        }
+
         // Sorting
         $sortBy = $request->get('sort', 'last_seen_at');
         $sortDir = $request->get('dir', 'desc');
@@ -1224,18 +1246,7 @@ class MarketIntelligenceController extends Controller
                 ->count(),
         );
 
-        // mic-work-tab.md 2.1 A+B: the 11-tile row and the tile 10 / 11 panels. A tile whose service has not landed says "Coming".
-        $micTiles = \App\Services\Prospecting\MicWork\MicWorkTiles::fromContainer();
-        $workTiles = $micTiles->row((int) $agencyId, $user);
-        $workPanel = ['ready' => false, 'rows' => [], 'around' => []];
-        $panelNo = (int) $request->query('panel');
-        if (in_array($panelNo, [10, 11], true) && ($pp = $micTiles->panel($panelNo))) {
-            $rows = $pp->rows((int) $agencyId, $user, $panelNo === 10
-                ? ['months' => (int) $request->query('months', 0), 'type' => $request->query('type'), 'suburb' => $request->query('suburb')]
-                : ['scope' => $isProspectingManager ? 'all' : 'mine']);
-            $workPanel = ['ready' => true, 'rows' => $rows, 'around' => $panelNo === 10
-                ? collect($rows)->mapWithKeys(fn ($r) => [$r['id'] => $pp->around((int) $agencyId, $user, (string) $r['id'])])->all() : []];
-        }
+        [$workTiles, $workPanel] = $this->workTilesData($request, (int) $agencyId, $user, $isProspectingManager);
 
         return view('corex.market-intelligence.work', compact(
             'listings', 'users', 'claimStats', 'regenerating',
@@ -1254,7 +1265,7 @@ class MarketIntelligenceController extends Controller
             'micBuyers', 'activeBuyerId', 'selectedBuyer', 'micRegions',
             'buyerScope', 'buyerScopeOptions',
             // 11-tile row + panels
-            'workTiles', 'workPanel',
+            'workTiles', 'workPanel', 'micView',
             // Company stock (exact portal_ref) — IN STOCK badge + company logo tile
             'companyStockMap', 'agencyLogoUrl',
             // MIC property row comments — .ai/specs/mic-property-row-comments.md
@@ -1303,6 +1314,29 @@ class MarketIntelligenceController extends Controller
             }
         }
     }
+
+    /**
+     * mic-work-tab.md 2.1 A+B: the 11-tile row and the tile 10 / 11 panels. A tile whose service has not landed says "Coming".
+     *
+     * @return array{0: list<array<string, mixed>>, 1: array<string, mixed>}
+     */
+    private function workTilesData(Request $request, int $agencyId, $user, bool $isProspectingManager): array
+    {
+        $micTiles = \App\Services\Prospecting\MicWork\MicWorkTiles::fromContainer();
+        $workTiles = $micTiles->row($agencyId, $user);
+        $workPanel = ['ready' => false, 'rows' => [], 'around' => []];
+        $panelNo = (int) $request->query('panel');
+        if (in_array($panelNo, [10, 11], true) && ($pp = $micTiles->panel($panelNo))) {
+            $rows = $pp->rows($agencyId, $user, $panelNo === 10
+                ? ['months' => (int) $request->query('months', 0), 'type' => $request->query('type'), 'suburb' => $request->query('suburb')]
+                : ['scope' => $isProspectingManager ? 'all' : 'mine']);
+            $workPanel = ['ready' => true, 'rows' => $rows, 'around' => $panelNo === 10
+                ? collect($rows)->mapWithKeys(fn ($r) => [$r['id'] => $pp->around($agencyId, $user, (string) $r['id'])])->all() : []];
+        }
+
+        return [$workTiles, $workPanel];
+    }
+
 
     /**
      * MIC speed round 4 — extracted verbatim from work(). Collapses rows
