@@ -29,7 +29,7 @@ await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' 
 // Every page the recording loads (a click that navigates, a goto) starts clean: the test-site banners and the app's own guided-tour popover are hidden from the first
 // moments of the load, not only after the helpers are put back (which waits for the page to settle and showed the banners for a few seconds in the first MIC video).
 await page.evaluateOnNewDocument(() => {
-  const css = '.driver-popover, .driver-overlay, .driver-stage { display: none !important; }';
+  const css = '.driver-popover, .driver-overlay, .driver-stage, [data-watch-how] { display: none !important; }';
   const sweep = () => {
     if (!document.getElementById('__tv-hide')) { const st = document.createElement('style'); st.id = '__tv-hide'; st.textContent = css; (document.head || document.documentElement).appendChild(st); }
     document.querySelectorAll('body *').forEach((e) => { if (e.offsetHeight > 0 && e.offsetHeight < 60 && e.children.length < 4 && /^QA ·|^STAGING ·|This is a test site/i.test((e.textContent || '').trim().slice(0, 40))) e.style.display = 'none'; });
@@ -68,7 +68,8 @@ await inject();
 // test-site banners that QA/Staging put above the page.
 async function tidy() {
   if (job.ad) await page.addStyleTag({ content: '#__tv-cursor { display: none !important; }' }).catch(() => {});   // an ad shows the screen itself, no cursor dot
-  await page.addStyleTag({ content: '.driver-popover, .driver-overlay, .driver-stage { display: none !important; }' }).catch(() => {});
+  // a recording never shows the "Watch how" button of the very video being made (its length would be that of the previous version)
+  await page.addStyleTag({ content: '.driver-popover, .driver-overlay, .driver-stage, [data-watch-how] { display: none !important; }' }).catch(() => {});
   await page.evaluate(() => {
     const cb = document.querySelector('.driver-popover input[type=checkbox]'); if (cb && !cb.checked) cb.click();
     const btn = [...document.querySelectorAll('.driver-popover button')].find((b) => /close tour/i.test(b.textContent)); if (btn) btn.click();
