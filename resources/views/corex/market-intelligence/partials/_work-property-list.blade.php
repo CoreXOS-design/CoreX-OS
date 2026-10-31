@@ -1,6 +1,6 @@
 {{-- MIC Work tab (mic-work-tab.md 2.1 C-E): control line + ONE ROW PER PROPERTY FILE, Excel-style, expand in place. Rows come from MicWorkList. --}}
 @php
-    $sortNow = request('sort', 'last_seen');
+    $sortNow = request('sort', $defaultSortKey ?? 'last_seen');
     $dirNow = request('dir', 'desc');
     $sortUrl = function (string $key, string $defaultDir = 'desc') use ($sortNow, $dirNow) {
         $dir = $sortNow === $key ? ($dirNow === 'desc' ? 'asc' : 'desc') : $defaultDir;

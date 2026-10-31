@@ -40,6 +40,12 @@ final class MicWorkList
         return array_merge(array_keys(self::SORTS), self::hasFileStats() ? ['score', 'buyers'] : []);
     }
 
+    /** Opportunity score once cc5's stored stats exist; until then newest activity first. */
+    public static function defaultSort(): string
+    {
+        return self::hasFileStats() ? 'score' : 'last_seen';
+    }
+
     public static function hasFileStats(): bool
     {
         static $has = null;

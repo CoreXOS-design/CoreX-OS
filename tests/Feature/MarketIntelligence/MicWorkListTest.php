@@ -83,4 +83,25 @@ final class MicWorkListTest extends TestCase
         $this->actingAs($this->admin)->get(route('market-intelligence.work', ['search' => 'nothing-matches-this-zzz']))->assertOk()->assertSee('data-qa="work-empty"', false);
         $this->assertContains('time', MicWorkList::sortKeys());
     }
+
+    public function test_search_matches_the_files_resolved_address_refs_and_every_word(): void
+    {
+        $tp = $this->tp($this->agency, 'P24-119000030', '13', 'Newport Road');
+        $this->advert($this->agency, 'p24', 'P24-119000030', $tp, ['address' => '13 Newport Road']);
+        $this->advert($this->agency, 'pp', 'PP-T4203603', $tp); // blank own address: found only through the file
+        $other = $this->tp($this->agency, 'P24-119000031', '2', 'Beach Drive');
+        $this->advert($this->agency, 'p24', 'P24-119000031', $other);
+        $tpB = $this->tp($this->b, 'P24-119000032', '9', 'Newport Road'); // another agency's file never matches ours
+        $this->advert($this->b, 'p24', 'P24-119000032', $tpB);
+
+        $get = fn (array $q) => $this->actingAs($this->admin)->get(route('market-intelligence.work', $q))->assertOk()->getContent();
+        $html = $get(['search' => 'Newport']);
+        $this->assertSame(1, substr_count($html, 'data-qa="work-row"'), 'the file with both adverts is ONE row');
+        $this->assertStringContainsString('PP-T4203603', $html);
+        $this->assertStringNotContainsString('Beach Drive', $html);
+        $this->assertSame(1, substr_count($get(['search' => 'T4203603']), 'data-qa="work-row"'), 'ref digits');
+        $this->assertSame(1, substr_count($get(['search' => '13 newport']), 'data-qa="work-row"'), 'every word must match');
+        $this->assertSame(0, substr_count($get(['search' => 'newport beach']), 'data-qa="work-row"'));
+        $this->assertStringContainsString('P24-119000031', $get(['search' => 'Beach', 'view' => 'adverts']), 'the old advert list gets the same search');
+    }
 }
