@@ -36,6 +36,8 @@ final class MarketIntelligenceTabs extends TabHub
                 'feature' => 'address-review', 'permissions' => ['address_review.manage']],
             'possible-matches' => ['label' => 'Possible matches', 'route' => 'corex.possible-matches.index', 'match' => ['corex.possible-matches.*'], 'old' => null,
                 'feature' => 'prospecting', 'permissions' => ['access_prospecting', 'prospecting_setup.manage']],
+            'mic-settings' => ['label' => 'Settings', 'route' => 'market-intelligence.settings', 'match' => ['market-intelligence.settings*'], 'old' => null,
+                'feature' => 'prospecting', 'permissions' => ['access_prospecting', 'prospecting_setup.manage']],
             'stale-claims' => ['label' => 'Stale claims', 'route' => 'market-intelligence.stale-review', 'match' => ['market-intelligence.stale-review*'], 'old' => 'Stale claims review',
                 'feature' => 'prospecting', 'permissions' => ['access_prospecting', 'prospecting_setup.manage']],
         ];

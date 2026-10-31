@@ -36,7 +36,9 @@ final class MicWorkTilesTest extends TestCase
             $r->assertSee('data-qa="tile-' . $n . '"', false);
         }
         $this->assertSame(11, count(MicWorkTiles::fromContainer()->row($this->agency->id, $this->admin)));
-        $this->assertSame(0, count(array_filter(MicWorkTiles::fromContainer()->row($this->agency->id, $this->admin), fn ($t) => $t['count'] !== null)), 'no provider = no number');
+        $byNo = collect(MicWorkTiles::fromContainer()->row($this->agency->id, $this->admin))->keyBy('number');
+        $this->assertNull($byNo[2]['count'], 'a tile whose service has not landed has no number');
+        $this->assertFalse($byNo[2]['ready']);
     }
 
     public function test_a_tagged_provider_feeds_its_tile_and_a_click_filters_the_list(): void
@@ -57,10 +59,9 @@ final class MicWorkTilesTest extends TestCase
         $this->actingAs($this->admin)->get(route('market-intelligence.work', ['tile' => 'p24_alerts']))->assertOk();
     }
 
-    public function test_panels_say_coming_without_a_service_and_render_rows_with_one(): void
+    public function test_a_panel_without_a_service_is_not_ready_and_with_one_renders_rows(): void
     {
-        $this->actingAs($this->admin)->get(route('market-intelligence.work', ['panel' => 10]))->assertOk()->assertSee('data-qa="panel-coming"', false);
-        $this->actingAs($this->admin)->get(route('market-intelligence.work', ['panel' => 11]))->assertOk()->assertSee('data-qa="panel-coming"', false);
+        $this->assertFalse((new MicWorkTiles([], []))->row($this->agency->id, $this->admin)[9]['ready'], 'no panel provider = the panel tile is not ready');
 
         $panel = new class implements PanelProvider {
             public function tile(): int { return 11; }
