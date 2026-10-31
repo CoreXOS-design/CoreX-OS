@@ -51,6 +51,7 @@ final class MicBackfillOfferSoldDates extends Command
         $this->line(($apply ? 'APPLIED' : 'DRY RUN') . '  run_id=' . $r['run_id'] . '  trusted-sales dates: ' . json_encode($r['agencies']));
         $this->line(sprintf('  status-change events read: %d (console fixes ignored %d, import stamps ignored %d); properties skipped because the log does not end at their status: %d',
             $r['events_considered'], $r['events_excluded_console'], $r['events_excluded_import'], $r['skipped_mismatch']));
+        $this->line(sprintf('  catch-up days ignored (>= bulk_status_day_events sale-side changes on one day): %s -> %d events', json_encode($r['bulk_days']), $r['events_excluded_bulk_days']));
         $this->line(sprintf('  under_offer_at %s: %d   sold_at %s: %d   sold_stock rows %s: %d', $apply ? 'filled' : 'would fill', $r['under_offer_filled'], $apply ? 'filled' : 'would fill', $r['sold_filled'], $apply ? 'corrected' : 'would correct', $r['sold_stock_corrected']));
         $this->line('  busiest days: ' . json_encode($r['event_days']));
         $this->line('  days to sale by suburb (listed date -> sold_at; after the run):');

@@ -142,6 +142,28 @@ final class PropertyOfferSoldDatesTest extends TestCase
         $this->assertSame([null, null], $this->dates($sold));
     }
 
+    public function test_a_catch_up_day_with_a_mass_of_sale_side_changes_is_not_used(): void
+    {
+        $catchUp = [];
+        for ($i = 0; $i < 10; $i++) {
+            $p = $this->property('sold');
+            $this->event($p, 'active', 'sold', '2026-07-01 1' . ($i % 10) . ':00:00');
+            $catchUp[] = $p;
+        }
+        $real = $this->property('sold');
+        $this->event($real, 'active', 'sold', '2026-08-11 09:00:00');
+
+        $r = app(PropertyOfferSoldDates::class)->backfill($this->agency->id, true);
+
+        foreach ($catchUp as $p) {
+            $this->assertSame([null, null], $this->dates($p), 'ten Sold changes in one day is data entry, not ten sales');
+        }
+        $this->assertSame(['sold' => null], ['sold' => $this->dates($catchUp[0])[1]]);
+        $this->assertSame([null, '2026-08-11 09:00:00'], $this->dates($real));
+        $this->assertSame(10, $r['events_excluded_bulk_days']);
+        $this->assertSame([$this->agency->id . ' 2026-07-01' => 10], $r['bulk_days']);
+    }
+
     public function test_sold_stock_rows_with_the_fallback_date_get_the_real_sale_date_and_days_and_the_portal_window_is_untouched(): void
     {
         $p = $this->property('sold', ['listed_date' => '2026-07-01']);

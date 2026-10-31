@@ -28,6 +28,7 @@ class MicAgencySetting extends Model
         'stuck_dom_days'          => 90,
         'detail_pages_per_session' => 40,
         'trusted_sales_after'     => '2026-06-26',
+        'bulk_status_day_events'  => 10,
         'buyer_states_excluded'   => ['cold', 'lost'],
         // Settings page (cc6, spec section 9). Read by cc4's tiles (MicTileSettings) and cc3's capture limits through the static accessors below.
         'areas'                      => [],
@@ -116,6 +117,12 @@ class MicAgencySetting extends Model
 
         return preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) ? $d : self::DEFAULTS['trusted_sales_after'];
     }
+
+    /**
+     * cc2 5.4: a day on which this many or more Under Offer / Sold status changes were made is a catch-up entry, not the real moment of
+     * the sales (31 Sold changes on 27 Jun and 1 Jul 2026, each 2-6 days after the listed date). Those days are ignored when back-filling.
+     */
+    public function bulkStatusDayEvents(): int { return $this->positiveInt('bulk_status_day_events'); }
 
     /** @return list<string> buyer states that do not count as demand */
     public function buyerStatesExcluded(): array
