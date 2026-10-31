@@ -22,6 +22,12 @@
         <source src="{{ route('corex.training-library.file', [$script->key(), 'mp4']) }}" type="video/mp4">
         <track kind="subtitles" srclang="en" label="English" src="{{ route('corex.training-library.file', [$script->key(), 'vtt']) }}" default>
     </video>
+    @include('corex.training-library._captions-js')
+    <div class="flex items-center gap-3">
+        <button type="button" class="corex-btn-outline text-xs" id="tl-cc" data-cc-toggle aria-pressed="true" onclick="window.__tvCaptions(document.getElementById('tl-player'), this)">CC: On</button>
+        <span class="text-xs" style="color: var(--text-muted);">Captions can be switched off here or in the player.</span>
+    </div>
+    <script>window.__tvCaptionsInit(document.getElementById('tl-player'), document.getElementById('tl-cc'));</script>
     <div class="text-xs" style="color: var(--text-muted);">{{ $video->durationLabel() }} · made {{ $video->generated_at?->format('j M Y') }} · voice: {{ app(\App\Services\TrainingVideos\Tts\TrainingVoices::class)->labelFor($video->tts_voice) }}@if($script->route()) · <a class="underline" href="{{ $script->url() }}">Open this screen</a>@endif</div>
     @if(! empty($video->chapters))
         <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-chapters>

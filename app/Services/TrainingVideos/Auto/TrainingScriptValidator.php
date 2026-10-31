@@ -59,10 +59,50 @@ class TrainingScriptValidator
                 $p[] = "Step {$n}: say WHY it matters - what this feeds elsewhere (why). That is the point of the video.";
             }
         }
+        foreach ($this->plainWordProblems($s) as $line) {
+            $p[] = $line;
+        }
         $estimate = $this->estimateSeconds($s);
         $cap = (int) config('training-videos.auto.max_seconds', 120);
         if ($estimate > $cap) {
             $p[] = 'About ' . (int) round($estimate) . ' seconds of narration - over the ' . $cap . ' second limit. Shorten the lines or split it into two screens.';
+        }
+
+        return $p;
+    }
+
+    /**
+     * Johan's plain-words rule (spec section 9.13): every spoken / captioned line is in an agent's words, one idea per line. Flags a banned software word (list in
+     * config training-videos.auto.plain_words.banned, printed in the spec) and any line longer than max_line_words.
+     *
+     * @return array<int,string>
+     */
+    public function plainWordProblems(TrainingScript $s): array
+    {
+        $p = [];
+        $banned = (array) config('training-videos.auto.plain_words.banned', []);
+        $max = (int) config('training-videos.auto.plain_words.max_line_words', 20);
+        $lines = [];
+        if ($s->intro() !== '') {
+            $lines['The intro'] = $s->intro();
+        }
+        foreach ($s->steps() as $i => $step) {
+            $lines['Step ' . ($i + 1) . ' (what to do)'] = (string) ($step['narration'] ?? '');
+            $lines['Step ' . ($i + 1) . ' (why)'] = (string) ($step['why'] ?? '');
+        }
+        if ($s->outro() !== '') {
+            $lines['The outro'] = $s->outro();
+        }
+        foreach ($lines as $where => $text) {
+            foreach ($banned as $word => $say) {
+                if (preg_match('/(?<![\w])' . preg_quote((string) $word, '/') . '(?![\w])/iu', $text)) {
+                    $p[] = "{$where}: \"{$word}\" is a software word - say \"{$say}\" instead.";
+                }
+            }
+            $n = str_word_count($text);
+            if ($n > $max) {
+                $p[] = "{$where}: {$n} words - keep a line to about 15 and never over {$max}. One idea per line.";
+            }
         }
 
         return $p;

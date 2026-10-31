@@ -163,6 +163,67 @@ final class AutoVideoScriptTest extends TestCase
         @unlink($out);
     }
 
+    public function test_captions_are_not_burned_into_the_picture_unless_a_social_cut_asks(): void
+    {
+        $asm = new class extends \App\Services\TrainingVideos\Auto\VideoAssembler {
+            public array $calls = [];
+
+            protected function run(array $args, string $what): void
+            {
+                $this->calls[] = $args;
+            }
+
+            public function probe(string $file): array
+            {
+                return ['duration' => 1.0, 'width' => 1280, 'height' => 720, 'size' => 1];
+            }
+        };
+        $dir = sys_get_temp_dir() . '/tv-asm-' . uniqid();
+        mkdir($dir);
+        $cues = [['file' => $dir . '/a.wav', 'start' => 0.5, 'end' => 2.0, 'text' => 'Hello there.']];
+        foreach (['plain' => false, 'social' => true] as $name => $burn) {
+            try {
+                $asm->assemble('/x.mp4', $cues, $dir . '/' . $name, $burn);
+            } catch (\Throwable $e) {
+                // the poster step needs a real file; only the first (assemble) ffmpeg call matters here
+            }
+        }
+        $builds = array_values(array_filter($asm->calls, fn ($c) => in_array('-filter_complex', $c, true)));
+        $this->assertCount(2, $builds);
+        $this->assertNotContains('-vf', $builds[0], 'the normal video carries no burned-in subtitles filter');
+        $this->assertContains('-vf', $builds[1], 'a social cut can ask for burned-in captions');
+        $this->assertFileExists($dir . '/plain.vtt', 'the captions still ship as a .vtt track for the player');
+        \Illuminate\Support\Facades\File::deleteDirectory($dir);
+    }
+
+    public function test_the_plain_words_rule_flags_software_words_and_long_lines(): void
+    {
+        $bad = new \App\Services\TrainingVideos\Auto\TrainingScript(['key' => 'x', 'title' => 'T', 'url' => '/x', 'intro' => 'Open the record card on the tile panel.', 'steps' => [[
+            'selector' => 'a', 'action' => 'highlight',
+            'narration' => 'Press the toggle to sync the R/m² and check the valuation of the house before you phone the owner about the price today please.',
+            'why' => 'So you know.',
+        ]]]);
+        $text = implode("\n", (new \App\Services\TrainingVideos\Auto\TrainingScriptValidator())->plainWordProblems($bad));
+        foreach (['record card', 'tile', 'panel', 'toggle', 'sync', 'R/m²', 'valuation'] as $w) {
+            $this->assertStringContainsStringIgnoringCase('"' . $w . '"', $text, $w . ' is flagged');
+        }
+        $this->assertStringContainsString('words - keep a line', $text);
+        $this->assertStringContainsString('evaluation', $text, 'the fix for valuation is named');
+    }
+
+    public function test_every_shipped_script_passes_the_plain_words_rule_and_the_banned_list_is_printed_in_the_spec(): void
+    {
+        $v = new \App\Services\TrainingVideos\Auto\TrainingScriptValidator();
+        foreach (glob(resource_path('training/scripts/*.php')) as $file) {
+            $s = new \App\Services\TrainingVideos\Auto\TrainingScript(require $file, $file);
+            $this->assertSame([], $v->plainWordProblems($s), basename($file));
+        }
+        $spec = file_get_contents(base_path('.ai/specs/training-videos.md'));
+        foreach (array_keys(config('training-videos.auto.plain_words.banned')) as $word) {
+            $this->assertStringContainsStringIgnoringCase($word, $spec, "the banned word '{$word}' is listed in spec section 9.13");
+        }
+    }
+
     public function test_generated_videos_never_appear_on_the_public_page_scope(): void
     {
         TrainingVideo::create(['source' => 'generated', 'status' => 'ready', 'title' => 'Private how-to', 'screen_key' => 'x']);

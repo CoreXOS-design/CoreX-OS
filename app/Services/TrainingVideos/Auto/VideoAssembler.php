@@ -6,7 +6,7 @@ use Symfony\Component\Process\Process;
 
 /**
  * AT-525 (spec section 9.5) - turns the raw screen recording + the measured voice clips into the finished MP4: the clips are placed at the step start times the
- * recorder reported (sync by construction), H.264 + AAC (CRF 26, faststart) like AT-509's compressor, captions burned in AND written as a .vtt sidecar,
+ * recorder reported (sync by construction), H.264 + AAC (CRF 26, faststart) like AT-509's compressor, captions written as a .vtt sidecar the player shows (on by default, with a CC switch) and NEVER burned into the picture - burning them in as well showed every line twice (Johan, 31 Oct). `$burn` is only for the social-media cuts, where there is no player to show the track,
  * a poster frame, and the 120-second cap enforced on the real length.
  */
 class VideoAssembler
@@ -15,7 +15,7 @@ class VideoAssembler
      * @param  array<int,array{file:string,start:float,end:float,text:string}>  $cues  one per spoken line, in order
      * @return array{duration:float,width:int,height:int,size:int,mp4:string,poster:string,vtt:string}
      */
-    public function assemble(string $rawVideo, array $cues, string $outBase): array
+    public function assemble(string $rawVideo, array $cues, string $outBase, bool $burn = false): array
     {
         $ffmpeg = (string) config('training-videos.ffmpeg', 'ffmpeg');
         $srt = $outBase . '.srt';
@@ -34,11 +34,15 @@ class VideoAssembler
         $n = count($cues);
         $mix = implode('', array_map(fn ($i) => "[a{$i}]", range(0, max(0, $n - 1))));
         $filters[] = $n > 1 ? $mix . 'amix=inputs=' . $n . ':normalize=0:duration=longest[aout]' : '[a0]anull[aout]';
-        $style = "FontName=DejaVu Sans,FontSize=11,PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BorderStyle=3,Outline=1,Shadow=0,MarginV=24";
-        $vf = "subtitles='" . str_replace(["\\", ":", "'"], ["\\\\", "\\:", "\\'"], $srt) . "':force_style='" . $style . "'";
+        $vfArgs = [];
+        if ($burn) {
+            $style = "FontName=DejaVu Sans,FontSize=11,PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BorderStyle=3,Outline=1,Shadow=0,MarginV=24";
+            $vfArgs = ['-vf', "subtitles='" . str_replace(["\\", ":", "'"], ["\\\\", "\\:", "\\'"], $srt) . "':force_style='" . $style . "'"];
+        }
         $mp4 = $outBase . '.mp4';
-        array_push($args, '-filter_complex', implode(';', $filters), '-map', '0:v', '-map', '[aout]', '-vf', $vf,
-            '-c:v', 'libx264', '-preset', 'medium', '-crf', '26', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', '-shortest', $mp4);
+        array_push($args, '-filter_complex', implode(';', $filters), '-map', '0:v', '-map', '[aout]');
+        array_push($args, ...$vfArgs);
+        array_push($args, '-c:v', 'libx264', '-preset', 'medium', '-crf', '26', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '96k', '-movflags', '+faststart', '-shortest', $mp4);
         $this->run($args, 'assemble');
 
         $info = $this->probe($mp4);
@@ -82,7 +86,7 @@ class VideoAssembler
         return sprintf('%02d:%02d:%02d%s%03d', intdiv($ms, 3600000), intdiv($ms % 3600000, 60000), intdiv($ms % 60000, 1000), $vtt ? '.' : ',', $ms % 1000);
     }
 
-    private function run(array $cmd, string $what): void
+    protected function run(array $cmd, string $what): void
     {
         $p = new Process($cmd);
         $p->setTimeout(600);

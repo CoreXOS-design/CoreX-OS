@@ -16,6 +16,7 @@
     } catch (\Throwable $e) { $__whVideo = null; }
 @endphp
 @if($__whVideo)
+@include('corex.training-library._captions-js')
 @php request()->attributes->set('watch_how_rendered', true); @endphp
 <div @if($inline) style="display:inline-block;" @endif x-data="{ open: false }" x-on:keydown.escape.window="open = false; $refs.v && $refs.v.pause()" data-watch-how="{{ $__whScript->key() }}">
     <button type="button" x-on:click="open = true; $nextTick(() => $refs.v && $refs.v.play())" data-watch-how-button
@@ -32,6 +33,7 @@
             <div class="w-full rounded-md overflow-hidden" style="max-width: 960px; background: var(--surface); border: 1px solid var(--border);" x-on:click.outside="open = false; $refs.v.pause()">
                 <div class="flex items-center justify-between px-4 py-2"><div class="text-sm font-semibold">{{ $__whScript->title() }}</div>
                     <div class="flex items-center gap-3 text-xs"><a class="underline" href="{{ route('corex.training-library.show', $__whScript->key()) }}">Open in the library</a>
+                        <button type="button" class="corex-btn-outline text-xs" data-cc-toggle aria-pressed="true" x-ref="cc" x-init="$nextTick(() => window.__tvCaptionsInit($refs.v, $refs.cc))" x-on:click="window.__tvCaptions($refs.v, $refs.cc)">CC: On</button>
                         <button type="button" class="corex-btn-outline text-xs" x-on:click="open = false; $refs.v.pause()">Close</button></div></div>
                 <video x-ref="v" controls playsinline preload="none" class="w-full" style="background:#000; aspect-ratio:16/9;" poster="{{ route('corex.training-library.file', [$__whScript->key(), 'jpg']) }}">
                     <source src="{{ route('corex.training-library.file', [$__whScript->key(), 'mp4']) }}" type="video/mp4">

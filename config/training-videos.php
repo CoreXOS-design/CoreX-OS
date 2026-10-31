@@ -70,6 +70,19 @@ return [
         'step_pad_seconds' => 0.6,
         'words_per_second' => 2.5,
 
+        // Johan's plain-words rule for every how-to video (spec .ai/specs/training-videos.md section 9.13): the average agent's words, never the software's. word => what to say instead.
+        // The same list is printed in the spec (a test keeps the two in step). One idea per line: a line over `max_line_words` is flagged.
+        'plain_words' => [
+            'banned' => [
+                'tile' => 'box / block (or just say what it shows)', 'tiles' => 'boxes', 'panel' => 'list / box', 'record card' => 'everything we know about the house',
+                'score reason' => 'why it ranks high', 'score reasons' => 'why it ranks high', 'provider' => 'who supplies it', 'filter chip' => 'button', 'chip' => 'button',
+                'queue' => 'list of waiting jobs', 'sync' => 'update', 'toggle' => 'switch on or off', 'expand' => 'open', 'dropdown' => 'list', 'drop-down' => 'list',
+                'modal' => 'box that opens', 'widget' => 'box', 'checkbox' => 'tick box', 'database' => 'our records', 'api' => 'connection', 'backend' => 'behind the scenes',
+                'workflow' => 'steps', 'valuation' => 'evaluation', 'r/m²' => 'price per square metre', 'r/m2' => 'price per square metre',
+            ],
+            'max_line_words' => 20,
+        ],
+
         'tts' => [
             // 'piper' (free, offline, MIT) | 'fake' (silent, tests). A paid voice is one more class implementing App\Services\TrainingVideos\Tts\TtsProvider.
             'driver' => env('TRAINING_TTS_DRIVER', 'piper'),
@@ -83,7 +96,7 @@ return [
         // The voice every agency starts with; an agency picks its own in the Training library (agencies.training_video_voice).
         'default_voice' => env('TRAINING_DEFAULT_VOICE', 'jenny'),
         // Two plain sentences every voice speaks in the Training library's voice picker, so the voices can be compared like for like.
-        'sample_text' => 'Click the house to see everything we know about it. Then press Claim, so you know who to phone first.',
+        'sample_text' => 'Click a house to see everything we know about it. To go after it, press Claim.',
         // The Piper voices on offer (British English, female; free and offline; models live on the DATA volume, in piper.data_dir). `speaker` = the id inside a
         // multi-speaker model. A voice is added here and its model downloaded with `python -m piper.download_voices <model> --data-dir <data_dir>`.
         'voices' => [
