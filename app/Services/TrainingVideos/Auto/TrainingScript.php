@@ -17,13 +17,25 @@ namespace App\Services\TrainingVideos\Auto;
  *   login_as   training-agency user to record as (default 'agent')
  *   approved   bool - Johan's sign-off
  *   intro, outro   the spoken first and last lines (a title card is drawn for each)
+ *   narrated   OPTIONAL bool - the screen also offers the narrated guided tour ("Guide me", AT-526). Default false.
  *   steps[]    selector (CSS, optional), action (see ACTIONS), value (type/goto), narration (what to do), why (what it feeds elsewhere - REQUIRED: the point of the video), hold (extra seconds)
+ *              AT-526 (tour only, the video ignores them): target (CSS, the element the agent acts on when it differs from selector), done (see DONE_KINDS), wait_for (CSS that must be on screen
+ *              before the step starts)
  */
 final class TrainingScript
 {
     /** What a step may do. highlight = spotlight the element; click; type = type `value` into it; select = choose option `value` in a <select>; scroll = bring it into view; wait = just pause; goto = open `value`. */
     public const ACTIONS = ['highlight', 'click', 'type', 'select', 'scroll', 'wait', 'goto', 'press'];
     public const NEEDS_SELECTOR = ['highlight', 'click', 'type', 'select', 'scroll'];
+
+    /**
+     * AT-526 - how the narrated tour knows the agent did a step (spec section 9.15). `none` = just read it (a "Got it" button); `click` = the target was clicked;
+     * `input` = the field holds a valid value (typed + left, or already right and confirmed); `change` = the list was changed; `appear:<css>` = that element is on screen;
+     * `url:<path>` = the page moved to that path. Default per action in defaultDone().
+     */
+    public const DONE_KINDS = ['none', 'click', 'input', 'change', 'appear', 'url'];
+    /** Actions only the video performs: the tour skips them unless the step names a `done`. */
+    public const VIDEO_ONLY_ACTIONS = ['wait', 'goto', 'press'];
 
     /** @param array<string,mixed> $data */
     public function __construct(public readonly array $data, public readonly string $path = '')
@@ -43,6 +55,7 @@ final class TrainingScript
     public function related(): array { return array_values((array) ($this->data['related'] ?? [])); }
     public function loginAs(): string { return (string) ($this->data['login_as'] ?? 'agent'); }
     public function approved(): bool { return (bool) ($this->data['approved'] ?? false); }
+    public function narrated(): bool { return (bool) ($this->data['narrated'] ?? false); }
     public function intro(): string { return (string) ($this->data['intro'] ?? ''); }
     public function outro(): string { return (string) ($this->data['outro'] ?? ''); }
     /** @return array<int,array<string,mixed>> */
@@ -69,5 +82,57 @@ final class TrainingScript
         }
 
         return $lines;
+    }
+
+    /** What the tour waits for when a step does not say: the action's natural finish. */
+    public static function defaultDone(array $step): string
+    {
+        return match ((string) ($step['action'] ?? 'highlight')) {
+            'click' => 'click',
+            'type' => 'input',
+            'select' => 'change',
+            default => 'none',
+        };
+    }
+
+    /** The step's done-condition as [kind, argument] - e.g. ['appear', '#panel'], ['click', null]. */
+    public static function doneOf(array $step): array
+    {
+        $raw = trim((string) ($step['done'] ?? '')) ?: self::defaultDone($step);
+        $kind = strtolower(strtok($raw, ':') ?: 'none');
+        $arg = str_contains($raw, ':') ? trim(substr($raw, strpos($raw, ':') + 1)) : null;
+
+        return [$kind, $arg === '' ? null : $arg];
+    }
+
+    /**
+     * The steps the narrated tour walks, each keeping its ORIGINAL number n (1-based; the audio clips are numbered the same way: 0 intro, 1..N steps, N+1 outro).
+     * Video-only steps (wait / goto / press) are left out unless they carry their own done-condition.
+     *
+     * @return array<int,array<string,mixed>>
+     */
+    public function tourSteps(): array
+    {
+        $out = [];
+        foreach ($this->steps() as $i => $step) {
+            $action = (string) ($step['action'] ?? 'highlight');
+            if (in_array($action, self::VIDEO_ONLY_ACTIONS, true) && trim((string) ($step['done'] ?? '')) === '') {
+                continue;
+            }
+            [$kind, $arg] = self::doneOf($step);
+            $out[] = [
+                'n' => $i + 1,
+                'selector' => (string) ($step['selector'] ?? ''),
+                'target' => (string) ($step['target'] ?? ''),
+                'action' => $action,
+                'value' => isset($step['value']) ? (string) $step['value'] : null,
+                'narration' => trim((string) ($step['narration'] ?? '')),
+                'why' => trim((string) ($step['why'] ?? '')),
+                'done' => $arg === null ? $kind : $kind . ':' . $arg,
+                'wait_for' => (string) ($step['wait_for'] ?? ''),
+            ];
+        }
+
+        return $out;
     }
 }

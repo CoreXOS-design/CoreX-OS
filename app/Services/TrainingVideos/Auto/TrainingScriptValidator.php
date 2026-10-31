@@ -55,6 +55,17 @@ class TrainingScriptValidator
             if (trim((string) ($step['narration'] ?? '')) === '') {
                 $p[] = "Step {$n}: say what to do (narration).";
             }
+            // AT-526: the narrated tour's extra fields
+            if (trim((string) ($step['done'] ?? '')) !== '') {
+                [$kind, $arg] = TrainingScript::doneOf($step);
+                if (! in_array($kind, TrainingScript::DONE_KINDS, true)) {
+                    $p[] = "Step {$n}: done '" . $step['done'] . "' is not one of " . implode(', ', TrainingScript::DONE_KINDS) . '.';
+                } elseif (in_array($kind, ['appear', 'url'], true) && $arg === null) {
+                    $p[] = "Step {$n}: done '{$kind}' needs something after the colon (e.g. {$kind}:" . ($kind === 'url' ? '/corex/diary' : '#panel') . ').';
+                } elseif ($kind === 'click' && trim((string) ($step['selector'] ?? '')) === '' && trim((string) ($step['target'] ?? '')) === '') {
+                    $p[] = "Step {$n}: done 'click' needs a selector or a target to click.";
+                }
+            }
             if (trim((string) ($step['why'] ?? '')) === '') {
                 $p[] = "Step {$n}: say WHY it matters - what this feeds elsewhere (why). That is the point of the video.";
             }

@@ -270,6 +270,7 @@
 
         {{-- AT-525 - the "Watch how" button of a screen's auto-generated how-to video (renders nothing when the screen has none). --}}
         @include('layouts.partials.watch-how')
+        @include('layouts.partials.guide-me')
 
         {{-- AT-478 — gradual feature rollout pop-ups (admin access review / "New in CoreX").
              Emits nothing when the agency is not on gradual rollout. Spec: .ai/specs/agency-feature-rollout.md §5.3–5.4 --}}

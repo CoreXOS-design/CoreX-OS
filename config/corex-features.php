@@ -519,6 +519,16 @@ return [
         'permission_keys' => ['training_videos.view', 'training_videos.generate'],
     ],
 
+    'narrated-tours' => [
+        'label' => 'Narrated guided tours', 'category' => 'Tools & Calculators',
+        'explain' => 'A "Guide me" button on a few key screens: a voice tells the agent what to do and why, and the tour waits until it is done.',
+        'affects' => 'Whether the "Guide me" voice tours are offered. Off hides the button; the plain guided tours and how-to videos stay as they are. Nothing is stored.',
+        'default' => true, 'core' => false, 'depends_on' => ['guided-tours'],
+        'nav_permission' => [], 'sidebar_section' => 'tools',
+        'settings_section' => null, 'route_prefixes' => [], 'global_flag' => null,
+        'permission_keys' => ['training_tours.use'],
+    ],
+
     // ── Learning & AI ──
     'ellie' => [
         'label' => 'Ellie AI', 'category' => 'Learning & AI',

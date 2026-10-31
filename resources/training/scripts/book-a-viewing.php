@@ -15,6 +15,7 @@ return [
     'related' => ['capture-viewing-feedback', 'seller-live-link'],
     'login_as' => 'agent',
     'approved' => true,
+    'narrated' => true,                   // AT-526: also offered as the narrated guided tour ("Guide me"); done / target / wait_for below are for the tour, the video ignores them
     'intro' => 'Here is how to put a viewing in your diary.',
     'steps' => [
         [
@@ -23,17 +24,17 @@ return [
             'why' => 'That is how CoreX knows the viewing happened, and asks you for feedback afterwards.',
         ],
         [
-            'selector' => '[data-tour="cal-add"]', 'action' => 'click',
+            'selector' => '[data-tour="cal-add"]', 'action' => 'click', 'done' => 'click',
             'narration' => 'Press Add Event.',
             'why' => 'The viewing is then tied to the buyer and the house, not just a time.',
         ],
         [
-            'selector' => '[data-tour="cal-event-title"]', 'action' => 'type', 'value' => 'Viewing with Bianca Buyer',
+            'selector' => '[data-tour="cal-event-title"]', 'action' => 'type', 'value' => 'Viewing with Bianca Buyer', 'done' => 'input', 'wait_for' => '[data-tour="cal-event-title"]',
             'narration' => 'Type a name for the viewing.',
             'why' => 'You and your team will see this name in the diary.',
         ],
         [
-            'selector' => '[data-tour="cal-event-type"]', 'action' => 'select', 'value' => 'viewing',
+            'selector' => '[data-tour="cal-event-type"]', 'action' => 'select', 'value' => 'viewing', 'done' => 'change',
             'narration' => 'Choose Viewing as the type.',
             'why' => 'Then CoreX asks for the buyer\'s feedback after the viewing.',
         ],

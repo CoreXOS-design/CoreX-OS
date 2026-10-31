@@ -429,6 +429,14 @@ Route::middleware('auth')->group(function () {
     Route::get('/api/v1/p24/cities',    [\App\Http\Controllers\Api\V1\P24LocationController::class, 'cities'])->name('api.v1.p24.cities');
     Route::get('/api/v1/p24/suburbs',   [\App\Http\Controllers\Api\V1\P24LocationController::class, 'suburbs'])->name('api.v1.p24.suburbs');
 
+    // Narrated guided tours (AT-526, spec .ai/specs/training-videos.md 9.23) - the tour's steps and voice clips for the "Guide me" player (fetch + session cookie, so here and
+    // not in routes/api.php). Under /api/v1 so the Admin -> API catalogue lists them (non-negotiable #7). Gate: permission training_tours.use + agency feature narrated-tours.
+    Route::prefix('api/v1/training-tours')->middleware(['permission:training_tours.use', 'feature:narrated-tours', 'throttle:staff-api'])
+        ->name('api.v1.training-tours.')->group(function () {
+            Route::get('/{screen}', [\App\Http\Controllers\Api\V1\TrainingToursController::class, 'show'])->where('screen', '[a-z0-9-]+')->name('show');
+            Route::get('/{screen}/audio/{n}', [\App\Http\Controllers\Api\V1\TrainingToursController::class, 'audio'])->where('screen', '[a-z0-9-]+')->whereNumber('n')->name('audio');
+        });
+
     // Training Videos — the owner uploads a video file in pieces from the Add video page (fetch + session cookie, so
     // these live here, NOT in routes/api.php: that file's group has the session stack stripped and answers
     // "Unauthenticated" to a logged-in browser). Under /api/v1 so the Admin -> API catalogue lists them
