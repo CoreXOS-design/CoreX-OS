@@ -100,7 +100,7 @@ final class MicWorkTiles
     {
         // The tile numbers are stored counts that move slowly; a short per-viewer cache keeps the page fast (mic-work-tab.md 6.6).
         $shown ??= $this->shownFor($agencyId);
-        $key = 'mic-work:tiles:' . $agencyId . ':' . $user->id . ':' . md5(json_encode($shown) . count($this->tiles) . count($this->panels) . (class_exists(self::CC5_SERVICE) ? 'c5' : ''));
+        $key = 'mic-work:tiles:' . $agencyId . ':' . $user->id . ':' . md5(json_encode($shown) . (class_exists(self::CC5_SETTINGS) ? json_encode(app(self::CC5_SETTINGS)::for($agencyId)->areas()) : '') . count($this->tiles) . count($this->panels) . (class_exists(self::CC5_SERVICE) ? 'c5' : ''));
 
         return \Illuminate\Support\Facades\Cache::remember($key, 120, fn () => $this->buildRow($agencyId, $user, $shown));
     }
@@ -175,6 +175,11 @@ final class MicWorkTiles
                 return ['count' => count($rows), 'reason' => 'sales & offers this month'];
             }
             $rows = $panel->rows($agencyId, $user, ['scope' => 'all']);
+            // "our working suburbs": the areas the agency listed in MIC Settings; none listed yet = every suburb with an advert (cc4's rows)
+            $areas = class_exists(self::CC5_SETTINGS) ? app(self::CC5_SETTINGS)::for($agencyId)->areas() : [];
+            if ($areas) {
+                $rows = array_values(array_filter($rows, fn ($r) => in_array((int) ($r['suburb_id'] ?? 0), $areas, true)));
+            }
             $aged = array_values(array_filter($rows, fn ($r) => $r['age_days'] !== null));
             if (! $aged) {
                 return ['count' => null, 'reason' => 'No suburb has been read in full yet'];

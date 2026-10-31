@@ -93,14 +93,17 @@ final class MicWorkTilesTest extends TestCase
             public function tile(): int { return 11; }
             public function rows(int $agencyId, User $user, array $filters): array
             {
-                return [['suburb' => 'MARGATE', 'age_days' => 12], ['suburb' => 'UVONGO', 'age_days' => 3], ['suburb' => 'OSLO BEACH', 'age_days' => null]];
+                return [['suburb' => 'MARGATE', 'suburb_id' => 5, 'age_days' => 12], ['suburb' => 'UVONGO', 'suburb_id' => 6, 'age_days' => 3], ['suburb' => 'OSLO BEACH', 'suburb_id' => 7, 'age_days' => null], ['suburb' => 'BALLITO', 'suburb_id' => 9, 'age_days' => 200]];
             }
             public function around(int $agencyId, User $user, string $triggerId): array { return []; }
         };
         $row = collect((new MicWorkTiles([], [$p10, $p11]))->row($this->agency->id, $this->admin))->keyBy('number');
         $this->assertSame(1, $row[10]['count'], 'only triggers with a resolvable address are counted');
         $this->assertSame('sales & offers this month', $row[10]['reason']);
-        $this->assertSame('Margate 12 d', $row[11]['display'], 'oldest age among the working suburbs, title case');
+        $this->assertSame('Ballito 200 d', $row[11]['display'], 'no areas listed yet = every suburb');
+        \App\Models\MicAgencySetting::saveValues($this->agency->id, ['areas' => [5, 6]]);
+        $row = collect((new MicWorkTiles([], [$p10, $p11]))->row($this->agency->id, $this->admin))->keyBy('number');
+        $this->assertSame('Margate 12 d', $row[11]['display'], 'oldest age among OUR working suburbs (the agency areas), title case');
         $this->assertSame('1 suburb older than 7 d', $row[11]['reason']);
     }
 }
