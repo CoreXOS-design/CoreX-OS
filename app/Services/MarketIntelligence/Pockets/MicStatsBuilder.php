@@ -107,12 +107,6 @@ final class MicStatsBuilder
         $own = DB::table('tracked_property_agency_work')->where('agency_id', $agencyId)->whereNull('deleted_at')->whereIn('tracked_property_id', $ids)
             ->pluck('is_own_stock', 'tracked_property_id');
 
-        // "Some live advert on this file was cut" - valid cuts only (a history row with a NULL / 0 price is a capture glitch, not a cut).
-        $cutsAny = DB::table('prospecting_price_history as h')->join('prospecting_listings as pl', 'pl.id', '=', 'h.prospecting_listing_id')
-            ->where('pl.agency_id', $agencyId)->whereIn('pl.tracked_property_id', $ids)->where('pl.is_active', 1)->whereNull('pl.deleted_at')
-            ->where('h.new_price', '>', 0)->whereColumn('h.new_price', '<', 'h.old_price')
-            ->groupBy('pl.tracked_property_id')->selectRaw('pl.tracked_property_id as tp, COUNT(DISTINCT pl.id) as n')->pluck('n', 'tp');
-
         // The LEAD advert of each file = the live advert with the lowest asking price (ties: seen first, then lowest id). The price move and the
         // cut figures shown for the file come from that ONE advert's own history - never mixed across adverts.
         $lead = [];
@@ -124,9 +118,19 @@ final class MicStatsBuilder
                 return $key($x) <=> $key($y);
             })->first();
         }
-        $leadIds = collect($lead)->filter()->map(fn ($a) => (int) $a->id)->values()->all();
-        $history = $leadIds === [] ? collect() : DB::table('prospecting_price_history')->whereIn('prospecting_listing_id', $leadIds)
+        // Net price moves of every LIVE advert (an up/down flip within 7 days is capture noise, not a cut) - the lead advert's figures are the ones shown,
+        // `cuts_any` counts live adverts on the file with at least one real cut.
+        $liveIds = $adverts->flatten(1)->where('is_active', 1)->pluck('id')->map(fn ($v) => (int) $v)->all();
+        $histories = $liveIds === [] ? collect() : DB::table('prospecting_price_history')->whereIn('prospecting_listing_id', $liveIds)
             ->orderBy('changed_at')->orderBy('id')->get(['prospecting_listing_id', 'old_price', 'new_price', 'changed_at'])->groupBy('prospecting_listing_id');
+        $moves = [];
+        foreach ($liveIds as $lid) {
+            $moves[$lid] = PriceMoves::net($histories->get($lid, collect()), $now);
+        }
+        $cutsAny = [];
+        foreach ($adverts as $tpId => $set) {
+            $cutsAny[$tpId] = $set->where('is_active', 1)->filter(fn ($a) => ($moves[(int) $a->id]['cuts'] ?? 0) > 0)->count();
+        }
         $claimed = DB::table('prospecting_claims as c')->join('prospecting_listings as pl', 'pl.id', '=', 'c.prospecting_listing_id')
             ->where('c.agency_id', $agencyId)->where('c.is_active', 1)->whereNull('c.released_at')->whereNull('c.deleted_at')
             ->where('pl.is_active', 1)->whereIn('pl.tracked_property_id', $ids)->distinct()->pluck('pl.tracked_property_id')->flip();
@@ -185,16 +189,11 @@ final class MicStatsBuilder
             $cutN = 0; $cutAmt = 0; $c30 = 0; $c90 = 0; $lastCut = null; $priceFirst = null; $priceMove = null;
             if ($leadAd) {
                 $leadPrice = (int) $leadAd->price > 0 ? (int) $leadAd->price : null;
-                foreach ($history->get($leadAd->id, collect()) as $h) {
-                    $o = (int) $h->old_price; $n2 = (int) $h->new_price;
-                    if ($priceFirst === null && $o > 0) { $priceFirst = $o; }
-                    if ($o > 0 && $n2 > 0 && $n2 < $o) {
-                        $cutN++; $cutAmt += $o - $n2; $lastCut = $h->changed_at;
-                        if (Carbon::parse($h->changed_at)->gte($now->copy()->subDays(30))) { $c30++; }
-                        if (Carbon::parse($h->changed_at)->gte($now->copy()->subDays(90))) { $c90++; }
-                    }
+                $m = $moves[(int) $leadAd->id] ?? null;
+                if ($m) {
+                    $cutN = $m['cuts']; $cutAmt = $m['amount']; $c30 = $m['cuts_30d']; $c90 = $m['cuts_90d']; $lastCut = $m['last_cut_at']; $priceFirst = $m['first_price'];
+                    if ($leadPrice !== null && $priceFirst !== null) { $priceMove = $leadPrice - $priceFirst; }
                 }
-                if ($leadPrice !== null && $priceFirst !== null) { $priceMove = $leadPrice - $priceFirst; }
             }
             $lead2 = $leads->get($id);
 
@@ -273,9 +272,11 @@ final class MicStatsBuilder
             $onMarket ? $p['own_on_market']++ : $p['own_sold']++;
             unset($p);
         }
-        $sales = DB::table('sold_stock')->where('agency_id', $agencyId)->whereNull('deleted_at')->whereNotNull('listed_date')->whereNotNull('sale_date')
-            ->where('sale_date', '>', $settings->trustedSalesAfter())->whereColumn('sale_date', '>=', 'listed_date')
-            ->get(['property_id', 'listed_date', 'sale_date']);
+        // Own days-to-sale: listed date -> sold_at on the property (cc2 5.4: stamped at the status change / back-filled from the audit log, so trustworthy
+        // by construction). sold_stock.sale_date is NOT used: its back-fill rows share one junk date.
+        $sales = DB::table('properties')->where('agency_id', $agencyId)->whereNull('deleted_at')->where('listing_type', 'sale')
+            ->whereNotNull('listed_date')->whereNotNull('sold_at')->whereColumn('sold_at', '>=', 'listed_date')
+            ->get(['id as property_id', 'listed_date', 'sold_at as sale_date']);
         foreach ($sales as $sale) {
             $pk = $propPocket[$sale->property_id] ?? null;
             if ($pk === null) {

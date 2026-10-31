@@ -32,6 +32,7 @@ final class FileContext
                 'suburb_r_per_m2_basis' => $r->suburb_r_per_m2_basis,
                 'own_size_m2' => $r->own_size_m2 !== null ? (int) $r->own_size_m2 : null,
                 'own_size_basis' => $r->own_size_basis,
+                'own_size_source' => $r->own_size_source,
                 'own_r_per_m2' => $r->own_r_per_m2 !== null ? (int) $r->own_r_per_m2 : null,
                 'own_vs_suburb_pct' => $r->own_vs_suburb_pct !== null ? (float) $r->own_vs_suburb_pct : null,
                 'asking_vs_avg_sold_pct' => $r->asking_vs_avg_sold_pct !== null ? (float) $r->asking_vs_avg_sold_pct : null,

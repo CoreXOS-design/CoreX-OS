@@ -77,9 +77,9 @@ final class FileContextBuilder
 
         // 1. our own sold stock (only sales with a real price and a trustworthy date)
         foreach (DB::table('sold_stock as s')->leftJoin('properties as p', 'p.id', '=', 's.property_id')
-            ->where('s.agency_id', $agencyId)->whereNull('s.deleted_at')->where('s.sale_price', '>', 0)->whereNotNull('s.sale_date')
-            ->where('s.sale_date', '>=', $since->toDateString())->where('s.sale_date', '>', $settings->trustedSalesAfter())
-            ->get(['s.sale_price', 's.sale_date', 's.size_m2', 's.address', 's.property_type', 'p.p24_suburb_id', 'p.property_type as ptype2']) as $r) {
+            ->where('s.agency_id', $agencyId)->whereNull('s.deleted_at')->where('s.sale_price', '>', 0)->whereNotNull('p.sold_at')   // the sale date is the property's own sold_at (5.4), never sold_stock.sale_date
+            ->where('p.sold_at', '>=', $since->toDateString())
+            ->get(['s.sale_price', 'p.sold_at as sale_date', 's.size_m2', 's.address', 's.property_type', 'p.p24_suburb_id', 'p.property_type as ptype2']) as $r) {
             $class = $this->classFor($this->types->keyFor($r->property_type ?: $r->ptype2, $agencyId), false);
             $add($this->sale($r->p24_suburb_id, $class, (int) $r->sale_price, (string) $r->sale_date, $r->size_m2, $r->address, null, null, 'our_sold_stock'));
         }
@@ -207,6 +207,45 @@ final class FileContextBuilder
         return $out;
     }
 
+    /**
+     * @return array{0: ?float, 1: ?string}  [size in m2, source: deeds | advert | file]
+     */
+    private function ownSize(?string $basis, object $tp, ?object $lead): array
+    {
+        if ($basis === null) {
+            return [null, null];
+        }
+        $fields = $basis === 'floor' ? ['section_extent_m2', 'floor_size_m2'] : ['erf_size_m2'];
+        $chain = is_string($tp->source_chain) ? (json_decode($tp->source_chain, true) ?: []) : [];
+        $registerBacked = $tp->deeds_captured_at !== null;
+        foreach ($chain as $entry) {
+            if (in_array($entry['type'] ?? '', ['deeds_capture', 'cmainfo'], true) && array_intersect($fields, $entry['fields_contributed'] ?? []) !== []) {
+                $registerBacked = true;
+            }
+        }
+        $fileSize = null;
+        foreach ($fields as $f) {
+            if ((float) ($tp->{$f} ?? 0) > 0) {
+                $fileSize = (float) $tp->{$f};
+                break;
+            }
+        }
+        if ($registerBacked && $fileSize !== null) {
+            return [$fileSize, 'deeds'];
+        }
+        $adSize = null;
+        if ($lead) {
+            $adSize = $basis === 'floor'
+                ? ((float) $lead->property_size_m2 > 0 ? (float) $lead->property_size_m2 : ((float) $lead->erf_size_m2 > 0 ? (float) $lead->erf_size_m2 : null))   // a flat's single portal size is its floor size
+                : ((float) $lead->erf_size_m2 > 0 ? (float) $lead->erf_size_m2 : null);
+        }
+        if ($adSize !== null) {
+            return [$adSize, 'advert'];
+        }
+
+        return $fileSize !== null ? [$fileSize, 'file'] : [null, null];
+    }
+
     // ── per file ─────────────────────────────────────────────────────────────────────────────────────────
 
     /** @param list<int> $ids */
@@ -214,7 +253,7 @@ final class FileContextBuilder
     {
         $fs = DB::table('mic_file_stats')->where('agency_id', $agencyId)->whereIn('tracked_property_id', $ids)->get()->keyBy('tracked_property_id');
         $tps = DB::table('tracked_properties')->where('agency_id', $agencyId)->whereIn('id', $ids)->get([
-            'id', 'p24_suburb_id', 'property_type', 'street_number', 'street_name', 'unit_number', 'complex_name', 'scheme_name', 'erf_size_m2', 'floor_size_m2',
+            'id', 'p24_suburb_id', 'property_type', 'street_number', 'street_name', 'unit_number', 'complex_name', 'scheme_name', 'erf_size_m2', 'floor_size_m2', 'section_extent_m2', 'source_chain',
             'deeds_captured_at', 'last_known_sold_price', 'last_known_sold_date', 'deeds_registered_date', 'sale_type',
         ])->keyBy('id');
         $leads = DB::table('prospecting_listings')->whereIn('id', $fs->pluck('lead_listing_id')->filter()->all())->get(['id', 'price', 'property_size_m2', 'erf_size_m2'])->keyBy('id');
@@ -249,12 +288,9 @@ final class FileContextBuilder
             // the file's own size and R/m2 on the same basis (lead advert first)
             $lead = $f->lead_listing_id ? $leads->get($f->lead_listing_id) : null;
             $basis = $class === 'sectional' ? 'floor' : ($class === null ? null : 'erf');
-            $size = null;
-            if ($basis === 'floor') {
-                $size = $lead && (float) $lead->property_size_m2 > 0 ? (float) $lead->property_size_m2 : ($lead && (float) $lead->erf_size_m2 > 0 ? (float) $lead->erf_size_m2 : ((float) $tp->floor_size_m2 > 0 ? (float) $tp->floor_size_m2 : null));
-            } elseif ($basis === 'erf') {
-                $size = $lead && (float) $lead->erf_size_m2 > 0 ? (float) $lead->erf_size_m2 : ((float) $tp->erf_size_m2 > 0 ? (float) $tp->erf_size_m2 : null);
-            }
+            // Which size R/m2 uses: the REGISTER-backed size of the file when there is one (a deeds capture, or a deeds / CMA entry in the file's source chain that
+            // contributed the size), otherwise the lead advert's size, otherwise whatever the file record holds. `own_size_source` says which.
+            [$size, $sizeSource] = $this->ownSize($basis, $tp, $lead);
             $price = $f->price !== null ? (int) $f->price : null;
             $ownPerM2 = $price && $size ? (int) round($price / $size) : null;
             $suburbPerM2 = $st['perM2'] ?? null;
@@ -333,7 +369,7 @@ final class FileContextBuilder
                 'agency_id' => $agencyId, 'tracked_property_id' => $id, 'sale_class' => $class, 'suburb_id' => $suburb,
                 'suburb_avg_sold_12m' => $avg, 'suburb_avg_sold_n' => $st['n'] ?? 0,
                 'suburb_r_per_m2' => $suburbPerM2, 'suburb_r_per_m2_n' => $st['nM2'] ?? 0, 'suburb_r_per_m2_basis' => $st['basis'] ?? $basis,
-                'own_size_m2' => $size !== null ? (int) round($size) : null, 'own_size_basis' => $size !== null ? $basis : null, 'own_r_per_m2' => $ownPerM2,
+                'own_size_m2' => $size !== null ? (int) round($size) : null, 'own_size_basis' => $size !== null ? $basis : null, 'own_size_source' => $size !== null ? $sizeSource : null, 'own_r_per_m2' => $ownPerM2,
                 'own_vs_suburb_pct' => $ownPerM2 !== null && $suburbPerM2 ? round(($ownPerM2 / $suburbPerM2 - 1) * 100, 1) : null,
                 'asking_vs_avg_sold_pct' => $price && $avg ? round(($price / $avg - 1) * 100, 1) : null,
                 'nearby_sales' => json_encode($nearby), 'last_deeds_sale' => $deeds ? json_encode($deeds) : null,

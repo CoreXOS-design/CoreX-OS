@@ -194,4 +194,39 @@ final class FileContextTest extends TestCase
         $nearby = $this->row($this->a, $tp)['nearby_sales'];
         $this->assertSame([900_000], array_column($nearby, 'price'));
     }
+
+    public function test_r_per_m2_uses_the_register_backed_size_when_there_is_one_and_the_advert_size_otherwise(): void
+    {
+        // deeds-captured file: the file's 1,212 m2 wins over the advert's 2,227 m2
+        $deeded = $this->file($this->a, ['deeds_captured_at' => now(), 'erf_size_m2' => 1212]);
+        $this->advert($this->a, $deeded, ['erf_size_m2' => 2227, 'price' => 1_020_000]);
+        // plain file whose size only ever came from an advert: the lead advert's size is used, the file record is the last resort
+        $plain = $this->file($this->a, ['street_number' => '20', 'erf_size_m2' => 1212]);
+        $this->advert($this->a, $plain, ['erf_size_m2' => 2227, 'price' => 1_020_000]);
+        // no advert size at all: falls back to the file record
+        $bare = $this->file($this->a, ['street_number' => '30', 'erf_size_m2' => 900]);
+        $this->advert($this->a, $bare, ['erf_size_m2' => null, 'price' => 900_000]);
+        // a CMA entry in the source chain that contributed the size also counts as register-backed
+        $cma = $this->file($this->a, ['street_number' => '40', 'erf_size_m2' => 1000, 'source_chain' => [['type' => 'cmainfo', 'ref' => 'report:1', 'fields_contributed' => ['erf_size_m2']]]]);
+        $this->advert($this->a, $cma, ['erf_size_m2' => 2000, 'price' => 1_000_000]);
+
+        app(MicStatsBuilder::class)->refreshAgency($this->a);
+
+        $d = $this->row($this->a, $deeded);
+        $this->assertSame(1212, $d['own_size_m2']);
+        $this->assertSame('deeds', $d['own_size_source']);
+        $this->assertSame(842, $d['own_r_per_m2']);
+
+        $p = $this->row($this->a, $plain);
+        $this->assertSame(2227, $p['own_size_m2']);
+        $this->assertSame('advert', $p['own_size_source']);
+
+        $b = $this->row($this->a, $bare);
+        $this->assertSame(900, $b['own_size_m2']);
+        $this->assertSame('file', $b['own_size_source']);
+
+        $c = $this->row($this->a, $cma);
+        $this->assertSame(1000, $c['own_size_m2']);
+        $this->assertSame('deeds', $c['own_size_source']);
+    }
 }

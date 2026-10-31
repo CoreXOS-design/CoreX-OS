@@ -211,4 +211,62 @@ final class MicStatsBuilderTest extends TestCase
         $bad = new MicAgencySetting(['agency_id' => $this->a, 'values' => ['score_weights' => ['seller' => 50, 'buyer' => 50, 'pocket' => 20, 'known' => 15, 'reachable' => 10]]]);
         $this->assertSame(30, $bad->scoreWeights()['seller'], 'weights that do not sum to 100 fall back to the defaults');
     }
+
+    public function test_the_bidstone_sequence_counts_one_real_cut_and_the_move_is_from_the_price_before_it(): void
+    {
+        $tp = $this->tpFile();
+        $ad = $this->tpAdvert($tp, 'P24-B', 990_000);
+        DB::table('prospecting_price_history')->insert([
+            ['prospecting_listing_id' => $ad, 'old_price' => 990_000, 'new_price' => 1_050_000, 'changed_at' => now()->subDays(80), 'created_at' => now(), 'updated_at' => now()],
+            ['prospecting_listing_id' => $ad, 'old_price' => 1_050_000, 'new_price' => 990_000, 'changed_at' => now()->subDays(80)->addHours(8), 'created_at' => now(), 'updated_at' => now()],
+            ['prospecting_listing_id' => $ad, 'old_price' => 1_050_000, 'new_price' => 990_000, 'changed_at' => now()->subDays(76), 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
+        app(MicStatsBuilder::class)->refreshAgency($this->a);
+
+        $s = DB::table('mic_file_stats')->where('agency_id', $this->a)->where('tracked_property_id', $tp)->first();
+        $this->assertSame(1, (int) $s->cuts_count);
+        $this->assertSame(60_000, (int) $s->cut_amount);
+        $this->assertSame(1_050_000, (int) $s->price_first);
+        $this->assertSame(-60_000, (int) $s->price_move);
+        $this->assertSame(1, (int) $s->cuts_any);
+        $this->assertSame(0, (int) $s->cuts_30d);
+    }
+
+    public function test_own_days_to_sale_comes_from_listed_date_to_sold_at_never_from_sold_stock(): void
+    {
+        $propId = (int) DB::table('properties')->insertGetId([
+            'agency_id' => $this->a, 'address' => '1 Test Road', 'suburb' => 'Uvongo', 'status' => 'sold', 'title' => '1 Test Road', 'agent_id' => $this->agent->id, 'branch_id' => $this->a,
+            'external_id' => (string) Str::uuid(), 'listing_type' => 'sale', 'p24_suburb_id' => $this->uvongo, 'property_type' => 'House', 'beds' => 3, 'price' => 800_000,
+            'listed_date' => now()->subDays(60)->toDateString(), 'sold_at' => now()->subDays(30), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        // a junk-dated sold_stock row for the same property (the 17 Sep backfill kind) must not count
+        DB::table('sold_stock')->insert(['agency_id' => $this->a, 'property_id' => $propId, 'cycle_no' => 1, 'sale_price' => 800_000, 'sale_date' => '2026-09-17', 'listed_date' => '2026-01-01', 'source' => 'backfill', 'created_at' => now(), 'updated_at' => now()]);
+        $tp = $this->tpFile();
+        $this->tpAdvert($tp, 'P24-S', 800_000);
+
+        app(MicStatsBuilder::class)->refreshAgency($this->a);
+
+        $p = DB::table('mic_pocket_stats')->where('agency_id', $this->a)->where('p24_suburb_id', $this->uvongo)->where('type_key', 'house')->where('beds', 3)->where('band', 'lt1m')->first();
+        $this->assertSame(1, (int) $p->own_sales_trusted);
+        $this->assertSame(30.0, (float) $p->own_avg_days_to_sale, '60 days listed -> 30 days ago sold = 30 days, not the junk row');
+        $this->assertSame(1, (int) $p->own_fast_sales);
+    }
+
+    private function tpFile(): int
+    {
+        $id = \App\Models\Prospecting\TrackedProperty::queryWithoutAgencyScope()->create(['agency_id' => $this->a, 'status' => 'active', 'suburb' => 'Uvongo', 'property_type' => 'House', 'bedrooms' => 3])->id;
+        DB::table('tracked_properties')->where('id', $id)->update(['p24_suburb_id' => $this->uvongo]);
+
+        return $id;
+    }
+
+    private function tpAdvert(int $tp, string $ref, int $price): int
+    {
+        return (int) DB::table('prospecting_listings')->insertGetId([
+            'agency_id' => $this->a, 'captured_by_user_id' => $this->agent->id, 'tracked_property_id' => $tp, 'portal_source' => 'p24', 'portal_ref' => $ref, 'listing_type' => 'sale',
+            'suburb' => 'Uvongo', 'p24_suburb_id' => $this->uvongo, 'price' => $price, 'bedrooms' => 3, 'property_type' => 'House', 'is_active' => 1,
+            'first_seen_at' => now()->subDays(100), 'last_seen_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
 }
