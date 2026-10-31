@@ -49,7 +49,7 @@ class AdCards
     {
         $c = (array) ($brand['colours'] ?? []);
         $bg1 = $c['primary'] ?? '#0b2a4a';
-        $bg2 = $c['secondary'] ?? '#0e5a7a';
+        $bg2 = $c['secondary'] ?? $c['background'] ?? '#0e5a7a';
         $text = $c['text'] ?? '#ffffff';
         $font = 'file://' . base_path('resources/fonts/inter');
         $top = $shape['content_top'] * 100;

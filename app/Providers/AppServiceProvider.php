@@ -54,6 +54,9 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        // AT-525 / AT-527: Ad Studio's one door to the video renderer (spec training-videos.md 9.16.2) is the training-video pipeline's AdRenderer.
+        $this->app->bind(\App\Services\AdStudio\AdRenderGateway::class, \App\Services\TrainingVideos\Ads\AdStudioRenderGateway::class);
+
         // AT-520 step 4.1: ONE merger per process. The apply commands open the row journal on one instance and the sweep merges through another;
         // as two instances the M2/M3 journals were written empty (31 Oct). A singleton makes `journalTo()` reach every merge.
         $this->app->singleton(\App\Services\Prospecting\TrackedPropertyMerger::class);

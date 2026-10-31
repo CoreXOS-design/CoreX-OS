@@ -145,6 +145,13 @@ class AdComposer
                     'url' => $url, 'rect_selector' => $b['zoom']['selector'] ?? ($st['selector'] ?? null), 'seconds' => round($durs[$i] + 3.0, 2)];
             } else {
                 $url = (string) ($sc['url'] ?? '');
+                if ($url === '' && ($sc['route'] ?? '') !== '') {
+                    try {
+                        $url = route((string) $sc['route'], [], false);   // Ad Studio sends the screen's route name when a shot has no training step
+                    } catch (\Throwable $e) {
+                        throw new \RuntimeException("The screen '{$sc['route']}' has no address to open.");
+                    }
+                }
                 $steps[] = ['selector' => $sc['selector'], 'action' => $sc['action'] ?? 'highlight', 'value' => $sc['value'] ?? null, 'wait_for' => $sc['wait_for'] ?? null,
                     'url' => $url, 'rect_selector' => $b['zoom']['selector'] ?? $sc['selector'], 'seconds' => round($durs[$i] + 3.0, 2)];
             }
