@@ -329,17 +329,24 @@ for unit in "$WORKER" "$WORKER-mail"; do
     sudo systemctl restart "$unit" 2>&1 | tail -1 || systemctl restart "$unit" 2>&1 | tail -1
 done
 php artisan queue:restart 2>&1 | tail -1
-# AT-523 - which queues does THIS code dispatch to, and does a worker here drain each? Loud, never fatal (a worker is a host change, see scripts/qa1/systemd/).
-echo "-- 10a. queue workers vs the queues the code dispatches to --"
-php artisan corex:queue-workers-check 2>&1 | tail -20 || echo "   WARNING: at least one queue has no worker - jobs sent to it will sit unprocessed"
 # Never let the host's worker units drift from the repo's record of them (the 2026-10-07 mail stall
 # came from mail sharing a worker with an 8-minute job). Loud, non-fatal.
 for unit in "$WORKER" "$WORKER-mail" "$WORKER-buyer-matching"; do
     if ! diff -q "$APP_DIR/scripts/qa1/systemd/$unit.service" "/etc/systemd/system/$unit.service" >/dev/null 2>&1; then
         echo "   WARNING: /etc/systemd/system/$unit.service differs from scripts/qa1/systemd/ — see scripts/qa1/systemd/README.md"
     fi
-    systemctl is-active --quiet "$unit" || echo "   WARNING: $unit is NOT running — mail/jobs will stall"
+    # AT-523 - a worker that exits cleanly on queue:restart is "activating (auto-restart)" for RestartSec=3 s: that is the normal respawn, not a failure (it made
+    # every deploy print a false "NOT running"). Give it up to 20 s to come back before warning.
+    for _try in 1 2 3 4 5 6 7 8 9 10; do
+        systemctl is-active --quiet "$unit" && break
+        sleep 2
+    done
+    systemctl is-active --quiet "$unit" || echo "   WARNING: $unit is NOT running after 20 s - mail/jobs will stall ($(systemctl is-active "$unit"), restarts: $(systemctl show "$unit" -p NRestarts --value))"
 done
+
+# AT-523 - (after the respawn wait above, so a worker that is just restarting is not reported as missing) which queues does THIS code dispatch to, and does a worker here drain each? Loud, never fatal (a worker is a host change, see scripts/qa1/systemd/).
+echo "-- 10a. queue workers vs the queues the code dispatches to --"
+php artisan corex:queue-workers-check 2>&1 | tail -20 || echo "   WARNING: at least one queue has no worker - jobs sent to it will sit unprocessed"
 
 echo "-- 11. smoke: app boots (route table resolves) --"
 php artisan route:list >/dev/null 2>&1 && echo "   route table OK" || { echo "   ROUTE TABLE FAILED — investigate"; exit 1; }
