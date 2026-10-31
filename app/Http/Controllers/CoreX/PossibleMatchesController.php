@@ -40,9 +40,10 @@ class PossibleMatchesController extends Controller
         // AT-520 (property-identity.md 17-18): pairs the after-import sweep and the matching rules queue
         'same_address' => 'Same address - flat, block or no unit', 'portal_group' => 'Same property on P24 (portal group)',
         'twin' => 'Same agency, other portal', 'complex' => 'Same complex', 'map_point' => 'Map point disagrees with the address',
+        'unit_split' => 'Looks like several flats on one property',
     ];
     /** kinds recorded in incoming_facts.kind by the AT-520 rules */
-    private const FACT_KINDS = ['advert_clash', 'same_address', 'portal_group', 'twin', 'complex', 'map_point'];
+    private const FACT_KINDS = ['advert_clash', 'same_address', 'portal_group', 'twin', 'complex', 'map_point', 'unit_split'];
 
     private function agencyId(Request $request): int
     {
@@ -140,7 +141,9 @@ class PossibleMatchesController extends Controller
         $message = null;
         try {
         DB::transaction(function () use ($d, $agencyId, $propertyId, $target, $merger, $decisions, $request, &$message) {
-            if ($propertyId !== null) {
+            if (($d->incoming_facts['kind'] ?? null) === 'unit_split') {
+                $message = app(\App\Services\Prospecting\Matching\UnitSplitReview::class)->accept($agencyId, $d);
+            } elseif ($propertyId !== null) {
                 $updated = DB::table('properties')->where('id', $propertyId)->where('agency_id', $agencyId)->update([
                     'tracked_property_id' => $target->id, 'identity_confidence' => 'confirmed', 'identity_method' => 'agent_confirmed',
                 ]);
@@ -249,6 +252,11 @@ class PossibleMatchesController extends Controller
             $left = $r->l_id ? $line($r->l_unit, $r->l_number, $r->l_street, $r->l_complex, $r->l_suburb, $r->l_erf) : (string) $r->subject_key;
             $leftUrl = $r->l_id ? route('corex.tracked-properties.show', $r->l_id) : null;
             $leftTag = $r->l_id ? 'Captured #' . $r->l_id : 'Advert';
+        }
+        if ($kind === 'unit_split') {
+            $left = (string) ($facts['label'] ?? 'Proposed flat');
+            $leftUrl = null;
+            $leftTag = 'Proposed flat';
         }
         $conf = '';
         if (preg_match('/^(\w+) match/i', (string) $r->reason, $m)) {

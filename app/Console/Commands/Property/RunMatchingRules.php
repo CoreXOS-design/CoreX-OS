@@ -22,7 +22,7 @@ use Illuminate\Support\Facades\File;
 final class RunMatchingRules extends Command
 {
     protected $signature = 'property-identity:matching-rules
-        {rule : portal-group | twin | complex | map-point | all}
+        {rule : portal-group | twin | complex | map-point | unit-split | all}
         {--dry-run : Count and queue nothing (the default)}
         {--apply : Join / group / queue}
         {--agency= : One agency id}

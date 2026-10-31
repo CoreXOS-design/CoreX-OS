@@ -19,7 +19,7 @@ class AddressMatchSetting extends Model
         'agency_id', 'rule_erf_exact', 'rule_scheme_exact', 'rule_street_exact',
         'possible_min_agreeing_columns', 'neighbour_suburb_credit', 'gps_radius_m', 'unit_missing_on_one_side',
         'fuzzy_threshold', 'auto_merge_min_confidence', 'auto_claim_min_confidence', 'same_address_sweep',
-        'portal_group_link_enabled', 'portal_group_price_spread', 'portal_group_auto_link_min_confidence', 'twin_match_enabled', 'twin_price_tolerance_pct', 'twin_min_corroboration', 'twin_auto_link', 'complex_group_enabled', 'complex_min_land_m2', 'map_point_check_enabled', 'map_point_distance_m',
+        'portal_group_link_enabled', 'portal_group_price_spread', 'portal_group_auto_link_min_confidence', 'twin_match_enabled', 'twin_price_tolerance_pct', 'twin_min_corroboration', 'twin_auto_link', 'complex_group_enabled', 'complex_min_land_m2', 'map_point_check_enabled', 'map_point_distance_m', 'unit_split_min_adverts', 'unit_split_price_spread',
     ];
 
     protected $casts = [
@@ -69,6 +69,8 @@ class AddressMatchSetting extends Model
         'complex_min_land_m2'           => 1000,
         'map_point_check_enabled'       => true,
         'map_point_distance_m'          => 150,
+        'unit_split_min_adverts'        => 5,
+        'unit_split_price_spread'       => 2.0,
     ];
 
     /**
@@ -118,6 +120,8 @@ class AddressMatchSetting extends Model
         $out['twin_min_corroboration'] = max(1, min(4, (int) $out['twin_min_corroboration']));
         $out['complex_min_land_m2'] = max(100, min(100000, (int) $out['complex_min_land_m2']));
         $out['map_point_distance_m'] = max(25, min(1000, (int) $out['map_point_distance_m']));
+        $out['unit_split_min_adverts'] = max(3, min(30, (int) $out['unit_split_min_adverts']));
+        $out['unit_split_price_spread'] = max(1.2, min(10.0, (float) $out['unit_split_price_spread']));
         foreach (['rule_erf_exact', 'rule_scheme_exact', 'rule_street_exact', 'same_address_sweep', 'portal_group_link_enabled', 'twin_match_enabled', 'twin_auto_link', 'complex_group_enabled', 'map_point_check_enabled'] as $flag) {
             $out[$flag] = (bool) $out[$flag];
         }

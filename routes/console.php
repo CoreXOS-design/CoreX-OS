@@ -671,3 +671,6 @@ Schedule::command('rollout:release')->everyFifteenMinutes()->onOneServer()->with
 
 // Attorney portal - the daily "new documents" note to attorneys (one per deal per day; each agency can switch it off).
 Schedule::command('attorney-portal:notify-new-documents')->dailyAt('07:30')->withoutOverlapping();
+
+// MIC 5.5 (AT-519): nightly stored per-file counts + pocket stats for the Work tab and hot-pocket tiles.
+Schedule::command('mic:refresh-stats')->dailyAt('03:30')->withoutOverlapping();

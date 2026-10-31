@@ -15,19 +15,19 @@ use Illuminate\Database\Query\Builder;
  */
 final class MicWorkTiles
 {
-    /** number => [key, title, what a click does: filter | strip | panel] */
+    /** number => [key, full title (tooltip), what a click does: filter | strip | panel, short label shown on the tile] */
     public const TILES = [
-        1 => ['stuck', 'Stuck on the market', 'filter'],
-        2 => ['owner', 'Owner selling privately', 'filter'],
-        3 => ['gone', 'Under offer, sold or gone', 'filter'],
-        4 => ['our_stock', 'Where our stock sits', 'strip'],
-        5 => ['fast_sellers', 'What sells fastest for us', 'strip'],
-        6 => ['lead_sources', 'Where our leads come from', 'strip'],
-        7 => ['buyers_waiting', 'Buyers waiting, stock short', 'filter'],
-        8 => ['p24_alerts', 'New from P24 alerts', 'filter'],
-        9 => ['market_prices', 'Market prices here', 'strip'],
-        10 => ['neighbours', 'Neighbours of a sale', 'panel'],
-        11 => ['refresh', 'Market data last refreshed', 'panel'],
+        1 => ['stuck', 'Stuck on the market', 'filter', 'Stuck'],
+        2 => ['owner', 'Owner selling privately', 'filter', 'Owner selling'],
+        3 => ['gone', 'Under offer, sold or gone', 'filter', 'Under offer / sold'],
+        4 => ['our_stock', 'Where our stock sits', 'strip', 'Our stock'],
+        5 => ['fast_sellers', 'What sells fastest for us', 'strip', 'Fast sellers'],
+        6 => ['lead_sources', 'Where our leads come from', 'strip', 'Lead pockets'],
+        7 => ['buyers_waiting', 'Buyers waiting, stock short', 'filter', 'Buyers waiting'],
+        8 => ['p24_alerts', 'New from P24 alerts', 'filter', 'P24 alerts'],
+        9 => ['market_prices', 'Market prices here', 'strip', 'Market prices'],
+        10 => ['neighbours', 'Neighbours of a sale', 'panel', 'Neighbours'],
+        11 => ['refresh', 'Market data last refreshed', 'panel', 'Data refreshed'],
     ];
 
     /** @var array<int, TileProvider> */
@@ -94,31 +94,31 @@ final class MicWorkTiles
      * The tile row, in order, only the numbers $shown (agency Settings; default all eleven).
      *
      * @param  list<int>|null  $shown
-     * @return list<array{number:int, key:string, title:string, kind:string, ready:bool, count:?int, reason:string, note:?string}>
+     * @return list<array{number:int, key:string, title:string, short:string, kind:string, ready:bool, count:?int, reason:string, note:?string}>
      */
     public function row(int $agencyId, User $user, ?array $shown = null): array
     {
         $shown ??= $this->shownFor($agencyId);
         $cc5 = $this->cc5Results($user);
         $out = [];
-        foreach (self::TILES as $n => [$key, $title, $kind]) {
+        foreach (self::TILES as $n => [$key, $title, $kind, $short]) {
             if ($shown !== null && ! in_array($n, $shown, true)) {
                 continue;
             }
             $provider = $this->tiles[$n] ?? null;
             if (! $provider && isset($cc5[$n])) {
                 $r = $cc5[$n];
-                $out[] = ['number' => $n, 'key' => $key, 'title' => $title, 'kind' => $kind, 'ready' => true,
+                $out[] = ['number' => $n, 'key' => $key, 'title' => $title, 'short' => $short, 'kind' => $kind, 'ready' => true,
                     'count' => $r->tooLittleData ? null : $r->count, 'reason' => $r->reason, 'note' => $r->tooLittleData ? $r->tooLittleMessage : null];
                 continue;
             }
             $panelReady = $kind === 'panel' && isset($this->panels[$n]);
             if ($provider) {
                 $s = $provider->summary($agencyId, $user);
-                $out[] = ['number' => $n, 'key' => $key, 'title' => $title, 'kind' => $kind, 'ready' => true,
+                $out[] = ['number' => $n, 'key' => $key, 'title' => $title, 'short' => $short, 'kind' => $kind, 'ready' => true,
                     'count' => $s['count'], 'reason' => $s['reason'], 'note' => $s['note'] ?? null];
             } else {
-                $out[] = ['number' => $n, 'key' => $key, 'title' => $title, 'kind' => $kind, 'ready' => $panelReady,
+                $out[] = ['number' => $n, 'key' => $key, 'title' => $title, 'short' => $short, 'kind' => $kind, 'ready' => $panelReady,
                     'count' => null, 'reason' => $panelReady ? 'Open' : 'Coming', 'note' => null];
             }
         }
