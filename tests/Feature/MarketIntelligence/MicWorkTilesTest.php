@@ -109,7 +109,7 @@ final class MicWorkTilesTest extends TestCase
     public function test_a_cold_page_does_not_wait_for_the_tiles_it_loads_them_after_itself(): void
     {
         $cold = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['_defer_tiles' => 1]))->assertOk();
-        $cold->assertSee('data-qa="work-tiles-deferred"', false)->assertSee('data-qa="work-property-list"', false)->assertDontSee('data-qa="tile-1"', false);
+        $cold->assertSee('data-qa="work-tiles-deferred"', false)->assertSee('mic-slot-listings', false)->assertDontSee('data-qa="tile-1"', false);
         $cold->assertSee('_tiles', false); // the loader asks for the row from the same URL
 
         $row = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['_tiles' => 1]))->assertOk();

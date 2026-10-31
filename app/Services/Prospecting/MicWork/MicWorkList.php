@@ -23,6 +23,11 @@ final class MicWorkList
 {
     public const PER_PAGE = 50;
 
+    /** cc5's stable reason codes -> the words on the chips (spec 3). */
+    public const REASON_LABELS = ['price_cuts' => 'Price cuts', 'relisted' => 'Re-listed', 'long_dom' => 'Long on market', 'owner_selling' => 'Owner selling', 'mandate_ended' => 'Mandate ended',
+        'strong_buyers' => 'Strong buyers', 'buyers_waiting' => 'Buyers waiting', 'fast_pocket' => 'Fast pocket', 'lead_pocket' => 'Lead pocket', 'pocket_activity' => 'Pocket activity',
+        'well_known' => 'Well known', 'deeds_owner' => 'Deeds owner', 'alert_history' => 'Alert history', 'reachable' => 'Reachable', 'back_on_market' => 'Back on the market', 'unworked' => 'Unworked'];
+
     /** sort key => SQL over the grouped adverts. Dir "desc" = the natural "most first" order for the column. */
     private const SORTS = [
         'last_seen' => 'MAX(last_seen_at)',
@@ -145,16 +150,19 @@ final class MicWorkList
         }
         $keys = $remember('keys', 120, fn () => $q->orderBy('fkey')->forPage($page, self::PER_PAGE)->pluck('fkey')->map(fn ($k) => (int) $k)->all());
 
-        $rows = $keys ? $this->rows($keys, $agencyId) : [];
+        $rows = $keys ? $this->forFiles($keys, $agencyId) : [];
 
         return new Paginator($rows, $total, self::PER_PAGE, $page, ['path' => request()->url(), 'query' => request()->query()]);
     }
 
     /**
+     * The full record of each file (adverts, price history, alerts, deeds, market context, buyers, our history) - one batched read per source. Feeds
+     * the property-per-row view and the record card that expands under a row of the classic list.
+     *
      * @param  list<int>  $keys  tracked property ids (positive) or negated advert ids (single-advert rows)
      * @return list<array<string, mixed>>
      */
-    private function rows(array $keys, int $agencyId): array
+    public function forFiles(array $keys, int $agencyId): array
     {
         $tpIds = array_values(array_filter($keys, fn ($k) => $k > 0));
         $loneIds = array_values(array_map(fn ($k) => -$k, array_filter($keys, fn ($k) => $k < 0)));
@@ -221,25 +229,7 @@ final class MicWorkList
                 });
         }
 
-        // Pending review pairs ("Possible match" chip): this agency's pending identity_possible decisions that touch a page file, either side.
-        $pairs = [];
-        if ($tpIds) {
-            $pend = DB::table('property_match_decisions as d')->where('d.agency_id', $agencyId)->where('d.subject_type', \App\Services\Prospecting\PropertyIdentityResolver::DECISION_SUBJECT)
-                ->whereNull('d.deleted_at')->whereNull('d.confirmed_at')->whereNull('d.rejected_at')
-                ->where(fn ($q) => $q->whereIn('d.matched_id', $tpIds)->orWhereRaw("CAST(JSON_UNQUOTE(JSON_EXTRACT(d.incoming_facts, '$.incoming_tracked_property_id')) AS UNSIGNED) IN (" . implode(',', array_map('intval', $tpIds)) . ')'))
-                ->get(['d.id', 'd.matched_id', 'd.incoming_facts', 'd.reason']);
-            foreach ($pend as $d) {
-                if (! self::raisesPossibleMatch(json_decode((string) $d->incoming_facts, true)['kind'] ?? null, (string) $d->reason)) {
-                    continue;
-                }
-                $inc = (int) (json_decode((string) $d->incoming_facts, true)['incoming_tracked_property_id'] ?? 0);
-                foreach ([(int) $d->matched_id, $inc] as $side) {
-                    if ($side && in_array($side, $tpIds, true)) {
-                        $pairs[$side][] = (int) $d->id;
-                    }
-                }
-            }
-        }
+        $pairs = $tpIds ? $this->possiblePairs($agencyId, $tpIds) : [];
 
         // Top matched buyers per file (own agency, strong enough to count), for the expand.
         $buyerNames = [];
@@ -449,5 +439,37 @@ final class MicWorkList
         }
 
         return $out;
+    }
+
+    /**
+     * Pending review pairs that raise the "Possible match" chip, per file: only same-property kinds (see raisesPossibleMatch), only pairs this file is in.
+     *
+     * @param  list<int>  $tpIds
+     * @return array<int, list<int>> file id => decision ids
+     */
+    public function possiblePairs(int $agencyId, array $tpIds): array
+    {
+        $tpIds = array_values(array_unique(array_map('intval', $tpIds)));
+        if (! $tpIds) {
+            return [];
+        }
+        $pairs = [];
+        $pend = DB::table('property_match_decisions as d')->where('d.agency_id', $agencyId)->where('d.subject_type', \App\Services\Prospecting\PropertyIdentityResolver::DECISION_SUBJECT)
+            ->whereNull('d.deleted_at')->whereNull('d.confirmed_at')->whereNull('d.rejected_at')
+            ->where(fn ($q) => $q->whereIn('d.matched_id', $tpIds)->orWhereRaw("CAST(JSON_UNQUOTE(JSON_EXTRACT(d.incoming_facts, '$.incoming_tracked_property_id')) AS UNSIGNED) IN (" . implode(',', $tpIds) . ')'))
+            ->get(['d.id', 'd.matched_id', 'd.incoming_facts', 'd.reason']);
+        foreach ($pend as $d) {
+            $facts = json_decode((string) $d->incoming_facts, true) ?: [];
+            if (! self::raisesPossibleMatch($facts['kind'] ?? null, (string) $d->reason)) {
+                continue;
+            }
+            foreach ([(int) $d->matched_id, (int) ($facts['incoming_tracked_property_id'] ?? 0)] as $side) {
+                if ($side && in_array($side, $tpIds, true)) {
+                    $pairs[$side][] = (int) $d->id;
+                }
+            }
+        }
+
+        return $pairs;
     }
 }

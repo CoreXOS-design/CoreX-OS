@@ -56,17 +56,17 @@ final class MicWorkListTest extends TestCase
         $lone = $this->advert($this->agency, 'p24', 'P24-119000002', null);
         $this->advert($this->b, 'p24', 'P24-119000003', null); // another agency's advert never shows
 
-        $r = $this->actingAs($this->admin)->get(route('market-intelligence.work'));
+        $r = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'properties']));
         $r->assertOk()->assertSee('data-qa="work-property-list"', false)->assertSee('13 Newport Road', false)->assertSee('Reduced', false)->assertSee('Other Agents', false)
             ->assertSee('PP-T9100001', false)->assertDontSee('P24-119000003', false)->assertSee('2 properties', false);
         $this->assertSame(2, substr_count($r->getContent(), 'data-qa="work-row"'), 'file with two adverts = ONE row, plus the lone advert');
     }
 
-    public function test_old_per_advert_list_is_kept_and_stat_strip_is_gone_from_the_new_view(): void
+    public function test_the_classic_list_is_the_default_and_the_property_view_has_no_stat_strip(): void
     {
         $this->advert($this->agency, 'p24', 'P24-119000010', null);
-        $this->actingAs($this->admin)->get(route('market-intelligence.work'))->assertOk()->assertDontSee('Properties matched', false)->assertDontSee('listings to action', false);
-        $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'adverts']))->assertOk();
+        $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'properties']))->assertOk()->assertDontSee('Properties matched', false)->assertDontSee('listings to action', false);
+        $this->actingAs($this->admin)->get(route('market-intelligence.work'))->assertOk()->assertSee('Properties matched', false)->assertSee('listings to action', false);
     }
 
     public function test_sorts_and_empty_state(): void
@@ -76,11 +76,11 @@ final class MicWorkListTest extends TestCase
         $this->advert($this->agency, 'p24', 'P24-119000020', $a, ['price' => 900_000]);
         $this->advert($this->agency, 'p24', 'P24-119000021', $b, ['price' => 2_000_000]);
 
-        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['sort' => 'price', 'dir' => 'desc']))->assertOk()->getContent();
+        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'properties', 'sort' => 'price', 'dir' => 'desc']))->assertOk()->getContent();
         $this->assertTrue(strpos($html, '9 Zulu Road') < strpos($html, '5 Alpha Road'), 'price desc puts the dearer file first');
-        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['sort' => 'address', 'dir' => 'asc']))->getContent();
+        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'properties', 'sort' => 'address', 'dir' => 'asc']))->getContent();
         $this->assertTrue(strpos($html, '5 Alpha Road') < strpos($html, '9 Zulu Road'));
-        $this->actingAs($this->admin)->get(route('market-intelligence.work', ['search' => 'nothing-matches-this-zzz']))->assertOk()->assertSee('data-qa="work-empty"', false);
+        $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'properties', 'search' => 'nothing-matches-this-zzz']))->assertOk()->assertSee('data-qa="work-empty"', false);
         $this->assertContains('time', MicWorkList::sortKeys());
     }
 
@@ -94,7 +94,7 @@ final class MicWorkListTest extends TestCase
         $tpB = $this->tp($this->b, 'P24-119000032', '9', 'Newport Road'); // another agency's file never matches ours
         $this->advert($this->b, 'p24', 'P24-119000032', $tpB);
 
-        $get = fn (array $q) => $this->actingAs($this->admin)->get(route('market-intelligence.work', $q))->assertOk()->getContent();
+        $get = fn (array $q) => $this->actingAs($this->admin)->get(route('market-intelligence.work', array_merge(['view' => 'properties'], $q)))->assertOk()->getContent();
         $html = $get(['search' => 'Newport']);
         $this->assertSame(1, substr_count($html, 'data-qa="work-row"'), 'the file with both adverts is ONE row');
         $this->assertStringContainsString('PP-T4203603', $html);
@@ -102,7 +102,7 @@ final class MicWorkListTest extends TestCase
         $this->assertSame(1, substr_count($get(['search' => 'T4203603']), 'data-qa="work-row"'), 'ref digits');
         $this->assertSame(1, substr_count($get(['search' => '13 newport']), 'data-qa="work-row"'), 'every word must match');
         $this->assertSame(0, substr_count($get(['search' => 'newport beach']), 'data-qa="work-row"'));
-        $this->assertStringContainsString('P24-119000031', $get(['search' => 'Beach', 'view' => 'adverts']), 'the old advert list gets the same search');
+        $this->assertStringContainsString('P24-119000031', $get(['search' => 'Beach', 'view' => 'classic']), 'the old advert list gets the same search');
     }
 
     public function test_price_move_comes_from_the_lead_advert_only_and_never_contradicts_itself(): void
@@ -118,7 +118,7 @@ final class MicWorkListTest extends TestCase
         $h($a->id, 1_000_000, 900_000);
         $h($a->id, 900_000, 1_195_000);
 
-        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work'))->assertOk()->getContent();
+        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'properties']))->assertOk()->getContent();
         $this->assertStringContainsString('▼ R101k', $html);
         $this->assertStringNotContainsString('R799k', $html);
         $this->assertStringContainsString('▲ R195k', $html);
@@ -138,7 +138,7 @@ final class MicWorkListTest extends TestCase
             'suburb' => 'Southbroom', 'first_seen_date' => '2026-06-03', 'last_seen_date' => '2026-06-26', 'times_seen' => 2]);
         $alert->forceFill(['tracked_property_id' => $theirs->id])->save();
 
-        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work'))->assertOk()->getContent();
+        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'properties']))->assertOk()->getContent();
         $this->assertStringNotContainsString('22 Avon Road', $html, 'our own stock is not prospecting');
         $this->assertStringContainsString('8 Beach Road', $html);
         $this->assertStringContainsString('Southbroom', $html);
@@ -147,7 +147,7 @@ final class MicWorkListTest extends TestCase
         $this->assertStringContainsString('data-qa="alert-line"', $html);
         $this->assertStringContainsString('was R 1,500,000', $html);
 
-        $this->actingAs($this->admin)->get(route('market-intelligence.work', ['include_in_stock' => 1]))->assertOk()->assertSee('22 Avon Road', false);
+        $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'properties', 'include_in_stock' => 1]))->assertOk()->assertSee('22 Avon Road', false);
     }
 
     public function test_item_batch_poa_hidden_first_seen_possible_match_chip_agencies_and_address_format(): void
@@ -169,7 +169,7 @@ final class MicWorkListTest extends TestCase
             'subject_key' => 'tracked:' . $b->id, 'matched_type' => 'tracked_property', 'matched_id' => $a->id, 'strategy' => 'same_address', 'confidence_score' => 80, 'reason' => 'test', 'decided_at' => now(),
             'incoming_facts' => ['incoming_tracked_property_id' => $b->id, 'kind' => 'same_address']]);
 
-        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work'))->assertOk()->getContent();
+        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'properties']))->assertOk()->getContent();
         $this->assertStringContainsString('RE/MAX · 2 adverts', preg_replace('/\s+/', ' ', strip_tags($html)));
         $this->assertStringContainsString('first seen', $html, 'no listed date = first seen is the estimate');
         $this->assertStringNotContainsString('R 0', $html, 'a price on application is not a price');
@@ -205,7 +205,7 @@ final class MicWorkListTest extends TestCase
         $h(1_050_000, 990_000, '2026-08-06 15:00:00'); // same-day flip-flop nets to nothing
         $h(1_050_000, 990_000, '2026-08-10 09:00:00');
 
-        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work'))->assertOk()->getContent();
+        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'properties']))->assertOk()->getContent();
         $text = preg_replace('/\s+/', ' ', strip_tags($html));
         $this->assertSame(2, substr_count($html, 'data-qa="possible-match-chip"'), 'only the two files of the portal-group pair; the unit pair raises nothing');
         $this->assertStringContainsString(route('corex.possible-matches.index', ['pair' => \App\Models\PropertyMatchDecision::where('subject_key', 'k2')->value('id')]), $html);
@@ -222,7 +222,7 @@ final class MicWorkListTest extends TestCase
             'suburb' => 'Margate', 'first_seen_date' => '2026-06-17', 'last_seen_date' => '2026-08-05', 'times_seen' => 2]);
         $alert->forceFill(['tracked_property_id' => $tp->id])->save();
 
-        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work'))->assertOk()->getContent();
+        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'properties']))->assertOk()->getContent();
         $this->assertStringContainsString('data-qa="envelope"', $html);
         $this->assertStringContainsString('title="In a P24 alert email · first 17 Jun"', $html);
         $this->assertStringContainsString('<rect x="1" y="1" width="14" height="10"', $html, 'a drawn envelope, not a character');
