@@ -302,6 +302,12 @@ class ProspectingConfigurationService
      */
     public function unmappedSuburbsFor(int $agencyId): Collection
     {
+        // The Work tab reads this on every load; the answer moves slowly (cached 2 minutes per agency).
+        return collect(\App\Services\Prospecting\MicWork\MicWorkList::remember('unmapped-suburbs:' . $agencyId, 120, fn () => $this->buildUnmappedSuburbsFor($agencyId)->all()));
+    }
+
+    private function buildUnmappedSuburbsFor(int $agencyId): Collection
+    {
         $mapped = TownSuburb::withoutGlobalScopes()
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')

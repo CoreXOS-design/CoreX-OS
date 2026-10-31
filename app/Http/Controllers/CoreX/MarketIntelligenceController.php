@@ -657,7 +657,7 @@ class MarketIntelligenceController extends Controller
             $effectiveSortBy = ($sortBy === 'score' && $hasScores) || in_array($sortBy, $allowedSorts) ? $sortBy : 'last_seen_at';
             $effectiveSortDir = $sortDir === 'asc' ? 'asc' : 'desc';
 
-            $resolved = $pageResolver->resolvePage(clone $query, $effectiveSortBy, $effectiveSortDir, $page, $perPage);
+            $resolved = $pageResolver->resolvePage(clone $query, $effectiveSortBy, $effectiveSortDir, $page, $perPage, (int) $agencyId);
             $pageGroups = $pageResolver->hydrateGroups(clone $query, $resolved['ids'], $effectiveSortBy, $effectiveSortDir);
 
             $this->applyP24EmailCrossReference($pageGroups);
@@ -976,22 +976,26 @@ class MarketIntelligenceController extends Controller
         // $users feeds the filter rail "captured by" list — needed on both paths.
         // Scoped the same as the main table: a branch/own-scoped user should not
         // see OTHER agents' names populate the "captured by" filter dropdown.
-        $users = User::whereIn('id',
-            ProspectingListing::where('agency_id', $agencyId)
-                ->visibleTo($user, $micScope)
-                ->distinct()->pluck('captured_by_user_id')
-        )->orderBy('name')->get(['id', 'name']);
+        // (cached 5 minutes per viewer + scope: the distinct scan over the agency's adverts is slow and the list of capturers hardly moves)
+        $users = User::hydrate(\App\Services\Prospecting\MicWork\MicWorkList::remember(
+            'capturers:' . $agencyId . ':' . $user->id . ':' . md5(json_encode($micScope)), 300,
+            fn () => User::whereIn('id',
+                ProspectingListing::where('agency_id', $agencyId)
+                    ->visibleTo($user, $micScope)
+                    ->distinct()->pluck('captured_by_user_id')
+            )->orderBy('name')->get(['id', 'name'])->map(fn ($u) => $u->getAttributes())->all(),
+        ));
 
         // AT-242 — buyers that already have at least one cached prospecting match
         // (active, countable buyers per Buyer Pillar doctrine — the same set the
         // "buyer matched" KPI counts). These are the selectable buyers for
         // buyer-led prospecting; a buyer with no matched canvass stock has
         // nothing to prospect on and is omitted.
-        $micBuyerIds = DB::table('prospecting_buyer_matches')
+        $micBuyerIds = collect(\App\Services\Prospecting\MicWork\MicWorkList::remember('buyer-ids:' . $agencyId, 120, fn () => DB::table('prospecting_buyer_matches')
             ->where('agency_id', $agencyId)
             ->whereNull('dismissed_at')
             ->distinct()
-            ->pluck('contact_id');
+            ->pluck('contact_id')->all()));
 
         // AT-242 buyer-selector SCOPE (Johan): My buyers (own) / My branch / Whole
         // company. Role-sensible default — admins agency-wide, everyone else their

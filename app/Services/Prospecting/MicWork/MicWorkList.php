@@ -39,6 +39,15 @@ final class MicWorkList
 
     public function __construct(private readonly PropertySourceFacts $sourceFacts) {}
 
+    /**
+     * Short per-query cache for the Work page's slow, slow-moving reads (totals, filter-list sources). Bypassed under test so tests always see their own data.
+     * The key must carry everything the result depends on (agency, viewer scope, SQL + bindings).
+     */
+    public static function remember(string $key, int $seconds, \Closure $fn): mixed
+    {
+        return app()->runningUnitTests() ? $fn() : \Illuminate\Support\Facades\Cache::remember('mic-work:' . $key, $seconds, $fn);
+    }
+
     /** The ONE suburb formatter for the Work tab (list, panels): title case, never the raw capitals the portals send. */
     public static function titleSuburb(?string $name): string
     {
