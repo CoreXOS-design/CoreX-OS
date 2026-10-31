@@ -287,6 +287,8 @@ Comments (`tracked_property_comments`) and claims (`prospecting_claims`) were al
 
 ## 16. Apply (30 Oct 2026, Johan's go - QA1 only; Staging is the safety copy)
 
+> MIC Work tab build (31 Oct 2026): see [.ai/specs/mic-work-tab.md](mic-work-tab.md) and [.ai/research/mic-data-inventory-2026-10-31.md](../research/mic-data-inventory-2026-10-31.md).
+
 **Command:** `php artisan property-identity:apply <step> [--dry-run|--apply] [--agency=] [--exclude-agency=20] [--journal-dir=]`. Steps run in this order, one at a time:
 `own-stock-joins` -> `advert-clashes` -> `split-over-merged` -> `share`. Default is dry run (the diff is saved to `storage/app/reports/property-identity-apply-<step>-dry-run-*.md/.json`); `--apply` re-plans against the live data, writes only what the plan says and writes a row-level journal (`table, id, column, old, new`, JSON lines) so a step can be undone from the journal as well as from the DB dump. Refuses to run outside QA / local / testing. Services: `PropertyIdentityApplier` (plans + applies), `TrackedPropertyMerger` (the only code that moves rows between two files). The A4 reconciler now exposes `clashGroups()` and `groupFileAdverts()` so the report and the apply can never disagree about a group.
 
