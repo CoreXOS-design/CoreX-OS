@@ -441,6 +441,14 @@ Route::middleware('auth')->group(function () {
             Route::post('/{upload}/complete', [\App\Http\Controllers\Api\V1\TrainingVideoUploadController::class, 'complete'])->name('complete');
         });
 
+    // Ad Studio (AT-527) — the script editor's live check and the list's progress poll (fetch + session cookie). Under /api/v1 so the Admin -> API catalogue
+    // lists them (non-negotiable #7). Owner-only: owner_only here, re-checked in the controller. .ai/specs/training-videos.md 9.21.8
+    Route::prefix('api/v1/admin/video-ads')->middleware(['owner_only', 'throttle:staff-api'])
+        ->name('api.v1.video-ads.')->group(function () {
+            Route::get('/progress', [\App\Http\Controllers\Api\V1\VideoAdApiController::class, 'progress'])->name('progress');
+            Route::post('/validate', [\App\Http\Controllers\Api\V1\VideoAdApiController::class, 'validateDraft'])->name('validate');
+        });
+
     // AT-479 — the reOS review screen's saves and pickers (called from the Blade page over fetch with the session cookie,
     // so they live here like the P24 ones above). Under /api/v1 so the Admin → API catalogue lists them (non-negotiable #7).
     Route::prefix('api/v1/rentals/take-on-import')->middleware(['feature:rental-take-on-import', 'permission:rentals_take_on_import.manage'])->group(function () {
@@ -5605,6 +5613,26 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{video}/retry',          [\App\Http\Controllers\Admin\TrainingVideoController::class, 'retry'])->whereNumber('video')->name('retry');
         // "Delete" archives. The row is never removed (non-negotiable #1).
         Route::delete('/{video}',              [\App\Http\Controllers\Admin\TrainingVideoController::class, 'destroy'])->whereNumber('video')->name('destroy');
+    });
+
+    // Ad Studio (AT-527) — CoreX owners menu -> Marketing -> Video ads. One-click video ads for CoreX's own marketing: a script editor per feature,
+    // "Ad N" history with a frozen snapshot, brand settings. System Owner only (owner_only + assertOwner in every action; no permission key by design,
+    // same as Training Videos). Nothing is posted anywhere. Spec: .ai/specs/training-videos.md 9.21
+    Route::middleware('owner_only')->prefix('admin/video-ads')->name('admin.video-ads.')->group(function () {
+        // Static segments (/brand, /new, /duplicate) come before /{ad} or the binding swallows them.
+        Route::get('/brand',                     [\App\Http\Controllers\Admin\VideoAdBrandController::class, 'edit'])->name('brand');
+        Route::put('/brand',                     [\App\Http\Controllers\Admin\VideoAdBrandController::class, 'update'])->name('brand.update');
+        Route::get('/',                          [\App\Http\Controllers\Admin\VideoAdController::class, 'index'])->name('index');
+        Route::get('/new/{feature}',             [\App\Http\Controllers\Admin\VideoAdController::class, 'create'])->where('feature', '[a-z0-9\-]+')->name('create');
+        Route::get('/duplicate/{ad}',            [\App\Http\Controllers\Admin\VideoAdController::class, 'duplicate'])->whereNumber('ad')->withTrashed()->name('duplicate');
+        Route::post('/',                         [\App\Http\Controllers\Admin\VideoAdController::class, 'store'])->name('store');
+        Route::get('/{ad}',                      [\App\Http\Controllers\Admin\VideoAdController::class, 'show'])->whereNumber('ad')->withTrashed()->name('show');
+        Route::get('/{ad}/file/{format}/{kind}', [\App\Http\Controllers\Admin\VideoAdController::class, 'file'])->whereNumber('ad')->where('format', '[0-9x]+')->where('kind', 'mp4|jpg')->withTrashed()->name('file');
+        Route::get('/{ad}/download/{format}',    [\App\Http\Controllers\Admin\VideoAdController::class, 'download'])->whereNumber('ad')->where('format', '[0-9x]+')->withTrashed()->name('download');
+        Route::post('/{ad}/retry',               [\App\Http\Controllers\Admin\VideoAdController::class, 'retry'])->whereNumber('ad')->name('retry');
+        // "Delete" archives. The row and its files are never removed (non-negotiable #1).
+        Route::delete('/{ad}',                   [\App\Http\Controllers\Admin\VideoAdController::class, 'destroy'])->whereNumber('ad')->name('destroy');
+        Route::post('/{ad}/restore',             [\App\Http\Controllers\Admin\VideoAdController::class, 'restore'])->whereNumber('ad')->withTrashed()->name('restore');
     });
 
     // Dev Settings — system-wide developer overrides (owner-only).
