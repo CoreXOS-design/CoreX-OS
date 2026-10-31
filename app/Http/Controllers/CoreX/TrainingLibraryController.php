@@ -10,7 +10,6 @@ use App\Services\TrainingVideos\Auto\TrainingVideoResolver;
 use App\Services\TrainingVideos\Auto\TrainingScript;
 use App\Services\TrainingVideos\Auto\TrainingScriptRepository;
 use App\Services\TrainingVideos\Tts\TrainingVoices;
-use App\Services\TrainingVideos\Tts\VoiceSamples;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -20,7 +19,7 @@ use Illuminate\Support\Facades\Storage;
  */
 class TrainingLibraryController extends Controller
 {
-    public function __construct(private readonly TrainingScriptRepository $scripts, private readonly SourceHasher $hasher, private readonly TrainingVoices $voices, private readonly VoiceSamples $samples, private readonly TrainingVideoResolver $resolver)
+    public function __construct(private readonly TrainingScriptRepository $scripts, private readonly SourceHasher $hasher, private readonly TrainingVoices $voices, private readonly TrainingVideoResolver $resolver)
     {
     }
 
@@ -49,21 +48,11 @@ class TrainingLibraryController extends Controller
             $rows[] = ['script' => $s, 'video' => $v, 'outOfDate' => $v ? $this->hasher->isOutOfDate($v, $s) : false];
         }
 
-        $voiceRows = [];
-        $defaultVoice = $this->voices->defaultKey();
-        if ($canGenerate) {
-            foreach ($this->voices->listed() as $key => $v) {
-                $has = $v['installed'] && $this->samples->exists($key);
-                if ($v['installed'] && ! $has && $v['provider'] === 'chatterbox' && \Illuminate\Support\Facades\Cache::add('tv-sample-queued:' . $key, 1, 3600)) {
-                    \App\Jobs\TrainingVideos\MakeVoiceSampleJob::dispatch($key);   // a CoreX voice's sample takes a minute or two: made in the background, once
-                }
-                $voiceRows[] = $v + ['current' => $key === $currentVoice, 'sample' => $has, 'platform_default' => $key === $defaultVoice];
-            }
-        }
-        $inMyVoice = collect($this->scripts->all())->filter(fn ($sc) => $sc->approved() && $this->resolver->exists($sc->key(), $currentVoice))->count();
+        // ONE system voice (spec 9.24): agencies do not choose; the system owner sees how far a voice change has got
+        $isOwner = $user->isOwnerRole();
+        $progress = $isOwner ? app(\App\Services\TrainingVideos\Tts\SystemVoiceChange::class)->progress() : null;
 
-        return view('corex.training-library.index', ['rows' => $rows, 'canGenerate' => $canGenerate, 'voiceRows' => $voiceRows, 'currentVoice' => $currentVoice, 'defaultVoice' => $defaultVoice, 'inMyVoice' => $inMyVoice, 'isSystemOwner' => $user->isOwnerRole(), 'voices' => $this->voices,
-            'sampleText' => (string) config('training-videos.auto.sample_text'), 'approvedCount' => collect($this->scripts->all())->filter(fn ($s) => $s->approved())->count()]);
+        return view('corex.training-library.index', ['rows' => $rows, 'canGenerate' => $canGenerate, 'isSystemOwner' => $isOwner, 'systemProgress' => $progress, 'voices' => $this->voices]);
     }
 
     public function show(Request $request, string $screenKey)
@@ -98,61 +87,9 @@ class TrainingLibraryController extends Controller
         if (! $script->approved()) {
             return back()->withErrors(['training' => 'This script has not been approved yet.']);
         }
-        GenerateTrainingVideoJob::dispatch($script->key(), $request->user()->id, $this->voices->keyFor($this->agencyOf($request->user())));
+        GenerateTrainingVideoJob::dispatch($script->key(), $request->user()->id, $this->voices->systemKey());
 
         return back()->with('success', 'The video is being made - it takes a few minutes and appears here when it is ready. The old video keeps playing meanwhile.');
-    }
-
-    /** One voice's sample (the same two sentences for every voice), made on first ask if it is not there yet. Only people who can choose the voice may hear the picker. */
-    public function voiceSample(Request $request, string $key)
-    {
-        abort_unless($request->user()->hasPermission('training_videos.generate'), 403);
-        abort_unless($this->voices->find($key), 404);
-        // a CoreX voice's sample takes a minute or two: never made inside a web request (the picker queues it and enables Play when it exists)
-        abort_unless($this->samples->exists($key) || $this->voices->find($key)['provider'] !== 'chatterbox', 404);
-        $path = $this->samples->ensure($key);
-        abort_unless($path, 404);
-
-        return response()->file(Storage::disk((string) config('training-videos.auto.disk', 'local'))->path($path), ['Content-Type' => 'audio/mpeg', 'Cache-Control' => 'private, max-age=3600']);
-    }
-
-    /** "Use this voice": saved as the agency's training-video voice (agencies.training_video_voice). */
-    public function chooseVoice(Request $request)
-    {
-        abort_unless($request->user()->hasPermission('training_videos.generate'), 403);
-        $data = $request->validate(['voice' => ['required', 'string', 'max:40']]);
-        $agency = $this->agencyOf($request->user());
-        abort_unless($agency && $this->voices->find($data['voice']), 404);
-        $this->voices->choose($agency, $data['voice']);
-
-        // Audio is made ONCE per voice and shared: this voice's set is queued only for the screens that do not have a video in it yet (another agency may already have made it).
-        $queued = 0;
-        foreach ($this->scripts->all() as $script) {
-            if ($script->approved() && ! $this->resolver->exists($script->key(), $data['voice'])) {
-                GenerateTrainingVideoJob::dispatch($script->key(), $request->user()->id, $data['voice']);
-                $queued++;
-            }
-        }
-
-        return back()->with('success', 'Voice saved: ' . $this->voices->find($data['voice'])['label'] . '. ' . ($queued > 0
-            ? $queued . ' video' . ($queued === 1 ? ' is' : 's are') . ' being made in this voice (a few minutes each). Until they are ready you keep watching the current ones.'
-            : 'Every video already exists in this voice, so there is nothing to wait for.'));
-    }
-
-    /** Queue every approved script again, in the agency's chosen voice. */
-    public function regenerateAll(Request $request)
-    {
-        abort_unless($request->user()->hasPermission('training_videos.generate'), 403);
-        $key = $this->voices->keyFor($this->agencyOf($request->user()));
-        $n = 0;
-        foreach ($this->scripts->all() as $script) {
-            if ($script->approved()) {
-                GenerateTrainingVideoJob::dispatch($script->key(), $request->user()->id, $key);
-                $n++;
-            }
-        }
-
-        return back()->with('success', $n . ' video' . ($n === 1 ? ' is' : 's are') . ' being made again in the ' . $this->voices->find($key)['label'] . ' voice. Each takes a few minutes and appears here when it is ready; the old ones keep playing meanwhile.');
     }
 
     /** @return array{0: TrainingScript, 1: TrainingVideo} */

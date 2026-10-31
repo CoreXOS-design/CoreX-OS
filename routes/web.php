@@ -3625,13 +3625,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             $c = \App\Http\Controllers\CoreX\TrainingVoicesController::class;
             Route::get('/voices', [$c, 'index'])->name('voices');
             Route::post('/voices', [$c, 'store'])->name('voices.store');
-            Route::post('/voices/{voice}/default', [$c, 'makeDefault'])->whereNumber('voice')->name('voices.default');
+            Route::post('/voices/use', [$c, 'useAsSystem'])->name('voices.use');
+            Route::get('/voice-sample/{key}', [$c, 'sample'])->where('key', '[a-z0-9_]+')->name('voice-sample');
             Route::post('/voices/{voice}/archive', [$c, 'archive'])->whereNumber('voice')->name('voices.archive');
         });
-        // the voice picker (spec 9.12): registered BEFORE /{screenKey} so 'voice' is never read as a screen
-        Route::get('/voice-sample/{key}', [\App\Http\Controllers\CoreX\TrainingLibraryController::class, 'voiceSample'])->middleware('permission:training_videos.generate')->where('key', '[a-z0-9_]+')->name('voice-sample');
-        Route::post('/voice', [\App\Http\Controllers\CoreX\TrainingLibraryController::class, 'chooseVoice'])->middleware('permission:training_videos.generate')->name('voice.choose');
-        Route::post('/regenerate-all', [\App\Http\Controllers\CoreX\TrainingLibraryController::class, 'regenerateAll'])->middleware('permission:training_videos.generate')->name('regenerate-all');
         Route::get('/{screenKey}', [\App\Http\Controllers\CoreX\TrainingLibraryController::class, 'show'])->middleware('permission:training_videos.view')->where('screenKey', '[a-z0-9-]+')->name('show');
         Route::get('/{screenKey}/file/{kind}', [\App\Http\Controllers\CoreX\TrainingLibraryController::class, 'file'])->middleware('permission:training_videos.view')->where('screenKey', '[a-z0-9-]+')->where('kind', 'mp4|jpg|vtt')->name('file');
         Route::post('/{screenKey}/generate', [\App\Http\Controllers\CoreX\TrainingLibraryController::class, 'generate'])->middleware('permission:training_videos.generate')->where('screenKey', '[a-z0-9-]+')->name('generate');

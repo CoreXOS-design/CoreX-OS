@@ -27,7 +27,8 @@ class AdRenderer
         if ($problems !== []) {
             throw new AdRequestInvalid($problems);
         }
-        $voice = ($request['voice'] ?? null) && $this->voices->find((string) $request['voice']) ? (string) $request['voice'] : $this->voices->defaultKey();
+        // ONE system voice (spec 9.24): an ad is always spoken in it - a `voice` in the request is ignored
+        $voice = $this->voices->systemKey();
         $hash = $this->hash($request, $voice);
         $formats = array_values((array) $request['formats']);
 

@@ -6,7 +6,19 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <a href="{{ route('corex.training-library.index') }}" class="text-xs underline" style="color: var(--text-muted);">&larr; Training library</a>
         <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">CoreX voices</h1>
-        <p class="text-xs" style="color: var(--text-muted);">Voices you make here are offered to every agency. One of them is the platform default: every agency uses it unless its admin picks another. Only you (the system owner) can make, change or remove them.</p>
+        <p class="text-xs" style="color: var(--text-muted);">There is ONE voice for the whole system: every how-to video, narrated-tour clip and ad is spoken in it, for every agency. Agencies do not choose. Pick it below - a CoreX voice you make here, or a Kokoro voice - and press <strong>Use as the system voice</strong>. Only you (the system owner) can do this.</p>
+    </div>
+
+    <div class="rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--brand-icon, #0ea5e9);" data-system-voice>
+        <div class="text-sm"><strong>System voice:</strong> {{ $system['label'] ?? '' }} <span class="text-xs" style="color: var(--text-muted);">({{ $system['provider'] === 'chatterbox' ? 'CoreX voice' : ucfirst($system['provider']) }})</span></div>
+        <div class="text-xs" style="color: var(--text-muted);" data-voice-progress>
+            @if($progress['in_progress'])
+                Changing voice: {{ $progress['ready'] }} of {{ $progress['total'] }} videos are ready in this voice ({{ $progress['percent'] }}%); {{ $progress['making'] }} still being made in the background. The current videos keep playing until each new one is ready.
+            @else
+                All {{ $progress['total'] }} videos are in this voice.@if($progress['failed'] > 0) {{ $progress['failed'] }} could not be made - see the Training library.@endif
+            @endif
+        </div>
+        @if($progress['in_progress'])<div class="w-full rounded" style="background: var(--surface-2); height: 6px;"><div class="rounded" style="background: var(--brand-icon, #0ea5e9); height: 6px; width: {{ $progress['percent'] }}%;"></div></div>@endif
     </div>
 
     @if(session('success'))<div class="rounded-md px-4 py-2 text-sm" style="border: 1px solid var(--ds-green,#16a34a);">{{ session('success') }}</div>@endif
@@ -70,7 +82,7 @@
             <div class="flex flex-wrap items-center justify-between gap-3 rounded-md p-3" style="border: 1px solid {{ $v->is_default ? 'var(--brand-icon, #0ea5e9)' : 'var(--border)' }}; background: var(--surface-2);" data-platform-voice="{{ $v->voice_key }}">
                 <div>
                     <strong class="text-sm">{{ $v->name }}</strong>
-                    @if($v->is_default)<span class="text-xs font-semibold rounded px-2 py-0.5 ml-2" style="background: var(--brand-icon, #0ea5e9); color: #fff;" data-platform-default>Platform default</span>@endif
+                    @if($r['current'])<span class="text-xs font-semibold rounded px-2 py-0.5 ml-2" style="background: var(--brand-icon, #0ea5e9); color: #fff;" data-system-voice-badge>System voice</span>@endif
                     <div class="text-xs" style="color: var(--text-muted);">{{ $v->about }} &middot; {{ $v->reference_seconds }} s recording, agreed to by the speaker on {{ $v->consent_confirmed_at->format('j M Y') }}</div>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
@@ -79,15 +91,35 @@
                     @else
                         <span class="text-xs" style="color: var(--text-muted);" data-sample-pending>Sample is being made...</span>
                     @endif
-                    @unless($v->is_default)
-                        <form method="POST" action="{{ route('corex.training-library.voices.default', $v) }}">@csrf<button type="submit" class="corex-btn-primary text-xs" data-make-default>Make platform default</button></form>
+                    @unless($r['current'])
+                        <form method="POST" action="{{ route('corex.training-library.voices.use') }}">@csrf<input type="hidden" name="voice" value="{{ $v->voice_key }}"><button type="submit" class="corex-btn-primary text-xs" data-use-system-voice>Use as the system voice</button></form>
                     @endunless
                     <form method="POST" action="{{ route('corex.training-library.voices.archive', $v) }}" onsubmit="return confirm('Archive this voice? Agencies using it fall back to the platform default.');">@csrf<button type="submit" class="corex-btn-outline text-xs">Archive</button></form>
                 </div>
             </div>
         @empty
-            <div class="text-sm" style="color: var(--text-muted);" data-no-voices>No CoreX voices yet. Make the first one above; it becomes the platform default.</div>
+            <div class="text-sm" style="color: var(--text-muted);" data-no-voices>No CoreX voices yet. Make one above, or use a Kokoro voice below.</div>
         @endforelse
+    </div>
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-kokoro-voices>
+        <h2 class="text-sm font-bold">Kokoro voices (free, built in)</h2>
+        <p class="text-xs" style="color: var(--text-muted);">Apache-2.0, runs on our own server. Same two sentences for every voice.</p>
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            @foreach($kokoro as $v)
+                <div class="rounded-md p-3 flex flex-col gap-2" style="border: 1px solid {{ $v['current'] ? 'var(--brand-icon, #0ea5e9)' : 'var(--border)' }}; background: var(--surface-2);" data-voice="{{ $v['key'] }}">
+                    <div class="flex items-center justify-between gap-2"><strong class="text-sm">{{ $v['label'] }}</strong>@if($v['current'])<span class="text-xs font-semibold rounded px-2 py-0.5" style="background: var(--brand-icon, #0ea5e9); color: #fff;" data-system-voice-badge>System voice</span>@endif</div>
+                    <div class="text-xs flex-1" style="color: var(--text-muted);">{{ $v['about'] }}</div>
+                    @if($v['installed'])
+                        <button type="button" class="corex-btn-outline text-xs" data-voice-play="{{ route('corex.training-library.voice-sample', $v['key']) }}" onclick="window.__tlPlayVoice(this)">&#9654; Play sample</button>
+                        @unless($v['current'])
+                        <form method="POST" action="{{ route('corex.training-library.voices.use') }}">@csrf<input type="hidden" name="voice" value="{{ $v['key'] }}"><button type="submit" class="corex-btn-primary text-xs w-full" data-use-system-voice>Use as the system voice</button></form>
+                        @endunless
+                    @else
+                        <div class="text-xs" style="color: var(--text-muted);">Not installed on this server.</div>
+                    @endif
+                </div>
+            @endforeach
+        </div>
     </div>
     <script>
         window.__tlPlayVoice = window.__tlPlayVoice || function (btn) {

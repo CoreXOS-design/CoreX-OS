@@ -78,32 +78,41 @@ class TrainingVoices
             : collect();
     }
 
-    /** The platform default: the CoreX voice the system owner picked, else the configured default (Kokoro). Every agency uses it unless its admin chooses another. */
-    public function defaultKey(): string
+    /**
+     * THE system voice (spec 9.24): the one voice every how-to video, narrated-tour clip and ad is spoken in - no agency chooses. Set by the system owner on the Voices
+     * page ("Use as the system voice"); until then the configured default (Kokoro Emma). A stored choice that is no longer on offer (an archived CoreX voice) is ignored.
+     */
+    public function systemKey(): string
     {
-        $pd = $this->platformVoices()->firstWhere('is_default', true);
-        if ($pd) {
-            return $pd->voice_key;
+        $k = \App\Models\TrainingSetting::read('system_voice');
+        if ($k && ($v = $this->find($k)) && $v['listed']) {
+            return $k;
         }
         $k = (string) config('training-videos.auto.default_voice', 'bf_emma');
 
         return isset(config('training-videos.auto.voices', [])[$k]) ? $k : (string) array_key_first((array) config('training-videos.auto.voices', []));
     }
 
-    /** The voice key an agency has chosen (or the default when none, or when its choice is no longer on offer). */
-    public function keyFor(?Agency $agency): string
+    /** Alias of systemKey() - older callers asked for "the default". */
+    public function defaultKey(): string
     {
-        $k = $agency?->training_video_voice;
-
-        return $k && $this->find($k) ? $k : $this->defaultKey();
+        return $this->systemKey();
     }
 
-    public function choose(Agency $agency, string $key): void
+    /** Every agency hears the same voice: the argument is accepted only so older callers keep working. */
+    public function keyFor(?Agency $agency = null): string
     {
-        if (! $this->find($key)) {
-            throw new \InvalidArgumentException("Unknown voice '{$key}'.");
+        return $this->systemKey();
+    }
+
+    /** Set the system voice. The caller (the Voices controller) queues the regeneration. */
+    public function useAsSystem(string $key): void
+    {
+        $v = $this->find($key);
+        if (! $v || ! $v['listed'] || ! $v['installed']) {
+            throw new \InvalidArgumentException("The voice '{$key}' cannot be used.");
         }
-        $agency->forceFill(['training_video_voice' => $key])->save();
+        \App\Models\TrainingSetting::write('system_voice', $key);
     }
 
     /** What a PiperTtsProvider needs for this voice key (the box-level paths plus the model and speaker). */

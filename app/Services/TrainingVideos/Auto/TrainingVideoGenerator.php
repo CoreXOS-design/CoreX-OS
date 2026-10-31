@@ -22,6 +22,7 @@ class TrainingVideoGenerator
         private readonly TrainingSessionService $sessions,
         private readonly VideoAssembler $assembler,
         private readonly SourceHasher $hasher,
+        private readonly TourAudio $tourAudio,
     ) {
     }
 
@@ -58,23 +59,13 @@ class TrainingVideoGenerator
             $user = $this->sessions->userFor($script->loginAs());
             $pad = (float) config('training-videos.auto.step_pad_seconds', 0.6);
 
-            // 1. speak every line and measure it
+            // 1. the voice clips come from the shared per-line clip cache (TourAudio: one mp3 per step, cached by the words + the voice): a line whose words and voice are unchanged is
+            //    NEVER spoken again, and the narrated tour uses the very same files (spec 9.24). Only missing / changed lines are made, in one engine run.
+            $this->tourAudio->make($script, $voiceKey);
             $clips = [];
-            $lines = $script->spokenLines();
-            if ($voice instanceof \App\Services\TrainingVideos\Tts\BatchTtsProvider) {
-                // an engine with a heavy start-up (Chatterbox) gets every line at once, so its model loads once
-                $jobs = [];
-                foreach ($lines as $n => $line) {
-                    $jobs[] = ['text' => $line, 'out' => $work . '/line-' . $n . '.wav'];
-                }
-                foreach ($voice->synthesizeMany($jobs) as $n => $seconds) {
-                    $clips[] = ['file' => $jobs[$n]['out'], 'text' => $lines[$n], 'seconds' => $seconds];
-                }
-            } else {
-                foreach ($lines as $n => $line) {
-                    $wav = $work . '/line-' . $n . '.wav';
-                    $clips[] = ['file' => $wav, 'text' => $line, 'seconds' => $voice->synthesize($line, $wav)];
-                }
+            foreach ($this->tourAudio->lines($script) as $n => $text) {
+                $file = $this->tourAudio->absolute((string) $this->tourAudio->pathFor($script, $n, $voiceKey));
+                $clips[] = ['file' => $file, 'text' => $text, 'seconds' => $this->assembler->probe($file)['duration']];
             }
             $video->update(['progress_percent' => 25]);
 
@@ -150,6 +141,16 @@ class TrainingVideoGenerator
                 foreach (['mp4', 'jpg', 'vtt'] as $ext) {
                     $disk->delete($folder . '/' . $old . '.' . $ext);
                 }
+            }
+            // ONE system voice (spec 9.24): once this voice's video is ready, an older voice's video of the same screen is retired (its files removed, the row soft-deleted) - until then
+            // the old one keeps playing.
+            foreach (TrainingVideo::where('source', TrainingVideo::SOURCE_GENERATED)->where('screen_key', $script->key())->where('id', '!=', $video->id)->get() as $other) {
+                foreach (['mp4', 'jpg', 'vtt'] as $ext) {
+                    if ($other->file_name) {
+                        $disk->delete($folder . '/' . $other->file_name . '.' . $ext);
+                    }
+                }
+                $other->delete();
             }
         } catch (\Throwable $e) {
             $video->forceFill(['failure_reason' => mb_substr($e->getMessage(), 0, 240), 'processing_started_at' => null, 'progress_percent' => null]);

@@ -2,14 +2,17 @@
 
 namespace Tests\Feature\TrainingVideos;
 
+use App\Jobs\TrainingVideos\GenerateTrainingVideoJob;
 use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\Role;
 use App\Models\RolePermission;
 use App\Models\TrainingPlatformVoice;
+use App\Models\TrainingSetting;
 use App\Models\TrainingVideo;
 use App\Models\User;
 use App\Services\TrainingVideos\Auto\TrainingVideoResolver;
+use App\Services\TrainingVideos\Tts\SystemVoiceChange;
 use App\Services\TrainingVideos\Tts\TrainingVoices;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -19,7 +22,8 @@ use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 /**
- * AT-525 (spec section 9.20) - CoreX voices (the system owner's Chatterbox voices), the platform default, the agency choice, and audio made once per voice and shared.
+ * AT-525 (spec section 9.24) - ONE system voice. The system owner makes CoreX voices and picks THE voice (a CoreX or a Kokoro one); agencies do not choose; a change queues the
+ * regeneration of everything in the background and the old videos keep playing until each new one is ready.
  */
 final class CoreXVoicesTest extends TestCase
 {
@@ -37,10 +41,10 @@ final class CoreXVoicesTest extends TestCase
         Storage::fake('local');
         $this->dir = sys_get_temp_dir() . '/tv-cb-' . uniqid();
         mkdir($this->dir);
-        file_put_contents($this->dir . '/book-a-viewing.php', '<?php return ' . var_export(['key' => 'book-a-viewing', 'title' => 'Book', 'route' => null, 'url' => '/corex/x', 'approved' => true, 'related' => [],
-            'steps' => [['selector' => 'a', 'action' => 'highlight', 'narration' => 'x', 'why' => 'y']]], true) . ';');
-        file_put_contents($this->dir . '/mic-work.php', '<?php return ' . var_export(['key' => 'mic-work', 'title' => 'MIC', 'route' => null, 'url' => '/corex/m', 'approved' => true, 'related' => [],
-            'steps' => [['selector' => 'a', 'action' => 'highlight', 'narration' => 'x', 'why' => 'y']]], true) . ';');
+        foreach (['book-a-viewing' => '/corex/x', 'mic-work' => '/corex/m'] as $key => $url) {
+            file_put_contents($this->dir . '/' . $key . '.php', '<?php return ' . var_export(['key' => $key, 'title' => $key, 'route' => null, 'url' => $url, 'approved' => true, 'related' => [],
+                'steps' => [['selector' => 'a', 'action' => 'highlight', 'narration' => 'x', 'why' => 'y']]], true) . ';');
+        }
         config(['training-videos.auto.scripts_dir' => $this->dir]);
         $this->app->forgetInstance(\App\Services\TrainingVideos\Auto\TrainingScriptRepository::class);
 
@@ -77,12 +81,30 @@ final class CoreXVoicesTest extends TestCase
         return $this->actingAs($this->owner)->post(route('corex.training-library.voices.store'), ['name' => $name, 'about' => 'South African, calm', 'consent' => $consent ? '1' : null, 'reference' => $f ?? $this->wav()]);
     }
 
-    public function test_only_the_system_owner_can_open_the_voices_page_or_make_a_voice(): void
+    private function video(string $screen, string $voice, string $status = 'ready'): TrainingVideo
+    {
+        return TrainingVideo::create(['source' => 'generated', 'status' => $status, 'screen_key' => $screen, 'voice_key' => $voice, 'title' => $screen,
+            'file_name' => $status === 'ready' ? $screen . '-' . $voice : null, 'duration_seconds' => 60]);
+    }
+
+    public function test_only_the_system_owner_reaches_the_voices_page_and_agencies_have_no_voice_choice(): void
     {
         $this->actingAs($this->admin)->get(route('corex.training-library.voices'))->assertForbidden();
-        $this->actingAs($this->admin)->post(route('corex.training-library.voices.store'), ['name' => 'X', 'consent' => '1', 'reference' => $this->wav()])->assertForbidden();
-        $this->actingAs($this->owner)->get(route('corex.training-library.voices'))->assertOk()->assertSee('data-voices-page', false);
-        $this->assertSame(0, TrainingPlatformVoice::count());
+        $this->actingAs($this->admin)->post(route('corex.training-library.voices.use'), ['voice' => 'bf_lily'])->assertForbidden();
+        $this->actingAs($this->admin)->get(route('corex.training-library.voice-sample', 'bf_emma'))->assertForbidden();
+        $this->actingAs($this->owner)->get(route('corex.training-library.voices'))->assertOk()->assertSee('data-system-voice', false);
+
+        // an agency admin's library has no voice picker at all; the system owner's has a note and the link
+        $adminHtml = $this->actingAs($this->admin)->get(route('corex.training-library.index'))->assertOk()->getContent();
+        $this->assertStringNotContainsString('data-voice-picker', $adminHtml);
+        $this->assertStringNotContainsString('data-voices-link', $adminHtml);
+        $this->assertStringNotContainsString('Use this voice', $adminHtml);
+        $ownerHtml = $this->actingAs($this->owner)->get(route('corex.training-library.index'))->assertOk()->getContent();
+        $this->assertStringContainsString('data-voices-link', $ownerHtml);
+        $this->assertStringContainsString('The system voice is', $ownerHtml);
+        foreach (['voice.choose', 'regenerate-all', 'voices.default'] as $gone) {
+            $this->assertFalse(\Illuminate\Support\Facades\Route::has('corex.training-library.' . $gone), $gone . ' is gone');
+        }
     }
 
     public function test_a_voice_needs_the_consent_tick_and_a_long_enough_recording(): void
@@ -94,94 +116,98 @@ final class CoreXVoicesTest extends TestCase
         Bus::assertNothingDispatched();
     }
 
-    public function test_a_saved_voice_keeps_its_reference_private_becomes_the_first_default_and_queues_its_sample(): void
+    public function test_a_saved_voice_keeps_its_reference_private_and_is_not_the_system_voice_until_the_owner_says_so(): void
     {
         Bus::fake();
         $this->make('Thandi')->assertRedirect(route('corex.training-library.voices'));
         $v = TrainingPlatformVoice::firstOrFail();
 
         $this->assertSame('corex_thandi', $v->voice_key);
-        $this->assertTrue($v->is_default, 'the first CoreX voice becomes the platform default');
+        $this->assertFalse((bool) $v->is_default);
         $this->assertNotNull($v->consent_confirmed_at);
         $this->assertSame($this->owner->id, $v->consent_by_user_id);
         Storage::disk('local')->assertExists($v->reference_file);
-        $this->assertGreaterThan(5.0, $v->reference_seconds);
         Bus::assertDispatched(\App\Jobs\TrainingVideos\MakeVoiceSampleJob::class, fn ($j) => $j->voiceKey === 'corex_thandi');
+        $this->assertSame('bf_emma', app(TrainingVoices::class)->systemKey(), 'making a voice does not change what is spoken');
 
-        // an agency admin sees the voice in the picker but nothing of the reference clip, and there is no route that serves it
-        $html = $this->actingAs($this->admin)->get(route('corex.training-library.index'))->assertOk()->getContent();
-        $this->assertStringContainsString('data-voice="corex_thandi"', $html);
-        $this->assertStringContainsString('data-voice-group="chatterbox"', $html);
-        $this->assertStringNotContainsString('voice-refs', $html);
+        $html = $this->actingAs($this->admin)->get(route('corex.training-library.index'))->getContent();
+        $this->assertStringNotContainsString('corex_thandi', $html);
         $this->assertStringNotContainsString($v->reference_file, $html);
-        $this->actingAs($this->admin)->get(route('corex.training-library.voices'))->assertForbidden();
     }
 
-    public function test_the_platform_default_is_what_every_agency_uses_until_its_admin_chooses_another(): void
+    public function test_use_as_the_system_voice_saves_it_and_queues_every_approved_video_in_the_background(): void
     {
         Bus::fake();
-        $this->make('Thandi');
-        $this->make('Ava');
-        $voices = app(TrainingVoices::class);
-        $this->assertSame('corex_thandi', $voices->defaultKey());
-        $this->assertSame('corex_thandi', $voices->keyFor($this->agency), 'an agency with no choice uses the platform default');
+        $this->video('book-a-viewing', 'bf_emma');   // the current voice's videos
+        $this->video('mic-work', 'bf_emma');
 
-        $ava = TrainingPlatformVoice::where('voice_key', 'corex_ava')->firstOrFail();
-        $this->actingAs($this->owner)->post(route('corex.training-library.voices.default', $ava))->assertSessionHas('success');
-        $this->assertSame('corex_ava', $voices->defaultKey());
-        $this->assertSame(1, TrainingPlatformVoice::where('is_default', true)->count());
-        $this->assertSame('corex_ava', $voices->keyFor($this->agency->fresh()));
+        $this->actingAs($this->owner)->post(route('corex.training-library.voices.use'), ['voice' => 'bf_lily'])->assertSessionHas('success');
+        $this->assertSame('bf_lily', app(TrainingVoices::class)->systemKey());
+        $this->assertSame('bf_lily', app(TrainingVoices::class)->keyFor($this->agency), 'every agency hears the one voice');
+        Bus::assertDispatchedTimes(GenerateTrainingVideoJob::class, 2);
+        Bus::assertDispatched(GenerateTrainingVideoJob::class, fn ($j) => $j->screenKey === 'mic-work' && $j->voiceKey === 'bf_lily' && $j->queue === 'training-videos');
 
-        $this->actingAs($this->admin)->post(route('corex.training-library.voice.choose'), ['voice' => 'bf_emma']);
-        $this->assertSame('bf_emma', $voices->keyFor($this->agency->fresh()));
-        $this->actingAs($this->admin)->post(route('corex.training-library.voices.default', $ava))->assertForbidden();
-    }
-
-    public function test_an_archived_voice_leaves_the_picker_and_an_agency_that_used_it_falls_back_to_the_default(): void
-    {
+        // the same voice again queues nothing; an unknown voice is refused
         Bus::fake();
-        $this->make('Thandi');
-        $this->make('Ava');
-        $ava = TrainingPlatformVoice::where('voice_key', 'corex_ava')->firstOrFail();
-        $this->actingAs($this->admin)->post(route('corex.training-library.voice.choose'), ['voice' => 'corex_ava']);
-        $this->actingAs($this->owner)->post(route('corex.training-library.voices.archive', $ava))->assertSessionHas('success');
-
-        $voices = app(TrainingVoices::class);
-        $this->assertSame('corex_thandi', $voices->keyFor($this->agency->fresh()));
-        $this->assertStringNotContainsString('data-voice="corex_ava"', $this->actingAs($this->admin)->get(route('corex.training-library.index'))->getContent());
-        $this->assertSoftDeleted('training_platform_voices', ['voice_key' => 'corex_ava']);
-    }
-
-    public function test_audio_is_made_once_per_voice_and_shared(): void
-    {
-        $resolver = app(TrainingVideoResolver::class);
-        $mk = fn (string $screen, ?string $voice, string $status = 'ready') => TrainingVideo::create(['source' => 'generated', 'status' => $status, 'screen_key' => $screen, 'voice_key' => $voice,
-            'title' => $screen, 'file_name' => $status === 'ready' ? $screen . '-' . $voice : null, 'duration_seconds' => 60]);
-        $default = app(TrainingVoices::class)->defaultKey();
-        $a = $mk('book-a-viewing', $default);
-
-        // an agency on a voice that has no video yet is shown the platform default's (and is not shown nothing)
-        $this->assertSame($a->id, $resolver->forScreen('book-a-viewing', 'bf_lily')->id);
-        $b = $mk('book-a-viewing', 'bf_lily');
-        $this->assertSame($b->id, $resolver->forScreen('book-a-viewing', 'bf_lily')->id, 'its own voice wins once it exists');
-        $this->assertSame($a->id, $resolver->forScreen('book-a-viewing', null)->id);
-        $this->assertTrue($resolver->exists('book-a-viewing', 'bf_lily'));
-        $this->assertFalse($resolver->exists('mic-work', 'bf_lily'));
-
-        // choosing a voice queues ONLY the screens that have no video in it yet - another agency may already have made them
-        Bus::fake();
-        $this->actingAs($this->admin)->post(route('corex.training-library.voice.choose'), ['voice' => 'bf_lily'])->assertSessionHas('success');
-        Bus::assertDispatchedTimes(\App\Jobs\TrainingVideos\GenerateTrainingVideoJob::class, 1);
-        Bus::assertDispatched(\App\Jobs\TrainingVideos\GenerateTrainingVideoJob::class, fn ($j) => $j->screenKey === 'mic-work' && $j->voiceKey === 'bf_lily');
-    }
-
-    public function test_a_second_agency_on_the_same_voice_queues_nothing(): void
-    {
-        $mk = fn (string $screen) => TrainingVideo::create(['source' => 'generated', 'status' => 'ready', 'screen_key' => $screen, 'voice_key' => 'bf_isabella', 'title' => $screen, 'file_name' => $screen, 'duration_seconds' => 60]);
-        $mk('book-a-viewing');
-        $mk('mic-work');
-        Bus::fake();
-        $this->actingAs($this->admin)->post(route('corex.training-library.voice.choose'), ['voice' => 'bf_isabella'])->assertSessionHas('success');
+        $this->actingAs($this->owner)->post(route('corex.training-library.voices.use'), ['voice' => 'bf_lily'])->assertSessionHas('success');
+        $this->actingAs($this->owner)->post(route('corex.training-library.voices.use'), ['voice' => 'nobody'])->assertNotFound();
         Bus::assertNothingDispatched();
+    }
+
+    public function test_a_corex_voice_can_be_the_system_voice_and_an_agencys_old_choice_is_ignored(): void
+    {
+        Bus::fake();
+        $this->make('Thandi');
+        $this->agency->forceFill(['training_video_voice' => 'af_bella'])->save();   // a left-over choice from the old design
+        $this->actingAs($this->owner)->post(route('corex.training-library.voices.use'), ['voice' => 'corex_thandi'])->assertSessionHas('success');
+        $voices = app(TrainingVoices::class);
+        $this->assertSame('corex_thandi', $voices->systemKey());
+        $this->assertSame('corex_thandi', $voices->keyFor($this->agency->fresh()));
+        $this->assertSame('Thandi', $voices->labelFor('chatterbox:corex_thandi'));
+    }
+
+    public function test_the_old_videos_keep_playing_until_each_new_one_is_ready_and_progress_is_shown(): void
+    {
+        Bus::fake();
+        $resolver = app(TrainingVideoResolver::class);
+        $old = $this->video('book-a-viewing', 'bf_emma');
+        $this->video('mic-work', 'bf_emma');
+        $this->actingAs($this->owner)->post(route('corex.training-library.voices.use'), ['voice' => 'bf_lily']);
+
+        $this->assertSame($old->id, $resolver->forScreen('book-a-viewing', 'bf_lily')->id, 'no new video yet: the old one plays');
+        $p = app(SystemVoiceChange::class)->progress();
+        $this->assertSame(['bf_lily', 2, 0, 2, true], [$p['voice'], $p['total'], $p['ready'], $p['making'], $p['in_progress']]);
+        $html = $this->actingAs($this->owner)->get(route('corex.training-library.voices'))->getContent();
+        $this->assertStringContainsString('0 of 2 videos are ready in this voice', $html);
+
+        $new = $this->video('book-a-viewing', 'bf_lily');
+        $this->assertSame($new->id, $resolver->forScreen('book-a-viewing', 'bf_lily')->id, 'the new one plays once it is ready');
+        $p = app(SystemVoiceChange::class)->progress();
+        $this->assertSame([1, 1, 50], [$p['ready'], $p['making'], $p['percent']]);
+        $this->video('mic-work', 'bf_lily');
+        $this->assertFalse(app(SystemVoiceChange::class)->progress()['in_progress']);
+        $this->assertStringContainsString('All 2 videos are in this voice', $this->actingAs($this->owner)->get(route('corex.training-library.voices'))->getContent());
+    }
+
+    public function test_the_system_voice_cannot_be_archived_but_another_voice_can(): void
+    {
+        Bus::fake();
+        $this->make('Thandi');
+        $this->make('Ava');
+        $thandi = TrainingPlatformVoice::where('voice_key', 'corex_thandi')->firstOrFail();
+        $ava = TrainingPlatformVoice::where('voice_key', 'corex_ava')->firstOrFail();
+        $this->actingAs($this->owner)->post(route('corex.training-library.voices.use'), ['voice' => 'corex_thandi']);
+
+        $this->actingAs($this->owner)->post(route('corex.training-library.voices.archive', $thandi))->assertSessionHasErrors('voice');
+        $this->assertNull($thandi->fresh()->deleted_at);
+        $this->actingAs($this->owner)->post(route('corex.training-library.voices.archive', $ava))->assertSessionHas('success');
+        $this->assertSoftDeleted('training_platform_voices', ['voice_key' => 'corex_ava']);
+        $this->assertSame('corex_thandi', app(TrainingVoices::class)->systemKey());
+    }
+
+    public function test_an_archived_or_missing_system_voice_falls_back_to_the_configured_default(): void
+    {
+        TrainingSetting::write('system_voice', 'corex_gone');
+        $this->assertSame('bf_emma', app(TrainingVoices::class)->systemKey());
     }
 }

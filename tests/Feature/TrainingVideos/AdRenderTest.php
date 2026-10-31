@@ -140,6 +140,15 @@ final class AdRenderTest extends TestCase
         $this->assertNotSame($batch, $changed, 'a changed script is a new render');
     }
 
+    public function test_an_ad_is_always_spoken_in_the_one_system_voice(): void
+    {
+        Bus::fake();
+        \App\Models\TrainingSetting::write('system_voice', 'bf_lily');
+        $batch = app(AdRenderer::class)->queue($this->request(['voice' => 'af_bella']));   // a voice in the request is ignored
+        $this->assertSame(['bf_lily', 'bf_lily'], AdRender::where('batch_id', $batch)->pluck('voice_key')->all());
+        Bus::assertDispatched(RenderAdJob::class, fn ($j) => $j->voiceKey === 'bf_lily');
+    }
+
     public function test_an_invalid_request_is_refused_with_plain_sentences_and_nothing_is_queued(): void
     {
         Bus::fake();
