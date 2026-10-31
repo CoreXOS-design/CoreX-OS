@@ -32,6 +32,8 @@ class TrainingMicSeeder
             return 0;
         }
         $now = now();
+        // the Neighbours panel shows "this month": a demo trigger is never dated before the 1st, however early in the month the video is made
+        $thisMonth = fn (int $days) => $now->copy()->subDays($days)->max($now->copy()->startOfMonth());
         $subs = DB::table('p24_suburbs')->whereIn('name', ['Uvongo', 'Margate', 'Shelly Beach', 'Ramsgate'])->whereNull('deleted_at')->pluck('id', 'name');
         $owners = [];
         $owner = function (string $first) use ($aid, &$owners) {
@@ -54,7 +56,7 @@ class TrainingMicSeeder
         };
 
         $n = 0;
-        $advert = function (int $tp, array $a) use ($aid, $agent, $subs, $now, &$n) {
+        $advert = function (int $tp, array $a) use ($aid, $agent, $subs, $now, $thisMonth, &$n) {
             $n++;
             $id = DB::table('prospecting_listings')->insertGetId([
                 'agency_id' => $aid, 'branch_id' => $agent->branch_id, 'captured_by_user_id' => $agent->id, 'tracked_property_id' => $tp, 'portal_source' => $a['portal'] ?? 'p24',
@@ -64,7 +66,7 @@ class TrainingMicSeeder
                 'property_type' => $a['type'] ?? 'house', 'agent_name' => $a['agent'] ?? 'Sam Sample', 'agency_name' => $a['agency'], 'advertiser_type' => $a['adv'] ?? 'agency',
                 'first_seen_at' => $now->copy()->subDays($a['first']), 'last_seen_at' => $now->copy()->subDays($a['last'] ?? 1), 'listed_date' => $now->copy()->subDays($a['listed'] ?? $a['first'])->toDateString(),
                 'listed_date_source' => 'portal', 'is_active' => 1, 'portal_status' => $a['status'] ?? 'active',
-                'portal_status_changed_at' => isset($a['status_days']) ? $now->copy()->subDays($a['status_days']) : null, 'is_reduced' => ! empty($a['cuts']) ? 1 : 0,
+                'portal_status_changed_at' => isset($a['status_days']) ? $thisMonth($a['status_days']) : null, 'is_reduced' => ! empty($a['cuts']) ? 1 : 0,
                 'created_at' => $now, 'updated_at' => $now,
             ]);
             $price = $a['price'];
@@ -97,7 +99,7 @@ class TrainingMicSeeder
             'last' => 9]);
 
         // 5. Deeds registered 9 days ago (the third kind of trigger) - not on the market, so it has an advert-less file; its advert (still showing on the portal until the next read) lets it show in the list too
-        $reg = $file(['no' => '31', 'street' => 'Academy Lane', 'suburb' => 'Uvongo', 'seen' => 200, 'owner' => $owner('Naledi'), 'registered' => $now->copy()->subDays(9)->toDateString(), 'sold_price' => 2_040_000]);
+        $reg = $file(['no' => '31', 'street' => 'Academy Lane', 'suburb' => 'Uvongo', 'seen' => 200, 'owner' => $owner('Naledi'), 'registered' => $thisMonth(9)->toDateString(), 'sold_price' => 2_040_000]);
         DB::table('tracked_property_external_refs')->insert(['agency_id' => $aid, 'tracked_property_id' => $reg, 'source_type' => 'deeds_capture', 'source_ref' => 'TRN-DEEDS-31', 'first_seen_at' => $now, 'last_seen_at' => $now,
             'created_at' => $now, 'updated_at' => $now]);
         $advert($reg, ['address' => '31 Academy Lane, Uvongo', 'suburb' => 'Uvongo', 'price' => 2_095_000, 'agency' => 'Example Estates', 'first' => 110, 'last' => 8]);
@@ -146,6 +148,19 @@ class TrainingMicSeeder
         DB::table('prospecting_listings')->where('agency_id', $aid)->where('suburb', 'Margate')->update(['last_seen_at' => $now->copy()->subDays(12)]);
         DB::table('prospecting_listings')->where('agency_id', $aid)->where('suburb', 'Ramsgate')->update(['last_seen_at' => $now->copy()->subDays(5)]);
 
+        // Market data last refreshed: since step 4.8 / 4.11 the panel reads the agency's COMPLETE suburb crawls (portal reads), so the training agency has some, of different ages -
+        // the oldest (Margate, 12 days) is overdue and shows red.
+        $crawlDays = ['Uvongo' => [2, 3], 'Shelly Beach' => [4, 5], 'Ramsgate' => [5, 6], 'Margate' => [12, 12]];
+        foreach ($crawlDays as $suburb => [$p24Days, $ppDays]) {
+            foreach (['p24' => $p24Days, 'pp' => $ppDays] as $portal => $days) {
+                $at = $now->copy()->subDays($days);
+                $crawl = DB::table('mic_crawls')->insertGetId(['agency_id' => $aid, 'user_id' => $agent->id, 'session_id' => 'training-' . $portal . '-' . Str::slug($suburb), 'portal' => $portal, 'listing_type' => 'sale',
+                    'search_url' => 'https://training.invalid/search/' . Str::slug($suburb), 'started_at' => $at->copy()->subMinutes(9), 'finished_at' => $at, 'pages_read' => 6, 'pages_total' => 6, 'adverts_seen' => 38,
+                    'is_complete' => 1, 'is_filtered' => 0, 'gone_count' => 0, 'probably_sold_count' => 0, 'created_at' => $at, 'updated_at' => $at]);
+                DB::table('mic_crawl_suburbs')->insert(['mic_crawl_id' => $crawl, 'agency_id' => $aid, 'portal' => $portal, 'suburb_id' => $subs[$suburb] ?? null, 'suburb_name' => $suburb, 'created_at' => $at, 'updated_at' => $at]);
+            }
+        }
+
         // The suburbs this agency works, as an agency lists them once in MIC Settings: the Data refreshed tile and panel count only OUR working suburbs (step 4.8)
         \App\Models\MicAgencySetting::saveValues($aid, ['areas' => array_values($subs->only(['Uvongo', 'Margate', 'Shelly Beach', 'Ramsgate'])->map(fn ($id) => (int) $id)->all())]);
 
@@ -171,7 +186,7 @@ class TrainingMicSeeder
         DB::table('p24_listings')->where('agency_id', $aid)->delete();
         $advertIds = DB::table('prospecting_listings')->where('agency_id', $aid)->pluck('id');
         DB::table('prospecting_price_history')->whereIn('prospecting_listing_id', $advertIds)->delete();
-        foreach (['prospecting_claims', 'tracked_property_agency_work_events', 'tracked_property_agency_work', 'tracked_property_external_refs', 'mic_file_stats', 'mic_agency_settings', 'prospecting_listings', 'tracked_properties'] as $t) {
+        foreach (['prospecting_claims', 'tracked_property_agency_work_events', 'tracked_property_agency_work', 'tracked_property_external_refs', 'mic_file_stats', 'mic_agency_settings', 'mic_crawl_suburbs', 'mic_crawls', 'prospecting_listings', 'tracked_properties'] as $t) {
             DB::table($t)->where('agency_id', $aid)->delete();
         }
     }

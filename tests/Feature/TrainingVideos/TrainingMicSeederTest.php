@@ -76,8 +76,10 @@ final class TrainingMicSeederTest extends TestCase
         $rows = app(\App\Services\Prospecting\MicWork\RefreshStatusPanelProvider::class)->rows($r['agency']->id, $r['users']['agent'], ['scope' => 'all']);
 
         $this->assertCount(4, $rows);
-        $this->assertSame('Margate', $rows[0]['suburb'], 'the oldest read is first');
-        $this->assertTrue($rows[0]['overdue']);
+        $margate = collect($rows)->firstWhere('suburb', 'Margate');
+        $this->assertSame(12, $margate['age_days'], 'its portal reads are 12 days old (the crawls the training agency has)');
+        $this->assertTrue($margate['overdue']);
+        $this->assertSame(['Margate'], collect($rows)->where('overdue', true)->pluck('suburb')->values()->all(), 'only the oldest is overdue');
     }
 
     public function test_it_is_idempotent_and_reset_starts_clean(): void
