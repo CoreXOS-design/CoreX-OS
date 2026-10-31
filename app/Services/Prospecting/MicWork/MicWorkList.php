@@ -214,7 +214,7 @@ final class MicWorkList
                     }
                     $alertsByKey[$fk][] = [
                         'portal' => $portal === 'p24' ? 'P24' : 'PP', 'number' => (string) $al->{$cfg['number']},
-                        'first' => $al->first_seen_date?->format('j M Y'), 'last' => $al->last_seen_date?->format('j M Y'),
+                        'first' => $al->first_seen_date?->format('j M Y'), 'first_raw' => $al->first_seen_date?->format('Y-m-d'), 'last' => $al->last_seen_date?->format('j M Y'),
                         'price' => (int) $al->asking_price, 'original' => $al->original_price !== null ? (int) $al->original_price : null,
                         'changes' => $al->priceChanges->map(fn ($c) => ['date' => $c->change_date->format('j M Y'), 'old' => (int) $c->old_price, 'new' => (int) $c->new_price])->all(),
                     ];
@@ -356,6 +356,11 @@ final class MicWorkList
                 'pp' => $list->contains('portal_source', 'pp'),
                 'alert' => $srcRows->contains(fn ($s) => $s['alert']) || ! empty($alertsByKey[$key]),
                 'alerts' => $alertsByKey[$key] ?? [],
+                'alert_tip' => (function () use ($alertsByKey, $key) {
+                    $first = collect($alertsByKey[$key] ?? [])->filter(fn ($a) => ! empty($a['first_raw']))->sortBy('first_raw')->first();
+
+                    return 'In a ' . ($first['portal'] ?? 'P24') . ' alert email' . ($first ? ' · first ' . \Carbon\Carbon::parse($first['first_raw'])->format('j M') : '');
+                })(),
                 'pair_ids' => $pairs[$key] ?? [],
                 'buyer_names' => array_values($buyerNames[$key] ?? []),
                 'claims' => $this->collapseClaims($claimsByKey[$key] ?? []),

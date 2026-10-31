@@ -296,9 +296,11 @@ class ProspectingListing extends Model
                 $q->where("{$table}.address", 'like', $like)->orWhere("{$table}.suburb", 'like', $like)
                     ->orWhere("{$table}.agent_name", 'like', $like)->orWhere("{$table}.agency_name", 'like', $like)
                     ->orWhere("{$table}.portal_ref", 'like', $like)
-                    ->orWhereExists(function ($s) use ($like, $table, $agencyId) {
-                        $s->select(\Illuminate\Support\Facades\DB::raw(1))->from('tracked_properties as tp_s')
-                            ->whereColumn('tp_s.id', "{$table}.tracked_property_id")->where('tp_s.agency_id', $agencyId)->whereNull('tp_s.deleted_at')
+                    // the file's address as a SEMI-JOIN (tracked_property_id IN (matching files)), not a correlated EXISTS per advert row: the optimiser
+                    // reads the ~50k files once instead of probing them for each of ~40k adverts.
+                    ->orWhereIn("{$table}.tracked_property_id", function ($s) use ($like, $agencyId) {
+                        $s->select('tp_s.id')->from('tracked_properties as tp_s')
+                            ->where('tp_s.agency_id', $agencyId)->whereNull('tp_s.deleted_at')
                             ->where(fn ($t) => $t->where('tp_s.street_name', 'like', $like)
                                 ->orWhereRaw("CONCAT_WS(' ', tp_s.street_number, tp_s.street_name) LIKE ?", [$like])
                                 ->orWhere('tp_s.complex_name', 'like', $like)->orWhere('tp_s.suburb', 'like', $like));

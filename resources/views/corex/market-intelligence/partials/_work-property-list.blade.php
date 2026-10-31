@@ -71,7 +71,7 @@
                     <span data-qa="row-sources">
                         @if($r['p24'])<span style="{{ $chip }}">P24</span>@endif
                         @if($r['pp'])<span style="{{ $chip }}">PP</span>@endif
-                        @if($r['alert'])<span style="{{ $chip }}" title="Seen in a P24 e-mail alert">✉</span>@endif
+                        @if($r['alert'])<span data-qa="envelope" style="{{ $chip }} padding: 1px 4px;" title="{{ $r['alert_tip'] }}"><svg viewBox="0 0 16 12" width="14" height="10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="display:block;" aria-label="In a P24 alert email"><rect x="1" y="1" width="14" height="10" rx="1.5"/><path d="M1.5 2.2 8 7l6.5-4.8"/></svg></span>@endif
                         @if($r['own_stock'])<span style="{{ $chip }} color: var(--brand-icon);" title="Our stock">Stock</span>@endif
                         @if($r['deeds'])<span style="{{ $chip }}" title="Deeds captured">Deeds</span>@endif
                         @if($r['owner'])<span style="{{ $chip }}" title="Owner selling privately">Owner</span>@endif
@@ -126,7 +126,7 @@
                     @endforelse
                     <div style="font-weight: 700; margin: 8px 0 2px;">P24 alerts</div>
                     @forelse($r['alerts'] as $al)
-                        <div data-qa="alert-line">✉ {{ $al['portal'] }} {{ $al['number'] }} · first {{ $al['first'] ?? '-' }} · last {{ $al['last'] ?? '-' }} · asking {{ $money($al['price']) }}@if($al['original'] && $al['original'] !== $al['price']) · was {{ $money($al['original']) }}@endif
+                        <div data-qa="alert-line"><svg viewBox="0 0 16 12" width="12" height="9" fill="none" stroke="currentColor" stroke-width="1.4" style="display:inline-block;"><rect x="1" y="1" width="14" height="10" rx="1.5"/><path d="M1.5 2.2 8 7l6.5-4.8"/></svg> {{ $al['portal'] }} {{ $al['number'] }} · first {{ $al['first'] ?? '-' }} · last {{ $al['last'] ?? '-' }} · asking {{ $money($al['price']) }}@if($al['original'] && $al['original'] !== $al['price']) · was {{ $money($al['original']) }}@endif
                             @foreach($al['changes'] as $c)<span style="color: var(--text-muted);"> · {{ $c['date'] }}: {{ $money($c['old']) }} → {{ $money($c['new']) }}</span>@endforeach</div>
                     @empty
                         <div style="color: var(--text-muted);">None.</div>

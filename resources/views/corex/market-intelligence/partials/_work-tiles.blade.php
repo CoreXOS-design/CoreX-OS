@@ -4,7 +4,7 @@
     $activePanel = (int) request('panel');
     $tileUrl = function (array $params) {
         // panel-specific params never survive a panel change or close (months / type / trigger; its suburb filter too)
-        $drop = ['page', 'tile', 'panel', 'trigger', 'months', 'type'] + (request('panel') ? [6 => 'suburb'] : []);
+        $drop = ['page', 'tile', 'panel', 'trigger', 'months', 'type', 'show_all'] + (request('panel') ? [7 => 'suburb'] : []);
         $merged = array_merge(request()->except($drop), $params);
         foreach ($merged as $k => $v) if ($v === null || $v === '') unset($merged[$k]);
         return route('market-intelligence.work', $merged);
@@ -102,15 +102,18 @@
                 </select></label>
             <label>Suburb <input type="text" name="suburb" value="{{ request('suburb') }}" style="font-size:.75rem; width: 130px;"></label>
         </form>
+        <div data-qa="trigger-head" style="display:grid; grid-template-columns: 110px 1fr 140px 110px 120px 130px; gap: 8px; padding: 4px 10px; font-size: .6875rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); background: var(--surface-2); border-top: 1px solid var(--border);">
+            <span>What happened</span><span>Address</span><span>Suburb</span><span>Type</span><span>Price</span><span>When</span>
+        </div>
         @forelse($workPanel['rows'] as $r)
             @php $openTrigger = (string) request('trigger') === (string) $r['id']; @endphp
             <div data-qa="trigger-row" style="border-top: 1px solid var(--border);">
                 <a href="{{ $openTrigger ? $tileUrl(request()->only(['months', 'type', 'suburb']) + ['panel' => 10]) : $tileUrl(request()->only(['months', 'type', 'suburb']) + ['panel' => 10, 'trigger' => $r['id']]) }}"
-                   style="display:grid; grid-template-columns: 110px 1fr 140px 110px 120px 90px; gap: 8px; padding: 5px 10px; font-size: .8125rem; text-decoration: none; color: var(--text-secondary); {{ $openTrigger ? 'background: var(--surface-2);' : '' }}">
+                   style="display:grid; grid-template-columns: 110px 1fr 140px 110px 120px 130px; gap: 8px; padding: 5px 10px; font-size: .8125rem; text-decoration: none; color: var(--text-secondary); {{ $openTrigger ? 'background: var(--surface-2);' : '' }}">
                     <span>{{ ['registered' => 'Registered', 'sold' => 'Sold', 'under_offer' => 'Under offer', 'our_sale' => 'Our sale'][$r['type']] ?? $r['type'] }}</span>
                     <span style="color: var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ \App\Services\Prospecting\MicWork\MicWorkList::tidyAddress($r['address']) }}</span>
                     <span>{{ \App\Services\Prospecting\MicWork\MicWorkList::titleSuburb($r['suburb']) }}</span><span>{{ $r['property_type'] ?? '' }}</span>
-                    <span>{{ !empty($r['price']) ? 'R ' . number_format($r['price']) : '' }}</span><span>{{ $r['date'] ?? '' }}</span>
+                    <span>{{ !empty($r['price']) ? 'R ' . number_format($r['price']) : '' }}</span><span title="{{ ($r['date_kind'] ?? '') === 'seen' ? 'The day CoreX first saw the advert as under offer / sold - not the sale date' : 'Deeds registration date' }}">{{ $r['date_label'] ?? $r['date'] ?? '' }}</span>
                 </a>
                 @if($openTrigger)
                     @forelse($workPanel['around'][$r['id']] ?? [] as $h)
@@ -128,6 +131,10 @@
             <div style="padding: 14px 12px; font-size: .8125rem; color: var(--text-muted);">No triggers in this window. Widen the time or clear the filters.</div>
         @endforelse
     @else
+        <div style="padding: 4px 10px; font-size: .75rem; color: var(--text-muted); border-bottom: 1px solid var(--border);">
+            {{ request()->boolean('show_all') ? 'Every suburb with an advert.' : 'Your working suburbs (stock, claims, leads, or listed as areas in Settings).' }}
+            <a href="{{ $tileUrl(['panel' => 11, 'show_all' => request()->boolean('show_all') ? null : 1]) }}" data-qa="show-all-suburbs" style="color: var(--brand-icon); text-decoration:none;">{{ request()->boolean('show_all') ? 'Show only my working suburbs' : 'Show all suburbs' }}</a>
+        </div>
         <div style="display:grid; grid-template-columns: 1fr 150px 150px 80px 200px; gap: 8px; padding: 4px 10px; font-size: .6875rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); background: var(--surface-2);">
             <span>Suburb</span><span>Last full P24 read</span><span>Last full PP read</span><span>Age</span><span></span>
         </div>

@@ -97,4 +97,28 @@ final class MicSettingsPageTest extends TestCase
 
         $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload(['working_suburb_min_count' => 0]))->assertSessionHasErrors('working_suburb_min_count');
     }
+
+    public function test_areas_have_a_filter_ticked_first_and_suggestions_from_the_agencys_own_work(): void
+    {
+        $mk = fn ($name, $slug, $pid) => DB::table('p24_suburbs')->insertGetId(['name' => $name, 'slug' => $slug, 'p24_id' => $pid, 'created_at' => now(), 'updated_at' => now()]);
+        $zulu = $mk('ZULU BAY', 'zulu-bay', 987101);
+        $alpha = $mk('Alpha Beach', 'alpha-beach', 987102);
+        $busy = $mk('Busy Bay', 'busy-bay', 987103);
+        $quiet = $mk('Quiet Bay', 'quiet-bay', 987104);
+        foreach ([[$busy, 2, 1, 1], [$quiet, 1, 0, 1]] as [$sub, $stock, $claimed, $leads]) {
+            DB::table('mic_file_stats')->insert(['agency_id' => $this->agency->id, 'tracked_property_id' => 900000 + $sub, 'p24_suburb_id' => $sub, 'own_stock' => $stock, 'claimed' => $claimed,
+                'leads_total' => $leads, 'computed_at' => now()]);
+        }
+        \App\Models\MicAgencySetting::saveValues($this->agency->id, ['areas' => [$zulu, $alpha]]);
+
+        $html = $this->actingAs($this->admin)->get(route('market-intelligence.settings'))->assertOk()->getContent();
+        $this->assertStringContainsString('data-qa="areas-filter"', $html);
+        $this->assertStringContainsString('data-qa="suggested-areas"', $html);
+        $this->assertStringContainsString('Busy Bay (2 stock · 1 claims · 1 leads)', preg_replace('/\s+/', ' ', $html));
+        $this->assertStringNotContainsString('Quiet Bay (', $html, 'under 3 together is not suggested');
+        $this->assertStringContainsString('Tick suggested', $html);
+        $this->assertLessThan(strpos($html, 'value="' . $busy . '"'), strpos($html, 'value="' . $alpha . '"'), 'ticked suburbs come first');
+        $this->assertStringContainsString('Zulu Bay', $html, 'suburbs print in title case');
+    }
 }
+

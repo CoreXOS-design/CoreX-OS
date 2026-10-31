@@ -1335,7 +1335,7 @@ class MarketIntelligenceController extends Controller
         if (in_array($panelNo, [10, 11], true) && ($pp = $micTiles->panel($panelNo))) {
             $rows = $pp->rows($agencyId, $user, $panelNo === 10
                 ? ['months' => (int) $request->query('months', 0), 'type' => $request->query('type'), 'suburb' => $request->query('suburb')]
-                : ['scope' => $isProspectingManager ? 'all' : 'mine']);
+                : ['scope' => $isProspectingManager ? 'all' : 'mine', 'show_all' => $request->boolean('show_all')]);
             $workPanel = ['ready' => true, 'rows' => $rows, 'around' => $panelNo === 10
                 ? ($request->filled('trigger') ? [(string) $request->query('trigger') => $pp->around($agencyId, $user, (string) $request->query('trigger'))] : []) : []];
         }

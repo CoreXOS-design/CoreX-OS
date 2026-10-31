@@ -22,13 +22,36 @@
         <div style="{{ $box }}">
             <div style="{{ $lbl }}">Areas</div>
             <p style="{{ $help }}">The suburbs you work. Market data freshness and the weekly portal reads are tracked for these. Tick the ones you work, or type suburb names (comma separated, exact names).</p>
-            <div style="display:flex; flex-wrap:wrap; gap: 4px 16px; margin-top: 8px; max-height: 150px; overflow-y: auto;" data-qa="areas-list">
+            @if(!empty($suggested))
+                <div data-qa="suggested-areas" style="margin-top: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); font-size: .8125rem;">
+                    <strong>Suggested from your work:</strong>
+                    @foreach($suggested as $sg)
+                        <span style="white-space: nowrap;" title="{{ $sg['stock'] }} of your properties · {{ $sg['claims'] }} claims · {{ $sg['leads'] }} leads">{{ $sg['name'] }} ({{ $sg['stock'] }} stock · {{ $sg['claims'] }} claims · {{ $sg['leads'] }} leads)</span>{{ $loop->last ? '' : ' ·' }}
+                    @endforeach
+                    <button type="button" id="tick-suggested" data-ids="{{ json_encode(array_column($suggested, 'id')) }}" class="corex-btn-outline text-xs" style="margin-left: 8px;">Tick suggested</button>
+                    <span style="color: var(--text-muted); font-size: .75rem;">(then press Save)</span>
+                </div>
+            @endif
+            <input type="text" id="areas-filter" data-qa="areas-filter" placeholder="Filter suburbs…" autocomplete="off" style="{{ $in }} width: 260px; margin-top: 8px;">
+            <div style="display:flex; flex-wrap:wrap; gap: 4px 16px; margin-top: 6px; max-height: 170px; overflow-y: auto;" data-qa="areas-list">
                 @forelse($suburbs as $sub)
-                    <label style="font-size:.8125rem;"><input type="checkbox" name="areas[]" value="{{ $sub->id }}" @checked(in_array((int) $sub->id, array_map('intval', old('areas', $values['areas']))))> {{ $sub->name }}</label>
+                    <label data-name="{{ strtolower($sub->name) }}" style="font-size:.8125rem;"><input type="checkbox" name="areas[]" value="{{ $sub->id }}" @checked(in_array((int) $sub->id, array_map('intval', old('areas', $values['areas']))))> {{ \App\Services\Prospecting\MicWork\MicWorkList::titleSuburb($sub->name) }}</label>
                 @empty
                     <span style="font-size:.8125rem; color: var(--text-muted);">No suburbs yet - type them below.</span>
                 @endforelse
             </div>
+            <script>
+            (function () {
+                var f = document.getElementById('areas-filter'), list = document.querySelector('[data-qa="areas-list"]'), b = document.getElementById('tick-suggested');
+                if (f && list) f.addEventListener('input', function () {
+                    var q = f.value.trim().toLowerCase();
+                    list.querySelectorAll('label[data-name]').forEach(function (l) { l.style.display = (q === '' || l.getAttribute('data-name').indexOf(q) !== -1 || l.querySelector('input').checked) ? '' : 'none'; });
+                });
+                if (b && list) b.addEventListener('click', function () {
+                    JSON.parse(b.getAttribute('data-ids')).forEach(function (id) { var c = list.querySelector('input[value="' + id + '"]'); if (c) c.checked = true; });
+                });
+            })();
+            </script>
             <input type="text" name="add_areas" value="{{ old('add_areas') }}" placeholder="Add suburbs by name, e.g. Margate, Uvongo" style="{{ $in }} width: 360px; margin-top: 8px;">
             {{-- AT-519 (cc5): used only while no area is ticked - a suburb then counts as ours once it has this many of our stock, claims or leads in the last 12 months. --}}
             <div style="margin-top: 10px; font-size:.8125rem;" data-qa="working-suburb-min-count">

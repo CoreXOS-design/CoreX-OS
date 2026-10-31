@@ -34,7 +34,17 @@ final class MicSettingsController extends Controller
             DB::table('p24_suburbs')->whereIn('id', $extra)->get(['id', 'name'])->each(fn ($r) => $known->put($r->id, $r));
         }
 
+        // ticked suburbs first, then A-Z; plus the suggestions from the agency's own work
+        $suggested = app(\App\Services\Prospecting\MicWork\SuggestedAreas::class)->forAgency($agencyId);
+        $suburbsSorted = $known->values()->sortBy([fn ($a, $b) => (in_array((int) $b->id, $chosen, true) <=> in_array((int) $a->id, $chosen, true)), fn ($a, $b) => strcasecmp($a->name, $b->name)])->values();
+        foreach ($suggested as $sg) {
+            if (! $known->has($sg['id'])) {
+                $suburbsSorted->push((object) ['id' => $sg['id'], 'name' => $sg['name']]);
+            }
+        }
+
         return view('corex.market-intelligence.settings', [
+            'suggested' => $suggested,
             'values' => [
                 'areas' => $chosen,
                 'refresh_interval_days' => $s->refreshIntervalDaysValue(),
@@ -49,7 +59,7 @@ final class MicSettingsController extends Controller
                 'opt_out_registry_check' => $s->optOutRegistryCheck(),
                 'working_suburb_min_count' => $s->workingSuburbMinCount(),
             ],
-            'suburbs' => $known->values(),
+            'suburbs' => $suburbsSorted,
             'tiles' => MicWorkTiles::TILES,
             'matching' => AddressMatchSetting::forAgency($agencyId),
         ]);

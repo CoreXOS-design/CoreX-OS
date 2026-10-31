@@ -213,5 +213,19 @@ final class MicWorkListTest extends TestCase
         $this->assertSame(1, substr_count($text, '10 Aug 2026 · P24-119000070'), 'one real change');
         $this->assertSame(0, substr_count($text, '6 Aug 2026 · P24-119000070'), 'the same-day flip-flop is gone');
     }
+
+    public function test_envelope_is_a_stroke_icon_with_a_first_alert_tooltip(): void
+    {
+        $tp = $this->tp($this->agency, 'P24-119000080', '5', 'Envelope Road');
+        $this->advert($this->agency, 'p24', 'P24-119000080', $tp);
+        $alert = \App\Models\P24Listing::create(['agency_id' => $this->agency->id, 'p24_listing_number' => 'P24-119000080', 'asking_price' => 1_000_000, 'original_price' => 1_000_000,
+            'suburb' => 'Margate', 'first_seen_date' => '2026-06-17', 'last_seen_date' => '2026-08-05', 'times_seen' => 2]);
+        $alert->forceFill(['tracked_property_id' => $tp->id])->save();
+
+        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work'))->assertOk()->getContent();
+        $this->assertStringContainsString('data-qa="envelope"', $html);
+        $this->assertStringContainsString('title="In a P24 alert email · first 17 Jun"', $html);
+        $this->assertStringContainsString('<rect x="1" y="1" width="14" height="10"', $html, 'a drawn envelope, not a character');
+    }
 }
 

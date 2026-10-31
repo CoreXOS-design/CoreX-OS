@@ -166,42 +166,37 @@ final class MicWorkTiles
     }
 
     /**
-     * Tile 10 / 11 headline numbers. cc4 owns them: a TileProvider tagged for tile 10 / 11 (summary() = count + reason + note, optional `display`)
-     * wins. Until it is tagged this reads the SAME panel providers' own rows - nothing is invented, it is only counted:
-     * tile 10 = triggers this month with a resolvable address; tile 11 = the oldest age among the agency's suburbs and how many are overdue.
+     * Tile 10 / 11 headline numbers: cc4's panel providers own them (contract 11.3.I) - `summary()` is the single source and nothing is computed here.
+     * A TileProvider tagged for the tile still wins. Tile 10 face = triggers this month + "N neighbours to call"; tile 11 face = the oldest read
+     * ("Shakas Rock 46 d" when the provider names the suburb) + "N of M working suburbs older than X d".
      *
      * @return array{count:?int, reason:string, note?:?string, display?:?string}|null
      */
     private function panelNumbers(int $n, int $agencyId, User $user): ?array
     {
         $panel = $this->panels[$n] ?? null;
-        if (! $panel) {
+        if (! $panel || ! method_exists($panel, 'summary')) {
             return null;
         }
         try {
+            $s = $panel->summary($agencyId, $user);
             if ($n === 10) {
-                $rows = array_values(array_filter($panel->rows($agencyId, $user, ['months' => 0]), fn ($r) => ! empty($r['has_address'])));
+                $open = (int) ($s['neighbours_open'] ?? 0);
 
-                return ['count' => count($rows), 'reason' => 'sales & offers this month'];
+                return ['count' => (int) ($s['triggers_this_month'] ?? $s['count']), 'reason' => 'sales & registrations this month',
+                    'note' => 'sales & registrations this month' . ($open > 0 ? ' · ' . number_format($open) . ' neighbours to call' : '')];
             }
-            $rows = $panel->rows($agencyId, $user, ['scope' => 'all']);
-            // "our working suburbs": the areas the agency listed in MIC Settings; none listed yet = every suburb with an advert (cc4's rows)
-            $areas = class_exists(self::CC5_SETTINGS) ? app(self::CC5_SETTINGS)::for($agencyId)->areas() : [];
-            if ($areas) {
-                $rows = array_values(array_filter($rows, fn ($r) => in_array((int) ($r['suburb_id'] ?? 0), $areas, true)));
+            $oldest = $s['oldest_age_days'] ?? $s['count'] ?? null;
+            $stale = (int) ($s['stale_after_days'] ?? 14);
+            $line = ((int) ($s['older_than_14d'] ?? 0)) . ' of ' . ((int) ($s['working_suburbs'] ?? 0)) . ' working suburbs older than ' . $stale . ' d';
+            if ($oldest === null) {
+                return ['count' => null, 'reason' => $s['reason'] ?? 'No working suburbs yet', 'display' => ((int) ($s['never_read'] ?? 0)) > 0 ? ((int) $s['never_read']) . ' never read' : null,
+                    'note' => ((int) ($s['working_suburbs'] ?? 0)) > 0 ? $line : null];
             }
-            $aged = array_values(array_filter($rows, fn ($r) => $r['age_days'] !== null));
-            if (! $aged) {
-                return ['count' => null, 'reason' => 'No suburb has been read in full yet'];
-            }
-            usort($aged, fn ($a, $b) => $b['age_days'] <=> $a['age_days']);
-            $interval = MicTileSettings::refreshIntervalDays($agencyId);
-            $older = count(array_filter($aged, fn ($r) => $r['age_days'] > $interval));
 
-            return ['count' => null, 'display' => MicWorkList::titleSuburb($aged[0]['suburb']) . ' ' . $aged[0]['age_days'] . ' d',
-                'reason' => $older . ' ' . ($older === 1 ? 'suburb' : 'suburbs') . ' older than ' . $interval . ' d', 'note' => $older . ' ' . ($older === 1 ? 'suburb' : 'suburbs') . ' older than ' . $interval . ' d'];
+            return ['count' => null, 'display' => (! empty($s['oldest_suburb']) ? MicWorkList::titleSuburb($s['oldest_suburb']) . ' ' : 'Oldest ') . $oldest . ' d', 'reason' => $line, 'note' => $line];
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('MIC Work tiles: panel numbers failed', ['tile' => $n, 'error' => $e->getMessage()]);
+            \Illuminate\Support\Facades\Log::warning('MIC Work tiles: panel summary failed', ['tile' => $n, 'error' => $e->getMessage()]);
 
             return null;
         }

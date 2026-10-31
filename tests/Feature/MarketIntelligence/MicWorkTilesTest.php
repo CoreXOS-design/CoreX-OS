@@ -88,23 +88,22 @@ final class MicWorkTilesTest extends TestCase
                 return [['id' => 'sold:1', 'type' => 'sold', 'address' => '1 A Road', 'suburb' => 'MARGATE', 'has_address' => true], ['id' => 'sold:2', 'type' => 'sold', 'address' => 'x', 'suburb' => 'MARGATE', 'has_address' => false]];
             }
             public function around(int $agencyId, User $user, string $triggerId): array { return []; }
+            public function summary(int $agencyId, User $user): array { return ['count' => 57, 'triggers_this_month' => 57, 'neighbours_open' => 134, 'reason' => 'x']; }
         };
         $p11 = new class implements PanelProvider {
             public function tile(): int { return 11; }
-            public function rows(int $agencyId, User $user, array $filters): array
-            {
-                return [['suburb' => 'MARGATE', 'suburb_id' => 5, 'age_days' => 12], ['suburb' => 'UVONGO', 'suburb_id' => 6, 'age_days' => 3], ['suburb' => 'OSLO BEACH', 'suburb_id' => 7, 'age_days' => null], ['suburb' => 'BALLITO', 'suburb_id' => 9, 'age_days' => 200]];
-            }
+            public function rows(int $agencyId, User $user, array $filters): array { return []; }
             public function around(int $agencyId, User $user, string $triggerId): array { return []; }
+            public function summary(int $agencyId, User $user): array
+            {
+                return ['count' => 46, 'oldest_age_days' => 46, 'oldest_suburb' => 'SHAKAS ROCK', 'older_than_14d' => 12, 'working_suburbs' => 43, 'stale_after_days' => 14, 'never_read' => 0, 'reason' => 'x'];
+            }
         };
         $row = collect((new MicWorkTiles([], [$p10, $p11]))->row($this->agency->id, $this->admin))->keyBy('number');
-        $this->assertSame(1, $row[10]['count'], 'only triggers with a resolvable address are counted');
-        $this->assertSame('sales & offers this month', $row[10]['reason']);
-        $this->assertSame('Ballito 200 d', $row[11]['display'], 'no areas listed yet = every suburb');
-        \App\Models\MicAgencySetting::saveValues($this->agency->id, ['areas' => [5, 6]]);
-        $row = collect((new MicWorkTiles([], [$p10, $p11]))->row($this->agency->id, $this->admin))->keyBy('number');
-        $this->assertSame('Margate 12 d', $row[11]['display'], 'oldest age among OUR working suburbs (the agency areas), title case');
-        $this->assertSame('1 suburb older than 7 d', $row[11]['reason']);
+        $this->assertSame(57, $row[10]['count']);
+        $this->assertStringContainsString('134 neighbours to call', $row[10]['note']);
+        $this->assertSame('Shakas Rock 46 d', $row[11]['display'], 'cc4 summary() is the single source, suburb in title case');
+        $this->assertSame('12 of 43 working suburbs older than 14 d', $row[11]['note']);
     }
 
     public function test_a_cold_page_does_not_wait_for_the_tiles_it_loads_them_after_itself(): void
@@ -118,6 +117,25 @@ final class MicWorkTilesTest extends TestCase
             $row->assertSee('data-qa="tile-' . $n . '"', false);
         }
         $row->assertDontSee('data-qa="work-property-list"', false);
+    }
+
+    public function test_panel_10_has_column_headers_and_prints_the_date_label_not_a_bare_date(): void
+    {
+        $p10 = new class implements PanelProvider {
+            public function tile(): int { return 10; }
+            public function rows(int $agencyId, User $user, array $filters): array
+            {
+                return [['id' => 'under_offer:5', 'type' => 'under_offer', 'address' => '1 A Road, SHELLY BEACH', 'suburb' => 'SHELLY BEACH', 'property_type' => 'House', 'price' => 900000,
+                    'date' => '2026-10-31', 'date_kind' => 'seen', 'date_label' => 'seen 31 Oct', 'has_address' => true]];
+            }
+            public function around(int $agencyId, User $user, string $triggerId): array { return []; }
+        };
+        $this->app->instance('test.panel10b', $p10);
+        $this->app->tag('test.panel10b', 'mic.work.panels');
+
+        $this->actingAs($this->admin)->get(route('market-intelligence.work', ['panel' => 10]))->assertOk()
+            ->assertSee('data-qa="trigger-head"', false)->assertSee('What happened', false)->assertSee('seen 31 Oct', false)
+            ->assertDontSee('>2026-10-31<', false)->assertSee('Shelly Beach', false)->assertDontSee('SHELLY BEACH', false);
     }
 }
 
