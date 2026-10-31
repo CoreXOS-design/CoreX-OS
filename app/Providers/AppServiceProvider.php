@@ -167,6 +167,10 @@ class AppServiceProvider extends ServiceProvider
     {
         \Illuminate\Support\Facades\Event::listen(\Illuminate\Mail\Events\MessageSending::class, [\App\Services\Mail\MailFailureAlerter::class, 'remember']);
 
+        // AT-520 step 4.3: the crawl record follows every saved search batch; a re-sighted advert loses its old off-market label.
+        \App\Models\ProspectingSearch::observe(\App\Observers\ProspectingSearchCrawlObserver::class);
+        \App\Models\ProspectingListing::observe(\App\Observers\ProspectingListingLifecycleObserver::class);
+
         // AT-520 step 4.2: every ingress that creates / enriches / addresses a property file makes the agency's same-address sweep due (debounced job).
         \Illuminate\Support\Facades\Event::listen(
             [\App\Events\Prospecting\TrackedPropertyCreated::class, \App\Events\Prospecting\TrackedPropertyEnriched::class, \App\Events\Prospecting\TrackedPropertyAddressAdded::class],

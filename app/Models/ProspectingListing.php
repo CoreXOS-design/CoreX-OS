@@ -137,12 +137,24 @@ class ProspectingListing extends Model
     public const PORTAL_STATUS_UNDER_OFFER = 'under_offer';
     public const PORTAL_STATUS_SOLD        = 'sold';
     public const PORTAL_STATUS_WITHDRAWN   = 'withdrawn';
+    /** AT-520 4.3 (mic-work-tab.md 11.3.B): written ONLY by the Gone rule, never accepted from the extension. */
+    public const PORTAL_STATUS_GONE          = 'gone';
+    public const PORTAL_STATUS_PROBABLY_SOLD = 'probably_sold';
+
+    /** Off-market labels a re-sighting clears (the advert is back on the portal). */
+    public const REAPPEARING_CLEARS = [
+        self::PORTAL_STATUS_WITHDRAWN,
+        self::PORTAL_STATUS_GONE,
+        self::PORTAL_STATUS_PROBABLY_SOLD,
+    ];
 
     /** Statuses that take a listing OUT of the active canvass pool. */
     public const OFF_MARKET_STATUSES = [
         self::PORTAL_STATUS_UNDER_OFFER,
         self::PORTAL_STATUS_SOLD,
         self::PORTAL_STATUS_WITHDRAWN,
+        self::PORTAL_STATUS_GONE,
+        self::PORTAL_STATUS_PROBABLY_SOLD,
     ];
 
     /** The full accepted status vocabulary (for validation / normalisation). */
