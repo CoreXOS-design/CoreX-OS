@@ -348,4 +348,16 @@ Screens only; matcher, resolver and merge code untouched. All reads go through `
 
 **M1 - matcher.** `TrackedPropertyMatchOrCreateService::blankSuburbMatch()` runs after the scored address match: when the suburb is missing on ONE side (the incoming advert, or the file) but street number, street and unit agree, the suburb is borrowed from whichever side has it. Exactly one such file links at `high`, method `address_no_suburb`; several files, or a unit-type property with no unit named, are recorded as possible matches (review list), never merged. A different number, unit, erf or portion vetoes as before.
 **M2 / M3 / M4 - one sweep.** `SameAddressSweep` (command `property-identity:same-address <no-suburb|exact|all> --dry-run|--apply`, QA/local/testing only, agency 20 left out, row journal with `--apply`). Files of one agency with the same number + street + unit (+ same suburb, or none) form a group. A group of at most 4 houses/stands merges through `TrackedPropertyMerger` (loser flagged `duplicate`, never deleted). A flat or scheme with no unit number, a group of more than 4 files, or a merge the merger refuses goes to the review list as pending pairs (`subject_key same_address:<first file>`). A pair already answered "not the same" is never touched. Deeds-capture files are left to the Deeds Capture screen.
-**Toggle (M4).** The after-import automatic run and its Settings switch are NOT built yet (see the apply log below).
+**Toggle (M4).** NOT built yet: the after-import automatic run and the Settings switch (default on) are the next step. Until then the sweep is run by hand.
+
+### 17.1 Apply log (QA1, 31 Oct 2026; code `404bdd216`)
+Rollback: git tags `pre-same-address-M2-2026-10-31`, `pre-same-address-M3-2026-10-31` (both = `404bdd216`, pushed) and DB dumps `/mnt/HC_Volume_103099143/qa1-same-address-2026-10-31/corex_qa1-pre-M2-20261031-1221.sql.gz` and `...pre-M3-20261031-1231.sql.gz`; same folder: dry-run and apply reports, row journals (`same-address-<scope>-journal-*.jsonl`), `counts-before/after-M2|M3.txt`. Agency 20 excluded.
+
+| Step | (a) exact groups | (b) different-unit groups | Review pairs | Files flagged duplicate |
+|---|---|---|---|---|
+| before (after the MIC run) | 523 | 269 | 2,961 | 3,427 |
+| M2 `no-suburb` | 346 (no-suburb groups 190 -> 13) | 269 | 3,033 (+72) | 3,640 (+213 merged) |
+| M3 `exact` | 229 | 269 | 3,128 (+95) | 3,760 (+120 merged) |
+
+Left in (a) by design: 122 flat/scheme groups with no unit number (queued for review, never merged), 13 no-suburb blocks of more than 4 files (review), and about 95 groups that contain deeds-capture files (the Deeds Capture screen owns those). **Flag:** 14 no-suburb files all read "5 Selvey Avenue" (created 10 Jun 09:36-09:39) - this looks like a placeholder or wrongly captured address, not 14 houses; they are in the review list, not merged.
+**Not caught by the sweep:** one file holding adverts of several units (property 230, 8 live adverts R875k-R1.795m). The sweep compares files, never the adverts inside one file; the 30 Oct split step only splits by differing advert address text. 80 files hold 5+ adverts with a price spread over 2x (report only, nothing split).
