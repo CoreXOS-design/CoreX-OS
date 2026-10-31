@@ -303,6 +303,9 @@ class MarketIntelligenceController extends Controller
         if ($request->filled('captured_by')) {
             $query->where('captured_by_user_id', $request->captured_by);
         }
+        if ($request->filled('tile') && ($tileIds = \App\Services\Prospecting\MicWork\MicWorkTiles::fromContainer()->propertyIds((string) $request->tile, (int) $agencyId, $user))) {
+            $query->whereIn('prospecting_listings.tracked_property_id', $tileIds);
+        }
         if ($request->filled('source') && isset(\App\Services\Prospecting\PropertySourceFacts::FILTERS[$request->source])) {
             app(\App\Services\Prospecting\PropertySourceFacts::class)->applyFilter($query, (string) $request->source, (int) $agencyId);
         }
@@ -1221,22 +1224,17 @@ class MarketIntelligenceController extends Controller
                 ->count(),
         );
 
-        // Phase D2 — "This Week" hero block tiles. Deterministic for now;
-        // AI narration plugs into TileDTO->sentence at Phase E1.
-        $tiles = collect();
-        $tilesGeneratedAt = null;
-        try {
-            $tiles = app(\App\Services\MarketIntelligence\ThisWeekTileBuilder::class)->buildFor($user);
-            // Read generated_at from the cache row we just wrote — same query
-            // pattern the builder uses internally; lets the hero block show
-            // "Generated X ago".
-            $cacheKey = 'tiles:user:' . $user->id . ':date:' . now()->toDateString();
-            $tilesGeneratedAt = \App\Models\AI\AINarrativeCache::query()
-                ->where('cache_key', $cacheKey)
-                ->whereNull('deleted_at')
-                ->value('generated_at');
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('Work tab tile build failed', ['error' => $e->getMessage()]);
+        // mic-work-tab.md 2.1 A+B: the 11-tile row and the tile 10 / 11 panels. A tile whose service has not landed says "Coming".
+        $micTiles = \App\Services\Prospecting\MicWork\MicWorkTiles::fromContainer();
+        $workTiles = $micTiles->row((int) $agencyId, $user);
+        $workPanel = ['ready' => false, 'rows' => [], 'around' => []];
+        $panelNo = (int) $request->query('panel');
+        if (in_array($panelNo, [10, 11], true) && ($pp = $micTiles->panel($panelNo))) {
+            $rows = $pp->rows((int) $agencyId, $user, $panelNo === 10
+                ? ['months' => (int) $request->query('months', 0), 'type' => $request->query('type'), 'suburb' => $request->query('suburb')]
+                : ['scope' => $isProspectingManager ? 'all' : 'mine']);
+            $workPanel = ['ready' => true, 'rows' => $rows, 'around' => $panelNo === 10
+                ? collect($rows)->mapWithKeys(fn ($r) => [$r['id'] => $pp->around((int) $agencyId, $user, (string) $r['id'])])->all() : []];
         }
 
         return view('corex.market-intelligence.work', compact(
@@ -1255,8 +1253,8 @@ class MarketIntelligenceController extends Controller
             // AT-242 buyer-led prospecting + AT-239 region filter
             'micBuyers', 'activeBuyerId', 'selectedBuyer', 'micRegions',
             'buyerScope', 'buyerScopeOptions',
-            // Phase D2 — This Week hero
-            'tiles', 'tilesGeneratedAt',
+            // 11-tile row + panels
+            'workTiles', 'workPanel',
             // Company stock (exact portal_ref) — IN STOCK badge + company logo tile
             'companyStockMap', 'agencyLogoUrl',
             // MIC property row comments — .ai/specs/mic-property-row-comments.md

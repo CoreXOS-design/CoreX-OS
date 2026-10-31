@@ -4,7 +4,7 @@
 
     Layout (top to bottom):
       tabs nav (Work | Opportunities | Analyse | Market Pulse)
-      "This Week" hero block (deterministic tiles per agent)
+      11-tile row + panels (MicWorkTiles)
       sticky header: top-bar + simplified 5-tile stats strip
       filter rail + listing list
       slide-over detail panel
@@ -38,12 +38,9 @@
 @include('corex.market-intelligence.partials.tabs')
 </div>
 
-<div data-tour="mic-hero">
-@include('corex.market-intelligence.partials.this-week-hero', [
-    'tiles'            => $tiles ?? collect(),
-    'tilesGeneratedAt' => $tilesGeneratedAt ?? null,
-    'agent'            => auth()->user(),
-])
+{{-- 11-tile row + tile 10 / 11 panels (mic-work-tab.md 2.1). The old "Hi ..., here's your week" greeting block is gone. --}}
+<div data-tour="mic-tiles">
+@include('corex.market-intelligence.partials._work-tiles', ['workTiles' => $workTiles ?? [], 'workPanel' => $workPanel ?? []])
 </div>
 
 
