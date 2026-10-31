@@ -303,7 +303,16 @@ class ProspectingListing extends Model
                         ->orWhere("{$table}.agent_name", 'like', $like)->orWhere("{$table}.agency_name", 'like', $like)
                         ->orWhere("{$table}.portal_ref", 'like', $like);
                 }
-                // the file's address as a SEMI-JOIN (tracked_property_id IN (matching files)), not a correlated EXISTS per advert row
+                // The file's address. Fast path: look the matching files up FIRST (a narrow indexed scan) and hand the main query a short id list - far
+                // cheaper than OR-ing a correlated semi-join into a 24k-row scan. A very common word (more than 5,000 files) keeps the semi-join.
+                $ids = $fast ? static::fileIdsMatching($agencyId, $like) : null;
+                if ($ids !== null) {
+                    if ($ids) {
+                        $q->orWhereIn("{$table}.tracked_property_id", $ids);
+                    }
+
+                    return;
+                }
                 $q->orWhereIn("{$table}.tracked_property_id", function ($s) use ($like, $agencyId, $fast) {
                     $s->select('tp_s.id')->from('tracked_properties as tp_s')->where('tp_s.agency_id', $agencyId)->whereNull('tp_s.deleted_at');
                     $fast
@@ -315,6 +324,19 @@ class ProspectingListing extends Model
         }
 
         return $query;
+    }
+
+    /**
+     * The agency's property files whose address text matches $like, or null when there are more than 5,000 (too many to hand over as a list).
+     *
+     * @return list<int>|null
+     */
+    private static function fileIdsMatching(int $agencyId, string $like): ?array
+    {
+        $ids = \Illuminate\Support\Facades\DB::table('tracked_properties as tp_s')->where('tp_s.agency_id', $agencyId)->whereNull('tp_s.deleted_at')
+            ->where('tp_s.search_text', 'like', $like)->limit(5001)->pluck('tp_s.id');
+
+        return $ids->count() > 5000 ? null : $ids->map(fn ($i) => (int) $i)->all();
     }
 
     /** True once the generated search_text columns exist (migration 2027_01_06_100000). Older databases keep the five-column search. */
