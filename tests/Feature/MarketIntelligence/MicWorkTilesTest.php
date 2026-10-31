@@ -112,7 +112,7 @@ final class MicWorkTilesTest extends TestCase
         $cold->assertSee('data-qa="work-tiles-deferred"', false)->assertSee('mic-slot-listings', false)->assertDontSee('data-qa="tile-1"', false);
         $cold->assertSee('_tiles', false); // the loader asks for the row from the same URL
 
-        $row = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['_tiles' => 1]))->assertOk();
+        $row = $this->actingAs($this->admin)->withHeaders(['X-Requested-With' => 'XMLHttpRequest'])->get(route('market-intelligence.work', ['_tiles' => 1]))->assertOk();
         for ($n = 1; $n <= 11; $n++) {
             $row->assertSee('data-qa="tile-' . $n . '"', false);
         }
@@ -137,5 +137,25 @@ final class MicWorkTilesTest extends TestCase
             ->assertSee('data-qa="trigger-head"', false)->assertSee('What happened', false)->assertSee('seen 31 Oct', false)
             ->assertDontSee('>2026-10-31<', false)->assertSee('Shelly Beach', false)->assertDontSee('SHELLY BEACH', false);
     }
-}
 
+    public function test_the_tile_fragment_never_builds_links_with_tiles(): void
+    {
+        // the page's own fetch: tile links come from the PARENT page URL, never carry _tiles
+        $frag = $this->actingAs($this->admin)->withHeaders(['X-Requested-With' => 'XMLHttpRequest'])->get(route('market-intelligence.work', ['_tiles' => 1, 'search' => 'x']))->assertOk()->getContent();
+        $this->assertSame(0, preg_match('/href="[^"]*_tiles/', $frag), 'a tile link must not carry _tiles');
+        $this->assertSame(1, preg_match('/href="[^"]*search=x/', $frag), 'but it keeps the parent page filters');
+    }
+
+    public function test_a_plain_visit_to_the_tile_fragment_url_is_the_full_page(): void
+    {
+        // Johan's case: landing on ?_tiles=1&tile=owner by a link / bookmark (no X-Requested-With) - the FULL page, filtered, no bare tile row
+        $html = $this->actingAs($this->admin)->get('/corex/market-intelligence?_tiles=1&tile=owner')->assertOk()->getContent();
+        $this->assertStringContainsString('Properties matched', $html, 'the stats bar is there: this is the full page');
+        $this->assertStringContainsString('mic-slot-listings', $html);
+        $this->assertStringContainsString('mi-filter-rail', $html, 'the left column too');
+        $this->assertSame(0, preg_match('/href="[^"]*_tiles=1/', $html), 'no link on the full page carries _tiles forward');
+
+        // _card is the same: a person who opens it directly gets the page
+        $this->actingAs($this->admin)->get('/corex/market-intelligence?_card=1')->assertOk()->assertSee('Properties matched', false);
+    }
+}
