@@ -49,7 +49,7 @@ class TrainingScriptValidator
             if (in_array($action, TrainingScript::NEEDS_SELECTOR, true) && trim((string) ($step['selector'] ?? '')) === '') {
                 $p[] = "Step {$n}: '{$action}' needs a selector.";
             }
-            if (in_array($action, ['type', 'goto', 'press'], true) && trim((string) ($step['value'] ?? '')) === '') {
+            if (in_array($action, ['type', 'select', 'goto', 'press'], true) && trim((string) ($step['value'] ?? '')) === '') {
                 $p[] = "Step {$n}: '{$action}' needs a value.";
             }
             if (trim((string) ($step['narration'] ?? '')) === '') {

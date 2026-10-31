@@ -34,7 +34,7 @@ class VideoAssembler
         $n = count($cues);
         $mix = implode('', array_map(fn ($i) => "[a{$i}]", range(0, max(0, $n - 1))));
         $filters[] = $n > 1 ? $mix . 'amix=inputs=' . $n . ':normalize=0:duration=longest[aout]' : '[a0]anull[aout]';
-        $style = "FontName=DejaVu Sans,FontSize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BorderStyle=3,Outline=1,Shadow=0,MarginV=24";
+        $style = "FontName=DejaVu Sans,FontSize=11,PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BorderStyle=3,Outline=1,Shadow=0,MarginV=24";
         $vf = "subtitles='" . str_replace(["\\", ":", "'"], ["\\\\", "\\:", "\\'"], $srt) . "':force_style='" . $style . "'";
         $mp4 = $outBase . '.mp4';
         array_push($args, '-filter_complex', implode(';', $filters), '-map', '0:v', '-map', '[aout]', '-vf', $vf,
@@ -69,7 +69,7 @@ class VideoAssembler
     {
         $out = $vtt ? "WEBVTT\n\n" : '';
         foreach ($cues as $i => $c) {
-            $out .= (! $vtt ? ($i + 1) . "\n" : '') . $this->stamp($c['start'], $vtt) . ' --> ' . $this->stamp($c['end'], $vtt) . "\n" . wordwrap(trim($c['text']), 52, "\n", true) . "\n\n";
+            $out .= (! $vtt ? ($i + 1) . "\n" : '') . $this->stamp($c['start'], $vtt) . ' --> ' . $this->stamp($c['end'], $vtt) . "\n" . wordwrap(trim($c['text']), 64, "\n", true) . "\n\n";
         }
 
         return $out;

@@ -29,7 +29,12 @@ return [
         ],
         [
             'selector' => '[data-tour="cal-event-title"]', 'action' => 'type', 'value' => 'Viewing with Bianca Buyer',
-            'narration' => 'Give it a clear title, then choose the type Viewing.',
+            'narration' => 'Give it a clear title.',
+            'why' => 'It is what you and your colleagues see in the diary and in the agenda.',
+        ],
+        [
+            'selector' => '[data-tour="cal-event-type"]', 'action' => 'select', 'value' => 'viewing',
+            'narration' => 'Choose the type Viewing.',
             'why' => 'The type decides what CoreX asks you for afterwards: a viewing asks for the buyer\'s feedback.',
         ],
         [

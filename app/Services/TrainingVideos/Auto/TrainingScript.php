@@ -21,9 +21,9 @@ namespace App\Services\TrainingVideos\Auto;
  */
 final class TrainingScript
 {
-    /** What a step may do. highlight = spotlight the element; click; type = type `value` into it; scroll = bring it into view; wait = just pause; goto = open `value`. */
-    public const ACTIONS = ['highlight', 'click', 'type', 'scroll', 'wait', 'goto', 'press'];
-    public const NEEDS_SELECTOR = ['highlight', 'click', 'type', 'scroll'];
+    /** What a step may do. highlight = spotlight the element; click; type = type `value` into it; select = choose option `value` in a <select>; scroll = bring it into view; wait = just pause; goto = open `value`. */
+    public const ACTIONS = ['highlight', 'click', 'type', 'select', 'scroll', 'wait', 'goto', 'press'];
+    public const NEEDS_SELECTOR = ['highlight', 'click', 'type', 'select', 'scroll'];
 
     /** @param array<string,mixed> $data */
     public function __construct(public readonly array $data, public readonly string $path = '')

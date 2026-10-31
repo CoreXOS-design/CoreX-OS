@@ -81,7 +81,11 @@ class TrainingVideoGenerator
             $timeline = $recorder ? $recorder($job) : $this->runRecorder($job);
             $video->update(['progress_percent' => 70]);
 
-            // 3. place every voice clip at the moment its step started
+            // 3. place every voice clip at the moment its step started. The screencast is not guaranteed to run at exactly wall-clock speed (frames are encoded as
+            //    they arrive), so the recorder's clock is mapped onto the video's own length: video time = recorder time x (video seconds / recorder seconds).
+            $rawSeconds = $this->assembler->probe($job['out'])['duration'];
+            $scale = ($rawSeconds > 0 && ($timeline['total'] ?? 0) > 0) ? $rawSeconds / (float) $timeline['total'] : 1.0;
+            \Log::info('Training video timing', ['screen' => $script->key(), 'recorder_seconds' => $timeline['total'] ?? null, 'video_seconds' => round($rawSeconds, 2), 'scale' => round($scale, 4)]);
             $cues = [];
             if ($introClip && ! empty($timeline['intro'])) {
                 $cues[] = ['file' => $introClip['file'], 'start' => $timeline['intro']['start'] + 0.3, 'end' => $timeline['intro']['start'] + 0.3 + $introClip['seconds'], 'text' => $introClip['text']];
@@ -96,6 +100,11 @@ class TrainingVideoGenerator
             if ($outroClip && ! empty($timeline['outro'])) {
                 $cues[] = ['file' => $outroClip['file'], 'start' => $timeline['outro']['start'] + 0.3, 'end' => $timeline['outro']['start'] + 0.3 + $outroClip['seconds'], 'text' => $outroClip['text']];
             }
+            foreach ($cues as &$c) {
+                $c['start'] *= $scale;
+                $c['end'] *= $scale;
+            }
+            unset($c);
             $base = $work . '/final';
             $made = $this->assembler->assemble($job['out'], $cues, $base);
 
@@ -110,7 +119,7 @@ class TrainingVideoGenerator
             $chapters = [];
             foreach ($script->steps() as $i => $s) {
                 if (isset($timeline['steps'][$i])) {
-                    $chapters[] = ['at' => (int) round($timeline['steps'][$i]['start']), 'title' => mb_substr((string) $s['narration'], 0, 80)];
+                    $chapters[] = ['at' => (int) round($timeline['steps'][$i]['start'] * $scale), 'title' => mb_substr((string) $s['narration'], 0, 80)];
                 }
             }
             $video->forceFill([

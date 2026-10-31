@@ -53,9 +53,9 @@ final class AutoVideoPipelineTest extends TestCase
     }
 
     /** A stand-in for the browser: writes a real 14-second test video and the timeline the recorder would. */
-    private function fakeRecorder(): \Closure
+    private function fakeRecorder(?float $total = null): \Closure
     {
-        return function (array $job): array {
+        return function (array $job) use ($total): array {
             $p = new Process(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc=size=640x360:rate=10:duration=14', '-pix_fmt', 'yuv420p', $job['out']]);
             $p->run();
             $this->assertTrue($p->isSuccessful(), $p->getErrorOutput());
@@ -67,6 +67,7 @@ final class AutoVideoPipelineTest extends TestCase
                 $t += $s['seconds'];
             }
             $tl['outro'] = ['start' => $t, 'end' => $t + $job['outro']['seconds']];
+            $tl['total'] = $total ?? 14.0;
 
             return $tl;
         };
@@ -135,6 +136,16 @@ final class AutoVideoPipelineTest extends TestCase
         $this->assertStringContainsString('feeds the buyer feedback.', str_replace("\n", ' ', $vtt), 'the WHY is in the captions (wrapped across lines)');
         $this->assertSame([], TrainingVideo::query()->publiclyVisible()->pluck('id')->all(), 'never on the public page');
         $this->assertDirectoryDoesNotExist((string) config('training-videos.auto.work_dir') . '/book-a-viewing-' . now()->format('Ymd'), 'working files are removed');
+    }
+
+    public function test_the_recorders_clock_is_mapped_onto_the_videos_own_length(): void
+    {
+        app(TrainingAgencySeeder::class)->seed();
+        // the recorder says it ran 28 s but the screencast file is only 14 s long: every cue moves to half its time
+        $v = app(TrainingVideoGenerator::class)->generate($this->script(), null, $this->fakeRecorder(28.0));
+
+        $vtt = Storage::disk('local')->get('training-videos-auto/' . $v->captions_file);
+        $this->assertStringContainsString('00:00:00.150 -->', $vtt, 'the intro line (0.3 s on the recorder clock) starts at 0.15 s of the video');
     }
 
     public function test_regenerating_replaces_the_files_and_a_failed_regeneration_keeps_the_old_video_playing(): void
