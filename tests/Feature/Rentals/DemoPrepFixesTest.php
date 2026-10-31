@@ -202,7 +202,7 @@ final class DemoPrepFixesTest extends TestCase
         $this->assertMatchesRegularExpression('/cx-equal-btns[^>]*><button type="submit" class="corex-btn-outline text-xs">Search/', $contacts);
         $catalogue = $this->source('resources/views/corex/rental-catalogue-items/index.blade.php');
         $this->assertStringContainsString('cx-equal-btns', $catalogue);
-        $this->assertStringContainsString('class="corex-btn-outline text-xs">Edit</a>', $catalogue);
-        $this->assertStringContainsString('class="corex-btn-danger text-xs">Archive</button>', $catalogue);
+        $this->assertMatchesRegularExpression('/class="corex-btn-outline text-xs"[^\n]*>Edit<\/a>/', $catalogue);
+        $this->assertMatchesRegularExpression('/class="corex-btn-danger text-xs"[^\n]*>Archive<\/button>/', $catalogue);
     }
 }

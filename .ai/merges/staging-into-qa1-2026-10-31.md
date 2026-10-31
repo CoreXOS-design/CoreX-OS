@@ -1,6 +1,6 @@
 # Staging brought down into QA1 — 31 Oct 2026
 
-Base: `origin/QA1` 5919db359 (then cc1's AT-452 S3-S5 merged in at the end, see bottom) + `origin/Staging` b4539b3b8.
+Base: `origin/QA1` 5919db359, then cc1's AT-452 S3-S6 (up to c81ee7eae) merged in at the end with no conflict and no new migration + `origin/Staging` b4539b3b8.
 Merge-base 54cbfce6d. Staging was 190 commits ahead, QA1 413. 83 files conflicted.
 Rule (Johan): Staging is the base truth for live-bound work; QA1's not-yet-promoted work stays; nothing dropped silently.
 Method: every conflict was resolved per hunk (git merge-file by index stage), never by taking a whole file, so a
@@ -45,6 +45,8 @@ still answered by redirects in routes/web.php.
    `data-next`; tours still find it by attribute.
 3. `RentalFrontHalfDecisionsTest` — two regexes assumed `name="start_date" value=`; Staging's tour marker now sits between
    them. The page still prints the right date. Regexes now tolerate attributes in between.
+4. `DemoPrepFixesTest` "three button pairs" — reads the catalogue view's source for `class="corex-btn-outline text-xs">Edit</a>`;
+   Staging's tour marker now sits before the `>`. Regexes tolerate it (the marker itself contains `->`, so `[^>]*` was not enough).
 
 ## Test results
 
@@ -59,8 +61,8 @@ Run through `scripts/lane-test.sh`, per directory. "Pre-existing" = fails identi
 | Compliance (RMCP, FICA, policy) | 336 pass, 3 fail | 1 pre-existing on both (RMCP "signed letter really prints with the real printer" — needs Chromium/Puppeteer, not available in the test worktrees); 2 were fix 1, now pass |
 | Property identity + prospecting + claims | 605 pass, 3 fail | all 3 pre-existing on both (MicComposeMultiSeller x2, ProspectingImportPricelessListing) |
 | MIC / Matching / Market Intelligence | 78 pass, 1 fail | pre-existing on both (RentalStatusAndIncompleteDataMatching "sql prefilter agrees with scorer") |
-| Fault flow (+ reports, types) | 667 pass, 21 fail | 5 pre-existing on QA1 (AgencyDisplayNameClass, AuthorityCost, OwnerContractorWalkFixes, SupplierDirectoryList x2); 16 WorkOrderScreenStates were fix 2, now pass |
-| Maintenance / work orders / job cards | 1,077 pass, 9 fail | all 9 pre-existing on QA1 (CrewParts/CrewStagedList/LineFollowUps/VariationFlow/JobCardNightFixes/JobCardFollowUps) |
+| Fault flow (+ reports, types, Rentals) — re-run on the FINAL tree after cc1's S3-S6 | 1,077 pass, 8 fail (7 after fix 4) | 7 pre-existing on current QA1 c81ee7eae alone (AgencyDisplayNameClass, OwnerContractorWalkFixes, SupplierDirectoryList x2, FaultOwnerFlow x2, FaultScreenSimplified); 1 was fix 4. The 16 WorkOrderScreenStates failures of the first run were fix 2 and now pass. |
+| Maintenance / work orders / job cards — final tree | 1,077 pass, 9 fail | the same 9 as on QA1 alone (CrewParts/CrewStagedList/LineFollowUps/VariationFlow/JobCardNightFixes/JobCardFollowUps) |
 | Road to Sold | 817 pass, 9 fail | all 9 pre-existing on QA1 (LaneThreeIntegration x3, OutcomeSettings x2, ParkedAndAssistant, RoadToSoldPage x2, RtsListItem) |
 | Documents + e-sign (Docuperfect, SigningView, Documents) | 1,182 pass, 4 fail | all 4 are PropertyFieldsFromRecordTest: fail on Staging alone, pass on QA1. Cause confirmed: the fixture stores raw Blade (`{{ $property_district ?? '' }}`) as the template's editor HTML and Staging's BladeSafe hardening (untrusted text must never be Blade) now makes that inert. Real builder HTML carries spans, not raw Blade, so this is a stale fixture, not a product fault — but it is Staging's behaviour, so it is listed, not changed. |
 | Navigation + Features | 292 pass, 6 fail | all fail on QA1 and/or Staging alone with the same lists: SidebarNavMapping (deal-distribution-rules MULTI_MATCH on both; possible-matches NO_ITEM on QA1), TabHubSwitchAudit (the same 20 routes as QA1 alone), FeaturePermissionOwnership (attorney_portal, desk — both sides), FeatureRolloutBoard + FeatureRolloutPlans (Staging alone), SidebarFeatureToggles "reports group" (both) |
