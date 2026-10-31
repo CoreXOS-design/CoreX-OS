@@ -27,7 +27,7 @@ final class MicRefreshStats extends Command
         foreach ($agencies as $agencyId) {
             $t = microtime(true);
             $r = $builder->refreshAgency($agencyId);
-            $this->line(sprintf('agency %d: %d file rows, %d stale removed, %d pocket rows (%.1fs)', $agencyId, $r['files'], $r['stale_removed'], $r['pockets'], microtime(true) - $t));
+            $this->line(sprintf('agency %d: %d file rows, %d stale removed, %d pocket rows, %d scored (%.1fs)', $agencyId, $r['files'], $r['stale_removed'], $r['pockets'], $r['scored'], microtime(true) - $t));
         }
 
         return self::SUCCESS;
