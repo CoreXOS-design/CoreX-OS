@@ -290,25 +290,39 @@ class ProspectingListing extends Model
     public function scopeSearchResolved($query, string $term, int $agencyId, string $table = 'prospecting_listings')
     {
         $words = array_slice(array_values(array_filter(preg_split('/\s+/', trim($term)) ?: [], fn ($w) => $w !== '')), 0, 6);
+        $fast = static::hasSearchText();
         foreach ($words as $w) {
             $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $w) . '%';
-            $query->where(function ($q) use ($like, $table, $agencyId) {
-                $q->where("{$table}.address", 'like', $like)->orWhere("{$table}.suburb", 'like', $like)
-                    ->orWhere("{$table}.agent_name", 'like', $like)->orWhere("{$table}.agency_name", 'like', $like)
-                    ->orWhere("{$table}.portal_ref", 'like', $like)
-                    // the file's address as a SEMI-JOIN (tracked_property_id IN (matching files)), not a correlated EXISTS per advert row: the optimiser
-                    // reads the ~50k files once instead of probing them for each of ~40k adverts.
-                    ->orWhereIn("{$table}.tracked_property_id", function ($s) use ($like, $agencyId) {
-                        $s->select('tp_s.id')->from('tracked_properties as tp_s')
-                            ->where('tp_s.agency_id', $agencyId)->whereNull('tp_s.deleted_at')
-                            ->where(fn ($t) => $t->where('tp_s.street_name', 'like', $like)
-                                ->orWhereRaw("CONCAT_WS(' ', tp_s.street_number, tp_s.street_name) LIKE ?", [$like])
-                                ->orWhere('tp_s.complex_name', 'like', $like)->orWhere('tp_s.suburb', 'like', $like));
-                    });
+            $query->where(function ($q) use ($like, $table, $agencyId, $fast) {
+                if ($fast) {
+                    // one generated column per table (address + suburb + agent + agency + ref / the file's street, number, complex, suburb): the same
+                    // substring match as the five-column form below, one scan instead of five LIKEs per row
+                    $q->where("{$table}.search_text", 'like', $like);
+                } else {
+                    $q->where("{$table}.address", 'like', $like)->orWhere("{$table}.suburb", 'like', $like)
+                        ->orWhere("{$table}.agent_name", 'like', $like)->orWhere("{$table}.agency_name", 'like', $like)
+                        ->orWhere("{$table}.portal_ref", 'like', $like);
+                }
+                // the file's address as a SEMI-JOIN (tracked_property_id IN (matching files)), not a correlated EXISTS per advert row
+                $q->orWhereIn("{$table}.tracked_property_id", function ($s) use ($like, $agencyId, $fast) {
+                    $s->select('tp_s.id')->from('tracked_properties as tp_s')->where('tp_s.agency_id', $agencyId)->whereNull('tp_s.deleted_at');
+                    $fast
+                        ? $s->where('tp_s.search_text', 'like', $like)
+                        : $s->where(fn ($t) => $t->where('tp_s.street_name', 'like', $like)->orWhereRaw("CONCAT_WS(' ', tp_s.street_number, tp_s.street_name) LIKE ?", [$like])
+                            ->orWhere('tp_s.complex_name', 'like', $like)->orWhere('tp_s.suburb', 'like', $like));
+                });
             });
         }
 
         return $query;
+    }
+
+    /** True once the generated search_text columns exist (migration 2027_01_06_100000). Older databases keep the five-column search. */
+    public static function hasSearchText(): bool
+    {
+        static $has = null;
+
+        return $has ??= \Illuminate\Support\Facades\Schema::hasColumn('prospecting_listings', 'search_text') && \Illuminate\Support\Facades\Schema::hasColumn('tracked_properties', 'search_text');
     }
 
     /** Exact inverse of scopeWithAddress(). */
