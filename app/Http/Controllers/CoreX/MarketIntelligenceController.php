@@ -869,38 +869,9 @@ class MarketIntelligenceController extends Controller
         // view as its own value and read ONLY by the address line
         // (_listing-row.blade.php's "No address" fallback is otherwise untouched).
         // Zero shared mutable state between the two concerns.
-        $displayAddressByListingId = [];
-        $blankAddressPropertyIds = collect($listings->items())
-            ->filter(fn ($it) => blank($it->address) && ! empty($it->matched_property_id))
-            ->pluck('matched_property_id')
-            ->unique()
-            ->values();
-        if ($blankAddressPropertyIds->isNotEmpty()) {
-            // AT-424 — only ever show an address from the viewer's own agency,
-            // even if a matcher ever linked a listing across agencies.
-            $viewerAgencyId = auth()->user()?->effectiveAgencyId();
-            $matchedPropAddresses = \App\Models\Property::withoutGlobalScopes()
-                ->whereIn('id', $blankAddressPropertyIds)
-                ->when($viewerAgencyId, fn ($q) => $q->where('agency_id', $viewerAgencyId))
-                ->whereNull('deleted_at')
-                ->get(['id', 'address', 'street_number', 'street_name', 'suburb'])
-                ->mapWithKeys(function ($p) {
-                    $line = trim((string) $p->address) !== ''
-                        ? $p->address
-                        : trim(implode(' ', array_filter([$p->street_number, $p->street_name])));
-                    if ($line !== '' && filled($p->suburb) && ! str_contains($line, $p->suburb)) {
-                        $line .= ', ' . $p->suburb;
-                    }
-                    return [$p->id => $line];
-                })
-                ->filter(fn ($line) => $line !== '');
-            foreach ($listings->items() as $__it2) {
-                $__pid2 = $__it2->matched_property_id ?? null;
-                if ($__pid2 && blank($__it2->address) && filled($matchedPropAddresses[$__pid2] ?? null)) {
-                    $displayAddressByListingId[(int) $__it2->id] = $matchedPropAddresses[$__pid2];
-                }
-            }
-        }
+        // One rule, ProspectingListing::resolveDisplayAddresses() (beside scopeWithAddress): own text, else the matched own Property, else the
+        // property file's address. Batched; the same rule the With-address-only filter uses, so a row it lets through never says "No address yet".
+        $displayAddressByListingId = ProspectingListing::resolveDisplayAddresses($listings->items(), auth()->user()?->effectiveAgencyId());
 
         // MIC property row comments (.ai/specs/mic-property-row-comments.md) —
         // one batched count query for the whole visible page, mirroring the

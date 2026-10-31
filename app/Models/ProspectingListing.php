@@ -280,6 +280,65 @@ class ProspectingListing extends Model
             ->exists();
     }
 
+    /**
+     * The address a row SHOWS, by the same rule scopeWithAddress() filters on: the listing's own text when it is real, else the address of the
+     * property file it sits on (street number + street name - a complex or estate name is a street name here). That file address may have come from
+     * a capture, a deeds link, a twin advert or Edit address. A matched own Property (same agency) outranks the file, as before. Display only -
+     * nothing is written. One batched read per source, never one per row.
+     *
+     * Keep this, scopeWithAddress(), hasAddressSql() and hasAddress() in step: a row the filter lets through always gets a line here, so the
+     * row never says "No address yet" under "With address only".
+     *
+     * @param  iterable<ProspectingListing>  $listings
+     * @return array<int, string>  listing id => address line, only for listings whose own text is not real
+     */
+    public static function resolveDisplayAddresses(iterable $listings, ?int $viewerAgencyId): array
+    {
+        $needs = [];
+        foreach ($listings as $l) {
+            $text = trim((string) $l->address);
+            if ($text === '' || $text === self::ADDRESS_PLACEHOLDER) {
+                $needs[] = $l;
+            }
+        }
+        if (! $needs) {
+            return [];
+        }
+
+        // AT-424 - only ever an address from the viewer's own agency, even if a matcher ever linked a listing across agencies.
+        $propIds = array_values(array_unique(array_filter(array_map(fn ($l) => (int) $l->matched_property_id, $needs))));
+        $propLine = $propIds ? \App\Models\Property::withoutGlobalScopes()->whereIn('id', $propIds)
+            ->when($viewerAgencyId, fn ($q) => $q->where('agency_id', $viewerAgencyId))->whereNull('deleted_at')
+            ->get(['id', 'address', 'street_number', 'street_name', 'suburb'])
+            ->mapWithKeys(function ($p) {
+                $line = trim((string) $p->address) !== '' ? $p->address : trim(implode(' ', array_filter([$p->street_number, $p->street_name])));
+                if ($line !== '' && filled($p->suburb) && ! str_contains($line, $p->suburb)) {
+                    $line .= ', ' . $p->suburb;
+                }
+
+                return [$p->id => $line];
+            })->filter(fn ($line) => $line !== '')->all() : [];
+
+        $tpIds = array_values(array_unique(array_filter(array_map(fn ($l) => (int) $l->tracked_property_id, $needs))));
+        $fileLine = $tpIds ? \Illuminate\Support\Facades\DB::table('tracked_properties')->whereIn('id', $tpIds)->whereNull('deleted_at')
+            ->when($viewerAgencyId, fn ($q) => $q->where('agency_id', $viewerAgencyId))
+            ->whereNotNull('street_name')->where('street_name', '<>', '')
+            ->get(['id', 'street_number', 'street_name'])
+            ->mapWithKeys(fn ($t) => [(int) $t->id => trim(implode(' ', array_filter([
+                in_array(trim((string) $t->street_number), ['', '0'], true) ? null : trim((string) $t->street_number), trim((string) $t->street_name),
+            ])))])->all() : [];
+
+        $out = [];
+        foreach ($needs as $l) {
+            $line = $propLine[(int) $l->matched_property_id] ?? ($fileLine[(int) $l->tracked_property_id] ?? '');
+            if ($line !== '') {
+                $out[(int) $l->id] = $line;
+            }
+        }
+
+        return $out;
+    }
+
     private static function trackedStreetExists(string $table): \Closure
     {
         return function ($s) use ($table) {
