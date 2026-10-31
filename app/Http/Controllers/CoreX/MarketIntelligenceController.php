@@ -303,6 +303,9 @@ class MarketIntelligenceController extends Controller
         if ($request->filled('captured_by')) {
             $query->where('captured_by_user_id', $request->captured_by);
         }
+        if ($request->filled('source') && isset(\App\Services\Prospecting\PropertySourceFacts::FILTERS[$request->source])) {
+            app(\App\Services\Prospecting\PropertySourceFacts::class)->applyFilter($query, (string) $request->source, (int) $agencyId);
+        }
         if ($request->filled('date_from')) {
             $query->where('first_seen_at', '>=', $request->date_from);
         }
@@ -1097,6 +1100,8 @@ class MarketIntelligenceController extends Controller
         $listingStates = app(\App\Services\Prospecting\ProspectingListingStateEnricher::class)
             ->enrich($listings->items(), $agencyId);
 
+        $sourceByListingId = app(\App\Services\Prospecting\PropertySourceFacts::class)->forListings((int) $agencyId, $listings->items());
+
         $listingIdsForTiers = collect($listings->items())->pluck('id')->all();
         $buyerTiers = app(\App\Services\Prospecting\BuyerMatchTierService::class)
             ->tiersForListings($listingIdsForTiers, $agencyId);
@@ -1197,6 +1202,7 @@ class MarketIntelligenceController extends Controller
             $fragmentData = [
                 'listings'                       => $listings,
                 'listingStates'                  => $listingStates,
+                'sourceByListingId'              => $sourceByListingId,
                 'buyerTiers'                     => $buyerTiers,
                 'tierConfig'                     => $tierConfig,
                 'suggestedActions'               => $suggestedActions,
@@ -1291,6 +1297,7 @@ class MarketIntelligenceController extends Controller
             // property when the listing's own address is blank. Read-only array,
             // never touches $listing itself.
             'displayAddressByListingId',
+            'sourceByListingId',
         ));
     }
 
@@ -1701,11 +1708,14 @@ class MarketIntelligenceController extends Controller
         $work = $workService->syncOwnStock((int) $agencyId, (int) $tp->id);
         $work->load(['statusSetBy:id,name', 'claimedBy:id,name']);
 
+        $alertFacts = app(\App\Services\Prospecting\PropertyAlertFacts::class)->for((int) $agencyId, $tp);
+
         return view('corex.market-intelligence.opportunity-detail', [
+            'sourceFacts'          => app(\App\Services\Prospecting\PropertySourceFacts::class)->forProperty($alertFacts, $linkedListings, $tp->externalRefs),
             'work'                 => $work,
             'workHistory'          => $workService->history((int) $agencyId, (int) $tp->id, 15)->load('user:id,name'),
             'canSetStatus'         => $user->hasPermission('mic.comments.add'),
-            'alerts'               => app(\App\Services\Prospecting\PropertyAlertFacts::class)->for((int) $agencyId, $tp),
+            'alerts'               => $alertFacts,
             'tp'                   => $tp,
             'linkedListings'       => $linkedListings,
             'externalRefsBySource' => $externalRefsBySource,
@@ -1846,17 +1856,24 @@ class MarketIntelligenceController extends Controller
         $page = max(1, (int) $request->query('page', 1));
         $perPage = 50;
 
+        // S3 — an alert that is linked to a property file opens that file's page. The file must be this agency's own (never another's).
+        $ownTpIds = \DB::table('tracked_properties')->where('agency_id', $agencyId)->whereNull('deleted_at')
+            ->whereIn('id', P24Listing::query()->where('agency_id', $agencyId)->whereNotNull('tracked_property_id')->select('tracked_property_id'))
+            ->pluck('id')->flip();
+        $linkedTp = fn ($id) => $id && isset($ownTpIds[(int) $id]) ? route('market-intelligence.opportunities.show', ['tp' => $id]) : null;
+
         $p24Rows = P24Listing::query()
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
             ->orderByDesc('first_seen_date')
             ->get(['id', 'p24_listing_number', 'asking_price', 'suburb', 'area',
                    'property_type', 'bedrooms', 'bathrooms', 'p24_url',
-                   'first_seen_date', 'last_seen_date', 'listing_status'])
+                   'first_seen_date', 'last_seen_date', 'listing_status', 'tracked_property_id'])
             ->map(fn ($r) => [
                 'id'              => 'p24:' . $r->id,
                 'source_label'    => 'P24 email alert',
                 'source_class'    => 'p24_alert',
+                'property_url'    => $linkedTp($r->tracked_property_id),
                 'reference'       => $r->p24_listing_number,
                 'suburb'          => $r->suburb,
                 'area'            => $r->area,
