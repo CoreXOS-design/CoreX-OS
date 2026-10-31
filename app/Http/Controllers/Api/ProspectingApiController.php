@@ -9,6 +9,9 @@ use App\Models\ProspectingListing;
 use App\Models\ProspectingPriceAnomaly;
 use App\Models\ProspectingPriceHistory;
 use App\Models\ProspectingSearch;
+use App\Services\Prospecting\MicAdvertFacts;
+use App\Services\Prospecting\P24GroupRecorder;
+use App\Services\Prospecting\SharedPortalPool;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -53,6 +56,37 @@ class ProspectingApiController extends Controller
             // Absent for every capture until the extension status change ships; when
             // absent the listing keeps the existing is_active=true behaviour.
             'listings.*.portal_status'     => 'nullable|string|in:active,under_offer,sold,withdrawn',
+            // MIC capture lane (.ai/specs/mic-work-tab.md §11.2) — presence only here. The CONTENT of each key is
+            // sanitised row by row in MicAdvertFacts: a malformed value is dropped and counted, it never 422s the
+            // other 99 tiles of the batch. Older extension builds simply do not send these.
+            'search_context.detail_only'   => 'nullable|boolean',
+            'search_context.crawl'                => 'nullable|array',
+            'search_context.crawl.session_id'     => 'nullable|uuid',
+            'search_context.crawl.portal'         => 'nullable|string|in:p24,pp',
+            'search_context.crawl.suburb'         => 'nullable|string|max:120',
+            'search_context.crawl.page'           => 'nullable|integer|min:0|max:5000',
+            'search_context.crawl.pages_total'    => 'nullable|integer|min:0|max:5000',
+            'search_context.crawl.complete'       => 'nullable|boolean',
+            'search_context.crawl.started_at'     => 'nullable|date',
+            'search_context.crawl.finished_at'    => 'nullable|date',
+            'listings.*.advertiser_type'           => 'nullable',
+            'listings.*.agent_portal_id'           => 'nullable',
+            'listings.*.agency_portal_id'          => 'nullable',
+            'listings.*.listed_date'               => 'nullable',
+            'listings.*.rates_amount'              => 'nullable',
+            'listings.*.levies_amount'             => 'nullable',
+            'listings.*.portal_latitude'           => 'nullable',
+            'listings.*.portal_longitude'          => 'nullable',
+            'listings.*.is_reduced'                => 'nullable',
+            'listings.*.is_exclusive'              => 'nullable',
+            'listings.*.badges'                    => 'nullable|array|max:20',
+            'listings.*.p24_group_id'              => 'nullable',
+            'listings.*.p24_group_size'            => 'nullable',
+            'listings.*.p24_group_listing_numbers' => 'nullable|array|max:300',
+            'listings.*.p24_mandate_id'            => 'nullable',
+            'listings.*.wording_fingerprint'       => 'nullable',
+            'listings.*.first_photo_fingerprint'   => 'nullable',
+            'listings.*.page_read'                 => 'nullable',
         ]);
 
         // AT-253 (STANDARDS Rule 17) — prospecting_searches.agency_id is NOT NULL and this is a
@@ -69,18 +103,36 @@ class ProspectingApiController extends Controller
         $context = $validated['search_context'];
         $now = Carbon::now();
 
-        // Upsert: if same search_url exists for today, update it instead of creating a duplicate
-        $search = ProspectingSearch::where('agency_id', $agencyId)
-            ->where('search_url', $context['url'])
-            ->whereDate('captured_at', $now->toDateString())
-            ->first();
+        $detailOnly = ! empty($context['detail_only']);
+        $crawl = is_array($context['crawl'] ?? null) ? $context['crawl'] : [];
+        $sessionId = $crawl['session_id'] ?? null;
+        $crawlColumns = $this->crawlColumns($crawl);
+
+        // Upsert: one search row per extension run when it names a crawl session, otherwise the legacy
+        // (agency, search_url, calendar day) row — so a listing's last_search_id identifies its session exactly.
+        $searchQuery = ProspectingSearch::where('agency_id', $agencyId)->where('search_url', $context['url']);
+        $search = $sessionId
+            ? (clone $searchQuery)->where('crawl_session_id', $sessionId)->first()
+            : (clone $searchQuery)->whereDate('captured_at', $now->toDateString())->whereNull('crawl_session_id')->first();
 
         if ($search) {
-            $search->update([
-                'total_results'      => $context['total_results'],
-                'pages_captured'     => max($search->pages_captured, $context['pages_captured']),
-                'search_description' => $context['search_term'],
-            ]);
+            if (! $detailOnly) {
+                $update = [
+                    'total_results'      => $context['total_results'],
+                    'pages_captured'     => max($search->pages_captured, $context['pages_captured']),
+                    'search_description' => $context['search_term'],
+                ];
+                if ($sessionId) {
+                    $update += [
+                        'crawl_page'        => max((int) $search->crawl_page, (int) ($crawlColumns['crawl_page'] ?? 0)),
+                        'crawl_pages_total' => $crawlColumns['crawl_pages_total'] ?? $search->crawl_pages_total,
+                        // a session is complete once ANY batch of it said so, and never goes back
+                        'crawl_complete'    => (bool) $search->crawl_complete || (bool) ($crawlColumns['crawl_complete'] ?? false),
+                        'crawl_finished_at' => $crawlColumns['crawl_finished_at'] ?? $search->crawl_finished_at,
+                    ];
+                }
+                $search->update($update);
+            }
         } else {
             $search = ProspectingSearch::create([
                 'agency_id'          => $agencyId,
@@ -92,7 +144,7 @@ class ProspectingApiController extends Controller
                 'pages_captured'     => $context['pages_captured'],
                 'listing_count'      => 0,
                 'captured_at'        => $now,
-            ]);
+            ] + $crawlColumns);
         }
 
         $imported = 0;
@@ -108,6 +160,14 @@ class ProspectingApiController extends Controller
         // so we can purge their now-stale cached buyer-match scores in ONE query at
         // the end (same purge the FlagStaleProspectingListings sweep applies).
         $offMarketListingIds = [];
+
+        // MIC capture lane — adverts the extension should open the listing page of (new, or price moved), the
+        // P24 group recorder, and how many incoming values were malformed and dropped.
+        $needsDetail = [];
+        $groupRecorder = app(P24GroupRecorder::class);
+        $groupsRecorded = 0;
+        $droppedFields = 0;
+        $detailUnknown = 0;
 
         foreach ($validated['listings'] as $data) {
             if (empty($data['portal_ref'])) {
@@ -145,6 +205,31 @@ class ProspectingApiController extends Controller
                 ->where('portal_source', $portalSource)
                 ->where('portal_ref', $data['portal_ref'])
                 ->first();
+
+            // MIC capture lane — the public advert facts of this row (malformed values dropped + counted, never a 422)
+            $mic = MicAdvertFacts::sanitise($data, $portalSource);
+            $droppedFields += $mic['dropped'];
+
+            // A listing-page read of an advert we already hold: advert facts and the names the page shows, nothing
+            // else (no status, price, counts or reconcile - the tile crawl owns those).
+            if ($detailOnly) {
+                if (! $existing) {
+                    $detailUnknown++;
+                    continue;
+                }
+                $mic['page_read'] = true;
+                if ($data['agent_name'] !== '') {
+                    $existing->agent_name = $data['agent_name'];
+                }
+                if ($data['agency_name'] !== '') {
+                    $existing->agency_name = $data['agency_name'];
+                }
+                MicAdvertFacts::apply($existing, $mic, $now);
+                $existing->save();
+                $groupsRecorded += $this->recordMicFacts($existing, $mic, $agencyId, $groupRecorder);
+                $updated++;
+                continue;
+            }
 
             if ($existing) {
                 $existing->last_seen_at = $now;
@@ -196,6 +281,7 @@ class ProspectingApiController extends Controller
 
                         $existing->price = $newPrice;
                         $existing->price_changed_at = $now;
+                        $needsDetail[$data['portal_ref']] = true;
                     }
                 }
 
@@ -208,10 +294,12 @@ class ProspectingApiController extends Controller
                 $existing->property_size_m2 = $data['property_size_m2'] ?? $existing->property_size_m2;
                 $existing->erf_size_m2      = $data['erf_size_m2'] ?? $existing->erf_size_m2;
                 $existing->property_type    = $data['property_type'] ?? $existing->property_type;
-                $existing->agent_name       = $data['agent_name'] ?? $existing->agent_name;
-                $existing->agency_name      = $data['agency_name'] ?? $existing->agency_name;
+                // A tile without an agent/agency ('' after the coercion above) must not blank what a listing page stored
+                $existing->agent_name       = $data['agent_name'] !== '' ? $data['agent_name'] : $existing->agent_name;
+                $existing->agency_name      = $data['agency_name'] !== '' ? $data['agency_name'] : $existing->agency_name;
                 $existing->portal_url       = $data['portal_url'];
                 $existing->mandate_type     = $data['mandate_type'] ?? $existing->mandate_type;
+                MicAdvertFacts::apply($existing, $mic, $now);
 
                 $existing->save();
 
@@ -236,6 +324,7 @@ class ProspectingApiController extends Controller
                 if ($tpId !== null) {
                     $touchedTrackedPropertyIds[$tpId] = true;
                 }
+                $groupsRecorded += $this->recordMicFacts($existing, $mic, $agencyId, $groupRecorder);
                 $updated++;
             } else {
                 $listing = ProspectingListing::create([
@@ -270,11 +359,18 @@ class ProspectingApiController extends Controller
                     'off_market_at'       => $isOffMarket ? $now : null,
                 ]);
 
+                MicAdvertFacts::apply($listing, $mic, $now);
+                if ($listing->isDirty()) {
+                    $listing->save();
+                }
+                $needsDetail[$data['portal_ref']] = true;
+
                 $this->assignPropertyGroup($listing, $agencyId);
                 $tpId = $this->linkToTrackedProperty($listing, $agencyId, $user->id);
                 if ($tpId !== null) {
                     $touchedTrackedPropertyIds[$tpId] = true;
                 }
+                $groupsRecorded += $this->recordMicFacts($listing, $mic, $agencyId, $groupRecorder);
 
                 if (!empty($data['thumbnail_url'])) {
                     // Persist the source URL up-front (AT-22 item 7) so a
@@ -303,7 +399,7 @@ class ProspectingApiController extends Controller
         // read-modify-write (listing_count = listing_count + N) loses updates between
         // overlapping batches and undercounts. `increment()` issues a single
         // `SET listing_count = listing_count + N` the DB serialises per row.
-        if ($imported + $updated > 0) {
+        if (! $detailOnly && $imported + $updated > 0) {
             $search->increment('listing_count', $imported + $updated);
         }
 
@@ -333,7 +429,7 @@ class ProspectingApiController extends Controller
         // extension has walked every page cleanly. Failure-isolated: reconcile must never
         // break the ingest response.
         $reconcile = null;
-        if (! empty($context['capture_complete'])) {
+        if (! $detailOnly && ! empty($context['capture_complete'])) {
             try {
                 $reconcile = app(\App\Services\Prospecting\SuburbReconcileService::class)
                     ->reconcile($agencyId, $portalSource, $search);
@@ -371,6 +467,13 @@ class ProspectingApiController extends Controller
             'updated'  => $updated,
             'skipped'  => $skippedBadRows,
             'total'    => $imported + $updated,
+            // MIC capture lane (spec 11.2): the adverts whose listing page the extension should read (new, or price
+            // moved), capped by the agency's per-session limit; plus what was dropped as malformed.
+            'needs_detail'     => $detailOnly ? [] : array_slice(array_keys($needsDetail), 0, 500),
+            'limits'           => ['detail_pages_per_session' => $this->detailPageCap($agencyId)],
+            'groups_recorded'  => $groupsRecorded,
+            'dropped_fields'   => $droppedFields,
+            'detail_unknown'   => $detailUnknown,
             // Non-null only on the final batch of a complete suburb capture.
             'reconcile' => $reconcile ? [
                 'suburbs' => $reconcile['suburbs'],
@@ -591,6 +694,86 @@ class ProspectingApiController extends Controller
             ]);
             return null;
         }
+    }
+
+    /**
+     * MIC capture lane — the crawl-session columns of a prospecting_searches row from search_context.crawl.
+     *
+     * @return array<string,mixed>
+     */
+    private function crawlColumns(array $crawl): array
+    {
+        if (empty($crawl['session_id'])) {
+            return [];
+        }
+        $out = ['crawl_session_id' => $crawl['session_id']];
+        foreach (['portal' => 'crawl_portal', 'suburb' => 'crawl_suburb', 'page' => 'crawl_page', 'pages_total' => 'crawl_pages_total'] as $k => $col) {
+            if (isset($crawl[$k])) {
+                $out[$col] = $crawl[$k];
+            }
+        }
+        if (array_key_exists('complete', $crawl) && $crawl['complete'] !== null) {
+            $out['crawl_complete'] = (bool) $crawl['complete'];
+        }
+        foreach (['started_at' => 'crawl_started_at', 'finished_at' => 'crawl_finished_at'] as $k => $col) {
+            if (! empty($crawl[$k])) {
+                $out[$col] = Carbon::parse($crawl[$k]);
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * MIC capture lane — after a listing is saved: record its P24 group, and share the public advert facts with
+     * the pool (no extra sighting counted; the resolver already counted this one). Failure-isolated.
+     *
+     * @return int group rows written
+     */
+    private function recordMicFacts(ProspectingListing $listing, array $mic, int $agencyId, P24GroupRecorder $groups): int
+    {
+        $written = 0;
+        try {
+            if ($mic['group'] !== null) {
+                $own = preg_replace('/\D/', '', (string) preg_replace('/^[A-Za-z0-9]{1,4}-/', '', (string) $listing->portal_ref));
+                $numbers = $mic['group']['numbers'];
+                if ($listing->portal_source === 'p24' && $own !== '' && ! in_array($own, $numbers, true)) {
+                    $numbers[] = $own;
+                }
+                $written = $groups->record($mic['group']['id'], $numbers, $mic['group']['size']);
+            }
+            if (($mic['columns'] !== [] || $mic['page_read'] || $mic['listed_date'] !== null) && $listing->canonical_ref) {
+                $facts = MicAdvertFacts::poolFacts($listing);
+                if ($facts !== []) {
+                    app(SharedPortalPool::class)->contribute((string) $listing->canonical_ref, $facts, $agencyId, false);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('MIC advert facts: group/pool write failed (swallowed)', [
+                'prospecting_listing_id' => $listing->id,
+                'error'                  => $e->getMessage(),
+            ]);
+        }
+
+        return $written;
+    }
+
+    /** The agency's cap on listing-page reads per extension session (spec 11.2; MicAgencySetting is cc5's, default 40). */
+    private function detailPageCap(int $agencyId): int
+    {
+        $default = 40;
+        try {
+            if (class_exists(\App\Models\MicAgencySetting::class) && method_exists(\App\Models\MicAgencySetting::class, 'for')) {
+                $setting = \App\Models\MicAgencySetting::for($agencyId);
+                if (method_exists($setting, 'detailPagesPerSession')) {
+                    return max(0, (int) $setting->detailPagesPerSession());
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('MIC detail-page cap unreadable, using default (swallowed)', ['error' => $e->getMessage()]);
+        }
+
+        return $default;
     }
 
     /**

@@ -77,8 +77,9 @@ final class SharedPortalPool
     /**
      * Add what an agency's scrape saw of this advert. Existing values are never blanked; a changed price is logged.
      * $agencyId (when known) is recorded in the INTERNAL contribution record — never returned by find().
+     * $countSighting = false adds facts to an advert already counted this sighting (no seen_count / last_seen bump).
      */
-    public function contribute(string $canonicalRef, array $facts, ?int $agencyId = null): void
+    public function contribute(string $canonicalRef, array $facts, ?int $agencyId = null, bool $countSighting = true): void
     {
         $split = \App\Support\Property\PortalRef::split($canonicalRef);
         if ($split === null) {
@@ -107,7 +108,7 @@ final class SharedPortalPool
             $new['price'] = (int) round((float) $new['price']);
         }
 
-        DB::transaction(function () use ($canonicalRef, $split, $new, $agencyId) {
+        DB::transaction(function () use ($canonicalRef, $split, $new, $agencyId, $countSighting) {
             $row = DB::table('portal_advert_facts')->where('canonical_ref', $canonicalRef)->lockForUpdate()->first();
             $now = now();
 
@@ -119,7 +120,7 @@ final class SharedPortalPool
                     'price_history' => $history ? json_encode($history) : null, 'seen_count' => 1,
                     'created_at' => $now, 'updated_at' => $now,
                 ]));
-                $this->recordContribution($factId, $agencyId, array_keys($new));
+                $this->recordContribution($factId, $agencyId, array_keys($new), $countSighting);
 
                 return;
             }
@@ -134,15 +135,15 @@ final class SharedPortalPool
             if (isset($update['latitude']) && $row->latitude !== null && ! $this->atLeastAsPrecise((string) ($update['geo_confidence'] ?? ''), (string) $row->geo_confidence)) {
                 unset($update['latitude'], $update['longitude'], $update['geo_confidence']);
             }
-            DB::table('portal_advert_facts')->where('id', $row->id)->update(array_merge($update, [
-                'last_seen_at' => $now, 'seen_count' => (int) $row->seen_count + 1, 'updated_at' => $now,
-            ]));
-            $this->recordContribution((int) $row->id, $agencyId, array_keys($new));
+            DB::table('portal_advert_facts')->where('id', $row->id)->update(array_merge($update, $countSighting
+                ? ['last_seen_at' => $now, 'seen_count' => (int) $row->seen_count + 1, 'updated_at' => $now]
+                : ['updated_at' => $now]));
+            $this->recordContribution((int) $row->id, $agencyId, array_keys($new), $countSighting);
         });
     }
 
     /** Internal: which agency saw this advert and which public fields it supplied. Never part of a pool read. */
-    private function recordContribution(int $factId, ?int $agencyId, array $columns): void
+    private function recordContribution(int $factId, ?int $agencyId, array $columns, bool $countSighting = true): void
     {
         if (! $agencyId) {
             return;
@@ -159,7 +160,7 @@ final class SharedPortalPool
         }
         $fields = array_values(array_unique(array_merge(json_decode((string) $existing->fields_contributed, true) ?: [], $columns)));
         DB::table('portal_advert_contributions')->where('id', $existing->id)->update([
-            'last_seen_at' => $now, 'seen_count' => (int) $existing->seen_count + 1, 'fields_contributed' => json_encode($fields), 'updated_at' => $now,
+            'last_seen_at' => $now, 'seen_count' => (int) $existing->seen_count + ($countSighting ? 1 : 0), 'fields_contributed' => json_encode($fields), 'updated_at' => $now,
         ]);
     }
 
