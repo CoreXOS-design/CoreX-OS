@@ -3,6 +3,7 @@
 namespace Tests\Feature\TrainingVideos;
 
 use App\Models\Agency;
+use App\Models\AgencyFeature;
 use App\Models\Branch;
 use App\Models\Role;
 use App\Models\RolePermission;
@@ -89,6 +90,33 @@ final class TrainingLibraryTest extends TestCase
         $html = $this->actingAs($this->admin)->get(route('corex.training-library.index'))->assertOk()->getContent();
         $this->assertStringContainsString('data-training-card="book-a-viewing"', $html);
         $this->assertStringContainsString('>Generate<', $html);
+    }
+
+    public function test_an_ordinary_agency_with_the_training_lms_switched_off_still_gets_the_library_and_the_video(): void
+    {
+        // Found 31 Oct on QA1: HFC has the Training (LMS) feature OFF and the two keys sit in the 'training' permission module, so every library URL 404'd for HFC
+        // users (the feature gate refuses a permission whose owning feature is off) while the training-agency proof session, which has it on, got 200.
+        // This agency is NOT a training agency (is_training is false) and has 'training' off and 'guided-tours' on.
+        $this->assertFalse((bool) Agency::withoutGlobalScopes()->find($this->agent->agency_id)->is_training);
+        AgencyFeature::create(['agency_id' => $this->agent->agency_id, 'feature_key' => 'training', 'enabled' => false]);
+        AgencyFeature::create(['agency_id' => $this->agent->agency_id, 'feature_key' => 'guided-tours', 'enabled' => true]);
+        $this->video();
+
+        foreach (['index' => [], 'show' => ['book-a-viewing']] as $name => $args) {
+            $this->actingAs($this->agent)->get(route('corex.training-library.' . $name, $args))->assertOk();
+        }
+        $this->actingAs($this->agent)->get(route('corex.training-library.file', ['book-a-viewing', 'mp4']))->assertOk();
+        $this->actingAs($this->agent)->get(route('corex.training-library.file', ['book-a-viewing', 'vtt']))->assertOk();
+        $html = $this->actingAs($this->agent)->get(route('corex.training-library.index'))->getContent();
+        $this->assertStringContainsString('data-training-card="book-a-viewing"', $html);
+        $this->actingAs($this->admin)->get(route('corex.training-library.index'))->assertOk();
+    }
+
+    public function test_switching_guided_tours_off_hides_the_library_like_the_rest_of_that_family(): void
+    {
+        AgencyFeature::create(['agency_id' => $this->agent->agency_id, 'feature_key' => 'guided-tours', 'enabled' => false]);
+        $this->video();
+        $this->actingAs($this->agent)->get(route('corex.training-library.index'))->assertNotFound();
     }
 
     public function test_the_files_are_streamed_only_to_signed_in_users_and_never_public(): void

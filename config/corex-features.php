@@ -511,7 +511,12 @@ return [
         'affects' => 'Whether the guided tours and their launcher are available. Off hides them; they store no agency data.',
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => [], 'sidebar_section' => 'tools',
-        'settings_section' => null, 'route_prefixes' => ['corex/guided-tours'], 'global_flag' => null,
+        // AT-525 - the auto-generated how-to videos (Training library + "Watch how") belong to THIS feature, not to 'training' (the LMS): an agency can have the
+        // learning centre switched off (HFC does) and still must see the how-to videos. permission_keys WIN over the 'training' module that the two keys sit in, and
+        // route_names are refused only if guided tours are off.
+        'settings_section' => null, 'route_prefixes' => ['corex/guided-tours', 'corex/training-library'], 'global_flag' => null,
+        'route_names' => ['corex.training-library.*'],
+        'permission_keys' => ['training_videos.view', 'training_videos.generate'],
     ],
 
     // ── Learning & AI ──
