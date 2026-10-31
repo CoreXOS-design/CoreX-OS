@@ -257,9 +257,10 @@ class CrewJobService
         $workOrder = $card->rental_work_order_id ? RentalWorkOrder::withoutGlobalScopes()->where('agency_id', $card->agency_id)->find($card->rental_work_order_id) : null;
         $who = app(RentalWhoPaysService::class);
         if ($workOrder && $who->isFaultJob($workOrder)) {
-            // audit fix C-E1: what the crew already told the office at "Send to office" is carried - a blank box here never loses it
+            // audit fix C-E1: what the crew already told the office at "Send to office" is carried - a blank box here never loses it.
+            // Section 31.5: nothing at all is fine - findings are optional on the link; the Who pays ruling asks for them when they are needed.
             $found = trim((string) ($report['found_text'] ?? '')) !== '' ? $report['found_text'] : $who->carriedFindings($workOrder);
-            $who->recordFindings($workOrder, $found, ! empty($report['cause_id']) ? (int) $report['cause_id'] : null, $report['cause_note'] ?? null, $fullName . ' (crew)');
+            if (trim((string) $found) !== '') $who->recordFindings($workOrder, $found, ! empty($report['cause_id']) ? (int) $report['cause_id'] : null, $report['cause_note'] ?? null, $fullName . ' (crew)');
         }
 
         DB::transaction(function () use ($card, $fullName, $ctx) {
