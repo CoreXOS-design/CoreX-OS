@@ -17,7 +17,7 @@ return [
     'intro' => 'This screen explains roles. There is nothing to fill in.',
     'steps' => [
         [
-            'selector' => 'main h2',
+            'selector' => 'main h3',
             'action' => 'highlight',
             'done' => 'none',
             'narration' => 'These are the roles your agency starts with.',

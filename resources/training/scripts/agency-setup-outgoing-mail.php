@@ -35,7 +35,7 @@ return [
             'selector' => '#f_smtp_host',
             'action' => 'highlight',
             'done' => 'none',
-            'narration' => 'Type the outgoing mail server. Your email provider can tell you.',
+            'narration' => 'Type the outgoing mail server. Whoever hosts your email can tell you.',
             'why' => 'CoreX needs it to send mail for you.',
         ],
         [
