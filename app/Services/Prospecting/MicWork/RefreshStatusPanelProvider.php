@@ -44,9 +44,18 @@ final class RefreshStatusPanelProvider implements PanelProvider
         $scopeMine = ($filters['scope'] ?? 'all') === 'mine';
         // Until real crawl records exist for a suburb + portal, the last read is APPROXIMATED from the newest time an advert there was seen on that portal
         // (every read of a suburb refreshes its adverts). A real, complete crawl replaces it. Marked approx in the row.
-        $approx = DB::table('prospecting_listings')->where('agency_id', $agencyId)->whereNull('deleted_at')->whereNotNull('p24_suburb_id')
-            ->selectRaw('p24_suburb_id as sid, portal_source as portal, MAX(last_seen_at) as at')->groupBy('p24_suburb_id', 'portal_source')->get()
-            ->groupBy('sid')->map(fn ($g) => $g->pluck('at', 'portal'));
+        // The last read of a suburb on a portal = the moment by which at least `share`% of its LIVE adverts there had been seen (the share-th most recent
+        // last_seen), and only for suburbs with at least `min` live adverts: one advert touched by a back-fill or an alert is not a read of the suburb.
+        $share = MicTileSettings::approxReadMinSharePct($agencyId) / 100;
+        $minAdverts = MicTileSettings::approxReadMinAdverts($agencyId);
+        $approx = collect(DB::select(
+            'SELECT sid, portal, at FROM (SELECT l.p24_suburb_id AS sid, l.portal_source AS portal, l.last_seen_at AS at,
+                    ROW_NUMBER() OVER (PARTITION BY l.p24_suburb_id, l.portal_source ORDER BY l.last_seen_at DESC) AS rn,
+                    COUNT(*) OVER (PARTITION BY l.p24_suburb_id, l.portal_source) AS cnt
+                 FROM prospecting_listings l WHERE l.agency_id = ? AND l.deleted_at IS NULL AND l.is_active = 1 AND l.p24_suburb_id IS NOT NULL) x
+             WHERE cnt >= ? AND rn = CEIL(cnt * ?)',
+            [$agencyId, $minAdverts, $share]
+        ))->groupBy('sid')->map(fn ($g) => $g->pluck('at', 'portal'));
 
         $sub = DB::table('p24_suburbs as s')->leftJoin('p24_cities as c', 'c.id', '=', 's.p24_city_id')->leftJoin('p24_provinces as pr', 'pr.id', '=', 'c.p24_province_id')
             ->whereIn('s.id', $suburbIds->all())->whereNull('s.deleted_at')

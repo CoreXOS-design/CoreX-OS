@@ -81,6 +81,13 @@ class PossibleMatchesController extends Controller
                 $w->whereNull('d.incoming_facts')->orWhereRaw("COALESCE(JSON_UNQUOTE(JSON_EXTRACT(d.incoming_facts, '$.kind')), '') NOT IN ('" . implode("','", self::FACT_KINDS) . "')");
             });
         }
+        // ?file=ID - exactly the pairs one property file is in (the MIC row chip links here); a free-text search for "447" returns unrelated pairs
+        $file = ctype_digit((string) $request->query('file')) ? (int) $request->query('file') : null;
+        if ($file !== null) {
+            $q->where(function ($w) use ($file) {
+                $w->where('d.matched_id', $file)->orWhereRaw("CAST(JSON_UNQUOTE(JSON_EXTRACT(d.incoming_facts, '$.incoming_tracked_property_id')) AS UNSIGNED) = ?", [$file]);
+            });
+        }
         if ($source !== '') {
             $q->where('d.strategy', $source);
         }
@@ -126,8 +133,8 @@ class PossibleMatchesController extends Controller
             'kinds'     => self::KINDS,
             'sources'   => $sources,
             'counts'    => $counts,
-            'filters'   => ['q' => $term, 'status' => $status, 'kind' => $kind, 'source' => $source, 'from' => $from, 'to' => $to, 'sort' => $sortKey, 'dir' => $dir],
-            'anyFilter' => $term !== '' || $kind !== null || $source !== '' || $from !== null || $to !== null || $status !== 'pending',
+            'filters'   => ['file' => $file, 'q' => $term, 'status' => $status, 'kind' => $kind, 'source' => $source, 'from' => $from, 'to' => $to, 'sort' => $sortKey, 'dir' => $dir],
+            'anyFilter' => $file !== null || $term !== '' || $kind !== null || $source !== '' || $from !== null || $to !== null || $status !== 'pending',
             'labels'    => fn (object $r) => $this->pairLabels($r),
         ]);
     }

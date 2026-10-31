@@ -300,4 +300,48 @@ final class MatchingRulesTest extends TestCase
         $this->actingAs($admin)->get($index(['kind' => 'capture']))->assertOk()->assertDontSee('Zulu Street');
         $this->actingAs($admin)->get($index([]))->assertOk()->assertSee('Same agency, other portal');
     }
+    public function test_the_review_page_can_be_limited_to_exactly_one_property_file(): void
+    {
+        $branch = Branch::first();
+        $admin = User::factory()->create(['agency_id' => $this->a->id, 'branch_id' => $branch->id, 'role' => 'admin', 'is_admin' => true, 'is_active' => true]);
+        $one = $this->file(['street_number' => '447', 'street_name' => 'Alpha Road', 'suburb' => 'Uvongo']);
+        $two = $this->file(['street_number' => '2', 'street_name' => 'Beta Road', 'suburb' => 'Uvongo']);
+        $three = $this->file(['street_number' => '3', 'street_name' => 'Gamma Road', 'suburb' => 'Uvongo']);
+        $four = $this->file(['street_number' => '8', 'street_name' => 'Delta Road', 'suburb' => 'Uvongo']);
+        $five = $this->file(['street_number' => '9', 'street_name' => 'Zulu Road', 'suburb' => 'Uvongo']);
+        $pairs = app(\App\Services\Prospecting\Matching\ReviewPairs::class);
+        $pairs->queue($this->a->id, $one->id, $two->id, 'twin', 'r1', 3, true);
+        $pairs->queue($this->a->id, $three->id, $one->id, 'portal_group', 'r2', null, true);      // the file can be on either side
+        $pairs->queue($this->a->id, $four->id, $five->id, 'twin', 'r3', 3, true);
+
+        $page = $this->actingAs($admin)->get(route('corex.possible-matches.index', ['file' => $one->id]))->assertOk();
+
+        $page->assertSee('Beta Road')->assertSee('Gamma Road')->assertDontSee('Delta Road')->assertDontSee('Zulu Road')->assertSee('data-qa="file-filter"', false);
+        $this->actingAs($admin)->get(route('corex.possible-matches.index', ['file' => 'abc']))->assertOk()->assertSee('Delta Road');
+    }
+
+    public function test_only_same_property_kinds_raise_the_mic_row_chip(): void
+    {
+        $pairs = app(\App\Services\Prospecting\Matching\ReviewPairs::class);
+        $f = fn () => $this->file(['street_number' => (string) random_int(1, 999), 'street_name' => 'Chip Road', 'suburb' => 'Uvongo']);
+        [$a1, $a2, $b1, $b2, $c1, $c2, $d1, $d2, $e1, $e2, $g1, $g2] = [$f(), $f(), $f(), $f(), $f(), $f(), $f(), $f(), $f(), $f(), $f(), $f()];
+        $pairs->queue($this->a->id, $a1->id, $a2->id, 'portal_group', 'P24 group', null, true);
+        $pairs->queue($this->a->id, $b1->id, $b2->id, 'twin', 'twin', 2, true);
+        $pairs->queue($this->a->id, $c1->id, $c2->id, 'same_address', 'Same address, but the adverts say different bedrooms (5 and 6) - may be two different properties.', null, true);          // freehold: chip
+        $pairs->queue($this->a->id, $d1->id, $d2->id, 'same_address', \App\Services\Prospecting\SameAddressSweep::REASON_FLAT . ' with no unit number - may be a different unit.', null, true); // flats: no chip
+        $pairs->queue($this->a->id, $e1->id, $e2->id, 'unit_split', 'split', null, true);
+        $pairs->queue($this->a->id, $g1->id, $g2->id, 'complex', 'complex', null, true);
+
+        $counts = app(\App\Services\Prospecting\Matching\SamePropertyChips::class)->counts($this->a->id);
+
+        foreach ([$a1, $a2, $b1, $b2, $c1, $c2] as $file) {
+            $this->assertSame(1, $counts[$file->id] ?? 0, 'file ' . $file->id . ' raises the chip');
+        }
+        foreach ([$d1, $d2, $e1, $e2, $g1, $g2] as $file) {
+            $this->assertArrayNotHasKey($file->id, $counts);
+        }
+        $this->assertSame([], app(\App\Services\Prospecting\Matching\SamePropertyChips::class)->counts($this->b->id), "another agency's chips are its own");
+        $this->actingAs(User::factory()->create(['agency_id' => $this->a->id, 'role' => 'admin']));
+        $this->assertStringContainsString('file=' . $a1->id, app(\App\Services\Prospecting\Matching\SamePropertyChips::class)->forFile($this->a->id, $a1->id)['url']);
+    }
 }

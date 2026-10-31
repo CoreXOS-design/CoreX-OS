@@ -26,7 +26,16 @@
         <div class="rounded-md px-3 py-2 text-sm" style="background:#fef2f2; color:#991b1b;">{{ session('error') }}</div>
     @endif
 
+    @if(!empty($f['file']))
+        <div class="rounded-md px-3 py-2 text-sm flex flex-wrap items-center gap-3" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" data-qa="file-filter">
+            <span>Showing only the pairs property <strong>#{{ $f['file'] }}</strong> is in.</span>
+            <a href="{{ route('corex.possible-matches.index', array_filter(['status' => $f['status'] !== 'pending' ? $f['status'] : null])) }}" class="text-xs font-semibold" style="color:var(--brand-icon, #0ea5e9);">Show all pairs</a>
+            <a href="{{ route('corex.tracked-properties.show', $f['file']) }}" class="text-xs font-semibold" style="color:var(--brand-icon, #0ea5e9);">Open the property</a>
+        </div>
+    @endif
+
     <form method="GET" action="{{ route('corex.possible-matches.index') }}" class="props-filter-panel rounded-md p-4 grid gap-3 md:grid-cols-6" style="background:var(--surface); border:1px solid var(--border);">
+        @if(!empty($f['file']))<input type="hidden" name="file" value="{{ $f['file'] }}">@endif
         <div class="md:col-span-2">
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Search</label>
             <input class="list-header-filter {{ !empty($f['q']) ? 'is-active' : '' }} w-full" type="text" name="q" value="{{ $f['q'] }}" placeholder="Street, number, suburb, complex, erf, advert number, record number">

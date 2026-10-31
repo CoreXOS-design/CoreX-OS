@@ -176,8 +176,10 @@ final class MicTileServicesTest extends TestCase
         $stale = $this->suburb('Ramsgate', 6371, $city);
         $never = $this->suburb('Margate Beach', 6372, $city);
         foreach ([$fresh, $stale, $never] as $s) {
-            $this->advert($this->file(), 'active', 0);
-            DB::table('prospecting_listings')->orderByDesc('id')->limit(1)->update(['p24_suburb_id' => $s]);
+            for ($i = 0; $i < 3; $i++) {
+                $this->advert($this->file(), 'active', 0);
+                DB::table('prospecting_listings')->orderByDesc('id')->limit(1)->update(['p24_suburb_id' => $s]);
+            }
         }
         $this->crawl($fresh, 'p24', 1);
         $this->crawl($fresh, 'pp', 2);
@@ -233,8 +235,10 @@ final class MicTileServicesTest extends TestCase
         $uvongo = $this->suburb('Uvongo', 6359, $city);
         $ramsgate = $this->suburb('Ramsgate', 6371, $city);
         foreach ([$uvongo, $ramsgate] as $sid) {
-            $l = $this->advert($this->file(), 'active', 0);
-            DB::table('prospecting_listings')->where('id', $l->id)->update(['p24_suburb_id' => $sid, 'last_seen_at' => now()->subDays($sid === $uvongo ? 2 : 12)]);
+            for ($i = 0; $i < 3; $i++) {
+                $l = $this->advert($this->file(), 'active', 0);
+                DB::table('prospecting_listings')->where('id', $l->id)->update(['p24_suburb_id' => $sid, 'last_seen_at' => now()->subDays($sid === $uvongo ? 2 : 12)]);
+            }
         }
         $this->crawl($ramsgate, 'p24', 1);                                                 // a real, complete crawl for Ramsgate on P24 only
 
@@ -282,8 +286,10 @@ final class MicTileServicesTest extends TestCase
         $ours2 = $this->suburb('Uvongo', 6359, $city);
         $north = $this->suburb('Ballito Gardens Estate', 7000, $city);
         foreach ([$ours, $ours2, $north] as $sid) {
-            $l = $this->advert($this->file(), 'active', 0);
-            DB::table('prospecting_listings')->where('id', $l->id)->update(['p24_suburb_id' => $sid, 'last_seen_at' => now()->subDays($sid === $north ? 226 : ($sid === $ours ? 20 : 3))]);
+            for ($i = 0; $i < 3; $i++) {
+                $l = $this->advert($this->file(), 'active', 0);
+                DB::table('prospecting_listings')->where('id', $l->id)->update(['p24_suburb_id' => $sid, 'last_seen_at' => now()->subDays($sid === $north ? 226 : ($sid === $ours ? 20 : 3))]);
+            }
         }
         \App\Models\MicAgencySetting::saveValues($this->a->id, ['areas' => [$ours, $ours2]]);
         $p = new RefreshStatusPanelProvider();
@@ -302,5 +308,31 @@ final class MicTileServicesTest extends TestCase
         $this->assertSame(20, $s['count']);
         $this->assertSame(1, $s['older_than_14d'], 'Ramsgate (20 days); the north-coast estate is not one of ours and is not counted');
         $this->assertSame(2, $s['working_suburbs']);
+    }
+    public function test_an_approximate_read_needs_half_the_live_adverts_seen_not_one(): void
+    {
+        $country = (int) DB::table('p24_countries')->insertGetId(['name' => 'South Africa', 'p24_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        $province = (int) DB::table('p24_provinces')->insertGetId(['name' => 'KwaZulu-Natal', 'p24_id' => 2, 'p24_country_id' => $country, 'created_at' => now(), 'updated_at' => now()]);
+        $city = (int) DB::table('p24_cities')->insertGetId(['name' => 'Margate', 'p24_id' => 376, 'p24_province_id' => $province, 'created_at' => now(), 'updated_at' => now()]);
+        $fullRead = $this->suburb('Margate', 6001, $city);      // 10 live adverts, 9 seen 5 hours ago: a real read
+        $oneTouched = $this->suburb('Uvongo', 6002, $city);     // 10 live adverts, 1 touched today, the rest 20 days ago: not a read today
+        $tooFew = $this->suburb('Ramsgate', 6003, $city);       // 2 live adverts: not enough to call anything a read
+        $make = function (int $sid, array $daysAgo) {
+            foreach ($daysAgo as $d) {
+                $l = $this->advert($this->file(), 'active', 0);
+                DB::table('prospecting_listings')->where('id', $l->id)->update(['p24_suburb_id' => $sid, 'last_seen_at' => now()->subHours($d === 0 ? 5 : $d * 24)]);
+            }
+        };
+        $make($fullRead, array_merge(array_fill(0, 9, 0), [30]));
+        $make($oneTouched, array_merge([0], array_fill(0, 9, 20)));
+        $make($tooFew, [0, 0]);
+        \App\Models\MicAgencySetting::saveValues($this->a->id, ['areas' => [$fullRead, $oneTouched, $tooFew]]);
+
+        $rows = collect((new RefreshStatusPanelProvider())->rows($this->a->id, $this->u, []))->keyBy('suburb');
+
+        $this->assertSame(0, $rows['Margate']['age_days'], 'a real full read 5 hours ago');
+        $this->assertTrue($rows['Margate']['p24_approx'], 'still flagged approximate: no crawl record exists for it');
+        $this->assertSame(20, $rows['Uvongo']['age_days'], 'one advert seen today is not a read of the suburb: the 50% point is 20 days ago');
+        $this->assertNull($rows['Ramsgate']['p24_read_at'], 'two live adverts are too few to approximate a read');
     }
 }

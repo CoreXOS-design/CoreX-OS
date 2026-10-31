@@ -23,6 +23,9 @@ final class SameAddressSweep
 {
     public const SCOPES = ['no-suburb', 'exact', 'all'];
     public const MAX_AUTO_MERGE_FILES = 4;
+    /** the start of the two same-address review reasons that are NOT a freehold twin (a flat / complex with no unit, a block of many files); the MIC row chip skips them */
+    public const REASON_FLAT = 'Same address, but a flat or complex';
+    public const REASON_BLOCK = 'Same address on many files';
     private const UNIT_TYPE = '/apartment|flat|townhouse|duplex|simplex|cluster|studio|penthouse|unit|sectional/i';
 
     public function __construct(

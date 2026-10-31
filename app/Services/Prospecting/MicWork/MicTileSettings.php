@@ -23,6 +23,18 @@ final class MicTileSettings
         return max(1, self::int($agencyId, 'refreshStaleDays', 14));
     }
 
+    /** an approximate read counts only when at least this percentage of a suburb's live adverts on a portal were seen on/after that moment (default 50) */
+    public static function approxReadMinSharePct(int $agencyId): int
+    {
+        return max(1, min(100, self::int($agencyId, 'approxReadMinSharePct', 50)));
+    }
+
+    /** ...and the suburb has at least this many live adverts on that portal (one advert is not a read; default 3) */
+    public static function approxReadMinAdverts(int $agencyId): int
+    {
+        return max(1, self::int($agencyId, 'approxReadMinAdverts', 3));
+    }
+
     /** the window tile 3 counts "under offer, sold or gone" in */
     public static function goneTileDays(int $agencyId): int
     {
