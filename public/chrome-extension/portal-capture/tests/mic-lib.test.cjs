@@ -246,6 +246,31 @@ t('area kind from the address', () => {
   assert.strictEqual(MIC.p24AreaKind('https://www.property24.com/for-sale/uvongo/margate/kwazulu-natal/6359'), null);
 });
 
+t('area chain: one click reads trends, then agencies, then the street list', () => {
+  assert.deepStrictEqual(MIC.p24AreaHash('#corex-area'), { on: true, all: false, province: null });
+  assert.deepStrictEqual(MIC.p24AreaHash('#corex-area=all&province=kwazulu-natal'), { on: true, all: true, province: 'kwazulu-natal' });
+  assert.strictEqual(MIC.p24AreaHash('#something').on, false);
+  assert.strictEqual(MIC.p24AreaHash('#corex-area=all&province=<script>').all, false, 'a hostile province is refused');
+  const t1 = 'https://www.property24.com/margate/uvongo/property-trends/6359#corex-area=all&province=kwazulu-natal';
+  const a = MIC.p24AreaChainNext(t1, 'kwazulu-natal');
+  assert.strictEqual(a, 'https://www.property24.com/estate-agencies/uvongo/margate/kwazulu-natal/6359#corex-area=all&province=kwazulu-natal');
+  assert.strictEqual(MIC.p24AreaChainNext(a, 'kwazulu-natal'), 'https://www.property24.com/property-values/uvongo/margate/kwazulu-natal/6359#corex-area=all&province=kwazulu-natal');
+  assert.strictEqual(MIC.p24AreaChainNext('https://www.property24.com/property-values/uvongo/margate/kwazulu-natal/6359', 'kwazulu-natal'), null, 'the street list is the last stop');
+  assert.strictEqual(MIC.p24AreaChainNext(t1, null), null);
+});
+
+t('the Read-area-pages addresses MIC builds are the ones the extension reads, in the order it chains them', () => {
+  const trends = 'https://www.property24.com/margate/uvongo/property-trends/6359#corex-area=all&province=kwazulu-natal';
+  const agencies = 'https://www.property24.com/estate-agencies/uvongo/margate/kwazulu-natal/6359#corex-area=all&province=kwazulu-natal';
+  const streets = 'https://www.property24.com/property-values/uvongo/margate/kwazulu-natal/6359#corex-area=all&province=kwazulu-natal';
+  assert.deepStrictEqual([trends, agencies, streets].map((u) => MIC.p24AreaKind(u).kind), ['trends', 'agencies', 'street_index']);
+  assert.strictEqual(MIC.p24AreaChainNext(trends, 'kwazulu-natal'), agencies);
+  assert.strictEqual(MIC.p24AreaChainNext(agencies, 'kwazulu-natal'), streets);
+  // the search links open pages the tile reader knows: P24 sorted newest first, PP newest first
+  assert.strictEqual(new URL('https://www.property24.com/for-sale/uvongo/margate/kwazulu-natal/6359?sp=so%3dNewest').searchParams.get('sp'), 'so=Newest');
+  assert.strictEqual(MIC.cleanPpSearchUrl('https://www.privateproperty.co.za/for-sale/advanced-search?si=6359&sorttype=Date&sortorder=Descending').changed, false, 'the newest-first PP link keeps its sort');
+});
+
 t('trends: every chart table and the bedroom table are read', () => {
   const p = areaPayload('uvongo-property-trends-6359', areaCases[0][1]);
   assert.strictEqual(p.p24_suburb_id, 6359);
@@ -338,6 +363,7 @@ t('area trigger: #corex-area on a trends page sends it to the background worker;
     assert.strictEqual(withHash.sent.length, 1);
     assert.strictEqual(withHash.sent[0].action, 'captureAreaPage');
     assert.strictEqual(withHash.sent[0].payload.kind, 'trends');
+    assert.strictEqual(withHash.sent[0].next, null, 'a plain #corex-area reads this page only');
     assert.match(withHash.banner, /saved/);
     assert.strictEqual(plain.sent.length, 0, 'ordinary browsing sends nothing');
     assert.strictEqual(plain.banner, undefined);

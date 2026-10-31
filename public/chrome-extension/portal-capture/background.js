@@ -126,7 +126,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   // MIC area pages (3.14.0, spec 11.2.2): a P24 trends / agencies / property-values page opened with #corex-area
   if (msg.action === 'captureAreaPage') {
-    runAreaCapture(msg.payload, sender && sender.tab ? sender.tab.id : null)
+    runAreaCapture(msg.payload, sender && sender.tab ? sender.tab.id : null, msg.next || null)
       .then(r => sendResponse(r))
       .catch(e => sendResponse({ ok: false, error: (e && e.message) || String(e) }));
     return true;
@@ -684,6 +684,16 @@ async function sendBatchToApi(listings, context) {
 // ── MIC area pages (3.14.0; spec 11.2.2) ─────────────────
 let areaRunActive = false;
 
+// "Read area pages" (#corex-area=all): hand the tab on to the suburb's next area page, which reads itself the same way.
+async function continueAreaChain(tabId, next, out) {
+  if (!tabId || !next || !/^https:\/\/www\.property24\.com\//.test(next)) return;
+  try {
+    await sleep(2500 + Math.floor(Math.random() * 1500));
+    await chrome.tabs.update(tabId, { url: next });
+    out.summary += ' - carrying on to the next page';
+  } catch (e) { /* tab closed */ }
+}
+
 async function postAreaPage(settings, payload) {
   const url = settings.apiUrl.replace(/\/+$/, '') + '/api/v1/prospecting/area-pages';
   const response = await fetch(url, {
@@ -702,7 +712,7 @@ function areaStatus(tabId, text) {
   try { chrome.tabs.sendMessage(tabId, { action: 'areaStatus', text }, () => void chrome.runtime.lastError); } catch (e) { /* tab gone */ }
 }
 
-async function runAreaCapture(payload, tabId) {
+async function runAreaCapture(payload, tabId, next) {
   if (!payload || !payload.kind) return { ok: false, error: 'nothing to save from this page' };
   if (areaRunActive) return { ok: false, error: 'another area page is being read - wait for it to finish' };
   const settings = await new Promise(r => chrome.storage.local.get(['apiUrl', 'apiToken'], r));
@@ -713,7 +723,9 @@ async function runAreaCapture(payload, tabId) {
     const pace = () => sleep(2500 + Math.floor(Math.random() * 1500));
     if (payload.kind === 'trends' || payload.kind === 'streets') {
       const res = await postAreaPage(settings, payload);
-      return { ok: true, summary: payload.kind === 'trends' ? (res.trend_values + ' figures saved') : (res.house_numbers + ' house numbers saved') };
+      const out = { ok: true, summary: payload.kind === 'trends' ? (res.trend_values + ' figures saved') : (res.house_numbers + ' house numbers saved') };
+      await continueAreaChain(tabId, next, out);
+      return out;
     }
     if (payload.kind === 'agencies') {
       let res = await postAreaPage(settings, payload);
@@ -731,8 +743,10 @@ async function runAreaCapture(payload, tabId) {
         res = await postAreaPage(settings, r.payload);
         agencies += res.agencies || 0;
       }
-      if (tabId && last > 1) { try { await chrome.tabs.update(tabId, { url: base }); } catch (e) { /* tab closed */ } }
-      return { ok: true, summary: agencies + ' agencies saved' };
+      const out = { ok: true, summary: agencies + ' agencies saved' };
+      if (next) await continueAreaChain(tabId, next, out);
+      else if (tabId && last > 1) { try { await chrome.tabs.update(tabId, { url: base }); } catch (e) { /* tab closed */ } }
+      return out;
     }
     if (payload.kind === 'street_index') {
       let cap = 150, done = 0, numbers = 0;

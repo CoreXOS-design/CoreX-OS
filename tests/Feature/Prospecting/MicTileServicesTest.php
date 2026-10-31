@@ -194,7 +194,7 @@ final class MicTileServicesTest extends TestCase
         $this->assertTrue($rows['Margate Beach']['overdue'], 'PP was never read');
         $this->assertTrue($rows['Margate Beach']['p24_approx'], 'an incomplete crawl does not count; the newest advert sighting stands in, flagged approximate');
         $this->assertNull($rows['Margate Beach']['pp_read_at']);
-        $this->assertSame('https://www.property24.com/for-sale/uvongo/margate/kwazulu-natal/6359', $rows['Uvongo']['p24_url']);
+        $this->assertSame('https://www.property24.com/for-sale/uvongo/margate/kwazulu-natal/6359?sp=so%3dNewest', $rows['Uvongo']['p24_url'], 'newest first (P24AreaPageLinks)');
         $this->assertSame('Ramsgate', array_values($rows->all())[0]['suburb'] ?? null, 'the oldest read comes first');
         $this->assertSame([], (new RefreshStatusPanelProvider())->rows($this->b->id, $this->u, ['scope' => 'all']), "another agency's suburbs are not ours");
     }

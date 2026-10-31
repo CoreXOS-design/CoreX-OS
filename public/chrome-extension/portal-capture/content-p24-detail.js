@@ -683,7 +683,9 @@
       const payload = self.CorexMic ? self.CorexMic.p24AreaPage(document, window.location.href) : null;
       if (!payload) { areaBanner('CoreX: this is not a page CoreX reads.'); return; }
       areaBanner('CoreX: reading this page...');
-      chrome.runtime.sendMessage({ action: 'captureAreaPage', payload }, (res) => {
+      const h = self.CorexMic.p24AreaHash(window.location.hash);
+      const next = h.all ? self.CorexMic.p24AreaChainNext(window.location.href, h.province) : null;
+      chrome.runtime.sendMessage({ action: 'captureAreaPage', payload, next }, (res) => {
         if (chrome.runtime.lastError) { areaBanner('CoreX: could not reach the extension.'); return; }
         areaBanner(res && res.ok ? ('CoreX: saved. ' + (res.summary || '')) : ('CoreX: not saved - ' + ((res && res.error) || 'unknown error')));
       });

@@ -580,6 +580,25 @@
       streets: [{ street_slug: info.street_slug, street_name: name, addresses: Object.keys(byNumber).map((k) => byNumber[k]) }] };
   };
 
+  // "#corex-area" reads this one page; "#corex-area=all&province=kwazulu-natal" reads it and carries on to the suburb's other area pages.
+  MIC.p24AreaHash = function (hash) {
+    const h = String(hash || '');
+    if (h.indexOf('corex-area') === -1) return { on: false, all: false, province: null };
+    let params; try { params = new URLSearchParams(h.replace(/^#/, '')); } catch (e) { params = new URLSearchParams(''); }
+    const province = (params.get('province') || '').toLowerCase();
+    return { on: true, all: params.get('corex-area') === 'all' && /^[a-z0-9-]{3,40}$/.test(province), province: /^[a-z0-9-]{3,40}$/.test(province) ? province : null };
+  };
+
+  // After trends comes the agencies list, after that the street list; the street list is the last stop.
+  MIC.p24AreaChainNext = function (url, province) {
+    const info = MIC.p24AreaKind(url);
+    if (!info || !province) return null;
+    const hash = '#corex-area=all&province=' + province;
+    if (info.kind === 'trends') return 'https://www.property24.com/estate-agencies/' + info.suburb + '/' + info.town + '/' + province + '/' + info.p24_suburb_id + hash;
+    if (info.kind === 'agencies') return 'https://www.property24.com/property-values/' + info.suburb + '/' + info.town + '/' + province + '/' + info.p24_suburb_id + hash;
+    return null;
+  };
+
   // What the current P24 area page offers, for any of the kinds (null when it is not an area page).
   MIC.p24AreaPage = function (doc, url) {
     const info = MIC.p24AreaKind(url);

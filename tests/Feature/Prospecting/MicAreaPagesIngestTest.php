@@ -143,4 +143,29 @@ final class MicAreaPagesIngestTest extends TestCase
         $this->app['auth']->forgetGuards();
         $this->postJson(self::URL, $this->golden('uvongo-estate-agencies-6359'))->assertStatus(401);
     }
+
+    public function test_the_suburb_snapshot_names_the_figures_the_record_card_needs(): void
+    {
+        $snap = app(\App\Services\Prospecting\P24SuburbSnapshot::class);
+        $this->assertNull($snap->forP24Suburb(6359), 'never read');
+
+        Carbon::setTestNow('2026-10-31 10:00:00');
+        foreach (['uvongo-property-trends-6359', 'uvongo-estate-agencies-6359', 'uvongo-marine-drive-values'] as $n) {
+            $this->postJson(self::URL, $this->golden($n))->assertOk();
+        }
+        Carbon::setTestNow('2026-11-10 10:00:00');
+        $s = $snap->forP24Suburb(6359);
+
+        $this->assertSame(['2026-10-31', 10], [$s['read_on'], $s['age_days']]);
+        $this->assertSame([2026, 33.0, 1400000.0, 1350000.0], [$s['sales_year'], $s['sales_count'], $s['avg_asking_price'], $s['avg_sold_price']]);
+        $this->assertSame([27.0, 1435000.0, 6.0, 1067500.0], [$s['erven_sold_count'], $s['erven_avg_sold_price'], $s['sectional_sold_count'], $s['sectional_avg_sold_price']]);
+        $this->assertSame(600000.0, $s['avg_asking_by_beds']['1 bed']);
+        $this->assertSame(['2026-09', 63.0, 788.0], [$s['stock_month'], $s['stock_new'], $s['stock_total']]);
+        $this->assertSame($s['stock_total'] - $s['stock_total_3m_ago'], $s['stock_total_change_3m']);
+        $this->assertSame('Age 65 or older', $s['seller_age_band']);
+        $this->assertSame(20, $s['agencies_count']);
+        $this->assertSame('PdH Properties', $s['top_agencies'][0]['agency']);
+        $this->assertGreaterThanOrEqual(6, $s['street_house_numbers_known']);
+    }
 }
+

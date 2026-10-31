@@ -6,6 +6,7 @@ namespace App\Services\Prospecting\MicWork;
 
 use App\Models\User;
 use App\Services\Prospecting\CrawlRecords;
+use App\Services\Prospecting\P24AreaPageLinks;
 use App\Services\Prospecting\MicWork\Contracts\PanelProvider;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -47,6 +48,9 @@ final class RefreshStatusPanelProvider implements PanelProvider
         $pp = DB::table('pp_suburbs')->whereIn(DB::raw('LOWER(TRIM(name))'), $sub->pluck('name')->map(fn ($n) => mb_strtolower(trim((string) $n)))->all())->get(['name', 'pp_suburb_id'])
             ->keyBy(fn ($r) => mb_strtolower(trim((string) $r->name)));
 
+        // when each suburb's free P24 area pages were last read (global public facts, so no agency filter)
+        $areaRead = DB::table('p24_suburb_trends')->whereIn('p24_suburb_id', $sub->pluck('p24_id')->filter()->all())->groupBy('p24_suburb_id')->selectRaw('p24_suburb_id, MAX(read_on) as at')->pluck('at', 'p24_suburb_id');
+
         $rows = [];
         foreach ($sub as $s) {
             if ($scopeMine && ! isset($mine[$s->id])) {
@@ -68,8 +72,12 @@ final class RefreshStatusPanelProvider implements PanelProvider
                 'pp_read_at'  => $ppRead ? Carbon::parse($ppRead)->toIso8601String() : null,
                 'age_days'    => $age,
                 'overdue'     => ! $p24 || ! $ppRead || ($age !== null && $age > $interval),
-                'p24_url'     => $s->p24_id && $s->city ? 'https://www.property24.com/for-sale/' . ($s->slug ?: $slug($s->name)) . '/' . $slug($s->city) . '/' . ($slug($s->province) ?: 'kwazulu-natal') . '/' . $s->p24_id : null,
-                'pp_url'      => $ppId ? 'https://www.privateproperty.co.za/for-sale/advanced-search?si=' . $ppId . '&sorttype=Default&sortorder=Ascending' : null,
+                // newest first; one place builds every address (P24AreaPageLinks), tested against what the crawl record accepts
+                'p24_url'     => $s->p24_id && $s->city ? P24AreaPageLinks::p24SearchUrl($s->slug ?: $slug($s->name), $slug($s->city), $slug($s->province) ?: 'kwazulu-natal', (int) $s->p24_id) : null,
+                'pp_url'      => $ppId ? P24AreaPageLinks::ppSearchUrl((int) $ppId) : null,
+                // "Read area pages": one click opens the trends page; the extension then reads agencies and streets by itself
+                'area_url'    => $s->p24_id && $s->city ? P24AreaPageLinks::areaUrls($s->slug ?: $slug($s->name), $slug($s->city), $slug($s->province) ?: 'kwazulu-natal', (int) $s->p24_id)['trends'] : null,
+                'area_read_at' => ($areaRead[(int) $s->p24_id] ?? null) ? Carbon::parse($areaRead[(int) $s->p24_id])->toDateString() : null,
                 'mine'        => isset($mine[$s->id]),
                 'p24_approx'  => $p24 !== null && ! $p24Real,
                 'pp_approx'   => $ppRead !== null && ! $ppReal,
