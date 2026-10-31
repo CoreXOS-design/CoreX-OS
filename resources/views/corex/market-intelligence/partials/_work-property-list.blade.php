@@ -1,6 +1,6 @@
 {{-- MIC Work tab (mic-work-tab.md 2.1 C-E): control line + ONE ROW PER PROPERTY FILE, Excel-style, expand in place. Rows come from MicWorkList. --}}
 @php
-    $sortNow = request('sort', 'last_seen');
+    $sortNow = request('sort', $defaultSortKey ?? 'last_seen');
     $dirNow = request('dir', 'desc');
     $sortUrl = function (string $key, string $defaultDir = 'desc') use ($sortNow, $dirNow) {
         $dir = $sortNow === $key ? ($dirNow === 'desc' ? 'asc' : 'desc') : $defaultDir;
@@ -48,7 +48,7 @@
 <div data-qa="work-property-list" style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow-x: auto;">
     <div style="min-width: 1330px;">
         <div style="display:grid; grid-template-columns: {{ $cols }}; gap: 8px; padding: 5px 10px; background: var(--surface-2); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 2;">
-            @if(\App\Services\Prospecting\MicWork\MicWorkList::hasFileStats())<a href="{{ $sortUrl('score') }}" style="{{ $head }}">Score{{ $arrow('score') }}</a>@else<span style="{{ $head }}">Score</span>@endif
+            @if(\App\Services\Prospecting\MicWork\MicWorkList::hasScores())<a href="{{ $sortUrl('score') }}" style="{{ $head }}">Score{{ $arrow('score') }}</a>@else<span style="{{ $head }}">Score</span>@endif
             <span style="{{ $head }}">Sources</span>
             <a href="{{ $sortUrl('address', 'asc') }}" style="{{ $head }}">Address{{ $arrow('address') }}</a>
             <span style="{{ $head }}">Property</span>
@@ -93,7 +93,7 @@
                     </span>
                     <span style="white-space: nowrap;" title="Days on the market. A + means at least this long: we first saw it then, and cannot tell how long it was there before.">{{ $r['dom']['label'] }}{{ is_numeric($r['dom']['label']) || str_ends_with($r['dom']['label'], '+') ? ' d' : '' }}</span>
                     <span style="font-size:.6875rem; color: var(--ds-amber, #f59e0b); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ implode(' · ', $r['flags']) }}</span>
-                    <span title="Buyers matched (own agency)">{{ $r['buyers_strong'] ?? $r['buyers'] ?: '' }}</span>
+                    <span title="Buyers matched, strong / mid (own agency)">{{ $r['buyers_strong'] !== null ? (($r['buyers_strong'] || $r['buyers_mid']) ? $r['buyers_strong'] . ' / ' . $r['buyers_mid'] : '') : ($r['buyers'] ?: '') }}</span>
                     <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size:.75rem;" title="{{ $r['work_reason'] }}">{{ $r['claimed_by'] ? 'Claimed · ' . $r['claimed_by'] : ($r['work_status'] ? ucfirst(str_replace('_', ' ', $r['work_status'])) : '') }}</span>
                     <span>
                         @if($r['tp_id'])<a href="{{ route('market-intelligence.opportunities.show', ['tp' => $r['tp_id']]) }}" @click.stop class="corex-btn-outline text-xs" style="padding: 1px 8px;">{{ $r['claimed_by'] ? 'Open' : ($r['own_stock'] ? 'Open' : 'Claim') }}</a>@endif

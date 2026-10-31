@@ -316,13 +316,8 @@ class MarketIntelligenceController extends Controller
             $query->where('first_seen_at', '<=', Carbon::parse($request->date_to)->endOfDay());
         }
         if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('address', 'like', "%{$search}%")
-                  ->orWhere('suburb', 'like', "%{$search}%")
-                  ->orWhere('agent_name', 'like', "%{$search}%")
-                  ->orWhere('agency_name', 'like', "%{$search}%");
-            });
+            // One search box: listing text, ref, agent/agency AND the property file's resolved address (ProspectingListing::scopeSearchResolved).
+            $query->searchResolved((string) $request->search, (int) $agencyId);
         }
 
         // Address presence toggle (pull-all). Default (absent / 'all') shows every
@@ -579,22 +574,24 @@ class MarketIntelligenceController extends Controller
         // old per-advert list. Everything below this block is the per-advert path (buyer tiers, suggested actions, claims) and is skipped.
         $micView = $request->query('view') === 'adverts' ? 'adverts' : 'properties';
         if ($micView === 'properties') {
-            $sortKey = match ((string) $request->query('sort', 'last_seen')) { 'last_seen_at' => 'last_seen', 'first_seen_at' => 'time', default => (string) $request->query('sort', 'last_seen') };
-            $sortKey = in_array($sortKey, \App\Services\Prospecting\MicWork\MicWorkList::sortKeys(), true) ? $sortKey : 'last_seen';
+            $defaultSort = \App\Services\Prospecting\MicWork\MicWorkList::defaultSort();
+            $sortKey = match ((string) $request->query('sort', $defaultSort)) { 'last_seen_at' => 'last_seen', 'first_seen_at' => 'time', default => (string) $request->query('sort', $defaultSort) };
+            $sortKey = in_array($sortKey, \App\Services\Prospecting\MicWork\MicWorkList::sortKeys(), true) ? $sortKey : $defaultSort;
             $listings = app(\App\Services\Prospecting\MicWork\MicWorkList::class)->page(
                 $kpiCountBase, (int) $agencyId, $sortKey, (string) $request->query('dir', 'desc'), max(1, (int) $request->query('page', 1)),
             );
+            $defaultSortKey = $defaultSort;
             [$workTiles, $workPanel] = $this->workTilesData($request, (int) $agencyId, $user, $isProspectingManager);
             $isManager = $isProspectingManager;
             if ($isFragment) {
                 return response()->json([
-                    'listings' => view('corex.market-intelligence.partials._work-property-list', compact('listings'))->render(),
+                    'listings' => view('corex.market-intelligence.partials._work-property-list', compact('listings', 'defaultSortKey'))->render(),
                     'headerActions' => view('corex.market-intelligence.partials._header-actions', ['showTicks' => false, 'isManager' => $isManager])->render(),
                     'statsStrip' => '', 'filterRail' => '', 'buyerLegend' => '',
                 ]);
             }
 
-            return view('corex.market-intelligence.work', compact('listings', 'workTiles', 'workPanel', 'micView', 'isProspectingManager', 'isManager'));
+            return view('corex.market-intelligence.work', compact('listings', 'workTiles', 'workPanel', 'micView', 'isProspectingManager', 'isManager', 'defaultSortKey'));
         }
 
         // Sorting

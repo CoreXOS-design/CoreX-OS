@@ -83,6 +83,16 @@ class MarketReportCompRow extends Model
         'raw_row_json'             => 'array',
     ];
 
+    /**
+     * MIC 5.3: one row per sale. A sale row is a comp or subject row with a price and date; a repeat of the same sale in another report
+     * points at the canonical row (duplicate_of_id) and is left out. Price figures must read through this scope (or CanonicalComps).
+     */
+    public function scopeCanonicalSales($query)
+    {
+        return $query->whereIn('row_type', [self::ROW_COMP, self::ROW_SUBJECT])
+            ->whereNotNull('sale_price')->whereNotNull('sale_date')->whereNull('duplicate_of_id');
+    }
+
     public function report(): BelongsTo
     {
         return $this->belongsTo(MarketReport::class, 'market_report_id');

@@ -22,6 +22,9 @@ use Illuminate\Support\Facades\Schema;
  */
 final class NeighboursPanelProvider implements PanelProvider
 {
+    /** each trigger type is capped on its own, so a flood of one type (every under-offer advert noticed on the same day) cannot hide the others */
+    private const PER_TYPE = 100;
+
     public function tile(): int
     {
         return 10;
@@ -37,7 +40,7 @@ final class NeighboursPanelProvider implements PanelProvider
 
         if ($type === null || $type === 'registered') {
             foreach (DB::table('tracked_properties as t')->where('t.agency_id', $agencyId)->whereNull('t.deleted_at')->whereIn('t.status', ['active', 'promoted'])
-                ->whereNotNull('t.deeds_registered_date')->where('t.deeds_registered_date', '>=', $since->toDateString())->orderByDesc('t.deeds_registered_date')->limit(300)
+                ->whereNotNull('t.deeds_registered_date')->where('t.deeds_registered_date', '>=', $since->toDateString())->orderByDesc('t.deeds_registered_date')->limit(self::PER_TYPE)
                 ->get(['t.id', 't.street_number', 't.street_name', 't.unit_number', 't.complex_name', 't.suburb', 't.property_type', 't.last_known_sold_price', 't.deeds_registered_date']) as $t) {
                 $rows[] = ['id' => 'registered:' . $t->id, 'type' => 'registered', 'address' => $this->line($t), 'suburb' => (string) $t->suburb, 'property_type' => $t->property_type,
                     'price' => $t->last_known_sold_price !== null ? (int) $t->last_known_sold_price : null, 'date' => (string) $t->deeds_registered_date];
@@ -50,7 +53,7 @@ final class NeighboursPanelProvider implements PanelProvider
             foreach (DB::table('prospecting_listings as l')->join('tracked_properties as t', function ($j) use ($agencyId) {
                 $j->on('t.id', '=', 'l.tracked_property_id')->where('t.agency_id', $agencyId)->whereNull('t.deleted_at')->whereIn('t.status', ['active', 'promoted']);
             })->where('l.agency_id', $agencyId)->whereNull('l.deleted_at')->where('l.listing_type', 'sale')->where('l.portal_status', $status)
-                ->whereRaw('COALESCE(l.portal_status_changed_at, l.off_market_at) >= ?', [$since])->orderByRaw('COALESCE(l.portal_status_changed_at, l.off_market_at) DESC')->limit(300)
+                ->whereRaw('COALESCE(l.portal_status_changed_at, l.off_market_at) >= ?', [$since])->orderByRaw('COALESCE(l.portal_status_changed_at, l.off_market_at) DESC')->limit(self::PER_TYPE)
                 ->get(['t.id', 't.street_number', 't.street_name', 't.unit_number', 't.complex_name', 't.suburb', 'l.address as advert_address', 'l.suburb as advert_suburb', 'l.property_type', 'l.price',
                     DB::raw('COALESCE(l.portal_status_changed_at, l.off_market_at) as at')]) as $t) {
                 $rows[] = ['id' => $key . ':' . $t->id, 'type' => $key, 'address' => $this->line($t) ?: ((string) $t->advert_address ?: 'Address not shown'), 'suburb' => (string) ($t->suburb ?: $t->advert_suburb),

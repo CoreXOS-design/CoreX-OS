@@ -286,6 +286,8 @@ class AppServiceProvider extends ServiceProvider
         // MIC 5.1 (AT-519): new/re-suburbed MIC listings and CMA comp rows get their p24_suburb_id at save time.
         \App\Models\ProspectingListing::observe(\App\Observers\MicSuburbIdObserver::class);
         \App\Models\MarketReports\MarketReportCompRow::observe(\App\Observers\MicSuburbIdObserver::class);
+        // MIC 5.3 (AT-524): a new CMA comp row is placed as canonical or as a repeat of an existing sale at save time.
+        \App\Models\MarketReports\MarketReportCompRow::observe(\App\Observers\MicCompDuplicateObserver::class);
         // Property identity (.ai/specs/property-identity.md §7): attach new rows to their property file on save.
         \App\Models\Property::created(fn ($m) => app(\App\Observers\PropertyIdentityLinkObserver::class)->propertyCreated($m));
         // Property identity C2 (section 15.2): runs AFTER the link above - a property added by hand that is the same property as one already in

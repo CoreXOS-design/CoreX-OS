@@ -282,6 +282,33 @@ class ProspectingListing extends Model
         });
     }
 
+    /**
+     * The Work tab's ONE search box (mic-work-tab.md 2.1 H). Every word must match somewhere (AND across words, OR across fields): the listing's own
+     * text, suburb, agent, agency, the advert ref (P24-/PP-T... or just the digits), AND the property file's resolved address - street number + street
+     * name, complex, suburb - so "Newport" finds a PP advert whose own address is blank but whose file is on Newport Road. Agency named on the file.
+     */
+    public function scopeSearchResolved($query, string $term, int $agencyId, string $table = 'prospecting_listings')
+    {
+        $words = array_slice(array_values(array_filter(preg_split('/\s+/', trim($term)) ?: [], fn ($w) => $w !== '')), 0, 6);
+        foreach ($words as $w) {
+            $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $w) . '%';
+            $query->where(function ($q) use ($like, $table, $agencyId) {
+                $q->where("{$table}.address", 'like', $like)->orWhere("{$table}.suburb", 'like', $like)
+                    ->orWhere("{$table}.agent_name", 'like', $like)->orWhere("{$table}.agency_name", 'like', $like)
+                    ->orWhere("{$table}.portal_ref", 'like', $like)
+                    ->orWhereExists(function ($s) use ($like, $table, $agencyId) {
+                        $s->select(\Illuminate\Support\Facades\DB::raw(1))->from('tracked_properties as tp_s')
+                            ->whereColumn('tp_s.id', "{$table}.tracked_property_id")->where('tp_s.agency_id', $agencyId)->whereNull('tp_s.deleted_at')
+                            ->where(fn ($t) => $t->where('tp_s.street_name', 'like', $like)
+                                ->orWhereRaw("CONCAT_WS(' ', tp_s.street_number, tp_s.street_name) LIKE ?", [$like])
+                                ->orWhere('tp_s.complex_name', 'like', $like)->orWhere('tp_s.suburb', 'like', $like));
+                    });
+            });
+        }
+
+        return $query;
+    }
+
     /** Exact inverse of scopeWithAddress(). */
     public function scopeWithoutAddress($query, string $table = 'prospecting_listings')
     {
