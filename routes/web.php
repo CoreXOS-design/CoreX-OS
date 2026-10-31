@@ -5622,6 +5622,16 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Static segments (/brand, /new, /duplicate) come before /{ad} or the binding swallows them.
         Route::get('/brand',                     [\App\Http\Controllers\Admin\VideoAdBrandController::class, 'edit'])->name('brand');
         Route::put('/brand',                     [\App\Http\Controllers\Admin\VideoAdBrandController::class, 'update'])->name('brand.update');
+        // Facebook (AT-527, spec 9.22): connect the CoreX page via Facebook's own login (the return trip is the already-registered corex.social.oauth.callback), then
+        // Post now / Schedule. Dry run whenever external publishing is off.
+        Route::get('/facebook',                  [\App\Http\Controllers\Admin\VideoAdFacebookController::class, 'index'])->name('facebook');
+        Route::get('/facebook/connect',          [\App\Http\Controllers\Admin\VideoAdFacebookController::class, 'connect'])->name('facebook.connect');
+        Route::get('/facebook/choose-page',      [\App\Http\Controllers\Admin\VideoAdFacebookController::class, 'choosePageForm'])->name('facebook.choose-page');
+        Route::post('/facebook/choose-page',     [\App\Http\Controllers\Admin\VideoAdFacebookController::class, 'choosePage'])->name('facebook.choose-page.save');
+        Route::post('/facebook/disconnect',      [\App\Http\Controllers\Admin\VideoAdFacebookController::class, 'disconnect'])->name('facebook.disconnect');
+        Route::get('/posts',                     [\App\Http\Controllers\Admin\VideoAdPostController::class, 'index'])->name('posts');
+        Route::post('/posts/{post}/cancel',      [\App\Http\Controllers\Admin\VideoAdPostController::class, 'cancel'])->whereNumber('post')->name('posts.cancel');
+        Route::post('/posts/{post}/reschedule',  [\App\Http\Controllers\Admin\VideoAdPostController::class, 'reschedule'])->whereNumber('post')->name('posts.reschedule');
         Route::get('/',                          [\App\Http\Controllers\Admin\VideoAdController::class, 'index'])->name('index');
         Route::get('/new/{feature}',             [\App\Http\Controllers\Admin\VideoAdController::class, 'create'])->where('feature', '[a-z0-9\-]+')->name('create');
         Route::get('/duplicate/{ad}',            [\App\Http\Controllers\Admin\VideoAdController::class, 'duplicate'])->whereNumber('ad')->withTrashed()->name('duplicate');
@@ -5629,6 +5639,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{ad}',                      [\App\Http\Controllers\Admin\VideoAdController::class, 'show'])->whereNumber('ad')->withTrashed()->name('show');
         Route::get('/{ad}/file/{format}/{kind}', [\App\Http\Controllers\Admin\VideoAdController::class, 'file'])->whereNumber('ad')->where('format', '[0-9x]+')->where('kind', 'mp4|jpg')->withTrashed()->name('file');
         Route::get('/{ad}/download/{format}',    [\App\Http\Controllers\Admin\VideoAdController::class, 'download'])->whereNumber('ad')->where('format', '[0-9x]+')->withTrashed()->name('download');
+        Route::post('/{ad}/post-now',            [\App\Http\Controllers\Admin\VideoAdPostController::class, 'postNow'])->whereNumber('ad')->name('post-now');
+        Route::post('/{ad}/schedule',            [\App\Http\Controllers\Admin\VideoAdPostController::class, 'schedule'])->whereNumber('ad')->name('schedule');
         Route::post('/{ad}/retry',               [\App\Http\Controllers\Admin\VideoAdController::class, 'retry'])->whereNumber('ad')->name('retry');
         // "Delete" archives. The row and its files are never removed (non-negotiable #1).
         Route::delete('/{ad}',                   [\App\Http\Controllers\Admin\VideoAdController::class, 'destroy'])->whereNumber('ad')->name('destroy');

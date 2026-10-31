@@ -8,10 +8,14 @@ use App\Support\ExternalPublishingGuard;
 use App\Support\ExternalPublishingRefused;
 use GuzzleHttp\Client;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class MetaPublishingService
 {
     private const GRAPH_BASE = 'https://graph.facebook.com/v19.0';
+    /** AT-527: video uploads go to the video host. Up to SIMPLE_VIDEO_MAX bytes in one request, bigger files in resumable chunks. */
+    private const GRAPH_VIDEO_BASE = 'https://graph-video.facebook.com/v19.0';
+    public const SIMPLE_VIDEO_MAX = 50 * 1024 * 1024;
 
     public function __construct(
         private Client $http = new Client(['timeout' => 60, 'connect_timeout' => 10]),
@@ -104,6 +108,89 @@ class MetaPublishingService
                 'page_id'    => $account->platform_page_id,
             ]);
             throw new \RuntimeException('Failed to publish to Facebook: ' . $e->getMessage(), 0, $e);
+        }
+    }
+
+    /**
+     * AT-527 (spec .ai/specs/training-videos.md 9.22) - post a VIDEO to a Facebook Page: POST /{page-id}/videos. A file up to SIMPLE_VIDEO_MAX goes in one request
+     * ("source"); a bigger one uses Facebook's resumable upload (start -> transfer chunks -> finish). Returns ['id' => the video id, 'dry_run' => bool].
+     *
+     * When external publishing is OFF on this server (COREX_EXTERNAL_PUBLISHING=false, as on QA1) NOTHING is sent: the call is a DRY RUN that logs exactly what it
+     * would have sent (endpoint, page, file, size, title, text - never the token) and returns a 'dry-run-...' id.
+     *
+     * @return array{id: string, dry_run: bool}
+     */
+    public function publishVideoToFacebook(AgentSocialAccount $account, string $filePath, string $description, ?string $title = null): array
+    {
+        $size = is_file($filePath) ? (int) filesize($filePath) : 0;
+        if ($size <= 0) {
+            throw new \RuntimeException('The video file is missing, so nothing was posted.');
+        }
+        $pageId = (string) $account->platform_page_id;
+        $resumable = $size > self::SIMPLE_VIDEO_MAX;
+
+        if (! ExternalPublishingGuard::isAllowed()) {
+            Log::info('DRY RUN (' . ExternalPublishingGuard::refusalReason() . '): would post a video to a Facebook Page - nothing was sent', [
+                'endpoint' => self::GRAPH_VIDEO_BASE . '/' . $pageId . '/videos',
+                'method' => $resumable ? 'resumable upload (start, transfer chunks, finish)' : 'single upload (source)',
+                'page_id' => $pageId, 'page_name' => $account->platform_page_name, 'file' => basename($filePath), 'bytes' => $size,
+                'title' => $title, 'description' => $description,
+            ]);
+
+            return ['id' => 'dry-run-' . Str::lower(Str::random(12)), 'dry_run' => true];
+        }
+
+        try {
+            $token = $account->access_token;
+            $fields = array_filter(['description' => $description, 'title' => $title], fn ($v) => $v !== null && $v !== '');
+
+            if (! $resumable) {
+                $multipart = [['name' => 'access_token', 'contents' => $token], ['name' => 'source', 'contents' => fopen($filePath, 'rb'), 'filename' => basename($filePath)]];
+                foreach ($fields as $k => $v) {
+                    $multipart[] = ['name' => $k, 'contents' => $v];
+                }
+                $data = json_decode($this->http->post(self::GRAPH_VIDEO_BASE . '/' . $pageId . '/videos', ['multipart' => $multipart])->getBody()->getContents(), true);
+                if (empty($data['id'])) {
+                    throw new \RuntimeException('Facebook video publish: no id returned. Response: ' . json_encode($data));
+                }
+
+                return ['id' => (string) $data['id'], 'dry_run' => false];
+            }
+
+            $url = self::GRAPH_VIDEO_BASE . '/' . $pageId . '/videos';
+            $start = json_decode($this->http->post($url, ['form_params' => ['upload_phase' => 'start', 'file_size' => $size, 'access_token' => $token]])->getBody()->getContents(), true);
+            $session = $start['upload_session_id'] ?? null;
+            $videoId = $start['video_id'] ?? null;
+            if (! $session) {
+                throw new \RuntimeException('Facebook video publish: could not start the upload. Response: ' . json_encode($start));
+            }
+            $from = (int) ($start['start_offset'] ?? 0);
+            $to = (int) ($start['end_offset'] ?? 0);
+            $fh = fopen($filePath, 'rb');
+            try {
+                while ($to > $from) {
+                    fseek($fh, $from);
+                    $chunk = (string) fread($fh, $to - $from);
+                    $r = json_decode($this->http->post($url, ['multipart' => [
+                        ['name' => 'upload_phase', 'contents' => 'transfer'], ['name' => 'start_offset', 'contents' => (string) $from],
+                        ['name' => 'upload_session_id', 'contents' => (string) $session], ['name' => 'access_token', 'contents' => $token],
+                        ['name' => 'video_file_chunk', 'contents' => $chunk, 'filename' => basename($filePath)],
+                    ]])->getBody()->getContents(), true);
+                    $from = (int) ($r['start_offset'] ?? $to);
+                    $to = (int) ($r['end_offset'] ?? $from);
+                }
+            } finally {
+                fclose($fh);
+            }
+            $done = json_decode($this->http->post($url, ['form_params' => ['upload_phase' => 'finish', 'upload_session_id' => $session, 'access_token' => $token] + $fields])->getBody()->getContents(), true);
+            if (empty($done['success']) && empty($done['id'])) {
+                throw new \RuntimeException('Facebook video publish: the upload did not finish. Response: ' . json_encode($done));
+            }
+
+            return ['id' => (string) ($videoId ?? $session), 'dry_run' => false];
+        } catch (\Throwable $e) {
+            Log::error('MetaPublishingService::publishVideoToFacebook failed: ' . $e->getMessage(), ['account_id' => $account->id, 'page_id' => $pageId]);
+            throw new \RuntimeException('Failed to post the video to Facebook: ' . $e->getMessage(), 0, $e);
         }
     }
 

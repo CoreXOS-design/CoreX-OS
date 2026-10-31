@@ -7,7 +7,6 @@ use App\Models\AdStudioSetting;
 use App\Services\AdStudio\AdBrand;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
 
 /**
  * AT-527 - the Ad Studio brand settings (spec .ai/specs/training-videos.md 9.21.5). Platform level, System Owner only. Every field has a default in
@@ -39,6 +38,7 @@ class VideoAdBrandController extends Controller
             'phone' => ['nullable', 'string', 'max:40'],
             'join_line' => ['nullable', 'string', 'max:60'],
             'cta_line' => ['nullable', 'string', 'max:100'],
+            'follow_line' => ['nullable', 'string', 'max:60'],
             'tagline' => ['nullable', 'string', 'max:140'],
             'colours.primary' => $hex, 'colours.secondary' => $hex, 'colours.accent' => $hex, 'colours.text' => $hex,
             'social.*' => ['nullable', 'string', 'max:200'],
@@ -49,7 +49,7 @@ class VideoAdBrandController extends Controller
         ]);
 
         $defaults = AdBrand::defaults();
-        foreach (['website', 'email', 'phone', 'join_line', 'cta_line', 'tagline'] as $k) {
+        foreach (['website', 'email', 'phone', 'join_line', 'cta_line', 'follow_line', 'tagline'] as $k) {
             $v = trim((string) ($data[$k] ?? ''));
             $v === '' ? AdStudioSetting::forget($k) : AdStudioSetting::put($k, $v);
         }

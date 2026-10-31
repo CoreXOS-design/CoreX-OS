@@ -43,6 +43,9 @@ return [
         'end_card_seconds' => 3.5,
         'post_caption_chars' => 2200,
         'hashtags_max' => 15,
+        'subline_words' => 10,
+        'subline_chars' => 70,
+        'badge_chars' => 14,
     ],
 
     // Words that may never describe CoreX in an ad (Johan's wording rule): the line is "HFC runs on CoreX, and we keep expanding it".
@@ -54,13 +57,14 @@ return [
     'brand' => [
         'logo' => 'images/corex-os-logo.svg',   // a path under public/ (or a path on the public disk after an upload)
         'colours' => ['primary' => '#0b2a4a', 'secondary' => '#0e5a7a', 'accent' => '#33c4e0', 'text' => '#ffffff'],
-        'website' => 'https://corexos.co.za',
-        'email' => 'johan@corexos.co.za',
+        'website' => 'https://corexweb.co.za',
+        'email' => 'info@corexweb.co.za',
         'phone' => '+27 76 618 5578',
-        'social' => ['facebook' => '', 'instagram' => '', 'linkedin' => '', 'youtube' => '', 'tiktok' => ''],
+        'social' => ['facebook' => 'https://www.facebook.com/profile.php?id=61593249039756', 'instagram' => '', 'linkedin' => '', 'youtube' => '', 'tiktok' => ''],
         'join_line' => 'Join CoreX',
-        'cta_line' => 'Ask us for a demo',
-        'tagline' => 'HFC runs on CoreX, and we keep expanding it.',
+        'cta_line' => 'Book a demo',
+        'follow_line' => 'Follow us on Facebook',
+        'tagline' => 'The operating system for South African estate agencies. Listings, compliance, deals - one system.',
         'music' => null,   // no track until Johan approves one (spec 9.21.6)
     ],
 

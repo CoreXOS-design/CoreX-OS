@@ -68,7 +68,7 @@
 
         <section class="{{ $card }}" style="{{ $cardStyle }}">
             <h2 class="text-sm font-bold" style="color: var(--text-primary);">Contact and lines</h2>
-            @foreach (['website' => 'Website', 'email' => 'Email', 'phone' => 'Phone', 'join_line' => 'Join line', 'cta_line' => 'Call to action line', 'tagline' => 'Tagline'] as $k => $label)
+            @foreach (['website' => 'Website', 'email' => 'Email', 'phone' => 'Phone', 'join_line' => 'Join line', 'cta_line' => 'Button text (the pill)', 'follow_line' => 'Follow us line', 'tagline' => 'Tagline'] as $k => $label)
                 <div>
                     <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="f-{{ $k }}">{{ $label }}</label>
                     <input id="f-{{ $k }}" type="text" name="{{ $k }}" value="{{ $v($k, $brand[$k]) }}" placeholder="{{ $defaults[$k] }}" class="{{ $field }}" style="{{ $fieldStyle }}">

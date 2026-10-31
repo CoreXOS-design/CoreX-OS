@@ -32,6 +32,10 @@ class PublishDueMarketingPosts extends Command
             $r['published'], $r['failed'], $r['skipped'], $r['interrupted'],
         ));
 
+        // AT-527: the CoreX video-ad posts (Marketing -> Video ads -> Scheduled posts) ride the same minute. A dry run when external publishing is off.
+        $v = app(\App\Services\AdStudio\VideoAdPostService::class)->runDue(max(1, (int) $this->option('limit')));
+        $this->info(sprintf('CoreX video-ad posts: %d published%s, %d failed, %d skipped.', $v['published'], app(\App\Services\AdStudio\VideoAdPostService::class)->isDryRun() ? ' (dry run)' : '', $v['failed'], $v['skipped']));
+
         return self::SUCCESS;
     }
 }

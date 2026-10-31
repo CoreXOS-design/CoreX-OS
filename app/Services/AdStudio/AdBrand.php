@@ -21,7 +21,7 @@ final class AdBrand
     {
         $brand = self::defaults();
         $saved = AdStudioSetting::allValues();
-        foreach (['logo', 'website', 'email', 'phone', 'join_line', 'cta_line', 'tagline', 'music'] as $k) {
+        foreach (['logo', 'website', 'email', 'phone', 'join_line', 'cta_line', 'follow_line', 'tagline', 'music'] as $k) {
             if (array_key_exists($k, $saved)) {
                 $brand[$k] = $saved[$k];
             }

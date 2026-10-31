@@ -63,6 +63,40 @@
         </div>
     @endif
 
+    @if ($ad->isReady() && ! $ad->trashed())
+        @php $postSvc = app(\App\Services\AdStudio\VideoAdPostService::class); $fbAccount = $postSvc->account(); @endphp
+        <section class="{{ $card }}" style="{{ $cardStyle }}" id="schedule" data-qa="post-panel">
+            <h2 class="text-sm font-bold" style="color: var(--text-primary);">Post to the CoreX Facebook page @include('admin.video-ads._dry-run-badge')</h2>
+            @if ($errors->any())<p class="text-xs" style="color: var(--ds-crimson);">{{ $errors->first() }}</p>@endif
+            @if (! $fbAccount)
+                <p class="text-xs" style="color: var(--text-secondary);">The CoreX Facebook page is not connected yet. <a href="{{ route('admin.video-ads.facebook') }}" class="hover:underline" style="color: var(--corex-accent);">Connect it</a> to post from here.</p>
+            @else
+                <p class="text-xs" style="color: var(--text-muted);">Posts the video and the post text below to <strong>{{ $fbAccount->platform_page_name }}</strong>. Facebook only.</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <form method="POST" action="{{ route('admin.video-ads.post-now', $ad) }}" class="space-y-2" data-confirm="Post {{ $ad->name }} to the CoreX Facebook page now?">@csrf
+                        <label class="block text-xs font-medium" style="color: var(--text-secondary);">Format
+                            <select name="format" class="rounded-md px-3 py-2 text-sm w-full" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                @foreach (array_keys($ad->readyFormats()) as $f)<option value="{{ $f }}" @selected($f === $postSvc->defaultFormat($ad))>{{ $f }}</option>@endforeach
+                            </select></label>
+                        <button type="submit" class="corex-btn-primary text-xs">Post now @include('admin.video-ads._dry-run-badge')</button>
+                    </form>
+                    <form method="POST" action="{{ route('admin.video-ads.schedule', $ad) }}" class="space-y-2">@csrf
+                        <div class="grid grid-cols-2 gap-2">
+                            <label class="block text-xs font-medium" style="color: var(--text-secondary);">Format
+                                <select name="format" class="rounded-md px-3 py-2 text-sm w-full" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                    @foreach (array_keys($ad->readyFormats()) as $f)<option value="{{ $f }}" @selected($f === $postSvc->defaultFormat($ad))>{{ $f }}</option>@endforeach
+                                </select></label>
+                            <label class="block text-xs font-medium" style="color: var(--text-secondary);">When (South African time)
+                                <input type="datetime-local" name="scheduled_at" required class="rounded-md px-3 py-2 text-sm w-full" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"></label>
+                        </div>
+                        <button type="submit" class="corex-btn-outline text-xs">Schedule @include('admin.video-ads._dry-run-badge')</button>
+                        <a href="{{ route('admin.video-ads.posts') }}" class="text-xs hover:underline" style="color: var(--corex-accent);">Scheduled posts</a>
+                    </form>
+                </div>
+            @endif
+        </section>
+    @endif
+
     <section class="{{ $card }}" style="{{ $cardStyle }}" data-qa="post-text">
         <div class="flex items-center justify-between">
             <h2 class="text-sm font-bold" style="color: var(--text-primary);">Post text</h2>

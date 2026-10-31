@@ -12,6 +12,8 @@ return [
     'title' => 'Market Intelligence',
     'screen' => 'mic-work',
     'approved' => false,
+    'subline' => 'Every owner. Every price drop. One screen.',
+    'badge' => ['text' => '', 'example' => false, 'source' => ''],   // optional cyan stat circle: a real sourced number, or an example labelled as such
     'questions' => [
         'a' => 'Still *guessing* which owners to phone?',
         'b' => 'Why wait for sellers to *call* you?',

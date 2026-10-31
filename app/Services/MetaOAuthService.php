@@ -18,9 +18,10 @@ class MetaOAuthService
      * Build the Facebook OAuth URL for the given platform and user.
      * State encodes userId and platform so the callback knows what to store.
      */
-    public function getAuthUrl(string $platform, int $userId): string
+    public function getAuthUrl(string $platform, int $userId, ?string $context = null, ?string $nonce = null): string
     {
-        $state = base64_encode(json_encode(['user_id' => $userId, 'platform' => $platform]));
+        // AT-527: context 'platform' = a System Owner connecting the CoreX page (not an agency's); the nonce is checked against the owner's session on return.
+        $state = base64_encode(json_encode(array_filter(['user_id' => $userId, 'platform' => $platform, 'context' => $context, 'nonce' => $nonce], fn ($v) => $v !== null)));
 
         $params = [
             'client_id'     => config('services.meta.app_id'),
@@ -168,6 +169,8 @@ class MetaOAuthService
         return [
             'user_id'  => $userId,
             'platform' => $platform,
+            'context'  => $decoded['context'] ?? null,
+            'nonce'    => $decoded['nonce'] ?? null,
             'pages'    => array_map(fn ($p) => [
                 'id'                         => $p['id'],
                 'name'                       => $p['name'],
@@ -265,7 +268,7 @@ class MetaOAuthService
      * exchangeCodeForPages() for the SAME callback — carries every Page's own
      * access token so no second Graph round-trip to /me/accounts is needed.
      */
-    public function connectPage(int $userId, string $platform, string $pageId, array $pages): AgentSocialAccount
+    public function connectPage(int $userId, string $platform, string $pageId, array $pages, bool $platformLevel = false): AgentSocialAccount
     {
         $page = collect($pages)->firstWhere('id', $pageId);
 
@@ -296,11 +299,11 @@ class MetaOAuthService
         // Calculate expiry (~60 days from now for long-lived tokens)
         $expiresAt = now()->addDays(60);
 
-        // Upsert — restore soft-deleted if exists
-        $existing = AgentSocialAccount::withTrashed()
-            ->where('user_id', $userId)
-            ->where('platform', $platform)
-            ->first();
+        // AT-527: the CoreX page is ONE platform-level row per platform (agency_id NULL, is_platform), whichever owner connects it; an agency's own
+        // connection is never touched by it, and this lookup never sees the platform row.
+        $existing = $platformLevel
+            ? AgentSocialAccount::withTrashed()->withoutGlobalScopes()->where('is_platform', true)->where('platform', $platform)->first()
+            : AgentSocialAccount::withTrashed()->where('user_id', $userId)->where('platform', $platform)->where('is_platform', false)->first();
 
         if ($existing) {
             $existing->restore();
@@ -310,6 +313,7 @@ class MetaOAuthService
                 'access_token'       => $pageToken,
                 'token_expires_at'   => $expiresAt,
                 'is_active'          => true,
+                'user_id'            => $userId,
             ]);
             return $existing->fresh();
         }
@@ -322,7 +326,7 @@ class MetaOAuthService
             'access_token'       => $pageToken,
             'token_expires_at'   => $expiresAt,
             'is_active'          => true,
-        ]);
+        ] + ($platformLevel ? ['is_platform' => true, 'agency_id' => null] : []));
     }
 
     /**

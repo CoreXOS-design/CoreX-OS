@@ -182,6 +182,11 @@
                                     </td>
                                     <td class="px-3 py-2 whitespace-nowrap text-right">
                                         <button type="button" class="corex-btn-outline text-xs" style="padding: 2px 8px;" data-copy="{{ $ad->postText() }}" data-qa="copy-post">Copy post text</button>
+                                        @if ($ad->isReady() && ! $ad->trashed())
+                                            <form method="POST" action="{{ route('admin.video-ads.post-now', $ad) }}" class="inline" data-confirm="Post {{ $ad->name }} to the CoreX Facebook page now?">@csrf
+                                                <button type="submit" class="corex-btn-outline text-xs" style="padding: 2px 8px;" data-qa="post-now">Post now @include('admin.video-ads._dry-run-badge')</button></form>
+                                            <a href="{{ route('admin.video-ads.show', $ad) }}#schedule" class="corex-btn-outline text-xs" style="padding: 2px 8px;" data-qa="schedule">Schedule @include('admin.video-ads._dry-run-badge')</a>
+                                        @endif
                                         <a href="{{ route('admin.video-ads.duplicate', $ad) }}" class="corex-btn-outline text-xs" style="padding: 2px 8px;">Duplicate</a>
                                         @if ($ad->status === 'failed' && ! $ad->trashed())
                                             <form method="POST" action="{{ route('admin.video-ads.retry', $ad) }}" class="inline">@csrf

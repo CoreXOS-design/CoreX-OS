@@ -3130,7 +3130,9 @@
                     <span>Back</span>
                 </button>
                 <div class="corex-nav-panel-title">Marketing</div>
-                <a href="{{ route('admin.video-ads.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.video-ads.*') && ! request()->routeIs('admin.video-ads.brand*') ? 'active' : '' }}">Video ads</a>
+                <a href="{{ route('admin.video-ads.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.video-ads.*') && ! request()->routeIs('admin.video-ads.brand*', 'admin.video-ads.posts*', 'admin.video-ads.facebook*') ? 'active' : '' }}">Video ads</a>
+                <a href="{{ route('admin.video-ads.posts') }}" class="corex-nav-subitem {{ request()->routeIs('admin.video-ads.posts*') ? 'active' : '' }}">Scheduled posts</a>
+                <a href="{{ route('admin.video-ads.facebook') }}" class="corex-nav-subitem {{ request()->routeIs('admin.video-ads.facebook*') ? 'active' : '' }}">Facebook page</a>
                 <a href="{{ route('admin.video-ads.brand') }}" class="corex-nav-subitem {{ request()->routeIs('admin.video-ads.brand*') ? 'active' : '' }}">Brand settings</a>
             </div>
         </div>

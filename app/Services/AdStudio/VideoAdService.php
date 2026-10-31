@@ -36,6 +36,8 @@ class VideoAdService
         return [
             'feature' => $script->key(),
             'question' => $questions[$variant] ?? (string) reset($questions),
+            'subline' => (string) ($script->data['subline'] ?? ''),
+            'badge' => array_merge(['text' => '', 'example' => false, 'source' => ''], (array) ($script->data['badge'] ?? [])),
             'shots' => array_map(fn ($s) => ['caption' => (string) $s['caption'], 'step' => $s['step'] ?? null, 'selector' => (string) ($s['selector'] ?? ''), 'action' => (string) ($s['action'] ?? 'highlight'),
                 'zoom' => (float) ($s['zoom'] ?? 1.0), 'proof' => (bool) ($s['proof'] ?? false), 'hold' => (float) ($s['hold'] ?? 0)], $script->shots()),
             'cta' => ['join_line' => '', 'cta_line' => ''],
@@ -60,6 +62,8 @@ class VideoAdService
         return [
             'feature' => (string) ($in['feature'] ?? ''),
             'question' => trim((string) ($in['question'] ?? '')),
+            'subline' => trim((string) ($in['subline'] ?? '')),
+            'badge' => ['text' => trim((string) ($in['badge']['text'] ?? '')), 'example' => ! empty($in['badge']['example']), 'source' => trim((string) ($in['badge']['source'] ?? ''))],
             'shots' => $shots,
             'cta' => ['join_line' => trim((string) ($in['cta']['join_line'] ?? '')), 'cta_line' => trim((string) ($in['cta']['cta_line'] ?? ''))],
             'length' => (int) ($in['length'] ?? 0),

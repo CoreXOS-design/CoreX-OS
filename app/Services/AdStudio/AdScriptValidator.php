@@ -58,6 +58,25 @@ class AdScriptValidator
             array_push($p, ...$this->wording('The question', $plainQuestion));
         }
 
+        // Sub-line (short punchy white text under the headline) and the stat badge (a cyan circle: a real sourced number, or an example labelled as such)
+        $subline = trim((string) ($draft['subline'] ?? ''));
+        if ($subline !== '') {
+            if (str_word_count($subline) > $lim['subline_words'] || mb_strlen($subline) > $lim['subline_chars']) {
+                $p[] = "The sub-line is too long. Keep it to {$lim['subline_words']} words and {$lim['subline_chars']} letters.";
+            }
+            array_push($p, ...$this->wording('The sub-line', $subline));
+        }
+        $badge = (array) ($draft['badge'] ?? []);
+        $badgeText = trim((string) ($badge['text'] ?? ''));
+        if ($badgeText !== '') {
+            if (mb_strlen($badgeText) > $lim['badge_chars']) {
+                $p[] = "The stat badge is too long (keep it to {$lim['badge_chars']} letters, like 3 in 10).";
+            }
+            if (empty($badge['example']) && trim((string) ($badge['source'] ?? '')) === '') {
+                $p[] = 'A stat badge must be a real number with its source written in, or be ticked as an example. Demo numbers are always labelled as an example.';
+            }
+        }
+
         // Shots
         $shots = array_values((array) ($draft['shots'] ?? []));
         if (count($shots) < $lim['shots_min']) {
@@ -128,7 +147,7 @@ class AdScriptValidator
             $p[] = 'Too many hashtags - keep it to ' . $lim['hashtags_max'] . '.';
         }
 
-        $seconds = $this->estimateSeconds($plainQuestion, $shots, $extra);
+        $seconds = $this->estimateSeconds($plainQuestion, $shots, $extra, $subline);
         if ($length > 0 && in_array($length, (array) config('ad-studio.lengths'), true) && $seconds > $length) {
             $p[] = 'About ' . (int) ceil($seconds) . " seconds of video - over the {$length} second length. Shorten a line, remove a shot or pick a longer length.";
         }
@@ -137,12 +156,15 @@ class AdScriptValidator
     }
 
     /** First estimate: spoken words / words a second + a pause per line + the end card. */
-    public function estimateSeconds(string $plainQuestion, array $shots, float $extra = 0.0): float
+    public function estimateSeconds(string $plainQuestion, array $shots, float $extra = 0.0, string $sub = ''): float
     {
         $lim = (array) config('ad-studio.limits');
         $t = (float) $lim['end_card_seconds'] + $extra;
-        $lines = array_merge([$plainQuestion], array_map(fn ($s) => (string) ($s['caption'] ?? ''), $shots));
+        $lines = array_merge([$plainQuestion, $sub], array_map(fn ($s) => (string) ($s['caption'] ?? ''), $shots));
         foreach ($lines as $line) {
+            if (trim((string) $line) === '') {
+                continue;
+            }
             $t += str_word_count($line) / (float) $lim['words_per_second'] + (float) $lim['line_pad_seconds'];
         }
 

@@ -10,6 +10,8 @@ return [
     'title' => 'Book a viewing',
     'screen' => 'book-a-viewing',
     'approved' => false,
+    'subline' => 'Every viewing. Every buyer. Feedback on one link.',
+    'badge' => ['text' => '', 'example' => false, 'source' => ''],   // optional cyan stat circle: a real sourced number, or an example labelled as such
     'questions' => [
         'a' => 'Still *losing* track of your viewings?',
         'b' => 'Does your seller know what buyers *said*?',

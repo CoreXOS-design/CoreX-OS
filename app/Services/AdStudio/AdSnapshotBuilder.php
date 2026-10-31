@@ -28,6 +28,12 @@ class AdSnapshotBuilder
         $joinLine = trim((string) ($draft['cta']['join_line'] ?? '')) ?: (string) ($brand['join_line'] ?? 'Join CoreX');
         $ctaLine = trim((string) ($draft['cta']['cta_line'] ?? '')) ?: (string) ($brand['cta_line'] ?? '');
 
+        $followLine = trim((string) ($brand['follow_line'] ?? '')) ?: 'Follow us';
+        $subline = trim((string) ($draft['subline'] ?? ''));
+        $badge = (array) ($draft['badge'] ?? []);
+        $badgeText = trim((string) ($badge['text'] ?? ''));
+        $badgeOut = $badgeText === '' ? null : ['text' => $badgeText, 'example' => ! empty($badge['example']), 'source' => trim((string) ($badge['source'] ?? ''))];
+
         $shots = [];
         $beats = [];
         foreach (array_values((array) $draft['shots']) as $s) {
@@ -62,10 +68,10 @@ class AdSnapshotBuilder
             'captions' => true,
             'music' => null,
             'script' => [
-                'hook' => ['text' => $plain, 'accent' => $accent, 'seconds' => (float) max(3, min(4, ceil(str_word_count($plain) / $wps)))],
+                'hook' => ['text' => $plain, 'accent' => $accent, 'sub' => $subline !== '' ? $subline : null, 'badge' => $badgeOut, 'seconds' => (float) max(3, min(4, ceil(str_word_count($plain) / $wps)))],
                 'beats' => $beats,
                 'proof' => ['text' => (string) ($brand['tagline'] ?? ''), 'seconds' => 2.5],
-                'cta' => ['line' => $joinLine, 'follow' => 'Follow us', 'sub' => $ctaLine],
+                'cta' => ['line' => $joinLine, 'follow' => $followLine, 'sub' => $ctaLine],
             ],
             'brand' => [
                 'name' => 'CoreX',
@@ -74,7 +80,7 @@ class AdSnapshotBuilder
                     'background' => $brand['colours']['secondary'] ?? null],
                 'cta_url' => $brand['website'] ?? null, 'website' => $brand['website'] ?? null, 'contact_email' => $brand['email'] ?? null, 'phone' => $brand['phone'] ?? null,
                 'socials' => array_filter((array) ($brand['social'] ?? []), fn ($v) => trim((string) $v) !== ''),
-                'tagline' => $brand['tagline'] ?? null, 'join_line' => $joinLine, 'cta_line' => $ctaLine,
+                'tagline' => $brand['tagline'] ?? null, 'join_line' => $joinLine, 'cta_line' => $ctaLine, 'follow_line' => $followLine,
             ],
         ];
 
@@ -83,6 +89,8 @@ class AdSnapshotBuilder
             'feature' => $script->key(),
             'feature_title' => $script->title(),
             'question' => ['text' => $plain, 'raw' => $question, 'accent' => $accent],
+            'subline' => $subline,
+            'badge' => $badgeOut,
             'shots' => $shots,
             'cta' => ['join_line' => $joinLine, 'cta_line' => $ctaLine, 'join_override' => trim((string) ($draft['cta']['join_line'] ?? '')), 'cta_override' => trim((string) ($draft['cta']['cta_line'] ?? ''))],
             'voice' => $voice,
@@ -106,6 +114,8 @@ class AdSnapshotBuilder
         return [
             'feature' => $snapshot['feature'],
             'question' => $snapshot['question']['raw'] ?? $snapshot['question']['text'],
+            'subline' => $snapshot['subline'] ?? '',
+            'badge' => $snapshot['badge'] ?? ['text' => '', 'example' => false, 'source' => ''],
             'shots' => array_map(fn ($s) => ['caption' => $s['caption'], 'step' => $s['step'], 'selector' => $s['selector'] ?? '', 'action' => $s['action'], 'zoom' => $s['zoom'],
                 'proof' => (bool) ($s['proof'] ?? false), 'hold' => $s['hold'] ?? 0], (array) $snapshot['shots']),
             'cta' => ['join_line' => $snapshot['cta']['join_override'] ?? '', 'cta_line' => $snapshot['cta']['cta_override'] ?? ''],

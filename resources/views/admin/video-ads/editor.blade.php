@@ -54,6 +54,21 @@
                 @endif
                 <input type="text" x-model="draft.question" @input="touch()" class="{{ $field }}" style="{{ $fieldStyle }}" maxlength="80" data-qa="question-input">
                 <div class="rounded-md px-4 py-3 text-center font-extrabold tracking-wide" style="background: {{ $brand['colours']['primary'] }}; color: {{ $brand['colours']['text'] }}; font-size: 1.1rem;" x-html="questionPreview()"></div>
+                <div>
+                    <label class="{{ $lbl }}" style="color: var(--text-secondary);">Sub-line (short, punchy, under the headline - optional)</label>
+                    <input type="text" x-model="draft.subline" @input="touch()" class="{{ $field }}" style="{{ $fieldStyle }}" maxlength="80" data-qa="subline-input">
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                        <label class="{{ $lbl }}" style="color: var(--text-secondary);">Stat badge (cyan circle, optional)</label>
+                        <input type="text" x-model="draft.badge.text" @input="touch()" class="{{ $field }}" style="{{ $fieldStyle }}" maxlength="14" placeholder="e.g. 3 in 10">
+                    </div>
+                    <div>
+                        <label class="{{ $lbl }}" style="color: var(--text-secondary);">Source of the number</label>
+                        <input type="text" x-model="draft.badge.source" @input="touch()" class="{{ $field }}" style="{{ $fieldStyle }}" maxlength="120">
+                    </div>
+                    <label class="flex items-center gap-2 text-xs self-end pb-2" style="color: var(--text-secondary);"><input type="checkbox" x-model="draft.badge.example" @change="touch()"> This is an example number</label>
+                </div>
             </section>
 
             {{-- SOLUTION SHOTS --}}
@@ -179,6 +194,8 @@
 function adEditor(draft, steps, validateUrl, check) {
     draft.shots = (draft.shots || []).map(function (s) { s.step = (s.step === null || s.step === undefined) ? '' : String(s.step); s.selector = s.selector || ''; return s; });
     draft.cta = draft.cta || { join_line: '', cta_line: '' };
+    draft.subline = draft.subline || '';
+    draft.badge = draft.badge || { text: '', example: false, source: '' };
     draft.post = draft.post || { caption: '', hashtagsText: '' };
     draft.voice = draft.voice || '';
     var timer = null;

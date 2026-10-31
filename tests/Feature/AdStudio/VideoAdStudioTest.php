@@ -192,8 +192,8 @@ final class VideoAdStudioTest extends TestCase
         $this->assertSame('[data-a]', $ad->snapshot['shots'][0]['selector']);   // resolved from the training script step
         $this->assertSame('[data-b]', $ad->snapshot['shots'][1]['selector']);
         $this->assertSame(['9:16', '1:1'], $ad->formats);
-        $this->assertStringContainsString('corexos.co.za', $ad->post_caption);
-        $this->assertStringContainsString('Ask us for a demo:', $ad->post_caption);
+        $this->assertStringContainsString('corexweb.co.za', $ad->post_caption);
+        $this->assertStringContainsString('Book a demo:', $ad->post_caption);
         $this->assertSame(['CoreX', 'RealEstate'], $ad->post_hashtags);
         $this->assertSame("{$ad->post_caption}\n\n#CoreX #RealEstate", $ad->postText());
         Bus::assertDispatched(GenerateVideoAdJob::class, fn ($j) => $j->adId === $ad->id);
@@ -219,7 +219,7 @@ final class VideoAdStudioTest extends TestCase
         $this->app->forgetInstance(AdScriptRepository::class);
 
         $this->assertEquals($frozen, $ad->fresh()->snapshot);
-        $this->assertSame('https://corexos.co.za', $ad->fresh()->snapshot['brand']['website']);
+        $this->assertSame('https://corexweb.co.za', $ad->fresh()->snapshot['brand']['website']);
         // ...and a NEW ad picks the new brand up.
         $this->generate($this->draft());
         $this->assertSame('https://example.test', VideoAd::where('ad_number', 2)->first()->snapshot['brand']['website']);
@@ -263,10 +263,11 @@ final class VideoAdStudioTest extends TestCase
         $this->assertCount(2, $req['script']['beats']);
         $this->assertEquals(['script_key' => 'demo-screen', 'step' => 0], $req['script']['beats'][0]['screen']);
         $this->assertSame('Join CoreX', $req['script']['cta']['line']);
-        $this->assertSame('Ask us for a demo', $req['script']['cta']['sub']);
-        $this->assertSame('johan@corexos.co.za', $req['brand']['contact_email']);
+        $this->assertSame('Book a demo', $req['script']['cta']['sub']);
+        $this->assertSame('info@corexweb.co.za', $req['brand']['contact_email']);
         $this->assertSame('#33c4e0', $req['brand']['colours']['accent']);
-        $this->assertSame([], $req['brand']['socials']);   // empty until Johan fills them
+        $this->assertSame(['facebook' => 'https://www.facebook.com/profile.php?id=61593249039756'], $req['brand']['socials']);   // only what is filled in
+        $this->assertSame('Follow us on Facebook', $req['script']['cta']['follow']);
 
         $this->gateway->statuses['batch-1'] = ['state' => 'rendering', 'percent' => 40, 'stage' => '9:16', 'failure' => null, 'files' => []];
         $this->actingAs($this->owner)->getJson('/api/v1/admin/video-ads/progress')->assertOk()->assertJsonPath('working.0.percent', 40);
@@ -350,15 +351,17 @@ final class VideoAdStudioTest extends TestCase
     public function test_brand_defaults_show_when_empty_and_settings_round_trip(): void
     {
         $brand = AdBrand::current();
-        $this->assertSame('johan@corexos.co.za', $brand['email']);
+        $this->assertSame('info@corexweb.co.za', $brand['email']);
         $this->assertSame('+27 76 618 5578', $brand['phone']);
         $this->assertSame('#33c4e0', $brand['colours']['accent']);
         $this->assertSame('Join CoreX', $brand['join_line']);
-        $this->assertSame(['facebook' => '', 'instagram' => '', 'linkedin' => '', 'youtube' => '', 'tiktok' => ''], $brand['social']);
+        $this->assertSame(['facebook' => 'https://www.facebook.com/profile.php?id=61593249039756', 'instagram' => '', 'linkedin' => '', 'youtube' => '', 'tiktok' => ''], $brand['social']);
         $this->assertNull($brand['music']);
-        $this->assertSame([], AdBrand::filledSocials($brand));
+        $this->assertSame('The operating system for South African estate agencies. Listings, compliance, deals - one system.', $brand['tagline']);
+        $this->assertSame('Follow us on Facebook', $brand['follow_line']);
+        $this->assertSame(['Facebook' => 'https://www.facebook.com/profile.php?id=61593249039756'], AdBrand::filledSocials($brand));
 
-        $this->actingAs($this->owner)->get(self::BASE . '/brand')->assertOk()->assertSee('Brand settings')->assertSee('johan@corexos.co.za');
+        $this->actingAs($this->owner)->get(self::BASE . '/brand')->assertOk()->assertSee('Brand settings')->assertSee('info@corexweb.co.za');
 
         $this->actingAs($this->owner)->put(self::BASE . '/brand', [
             'website' => 'https://example.test', 'email' => 'hello@example.test', 'phone' => '+27 11 000 0000', 'join_line' => 'Come aboard', 'cta_line' => 'Ring us', 'tagline' => 'A tagline',
@@ -376,7 +379,7 @@ final class VideoAdStudioTest extends TestCase
         // clearing a field goes back to its default; bad input is refused
         $this->actingAs($this->owner)->put(self::BASE . '/brand', ['email' => '', 'colours' => ['accent' => 'cyan']])->assertSessionHasErrors('colours.accent');
         $this->actingAs($this->owner)->put(self::BASE . '/brand', ['email' => '', 'website' => ''])->assertRedirect();
-        $this->assertSame('johan@corexos.co.za', AdBrand::current()['email']);
+        $this->assertSame('info@corexweb.co.za', AdBrand::current()['email']);
     }
 
     public function test_the_shipped_ad_scripts_are_valid_and_wait_for_johans_approval(): void
@@ -396,5 +399,26 @@ final class VideoAdStudioTest extends TestCase
                 $this->assertSame(["The ad script for {$script->title()} is not approved yet. Johan approves it first."], $problems, "{$key} variant {$variant}");
             }
         }
+    }
+
+    public function test_the_sub_line_and_the_stat_badge_follow_andres_style_rules(): void
+    {
+        $call = fn (array $over) => $this->actingAs($this->owner)->postJson('/api/v1/admin/video-ads/validate', ['draft' => $this->draft($over)])->json('problems');
+
+        $this->assertSame([], $call(['subline' => 'Every agent. Every morning. A call list ready.']));
+        $this->assertStringContainsString('sub-line is too long', implode(' ', $call(['subline' => 'one two three four five six seven eight nine ten eleven twelve'])));
+        $this->assertStringContainsString('"database"', implode(' ', $call(['subline' => 'Your database, ready'])));
+        // a number needs its source, or to be marked as an example
+        $this->assertStringContainsString('must be a real number with its source', implode(' ', $call(['badge' => ['text' => '3 in 10', 'example' => false, 'source' => '']])));
+        $this->assertSame([], $call(['badge' => ['text' => '3 in 10', 'example' => true, 'source' => '']]));
+        $this->assertSame([], $call(['badge' => ['text' => '3 in 10', 'example' => false, 'source' => 'PPRA report 2026']]));
+
+        Bus::fake();
+        $this->generate($this->draft(['subline' => 'Every agent. Every morning.', 'badge' => ['text' => '3 in 10', 'example' => true, 'source' => '']]))->assertRedirect();
+        $ad = VideoAd::firstOrFail();
+        $this->assertSame('Every agent. Every morning.', $ad->snapshot['request']['script']['hook']['sub']);
+        $this->assertEquals(['text' => '3 in 10', 'example' => true, 'source' => ''], $ad->snapshot['request']['script']['hook']['badge']);
+        $draft = app(\App\Services\AdStudio\AdSnapshotBuilder::class)->toDraft($ad->snapshot);
+        $this->assertSame('Every agent. Every morning.', $draft['subline']);   // Duplicate keeps them
     }
 }
