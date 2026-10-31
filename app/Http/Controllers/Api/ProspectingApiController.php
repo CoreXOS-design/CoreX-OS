@@ -285,19 +285,21 @@ class ProspectingApiController extends Controller
                     }
                 }
 
-                $existing->address          = $data['address'];
-                $existing->suburb           = $data['suburb'] ?? $existing->suburb;
-                $existing->district         = $data['district'] ?? $existing->district;
+                // A known value is never replaced by an empty one: only a non-empty newer value wins (a tile that
+                // lacks the address / suburb / type / link must not blank what an earlier sighting or a page read stored).
+                $existing->address          = ($data['address'] ?? '') !== '' ? $data['address'] : $existing->address;
+                $existing->suburb           = ($data['suburb'] ?? '') !== '' ? $data['suburb'] : $existing->suburb;
+                $existing->district         = ($data['district'] ?? '') !== '' ? $data['district'] : $existing->district;
                 $existing->bedrooms         = $data['bedrooms'] ?? $existing->bedrooms;
                 $existing->bathrooms        = $data['bathrooms'] ?? $existing->bathrooms;
                 $existing->garages          = $data['garages'] ?? $existing->garages;
                 $existing->property_size_m2 = $data['property_size_m2'] ?? $existing->property_size_m2;
                 $existing->erf_size_m2      = $data['erf_size_m2'] ?? $existing->erf_size_m2;
-                $existing->property_type    = $data['property_type'] ?? $existing->property_type;
+                $existing->property_type    = ($data['property_type'] ?? '') !== '' ? $data['property_type'] : $existing->property_type;
                 // A tile without an agent/agency ('' after the coercion above) must not blank what a listing page stored
                 $existing->agent_name       = $data['agent_name'] !== '' ? $data['agent_name'] : $existing->agent_name;
                 $existing->agency_name      = $data['agency_name'] !== '' ? $data['agency_name'] : $existing->agency_name;
-                $existing->portal_url       = $data['portal_url'];
+                $existing->portal_url       = ($data['portal_url'] ?? '') !== '' ? $data['portal_url'] : $existing->portal_url;
                 $existing->mandate_type     = $data['mandate_type'] ?? $existing->mandate_type;
                 MicAdvertFacts::apply($existing, $mic, $now);
 

@@ -223,6 +223,33 @@ final class MicCaptureIngestTest extends TestCase
         $this->assertSame('a1b2c3d4e5f60718', trim($this->listing()->first_photo_fingerprint), 'a bad value never replaces a good one');
     }
 
+    public function test_a_tile_missing_address_suburb_type_or_link_never_blanks_what_is_stored_but_a_newer_value_replaces(): void
+    {
+        Sanctum::actingAs($this->user);
+        $this->postJson(self::URL, $this->body([$this->tile(['address' => '12 Marine Drive', 'property_type' => 'House', 'district' => 'South Coast'])]))->assertOk();
+
+        // the same advert again, the tile carries none of them
+        $this->postJson(self::URL, $this->body([['portal_ref' => 'P24-116922912', 'price' => 1500000, 'agency_name' => 'Pam Golding']]))->assertOk()->assertJsonPath('updated', 1);
+        $l = $this->listing();
+        $this->assertSame('12 Marine Drive', $l->address);
+        $this->assertSame('Margate', $l->suburb);
+        $this->assertSame('House', $l->property_type);
+        $this->assertSame('South Coast', $l->district);
+        $this->assertSame('https://www.property24.com/for-sale/margate/116922912', $l->portal_url);
+
+        // a placeholder address and an empty string are empty too
+        $this->postJson(self::URL, $this->body([$this->tile(['address' => 'Address not available', 'suburb' => '', 'property_type' => '', 'portal_url' => ''])]))->assertOk();
+        $l = $this->listing();
+        $this->assertSame('12 Marine Drive', $l->address);
+        $this->assertSame('Margate', $l->suburb);
+        $this->assertSame('House', $l->property_type);
+
+        // a non-empty newer value does replace
+        $this->postJson(self::URL, $this->body([$this->tile(['address' => '14 Marine Drive', 'suburb' => 'Uvongo', 'property_type' => 'Townhouse', 'portal_url' => 'https://www.property24.com/for-sale/uvongo/116922912'])]))->assertOk();
+        $l = $this->listing();
+        $this->assertSame(['14 Marine Drive', 'Uvongo', 'Townhouse', 'https://www.property24.com/for-sale/uvongo/116922912'], [$l->address, $l->suburb, $l->property_type, $l->portal_url]);
+    }
+
     public function test_an_agent_corrected_listed_date_is_never_overwritten(): void
     {
         Sanctum::actingAs($this->user);

@@ -67,9 +67,16 @@ final class MicWorkList
     /**
      * @param  Builder<ProspectingListing>  $filtered  the fully filtered, agency-scoped advert query (no order, no page)
      */
-    public function page(Builder $filtered, int $agencyId, string $sort, string $dir, int $page): LengthAwarePaginator
+    public function page(Builder $filtered, int $agencyId, string $sort, string $dir, int $page, bool $includeOwnStock = false): LengthAwarePaginator
     {
         $dir = $dir === 'asc' ? 'asc' : 'desc';
+        if (! $includeOwnStock) {
+            // Our own stock is not prospecting: files our agency holds are out unless the manager asks for them (mic-work-tab 6.7).
+            $filtered = (clone $filtered)->whereNotExists(function ($w) use ($agencyId) {
+                $w->select(DB::raw(1))->from('tracked_property_agency_work as ow')->where('ow.agency_id', $agencyId)->where('ow.is_own_stock', 1)
+                    ->whereColumn('ow.tracked_property_id', 'prospecting_listings.tracked_property_id');
+            });
+        }
         $base = (clone $filtered)->toBase()->reorder()->select([])
             ->selectRaw('COALESCE(prospecting_listings.tracked_property_id, -prospecting_listings.id) AS fkey')
             ->selectRaw('MAX(last_seen_at) AS last_seen, MIN(COALESCE(listed_date, first_seen_at)) AS since, COUNT(*) AS n')
@@ -110,12 +117,12 @@ final class MicWorkList
             ->orderByDesc('is_active')->orderByDesc('last_seen_at')
             ->get(['id', 'tracked_property_id', 'portal_source', 'portal_ref', 'portal_url', 'address', 'suburb', 'price', 'bedrooms', 'bathrooms', 'garages',
                 'property_size_m2', 'erf_size_m2', 'property_type', 'agent_name', 'agency_name', 'first_seen_at', 'last_seen_at', 'listed_date', 'is_active',
-                'portal_status', 'advertiser_type', 'is_reduced', 'canonical_ref'])
+                'portal_status', 'advertiser_type', 'is_reduced', 'canonical_ref', 'p24_suburb_id'])
             ->groupBy(fn ($l) => $l->tracked_property_id ?: -$l->id);
         $advertIds = $adverts->flatten()->pluck('id')->all();
 
         $tps = $tpIds ? TrackedProperty::withoutGlobalScopes()->where('agency_id', $agencyId)->whereIn('id', $tpIds)
-            ->get(['id', 'street_number', 'street_name', 'unit_number', 'complex_name', 'suburb', 'property_type', 'bedrooms', 'bathrooms', 'garages',
+            ->get(['id', 'street_number', 'street_name', 'unit_number', 'complex_name', 'suburb', 'p24_suburb_id', 'property_type', 'bedrooms', 'bathrooms', 'garages',
                 'floor_size_m2', 'erf_size_m2', 'deeds_captured_at', 'deeds_registered_date', 'last_known_sold_price', 'last_known_sold_date', 'bond_amount'])->keyBy('id') : collect();
 
         $sources = $this->sourceFacts->forListings($agencyId, $adverts->flatten());
@@ -136,6 +143,37 @@ final class MicWorkList
 
         $stats = ($tpIds && self::hasFileStats()) ? DB::table('mic_file_stats')->where('agency_id', $agencyId)->whereIn('tracked_property_id', $tpIds)->get()->keyBy('tracked_property_id') : collect();
 
+        $subIds = $adverts->flatten()->pluck('p24_suburb_id')->merge($tps->pluck('p24_suburb_id'))->filter()->unique()->values()->all();
+        $subNames = $subIds ? DB::table('p24_suburbs')->whereIn('id', $subIds)->pluck('name', 'id') : collect();
+
+        // P24 / PP e-mail alerts of this agency for the page's files: by link to the file, or by the advert's canonical ref.
+        $refKey = [];
+        foreach ($adverts as $fk => $list) {
+            foreach ($list as $a) {
+                if ($a->canonical_ref) {
+                    $refKey[$a->canonical_ref] = $fk;
+                }
+            }
+        }
+        $alertsByKey = [];
+        foreach (\App\Services\Prospecting\AlertPropertyLinker::PORTALS as $portal => $cfg) {
+            $cfg['model']::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)->where('agency_id', $agencyId)
+                ->where(fn ($q) => $q->whereIn('tracked_property_id', $tpIds ?: [0])->orWhereIn('canonical_ref', array_keys($refKey) ?: ['-']))
+                ->with(['priceChanges' => fn ($q) => $q->orderBy('change_date')])->get()
+                ->each(function ($al) use (&$alertsByKey, $refKey, $portal, $cfg) {
+                    $fk = $al->tracked_property_id ?: ($refKey[$al->canonical_ref] ?? null);
+                    if ($fk === null) {
+                        return;
+                    }
+                    $alertsByKey[$fk][] = [
+                        'portal' => $portal === 'p24' ? 'P24' : 'PP', 'number' => (string) $al->{$cfg['number']},
+                        'first' => $al->first_seen_date?->format('j M Y'), 'last' => $al->last_seen_date?->format('j M Y'),
+                        'price' => (int) $al->asking_price, 'original' => $al->original_price !== null ? (int) $al->original_price : null,
+                        'changes' => $al->priceChanges->map(fn ($c) => ['date' => $c->change_date->format('j M Y'), 'old' => (int) $c->old_price, 'new' => (int) $c->new_price])->all(),
+                    ];
+                });
+        }
+
         $out = [];
         foreach ($keys as $key) {
             $list = $adverts->get($key, collect());
@@ -147,25 +185,18 @@ final class MicWorkList
             $tp = $key > 0 ? $tps->get($key) : null;
             $lead = $live->first();
 
-            // price now + move since first seen (history of every advert on the file)
-            $prices = [];
-            $cuts = 0;
-            $firstPrice = null;
-            foreach ($list as $a) {
-                foreach ($history->get($a->id, collect()) as $h) {
-                    if ((float) $h->new_price < (float) $h->old_price) {
-                        $cuts++;
-                    }
-                    $firstPrice = $firstPrice ?? (float) $h->old_price;
-                }
-            }
+            // Price now and the move come from ONE advert: the lead advert on the file (the live one seen last). Its own history only.
+            $leadHist = $history->get($lead->id, collect());
             $priceNow = (int) ($lead->price ?: 0);
-            $move = ($firstPrice && $priceNow && $priceNow != (int) $firstPrice) ? $priceNow - (int) $firstPrice : null;
+            $firstPrice = $leadHist->isNotEmpty() ? (int) $leadHist->first()->old_price : null;
+            $move = ($firstPrice && $priceNow && $priceNow !== $firstPrice) ? $priceNow - $firstPrice : null;
+            $cuts = $move !== null && $move < 0 ? $leadHist->filter(fn ($h) => (float) $h->new_price < (float) $h->old_price)->count() : 0;
 
             $addr = $tp && trim((string) $tp->street_name) !== ''
                 ? trim(implode(' ', array_filter([in_array(trim((string) $tp->street_number), ['', '0'], true) ? null : trim((string) $tp->street_number), trim((string) $tp->street_name)])))
                 : ($list->first(fn ($a) => trim((string) $a->address) !== '' && $a->address !== ProspectingListing::ADDRESS_PLACEHOLDER)?->address);
-            $suburb = $tp?->suburb ?: $lead->suburb;
+            $pid = $tp?->p24_suburb_id ?: $lead->p24_suburb_id;
+            $suburb = $pid && $subNames->has($pid) ? $subNames[$pid] : \Illuminate\Support\Str::title(mb_strtolower((string) ($tp?->suburb ?: $lead->suburb)));
             $type = $tp?->property_type ?: $lead->property_type;
             $beds = $tp?->bedrooms ?? $list->max('bedrooms');
             $baths = $tp?->bathrooms ?? $list->max('bathrooms');
@@ -191,6 +222,9 @@ final class MicWorkList
             } else {
                 $dom = ['days' => null, 'label' => '-'];
             }
+            if ($dom['days'] !== null && $dom['days'] < 7) {
+                $dom['label'] = 'new';
+            }
 
             $agencies = $live->pluck('agency_name')->map(fn ($n) => trim((string) $n))->filter(fn ($n) => $n !== '' && strcasecmp($n, 'Sale') !== 0)->unique()->values();
             $owner = $live->contains(fn ($a) => $a->advertiser_type === 'owner');
@@ -211,7 +245,8 @@ final class MicWorkList
                 'reasons' => $st ? array_values(array_filter([$st->reason_1 ?? null, $st->reason_2 ?? null])) : [],
                 'p24' => $list->contains('portal_source', 'p24'),
                 'pp' => $list->contains('portal_source', 'pp'),
-                'alert' => $srcRows->contains(fn ($s) => $s['alert']),
+                'alert' => $srcRows->contains(fn ($s) => $s['alert']) || ! empty($alertsByKey[$key]),
+                'alerts' => $alertsByKey[$key] ?? [],
                 'own_stock' => (bool) ($w->is_own_stock ?? false),
                 'deeds' => $deeds->has($key),
                 'owner' => $owner,

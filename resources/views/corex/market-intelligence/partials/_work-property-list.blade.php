@@ -7,7 +7,7 @@
         return route('market-intelligence.work', array_merge(request()->except(['page', 'sort', 'dir']), ['sort' => $key, 'dir' => $dir]));
     };
     $arrow = fn (string $key) => $sortNow === $key ? ($dirNow === 'desc' ? ' ▾' : ' ▴') : '';
-    $cols = '46px 92px minmax(190px, 1.6fr) 150px 140px 150px 78px 150px 54px 104px 70px';
+    $cols = '40px 84px minmax(180px, 1.5fr) 140px 120px 130px 56px 96px 104px 112px 62px';
     $money = fn ($v) => 'R ' . number_format((float) $v, 0, '.', ',');
     $short = fn ($v) => abs($v) >= 1000000 ? 'R' . rtrim(rtrim(number_format(abs($v) / 1000000, 2), '0'), '.') . 'm' : 'R' . number_format(abs($v) / 1000) . 'k';
     $chip = 'display:inline-block; padding: 0 4px; margin-right: 2px; border: 1px solid var(--border); border-radius: 3px; font-size: .625rem; font-weight: 700; line-height: 1.4; color: var(--text-secondary);';
@@ -37,7 +37,10 @@
     @foreach(\App\Services\Prospecting\PropertySourceFacts::FILTERS as $v => $l)
         {!! $chipLink($l, ['source' => request('source') === $v ? null : $v], request('source') === $v) !!}
     @endforeach
-    @if(request()->hasAny(['search', 'source', 'tile', 'is_active', 'suburb', 'address_filter']))
+    @if(!empty($isProspectingManager))
+        {!! $chipLink('Show our stock too', ['include_in_stock' => request()->boolean('include_in_stock') ? null : '1'], request()->boolean('include_in_stock')) !!}
+    @endif
+    @if(request()->hasAny(['search', 'source', 'tile', 'is_active', 'suburb', 'address_filter', 'include_in_stock']))
         <a href="{{ route('market-intelligence.work') }}" style="font-size:.75rem; color: var(--brand-icon); text-decoration:none;">Clear</a>
     @endif
     <span data-qa="work-count" style="margin-left:auto; font-size:.75rem; color: var(--text-muted);">
@@ -46,7 +49,7 @@
 </form>
 
 <div data-qa="work-property-list" style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow-x: auto;">
-    <div style="min-width: 1330px;">
+    <div style="min-width: 1240px;">
         <div style="display:grid; grid-template-columns: {{ $cols }}; gap: 8px; padding: 5px 10px; background: var(--surface-2); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 2;">
             @if(\App\Services\Prospecting\MicWork\MicWorkList::hasScores())<a href="{{ $sortUrl('score') }}" style="{{ $head }}">Score{{ $arrow('score') }}</a>@else<span style="{{ $head }}">Score</span>@endif
             <span style="{{ $head }}">Sources</span>
@@ -63,7 +66,7 @@
 
         @forelse($listings as $r)
             <div x-data="{ open: false }" data-qa="work-row" style="border-bottom: 1px solid var(--border);">
-                <div @click="open = !open" style="display:grid; grid-template-columns: {{ $cols }}; gap: 8px; align-items: center; padding: 5px 10px; font-size: .8125rem; cursor: pointer; min-height: 34px; color: var(--text-secondary);">
+                <div @click="open = !open" style="display:grid; grid-template-columns: {{ $cols }}; gap: 8px; align-items: center; padding: 4px 10px; font-size: .8125rem; cursor: pointer; min-height: 38px; color: var(--text-secondary);">
                     <span style="font-weight: 700; color: var(--text-primary);">{{ $r['score'] !== null ? number_format($r['score'], 0) : '' }}</span>
                     <span data-qa="row-sources">
                         @if($r['p24'])<span style="{{ $chip }}">P24</span>@endif
@@ -84,16 +87,16 @@
                         {{ collect([$r['facts']['type'], $r['facts']['beds'] ? $r['facts']['beds'] . 'bd' : null, $r['facts']['baths'] ? $r['facts']['baths'] . 'ba' : null, $r['facts']['garages'] ? $r['facts']['garages'] . 'g' : null])->filter()->implode(' · ') }}
                         @if($r['facts']['floor'] || $r['facts']['erf'])<span style="color: var(--text-muted);"> · {{ $r['facts']['floor'] ? number_format((float) $r['facts']['floor']) . ' m²' : '' }}{{ $r['facts']['floor'] && $r['facts']['erf'] ? ' / ' : '' }}{{ $r['facts']['erf'] ? number_format((float) $r['facts']['erf']) . ' erf' : '' }}</span>@endif
                     </span>
-                    <span style="white-space: nowrap;">
-                        @if($r['price']){{ $money($r['price']) }}@else - @endif
-                        @if($r['move'])<span style="font-size:.6875rem; color: {{ $r['move'] < 0 ? 'var(--ds-crimson, #dc2626)' : 'var(--text-muted)' }};">{{ $r['move'] < 0 ? '▼' : '▲' }} {{ $short($r['move']) }}@if($r['cuts'] > 1), {{ $r['cuts'] }} cuts @endif</span>@endif
+                    <span style="min-width:0; overflow:hidden; white-space: nowrap;">
+                        <span style="display:block; text-overflow: ellipsis; overflow:hidden;">@if($r['price']){{ $money($r['price']) }}@else - @endif</span>
+                        @if($r['move'])<span data-qa="price-move" style="display:block; font-size:.6875rem; color: {{ $r['move'] < 0 ? 'var(--ds-crimson, #dc2626)' : 'var(--text-muted)' }};" title="Move on the lead advert since it was first seen">{{ $r['move'] < 0 ? '▼' : '▲' }} {{ $short($r['move']) }}@if($r['cuts'] > 1) · {{ $r['cuts'] }} cuts @elseif($r['cuts'] === 1) · 1 cut @endif</span>@endif
                     </span>
                     <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{{ implode(', ', $r['agencies']) }}">
                         @if($r['owner'])Owner @elseif(count($r['agencies']) === 0)- @else{{ count($r['agencies']) > 1 ? count($r['agencies']) . ' · ' : '' }}{{ $r['agencies'][0] }}@endif
                     </span>
                     <span style="white-space: nowrap;" title="Days on the market. A + means at least this long: we first saw it then, and cannot tell how long it was there before.">{{ $r['dom']['label'] }}{{ is_numeric($r['dom']['label']) || str_ends_with($r['dom']['label'], '+') ? ' d' : '' }}</span>
                     <span style="font-size:.6875rem; color: var(--ds-amber, #f59e0b); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ implode(' · ', $r['flags']) }}</span>
-                    <span title="Buyers matched, strong / mid (own agency)">{{ $r['buyers_strong'] !== null ? (($r['buyers_strong'] || $r['buyers_mid']) ? $r['buyers_strong'] . ' / ' . $r['buyers_mid'] : '') : ($r['buyers'] ?: '') }}</span>
+                    <span title="Buyers matched to this property (own agency)" style="font-size:.75rem; white-space: nowrap;">@if($r['buyers_strong'] !== null){{ $r['buyers_strong'] ? $r['buyers_strong'] . ' strong' : '' }}{{ $r['buyers_strong'] && $r['buyers_mid'] ? ' · ' : '' }}{{ $r['buyers_mid'] ? $r['buyers_mid'] . ' mid' : '' }}@elseif($r['buyers']){{ $r['buyers'] }} matched @endif</span>
                     <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size:.75rem;" title="{{ $r['work_reason'] }}">{{ $r['claimed_by'] ? 'Claimed · ' . $r['claimed_by'] : ($r['work_status'] ? ucfirst(str_replace('_', ' ', $r['work_status'])) : '') }}</span>
                     <span>
                         @if($r['tp_id'])<a href="{{ route('market-intelligence.opportunities.show', ['tp' => $r['tp_id']]) }}" @click.stop class="corex-btn-outline text-xs" style="padding: 1px 8px;">{{ $r['claimed_by'] ? 'Open' : ($r['own_stock'] ? 'Open' : 'Claim') }}</a>@endif
@@ -121,7 +124,12 @@
                         <div style="color: var(--text-muted);">No price changes recorded.</div>
                     @endforelse
                     <div style="font-weight: 700; margin: 8px 0 2px;">P24 alerts</div>
-                    <div style="color: var(--text-muted);">{{ $r['alert'] ? 'This property has been in a P24 e-mail alert - open the property page for dates and prices.' : 'None.' }}</div>
+                    @forelse($r['alerts'] as $al)
+                        <div data-qa="alert-line">✉ {{ $al['portal'] }} {{ $al['number'] }} · first {{ $al['first'] ?? '-' }} · last {{ $al['last'] ?? '-' }} · asking {{ $money($al['price']) }}@if($al['original'] && $al['original'] !== $al['price']) · was {{ $money($al['original']) }}@endif
+                            @foreach($al['changes'] as $c)<span style="color: var(--text-muted);"> · {{ $c['date'] }}: {{ $money($c['old']) }} → {{ $money($c['new']) }}</span>@endforeach</div>
+                    @empty
+                        <div style="color: var(--text-muted);">None.</div>
+                    @endforelse
                     <div style="font-weight: 700; margin: 8px 0 2px;">Deeds</div>
                     @if($r['deeds_info'])
                         <div>Registered {{ $r['deeds_info']['registered'] ?? '-' }} · last sale {{ $r['deeds_info']['price'] ? $money($r['deeds_info']['price']) : '-' }} · bond {{ $r['deeds_info']['bond'] ? $money($r['deeds_info']['bond']) : '-' }}</div>

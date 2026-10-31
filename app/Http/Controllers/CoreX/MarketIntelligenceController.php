@@ -578,7 +578,7 @@ class MarketIntelligenceController extends Controller
             $sortKey = match ((string) $request->query('sort', $defaultSort)) { 'last_seen_at' => 'last_seen', 'first_seen_at' => 'time', default => (string) $request->query('sort', $defaultSort) };
             $sortKey = in_array($sortKey, \App\Services\Prospecting\MicWork\MicWorkList::sortKeys(), true) ? $sortKey : $defaultSort;
             $listings = app(\App\Services\Prospecting\MicWork\MicWorkList::class)->page(
-                $kpiCountBase, (int) $agencyId, $sortKey, (string) $request->query('dir', 'desc'), max(1, (int) $request->query('page', 1)),
+                $kpiCountBase, (int) $agencyId, $sortKey, (string) $request->query('dir', 'desc'), max(1, (int) $request->query('page', 1)), $request->boolean('include_in_stock') && $isProspectingManager,
             );
             $defaultSortKey = $defaultSort;
             [$workTiles, $workPanel] = $this->workTilesData($request, (int) $agencyId, $user, $isProspectingManager);

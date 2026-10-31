@@ -8,7 +8,7 @@
         return route('market-intelligence.work', $merged);
     };
 @endphp
-<div data-qa="work-tiles" style="display: grid; grid-template-columns: repeat({{ max(1, count($workTiles)) }}, minmax(0, 1fr)); gap: 6px; margin-bottom: 10px;">
+<div data-qa="work-tiles" style="display: grid; grid-template-columns: repeat({{ max(1, count($workTiles)) }}, minmax(0, 1fr)); gap: 6px; margin-bottom: 10px; align-items: stretch;">
     @foreach($workTiles as $t)
         @php
             $isActive = $t['kind'] === 'panel' ? $activePanel === $t['number'] : $activeTile === $t['key'];
@@ -20,10 +20,10 @@
                 . ($clickable ? '' : ' opacity: .6;');
         @endphp
         @if($clickable)<a href="{{ $href }}" data-qa="tile-{{ $t['number'] }}" style="{{ $box }}" title="{{ $t['title'] }}">@else<div data-qa="tile-{{ $t['number'] }}" style="{{ $box }}" title="{{ $t['title'] }} - data coming">@endif
-            <div style="font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $t['short'] }}</div>
+            <div style="font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); line-height: 1.2;">{{ $t['short'] }}</div>
             @if($t['count'] !== null)
                 <div style="font-size: 1.0625rem; font-weight: 700; line-height: 1.3; color: {{ $isActive ? 'var(--brand-icon)' : 'var(--text-primary)' }};">{{ number_format($t['count']) }}</div>
-                <div style="font-size: 0.6875rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $t['note'] ?? $t['reason'] }}</div>
+                <div style="font-size: 0.6875rem; line-height: 1.25; color: var(--text-muted);">{{ $t['note'] ?? $t['reason'] }}</div>
             @elseif($t['ready'] && $t['kind'] === 'panel')
                 <div style="font-size: .8125rem; font-weight: 700; line-height: 1.6; color: {{ $isActive ? 'var(--brand-icon)' : 'var(--text-primary)' }};">Open ▸</div>
                 <div style="font-size: 0.6875rem; color: var(--text-muted);">&nbsp;</div>
