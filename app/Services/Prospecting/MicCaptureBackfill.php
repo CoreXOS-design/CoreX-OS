@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\Storage;
  *
  *   p24-groups   P24's own "Listed by N Estate Agencies" statement, read from the stored raw search pages
  *   floor-sizes  property_size_m2 from portal_listings.current_fields_json.size_m2 (the tile's FLOOR size) where empty
+ *   erf-floor-pool  the same wrong erf on the shared pool's public advert facts (our own tile-parser bug, not a portal fact)
+ *   file-floor-size the floor size of the files whose wrong erf erf-floor cleared, from their live advert (--from-journal)
  *   sale-agency  P24 owner adverts stored with the owner icon's alt text "Sale" as the agency -> owner, agency blank
  *   erf-floor    the old extension stored a tile's single size (a FLOOR size on flats) as the erf: clear that erf on the advert
  *                (and on the property file that inherited it) once the advert has its real floor size, unless another source gives the erf
@@ -22,7 +24,7 @@ use Illuminate\Support\Facades\Storage;
  */
 final class MicCaptureBackfill
 {
-    public const STEPS = ['p24-groups', 'floor-sizes', 'sale-agency', 'erf-floor'];
+    public const STEPS = ['p24-groups', 'floor-sizes', 'sale-agency', 'erf-floor', 'erf-floor-pool', 'file-floor-size'];
 
     /** @var resource|null */
     private $journal = null;
@@ -357,6 +359,120 @@ final class MicCaptureBackfill
                 'adverts_erf_equals_floor' => (int) $adverts()->count(),
                 'files_with_erf' => (int) $tpWithErf()->count(),
             ];
+        }
+
+        return $stats;
+    }
+
+    // ── erf-floor-pool ───────────────────────────────────────────────────────────────────────────
+
+    /**
+     * The shared pool took the same conflated erf as the adverts (our tile parser's bug, not a portal fact). A pool row is
+     * corrected when its erf equals the floor size of an advert that erf-floor already cleared. Kept: any advert of that
+     * number was read from its listing page (a real erf), still shows that erf itself, or sits on a file with a deeds
+     * capture that holds that erf.
+     */
+    public function erfFloorPool(bool $apply, array $exclude = [20]): array
+    {
+        $candidates = DB::table('portal_advert_facts as f')
+            ->join('prospecting_listings as p', 'p.canonical_ref', '=', 'f.canonical_ref')
+            ->whereNull('p.deleted_at')->whereNotNull('f.erf_size_m2')->whereNull('p.erf_size_m2')->whereNotNull('p.property_size_m2')
+            ->whereRaw('ABS(f.erf_size_m2 - p.property_size_m2) < 0.01')
+            ->when($exclude !== [], fn ($q) => $q->whereNotIn('p.agency_id', $exclude));
+        $stats = [
+            'before' => ['pool_rows_with_erf' => (int) DB::table('portal_advert_facts')->whereNotNull('erf_size_m2')->count(), 'pool_rows_erf_equals_advert_floor' => (int) (clone $candidates)->distinct()->count('f.id')],
+            'kept_listing_page_read' => 0, 'kept_an_advert_still_shows_that_erf' => 0, 'kept_deeds' => 0, 'to_clear' => 0,
+        ];
+
+        $clear = [];
+        (clone $candidates)->select('f.id', 'f.canonical_ref', 'f.erf_size_m2')->distinct()->orderBy('f.id')->get()->each(function ($f) use (&$clear, &$stats) {
+            $erf = (float) $f->erf_size_m2;
+            $all = DB::table('prospecting_listings')->where('canonical_ref', $f->canonical_ref)->whereNull('deleted_at')->get(['details_read_at', 'erf_size_m2', 'tracked_property_id']);
+            if ($all->contains(fn ($a) => $a->details_read_at !== null)) {
+                $stats['kept_listing_page_read']++;
+
+                return;
+            }
+            if ($all->contains(fn ($a) => $a->erf_size_m2 !== null && abs((float) $a->erf_size_m2 - $erf) < 0.01)) {
+                $stats['kept_an_advert_still_shows_that_erf']++;
+
+                return;
+            }
+            $tpIds = $all->pluck('tracked_property_id')->filter()->unique()->all();
+            if ($tpIds && DB::table('tracked_properties')->whereIn('id', $tpIds)->whereNotNull('deeds_captured_at')->whereRaw('ABS(erf_size_m2 - ?) < 0.01', [$erf])->exists()) {
+                $stats['kept_deeds']++;
+
+                return;
+            }
+            $clear[(int) $f->id] = $erf;
+        });
+        $stats['to_clear'] = count($clear);
+
+        if ($apply) {
+            DB::transaction(function () use ($clear) {
+                foreach ($clear as $id => $erf) {
+                    if (DB::table('portal_advert_facts')->where('id', $id)->whereNotNull('erf_size_m2')->update(['erf_size_m2' => null])) {
+                        $this->log('portal_advert_facts', (string) $id, 'erf_size_m2', $erf, null);
+                    }
+                }
+            });
+            $stats['after'] = ['pool_rows_with_erf' => (int) DB::table('portal_advert_facts')->whereNotNull('erf_size_m2')->count(), 'pool_rows_erf_equals_advert_floor' => (int) (clone $candidates)->distinct()->count('f.id')];
+        }
+
+        return $stats;
+    }
+
+    // ── file-floor-size ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * The property files whose wrong erf was cleared (read from the erf-floor row journal) get the floor size of their live
+     * adverts - only when the file has none and its adverts agree on one figure.
+     */
+    public function fileFloorSize(bool $apply, array $exclude = [20], ?string $fromJournal = null): array
+    {
+        $ids = [];
+        if ($fromJournal !== null && is_file($fromJournal)) {
+            foreach (file($fromJournal, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+                $r = json_decode($line, true);
+                if (($r['table'] ?? null) === 'tracked_properties' && ($r['column'] ?? null) === 'erf_size_m2') {
+                    $ids[] = (int) $r['key'];
+                }
+            }
+        }
+        $stats = ['files_in_journal' => count($ids), 'files_already_have_floor_size' => 0, 'files_without_a_live_advert_floor' => 0,
+            'files_adverts_disagree_skipped' => 0, 'floor_sizes_to_fill' => 0];
+
+        $fill = [];
+        foreach (array_chunk($ids, 500) as $chunk) {
+            $files = DB::table('tracked_properties')->whereIn('id', $chunk)->when($exclude !== [], fn ($q) => $q->whereNotIn('agency_id', $exclude))->get(['id', 'floor_size_m2'])->keyBy('id');
+            $floors = DB::table('prospecting_listings')->whereIn('tracked_property_id', $chunk)->whereNull('deleted_at')->whereNotNull('property_size_m2')
+                ->get(['tracked_property_id', 'property_size_m2'])->groupBy('tracked_property_id');
+            foreach ($files as $id => $f) {
+                if ($f->floor_size_m2 !== null) {
+                    $stats['files_already_have_floor_size']++;
+
+                    continue;
+                }
+                $distinct = collect($floors[$id] ?? [])->map(fn ($a) => round((float) $a->property_size_m2, 2))->unique()->values();
+                if ($distinct->isEmpty()) {
+                    $stats['files_without_a_live_advert_floor']++;
+                } elseif ($distinct->count() > 1) {
+                    $stats['files_adverts_disagree_skipped']++;
+                } else {
+                    $fill[(int) $id] = $distinct[0];
+                }
+            }
+        }
+        $stats['floor_sizes_to_fill'] = count($fill);
+
+        if ($apply) {
+            DB::transaction(function () use ($fill) {
+                foreach ($fill as $id => $size) {
+                    if (DB::table('tracked_properties')->where('id', $id)->whereNull('floor_size_m2')->update(['floor_size_m2' => $size])) {
+                        $this->log('tracked_properties', (string) $id, 'floor_size_m2', null, $size);
+                    }
+                }
+            });
         }
 
         return $stats;

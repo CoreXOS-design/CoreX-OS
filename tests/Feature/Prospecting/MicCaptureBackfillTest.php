@@ -257,6 +257,84 @@ final class MicCaptureBackfillTest extends TestCase
         $this->assertSame(0, $svc->erfFloor(true, [$testAgency->id])['adverts_to_clear']);
     }
 
+    private function pool(string $ref, ?float $erf): int
+    {
+        return (int) DB::table('portal_advert_facts')->insertGetId(['canonical_ref' => $ref, 'portal' => 'p24', 'listing_id' => substr($ref, 4), 'erf_size_m2' => $erf,
+            'status' => 'active', 'seen_count' => 1, 'created_at' => now(), 'updated_at' => now()]);
+    }
+
+    public function test_the_pool_erf_that_is_really_a_floor_size_is_cleared_unless_a_page_read_or_deeds_or_an_advert_backs_it(): void
+    {
+        $svc = app(MicCaptureBackfill::class);
+        // already cleared adverts (erf null, floor known)
+        $this->listing($this->a, 'P24-120000001', ['canonical_ref' => 'p24:120000001', 'property_size_m2' => 100]);
+        $this->listing($this->a, 'P24-120000002', ['canonical_ref' => 'p24:120000002', 'property_size_m2' => 110, 'details_read_at' => now()]);
+        $this->listing($this->a, 'P24-120000003', ['canonical_ref' => 'p24:120000003', 'property_size_m2' => 120]);
+        $this->listing($this->b, 'P24-120000003', ['canonical_ref' => 'p24:120000003', 'property_size_m2' => 120, 'erf_size_m2' => 120]);   // another agency's advert still shows it
+        $t = $this->tp($this->a, 130, ['deeds_captured_at' => now()]);
+        $this->listing($this->a, 'P24-120000004', ['canonical_ref' => 'p24:120000004', 'property_size_m2' => 130, 'tracked_property_id' => $t]);
+        $this->listing($this->a, 'P24-120000005', ['canonical_ref' => 'p24:120000005', 'property_size_m2' => 140]);   // pool erf is a real, different figure
+        $f1 = $this->pool('p24:120000001', 100);
+        $f2 = $this->pool('p24:120000002', 110);
+        $f3 = $this->pool('p24:120000003', 120);
+        $f4 = $this->pool('p24:120000004', 130);
+        $f5 = $this->pool('p24:120000005', 900);
+
+        $dry = $svc->erfFloorPool(false, []);
+        $this->assertSame(4, $dry['before']['pool_rows_erf_equals_advert_floor']);
+        $this->assertSame([1, 1, 1, 1], [$dry['kept_listing_page_read'], $dry['kept_an_advert_still_shows_that_erf'], $dry['kept_deeds'], $dry['to_clear']]);
+        $this->assertEquals(100, DB::table('portal_advert_facts')->where('id', $f1)->value('erf_size_m2'));
+
+        $j = $this->journal();
+        $svc->journalTo($j);
+        $svc->erfFloorPool(true, []);
+        $svc->journalTo(null);
+        $this->assertNull(DB::table('portal_advert_facts')->where('id', $f1)->value('erf_size_m2'));
+        foreach ([$f2, $f3, $f4] as $id) {
+            $this->assertNotNull(DB::table('portal_advert_facts')->where('id', $id)->value('erf_size_m2'), "kept $id");
+        }
+        $this->assertEquals(900, DB::table('portal_advert_facts')->where('id', $f5)->value('erf_size_m2'));
+        $this->assertCount(1, file($j));
+        $this->assertSame(0, $svc->erfFloorPool(true, [])['to_clear']);
+    }
+
+    public function test_cleared_files_get_the_floor_size_of_their_live_adverts_when_they_agree(): void
+    {
+        $svc = app(MicCaptureBackfill::class);
+        $one = $this->tp($this->a, null);
+        $this->listing($this->a, 'P24-121000001', ['tracked_property_id' => $one, 'property_size_m2' => 88]);
+        $this->listing($this->a, 'P24-121000002', ['tracked_property_id' => $one, 'property_size_m2' => 88.00]);
+        $has = $this->tp($this->a, null, ['floor_size_m2' => 70]);
+        $this->listing($this->a, 'P24-121000003', ['tracked_property_id' => $has, 'property_size_m2' => 99]);
+        $split = $this->tp($this->a, null);
+        $this->listing($this->a, 'P24-121000004', ['tracked_property_id' => $split, 'property_size_m2' => 60]);
+        $this->listing($this->a, 'P24-121000005', ['tracked_property_id' => $split, 'property_size_m2' => 75]);
+        $none = $this->tp($this->a, null);
+        $this->listing($this->a, 'P24-121000006', ['tracked_property_id' => $none]);
+        $notInJournal = $this->tp($this->a, null);
+        $this->listing($this->a, 'P24-121000007', ['tracked_property_id' => $notInJournal, 'property_size_m2' => 50]);
+
+        $from = $this->journal();
+        file_put_contents($from, collect([$one, $has, $split, $none])->map(fn ($id) => json_encode(['table' => 'tracked_properties', 'key' => (string) $id, 'column' => 'erf_size_m2', 'old' => 88, 'new' => null]))->implode("\n") . "\n"
+            . json_encode(['table' => 'prospecting_listings', 'key' => '1', 'column' => 'erf_size_m2', 'old' => 88, 'new' => null]) . "\n");
+
+        $dry = $svc->fileFloorSize(false, [], $from);
+        $this->assertSame([4, 1, 1, 1, 1], [$dry['files_in_journal'], $dry['files_already_have_floor_size'], $dry['files_without_a_live_advert_floor'], $dry['files_adverts_disagree_skipped'], $dry['floor_sizes_to_fill']]);
+        $this->assertNull(DB::table('tracked_properties')->where('id', $one)->value('floor_size_m2'));
+
+        $j = $this->journal();
+        $svc->journalTo($j);
+        $svc->fileFloorSize(true, [], $from);
+        $svc->journalTo(null);
+        $this->assertEquals(88, DB::table('tracked_properties')->where('id', $one)->value('floor_size_m2'));
+        $this->assertEquals(70, DB::table('tracked_properties')->where('id', $has)->value('floor_size_m2'), 'an existing floor size is kept');
+        $this->assertNull(DB::table('tracked_properties')->where('id', $split)->value('floor_size_m2'), 'disagreeing adverts: not guessed');
+        $this->assertNull(DB::table('tracked_properties')->where('id', $none)->value('floor_size_m2'));
+        $this->assertNull(DB::table('tracked_properties')->where('id', $notInJournal)->value('floor_size_m2'), 'only the files the erf step cleared');
+        $this->assertCount(1, file($j));
+        $this->assertSame(0, $svc->fileFloorSize(true, [], $from)['floor_sizes_to_fill']);
+    }
+
     // ---- the command ---------------------------------------------------------------------------------------------
 
     public function test_command_defaults_to_a_dry_run_and_rejects_unknown_steps_and_both_flags(): void

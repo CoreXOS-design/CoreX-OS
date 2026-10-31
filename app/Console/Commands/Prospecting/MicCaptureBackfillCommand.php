@@ -20,10 +20,11 @@ use Illuminate\Support\Facades\File;
 final class MicCaptureBackfillCommand extends Command
 {
     protected $signature = 'mic:capture-backfill
-        {step : p24-groups | floor-sizes | sale-agency | erf-floor}
+        {step : p24-groups | floor-sizes | sale-agency | erf-floor | erf-floor-pool | file-floor-size}
         {--dry-run : Count what would change, write nothing (the default)}
         {--apply : Write the change and journal every row}
         {--exclude-agency=20 : Comma-separated agency ids to leave out (test / demo agencies)}
+        {--from-journal= : file-floor-size: the erf-floor row journal naming the files to fill}
         {--journal-dir= : Where the row-level journal is written (default: storage/app/reports)}';
 
     protected $description = 'MIC capture back-fills: P24 groups from stored pages, floor sizes, owner adverts stored as agency "Sale" (dry run first)';
@@ -64,6 +65,8 @@ final class MicCaptureBackfillCommand extends Command
             'floor-sizes' => $backfill->floorSizes($apply, $exclude),
             'sale-agency' => $backfill->saleAgency($apply, $exclude),
             'erf-floor'   => $backfill->erfFloor($apply, $exclude),
+            'erf-floor-pool'  => $backfill->erfFloorPool($apply, $exclude),
+            'file-floor-size' => $backfill->fileFloorSize($apply, $exclude, $this->option('from-journal') ?: null),
         };
         $backfill->journalTo(null);
 
