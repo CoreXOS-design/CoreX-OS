@@ -13,6 +13,8 @@
  */
 import fs from 'node:fs';
 import puppeteer from 'puppeteer-core';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const job = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -79,8 +81,39 @@ if (job.probe) {
 }
 
 const timeline = { recording_started: null, intro: null, steps: [], outro: null, total: 0 };
-const rec = await page.screencast({ path: job.out });
+// Frames are captured through the DevTools protocol WITH THEIR REAL TIMESTAMPS and assembled at true timing. (page.screencast encodes frames as they arrive and
+// drops frames when the page is busy, which made the video run about 16% faster than the clock the timeline and the voice-over use.)
+const framesDir = path.join(path.dirname(job.out), 'frames');
+fs.mkdirSync(framesDir, { recursive: true });
+const frames = [];
+const cdp = await page.createCDPSession();
+cdp.on('Page.screencastFrame', async ({ data, metadata, sessionId }) => {
+  const n = frames.length;
+  fs.writeFileSync(path.join(framesDir, `f${String(n).padStart(6, '0')}.jpg`), Buffer.from(data, 'base64'));
+  frames.push(metadata.timestamp);
+  await cdp.send('Page.screencastFrameAck', { sessionId }).catch(() => {});
+});
 const r0 = Date.now(); const at = () => (Date.now() - r0) / 1000;
+await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 85, maxWidth: job.viewport.width, maxHeight: job.viewport.height, everyNthFrame: 1 });
+const rec = {
+  stop: async () => {
+    await cdp.send('Page.stopScreencast').catch(() => {});
+    const end = Date.now() / 1000;
+    if (!frames.length) throw new Error('the screencast produced no frames');
+    const start = r0 / 1000;
+    const lines = [];
+    frames.forEach((t, i) => {
+      const from = i === 0 ? start : t;                       // the first frame also covers the time before it arrived
+      const to = i + 1 < frames.length ? frames[i + 1] : end;
+      lines.push(`file 'f${String(i).padStart(6, '0')}.jpg'`, `duration ${Math.max(0.001, to - from).toFixed(4)}`);
+    });
+    lines.push(`file 'f${String(frames.length - 1).padStart(6, '0')}.jpg'`);   // concat quirk: the last file is repeated
+    fs.writeFileSync(path.join(framesDir, 'frames.txt'), lines.join('\n'));
+    const r = spawnSync('ffmpeg', ['-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', path.join(framesDir, 'frames.txt'), '-vf', 'fps=25,format=yuv420p', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', job.out], { encoding: 'utf8' });
+    if (r.status !== 0) throw new Error('ffmpeg could not assemble the frames: ' + r.stderr);
+    fs.rmSync(framesDir, { recursive: true, force: true });
+  },
+};
 timeline.recording_started = new Date(r0).toISOString();
 log('recording');
 
