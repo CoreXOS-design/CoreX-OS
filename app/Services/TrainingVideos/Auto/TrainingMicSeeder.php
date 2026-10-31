@@ -146,6 +146,9 @@ class TrainingMicSeeder
         DB::table('prospecting_listings')->where('agency_id', $aid)->where('suburb', 'Margate')->update(['last_seen_at' => $now->copy()->subDays(12)]);
         DB::table('prospecting_listings')->where('agency_id', $aid)->where('suburb', 'Ramsgate')->update(['last_seen_at' => $now->copy()->subDays(5)]);
 
+        // The suburbs this agency works, as an agency lists them once in MIC Settings: the Data refreshed tile and panel count only OUR working suburbs (step 4.8)
+        \App\Models\MicAgencySetting::saveValues($aid, ['areas' => array_values($subs->only(['Uvongo', 'Margate', 'Shelly Beach', 'Ramsgate'])->map(fn ($id) => (int) $id)->all())]);
+
         try {
             \Illuminate\Support\Facades\Artisan::call('mic:refresh-stats', ['--agency' => $aid]);
         } catch (\Throwable $e) {
@@ -168,7 +171,7 @@ class TrainingMicSeeder
         DB::table('p24_listings')->where('agency_id', $aid)->delete();
         $advertIds = DB::table('prospecting_listings')->where('agency_id', $aid)->pluck('id');
         DB::table('prospecting_price_history')->whereIn('prospecting_listing_id', $advertIds)->delete();
-        foreach (['prospecting_claims', 'tracked_property_agency_work_events', 'tracked_property_agency_work', 'tracked_property_external_refs', 'mic_file_stats', 'prospecting_listings', 'tracked_properties'] as $t) {
+        foreach (['prospecting_claims', 'tracked_property_agency_work_events', 'tracked_property_agency_work', 'tracked_property_external_refs', 'mic_file_stats', 'mic_agency_settings', 'prospecting_listings', 'tracked_properties'] as $t) {
             DB::table($t)->where('agency_id', $aid)->delete();
         }
     }

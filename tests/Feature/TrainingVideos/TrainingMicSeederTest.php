@@ -67,6 +67,19 @@ final class TrainingMicSeederTest extends TestCase
         }
     }
 
+    public function test_the_refresh_panel_shows_the_agencys_listed_suburbs_oldest_first(): void
+    {
+        foreach (['Uvongo', 'Margate', 'Shelly Beach', 'Ramsgate'] as $i => $name) {
+            DB::table('p24_suburbs')->insert(['id' => 900001 + $i, 'name' => $name, 'slug' => strtolower(str_replace(' ', '-', $name)), 'p24_id' => 900001 + $i, 'created_at' => now(), 'updated_at' => now()]);
+        }
+        $r = app(TrainingAgencySeeder::class)->seed();
+        $rows = app(\App\Services\Prospecting\MicWork\RefreshStatusPanelProvider::class)->rows($r['agency']->id, $r['users']['agent'], ['scope' => 'all']);
+
+        $this->assertCount(4, $rows);
+        $this->assertSame('Margate', $rows[0]['suburb'], 'the oldest read is first');
+        $this->assertTrue($rows[0]['overdue']);
+    }
+
     public function test_it_is_idempotent_and_reset_starts_clean(): void
     {
         $seeder = app(TrainingAgencySeeder::class);
