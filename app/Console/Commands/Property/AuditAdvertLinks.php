@@ -46,7 +46,7 @@ final class AuditAdvertLinks extends Command
         foreach ($agencies as $agencyId) {
             $results[$agencyId] = $audit->run($agencyId, $apply);
             $r = $results[$agencyId];
-            $this->line("agency {$agencyId}: audited {$r['audited']}, contradictions {$r['contradictions']} " . json_encode($r['by_kind']) . ", moved to an existing file {$r['moved_to_existing']}, to a new file {$r['moved_to_new']}, emptied files {$r['files_emptied']}");
+            $this->line("agency {$agencyId}: audited {$r['audited']}, contradictions {$r['contradictions']} " . json_encode($r['by_kind']) . ", moved to an existing file {$r['moved_to_existing']}, to a new file {$r['moved_to_new']}, emptied files {$r['files_emptied']}; link method " . json_encode($r['by_link_method']));
         }
         $merger->journalTo(null);
         $report = $dir . '/advert-link-audit-' . ($apply ? 'apply' : 'dry-run') . "-{$stamp}.json";

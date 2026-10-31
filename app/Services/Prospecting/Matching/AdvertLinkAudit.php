@@ -29,7 +29,7 @@ final class AdvertLinkAudit
     /** @return array<string,mixed> */
     public function run(int $agencyId, bool $apply): array
     {
-        $out = ['audited' => 0, 'contradictions' => 0, 'by_kind' => ['number' => 0, 'street' => 0, 'region' => 0], 'moved_to_existing' => 0, 'moved_to_new' => 0, 'files_emptied' => 0, 'samples' => []];
+        $out = ['audited' => 0, 'contradictions' => 0, 'by_kind' => ['number' => 0, 'street' => 0, 'region' => 0], 'by_link_method' => [], 'moved_to_existing' => 0, 'moved_to_new' => 0, 'files_emptied' => 0, 'samples' => []];
 
         DB::table('prospecting_listings as l')
             ->join('tracked_properties as t', function ($j) use ($agencyId) {
@@ -52,8 +52,12 @@ final class AdvertLinkAudit
                     }
                     $out['contradictions']++;
                     $out['by_kind'][$bad['kind']]++;
-                    if (count($out['samples']) < 400) {
-                        $out['samples'][] = ['kind' => $bad['kind'], 'advert' => $l->canonical_ref, 'agency' => $l->agency_name, 'file' => (int) $l->tracked_property_id, 'why' => $bad['reason']];
+                    // which rule put it there: the link method saved on the advert's ref (portal_group = R3; empty = the original capture / back-fill)
+                    $method = (string) (DB::table('tracked_property_external_refs')->where('agency_id', $agencyId)->where('tracked_property_id', $l->tracked_property_id)
+                        ->where('canonical_ref', $l->canonical_ref)->whereNull('deleted_at')->value('match_method') ?: 'none (original capture)');
+                    $out['by_link_method'][$method] = ($out['by_link_method'][$method] ?? 0) + 1;
+                    if (count($out['samples']) < 5000) {
+                        $out['samples'][] = ['kind' => $bad['kind'], 'link' => $method, 'advert' => $l->canonical_ref, 'agency' => $l->agency_name, 'file' => (int) $l->tracked_property_id, 'why' => $bad['reason']];
                     }
                     if ($apply) {
                         $this->moveOut($agencyId, $l, $file, $out);
