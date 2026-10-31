@@ -19,6 +19,7 @@ class AddressMatchSetting extends Model
         'agency_id', 'rule_erf_exact', 'rule_scheme_exact', 'rule_street_exact',
         'possible_min_agreeing_columns', 'neighbour_suburb_credit', 'gps_radius_m', 'unit_missing_on_one_side',
         'fuzzy_threshold', 'auto_merge_min_confidence', 'auto_claim_min_confidence', 'same_address_sweep',
+        'portal_group_link_enabled', 'portal_group_price_spread', 'portal_group_auto_link_min_confidence', 'twin_match_enabled', 'twin_price_tolerance_pct', 'twin_min_corroboration', 'twin_auto_link', 'complex_group_enabled', 'complex_min_land_m2', 'map_point_check_enabled', 'map_point_distance_m',
     ];
 
     protected $casts = [
@@ -29,6 +30,11 @@ class AddressMatchSetting extends Model
         'gps_radius_m'                  => 'integer',
         'fuzzy_threshold'               => 'integer',
         'same_address_sweep'            => 'boolean',
+        'portal_group_link_enabled'     => 'boolean',
+        'twin_match_enabled'            => 'boolean',
+        'twin_auto_link'                => 'boolean',
+        'complex_group_enabled'         => 'boolean',
+        'map_point_check_enabled'       => 'boolean',
     ];
 
     public const NEIGHBOUR_CREDITS = ['possible', 'ignore'];
@@ -51,6 +57,18 @@ class AddressMatchSetting extends Model
         'auto_merge_min_confidence'     => 'high',
         'auto_claim_min_confidence'     => 'high',
         'same_address_sweep'            => true,
+        // AT-520 4.4 (mic-work-tab.md sections 4 and 9)
+        'portal_group_link_enabled'     => true,
+        'portal_group_price_spread'     => 1.5,
+        'portal_group_auto_link_min_confidence' => 'high',
+        'twin_match_enabled'            => true,
+        'twin_price_tolerance_pct'      => 1,
+        'twin_min_corroboration'        => 2,
+        'twin_auto_link'                => false,
+        'complex_group_enabled'         => true,
+        'complex_min_land_m2'           => 1000,
+        'map_point_check_enabled'       => true,
+        'map_point_distance_m'          => 150,
     ];
 
     /**
@@ -92,7 +110,15 @@ class AddressMatchSetting extends Model
         if (! in_array($out['auto_claim_min_confidence'], self::AUTO_CLAIM_LEVELS, true)) {
             $out['auto_claim_min_confidence'] = self::DEFAULTS['auto_claim_min_confidence'];
         }
-        foreach (['rule_erf_exact', 'rule_scheme_exact', 'rule_street_exact', 'same_address_sweep'] as $flag) {
+        $out['portal_group_price_spread'] = max(1.1, min(3.0, (float) $out['portal_group_price_spread']));
+        if (! in_array($out['portal_group_auto_link_min_confidence'], self::AUTO_MERGE_LEVELS, true)) {
+            $out['portal_group_auto_link_min_confidence'] = self::DEFAULTS['portal_group_auto_link_min_confidence'];
+        }
+        $out['twin_price_tolerance_pct'] = max(0, min(5, (int) $out['twin_price_tolerance_pct']));
+        $out['twin_min_corroboration'] = max(1, min(4, (int) $out['twin_min_corroboration']));
+        $out['complex_min_land_m2'] = max(100, min(100000, (int) $out['complex_min_land_m2']));
+        $out['map_point_distance_m'] = max(25, min(1000, (int) $out['map_point_distance_m']));
+        foreach (['rule_erf_exact', 'rule_scheme_exact', 'rule_street_exact', 'same_address_sweep', 'portal_group_link_enabled', 'twin_match_enabled', 'twin_auto_link', 'complex_group_enabled', 'map_point_check_enabled'] as $flag) {
             $out[$flag] = (bool) $out[$flag];
         }
 

@@ -51,6 +51,12 @@ class AddressMatchingRulesController extends Controller
             'fuzzy_threshold'               => ['sometimes', 'integer', 'min:60', 'max:100'],
             'auto_merge_min_confidence'     => ['sometimes', Rule::in(AddressMatchSetting::AUTO_MERGE_LEVELS)],
             'auto_claim_min_confidence'     => ['sometimes', Rule::in(AddressMatchSetting::AUTO_CLAIM_LEVELS)],
+            'portal_group_price_spread'     => ['sometimes', 'numeric', 'min:1.1', 'max:3'],
+            'portal_group_auto_link_min_confidence' => ['sometimes', Rule::in(AddressMatchSetting::AUTO_MERGE_LEVELS)],
+            'twin_price_tolerance_pct'      => ['sometimes', 'integer', 'min:0', 'max:5'],
+            'twin_min_corroboration'        => ['sometimes', 'integer', 'min:1', 'max:4'],
+            'complex_min_land_m2'           => ['sometimes', 'integer', 'min:100', 'max:100000'],
+            'map_point_distance_m'          => ['sometimes', 'integer', 'min:25', 'max:1000'],
         ]);
 
         $current = AddressMatchSetting::forAgency($agencyId);
@@ -68,8 +74,36 @@ class AddressMatchingRulesController extends Controller
             'auto_claim_min_confidence'     => $v['auto_claim_min_confidence'] ?? $current['auto_claim_min_confidence'],
             // a form that does not carry the switch (a partial post) never turns it off
             'same_address_sweep'            => $request->has('same_address_sweep_present') ? $request->boolean('same_address_sweep') : $current['same_address_sweep'],
-        ]);
+        ] + $this->matchingRules($request, $v, $current));
 
         return back()->with('status', 'Address matching settings saved.');
+    }
+
+    /**
+     * AT-520 4.4: the portal-group, twin, complex and map-point settings. A post that does not carry this block (`matching_rules_present`) never
+     * changes them; each number falls back to the stored value when absent.
+     *
+     * @param  array<string,mixed> $v
+     * @param  array<string,mixed> $current
+     * @return array<string,mixed>
+     */
+    private function matchingRules(Request $request, array $v, array $current): array
+    {
+        $present = $request->has('matching_rules_present');
+        $flag = fn (string $k) => $present ? $request->boolean($k) : $current[$k];
+
+        return [
+            'portal_group_link_enabled'  => $flag('portal_group_link_enabled'),
+            'twin_match_enabled'         => $flag('twin_match_enabled'),
+            'twin_auto_link'             => $flag('twin_auto_link'),
+            'complex_group_enabled'      => $flag('complex_group_enabled'),
+            'map_point_check_enabled'    => $flag('map_point_check_enabled'),
+            'portal_group_price_spread'  => (float) ($v['portal_group_price_spread'] ?? $current['portal_group_price_spread']),
+            'portal_group_auto_link_min_confidence' => $v['portal_group_auto_link_min_confidence'] ?? $current['portal_group_auto_link_min_confidence'],
+            'twin_price_tolerance_pct'   => (int) ($v['twin_price_tolerance_pct'] ?? $current['twin_price_tolerance_pct']),
+            'twin_min_corroboration'     => (int) ($v['twin_min_corroboration'] ?? $current['twin_min_corroboration']),
+            'complex_min_land_m2'        => (int) ($v['complex_min_land_m2'] ?? $current['complex_min_land_m2']),
+            'map_point_distance_m'       => (int) ($v['map_point_distance_m'] ?? $current['map_point_distance_m']),
+        ];
     }
 }

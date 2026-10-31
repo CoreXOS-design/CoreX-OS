@@ -35,7 +35,14 @@ class PossibleMatchesController extends Controller
 {
     private const SORTS = ['confidence' => 'd.confidence_score', 'source' => 'd.strategy', 'address' => 'r.street_name', 'decided' => 'd.decided_at'];
 
-    public const KINDS = ['own_stock' => 'Our listing ↔ captured property', 'advert_clash' => 'Same advert on two captured properties', 'capture' => 'New capture ↔ existing property'];
+    public const KINDS = [
+        'own_stock' => 'Our listing ↔ captured property', 'advert_clash' => 'Same advert on two captured properties', 'capture' => 'New capture ↔ existing property',
+        // AT-520 (property-identity.md 17-18): pairs the after-import sweep and the matching rules queue
+        'same_address' => 'Same address - flat, block or no unit', 'portal_group' => 'Same property on P24 (portal group)',
+        'twin' => 'Same agency, other portal', 'complex' => 'Same complex', 'map_point' => 'Map point disagrees with the address',
+    ];
+    /** kinds recorded in incoming_facts.kind by the AT-520 rules */
+    private const FACT_KINDS = ['advert_clash', 'same_address', 'portal_group', 'twin', 'complex', 'map_point'];
 
     private function agencyId(Request $request): int
     {
@@ -66,10 +73,12 @@ class PossibleMatchesController extends Controller
         };
         if ($kind === 'own_stock') {
             $q->where('d.subject_key', 'like', 'property:%');
-        } elseif ($kind === 'advert_clash') {
-            $q->where('d.subject_key', 'not like', 'property:%')->where('d.incoming_facts', 'like', '%advert_clash%');
+        } elseif (in_array($kind, self::FACT_KINDS, true)) {
+            $q->where('d.subject_key', 'not like', 'property:%')->whereRaw("JSON_UNQUOTE(JSON_EXTRACT(d.incoming_facts, '$.kind')) = ?", [$kind]);
         } elseif ($kind === 'capture') {
-            $q->where('d.subject_key', 'not like', 'property:%')->where(fn ($w) => $w->whereNull('d.incoming_facts')->orWhere('d.incoming_facts', 'not like', '%advert_clash%'));
+            $q->where('d.subject_key', 'not like', 'property:%')->where(function ($w) {
+                $w->whereNull('d.incoming_facts')->orWhereRaw("COALESCE(JSON_UNQUOTE(JSON_EXTRACT(d.incoming_facts, '$.kind')), '') NOT IN ('" . implode("','", self::FACT_KINDS) . "')");
+            });
         }
         if ($source !== '') {
             $q->where('d.strategy', $source);
@@ -230,7 +239,7 @@ class PossibleMatchesController extends Controller
 
         $isOwn = str_starts_with((string) $r->subject_key, 'property:');
         $facts = json_decode((string) $r->incoming_facts, true) ?: [];
-        $kind = $isOwn ? 'own_stock' : (($facts['kind'] ?? null) === 'advert_clash' ? 'advert_clash' : 'capture');
+        $kind = $isOwn ? 'own_stock' : (in_array($facts['kind'] ?? null, self::FACT_KINDS, true) ? $facts['kind'] : 'capture');
 
         if ($isOwn) {
             $left = $r->lp_id ? ($r->lp_address ?: '(no address)') . ($r->lp_suburb && ! str_contains((string) $r->lp_address, (string) $r->lp_suburb) ? ', ' . $r->lp_suburb : '') : 'Listing #' . substr((string) $r->subject_key, 9) . ' (gone)';
