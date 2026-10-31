@@ -126,7 +126,8 @@ final class OpportunityScoreService
 
             // seller
             $seller = [
-                'price_cuts'    => min(40, ((int) $f->cuts_count > 0 ? 30 : 0) + ((int) $f->cuts_count >= 2 || (int) $f->cuts_90d > 0 ? 10 : 0)),
+                // a cut only counts while the lead advert is still BELOW where it started (a cut that was later reversed is not a seller signal)
+                'price_cuts'    => min(40, ($cutCredit = (int) $f->cuts_count > 0 && ($f->price_move === null || (int) $f->price_move < 0)) ? 30 + ((int) $f->cuts_count >= 2 || (int) $f->cuts_90d > 0 ? 10 : 0) : 0),
                 'relisted'      => (int) $f->relisted === 1 ? 20 : 0,
                 'long_dom'      => $f->dom_days === null ? 0 : ((int) $f->dom_days >= 2 * $stuckDom ? 30 : ((int) $f->dom_days >= $stuckDom ? 20 : 0)),
                 'owner_selling' => isset($privately[$id]) ? 30 : 0,

@@ -224,4 +224,22 @@ final class OpportunityScoreTest extends TestCase
         $this->assertSame(1, (int) $row->owner_advert);
         $this->assertSame(1, (int) $row->claimed);
     }
+
+    public function test_a_cut_that_was_later_reversed_earns_no_price_cut_credit(): void
+    {
+        $tp = $this->file($this->a);
+        $ad = $this->advert($this->a, $tp, 'P24-R', ['price' => 1_020_000]);
+        DB::table('prospecting_price_history')->insert([
+            ['prospecting_listing_id' => $ad, 'old_price' => 1_000_000, 'new_price' => 950_000, 'changed_at' => now()->subDays(20), 'created_at' => now(), 'updated_at' => now()],
+            ['prospecting_listing_id' => $ad, 'old_price' => 950_000, 'new_price' => 1_020_000, 'changed_at' => now()->subDays(5), 'created_at' => now(), 'updated_at' => now()],
+        ]);
+
+        app(MicStatsBuilder::class)->refreshAgency($this->a);
+
+        $row = DB::table('mic_file_stats')->where('agency_id', $this->a)->where('tracked_property_id', $tp)->first();
+        $this->assertSame(1, (int) $row->cuts_count);
+        $this->assertSame(20_000, (int) $row->price_move, 'net: above where it started');
+        $this->assertNotSame('price_cuts', $row->reason_1);
+        $this->assertNotSame('price_cuts', $row->reason_2);
+    }
 }
