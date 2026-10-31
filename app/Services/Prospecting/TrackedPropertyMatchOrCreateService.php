@@ -1179,6 +1179,11 @@ final class TrackedPropertyMatchOrCreateService
             }
         }
 
+        $blank = $this->blankSuburbMatch($agencyId, $facts, $source, $a);
+        if ($blank !== null) {
+            return $blank;
+        }
+
         // Nothing certain: keep the scorer's POSSIBLE tier, and street-only candidates worth a look, as possible matches.
         $fuzzyMin = (int) ($this->settings($agencyId)['fuzzy_threshold'] ?? 85);
         foreach ($hits as $h) {
@@ -1189,6 +1194,51 @@ final class TrackedPropertyMatchOrCreateService
             } elseif ($tier === AddressMatchScorer::TIER_STREET_ONLY && $score >= $fuzzyMin) {
                 $this->addPossible($h['model'], 'weak', 'fuzzy', (string) ($h['result']['reasons'][0] ?? 'Same street and suburb; the number differs or is missing.'), $score);
             }
+        }
+
+        return null;
+    }
+
+    /**
+     * property-identity.md section 17 (M1): the suburb is missing on ONE side (the incoming advert, or the file it should join) but the street
+     * number, street and unit agree. The suburb is borrowed from whichever side has it, so the same house is never filed twice just because one
+     * record never learned its suburb. Exactly one such file links (high, `address_no_suburb`); several files, or a unit-type property with no
+     * unit named, are recorded as possible matches for the review list - never merged on a guess.
+     */
+    private function blankSuburbMatch(int $agencyId, array $facts, array $source, AddressFacts $a): ?TrackedProperty
+    {
+        if ($a->streetNumber === null || $a->streetCore === null || mb_strlen($a->streetCore) < 3) {
+            return null;
+        }
+        $incomingBlank = $a->suburbKeys === [] && $a->p24SuburbId === null;
+        $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $a->streetCore) . '%';
+        $q = TrackedProperty::queryWithoutAgencyScope()
+            ->where('agency_id', $agencyId)->whereNull('deleted_at')->whereIn('status', ['active', 'promoted'])
+            ->where('street_number', $a->streetNumber)
+            ->whereRaw("REPLACE(street_name, '''', '') LIKE ?", [$like]);
+        if (! $incomingBlank) {
+            $q->where(fn ($w) => $w->whereNull('suburb_normalised')->orWhere('suburb_normalised', ''));
+        }
+
+        $scorer = app(AddressMatchScorer::class);
+        $settings = $this->settings($agencyId);
+        $fits = [];
+        foreach ($q->limit(25)->get() as $tp) {
+            $r = $scorer->score($a, AddressFacts::fromModel($tp), $settings);
+            $col = $r['columns'];
+            if ($r['veto'] === [] && $col['number'] === 'agree' && $col['street'] === 'agree' && $col['suburb'] === 'missing' && in_array($col['unit'], ['agree', 'missing'], true)) {
+                $fits[] = [$tp, (int) ($r['score'] ?? 0)];
+            }
+        }
+        if ($fits === []) {
+            return null;
+        }
+        $reason = 'Street number, street name and unit match; the suburb is missing on one side.';
+        if (count($fits) === 1 && ! $this->unitDoubt($facts, $fits[0][0])) {
+            return $this->linkOrPossible($agencyId, $source, $fits[0][0], '4_normalised_address', 'high', 'address_no_suburb', $reason, $fits[0][1]);
+        }
+        foreach ($fits as [$tp, $score]) {
+            $this->addPossible($tp, 'probable', 'address_no_suburb', $reason, $score);
         }
 
         return null;

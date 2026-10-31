@@ -439,4 +439,44 @@ final class PropertyIdentityResolverTest extends TestCase
         sort($callers);
         $this->assertSame(['Services/Prospecting/PropertyIdentityResolver.php', 'Services/Prospecting/TrackedPropertyMatchOrCreateService.php'], array_map(fn ($c) => str_replace('\\', '/', $c), $callers));
     }
+    // ---- M1: the suburb is missing on one side (property-identity.md section 17) ---------------------------
+
+    public function test_a_house_filed_without_a_suburb_is_joined_by_a_later_advert_that_has_one(): void
+    {
+        $first = $this->mic('P24-115165364', ['street_number' => '33', 'street_name' => 'Windsor Avenue']);
+        $second = $this->mic('P24-117266305', ['street_number' => '33', 'street_name' => 'Windsor Avenue', 'suburb' => 'Margate']);
+
+        $this->assertFalse($second->created, 'same number + street, suburb unknown on the file: the same house');
+        $this->assertSame($first->trackedProperty->id, $second->trackedProperty->id);
+        $this->assertSame('high', $second->confidence);
+        $this->assertSame(1, $this->tpCount());
+    }
+
+    public function test_an_advert_with_no_suburb_joins_the_one_house_with_that_number_and_street(): void
+    {
+        $first = $this->mic('P24-115165364', ['street_number' => '33', 'street_name' => 'Windsor Avenue', 'suburb' => 'Margate']);
+        $second = $this->mic('P24-117266305', ['street_number' => '33', 'street_name' => 'Windsor Avenue']);
+
+        $this->assertFalse($second->created);
+        $this->assertSame($first->trackedProperty->id, $second->trackedProperty->id);
+        $this->assertSame('address_no_suburb', $second->method);
+    }
+
+    public function test_a_flat_with_no_unit_and_no_suburb_is_only_a_possible_match(): void
+    {
+        $base = ['street_number' => '10', 'street_name' => 'Heleza Boulevard', 'property_type' => 'apartment'];
+        $this->mic('P24-116000001', $base + ['suburb' => 'Umhlanga']);
+        $b = $this->mic('P24-116000002', $base);
+
+        $this->assertTrue($b->created, 'flats in a block with no unit are never merged on the address');
+        $this->assertNotEmpty($b->possible);
+    }
+
+    public function test_a_different_street_number_without_a_suburb_is_not_matched(): void
+    {
+        $this->mic('P24-115165364', ['street_number' => '33', 'street_name' => 'Windsor Avenue', 'suburb' => 'Margate']);
+        $other = $this->mic('P24-117266305', ['street_number' => '35', 'street_name' => 'Windsor Avenue']);
+
+        $this->assertTrue($other->created);
+    }
 }
