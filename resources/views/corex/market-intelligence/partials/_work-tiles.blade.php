@@ -67,21 +67,27 @@
             <label>Suburb <input type="text" name="suburb" value="{{ request('suburb') }}" style="font-size:.75rem; width: 130px;"></label>
         </form>
         @forelse($workPanel['rows'] as $r)
-            <details data-qa="trigger-row" style="border-top: 1px solid var(--border);">
-                <summary style="display:grid; grid-template-columns: 110px 1fr 140px 110px 120px 90px; gap: 8px; padding: 5px 10px; font-size: .8125rem; cursor: pointer; list-style: none; color: var(--text-secondary);">
+            @php $openTrigger = (string) request('trigger') === (string) $r['id']; @endphp
+            <div data-qa="trigger-row" style="border-top: 1px solid var(--border);">
+                <a href="{{ $openTrigger ? $tileUrl(request()->only(['months', 'type', 'suburb']) + ['panel' => 10]) : $tileUrl(request()->only(['months', 'type', 'suburb']) + ['panel' => 10, 'trigger' => $r['id']]) }}"
+                   style="display:grid; grid-template-columns: 110px 1fr 140px 110px 120px 90px; gap: 8px; padding: 5px 10px; font-size: .8125rem; text-decoration: none; color: var(--text-secondary); {{ $openTrigger ? 'background: var(--surface-2);' : '' }}">
                     <span>{{ ['registered' => 'Registered', 'sold' => 'Sold', 'under_offer' => 'Under offer', 'our_sale' => 'Our sale'][$r['type']] ?? $r['type'] }}</span>
                     <span style="color: var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ $r['address'] }}</span>
                     <span>{{ $r['suburb'] }}</span><span>{{ $r['property_type'] ?? '' }}</span>
                     <span>{{ !empty($r['price']) ? 'R ' . number_format($r['price']) : '' }}</span><span>{{ $r['date'] ?? '' }}</span>
-                </summary>
-                @foreach($workPanel['around'][$r['id']] ?? [] as $h)
-                    <div data-qa="neighbour-row" style="display:grid; grid-template-columns: 1fr 160px 90px 140px 190px; gap: 8px; padding: 4px 10px 4px 24px; font-size: .75rem; color: var(--text-secondary); border-top: 1px dotted var(--border);">
-                        <span style="color: var(--text-primary);">{{ $h['address'] }}</span><span>{{ $h['owner'] ?? '' }}</span>
-                        <span>{{ ($h['on_market'] ?? false) ? 'On market' : 'Not listed' }}</span><span>{{ $h['last_contact'] ?? '' }}</span>
-                        <span>@if(!empty($h['property_id']))<a href="{{ route('market-intelligence.opportunities.show', ['tp' => $h['property_id']]) }}" style="color: var(--brand-icon); text-decoration: none;">Open / Claim</a>@endif</span>
-                    </div>
-                @endforeach
-            </details>
+                </a>
+                @if($openTrigger)
+                    @forelse($workPanel['around'][$r['id']] ?? [] as $h)
+                        <div data-qa="neighbour-row" style="display:grid; grid-template-columns: 1fr 160px 90px 140px 190px; gap: 8px; padding: 4px 10px 4px 24px; font-size: .75rem; color: var(--text-secondary); border-top: 1px dotted var(--border);">
+                            <span style="color: var(--text-primary);">{{ $h['address'] }}</span><span>{{ $h['owner'] ?? '' }}</span>
+                            <span>{{ ($h['on_market'] ?? false) ? 'On market' : 'Not listed' }}</span><span>{{ $h['last_contact'] ?? '' }}</span>
+                            <span>@if(!empty($h['property_id']))<a href="{{ route('market-intelligence.opportunities.show', ['tp' => $h['property_id']]) }}" style="color: var(--brand-icon); text-decoration: none;">Open / Claim</a>@endif</span>
+                        </div>
+                    @empty
+                        <div style="padding: 6px 24px; font-size: .75rem; color: var(--text-muted);">No neighbours found for this one.</div>
+                    @endforelse
+                @endif
+            </div>
         @empty
             <div style="padding: 14px 12px; font-size: .8125rem; color: var(--text-muted);">No triggers in this window. Widen the time or clear the filters.</div>
         @endforelse
