@@ -318,10 +318,10 @@ final class TileService
                 continue;
             }
             // R/m2 is only meaningful inside one title basis: "Residential" rows carry the ERF size (freehold), "Residence" rows the FLOOR (sectional).
-            $perM2 = fn ($set) => ($with = $set->filter(fn ($r) => (float) $r->extent > 0))->count() >= 3 ? round($with->avg(fn ($r) => (int) $r->sale_price / (float) $r->extent)) : null;
+            $perM2 = fn ($set) => ($with = $set->filter(fn ($r) => (float) $r->extent > 0))->count() >= 3 ? round((float) $with->avg(fn ($r) => (int) $r->sale_price / (float) $r->extent)) : null;
             $suburbs[] = [
-                'suburb_id' => (int) $sid, 'name' => $names[$sid] ?? '', 'sales_12m' => $rows->count(), 'avg_sold' => (int) round($rows->avg('sale_price')),
-                'avg_asking' => isset($asking[$sid]) ? (int) round($asking[$sid]->avg_asking) : null,
+                'suburb_id' => (int) $sid, 'name' => $names[$sid] ?? '', 'sales_12m' => $rows->count(), 'avg_sold' => (int) round((float) $rows->avg('sale_price')),
+                'avg_asking' => isset($asking[$sid]) ? (int) round((float) $asking[$sid]->avg_asking) : null,
                 'r_per_m2_erf' => $perM2($rows->filter(fn ($r) => strtolower((string) $r->ptype) === 'residential')),
                 'r_per_m2_floor' => $perM2($rows->filter(fn ($r) => strtolower((string) $r->ptype) === 'residence')),
                 'stock_trend' => null,   // needs two pocket-stat days; reported honestly instead of invented
