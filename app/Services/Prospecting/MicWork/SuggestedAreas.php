@@ -23,6 +23,6 @@ final class SuggestedAreas
         $cities = DB::table('p24_suburbs as s')->leftJoin('p24_cities as c', 'c.id', '=', 's.p24_city_id')->whereIn('s.id', array_column($rows, 'suburb_id'))->pluck('c.name', 's.id');
 
         return array_map(fn ($r) => ['id' => $r['suburb_id'], 'name' => MicWorkList::titleSuburb($r['suburb']), 'city' => ($cities[$r['suburb_id']] ?? null) ? MicWorkList::titleSuburb($cities[$r['suburb_id']]) : null,
-            'stock' => $r['stock'], 'claims' => $r['claims'], 'leads' => $r['leads'], 'total' => $r['total']], array_slice($rows, 0, 30));
+            'stock' => $r['stock'], 'claims' => $r['claims'], 'leads' => $r['leads'], 'total' => $r['total']], array_slice($rows, 0, 100));
     }
 }
