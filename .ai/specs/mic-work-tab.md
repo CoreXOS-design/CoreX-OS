@@ -147,3 +147,39 @@ cc6 — the screen: new Work tab (greeting removed, 11 tiles + panels, Excel row
 **Opportunity score (5.7), `App\Services\MarketIntelligence\Score\OpportunityScoreService`.** `score(int $agencyId, int $trackedPropertyId): ScoreResult` (final, readonly): `float $score` (0–100) · `array $parts` = `{seller,buyer,pocket,known,reachable}` each 0–100 · `array $reasons` = top 2, each `{code:string,label:string}` · `\Carbon\CarbonInterface $computedAt`. Part inputs per spec §3. **Rules applied by the service:** claimed by a colleague → `$score` multiplied by 0.4 for every other viewer is NOT stored (viewer-specific); cc6 applies the viewer rule using `mic_file_stats` + the claim, the stored score is viewer-neutral. Reason codes (stable, cc6 maps to chips): `price_cuts`, `relisted`, `long_dom`, `owner_selling`, `mandate_ended`, `strong_buyers`, `buyers_waiting`, `fast_pocket`, `lead_pocket`, `pocket_activity`, `well_known`, `deeds_owner`, `alert_history`, `reachable`, `back_on_market`, `unworked`. Sorting: `mic_file_stats.score DESC, tracked_property_id ASC`.
 
 **Not in cc5 (for the avoidance of doubt):** tiles 2, 3, 10, 11, crawl record, gone rule, merges (cc4); capture + ingest (cc3); the screen and Settings page (cc6).
+
+### 11.2 cc3 capture contract (written 31 Oct 2026, before any code; cc4/cc5/cc6 build against these names)
+
+**Principle.** Everything here is additive and nullable: an older extension build keeps working and simply sends fewer keys. Public advert facts only; no contact numbers, no advert text, no image (fingerprints only). The server never blanks a stored value because a key was absent (`?? existing`); the one deliberate exception is an owner advert, which sets `agency_name = NULL`.
+
+**A. Per-advert keys in `POST /api/prospecting/import` `listings[]`** (existing keys unchanged; `property_size_m2` = FLOOR size, `erf_size_m2` = ERF size — the new extension sends them separately; older builds still send one conflated size as `erf_size_m2`):
+| Key | Type / values | Stored on `prospecting_listings` as |
+|---|---|---|
+| `advertiser_type` | `agency` \| `owner` \| `developer` | `advertiser_type` |
+| `agent_portal_id`, `agency_portal_id` | string ≤ 40 (the portal's own ids) | same names |
+| `listed_date` | `Y-m-d` | existing `listed_date`; source column = existing `portal` constant; an agent-corrected date is never overwritten (same rule as `ListedDateRecorder`) |
+| `rates_amount`, `levies_amount` | integer rand per month | same names |
+| `portal_latitude`, `portal_longitude` | decimal (only when the portal shows the address) | same names + `portal_geo_source` = `jsonld`. Separate from the resolver's `latitude`/`longitude`, which cc4's R6 compares against |
+| `is_reduced`, `is_exclusive` | bool | `is_reduced`, `is_exclusive` (NULL = unknown, 0/1 = known) |
+| `badges` | array of slugs from: `retirement`, `auction`, `repossessed`, `on_show`, `no_transfer_duty`, `bank_sale` | `badges` json |
+| `p24_group_id` | digits (tile `data-group-listing-id`) | `p24_group_id` |
+| `p24_group_size` | int (the "N Estate Agencies" number) | table `p24_group_members.group_size` |
+| `p24_group_listing_numbers` | array of listing-number digit strings (the `listingNumbers` of the GroupedListings link) | rows in `p24_group_members` |
+| `p24_mandate_id` | digits (tile `data-mandate-id` / page `mandateId`) | `p24_mandate_id` |
+| `wording_fingerprint`, `first_photo_fingerprint` | 40-char lowercase hex (SHA-1 of normalised text / of the first photo's stable id) | same names |
+| `page_read` | bool — true only on a listing-page read | stamps `details_read_at` = now and `details_read_price` = the advert's price at that moment |
+`agent_name` / `agency_name` keep their meaning. **Owner advert:** `advertiser_type = owner` forces `agency_name` NULL (never "Sale"); `agent_name` holds the name only if the advert itself displays it.
+`portal_status` gains no new values; PP now sends `under_offer` from `.listing-banner--offer-pending`.
+
+**B. Crawl-session keys (for cc4) — `search_context.crawl` object, all optional:** `session_id` (uuid, one per extension run), `portal` (`p24`\|`pp`), `suburb` (the suburb searched, as typed on the portal), `page` (n just read), `pages_total` (N), `complete` (bool, = the existing `capture_complete`), `started_at` / `finished_at` (ISO 8601). Stored on `prospecting_searches` as `crawl_session_id`, `crawl_portal`, `crawl_suburb`, `crawl_page`, `crawl_pages_total`, `crawl_complete`, `crawl_started_at`, `crawl_finished_at`. **One search row per session:** when `session_id` is present the upsert key is (agency, search_url, session_id) instead of (agency, search_url, day), so a listing's `last_search_id` identifies its session exactly. cc4 owns everything derived (the crawl record per suburb + portal, the Gone rule, tile 11); cc3 only stores these columns and keeps the legacy `capture_complete` reconcile call untouched.
+
+**C. Listing-page reads (new adverts / changed price only).** The import response gains `needs_detail`: the list of `portal_ref`s in THIS batch that are new, or whose price differs from `details_read_price`, or have never had `details_read_at`; and `limits.detail_pages_per_session` (agency setting `detail_pages_per_session`, default 40 — cc5 please add `MicAgencySetting::detailPagesPerSession(): int` (default 40); until it exists cc3 falls back to 40 via `method_exists`; cc6 puts the control on the MIC Settings page). The extension opens at most that many pages per session and posts each result back to the same endpoint with `search_context.detail_only = true` (no `listing_count`/`pages_captured` change, no reconcile). No new route.
+
+**D. New tables (all GLOBAL public facts, no `agency_id`; written/read only through the services named):**
+- `p24_group_members` — `p24_group_id`, `listing_number` (digits, unique together), `group_size`, `first_seen_at`, `seen_at`. P24's own statement that these adverts are one property; cc4's R3 reads it.
+- `portal_advert_facts` (the shared pool) gains the same public columns as above (`advertiser_type`, `agent_portal_id`, `agency_portal_id`, `listed_date`, `rates_amount`, `levies_amount`, `is_reduced`, `is_exclusive`, `badges`, `p24_group_id`, `p24_mandate_id`, `wording_fingerprint`, `first_photo_fingerprint`) through `SharedPortalPool::ALLOWED` — nothing else.
+- 3.6 (contract added with that step): `p24_suburb_trends`, `p24_street_numbers`, `p24_suburb_agencies`, each row dated (`period`/`read_at`), posted by `POST /api/v1/prospecting/area-pages`.
+
+**E. Back-fills (step 3.5, journalled):** P24 groups from stored search pages; `property_size_m2` from `portal_listings.current_fields_json.size_m2` where empty; the 125 P24 adverts stored with `agency_name = 'Sale'` → `advertiser_type = owner`, `agency_name = NULL`.
+
+**F. Reported, not changed (outside cc3's steps):** on a re-sight `ProspectingApiController` writes `address`, `portal_url` straight from the tile and coerces `suburb`/`property_type`/`agent_name`/`agency_name` to `''` first, so a tile without them blanks the stored value (inventory App. A §3). New keys here do not repeat that pattern.
