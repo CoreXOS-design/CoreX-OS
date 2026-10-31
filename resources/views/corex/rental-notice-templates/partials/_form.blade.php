@@ -20,7 +20,7 @@
     <p class="text-xs mb-1" style="color: var(--text-muted);">Your own breach notice / notice to vacate. Write the placeholders in the document as @{{tenant_name}}, @{{amount}} and so on (listed below). It is converted to the text below, which you can still edit.
         @if($template?->source_file_name) Made from: <strong>{{ $template->source_file_name }}</strong>. @endif</p>
     <input type="file" name="document" accept=".docx" class="text-xs">
-    @error('document')<p class="text-xs mt-1" style="color:#b91c1c;">{{ $message }}</p>@enderror
+    @error('document')<p class="text-xs mt-1" style="color: var(--ds-red, #b91c1c);">{{ $message }}</p>@enderror
 </div>
 <div>
     <label class="prop-label">Body (HTML) - or type it here instead of uploading</label>
@@ -47,7 +47,7 @@
     <label class="prop-label">Days to put the breach right (breach notices)</label>
     <p class="text-xs mb-1" style="color: var(--text-muted);">The remedy period this breach notice gives, in days. Leave blank to use your agency's default (Settings &rarr; Leases). The remedy-by date on the notice is the day it is sent plus this many days.</p>
     <input type="number" name="remedy_days" value="{{ old('remedy_days', $template?->remedy_days) }}" min="1" max="365" class="prop-input" style="max-width: 8rem;">
-    @error('remedy_days')<p class="text-xs mt-1" style="color:#b91c1c;">{{ $message }}</p>@enderror
+    @error('remedy_days')<p class="text-xs mt-1" style="color: var(--ds-red, #b91c1c);">{{ $message }}</p>@enderror
 </div>
 <label class="flex items-center gap-2 text-sm">
     <input type="hidden" name="is_active" value="0">

@@ -7,7 +7,7 @@
 <div class="w-full space-y-6">
 
     {{-- Page header (UI_DESIGN_SYSTEM §2.4 Pattern A) --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cop-ao-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Agent Onboarding Pipeline</h1>
@@ -16,7 +16,8 @@
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                <a href="{{ route('onboarding.create') }}" class="corex-btn-primary text-xs no-underline">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('onboarding.create') }}" class="corex-btn-primary text-xs no-underline" data-tour="cop-ao-new">
                     New Application
                 </a>
             </div>
@@ -34,14 +35,14 @@
                      fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color: var(--text-muted);">
                     <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
                 </svg>
-                <input id="onboarding-search" type="text" name="search" value="{{ request('search') }}" placeholder="Name or email..."
+                <input id="onboarding-search" data-tour="cop-ao-search" type="text" name="search" value="{{ request('search') }}" placeholder="Name or email..."
                        class="list-header-filter w-full text-sm {{ filled(request('search')) ? 'is-active' : '' }}"
                        style="padding-left:2.25rem;">
             </div>
         </div>
         <div class="md:w-56">
             <label for="onboarding-designation" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Designation</label>
-            <select id="onboarding-designation" name="designation" onchange="this.form.submit()"
+            <select id="onboarding-designation" data-tour="cop-ao-designation" name="designation" onchange="this.form.submit()"
                     class="list-header-filter w-full text-sm {{ filled(request('designation')) ? 'is-active' : '' }}">
                 <option value="">All designations</option>
                 @foreach(\App\Models\AgentApplication::DESIGNATION_LABELS as $key => $label)
@@ -50,7 +51,7 @@
             </select>
         </div>
         <div class="flex items-center gap-2">
-            <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+            <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;" data-tour="cop-ao-filter-btn">Filter</button>
             @if(request('search') || request('designation'))
                 <a href="{{ route('onboarding.index') }}" class="corex-btn-outline no-underline text-sm" style="height:2.25rem;">Clear</a>
             @endif
@@ -74,7 +75,7 @@
         ];
     @endphp
 
-    <div class="flex gap-4 overflow-x-auto pb-4" style="min-height: 400px;">
+    <div class="flex gap-4 overflow-x-auto pb-4" style="min-height: 400px;" data-tour="cop-ao-board">
         @foreach(\App\Models\AgentApplication::PIPELINE_STATUSES as $status)
             @php
                 $cards = $pipeline[$status] ?? collect();
@@ -98,7 +99,7 @@
                             $des = $designationStyles[$app->designation] ?? ['var' => 'var(--text-muted)', 'label' => '—', 'full' => 'Unknown designation'];
                             $pct = (int) round($app->completionPercent());
                         @endphp
-                        <a href="{{ route('onboarding.show', $app) }}"
+                        <a href="{{ route('onboarding.show', $app) }}" data-tour="cop-ao-card"
                            class="block p-3 rounded-md no-underline transition-colors hover:[border-color:var(--border-hover)]"
                            style="background: var(--surface-2); border: 1px solid var(--border);">
                             <div class="text-sm font-semibold truncate" style="color: var(--text-primary);">
@@ -112,7 +113,7 @@
                                 <span class="text-xs" style="color: var(--text-muted);"
                                       title="Days in current stage">{{ number_format($app->daysInCurrentStage()) }}d</span>
                             </div>
-                            <div class="ds-progress-track mt-2">
+                            <div class="ds-progress-track mt-2" data-tour="cop-ao-progress">
                                 <div class="ds-progress-bar" style="width: {{ $pct }}%; background: {{ $style['var'] }};"></div>
                             </div>
                             <div class="text-xs mt-1 text-right" style="color: var(--text-muted);">{{ $pct }}%</div>

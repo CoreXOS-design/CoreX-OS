@@ -7,7 +7,7 @@
      Same page shell, period selector, clickable figures and detail popup as the Buyers Report; the popup component
      is shared from there (it only needs a drilldownBase URL). --}}
 <div class="w-full space-y-5" x-data="buyersReport({ drilldownBase: @js($drilldownBase) })">
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rpt-lr-intro">
         <div class="flex items-center justify-between flex-wrap gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Lead Response</h1>
@@ -17,7 +17,8 @@
                 </p>
             </div>
             <div class="flex items-end gap-3 flex-wrap">
-                <div class="flex items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <div class="flex items-center gap-2" data-tour="rpt-lr-export">
                     <button type="button" onclick="window.open(leadResponseExportUrl('{{ route('lead-response-report.print') }}'), '_blank')"
                             class="text-xs font-medium px-3 py-1.5 rounded-md" style="border: 1px solid var(--border); color: var(--text-primary); background: var(--surface);">Print</button>
                     <button type="button" onclick="window.location.href = leadResponseExportUrl('{{ route('lead-response-report.pdf') }}')"

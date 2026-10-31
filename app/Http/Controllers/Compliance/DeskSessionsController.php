@@ -9,7 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\View\View;
 
 /**
- * CoreX Desk - the permanent audit of every session (Compliance > Reports & Logs > Desk sessions; spec
+ * CoreX Desk - the permanent audit of every session (Admin > Desk > Desk sessions; spec
  * .ai/specs/corex-desk.md sections 5 and 9). Read-only: there is no edit or delete. An agency admin sees only their own agency's
  * sessions, owner roles see every agency's - enforced in the query, so a session id from another agency is a 404.
  */
@@ -26,16 +26,23 @@ class DeskSessionsController extends Controller
         $user = $request->user();
         $query = DeskSessionsController::scoped($request)->with('agent', 'supportUser', 'agency');
 
-        if ($status = $request->query('status')) {
+        // (a filter is text: ?status[]=x, ?sort[]=x and the like are dropped from the request - for the view too - instead of crashing the page)
+        foreach (['q', 'status', 'from', 'to', 'sort', 'dir'] as $k) {
+            if (is_array($request->query($k))) {
+                $request->query->remove($k);
+            }
+        }
+        $text = fn (string $key): string => is_string($request->query($key)) ? trim((string) $request->query($key)) : '';
+        if (($status = $text('status')) !== '') {
             $query->where('status', $status);
         }
-        if ($from = $request->query('from')) {
+        if (($from = $text('from')) !== '' && strtotime($from) !== false) {
             $query->whereDate('started_at', '>=', $from);
         }
-        if ($to = $request->query('to')) {
+        if (($to = $text('to')) !== '' && strtotime($to) !== false) {
             $query->whereDate('started_at', '<=', $to);
         }
-        if ($q = trim((string) $request->query('q', ''))) {
+        if (($q = $text('q')) !== '') {
             $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $q) . '%';
             $query->where(function ($w) use ($like, $user) {
                 $w->whereHas('agent', fn ($a) => $a->where('name', 'like', $like))
@@ -46,8 +53,9 @@ class DeskSessionsController extends Controller
             });
         }
 
-        $sort = array_key_exists($request->query('sort'), self::SORTS) ? $request->query('sort') : 'started';
-        $dir = $request->query('dir') === 'asc' ? 'asc' : 'desc';
+        $sortIn = $text('sort');
+        $sort = array_key_exists($sortIn, self::SORTS) ? $sortIn : 'started';
+        $dir = $text('dir') === 'asc' ? 'asc' : 'desc';
         $query->orderBy(self::SORTS[$sort], $dir)->orderBy('id', 'desc');
 
         return view('compliance.desk-sessions.index', [

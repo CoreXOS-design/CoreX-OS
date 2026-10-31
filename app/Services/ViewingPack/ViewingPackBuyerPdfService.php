@@ -2,6 +2,7 @@
 
 namespace App\Services\ViewingPack;
 
+use App\Models\User;
 use App\Models\ViewingPack;
 use App\Services\ViewingPack\Concerns\ViewingPackPdfSupport;
 use Illuminate\Support\Facades\Storage;
@@ -28,8 +29,12 @@ class ViewingPackBuyerPdfService
 {
     use ViewingPackPdfSupport;
 
-    /** Generate the buyer pack and return its local-disk relative path. */
-    public function generate(ViewingPack $pack): string
+    /**
+     * Generate the buyer pack and return its local-disk relative path.
+     * $coverAgent (AT-509): the agent whose details go on the cover when the
+     * downloading agent chose "my details"; null = ruling D (the buyer's agent).
+     */
+    public function generate(ViewingPack $pack, ?User $coverAgent = null): string
     {
         $pack->loadMissing([
             'contact', 'agent', 'agency',
@@ -43,7 +48,7 @@ class ViewingPackBuyerPdfService
 
         try {
             // 1. Cover
-            $segments[] = $this->writeSegment($tmpDir, $n++, $this->renderToBytes('command-center.viewing-packs.buyer-pack.cover', $this->coverData($pack)));
+            $segments[] = $this->writeSegment($tmpDir, $n++, $this->renderToBytes('command-center.viewing-packs.buyer-pack.cover', $this->coverData($pack, $coverAgent)));
 
             // 2. Per property (in sort_order): brochure+notes, then its redacted docs.
             $seq = 0;
@@ -109,26 +114,38 @@ class ViewingPackBuyerPdfService
     }
 
     /** Generate + stream as a download. */
-    public function download(ViewingPack $pack)
+    public function download(ViewingPack $pack, ?User $coverAgent = null)
     {
-        $rel  = $this->generate($pack);
+        $rel  = $this->generate($pack, $coverAgent);
         $name = 'VIEWING-PACK-' . ($this->buyerName($pack) ?: ('Pack-' . $pack->id)) . '.pdf';
         $name = trim((string) preg_replace('/[\/\\\\:*?"<>|]+/', ' ', $name));
 
         return response()->download(Storage::disk('local')->path($rel), $name);
     }
 
+    /**
+     * The buyer's CURRENT primary agent (the agent the contact is under), or null
+     * when the buyer has none. Ruling D's cover agent, and the agent the
+     * "whose details?" choice (AT-509) is offered against.
+     */
+    public function buyersAgent(ViewingPack $pack): ?User
+    {
+        $primaryAgentId = $pack->contact_id
+            ? \App\Models\Contact::withoutGlobalScopes()->where('id', $pack->contact_id)->value('agent_id')
+            : null;
+
+        return $primaryAgentId ? User::withoutGlobalScopes()->find($primaryAgentId) : null;
+    }
+
     /** Buyer-pack cover data — the only segment unique to the buyer pack. */
-    private function coverData(ViewingPack $pack): array
+    private function coverData(ViewingPack $pack, ?User $coverAgent = null): array
     {
         // Ruling D (2026-10-07): the cover shows the buyer's CURRENT primary agent, read
         // when the PDF is built — not the pack's stored agent_id (the agent it was
         // prepared by), which kept printing the old agent after a manager moved the
         // buyer. The pack's own agent remains the fallback when the buyer has none.
-        $primaryAgentId = $pack->contact_id
-            ? \App\Models\Contact::withoutGlobalScopes()->where('id', $pack->contact_id)->value('agent_id')
-            : null;
-        $agent  = ($primaryAgentId ? \App\Models\User::withoutGlobalScopes()->find($primaryAgentId) : null) ?? $pack->agent;
+        // AT-509: an explicit $coverAgent ("show my details") wins over both.
+        $agent  = $coverAgent ?? $this->buyersAgent($pack) ?? $pack->agent;
         $agency = $pack->agency;
 
         return [

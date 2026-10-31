@@ -51,7 +51,7 @@ final class DeskControlGrantTest extends DeskTestCase
             $this->actingAs($agent)->postJson("/api/v1/desk/sessions/{$s->id}/heartbeat", ['page' => '/corex'])->assertOk();
         }
 
-        $this->actingAs($agent)->postJson("/api/v1/desk/sessions/{$s->id}/control/respond", ['allow' => true])
+        $this->actingAs($agent)->postJson("/api/v1/desk/sessions/{$s->id}/control/respond", ['allow' => true, 'request_id' => $this->rid($s)])
             ->assertOk()->assertJsonPath('control.state', 'granted');
         Event::assertDispatched(DeskBroadcast::class, fn ($e) => $e->name === 'desk.control_granted' && $e->payload['tab'] === 'main');
         $this->assertContains('control_granted', $s->events()->pluck('type')->all(), 'the audit row is there');
@@ -68,7 +68,7 @@ final class DeskControlGrantTest extends DeskTestCase
         for ($i = 0; $i < 70; $i++) {
             $this->actingAs($both)->getJson('/corex/desk/sessions')->assertOk();
         }
-        $this->actingAs($both)->postJson("/api/v1/desk/sessions/{$s->id}/control/respond", ['allow' => true])->assertOk()->assertJsonPath('control.state', 'granted');
+        $this->actingAs($both)->postJson("/api/v1/desk/sessions/{$s->id}/control/respond", ['allow' => true, 'request_id' => $this->rid($s)])->assertOk()->assertJsonPath('control.state', 'granted');
     }
 
     public function test_every_desk_route_uses_its_own_limiter_not_the_shared_per_user_counter(): void
@@ -101,7 +101,7 @@ final class DeskControlGrantTest extends DeskTestCase
         $this->actingAs($support)->getJson('/corex/desk/sessions')->assertOk()
             ->assertJsonPath('sessions.0.id', $s->id)->assertJsonPath('sessions.0.control.state', 'requested');
 
-        $this->desk->respondControl($s->fresh(), $agent, true);
+        $this->desk->respondControl($s->fresh(), $agent, true, $this->rid($s->fresh()));
         $this->actingAs($support)->getJson('/corex/desk/sessions')->assertOk()
             ->assertJsonPath('sessions.0.control.state', 'granted')->assertJsonPath('sessions.0.control.tab', 'main');
 

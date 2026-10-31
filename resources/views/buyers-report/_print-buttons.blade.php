@@ -13,7 +13,7 @@
      by agent.blade.php/branch.blade.php) supplies exactly that, merged
      ahead of the live location.search by buyersReportExportUrl() below. --}}
 @php $extraQuery = $extraQuery ?? []; @endphp
-<div class="flex items-center gap-2">
+<div class="flex items-center gap-2" data-tour="rpt-br-export">
     <button type="button" onclick="window.open(buyersReportExportUrl('{{ route('buyers-report.print') }}', @js($extraQuery)), '_blank')"
             class="text-xs font-medium px-3 py-1.5 rounded-md" style="border: 1px solid var(--border); color: var(--text-primary); background: var(--surface);">
         Print

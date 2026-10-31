@@ -28,19 +28,28 @@
 
   async function share() {
     shareBtn.disabled = true;
-    var origin;
-    try { origin = new URL(tab.url).origin + '/*'; } catch (e) { origin = null; }
-    // Sites the extension already has access to need no prompt; for the others Chrome asks once (this runs inside the click).
-    var granted = true;
-    if (origin) {
-      granted = await new Promise(function (r) { chrome.permissions.contains({ origins: [origin] }, function (ok) { r(ok); }); });
-      if (!granted) granted = await new Promise(function (r) { chrome.permissions.request({ origins: [origin] }, function (ok) { r(!!ok); }); });
+    try {
+      // Only secure pages are shared (the server and the worker refuse the rest too); say so before asking Chrome for anything.
+      var origin = null;
+      try { var u = new URL(tab.url); if (u.protocol === 'https:') origin = u.origin + '/*'; } catch (e) { origin = null; }
+      if (!origin) { show('Only secure (https) pages can be shared with CoreX support.', 'none'); return; }
+      // Sites the extension already has access to need no prompt; for the others Chrome asks once (this runs inside the click). An origin WE had to ask
+      // for is handed back when the last shared tab on it stops.
+      var granted = await new Promise(function (r) { chrome.permissions.contains({ origins: [origin] }, function (ok) { void chrome.runtime.lastError; r(!!ok); }); });
+      var requested = null;
+      if (!granted) {
+        granted = await new Promise(function (r) { chrome.permissions.request({ origins: [origin] }, function (ok) { void chrome.runtime.lastError; r(!!ok); }); });
+        if (granted) requested = origin;
+      }
+      if (!granted) { show('Chrome needs your OK to let CoreX see this site. Press the button again and choose Allow.', 'share'); return; }
+      var res = await ask({ type: 'desk.share', tabId: tab.id, requestedOrigin: requested });
+      if (!res.ok) { show(res.error || 'Could not share this tab.', 'share'); return; }
+      await refresh();
+    } catch (e) {
+      show('Could not share this tab.', 'share');
+    } finally {
+      shareBtn.disabled = false;   // (always: a throw above must not leave the button dead)
     }
-    if (!granted) { shareBtn.disabled = false; show('Chrome needs your OK to let CoreX see this site. Press the button again and choose Allow.', 'share'); return; }
-    var res = await ask({ type: 'desk.share', tabId: tab.id });
-    shareBtn.disabled = false;
-    if (!res.ok) { show(res.error || 'Could not share this tab.', 'share'); return; }
-    await refresh();
   }
 
   async function stopSharing() {
@@ -60,7 +69,7 @@
     stopBtn.addEventListener('click', stopSharing);
     chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
       tab = tabs && tabs[0];
-      if (tab && tab.url && /^https?:/.test(tab.url)) refresh();
+      if (tab && tab.url && /^https?:/.test(tab.url)) refresh();   // (an http page gets the card too, saying it cannot be shared)
     });
   });
 })();

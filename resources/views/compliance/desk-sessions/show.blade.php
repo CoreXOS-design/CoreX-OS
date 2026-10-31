@@ -3,7 +3,7 @@
 
 @section('corex-content')
 @php
-    $endedLabel = ['agent' => 'the agent', 'support' => 'support', 'logout' => 'the agent signing out', 'timeout' => 'the connection being lost', 'expired' => 'nobody joining in time', 'disabled' => 'Desk being switched off', 'replaced' => 'a new session being started'];
+    $endedLabel = ['agent' => 'the agent', 'support' => 'support', 'logout' => 'the agent signing out', 'timeout' => 'the connection being lost', 'expired' => 'nobody joining in time', 'disabled' => 'Desk being switched off', 'replaced' => 'a new session being started', 'inactive' => 'the session being inactive'];
     $secs = $session->durationSeconds();
 @endphp
 <div class="w-full space-y-5">

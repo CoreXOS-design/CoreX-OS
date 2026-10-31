@@ -66,7 +66,7 @@
                                     $tag = $task->pillarTag();
                                     $taskLink = $task->property ? route('corex.properties.show', $task->property)
                                               : ($task->contact  ? route('corex.contacts.show',  $task->contact)
-                                              : ($task->deal_id  ? route('deals-v2.show',        $task->deal_id) : null));
+                                              : (($task->deal_id && feature('deals')) ? route('deals-v2.show',        $task->deal_id) : null));
                                 @endphp
                                 <div class="flex items-center gap-3 px-3 py-2">
                                     <div class="flex-1 min-w-0">

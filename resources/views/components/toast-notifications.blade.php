@@ -74,7 +74,8 @@ function toastSystem() {
         nextId: 0,
 
         // J8 (Johan, 9 Oct 2026): toasts STACK in the one column (never on top of each other); the same message is never shown twice at once
-        // (a page's flash plus a script's copy of it), at most three are on screen (the oldest goes first), and a long message stays long enough to read.
+        // (a page's flash plus a script's copy of it), at most three are on screen (the oldest goes first).
+        // AT-509 (Andre, 27 Oct 2026): every popup closes itself after 5 seconds, whatever duration the caller asked for.
         //
         // AT-451: an optional 4th argument, `url`, makes the toast clickable through to that page (a live alert popup
         // opens the item it is about). Only a same-site address is honoured — anything else is ignored, not followed.
@@ -83,13 +84,10 @@ function toastSystem() {
             if (this.toasts.some(t => t.visible && t.message === message && t.type === type)) { return; }
             const live = this.toasts.filter(t => t.visible);
             while (live.length >= 3) { this.removeToast(live.shift().id); }
-            if (duration > 0) { duration = Math.max(duration, Math.min(15000, 2500 + message.length * 45)); }
             const id = this.nextId++;
             this.toasts.push({ id, message, type, visible: true, url: this.sameSiteUrl(url) });
 
-            if (duration > 0) {
-                setTimeout(() => this.removeToast(id), duration);
-            }
+            setTimeout(() => this.removeToast(id), 5000);
         },
 
         sameSiteUrl(url) {

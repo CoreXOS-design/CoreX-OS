@@ -29,7 +29,9 @@ return [
     'servers' => [
 
         'reverb' => [
-            'host' => env('REVERB_SERVER_HOST', '0.0.0.0'),
+            // Loopback by default: Reverb sits behind nginx (`location /app`), it is never meant to be reachable directly. Set REVERB_SERVER_HOST only if a
+            // box really needs another interface.
+            'host' => env('REVERB_SERVER_HOST', '127.0.0.1'),
             // 8080 is taken on this box (a node service); Reverb listens on loopback 8085 behind nginx `location /app`.
             'port' => env('REVERB_SERVER_PORT', 8085),
             'path' => env('REVERB_SERVER_PATH', ''),
@@ -84,15 +86,20 @@ return [
                     'scheme' => env('REVERB_SCHEME', 'https'),
                     'useTLS' => env('REVERB_SCHEME', 'https') === 'https',
                 ],
-                'allowed_origins' => array_filter(explode(',', (string) env('REVERB_ALLOWED_ORIGINS', '*'))),
+                // Browser origins (host names) allowed to open a socket. Defaults to this app's own host (APP_URL) - NOT '*'. The CoreX Chrome extension's
+                // socket comes from "chrome-extension://<id>", so a box that serves extension tabs lists that id as well (REVERB_ALLOWED_ORIGINS=app.example.com,<extension id>);
+                // '*' is still possible but has to be asked for. Origin is not the security boundary (a channel needs authorisation), it is defence in depth.
+                'allowed_origins' => array_values(array_filter(explode(',', (string) env('REVERB_ALLOWED_ORIGINS', (string) parse_url((string) env('APP_URL', ''), PHP_URL_HOST))))),
                 'ping_interval' => env('REVERB_APP_PING_INTERVAL', 60),
                 'activity_timeout' => env('REVERB_APP_ACTIVITY_TIMEOUT', 30),
                 'max_connections' => env('REVERB_APP_MAX_CONNECTIONS'),
                 'max_message_size' => env('REVERB_APP_MAX_MESSAGE_SIZE', 1_000_000),
                 'accept_client_events_from' => env('REVERB_APP_ACCEPT_CLIENT_EVENTS_FROM', 'members'),
                 'rate_limiting' => [
-                    'enabled' => env('REVERB_APP_RATE_LIMITING_ENABLED', false),
-                    'max_attempts' => env('REVERB_APP_RATE_LIMIT_MAX_ATTEMPTS', 60),
+                    // On by default. Per connection: Desk's busiest sender (a mirrored page: pointer ~25/s + batched frames) stays well under 4000 messages a
+                    // minute; a connection flooding the channel has its excess messages refused (REVERB_APP_RATE_LIMIT_TERMINATE=true cuts it off instead). Lower or raise with the keys below.
+                    'enabled' => env('REVERB_APP_RATE_LIMITING_ENABLED', true),
+                    'max_attempts' => env('REVERB_APP_RATE_LIMIT_MAX_ATTEMPTS', 4000),
                     'decay_seconds' => env('REVERB_APP_RATE_LIMIT_DECAY_SECONDS', 60),
                     'terminate_on_limit' => env('REVERB_APP_RATE_LIMIT_TERMINATE', false),
                 ],

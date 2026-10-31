@@ -6,10 +6,10 @@
  *
  * Input  (argv[2]): path to a JSON file {"partial": "<rendered a4-page-styles partial>", "html": "<document html>", "raw": true when html already carries its own .corex-document-wrapper,
  *                   "shell": "<path to write the paginated DOM to>", "pdf": "<path to print the signed-PDF shell to>"}
- * Output (stdout) : JSON {pages, headers, footers, pageNumbers[], corexPageNumbers, initialsRows, firstPageHasHeader, pdfShellHtml}
+ * Output (stdout) : JSON {pages, headers, footers, footerTexts[], splitTables, pageNumbers[], corexPageNumbers, initialsRows, firstPageHasHeader, pdfShellHtml}
  */
 import fs from 'node:fs';
-import puppeteer from '/corex-qa1/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js';
+import puppeteer from 'puppeteer-core';
 
 const cfg = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 const browser = await puppeteer.launch({executablePath: '/usr/bin/chromium', headless: true, args: ['--no-sandbox', '--disable-gpu']});
@@ -27,6 +27,8 @@ try {
             pages: pages.length,
             headers: document.querySelectorAll('#c .corex-a4-page .corex-page-header').length,
             footers: document.querySelectorAll('#c .corex-a4-page .corex-page-footer').length,
+            footerTexts: pages.map(p => (p.querySelector('.corex-page-footer') || {textContent: '-'}).textContent.replace(/\s+/g, ' ').trim()),
+            splitTables: document.querySelectorAll('#c table.corex-split-table').length,
             pageNumbers: pages.map(p => (p.querySelector('.corex-page-footer .corex-page-number') || {textContent: ''}).textContent),
             corexPageNumbers: document.querySelectorAll('#c .corex-a4-page .page-number').length,
             initialsRows: document.querySelectorAll('#c .corex-a4-page .corex-page-initials-row').length,

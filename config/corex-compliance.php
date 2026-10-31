@@ -61,4 +61,32 @@ return [
 
     'fica_slug' => 'fica',
 
+    /*
+    |--------------------------------------------------------------------------
+    | Compliance Switches disclaimer (AT-509)
+    |--------------------------------------------------------------------------
+    |
+    | Shown before an agency switches any property compliance check off
+    | (.ai/specs/property-compliance-gate-settings.md §8, wording approved by
+    | Andre 2026-10-26). System-owned, NOT agency-editable: it protects CoreX.
+    | {agency} = the agency's own name, {gates} = the checks being switched off.
+    |
+    | Changing the wording means bumping the version. Every history row keeps
+    | the exact rendered text that was accepted, so old acceptances never change.
+    |
+    */
+
+    'gate_disclaimer' => [
+        'version' => '2026-10-26.1',
+        'text' => "You are switching off the following compliance check(s) for {agency}: {gates}.\n\n"
+            . "While a check is off, CoreX will allow listings to be marketed without verifying it. By confirming, {agency} acknowledges that:\n\n"
+            . "1. {agency} remains solely responsible for its compliance obligations under the Financial Intelligence Centre Act 38 of 2001 (FICA), "
+            . "the Protection of Personal Information Act 4 of 2013 (POPIA), the Property Practitioners Act 22 of 2019 and the rules of the "
+            . "Property Practitioners Regulatory Authority (PPRA), and any other applicable law.\n\n"
+            . "2. CoreX OS provides these checks as a tool only. Switching a check off is the agency's own decision, and CoreX OS accepts no "
+            . "liability for any non-compliance, penalty, loss or claim arising from listings marketed while it is off.\n\n"
+            . "3. This decision, with your name, the date and time, and your IP address, is permanently recorded.",
+        'accept_label' => 'I have read and accept this on behalf of {agency}.',
+    ],
+
 ];

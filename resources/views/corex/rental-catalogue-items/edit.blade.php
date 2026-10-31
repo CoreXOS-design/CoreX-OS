@@ -16,6 +16,7 @@
                 <p class="text-xs" style="color: var(--text-muted);">Change a labour or part your maintenance team picks when pricing a job card.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <a href="{{ route('admin.company-settings') }}#catalogue-item-types" class="corex-btn-outline text-xs">Manage types &amp; units</a>
             </div>
         </div>
@@ -32,7 +33,7 @@
         @include('corex.rental-catalogue-items._form-fields', ['item' => $item])
         <div class="flex justify-end gap-2 pt-4 cx-equal-btns" style="border-top: 1px solid var(--border);">
             <a href="{{ route('corex.rental-catalogue-items.index') }}" class="corex-btn-outline text-sm">Cancel</a>
-            <button type="submit" class="corex-btn-primary text-sm">Save changes</button>
+            <button type="submit" class="corex-btn-primary text-sm" data-tour="rmnt-item-save">Save changes</button>
         </div>
     </form>
 </div>

@@ -378,15 +378,15 @@
         </tr>
         <tr>
             <td>Bank Name:</td>
-            <td><span class="field" data-field="bank_name" style="min-width:auto;width:100%;border-bottom:none;">{{ $bank_name ?? '' }}</span></td>
+            <td><span class="field" data-desk-mask data-field="bank_name" style="min-width:auto;width:100%;border-bottom:none;">{{ $bank_name ?? '' }}</span></td>
         </tr>
         <tr>
             <td>Account Number:</td>
-            <td><span class="field" data-field="account_number" style="min-width:auto;width:100%;border-bottom:none;">{{ $account_number ?? '' }}</span></td>
+            <td><span class="field" data-desk-mask data-field="account_number" style="min-width:auto;width:100%;border-bottom:none;">{{ $account_number ?? '' }}</span></td>
         </tr>
         <tr>
             <td>Branch Name and Code:</td>
-            <td><span class="field" data-field="branch_name" style="min-width:auto;width:100%;border-bottom:none;">{{ $branch_name ?? '' }}</span></td>
+            <td><span class="field" data-desk-mask data-field="branch_name" style="min-width:auto;width:100%;border-bottom:none;">{{ $branch_name ?? '' }}</span></td>
         </tr>
     </table>
 

@@ -1,21 +1,28 @@
 @extends('layouts.corex')
 
-@section('content')
-<div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
+@include('docuperfect.partials._dp-page-styles')
+<div class="rx-page dp-page w-full space-y-5">
 
-    {{-- Header --}}
-    <div style="background:var(--brand-default);" class="rounded-2xl px-6 py-4 flex items-center justify-between">
-        <div>
-            <h2 class="text-xl font-bold text-white leading-tight">Send Document for Signing</h2>
-            <div class="text-sm text-white/60">Upload a document and build the signing chain.</div>
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Send Document for Signing</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Upload a document and build the signing chain.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('docuperfect.sales') }}" class="corex-btn-outline text-xs shrink-0 inline-flex items-center gap-1.5"><svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>Back to Dashboard</a>
+            </div>
         </div>
-        <a href="{{ route('docuperfect.sales') }}" class="text-sm text-white/70 hover:text-white">Back to Dashboard</a>
     </div>
+    <div class="max-w-3xl space-y-5">
 
     {{-- Flash / errors --}}
     {{-- Flash messages handled by global toast system --}}
     @if($errors->any())
-        <div class="rounded-2xl border border-red-200 bg-red-50 text-red-900 px-4 py-3 text-sm">
+        <div class="rounded-md border border-red-200 bg-red-50 text-red-900 px-4 py-3 text-sm">
             @foreach($errors->all() as $error)
                 <div>{{ $error }}</div>
             @endforeach
@@ -23,7 +30,7 @@
     @endif
 
     {{-- Send form --}}
-    <div class="ds-status-card rounded-2xl p-6" x-data="salesSendForm()">
+    <div class="ds-status-card rounded-md p-6" x-data="salesSendForm()">
 
         <form action="{{ route('docuperfect.sales.send.store') }}" method="POST" enctype="multipart/form-data">
             @csrf
@@ -36,7 +43,7 @@
             <div class="mb-5">
                 <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary)">Document Name</label>
                 <input type="text" name="document_name" value="{{ old('document_name', $documentName) }}"
-                       class="w-full rounded-xl border-[color:var(--border)] shadow-sm focus:border-[color:var(--brand-icon)] focus:ring-[color:var(--brand-icon)] text-sm"
+                       class="w-full rounded-md border-[color:var(--border)] shadow-sm focus:border-[color:var(--brand-icon)] focus:ring-[color:var(--brand-icon)] text-sm"
                        placeholder="e.g. Offer to Purchase — 14 Marine Drive"
                        required>
             </div>
@@ -58,7 +65,7 @@
 
                 <div class="space-y-3">
                     <template x-for="(recipient, index) in recipients" :key="index">
-                        <div class="rounded-xl border p-4" style="border-color:var(--border);background:var(--surface-2)">
+                        <div class="rounded-md border p-4" style="border-color:var(--border);background:var(--surface-2)">
                             <div class="flex items-center justify-between mb-3">
                                 <span class="text-xs font-bold" style="color:var(--text-muted)" x-text="(index + 1) + '.'"></span>
                                 <button type="button" @click="removeRecipient(index)" x-show="recipients.length > 1"
@@ -113,7 +120,7 @@
             </div>
 
             {{-- Chain preview --}}
-            <div class="mb-6 p-3 rounded-xl bg-blue-50 border border-blue-100" x-show="recipients.length > 0">
+            <div class="mb-6 p-3 rounded-md bg-blue-50 border border-blue-100" x-show="recipients.length > 0">
                 <div class="text-xs text-blue-600 font-semibold uppercase tracking-wider mb-1">Flow</div>
                 <div class="text-sm text-blue-800">
                     <template x-for="(r, i) in recipients" :key="'preview-'+i">
@@ -129,20 +136,21 @@
             <div class="mb-6">
                 <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary)">Message (optional)</label>
                 <textarea name="message" rows="3"
-                          class="w-full rounded-xl border-[color:var(--border)] shadow-sm focus:border-[color:var(--brand-icon)] focus:ring-[color:var(--brand-icon)] text-sm"
+                          class="w-full rounded-md border-[color:var(--border)] shadow-sm focus:border-[color:var(--brand-icon)] focus:ring-[color:var(--brand-icon)] text-sm"
                           placeholder="Please sign and return at your earliest convenience.">{{ old('message') }}</textarea>
                 <p class="text-xs mt-1" style="color:var(--text-faint)">This message will be included in all emails to recipients.</p>
             </div>
 
             {{-- Submit --}}
             <button type="submit"
-                    class="w-full sm:w-auto px-6 py-3 text-white text-sm font-semibold rounded-xl transition-colors bg-[color:var(--brand-button)] hover:opacity-90"
+                    class="w-full sm:w-auto px-6 py-3 text-white text-sm font-semibold rounded-md transition-colors bg-[color:var(--brand-button)] hover:opacity-90"
                     x-text="'Send to ' + (recipients[0]?.name || 'First Recipient') + ' →'">
                 Send →
             </button>
             <p class="text-xs mt-2" style="color:var(--text-faint)">First person in the chain will receive the email immediately.</p>
         </form>
     </div>
+</div>
 </div>
 
 <script>

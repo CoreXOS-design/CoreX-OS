@@ -61,8 +61,9 @@
                     <span class="ds-badge {{ $statusVariant }}">{{ ucfirst($pack->status ?? 'draft') }}</span>
                     <div class="flex items-center gap-2">
                         @if($hasProperties)
-                            <a href="{{ route('corex.viewing-packs.buyer-pack', $pack) }}" target="_blank"
-                               class="text-[10px] no-underline hover:underline" style="color:var(--text-secondary);" title="Download the buyer-facing pack PDF">Buyer Pack</a>
+                            @include('command-center.viewing-packs._buyer-pack-download', ['pack' => $pack, 'label' => 'Buyer Pack',
+                                'class' => 'text-[10px] no-underline hover:underline', 'style' => 'color:var(--text-secondary); background:none; border:0; padding:0; cursor:pointer;',
+                                'title' => 'Download the buyer-facing pack PDF'])
                             <a href="{{ route('corex.viewing-packs.agent-sheet', $pack) }}" target="_blank"
                                class="text-[10px] no-underline hover:underline" style="color:var(--text-secondary);" title="Download the eyes-only agent sheet PDF">Agent Sheet</a>
                         @endif

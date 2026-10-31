@@ -5,7 +5,7 @@
 <div class="w-full space-y-5">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cop-fin-def-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Finance Definitions</h1>
@@ -13,12 +13,13 @@
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
-                <a href="{{ route('admin.finance.audit.index') }}" class="corex-btn-outline text-xs">Audit History</a>
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('admin.finance.audit.index') }}" class="corex-btn-outline text-xs" data-tour="cop-fin-def-history">Audit History</a>
                 <form method="POST" action="{{ route('admin.finance.recalculate') }}" class="flex items-center gap-2"
-                      id="recalcForm">
+                      id="recalcForm" data-tour="cop-fin-def-recalc">
                     @csrf
                     <input type="hidden" name="mode" id="recalcMode" value="single">
-                    <select name="period" class="list-header-filter">
+                    <select name="period" class="list-header-filter" data-tour="cop-fin-def-period">
                         @foreach($availablePeriods as $p)
                             <option value="{{ $p }}" {{ $p === now()->format('Y-m') ? 'selected' : '' }}>
                                 {{ \Carbon\Carbon::createFromFormat('Y-m', $p)->format('F Y') }}
@@ -42,14 +43,14 @@
     </div>
 
     {{-- KPI tiles --}}
-    <div class="corex-kpi-grid">
+    <div class="corex-kpi-grid" data-tour="cop-fin-def-tiles">
         <x-corex-kpi-card title="Total definitions" :value="number_format($definitions->count())" />
         <x-corex-kpi-card title="Active definitions" :value="number_format($definitions->where('status', 'active')->count())" />
         <x-corex-kpi-card title="Computed values stored" :value="number_format($computedCount)" />
     </div>
 
     {{-- Definitions Table --}}
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="cop-fin-def-table">
         <div class="px-5 py-4" style="border-bottom: 1px solid var(--border);">
             <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Definitions ({{ number_format($definitions->count()) }})</h3>
         </div>

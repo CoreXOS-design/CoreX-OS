@@ -211,7 +211,7 @@ class DemoSidebarCurationTest extends TestCase
 
         // Correct password — demo mode turns on.
         $this->actingAs($owner)
-            ->put(route('admin.dev-settings.update'), ['demo_mode_enabled' => '1', 'demo_toggle_password' => 'Demo@on&off@$'])
+            ->put(route('admin.dev-settings.update'), ['demo_mode_enabled' => '1', 'demo_toggle_password' => 'password'])
             ->assertSessionHas('success');
         $this->assertTrue(DevSetting::bool('demo_mode_enabled'));
     }
@@ -229,7 +229,7 @@ class DemoSidebarCurationTest extends TestCase
 
         // Correct password — turns off.
         $this->actingAs($owner)
-            ->put(route('admin.dev-settings.update'), ['demo_mode_enabled' => '0', 'demo_toggle_password' => 'Demo@on&off@$'])
+            ->put(route('admin.dev-settings.update'), ['demo_mode_enabled' => '0', 'demo_toggle_password' => 'password'])
             ->assertSessionHas('success');
         $this->assertFalse(DevSetting::bool('demo_mode_enabled'));
     }

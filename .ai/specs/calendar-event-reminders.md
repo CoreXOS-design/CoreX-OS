@@ -141,7 +141,7 @@ reminders (DB notifications of type `event_due_reminder` created since last seen
 the log for read/snooze state).
 
 **Behaviours:** dedupe by id (shown once), dismissible (× → POST mark read), auto-dismiss
-after 30s, **10-minute snooze** (POST snooze → hidden, re-surfaces after 10 min),
+after 5s (AT-509, Andre 27 Oct 2026 — closes on its own, NOT marked read; the tab remembers it so it does not pop up again), **10-minute snooze** (POST snooze → hidden, re-surfaces after 10 min),
 click "View event →" → deep link `command-center.calendar.show` (opens the event), marks read.
 
 **Endpoints** (all `/api/v1/*`, auth, self-scoped, in the API catalog):

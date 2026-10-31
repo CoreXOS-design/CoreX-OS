@@ -161,6 +161,8 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        \Illuminate\Support\Facades\Event::listen(\Illuminate\Mail\Events\MessageSending::class, [\App\Services\Mail\MailFailureAlerter::class, 'remember']);
+
         // AT-454 - Road to Sold settings are memoised for seconds only, and dropped at the start of every
         // queued job and artisan command, so the nightly build (one long process) never works from a stale copy.
         \Illuminate\Support\Facades\Event::listen(\Illuminate\Queue\Events\JobProcessing::class, fn () => \App\Services\RoadToSold\SettingsService::forget());
@@ -1125,6 +1127,14 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\AgencyFeatureToggled::class,
             function (\App\Events\AgencyFeatureToggled $event) {
                 app(\App\Services\Features\AgencyFeatureService::class)->forget($event->agencyId);
+            }
+        );
+        // AT-478 — an admin switching a feature the gradual rollout is holding back counts as released early.
+        // SYNC, same reasons as above. The rollout ignores the events its own releases emit.
+        \Illuminate\Support\Facades\Event::listen(
+            \App\Events\AgencyFeatureToggled::class,
+            function (\App\Events\AgencyFeatureToggled $event) {
+                app(\App\Services\FeatureRollout\FeatureRolloutService::class)->onFeatureToggled($event);
             }
         );
 

@@ -1,15 +1,17 @@
 @extends('layouts.corex')
 
-@section('content')
-<div class="mb-4">@include('corex.notices._tabs', ['active' => 'breaches'])</div>
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
 @php
     $address = $lease->property?->buildDisplayAddress() ?: ('Lease #' . $lease->id);
     $badge = $breach->status === 'issued' ? 'ds-badge-warning' : ($breach->status === 'remedied' ? 'ds-badge-success' : 'ds-badge-danger');
 @endphp
-<div class="p-6 space-y-5 max-w-5xl" data-qa="breach-screen">
-    <div class="flex flex-wrap items-center justify-between gap-3">
+<div class="rx-page w-full space-y-5" data-qa="breach-screen">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="flex flex-wrap items-center justify-between gap-3" data-tour="rops-bd-head">
         <div>
-            <h1 class="text-lg font-semibold">{{ $breach->kind === 'payment' ? 'Payment breach' : 'Breach' }} - {{ $address }}</h1>
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $breach->kind === 'payment' ? 'Payment breach' : 'Breach' }} - {{ $address }}</h1>
             <p class="text-xs" style="color: var(--text-muted);">
                 <span class="ds-badge {{ $badge }}" data-breach-status>{{ $breach->statusLabel() }}</span>
                 @if($breach->trashed()) <span class="ds-badge ds-badge-muted">Archived</span> @endif
@@ -21,8 +23,14 @@
             <a href="{{ route('corex.leases.show', $lease) }}" class="corex-btn-outline text-xs">Open lease</a>
 @endfeature
             <a href="{{ route('corex.breaches.index') }}" class="corex-btn-outline text-xs">Breach register</a>
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
         </div>
     </div>
+    </div>
+    <div class="max-w-5xl space-y-5">
+
+
+    @include('corex.notices._tabs', ['active' => 'breaches'])
 
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); border: 1px solid var(--ds-crimson);" data-qa="breach-errors">
@@ -30,18 +38,18 @@
         </div>
     @endif
 
-    <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rops-bd-details">
         <dl class="grid grid-cols-3 gap-y-1 text-xs">
             <dt style="color: var(--text-muted);">Issued</dt><dd class="col-span-2">{{ $breach->issued_on->format('j F Y') }} by {{ $breach->issuedBy?->name ?? 'an agent' }}</dd>
             @if($breach->amount !== null)<dt style="color: var(--text-muted);">Outstanding amount</dt><dd class="col-span-2">{{ \App\Services\Rentals\RentalNoticeService::money((float) $breach->amount) }}</dd>@endif
             @if($breach->clause)<dt style="color: var(--text-muted);">Lease clause</dt><dd class="col-span-2">{{ $breach->clause }}</dd>@endif
             @if($breach->reason)<dt style="color: var(--text-muted);">The breach</dt><dd class="col-span-2">{{ $breach->reason }}</dd>@endif
             <dt style="color: var(--text-muted);">Remedy by</dt>
-            <dd class="col-span-2" data-qa="remedy-deadline">{{ $breach->remedy_deadline?->format('j F Y') ?? '—' }} ({{ $breach->remedyWindowLabel() }})
+            <dd class="col-span-2" data-qa="remedy-deadline" data-tour="rops-bd-deadline">{{ $breach->remedy_deadline?->format('j F Y') ?? '—' }} ({{ $breach->remedyWindowLabel() }})
                 @if($breach->daysLeftText()) - <strong data-qa="days-left" style="color: {{ $breach->isOverdue() ? '#b91c1c' : ($breach->daysToRemedy() === 0 ? '#b45309' : 'inherit') }};">{{ $breach->daysLeftText() }}</strong>@endif
-                @if($breach->isIssued() && $breach->remedyDateReached()) - <strong style="color:#b91c1c;">date reached - was it fixed?</strong>@endif</dd>
+                @if($breach->isIssued() && $breach->remedyDateReached()) - <strong style="color: var(--ds-red, #b91c1c);">date reached - was it fixed?</strong>@endif</dd>
             <dt style="color: var(--text-muted);">Documents</dt>
-            <dd class="col-span-2">
+            <dd class="col-span-2" data-tour="rops-bd-docs">
                 @if($breach->notice?->document)<a href="{{ route('corex.breaches.document', [$breach->id, 'breach']) }}" style="color: var(--brand-icon, #0ea5e9);">Breach notice (PDF)</a>@endif
                 @if($breach->vacateNotice?->document) &middot; <a href="{{ route('corex.breaches.document', [$breach->id, 'vacate']) }}" style="color: var(--brand-icon, #0ea5e9);">Notice to vacate (PDF)</a>@endif
             </dd>
@@ -54,8 +62,8 @@
     @if(!$breach->trashed())
         @permission('rental_breaches.manage')
         @if($breach->isIssued())
-            <div class="grid gap-4 md:grid-cols-2" data-qa="breach-actions">
-                <form method="POST" action="{{ route('corex.breaches.remedy', $breach->id) }}" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-qa="remedy-form">
+            <div class="grid gap-4 md:grid-cols-2" data-qa="breach-actions" data-tour="rops-bd-actions">
+                <form method="POST" action="{{ route('corex.breaches.remedy', $breach->id) }}" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-qa="remedy-form" data-tour="rops-bd-remedy">
                     @csrf
                     <h2 class="text-sm font-semibold">Breach remedied</h2>
                     <p class="text-xs" style="color: var(--text-muted);">The breach has been put right. It can then no longer be escalated to a notice to vacate.</p>
@@ -64,10 +72,10 @@
                         <input type="date" id="remedied_on" name="remedied_on" value="{{ old('remedied_on', now()->toDateString()) }}" min="{{ $breach->issued_on->toDateString() }}" max="{{ now()->toDateString() }}" class="prop-input mt-1" data-qa="remedied-on">
                     </div>
                     <textarea name="note" rows="2" maxlength="1000" class="w-full rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);" placeholder="Note (optional) - e.g. paid in full on 20 Oct"></textarea>
-                    <button type="submit" class="corex-btn-primary text-xs">Breach remedied</button>
+                    <button type="submit" class="corex-btn-primary text-xs" data-tour="rops-bd-remedy-btn">Breach remedied</button>
                 </form>
 
-                <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" id="vacate-box" data-qa="vacate-box">
+                <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" id="vacate-box" data-qa="vacate-box" data-tour="rops-bd-vacate">
                     <h2 class="text-sm font-semibold">Notice to vacate</h2>
                     @if($breach->breach_party !== 'tenant')
                         <p class="text-xs" style="color: var(--text-muted);">A notice to vacate is only for a tenant who is in breach.</p>
@@ -124,7 +132,7 @@
     @endif
 
     @permission('rental_breaches.manage')
-    <div class="flex gap-2">
+    <div class="flex gap-2" data-tour="rops-bd-archive">
         @if($breach->trashed())
             <form method="POST" action="{{ route('corex.breaches.restore', $breach->id) }}">@csrf<button type="submit" class="corex-btn-outline text-xs">Restore</button></form>
         @else
@@ -132,5 +140,6 @@
         @endif
     </div>
     @endpermission
+</div>
 </div>
 @endsection

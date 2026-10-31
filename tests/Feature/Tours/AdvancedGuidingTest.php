@@ -240,6 +240,27 @@ class AdvancedGuidingTest extends TestCase
         $this->assertTrue(TourRegistry::visibleTo($tour, $legacyAdminFlag), 'assertCompliance() also accepts the raw is_admin flag');
     }
 
+    /**
+     * The rental application authorisation queue admits only the agency's named Reviewer / Override people
+     * (User::seesRentalAuthorisationQueue()), so its guides are offered through that same check — never to
+     * everyone, which would send a non-reviewer from the Guided Tours page straight into a 403.
+     */
+    public function test_user_check_offers_the_authorisation_guides_only_to_reviewers(): void
+    {
+        foreach (['rops-auth-queue', 'rops-auth-review'] as $key) {
+            $tour = TourRegistry::all()[$key];
+            $this->assertSame('seesRentalAuthorisationQueue', $tour['user_check'] ?? null, "$key must use the queue's own gate");
+
+            $reviewer = $this->user(true);
+            $reviewer->shouldReceive('seesRentalAuthorisationQueue')->andReturn(true);
+            $this->assertTrue(TourRegistry::visibleTo($tour, $reviewer));
+
+            $other = $this->user(true);
+            $other->shouldReceive('seesRentalAuthorisationQueue')->andReturn(false);
+            $this->assertFalse(TourRegistry::visibleTo($tour, $other), "$key must not be offered to someone the queue turns away");
+        }
+    }
+
     public function test_record_page_tours_declare_a_real_pick_list(): void
     {
         foreach ($this->routedTours() as $key => $tour) {

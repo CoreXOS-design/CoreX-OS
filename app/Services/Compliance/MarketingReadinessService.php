@@ -13,6 +13,8 @@ class MarketingReadinessService
 {
     public function __construct(
         private AgencyComplianceDocTypeService $docTypes = new AgencyComplianceDocTypeService(),
+        // AT-509 — the agency's Compliance Switches (.ai/specs/property-compliance-gate-settings.md §5).
+        private ComplianceGateSettingsService $gates = new ComplianceGateSettingsService(),
     ) {
     }
 
@@ -102,6 +104,20 @@ class MarketingReadinessService
             );
         }
 
+        // AT-509 — checks the agency switched off (spec §5). With the master switch off nothing is
+        // checked at all; otherwise a switched-off check shows as a grey row instead of red/green.
+        $agencyId = (int) $property->agency_id;
+        $switchedOff = $agencyId > 0 ? $this->gates->switchedOffGates($agencyId) : [];
+        if (isset($switchedOff[ComplianceGateSettingsService::MASTER])) {
+            return new ReadinessReport(
+                ready: true,
+                snapshotAt: null,
+                blockedBy: [],
+                nextActions: [],
+                checklist: ['compliance_switched_off' => $this->switchedOffRow($switchedOff[ComplianceGateSettingsService::MASTER])],
+            );
+        }
+
         $checklist = [];
         $blockedBy = [];
         $nextActions = [];
@@ -124,8 +140,23 @@ class MarketingReadinessService
             }
         }
 
+        // Document checks the agency switched off — grey rows, never blocking. A rental never had
+        // the rental-exempt types (the MDF), so there is nothing to explain there.
+        $rentalExempt = $property->isRental() ? (array) config('corex-compliance.rental_not_required_slugs', []) : [];
+        foreach ($switchedOff as $key => $off) {
+            if (!str_starts_with($key, ComplianceGateSettingsService::DOC_PREFIX)) {
+                continue;
+            }
+            $slug = substr($key, strlen(ComplianceGateSettingsService::DOC_PREFIX));
+            if (!in_array($slug, $rentalExempt, true)) {
+                $checklist[$slug] = $this->switchedOffRow($off);
+            }
+        }
+
         // Gate: Listing has photos (>= 4)
-        $checklist['photos'] = $this->checkPhotos($property);
+        $checklist['photos'] = isset($switchedOff[ComplianceGateSettingsService::PHOTOS])
+            ? $this->switchedOffRow($switchedOff[ComplianceGateSettingsService::PHOTOS])
+            : $this->checkPhotos($property);
         if (!$checklist['photos']['passed']) {
             $blockedBy[] = $checklist['photos']['detail'];
             $nextActions[] = [
@@ -135,7 +166,9 @@ class MarketingReadinessService
         }
 
         // Gate: Listing details complete
-        $checklist['details_complete'] = $this->checkDetailsComplete($property);
+        $checklist['details_complete'] = isset($switchedOff[ComplianceGateSettingsService::DETAILS])
+            ? $this->switchedOffRow($switchedOff[ComplianceGateSettingsService::DETAILS])
+            : $this->checkDetailsComplete($property);
         if (!$checklist['details_complete']['passed']) {
             $blockedBy[] = $checklist['details_complete']['detail'];
             $nextActions[] = [
@@ -187,7 +220,7 @@ class MarketingReadinessService
         $presentDocs = $this->presentRequiredDocuments($property);
 
         $snapshotData = [
-            'snapshot_version' => 2,
+            'snapshot_version' => 3,
             'snapshotted_by_user_id' => $by->id,
             'snapshotted_by_name' => $by->name,
             'sellers' => $sellerData,
@@ -199,6 +232,11 @@ class MarketingReadinessService
                 'photo_count' => $this->countPhotos($property),
             ],
             'checklist' => $report->checklist,
+            // AT-509 (spec §4.3) — the checks that were switched off at the moment this listing went
+            // live. Switching them back on later never re-blocks this listing; the panel says why.
+            'gates_off_at_go_live' => (int) $property->agency_id > 0
+                ? array_values($this->gates->switchedOffGates((int) $property->agency_id))
+                : [],
         ];
 
         $property->update([
@@ -410,6 +448,12 @@ class MarketingReadinessService
      */
     public function complianceChecklistFor(Property $property): array
     {
+        // AT-509 — with every check switched off nothing needs uploading (spec §7.2). A single
+        // switched-off document type is already absent: it is no longer a required type.
+        if ((int) $property->agency_id > 0 && !$this->gates->masterEnabled((int) $property->agency_id)) {
+            return [];
+        }
+
         $items = $this->evaluateRequiredTypes($property);
         if (empty($items)) {
             return [];
@@ -664,6 +708,26 @@ class MarketingReadinessService
     {
         return count($property->gallery_images_json ?? [])
             + count($property->images_json ?? []);
+    }
+
+    /**
+     * AT-509 — a grey, non-blocking checklist row for a check the agency switched off. Carries who and
+     * when, so the panel can say "switched off when this listing went live" once it is snapshotted.
+     */
+    private function switchedOffRow(array $off): array
+    {
+        $when = $off['switched_off_at'] ? \Illuminate\Support\Carbon::parse($off['switched_off_at'])->timezone(config('app.timezone'))->format('j M Y') : null;
+        $by = $off['switched_off_by'] ?? null;
+        $suffix = trim(implode(' ', array_filter([$when ? 'on ' . $when : null, $by ? 'by ' . $by : null])));
+
+        return [
+            'passed'          => true,
+            'switched_off'    => true,
+            'label'           => $off['label'],
+            'detail'          => 'Switched off by the agency' . ($suffix !== '' ? ' ' . $suffix : '') . ' — not checked',
+            'switched_off_on' => $when,
+            'switched_off_by' => $by,
+        ];
     }
 
     private function buildHistoricalChecklist(Property $property): array

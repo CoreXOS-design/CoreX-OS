@@ -616,7 +616,7 @@ DESIGN RULES
 3. Put a gradient or colour block under any text that sits on the picture, or give the text a pill - text straight on a picture is rejected unless shadowOn is true. Contrast rules are in HARD LIMITS.
 4. Stacking: the picture at the bottom, scrims above it, text and badges on top, using zIndex.
 5. Do not invent facts: no phone numbers, dates, times, prices, addresses, names or awards the user did not give. Dates and times written in the idea may be used exactly as written.
-6. Make the design strong and distinctive. Aim for 6 to 12 elements.
+6. Make the design strong and distinctive. Aim for 6 to 12 elements. Give every text box its own space: stack lines with a gap and never place two text boxes on the same spot.
 7. Never reproduce another company's name, logo, slogan or words.
 8. Where a STYLE below talks about the property photo, apply it to the picture (or, with no picture, to the colour blocks); where it talks about the price or listing facts, apply it to the main message.
 

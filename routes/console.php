@@ -142,6 +142,9 @@ Schedule::command('model:prune', ['--model' => [\App\Models\AssistantActivityLog
 // from two nodes.
 Schedule::command('buyers:autoland-pipeline')->dailyAt('04:45')->onOneServer()->withoutOverlapping();
 
+// Training Videos — remove upload pieces never finished/saved after 24h (spec §8 U11).
+Schedule::command('training-videos:purge-abandoned-uploads')->dailyAt('03:10')->onOneServer()->withoutOverlapping();
+
 // AT-163 — voice-note transcription batch. Hourly; each run processes agencies
 // whose configured nightly time (default 22:00, clear of the 03:30 backup) matches
 // the current hour. CPU-nice'd inside the worker.
@@ -661,6 +664,10 @@ Schedule::command('sold-stock:expire-portals')
     ->withoutOverlapping()
     ->onOneServer()
     ->name('sold-stock-expire-portals');
+
+// AT-478 — gradual feature rollout: release waves whose day and release time have come (weekdays /
+// holidays handled per plan by RolloutCalendar). Idempotent; spec .ai/specs/agency-feature-rollout.md §3.5.
+Schedule::command('rollout:release')->everyFifteenMinutes()->onOneServer()->withoutOverlapping(10);
 
 // Attorney portal - the daily "new documents" note to attorneys (one per deal per day; each agency can switch it off).
 Schedule::command('attorney-portal:notify-new-documents')->dailyAt('07:30')->withoutOverlapping();

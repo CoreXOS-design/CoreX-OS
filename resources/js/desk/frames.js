@@ -56,24 +56,40 @@ export async function encodeBatch(events, senderTag = 'a', opts = {}) {
     return chunks;
 }
 
+/** The most chunks one batch may claim (a snapshot is a few dozen at most): a larger count in a chunk is hostile or broken, not a big page. */
+export const MAX_CHUNKS = 256;
+
 /** Collects chunks; calls onBatch(events, info) once a batch is complete (info: the timing stamp if the sender added one, the wire size, decode time). Incomplete batches older than 30 s are dropped. */
 export class Reassembler {
     constructor(onBatch) {
         this.onBatch = onBatch;
         this.parts = new Map();
         this.lastAt = 0;   // when a chunk last arrived (the console does not ask again for a picture that is still coming in)
+        this.timer = null; // sweeps stale partial batches while any exist (not only when the next chunk happens to arrive)
+    }
+
+    /** Stop the sweep and forget what is half-received (the tab or the session is gone). */
+    dispose() {
+        clearInterval(this.timer);
+        this.timer = null;
+        this.parts.clear();
     }
 
     /** Is part of a batch on its way in? */
     get busy() { return this.parts.size > 0 && Date.now() - this.lastAt < 6000; }
 
     async push(chunk) {
-        if (!chunk || typeof chunk.id !== 'string') return;
+        if (!chunk || typeof chunk.id !== 'string' || chunk.id.length > 64 || typeof chunk.d !== 'string') return;
+        // A whisper comes from the browser, not the server: bound what it can make us allocate. n is a whole number from 1 to MAX_CHUNKS and i is one of
+        // its slots - anything else is dropped, never turned into an array of that size.
+        if (!Number.isInteger(chunk.n) || chunk.n < 1 || chunk.n > MAX_CHUNKS || !Number.isInteger(chunk.i) || chunk.i < 0 || chunk.i >= chunk.n) return;
         let entry = this.parts.get(chunk.id);
         if (!entry) {
             entry = { n: chunk.n, z: chunk.z, got: 0, d: new Array(chunk.n), at: Date.now(), m: null, firstAt: Date.now() };
             this.parts.set(chunk.id, entry);
+            if (!this.timer) this.timer = setInterval(() => { this.sweep(); if (!this.parts.size) { clearInterval(this.timer); this.timer = null; } }, 10000);
         }
+        if (chunk.n !== entry.n) return;   // (a later chunk of the same batch that disagrees about the count)
         if (entry.d[chunk.i] === undefined) {
             entry.d[chunk.i] = chunk.d;
             entry.got++;

@@ -91,6 +91,12 @@ final class AdLayoutValidator
      */
     public const OVERLAP_TOLERANCE = 6;
 
+    /** When boxes that sit on top of each other are pulled apart, they end this many pixels clear (more than OVERLAP_TOLERANCE). */
+    private const SEPARATION_GAP = 8;
+
+    /** Pulling boxes apart never moves one further than this share of the canvas side: a bigger move is a different design. */
+    private const SEPARATION_MAX_SHARE = 0.4;
+
     /**
      * At most this many overlap errors per design, then one summary line: the AI's retry is shown only the first few errors of
      * ALL designs together, so one messy design must not crowd out the others' errors (audit 2026-10-20).
@@ -433,12 +439,20 @@ final class AdLayoutValidator
             if (collect($elements)->where('field', 'custom_image')->count() > 1) {
                 $errors[] = 'A company ad has at most one custom_image (its picture).';
             }
-        } elseif (! collect($elements)->contains(fn ($e) => in_array($e['field'], self::PHOTO_FIELDS, true))) {
-            $errors[] = 'A property ad needs at least one property photo element (image_1 … image_5, or a collage).';
+        } elseif (! collect($elements)->contains(fn ($e) => in_array($e['field'], self::PHOTO_FIELDS, true) || $e['field'] === 'agent_avatar')) {
+            // An ad about the agent ("advertise our agent", "property wanted") is carried by the agent's own photo.
+            $errors[] = 'A property ad needs at least one property photo element (image_1 … image_5, or a collage), or the agent photo (agent_avatar) when the ad is about the agent.';
         }
 
         if ($layoutMode === self::MODE_PROPERTY) {
             $this->checkTextFit($elements, $errors, $repair, $repairs);
+        }
+        if ($repair) {
+            // Nudge words that run over a shape's edge back onto it, then pull apart boxes that sit on top of each other, before
+            // the checks below would refuse the design for exactly that.
+            $this->clampTextToShapes($elements, $repairs);
+            $this->separateOverlaps($elements, $cw, $ch, $repairs);
+            $this->clampTextToShapes($elements, $repairs);
         }
         $this->checkOverlaps($elements, $errors);
         $this->checkShapeEdges($elements, $errors);
@@ -703,7 +717,28 @@ final class AdLayoutValidator
                         $raw['fontSize'] = $size;
                         $repairs[]       = "{$tag}: the ribbon words did not fit the band, so fontSize was lowered to {$size}.";
                     }
+                    $fitBox = fn (float $s) => $this->ribbonTextFits($s, $s, $size, $num('padding'), $num('letterSpacing'), $upper, $text);
+                    if (! $fitBox(min((float) $raw['w'], (float) $raw['h']))) {
+                        // The user's own ribbon words (placed after the AI sized the band) do not fit: grow the band, keeping its
+                        // corner where it is, before any word is cut.
+                        $side = max((float) $raw['w'], (float) $raw['h']);
+                        $cap  = min($cw, $ch) * 0.6;
+                        while ($side < $cap && ! $fitBox($side)) {
+                            $side += 20;
+                        }
+                        $side   = min($side, $cap);
+                        $corner = (string) ($raw['ribbonCorner'] ?? $d['ribbonCorner']);
+                        $rx     = $num('x');
+                        $ry     = $num('y');
+                        $right  = $rx + (float) $raw['w'];
+                        $bottom = $ry + (float) $raw['h'];
+                        $raw['x'] = (int) max(0, in_array($corner, ['tr', 'br'], true) ? $right - $side : $rx);
+                        $raw['y'] = (int) max(0, in_array($corner, ['bl', 'br'], true) ? $bottom - $side : $ry);
+                        $raw['w'] = $raw['h'] = (int) round($side);
+                        $repairs[] = "{$tag}: the ribbon words did not fit the band, so the ribbon was made bigger.";
+                    }
                     $cut = $text;
+                    $fit = fn (int $sz, string $t) => $this->ribbonTextFits((float) $raw['w'], (float) $raw['h'], $sz, $num('padding'), $num('letterSpacing'), $upper, $t);   // the band's size now
                     while (! $fit($size, $cut) && mb_strlen($cut) > 3) {
                         $cut = mb_substr($cut, 0, -1);
                     }
@@ -1350,11 +1385,148 @@ final class AdLayoutValidator
     // ─────────────────────────────────────────────────────────────────────
 
     /**
+     * Pull apart words-or-picture boxes that sit on top of each other, instead of refusing the whole design for it. For each
+     * clashing pair the smallest sideways or up/down move of either box that leaves both clear of everything else, inside the
+     * canvas (and above the compulsory PPRA strip) is taken. A clash with no such move is left for checkOverlaps() to refuse.
+     *
+     * @param array<int, array<string, mixed>> $elements
+     * @param array<int, string>               $repairs
+     */
+    private function separateOverlaps(array &$elements, int $cw, int $ch, array &$repairs): void
+    {
+        $tol   = self::OVERLAP_TOLERANCE;
+        $gap   = self::SEPARATION_GAP;
+        $floor = (float) $ch;
+        $fixed = [];
+        $live  = [];
+        foreach ($elements as $i => $el) {
+            if ($el['field'] === 'custom_text' && trim(strip_tags((string) ($el['text'] ?? ''))) === AdPpraFooter::TEXT) {
+                $floor   = min($floor, (float) $el['y']);
+                $fixed[$i] = true;
+            }
+            if (! in_array($el['field'], self::OVERLAP_EXEMPT_FIELDS, true)) {
+                $live[] = $i;
+            }
+        }
+
+        $box = fn (int $i): array => [(float) $elements[$i]['x'], (float) $elements[$i]['y'], (float) $elements[$i]['x'] + (float) $elements[$i]['w'], (float) $elements[$i]['y'] + (float) $elements[$i]['h']];
+        $hit = fn (array $a, array $b): bool => min($a[2], $b[2]) - max($a[0], $b[0]) > $tol && min($a[3], $b[3]) - max($a[1], $b[1]) > $tol;
+
+        for ($pass = 0; $pass < 12; $pass++) {
+            $moved = false;
+            foreach ($live as $a) {
+                foreach ($live as $b) {
+                    if ($b <= $a || ! $hit($box($a), $box($b))) {
+                        continue;
+                    }
+                    $best = null;   // [cost, index, dx, dy, direction, other]
+                    foreach ([[$a, $b], [$b, $a]] as [$m, $o]) {
+                        if (isset($fixed[$m])) {
+                            continue;
+                        }
+                        $mb = $box($m);
+                        $ob = $box($o);
+                        $options = [
+                            'down'  => [0.0, $ob[3] - $mb[1] + $gap],
+                            'up'    => [0.0, -($mb[3] - $ob[1] + $gap)],
+                            'right' => [$ob[2] - $mb[0] + $gap, 0.0],
+                            'left'  => [-($mb[2] - $ob[0] + $gap), 0.0],
+                        ];
+                        foreach ($options as $dir => [$dx, $dy]) {
+                            $nb = [$mb[0] + $dx, $mb[1] + $dy, $mb[2] + $dx, $mb[3] + $dy];
+                            $cost = abs($dx) + abs($dy);
+                            if ($nb[0] < 0 || $nb[1] < 0 || $nb[2] > $cw || $nb[3] > $floor
+                                || abs($dx) > $cw * self::SEPARATION_MAX_SHARE || abs($dy) > $ch * self::SEPARATION_MAX_SHARE
+                                || ($best !== null && $cost >= $best[0])) {
+                                continue;
+                            }
+                            $clear = true;
+                            foreach ($live as $k) {
+                                if ($k !== $m && $hit($nb, $box($k))) {
+                                    $clear = false;
+                                    break;
+                                }
+                            }
+                            if ($clear) {
+                                $best = [$cost, $m, $dx, $dy, $dir, $o];
+                            }
+                        }
+                    }
+                    if ($best === null) {
+                        continue;
+                    }
+                    [, $m, $dx, $dy, $dir, $o] = $best;
+                    $elements[$m]['x'] = (int) round((float) $elements[$m]['x'] + $dx);
+                    $elements[$m]['y'] = (int) round((float) $elements[$m]['y'] + $dy);
+                    $repairs[] = 'Element ' . ($m + 1) . " ({$elements[$m]['field']}): sat on top of Element " . ($o + 1) . " ({$elements[$o]['field']}), so it was moved "
+                        . (int) round($best[0]) . "px {$dir}.";
+                    $moved = true;
+                }
+            }
+            if (! $moved) {
+                break;
+            }
+        }
+    }
+
+    /**
+     * Words that sit partly on and partly off a shape or colour block are moved wholly onto it when their box fits inside the
+     * shape's safe area (checkShapeEdges() refuses what this cannot fix).
+     *
+     * @param array<int, array<string, mixed>> $elements
+     * @param array<int, string>               $repairs
+     */
+    private function clampTextToShapes(array &$elements, array &$repairs): void
+    {
+        $tol = self::OVERLAP_TOLERANCE;
+        foreach ($elements as $ti => $t) {
+            if (! $this->isTextField($t['field']) || in_array($t['field'], ['watermark', 'ribbon', 'feature_pills'], true)) {
+                continue;
+            }
+            foreach ($elements as $bi => $b) {
+                if (! in_array($b['field'], ['shape', 'color_block'], true) || (float) $b['opacity'] < self::BACKDROP_MIN_ALPHA || (int) $b['zIndex'] >= (int) $t['zIndex']) {
+                    continue;
+                }
+                $kind = $b['field'] === 'shape' ? (string) $b['shapeType'] : 'rectangle';
+                if (! isset(self::SHAPE_SAFE_AREA[$kind])) {
+                    continue;
+                }
+                [$tl, $tt, $tw, $th] = [(float) $elements[$ti]['x'], (float) $elements[$ti]['y'], (float) $t['w'], (float) $t['h']];
+                [$bl, $bt, $bw, $bh] = [(float) $b['x'], (float) $b['y'], (float) $b['w'], (float) $b['h']];
+                if (min($tl + $tw, $bl + $bw) - max($tl, $bl) <= $tol || min($tt + $th, $bt + $bh) - max($tt, $bt) <= $tol) {
+                    continue;   // wholly off the block
+                }
+                if ($bl >= $tl - $tol && $bl + $bw <= $tl + $tw + $tol && $bt >= $tt - $tol && $bt + $bh <= $tt + $th + $tol) {
+                    continue;   // a small accent inside the text box
+                }
+                [$fx, $fy] = self::SHAPE_SAFE_AREA[$kind];
+                $sw = $bw * $fx;
+                $sh = $bh * $fy;
+                $sl = $bl + ($bw - $sw) / 2;
+                $st = $bt + ($bh - $sh) / 2;
+                if ($tl >= $sl - $tol && $tl + $tw <= $sl + $sw + $tol && $tt >= $st - $tol && $tt + $th <= $st + $sh + $tol) {
+                    continue;   // already wholly on it
+                }
+                if ($tw > $sw || $th > $sh) {
+                    continue;   // does not fit on it at all: left for the check to refuse
+                }
+                $nx = (int) round(min(max($tl, $sl), $sl + $sw - $tw));
+                $ny = (int) round(min(max($tt, $st), $st + $sh - $th));
+                if ($nx !== (int) round($tl) || $ny !== (int) round($tt)) {
+                    $elements[$ti]['x'] = $nx;
+                    $elements[$ti]['y'] = $ny;
+                    $repairs[] = 'Element ' . ($ti + 1) . " ({$t['field']}): ran over the edge of Element " . ($bi + 1) . " ({$b['field']}), so it was moved wholly onto it.";
+                }
+            }
+        }
+    }
+
+    /**
      * Words or pictures drawn on top of each other (Johan 2026-10-20: an AI design put the erf size and the price per m² in the
      * same spot, so neither could be read). Every pair of elements that are not backgrounds, photos or decoration
      * (OVERLAP_EXEMPT_FIELDS) is compared; boxes sharing more than OVERLAP_TOLERANCE pixels both ways are refused, naming both,
-     * so the AI's retry is told exactly what to move. Never repaired: shuffling text automatically can push it off its panel or
-     * onto a photo, so a design that still clashes after the retry is not offered at all.
+     * so the AI's retry is told exactly what to move. Pulled apart first by separateOverlaps() where a clear move exists; a design
+     * that still clashes after that and the retry is not offered at all.
      *
      * @param  array<int, array<string, mixed>> $elements built elements
      * @param  array<int, string>               $errors

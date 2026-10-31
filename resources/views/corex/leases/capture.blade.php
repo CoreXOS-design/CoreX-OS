@@ -83,15 +83,20 @@
      x-data="leaseCaptureForm('{{ route('corex.properties.contacts.search-global') }}', {{ \Illuminate\Support\Js::from($oldTenants ?? []) }}, {{ \Illuminate\Support\Js::from($propertyPickerConfig) }}, {{ \Illuminate\Support\Js::from($captureCfg) }})"
      x-init="refreshSigners()">
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
-        <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $isRenew ? 'Renew this lease' : 'New Lease' }}</h1>
-        <p class="text-xs" style="color: var(--text-muted);">
-            @if($isRenew)
-                {{ $lease->property?->buildDisplayAddress() }} — {{ $lease->tenantNames() }}
-            @else
-                Pick the property, add the tenant(s) and set the terms.
-            @endif
-        </p>
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rops-lc-intro">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $isRenew ? 'Renew this lease' : 'New Lease' }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    @if($isRenew)
+                        {{ $lease->property?->buildDisplayAddress() }} — {{ $lease->tenantNames() }}
+                    @else
+                        Pick the property, add the tenant(s) and set the terms.
+                    @endif
+                </p>
+            </div>
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+        </div>
     </div>
 
     <form method="POST" enctype="multipart/form-data"
@@ -129,12 +134,12 @@
 
         @if($isRenew)
             {{-- Renewal: the property and the tenants are the lease being renewed — shown, never typed (R7). --}}
-            <div>
+            <div data-tour="rops-rn-property">
                 <label class="prop-label">Property</label>
                 <div class="text-sm mt-1 font-medium" style="color: var(--text-primary);">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}</div>
             </div>
 
-            <div class="space-y-2">
+            <div class="space-y-2" data-tour="rops-rn-tenants">
                 <label class="prop-label">Tenant(s)</label>
                 <div class="space-y-1">
                     @forelse($lease->tenants as $t)
@@ -159,7 +164,7 @@
                     {{-- .ai/specs/leases.md §7.2 — same type-to-search pattern as the rental
                          application / work order property pickers. The hidden input carries the
                          id; editing the text clears it, so the box and the id can never disagree. --}}
-                    <input type="text" id="lease-property-search" x-ref="propertySearch" x-model="propertyQuery" autocomplete="off"
+                    <input type="text" id="lease-property-search" data-tour="rops-lc-property" x-ref="propertySearch" x-model="propertyQuery" autocomplete="off"
                            role="combobox" aria-autocomplete="list" aria-controls="lease-property-results"
                            :aria-expanded="propertyOpen ? 'true' : 'false'"
                            placeholder="Search by address, property name or reference…"
@@ -213,7 +218,7 @@
                 <label class="prop-label">Tenant(s)</label>
                 <p class="text-xs mb-1" style="color: var(--text-muted);">Add one or more — a lease can have joint tenants.</p>
                 <input type="text" x-model="query" @input.debounce.300ms="search()" placeholder="Search contacts by name, phone, or email…"
-                       class="prop-input">
+                       class="prop-input" data-tour="rops-lc-tenant">
                 <div class="mt-1 rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" x-show="results.length > 0" x-cloak>
                     <template x-for="r in results" :key="r.id">
                         <button type="button" @click="add(r)" class="list-row-hover block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary); border-bottom: 1px solid var(--border);" x-text="r.name + (r.email ? ' — ' + r.email : '')"></button>
@@ -238,7 +243,7 @@
         <div class="grid grid-cols-2 gap-3">
             <div class="col-span-2 sm:col-span-1">
                 <label class="prop-label">Monthly rental (R)</label>
-                <input type="number" name="rental_amount" value="{{ $rentValue }}" step="0.01" min="0" required x-ref="rent" @input="rentChanged()" class="prop-input">
+                <input type="number" name="rental_amount" data-tour="rops-lc-rent" value="{{ $rentValue }}" step="0.01" min="0" required x-ref="rent" @input="rentChanged()" class="prop-input">
                 @if($appDefaults && ($appDefaults['rental_amount'] ?? null) !== null && old('rental_amount') === null)
                     <p class="text-[11px] mt-0.5" style="color: var(--text-muted);">From the property's rent.</p>
                 @elseif($appDefaults && ($appDefaults['rental_amount'] ?? null) === null && old('rental_amount') === null)
@@ -247,7 +252,7 @@
             </div>
             <div class="col-span-2 sm:col-span-1">
                 <label class="prop-label">Deposit (R)</label>
-                <input type="number" name="deposit_amount" value="{{ $depositValue }}" step="0.01" min="0" x-ref="deposit" @input="depositTouched = true" class="prop-input">
+                <input type="number" name="deposit_amount" data-tour="rops-lc-deposit" value="{{ $depositValue }}" step="0.01" min="0" x-ref="deposit" @input="depositTouched = true" class="prop-input">
             </div>
             <div class="col-span-2 sm:col-span-1">
                 <label class="prop-label">{{ $leaseFeeLabel ?? 'Lease fee' }} (R)</label>
@@ -256,18 +261,18 @@
             </div>
             <div class="col-span-2 sm:col-span-1">
                 <label class="prop-label">Start date</label>
-                <input type="date" name="start_date" value="{{ $startValue }}" required class="prop-input" style="color-scheme: light dark;">
+                <input type="date" name="start_date" data-tour="rops-lc-start" value="{{ $startValue }}" required class="prop-input" style="color-scheme: light dark;">
             </div>
             <div class="col-span-2 sm:col-span-1">
                 <label class="prop-label">End date</label>
-                <input type="date" name="end_date" value="{{ $endValue }}" x-bind:disabled="monthToMonth" class="prop-input" style="color-scheme: light dark;">
+                <input type="date" name="end_date" data-tour="rops-lc-end" value="{{ $endValue }}" x-bind:disabled="monthToMonth" class="prop-input" style="color-scheme: light dark;">
             </div>
         </div>
 
         {{-- leases.md §17 (Johan, 8 Oct 2026) — the two agents on the lease. The owner's agent starts as the property's agent
              (it follows the property picked here until the agent chooses one); the tenant's agent starts as the agent who sent
              out the application (else who processed it, else you). A renewal carries both forward. The portal links show them. --}}
-        <div class="grid grid-cols-2 gap-3" data-qa="lease-agents-fields">
+        <div class="grid grid-cols-2 gap-3" data-qa="lease-agents-fields" data-tour="rops-lc-agents">
             <div class="col-span-2 sm:col-span-1">
                 @include('corex.leases._agent-select', [
                     'name' => 'owner_agent_user_id', 'label' => "Owner's agent",
@@ -306,7 +311,7 @@
             @error('rent_above_approved_reason')<p class="text-xs" style="color: var(--ds-crimson);">{{ $message }}</p>@enderror
         @endif
 
-        <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+        <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);" data-tour="rops-lc-m2m">
             <input type="checkbox" name="is_month_to_month" value="1" @checked(old('is_month_to_month')) x-model="monthToMonth">
             Month-to-month (no fixed end date)
         </label>
@@ -331,7 +336,7 @@
 
         {{-- leases.md §18 — notice and early-cancellation terms: always asked (a linked agreement or not); they start from the
              agency's defaults (or the term being renewed) and are what the lease agreement and the portal FAQ are filled from. --}}
-        <div class="space-y-2 pt-5" style="border-top: 1px solid var(--border);" data-qa="capture-notice-terms">
+        <div class="space-y-2 pt-5" style="border-top: 1px solid var(--border);" data-qa="capture-notice-terms" data-tour="rops-lc-notice">
             <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Notice and early cancellation <span class="text-xs font-normal" style="color: var(--text-muted);">· {{ $noticeDefaultsNote ?? 'From your agency defaults' }}</span></h3>
             @include('corex.leases._notice-terms', [
                 'noticeValues' => $noticeValues ?? [],
@@ -346,14 +351,14 @@
             @include('corex.leases._signing-checklist')
         @endif
 
-        <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+        <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);" data-tour="rops-lc-activate">
             <input type="checkbox" name="activate_immediately" value="1" @checked(old('activate_immediately')) x-model="activate">
             {{ $isRenew ? 'Activate immediately' : 'Activate immediately (skip draft)' }}
         </label>
 
         {{-- Signed paper copy (R2) — available on a new lease and on a renewal, with or without a linked lease agreement. --}}
         <div class="space-y-2">
-            <button type="button" @click="showPaper = !showPaper" class="text-xs underline" style="color: var(--text-secondary);">I already have the signed copy — attach it</button>
+            <button type="button" @click="showPaper = !showPaper" class="text-xs underline" style="color: var(--text-secondary);" data-tour="rops-lc-paper">I already have the signed copy — attach it</button>
             <div x-show="showPaper" x-cloak class="rounded-md p-3 space-y-2" style="background: var(--surface-2); border: 1px solid var(--border);" data-qa="paper-copy-panel">
                 <label class="prop-label">Signed copy</label>
                 <input type="file" name="signed_document" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" x-bind:disabled="!showPaper" class="w-full text-sm">
@@ -364,10 +369,10 @@
         <div class="space-y-2 pt-5" style="border-top: 1px solid var(--border);">
             <div class="flex flex-wrap justify-end gap-2">
                 <a href="{{ $isRenew ? route('corex.leases.show', $lease) : route('corex.leases.index') }}" class="corex-btn-outline text-sm">Cancel</a>
-                <button type="submit" name="intent" value="lease_only" @click="submitAttempted = true" class="corex-btn-primary text-sm">{{ $onlyLabel }}</button>
+                <button type="submit" name="intent" value="lease_only" @click="submitAttempted = true" class="corex-btn-primary text-sm" data-tour="rops-lc-save">{{ $onlyLabel }}</button>
                 @if($canPrepare)
                     @if($agreementReady)
-                        <button type="submit" name="intent" value="lease_and_sign" @click="submitAttempted = true" class="corex-btn-secondary text-sm">{{ $signLabel }}</button>
+                        <button type="submit" name="intent" value="lease_and_sign" @click="submitAttempted = true" class="corex-btn-secondary text-sm" data-tour="rops-lc-sign">{{ $signLabel }}</button>
                     @else
                         <button type="submit" disabled aria-disabled="true" class="corex-btn-secondary text-sm" style="opacity: 0.5; cursor: not-allowed;">{{ $signLabel }}</button>
                     @endif

@@ -38,13 +38,14 @@
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="rmnt-fr-intro">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Fault Reports</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Every fault reported on a rental property, and where each one stands.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @permission('rental_fault_reports.create')
-                <a href="{{ route('corex.rental-fault-reports.create') }}" class="corex-btn-primary text-xs">Report a Fault</a>
+                <a href="{{ route('corex.rental-fault-reports.create') }}" class="corex-btn-primary text-xs" data-tour="rmnt-fr-new">Report a Fault</a>
                 @endpermission
             </div>
         </div>
@@ -103,16 +104,16 @@
         :export-csv-url="route('corex.rental-fault-reports.export', array_merge(request()->query(), ['format' => 'csv']))"
     />
 
-    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);" data-tour="rmnt-fr-filters">
     <form method="GET" action="{{ route('corex.rental-fault-reports.index') }}" class="flex flex-wrap items-end gap-3">
         @if($showArchived)
             <input type="hidden" name="archived" value="1">
         @endif
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-fr-search">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
             <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Property address, title or description" class="list-header-filter text-sm {{ filled($filters['q'] ?? '') ? 'is-active' : '' }}">
         </div>
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-fr-status">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
             <select name="status" class="list-header-filter text-sm {{ filled($filters['status'] ?? null) ? 'is-active' : '' }}">
                 <option value="">All statuses</option>
@@ -121,7 +122,7 @@
                 @endforeach
             </select>
         </div>
-        <div class="relative flex flex-col gap-1">
+        <div class="relative flex flex-col gap-1" data-tour="rmnt-fr-property">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Property</label>
             {{-- Only properties with a fault report visible to this user —
                  never every rental property (that's the create form's own
@@ -147,7 +148,7 @@
                 @endforeach
             </select>
         </div>
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-fr-dates">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Reported from</label>
             <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_from'] ?? '') ? 'is-active' : '' }}">
         </div>
@@ -156,11 +157,11 @@
             <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_to'] ?? '') ? 'is-active' : '' }}">
         </div>
         @if(!empty($filters['cc_scope']))<input type="hidden" name="cc_scope" value="{{ $filters['cc_scope'] }}">@endif
-        <label class="flex items-center gap-2 text-xs" style="height:2.25rem; color: var(--text-secondary);">
+        <label class="flex items-center gap-2 text-xs" style="height:2.25rem; color: var(--text-secondary);" data-tour="rmnt-fr-open">
             <input type="checkbox" name="open" value="1" @checked(($filters['open'] ?? false)) data-qa="fault-filter-open">
             Open only
         </label>
-        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;" data-tour="rmnt-fr-filter-btn">Filter</button>
         @if(request()->hasAny(['q', 'status', 'outcome', 'property_id', 'date_from', 'date_to', 'open']))
             <a href="{{ route('corex.rental-fault-reports.index') }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>
         @endif
@@ -202,7 +203,7 @@
     </div>
     @endif
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-fr-table">
         <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
@@ -238,7 +239,7 @@
                             </form>
                             @endpermission
                         @else
-                            <a href="{{ route('corex.rental-fault-reports.show', $faultReport) }}" class="corex-btn-outline text-xs">View</a>
+                            <a href="{{ route('corex.rental-fault-reports.show', $faultReport) }}" class="corex-btn-outline text-xs" @if($loop->first) data-tour="rmnt-fr-view" @endif>View</a>
                         @endif
                     </td>
                 </tr>

@@ -10,7 +10,7 @@
     $tlLineArgs = fn ($lines) => ['lines' => $lines, 'pricesOn' => $pricesOn, 'vat' => $vat, 'jobCard' => $jobCard, 'canEditLines' => $isOpen, 'catalogueItemTypes' => $catalogueItemTypes, 'catalogueUnits' => $catalogueUnits, 'vatTypes' => $vatTypes, 'showCost' => $tlShowCost, 'canPrice' => $canPrice ?? false, 'costVat' => $costVat ?? null];
     $tlAddArgs = fn ($taskId) => ['mode' => 'form', 'action' => route('corex.rental-job-cards.lines.store', $jobCard), 'taskId' => $taskId, 'catalogueItemsForJs' => $catalogueItemsJson, 'catalogueItemTypes' => $catalogueItemTypes, 'catalogueUnits' => $catalogueUnits, 'pricesOn' => $pricesOn, 'vatTypes' => $vatTypes, 'vatRegistered' => $vat['registered'], 'showCost' => $tlShowCost, 'canPrice' => $canPrice ?? false];
 @endphp
-<div class="jc-card" id="jc-lines">
+<div class="jc-card" id="jc-lines" data-tour="rmnt-jcd-lines">
     <div class="jc-card-head">
         <h2>Tasks &amp; lines</h2>
         @if($awaitingLines->isNotEmpty() && $pricesOn && $canPrice && $isOpen)

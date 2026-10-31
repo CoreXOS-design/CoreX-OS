@@ -1,41 +1,38 @@
 @extends('layouts.corex')
 
-@section('content')
-<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4"
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
+@include('docuperfect.partials._dp-page-styles')
+<div class="rx-page dp-page w-full space-y-5"
      x-data="{ showRejectModal: false, rejectionNote: '', submitting: false }">
 
-    {{-- Header --}}
-    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4 flex items-center justify-between">
-        <div>
-            <h2 class="text-xl font-bold text-white leading-tight">
-                Review Returned Document &mdash; {{ $send->document_name }}
-            </h2>
-            <div class="text-sm text-white/60">
-                Returned by {{ $recipient->recipient_name }}
-                ({{ ucfirst($recipient->recipient_role) }})
-                @if($recipient->returned_at)
-                    on {{ $recipient->returned_at->format('d M Y') }}
-                @endif
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Review Returned Document &mdash; {{ $send->document_name }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Returned by {{ $recipient->recipient_name }} ({{ ucfirst($recipient->recipient_role) }}) @if($recipient->returned_at) on {{ $recipient->returned_at->format('d M Y') }} @endif</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('docuperfect.sales') }}" class="corex-btn-outline text-xs shrink-0 inline-flex items-center gap-1.5"><svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>Back to Sales</a>
             </div>
         </div>
-        <a href="{{ route('docuperfect.sales') }}"
-           class="text-sm text-white/70 hover:text-white">&larr; Back to Sales</a>
     </div>
 
     @if(session('status'))
-        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 text-emerald-900 px-4 py-3 text-sm">
+        <div class="rounded-md border border-emerald-200 bg-emerald-50 text-emerald-900 px-4 py-3 text-sm">
             {{ session('status') }}
         </div>
     @endif
 
     @if(session('error'))
-        <div class="rounded-2xl border border-red-200 bg-red-50 text-red-900 px-4 py-3 text-sm">
+        <div class="rounded-md border border-red-200 bg-red-50 text-red-900 px-4 py-3 text-sm">
             {{ session('error') }}
         </div>
     @endif
 
     @if($errors->any())
-        <div class="rounded-2xl border border-red-200 bg-red-50 text-red-900 px-4 py-3 text-sm">
+        <div class="rounded-md border border-red-200 bg-red-50 text-red-900 px-4 py-3 text-sm">
             @foreach($errors->all() as $error)
                 <div>{{ $error }}</div>
             @endforeach
@@ -124,7 +121,7 @@
             @else
                 <div class="space-y-3">
                     @foreach($uploadFiles as $file)
-                    <div class="rounded-xl border overflow-hidden" style="border-color:var(--border)">
+                    <div class="rounded-md border overflow-hidden" style="border-color:var(--border)">
                         <div class="flex items-center justify-between px-3 py-1 border-b" style="background:var(--surface-2); border-color:var(--border)">
                             <span class="text-xs font-medium" style="color:var(--text-secondary)">{{ $file['name'] }}</span>
                             @if($file['exists'])
@@ -158,7 +155,7 @@
     <div x-show="showRejectModal" x-cloak x-transition.opacity
          class="fixed inset-0 z-50 flex items-center justify-center"
          style="background:rgba(0,0,0,0.6);" @click="showRejectModal = false">
-        <div class="rounded-2xl shadow-xl max-w-md w-full mx-4 p-6 space-y-4" style="background:var(--surface)" @click.stop>
+        <div class="rounded-md shadow-xl max-w-md w-full mx-4 p-6 space-y-4" style="background:var(--surface)" @click.stop>
             <h3 class="text-lg font-semibold" style="color:var(--text-primary)">Reject &amp; Request Re-upload</h3>
             <p class="text-sm" style="color:var(--text-secondary)">
                 The recipient will be notified and asked to upload a corrected document.

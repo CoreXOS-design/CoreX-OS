@@ -31,6 +31,7 @@ abstract class DeskTestCase extends TestCase
     {
         parent::setUp();
         $this->withoutVite();
+        config(['desk.expire_throttle_seconds' => 0]);   // (the lazy stale-session sweep is throttled in production; tests want it on every read)
         $now = now();
         foreach ([['super_admin', 'System Owner', 1], ['admin', 'Administrator', 0], ['branch_manager', 'Branch Manager', 0], ['agent', 'Agent', 0], ['viewer', 'Viewer', 0], ['office_admin', 'Office Staff', 0]] as $i => [$name, $label, $owner]) {
             DB::table('roles')->insertOrIgnore(['name' => $name, 'label' => $label, 'is_owner' => $owner, 'can_be_deleted' => $owner ? 0 : 1, 'sort_order' => $i + 1, 'agency_id' => null, 'created_at' => $now, 'updated_at' => $now]);
@@ -51,6 +52,12 @@ abstract class DeskTestCase extends TestCase
         Role::clearCache();
         PermissionService::clearCache();
         parent::tearDown();
+    }
+
+    /** The id of the take-over request currently open on a session (what the agent's Allow / Decline has to quote). */
+    protected function rid(\App\Models\DeskSession $session): string
+    {
+        return (string) $session->fresh()->control_request_id;
     }
 
     protected function agentIn(Agency $agency, string $role = 'agent'): User

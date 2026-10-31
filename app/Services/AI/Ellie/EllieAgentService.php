@@ -561,6 +561,7 @@ class EllieAgentService
         - Question about a clause, the law, or company policy → search_knowledge.
         - Question about where something is → find_page, and give them the link it returns.
         - Question about how to do something → find_how_to, and follow those steps exactly.
+        - Question about what is new, what changed, what they can use now or what is coming → whats_new_for_me.
         - Question about their own numbers, listings, deals, contacts or properties → the live
           data tools. NEVER guess or estimate a count. If a tool gives you a number, that IS
           the number.

@@ -1,14 +1,21 @@
 @extends('layouts.corex')
 
-@section('content')
-<div class="p-6 max-w-3xl mx-auto space-y-4">
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
+<div class="rx-page w-full space-y-4">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Edit Rental Lease Agreement</h1>
+    </div>
+    <div class="max-w-3xl space-y-5">
     @if(session('success'))
         <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
     @endif
 
-    <h1 class="text-lg font-semibold">Edit Rental Lease Agreement</h1>
 
-    <form method="POST" action="{{ route('corex.rental-lease-templates.update', $rentalLeaseTemplate) }}" class="space-y-4 rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+
+
+    <form method="POST" action="{{ route('corex.rental-lease-templates.update', $rentalLeaseTemplate) }}" class="space-y-4 rounded-md px-5 pb-5 pt-1" style="background: var(--surface); border: 1px solid var(--border);">
         @csrf
         @method('PUT')
 
@@ -77,5 +84,6 @@
     @if($rentalLeaseTemplate->category === 'residential')
         @include('corex.rental-lease-templates._field-map')
     @endif
+</div>
 </div>
 @endsection

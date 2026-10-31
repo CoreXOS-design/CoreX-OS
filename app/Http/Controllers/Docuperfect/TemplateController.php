@@ -919,7 +919,8 @@ class TemplateController extends Controller
                 // Signature block (Template Settings): "from document" when the Word file brings its own signature places.
                 'signature_block' => \App\Support\Docuperfect\SignatureBlock::resolve(
                     $request->input('signature_block', $draft->settings['signature_block'] ?? null),
-                    $draft->tagged_html
+                    $draft->tagged_html,
+                    ! $draft->source_template_id
                 ),
             ],
         ];
@@ -1292,7 +1293,9 @@ class TemplateController extends Controller
     ): string {
         // Determine document body HTML
         if (!empty($taggedHtml)) {
-            $html = $this->processTaggedHtmlToBladeBody($taggedHtml, $fieldMappings);
+            // Untrusted document text (Word import / builder edits) is made inert ONCE here, before the generator adds
+            // its own trusted {{ $var }} merge fields and @include directives below.
+            $html = $this->processTaggedHtmlToBladeBody(\App\Support\Docuperfect\BladeSafe::neutralise($taggedHtml), $fieldMappings);
         } else {
             // Legacy path: render from CDS JSON
             $filteredCds = $cds;
@@ -1321,7 +1324,7 @@ class TemplateController extends Controller
             }
 
             $renderer = app(CdsRendererService::class);
-            $rawHtml = $renderer->render($filteredCds);
+            $rawHtml = \App\Support\Docuperfect\BladeSafe::neutralise($renderer->render($filteredCds));
 
             // Replace CDS inline signature sections with Blade signature-line includes.
             // Each corex-signature-block within an inline section becomes a per-party include.
@@ -1336,7 +1339,7 @@ class TemplateController extends Controller
                     if (!empty($parties)) {
                         $includes = [];
                         foreach ($parties as $p) {
-                            $includes[] = '@include("docuperfect.web-templates.components.signature-line", [\'party\' => \'' . addslashes($p) . '\'])';
+                            $includes[] = '@include("docuperfect.web-templates.components.signature-line", [\'party\' => \'' . addslashes(preg_replace('/[^\w\- ]/', '', (string) $p)) . '\'])';
                         }
                         return implode("\n", $includes);
                     }
@@ -1354,7 +1357,7 @@ class TemplateController extends Controller
                         $party = $pm[1];
                     }
                     if ($party) {
-                        return '@include("docuperfect.web-templates.components.signature-line", [\'party\' => \'' . addslashes($party) . '\'])';
+                        return '@include("docuperfect.web-templates.components.signature-line", [\'party\' => \'' . addslashes(preg_replace('/[^\w\- ]/', '', (string) $party)) . '\'])';
                     }
                     return '@include("docuperfect.web-templates.components.signature-line")';
                 },
@@ -1368,7 +1371,7 @@ class TemplateController extends Controller
                         $party = $pm[1];
                     }
                     if ($party) {
-                        return '@include("docuperfect.web-templates.components.initials-line", [\'party\' => \'' . addslashes($party) . '\'])';
+                        return '@include("docuperfect.web-templates.components.initials-line", [\'party\' => \'' . addslashes(preg_replace('/[^\w\- ]/', '', (string) $party)) . '\'])';
                     }
                     return '@include("docuperfect.web-templates.components.initials-line")';
                 },
@@ -1396,7 +1399,7 @@ class TemplateController extends Controller
         }
 
         // Build the blade template wrapper
-        $title = e($cds['title'] ?? $templateName);
+        $title = \App\Support\Docuperfect\BladeSafe::neutraliseText(e($cds['title'] ?? $templateName));
 
         $blade = <<<'BLADE'
 <!DOCTYPE html>
@@ -1932,6 +1935,7 @@ BLADE;
 
         // Pass header_display so company-header component respects template setting
         $viewData['header_display'] = $template->header_display ?? 'first_page';
+        $viewData['header_render_key'] = \Illuminate\Support\Str::random(16); // letterhead 'first_page' is counted per render
 
         // Blank-preview fix: regenerate the generated blade if its file is missing,
         // and never blank on a render failure (stored-HTML fallback).

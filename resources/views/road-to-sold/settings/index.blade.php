@@ -33,7 +33,7 @@
 @section('corex-content')
 <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5" x-data="{ g: '{{ $open }}' }">
 
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="smk-rtg-intro">
         <div>
             <h1 class="text-xl font-bold text-white leading-tight">Road to Sold settings</h1>
         </div>
@@ -374,7 +374,7 @@
 
         @if($canManage)
             <div class="flex items-center gap-3">
-                <button type="submit" class="inline-flex items-center justify-center h-10 px-5 rounded-md text-sm font-semibold text-white" style="background:var(--brand-icon, #0ea5e9); border:1px solid var(--brand-icon, #0ea5e9);">Save settings</button>
+                <button type="submit" data-tour="smk-rtg-save" class="inline-flex items-center justify-center h-10 px-5 rounded-md text-sm font-semibold text-white" style="background:var(--brand-icon, #0ea5e9); border:1px solid var(--brand-icon, #0ea5e9);">Save settings</button>
                 <button type="submit" form="rts-reset-form" class="inline-flex items-center justify-center h-10 px-5 rounded-md text-sm font-semibold" style="border:1px solid var(--border); color:var(--text-primary);">Put everything back to the defaults</button>
             </div>
         @endif

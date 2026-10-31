@@ -5,7 +5,7 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (Pattern A) --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="smk-sup-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Marketing Suppressions</h1>
@@ -15,7 +15,8 @@
                 </p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-                <span class="inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-semibold text-white"
+                @include('layouts.partials.tour-header-launcher')
+                <span data-tour="smk-sup-count" class="inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-semibold text-white"
                       style="background: color-mix(in srgb, white 15%, transparent);"
                       title="Records matching the current filter">
                     {{ number_format($suppressions->total()) }} {{ $status === 'lifted' ? 'lifted' : ($status === 'all' ? 'total' : 'active') }}
@@ -40,16 +41,16 @@
 
     {{-- Filter bar --}}
     <form method="GET" action="{{ route('admin.marketing-suppressions.index') }}"
-          class="rounded-md p-3 flex flex-col sm:flex-row gap-2 sm:items-center"
+          class="rounded-md p-3 flex flex-col sm:flex-row gap-2 sm:items-center" data-tour="smk-sup-filters"
           style="background: var(--surface); border: 1px solid var(--border);">
-        <div class="relative flex-1">
+        <div class="relative flex-1" data-tour="smk-sup-search">
             <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
                  fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="var(--text-muted, #9ca3af)">
                 <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
             </svg>
             <input class="list-header-filter w-full {{ $search !== '' ? 'is-active' : '' }}" style="padding-left:2.25rem;" type="text" name="q" value="{{ $search }}" placeholder="Search email or number…">
         </div>
-        <select class="list-header-filter {{ $status !== 'active' ? 'is-active' : '' }}" name="status" onchange="this.form.submit()">
+        <select data-tour="smk-sup-status" class="list-header-filter {{ $status !== 'active' ? 'is-active' : '' }}" name="status" onchange="this.form.submit()">
             <option value="active" {{ $status === 'active' ? 'selected' : '' }}>Active</option>
             <option value="lifted" {{ $status === 'lifted' ? 'selected' : '' }}>Lifted</option>
             <option value="all"    {{ $status === 'all' ? 'selected' : '' }}>All statuses</option>
@@ -61,7 +62,7 @@
     </form>
 
     {{-- Table --}}
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="smk-sup-table">
         <div class="overflow-x-auto">
             <table class="min-w-full text-sm ds-table">
                 <thead>
@@ -78,7 +79,7 @@
                 <tbody>
                     @forelse($suppressions as $s)
                         <tr style="border-top: 1px solid var(--border);">
-                            <td class="px-4 py-3 font-mono" style="color: var(--text-primary);">{{ $s->identifier }}</td>
+                            <td class="px-4 py-3 font-mono" style="color: var(--text-primary);" @if($loop->first) data-tour="smk-sup-row" @endif>{{ $s->identifier }}</td>
                             <td class="px-4 py-3" style="color: var(--text-secondary);">{{ ucfirst($s->identifier_type) }}</td>
                             <td class="px-4 py-3" style="color: var(--text-secondary);">{{ ucfirst(str_replace('_', ' ', $s->source)) }}</td>
                             <td class="px-4 py-3" style="color: var(--text-secondary);">
@@ -87,7 +88,7 @@
                             <td class="px-4 py-3" style="color: var(--text-secondary);">
                                 {{ optional($s->suppressed_at)->format('Y-m-d H:i') ?? '—' }}
                             </td>
-                            <td class="px-4 py-3">
+                            <td class="px-4 py-3" data-tour="smk-sup-badge">
                                 @if($s->isActive())
                                     <span class="ds-badge ds-badge-orange" title="Opted out of marketing — blocked agency-wide">Active</span>
                                 @else
@@ -101,7 +102,7 @@
                                           class="inline-block"
                                           onsubmit="return confirm('Lift this suppression? This identifier will be able to receive marketing again.');">
                                         @csrf
-                                        <button type="submit" class="corex-btn-outline">Lift</button>
+                                        <button type="submit" class="corex-btn-outline" data-tour="smk-sup-lift">Lift</button>
                                     </form>
                                     @endpermission
                                 @else

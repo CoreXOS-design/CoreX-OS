@@ -11,12 +11,15 @@
          get noMatch() { return this.search !== '' && ! this.names.some(n => this.matches(n)); }
      }">
 
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cop-pelc-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Start a PPRA Employment Letter</h1>
             </div>
-            <a href="{{ route('admin.ppra-employment-letters.index') }}" class="corex-btn-outline text-xs">Back to list</a>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('admin.ppra-employment-letters.index') }}" class="corex-btn-outline text-xs">Back to list</a>
+            </div>
         </div>
     </div>
 
@@ -37,14 +40,14 @@
 
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Search agent</label>
-            <input type="text" x-model="search" placeholder="Type a name to filter the list below"
+            <input type="text" data-tour="cop-pelc-search" x-model="search" placeholder="Type a name to filter the list below"
                    class="text-sm rounded-md px-3 py-1.5 w-full max-w-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
         </div>
 
         @if($agents->isEmpty())
             <p class="text-sm" style="color:var(--text-muted);">No agents in your scope are eligible right now.</p>
         @else
-        <div class="rounded-md divide-y max-h-80 overflow-y-auto" style="border:1px solid var(--border); border-color:var(--border);">
+        <div class="rounded-md divide-y max-h-80 overflow-y-auto" style="border:1px solid var(--border); border-color:var(--border);" data-tour="cop-pelc-agents">
             @foreach($agents as $a)
             <label x-show="matches(@js(mb_strtolower($a['name'])))" x-cloak
                    class="flex items-center justify-between gap-3 px-4 py-2.5 cursor-pointer" style="color:var(--text-primary);">
@@ -68,7 +71,7 @@
         @if($principalStatus === 'multiple')
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Principal for this letter</label>
-            <select name="principal_user_id" required class="text-sm rounded-md px-3 py-1.5 w-full max-w-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+            <select name="principal_user_id" data-tour="cop-pelc-principal" required class="text-sm rounded-md px-3 py-1.5 w-full max-w-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                 <option value="">Choose a principal</option>
                 @foreach($principals as $p)
                 <option value="{{ $p['id'] }}">{{ $p['name'] }}</option>
@@ -77,7 +80,7 @@
         </div>
         @endif
 
-        <button type="submit" class="corex-btn-primary text-xs" {{ $principalStatus === 'none' || $agents->isEmpty() ? 'disabled' : '' }}>Start letter</button>
+        <button type="submit" data-tour="cop-pelc-start" class="corex-btn-primary text-xs" {{ $principalStatus === 'none' || $agents->isEmpty() ? 'disabled' : '' }}>Start letter</button>
     </form>
 
 </div>

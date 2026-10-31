@@ -48,19 +48,15 @@
     $jcReturned = $screen['returned'];
 @endphp
 
-@section('content')
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
 @include('corex.rental-job-cards._screen-style')
-<div class="p-4 md:p-6 max-w-7xl mx-auto space-y-3 cx-equal-btns" data-jc-screen>
-    @if($errors->any())
-        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
-            @foreach ($errors->all() as $error)<div>{{ $error }}</div>@endforeach
-        </div>
-    @endif
-
-    {{-- A. header --}}
+<div class="rx-page w-full space-y-3 cx-equal-btns" data-jc-screen>
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
     <div class="flex flex-wrap items-start justify-between gap-2">
-        <div class="min-w-0">
-            <h1 class="text-lg font-semibold">{{ $jobCard->title }}</h1>
+        <div class="min-w-0" data-tour="rmnt-jcd-title">
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $jobCard->title }}</h1>
             <div class="flex flex-wrap items-center gap-2">
                 <span class="ds-badge {{ $statusBadgeClass }}" title="{{ ucfirst(str_replace('_', ' ', $jobCard->status)) }}" data-stage-label>{{ $stage['label'] }}</span>
                 @if($jobCard->worker_signed_off_at)
@@ -73,7 +69,8 @@
             @endif
         </div>
         @include('partials.header-actions-style')
-        <div class="flex flex-wrap items-center gap-2" data-header-actions>
+        <div class="flex flex-wrap items-center gap-2" data-header-actions data-tour="rmnt-jcd-actions">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             <a href="{{ route('corex.rental-job-cards.print', $jobCard) }}" target="_blank" class="corex-btn-outline text-xs">Print job card</a>
             @if($crewLinksEnabled && ($stage['can']['crew_link'] ?? false))
                 @permission('rental_job_cards.share')
@@ -88,12 +85,22 @@
             <a href="{{ route('corex.rental-job-cards.index') }}" class="corex-btn-outline text-xs">&larr; All job cards</a>
         </div>
     </div>
+    </div>
+    @if($errors->any())
+        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
+            @foreach ($errors->all() as $error)<div>{{ $error }}</div>@endforeach
+        </div>
+    @endif
+
+    {{-- A. header --}}
+
+
 
     <x-rental-context-bar :property="$displayProperty" :lease="$jobCard->lease" current="work_orders" />
     @include('partials.paused-by-owner-banner', ['pauseSubject' => $jobCard])
 
     {{-- B. where this job is --}}
-    <ol class="wo-strip" data-wo-strip aria-label="Where this job is">
+    <ol class="wo-strip" data-wo-strip aria-label="Where this job is" data-tour="rmnt-jcd-strip">
         @foreach($screen['steps'] as $st)
             <li class="wo-step" data-step="{{ $st['key'] }}" data-state="{{ $st['state'] }}" @if($st['state'] === 'current') aria-current="step" @endif>
                 <span class="wo-dot">@if($st['state'] === 'done')&#10003;@elseif($st['state'] === 'current')&#9679;@else&nbsp;@endif</span>
@@ -104,7 +111,7 @@
     </ol>
 
     {{-- C. Returned | Next - the first thing under the stepper, one block --}}
-    <div class="wo-next wo-next-{{ $jcBar['tone'] }}" data-next-step data-land-on-next data-stage="{{ $stage['key'] }}" data-next="{{ $jcBar['key'] }}">
+    <div class="wo-next wo-next-{{ $jcBar['tone'] }}" data-tour="rmnt-jcd-next" data-next-step data-land-on-next data-stage="{{ $stage['key'] }}" data-next="{{ $jcBar['key'] }}">
         <div class="jc-bar-half" data-returned data-returned-anchor="{{ $jcReturned['anchor'] }}">
             <div><span class="wo-next-label">{{ $jcReturned['label'] }}</span>
                 <a href="#{{ $jcReturned['anchor'] }}" class="jc-returned-link" data-jc-go data-returned-text>{{ $jcReturned['text'] }}</a>@if($jcReturned['waiting'])<span class="jc-waiting">waiting for you</span>@endif</div>
@@ -136,7 +143,7 @@
                 $jcPhotos = $jobCard->photos->concat($jobCard->workOrder?->photos ?? collect());
                 $jcFaultPhotos = $displayFaultReport ? $displayFaultReport->photos : collect();
             @endphp
-            <div class="jc-card space-y-3">
+            <div class="jc-card space-y-3" data-tour="rmnt-jcd-photos">
                 <button type="button" onclick="document.getElementById('jc-photos').classList.toggle('hidden')" class="text-sm font-semibold w-full text-left">Photos ({{ $jcPhotos->count() + $jcFaultPhotos->count() }})</button>
                 <div id="jc-photos" class="{{ session('jc_open_photos') ? '' : 'hidden ' }}space-y-3">
                     @if($jcPhotos->isEmpty() && $jcFaultPhotos->isEmpty())
@@ -174,7 +181,7 @@
 
             {{-- History - collapsed, the count in the heading --}}
             @php $jcHistory = $jobCard->history(); @endphp
-            <details class="jc-card" id="jc-history">
+            <details class="jc-card" id="jc-history" data-tour="rmnt-jcd-history">
                 <summary class="text-sm font-semibold cursor-pointer">History ({{ $jcHistory->count() }})</summary>
                 <ul class="space-y-1 text-sm pt-2">
                     @foreach($jcHistory as $entry)

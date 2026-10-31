@@ -9967,7 +9967,7 @@
                         {{-- A.2.5 — optional SA ID number, mirrors the existing-property create form. --}}
                         <div class="sm:col-span-2">
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">ID number (optional)</label>
-                            <input type="text" x-model="newForm.id_number" inputmode="numeric" maxlength="13"
+                            <input data-desk-mask type="text" x-model="newForm.id_number" inputmode="numeric" maxlength="13"
                                    pattern="\d{13}" placeholder="e.g. 1234567890123"
                                    title="13 digits — empty is fine"
                                    class="w-full rounded-md px-3 py-2 text-sm"
@@ -10298,7 +10298,7 @@
                             </div>
                             <div x-show="kind === 'natural_person'">
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);"><span x-text="idKind === 'passport' ? 'Passport Number' : 'ID Number'"></span> <span style="font-weight:400;">(optional)</span></label>
-                                <input type="text" name="id_number"
+                                <input data-desk-mask type="text" name="id_number"
                                        :inputmode="idKind === 'passport' ? 'text' : 'numeric'"
                                        :maxlength="idKind === 'passport' ? 50 : 13"
                                        :placeholder="idKind === 'passport' ? 'e.g. AB1234567' : 'e.g. 7610025020081'"

@@ -244,14 +244,14 @@ final class AlertBellTest extends TestCase
     {
         $me = $this->user();
         $empty = $this->actingAs($me)->get(route('corex.alerts.index'))->assertOk()->getContent();
-        $this->assertStringContainsString('No alerts yet.', $empty);
+        $this->assertStringContainsString('No notifications yet.', $empty);
 
         foreach (range(1, 30) as $i) {
             $this->alert($me, "Row $i", now()->subMinutes($i));
         }
         $this->assertSame(25, substr_count($this->actingAs($me)->get(route('corex.alerts.index'))->getContent(), 'data-qa="alert-row"'));
         $this->assertSame(5, substr_count($this->actingAs($me)->get(route('corex.alerts.index', ['page' => 2]))->getContent(), 'data-qa="alert-row"'));
-        $this->assertStringContainsString('No alerts match these filters.', $this->actingAs($me)->get(route('corex.alerts.index', ['q' => 'zzzz']))->getContent());
+        $this->assertStringContainsString('No notifications match these filters.', $this->actingAs($me)->get(route('corex.alerts.index', ['q' => 'zzzz']))->getContent());
     }
 
     public function test_the_inbox_mark_all_read_and_mark_one_read(): void

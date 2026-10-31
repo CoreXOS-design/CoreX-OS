@@ -16,7 +16,7 @@
         <div class="rounded-md px-3 py-2 text-sm" style="background:#fef2f2; color:#991b1b;">{{ $errors->first() }}</div>
     @endif
 
-    <div class="rounded-md p-4 text-sm space-y-1" style="background:var(--surface); border:1px solid var(--border); color:var(--text-secondary);">
+    <div class="rounded-md p-4 text-sm space-y-1" style="background:var(--surface); border:1px solid var(--border); color:var(--text-secondary);" data-tour="smk-ar-why">
         <div><span class="font-semibold" style="color:var(--text-primary);">Why it is on the list:</span> {{ $model->address_parse_note ?: 'It could not be read with confidence.' }}</div>
         <div><span class="font-semibold" style="color:var(--text-primary);">As CoreX reads it now:</span>
             {{ trim(($structure['street_number'] ?? '') . ' ' . ($structure['street_name_clean'] ?? '')) ?: 'no street found' }}{{ $structure['unit_number'] ? ', unit ' . $structure['unit_number'] : '' }}{{ $structure['complex_name'] ? ', ' . $structure['complex_name'] : '' }}
@@ -26,7 +26,7 @@
     </div>
 
     <form method="POST" action="{{ route('corex.address-review.fix', ['kind' => $kind, 'id' => $model->id]) }}"
-          class="rounded-md p-6 space-y-4" style="background:var(--surface); border:1px solid var(--border);">
+          class="rounded-md p-6 space-y-4" style="background:var(--surface); border:1px solid var(--border);" data-tour="smk-ar-form">
         @csrf
         @foreach([
             ['street_number', 'Street number', 'For example 19, 12A, 1/3'],
@@ -44,7 +44,7 @@
             </div>
         @endforeach
         <div class="flex items-center gap-3">
-            <button type="submit" class="text-sm font-semibold px-5 py-2 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Save and mark as checked</button>
+            <button type="submit" class="text-sm font-semibold px-5 py-2 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);" data-tour="smk-ar-save">Save and mark as checked</button>
             <a href="{{ route('corex.address-review.index') }}" class="text-sm no-underline" style="color:var(--text-secondary);">Cancel</a>
         </div>
     </form>

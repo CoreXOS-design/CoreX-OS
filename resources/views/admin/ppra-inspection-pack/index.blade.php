@@ -5,7 +5,7 @@
 <div class="w-full space-y-5" x-data x-on:ppra-sample-picker-saved.window="window.location.reload()">
 
     {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cop-pip-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">PPRA Inspection Pack</h1>
@@ -15,7 +15,7 @@
                 {{-- Johan, 2026-09-28: the bell alone is not reliable enough — this
                      line is the page's own authoritative statement of the last
                      pack's state, shown regardless of notification delivery. --}}
-                <p class="text-xs mt-1 font-semibold">
+                <p class="text-xs mt-1 font-semibold" data-tour="cop-pip-lastpack">
                     @if($latestPack && $latestPack->status === 'generating')
                         <span style="color:var(--text-muted);">Last pack: Generating…</span>
                     @elseif($latestPack && $latestPack->status === 'queued')
@@ -33,19 +33,20 @@
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                <a href="{{ route('admin.ppra-inspection-pack.remediation-log') }}" class="corex-btn-outline text-xs">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('admin.ppra-inspection-pack.remediation-log') }}" class="corex-btn-outline text-xs" data-tour="cop-pip-remlog">
                     Remediation Log
                 </a>
-                <a href="{{ route('admin.ppra-inspection-pack.report') }}" class="corex-btn-primary text-xs inline-flex items-center gap-1.5">
+                <a href="{{ route('admin.ppra-inspection-pack.report') }}" class="corex-btn-primary text-xs inline-flex items-center gap-1.5" data-tour="cop-pip-report">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
                     Download Inspection Report
                 </a>
 
                 {{-- Phase J — §6.9. Full ZIP pack: Report + every source document sampled for k/l/m. --}}
                 @if($latestPack && $latestPack->status === 'generating')
-                    <span class="corex-btn-outline text-xs" style="pointer-events:none; opacity:0.7;">Generating…</span>
+                    <span class="corex-btn-outline text-xs" style="pointer-events:none; opacity:0.7;" data-tour="cop-pip-pack">Generating…</span>
                 @elseif($latestPack && $latestPack->status === 'ready' && $latestPack->generated_at)
-                    <a href="{{ route('admin.ppra-inspection-pack.download', $latestPack) }}" class="corex-btn-outline text-xs">Download full inspection pack</a>
+                    <a href="{{ route('admin.ppra-inspection-pack.download', $latestPack) }}" class="corex-btn-outline text-xs" data-tour="cop-pip-pack">Download full inspection pack</a>
                     <form method="POST" action="{{ route('admin.ppra-inspection-pack.generate') }}" class="inline">
                         @csrf
                         <button type="submit" class="corex-btn-outline text-xs">Regenerate</button>
@@ -53,7 +54,7 @@
                 @else
                     <form method="POST" action="{{ route('admin.ppra-inspection-pack.generate') }}" class="inline">
                         @csrf
-                        <button type="submit" class="corex-btn-outline text-xs">Download full inspection pack</button>
+                        <button type="submit" class="corex-btn-outline text-xs" data-tour="cop-pip-pack">Download full inspection pack</button>
                     </form>
                 @endif
             </div>
@@ -81,7 +82,7 @@
         $statusTone = ['green' => 'ds-badge-success', 'amber' => 'ds-badge-warning', 'red' => 'ds-badge-danger', 'pending' => 'ds-badge-muted', 'info' => 'ds-badge-info'];
     @endphp
 
-    <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);" data-tour="cop-pip-table">
         <table class="w-full text-sm">
             <thead>
                 <tr style="background:var(--surface-2); border-bottom:1px solid var(--border);">
@@ -117,10 +118,10 @@
                     </td>
                     <td class="px-4 py-3 align-top">
                         @if(in_array($row->status, ['amber', 'red']))
-                            <form method="POST" action="{{ route('admin.ppra-inspection-pack.gap-notes.store') }}" class="flex flex-col gap-1.5">
+                            <form method="POST" action="{{ route('admin.ppra-inspection-pack.gap-notes.store') }}" class="flex flex-col gap-1.5" data-tour="cop-pip-remediate">
                                 @csrf
                                 <input type="hidden" name="checklist_item_slug" value="{{ $row->item }}">
-                                <input type="date" name="remediation_due_date"
+                                <input type="date" data-tour="cop-pip-due" name="remediation_due_date"
                                        value="{{ $row->gap_note?->remediation_due_date?->format('Y-m-d') }}"
                                        class="text-xs rounded-md px-2 py-1" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                 <input type="text" name="note" placeholder="Note (optional)"
@@ -136,7 +137,7 @@
                     </td>
                     <td class="px-4 py-3 align-top">
                         @if($row->status === 'red' && !is_null($row->upload_configs) && count($row->upload_configs))
-                            <form method="POST" action="{{ route('compliance.agency-settings.store') }}" enctype="multipart/form-data" class="flex flex-col gap-1.5">
+                            <form method="POST" action="{{ route('compliance.agency-settings.store') }}" enctype="multipart/form-data" class="flex flex-col gap-1.5" data-tour="cop-pip-upload">
                                 @csrf
                                 <input type="hidden" name="effective_from" value="{{ now()->toDateString() }}">
                                 @if(count($row->upload_configs) > 1)
@@ -162,7 +163,7 @@
                             <a href="{{ route('admin.ppra-inspection-pack.practitioners', ['principal' => 1]) }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">View principal(s)</a>
                         @elseif($row->item === 'f')
                             <div class="flex flex-col gap-1">
-                                <a href="{{ route('admin.ppra-inspection-pack.practitioners') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">View roster</a>
+                                <a href="{{ route('admin.ppra-inspection-pack.practitioners') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);" data-tour="cop-pip-roster">View roster</a>
                                 <a href="{{ route('admin.ppra-inspection-pack.practitioner-register.pdf') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">Export PDF</a>
                                 <a href="{{ route('admin.ppra-inspection-pack.practitioner-register.csv') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">Export CSV</a>
                             </div>
@@ -179,7 +180,7 @@
                                 <a href="{{ route('admin.ppra-inspection-pack.sales-rentals.csv') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">Export CSV</a>
                             </div>
                         @elseif($row->item === 'k')
-                            <button type="button" x-data x-on:click="$dispatch('open-modal', 'k-sample-picker')" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">
+                            <button type="button" x-data x-on:click="$dispatch('open-modal', 'k-sample-picker')" data-tour="cop-pip-sample" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">
                                 Choose sample
                             </button>
                         @elseif($row->item === 'l')

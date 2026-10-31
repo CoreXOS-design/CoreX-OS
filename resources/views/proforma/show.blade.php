@@ -8,7 +8,7 @@
     @if(session('success'))<div class="corex-alert corex-alert-success" style="margin:1rem 0;">{{ session('success') }}</div>@endif
     @if(session('error'))<div class="corex-alert corex-alert-danger" style="margin:1rem 0;">{{ session('error') }}</div>@endif
 
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:1rem;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:1rem;" data-tour="cop-pfi-intro">
         <div>
             <h1 style="font-size:1.4rem;font-weight:800;color:var(--brand-default,#0b2a4a);">
                 Proforma {{ $invoice->number }}
@@ -17,12 +17,15 @@
             <div style="color:var(--text-muted,#6b7280);font-size:.9rem;">{{ $invoice->reference }}</div>
         </div>
         <div style="display:flex;gap:.5rem;">
-            <a href="{{ route('proforma.download', $invoice) }}" target="_blank" class="corex-btn-primary">Download PDF</a>
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+            <a href="{{ route('proforma.download', $invoice) }}" target="_blank" class="corex-btn-primary" data-tour="cop-pfi-download">Download PDF</a>
+            @feature('deals')
             <a href="{{ route('deals-dr2.pipeline', $invoice->deal_id) }}" class="corex-btn-secondary">← Deal</a>
+            @endfeature
         </div>
     </div>
 
-    <div class="corex-card" style="padding:1rem;margin-bottom:1rem;">
+    <div class="corex-card" style="padding:1rem;margin-bottom:1rem;" data-tour="cop-pfi-details">
         <table style="width:100%;font-size:.9rem;">
             <tr><td style="color:#6b7280;width:140px;">Invoice to</td><td><strong>{{ $invoice->issued_to_name }}</strong></td></tr>
             @if($invoice->care_of_name)<tr><td style="color:#6b7280;">c/o (attorney)</td><td>{{ $invoice->care_of_name }}</td></tr>@endif
@@ -32,7 +35,7 @@
         </table>
     </div>
 
-    <table class="corex-table" style="width:100%;margin-bottom:1rem;">
+    <table class="corex-table" style="width:100%;margin-bottom:1rem;" data-tour="cop-pfi-lines">
         <thead><tr>
             <th style="text-align:left;">Description</th>
             @if($vat)<th style="text-align:right;">Excl</th><th style="text-align:right;">VAT</th>@endif
@@ -61,24 +64,24 @@
         <tfoot>
             @if($vat)<tr><td style="text-align:right;color:#6b7280;" colspan="{{ 3 }}">Subtotal excl</td><td style="text-align:right;">{{ $money($invoice->subtotal_excl) }}</td>@permission('proforma.manage')<td></td>@endpermission</tr>
             <tr><td style="text-align:right;color:#6b7280;" colspan="3">VAT</td><td style="text-align:right;">{{ $money($invoice->vat_amount) }}</td>@permission('proforma.manage')<td></td>@endpermission</tr>@endif
-            <tr><td style="text-align:right;font-weight:800;" colspan="{{ $vat ? 3 : 1 }}">Total {{ $vat ? 'incl' : '' }}</td><td style="text-align:right;font-weight:800;">{{ $money($invoice->total_incl) }}</td>@permission('proforma.manage')<td></td>@endpermission</tr>
+            <tr data-tour="cop-pfi-total"><td style="text-align:right;font-weight:800;" colspan="{{ $vat ? 3 : 1 }}">Total {{ $vat ? 'incl' : '' }}</td><td style="text-align:right;font-weight:800;">{{ $money($invoice->total_incl) }}</td>@permission('proforma.manage')<td></td>@endpermission</tr>
         </tfoot>
     </table>
 
     {{-- ── ADMIN-ONLY overrides ── --}}
     @permission('proforma.manage')
     @unless($invoice->isVoided())
-    <div class="corex-card" style="padding:1rem;margin-bottom:1rem;">
+    <div class="corex-card" style="padding:1rem;margin-bottom:1rem;" data-tour="cop-pfi-admin">
         <h3 style="font-size:.85rem;font-weight:700;text-transform:uppercase;color:#6b7280;margin-bottom:.6rem;">Admin — adjust</h3>
-        <form method="POST" action="{{ route('proforma.lines.add', $invoice) }}" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.6rem;">
+        <form method="POST" action="{{ route('proforma.lines.add', $invoice) }}" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.6rem;" data-tour="cop-pfi-addline">
             @csrf
-            <input name="description" placeholder="e.g. Discount on commission" required class="corex-input" style="flex:1 1 260px;">
-            <input name="amount_excl" type="number" step="0.01" placeholder="Amount excl (− for discount)" required class="corex-input" style="flex:0 1 200px;">
+            <input name="description" data-tour="cop-pfi-addline-desc" placeholder="e.g. Discount on commission" required class="corex-input" style="flex:1 1 260px;">
+            <input name="amount_excl" data-tour="cop-pfi-addline-amount" type="number" step="0.01" placeholder="Amount excl (− for discount)" required class="corex-input" style="flex:0 1 200px;">
             <button class="corex-btn-secondary">Add line</button>
         </form>
         <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
             <form method="POST" action="{{ route('proforma.regenerate', $invoice) }}">@csrf<button class="corex-btn-outline">Regenerate PDF</button></form>
-            <form method="POST" action="{{ route('proforma.void', $invoice) }}" onsubmit="return confirm('Void this proforma? The record is kept; the number is never reused.')" style="display:flex;gap:.4rem;">
+            <form method="POST" action="{{ route('proforma.void', $invoice) }}" onsubmit="return confirm('Void this proforma? The record is kept; the number is never reused.')" style="display:flex;gap:.4rem;" data-tour="cop-pfi-void">
                 @csrf
                 <input name="void_reason" placeholder="Void reason" required class="corex-input" style="flex:1 1 200px;">
                 <button class="corex-btn-outline" style="color:#dc2626;border-color:#dc2626;">Void</button>

@@ -11,9 +11,10 @@
 @endphp
 <div class="w-full max-w-3xl space-y-5">
 
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rpt-tdf-intro">
         <div class="flex items-center justify-between gap-3">
             <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $editing ? 'Edit title deed' : 'Log a title deed' }}</h1>
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             <a href="{{ $editing ? route('title-deeds.show', $deed->id) : route('title-deeds.index') }}" class="text-xs font-semibold" style="color: var(--brand-icon);">Cancel</a>
         </div>
     </div>
@@ -68,7 +69,7 @@
 
         {{-- Deal (optional, new deeds only) --}}
         @if($canPickDeal)
-        <div>
+        <div data-tour="rpt-tdf-deal">
             <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="td-deal-q">Deal<span class="font-normal" style="color: var(--text-muted);"> (optional)</span></label>
             <input type="hidden" name="deal_id" :value="deal ? deal.id : ''">
             <template x-if="deal">
@@ -95,7 +96,7 @@
         @endif
 
         {{-- Property --}}
-        <div>
+        <div data-tour="rpt-tdf-property">
             <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="td-property-q">Property<span class="font-normal" style="color: var(--ds-crimson);"> (required)</span></label>
             <input type="hidden" name="property_id" :value="property ? property.id : ''">
             <template x-if="property">
@@ -127,7 +128,7 @@
         </div>
 
         {{-- Owners --}}
-        <div>
+        <div data-tour="rpt-tdf-owners">
             <label class="{{ $lbl }}" style="color: var(--text-secondary);" for="td-owner-q">Owner(s)<span class="font-normal" style="color: var(--ds-crimson);"> (required)</span></label>
             <div class="flex flex-wrap gap-2 mb-2" x-show="owners.length">
                 <template x-for="o in owners" :key="o.id">
@@ -156,7 +157,7 @@
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             {{-- Responsible agent: pre-filled VISIBLY from the deal / property, editable, and what is saved is exactly what is shown here --}}
-            <div>
+            <div data-tour="rpt-tdf-agent">
                 <label for="td-agent" class="{{ $lbl }}" style="color: var(--text-secondary);">Responsible agent</label>
                 <select id="td-agent" name="agent_id" x-model="agentId" @change="touched('agentId')" class="{{ $input }}" :style="fieldStyle('agentId')" style="{{ $inputStyle }}">
                     @foreach($agents as $a)<option value="{{ $a->id }}">{{ $a->label }}</option>@endforeach
@@ -190,18 +191,18 @@
                 </div>
             </div>
 
-            <div>
+            <div data-tour="rpt-tdf-received">
                 <label for="td-received" class="{{ $lbl }}" style="color: var(--text-secondary);">Date received<span class="font-normal" style="color: var(--ds-crimson);"> (required)</span></label>
                 <input id="td-received" type="date" name="received_at" required max="{{ now()->toDateString() }}" value="{{ old('received_at', $deed?->received_at?->toDateString() ?? now()->toDateString()) }}" class="{{ $input }}" style="{{ $inputStyle }}">
             </div>
-            <div>
+            <div data-tour="rpt-tdf-attorney">
                 <label for="td-attorney" class="{{ $lbl }}" style="color: var(--text-secondary);">Attorney firm<span class="font-normal" style="color: var(--text-muted);"> (optional)</span></label>
                 <input id="td-attorney" type="text" name="attorney_firm" maxlength="255" x-model="attorney" @input="touched('attorney')" class="{{ $input }}" :style="fieldStyle('attorney')" style="{{ $inputStyle }}">
                 <div x-show="notes.attorney" x-cloak class="text-xs mt-1" style="color: var(--text-secondary);" x-text="notes.attorney"></div>
             </div>
 
             {{-- Where it is kept: the agency's own list --}}
-            <div class="md:col-span-2">
+            <div class="md:col-span-2" data-tour="rpt-tdf-location">
                 <label for="td-location" class="{{ $lbl }}" style="color: var(--text-secondary);">Where it is kept<span class="font-normal" style="color: var(--ds-crimson);"> (required)</span></label>
                 @if($noLocations)
                     <div class="rounded-md px-3 py-2 text-sm" style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 35%, transparent); color: var(--text-primary);">
@@ -221,13 +222,13 @@
                 @endif
             </div>
 
-            <div class="md:col-span-2">
+            <div class="md:col-span-2" data-tour="rpt-tdf-notes">
                 <label for="td-notes" class="{{ $lbl }}" style="color: var(--text-secondary);">Notes<span class="font-normal" style="color: var(--text-muted);"> (optional)</span></label>
                 <textarea id="td-notes" name="notes" rows="3" maxlength="5000" class="{{ $input }}" style="{{ $inputStyle }}">{{ old('notes', $deed?->notes) }}</textarea>
             </div>
 
             @unless($editing)
-            <div class="md:col-span-2">
+            <div class="md:col-span-2" data-tour="rpt-tdf-scan">
                 <label for="td-scan" class="{{ $lbl }}" style="color: var(--text-secondary);">Scan of the title deed<span class="font-normal" style="color: var(--text-muted);"> (optional)</span></label>
                 <input id="td-scan" type="file" name="scan" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic" class="block w-full text-sm" style="color: var(--text-secondary);">
             </div>
@@ -235,7 +236,7 @@
         </div>
         @endif
 
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-3" data-tour="rpt-tdf-save">
             @if($isCollected)
                 <button type="submit" class="corex-btn-primary">Save changes</button>
             @elseif($editing)

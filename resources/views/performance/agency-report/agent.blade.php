@@ -4,7 +4,7 @@
 
 @section('corex-content')
 <div class="w-full space-y-5">
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rpt-pa-intro">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
             <a href="{{ route('performance.agency-report', ['period' => $preset]) }}"
@@ -17,8 +17,9 @@
         </div>
 
         <div class="flex items-center gap-2 flex-wrap">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             {{-- #8 per-agent print — hand the agent their own figures --}}
-            <a href="{{ route('performance.agency-report.agent.print', ['user' => $journey['agent']['user_id'], 'period' => $preset]) }}" target="_blank"
+            <a href="{{ route('performance.agency-report.agent.print', ['user' => $journey['agent']['user_id'], 'period' => $preset]) }}" target="_blank" data-tour="rpt-pa-print"
                class="text-[11px] px-3 py-2 rounded no-underline print:hidden"
                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                title="Print this agent's figures">🖨 Print agent</a>
@@ -37,7 +38,7 @@
     @endif
 
     {{-- The agent journey: every metric with its prior-period trend. --}}
-    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3" data-tour="rpt-pa-metrics">
         @foreach($journey['metrics'] as $m)
             @php
                 $delta = $m['delta'];
@@ -57,7 +58,7 @@
 
     {{-- AT-366-E (Q7) — the agent's period-scoped buyer-activity picture. --}}
     @isset($buyer)
-    <div class="pt-2 space-y-4">
+    <div class="pt-2 space-y-4" data-tour="rpt-pa-buyers">
         <div class="flex items-baseline justify-between flex-wrap gap-2">
             <h2 class="text-sm font-bold" style="color:var(--text-primary);">Buyer activity</h2>
             <span class="text-[11px]" style="color:var(--text-muted);">
@@ -89,7 +90,7 @@
         @endif
 
         {{-- Per-buyer breakdown: where each sits and how they've been worked this period. --}}
-        <div class="overflow-x-auto rounded" style="border:1px solid var(--border);">
+        <div class="overflow-x-auto rounded" style="border:1px solid var(--border);" data-tour="rpt-pa-book">
             <table class="w-full text-xs">
                 <thead>
                     <tr style="background:var(--surface-2);">

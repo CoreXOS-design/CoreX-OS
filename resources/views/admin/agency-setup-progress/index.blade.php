@@ -14,6 +14,28 @@
         </div>
     </div>
 
+    {{-- AT-478 — filter and sort by gradual introduction. The list's other behaviour is unchanged. --}}
+    <form method="GET" class="flex flex-wrap items-end gap-3 rounded-md px-4 py-3" style="background: var(--surface); border:1px solid var(--border);">
+        <label class="text-xs" style="color:var(--text-secondary);">Gradual introduction
+            <select name="rollout" class="block mt-1 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                <option value="">All agencies</option>
+                @foreach(['on' => 'Running', 'paused' => 'Paused', 'completed' => 'Finished', 'none' => 'Not on gradual introduction'] as $k => $l)
+                    <option value="{{ $k }}" @selected($filters['rollout'] === $k)>{{ $l }}</option>
+                @endforeach
+            </select>
+        </label>
+        <label class="text-xs" style="color:var(--text-secondary);">Sort
+            <select name="sort" class="block mt-1 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                <option value="recent" @selected($filters['sort'] === 'recent')>Newest setup first</option>
+                <option value="rollout" @selected($filters['sort'] === 'rollout')>Gradual introduction (next release first)</option>
+            </select>
+        </label>
+        <button type="submit" class="corex-btn-primary text-sm">Apply</button>
+        @if($filters['rollout'] || $filters['sort'] !== 'recent')
+            <a href="{{ route('admin.agency-setup-progress') }}" class="text-sm" style="color:var(--text-secondary);">Clear</a>
+        @endif
+    </form>
+
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border:1px solid var(--border);">
         <div class="overflow-x-auto">
             <table class="w-full text-sm">
@@ -23,6 +45,9 @@
                         <th class="px-4 py-3 font-semibold">Admin</th>
                         <th class="px-4 py-3 font-semibold">Status</th>
                         <th class="px-4 py-3 font-semibold">Progress</th>
+                        <th class="px-4 py-3 font-semibold">
+                            <a href="{{ route('admin.agency-setup-progress', array_filter(['rollout' => $filters['rollout'], 'sort' => 'rollout'])) }}" style="color:inherit;">Gradual introduction</a>
+                        </th>
                         <th class="px-4 py-3 font-semibold">Opened</th>
                         <th class="px-4 py-3 font-semibold">Last activity</th>
                         <th class="px-4 py-3 font-semibold">Completed</th>
@@ -42,7 +67,13 @@
                             };
                         @endphp
                         <tr style="border-bottom:1px solid var(--border);">
-                            <td class="px-4 py-3 font-medium" style="color:var(--text-primary);">{{ $s->agency?->name ?? '—' }}</td>
+                            <td class="px-4 py-3 font-medium">
+                                @if($s->agency_id)
+                                    <a href="{{ route('admin.agency-setup-progress.show', $s->agency_id) }}" style="color:var(--brand-icon);">{{ $s->agency?->name ?? 'Agency #' . $s->agency_id }}</a>
+                                @else
+                                    <span style="color:var(--text-primary);">—</span>
+                                @endif
+                            </td>
                             <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $s->admin?->email ?? '—' }}</td>
                             <td class="px-4 py-3">
                                 <span class="ds-badge" style="--ds-badge-c: {{ $tone }};">
@@ -57,6 +88,7 @@
                                     <span class="text-xs tabular-nums" style="color:var(--text-muted);">{{ $s->progressPercent() }}%</span>
                                 </div>
                             </td>
+                            <td class="px-4 py-3 text-xs" style="color:var(--text-secondary);">{{ $rollouts[$s->agency_id]['label'] ?? '—' }}</td>
                             <td class="px-4 py-3 text-xs" style="color:var(--text-muted);">{{ $s->last_opened_at?->format('Y-m-d H:i') ?? '—' }}</td>
                             <td class="px-4 py-3 text-xs" style="color:var(--text-muted);">{{ $s->updated_at?->format('Y-m-d H:i') ?? '—' }}</td>
                             <td class="px-4 py-3 text-xs" style="color:var(--text-muted);">{{ $s->completed_at?->format('Y-m-d H:i') ?? '—' }}</td>
@@ -82,8 +114,12 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="9" class="px-4 py-10 text-center text-sm" style="color:var(--text-muted);">
-                                No agency setups yet. They are created automatically when a new live agency is added.
+                            <td colspan="10" class="px-4 py-10 text-center text-sm" style="color:var(--text-muted);">
+                                @if($filters['rollout'])
+                                    No agencies match this filter.
+                                @else
+                                    No agency setups yet. They are created automatically when a new live agency is added.
+                                @endif
                             </td>
                         </tr>
                     @endforelse

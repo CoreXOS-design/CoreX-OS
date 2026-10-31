@@ -9,7 +9,7 @@
         $titleLink = route('corex.properties.show', $item->property);
     } elseif (isset($model->contact) && $model->contact) {
         $titleLink = route('corex.contacts.show', $model->contact);
-    } elseif ($item->kind === 'task' && !empty($model->deal_id)) {
+    } elseif ($item->kind === 'task' && !empty($model->deal_id) && feature('deals')) {
         $titleLink = route('deals-v2.show', $model->deal_id);
     }
 

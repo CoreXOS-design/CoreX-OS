@@ -19,7 +19,7 @@
 @endphp
 
 <div class="w-full space-y-5" x-data="buyersReport({ drilldownBase: @js($drilldownBase) })">
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rpt-bra-intro">
         <div class="flex items-center justify-between flex-wrap gap-3">
             <div>
                 <a href="{{ route('buyers-report.index') }}" class="text-xs" style="color: var(--brand, #3b82f6);">&larr; Buyers Report</a>
@@ -27,6 +27,7 @@
                 <p class="text-xs mt-0.5" style="color: var(--text-muted);">{{ ucfirst(str_replace('_', ' ', $preset)) }}@if($type) · {{ $types[$type] }} only @endif</p>
             </div>
             <div class="flex items-end gap-3 flex-wrap">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @include('buyers-report._print-buttons', ['extraQuery' => ['scope' => 'own', 'user_id' => $targetUser->id]])
                 @include('buyers-report._type-selector', ['type' => $type, 'types' => $types])
                 @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes])
@@ -41,7 +42,7 @@
     @include('buyers-report._needs-attention')
 
     {{-- ══════ EVERY BUYER THIS AGENT HOLDS — full pipeline picture, not just cold/lost ══════ --}}
-    <div class="rounded-md overflow-hidden mb-8" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden mb-8" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rpt-bra-book">
         <div class="px-4 py-3" style="border-bottom: 1px solid var(--border);">
             <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Buyer book — {{ count($detail['buyers']) }} held</h2>
         </div>
@@ -78,7 +79,7 @@
     </div>
 
     @if(!empty($detail['lost']))
-    <div class="rounded-md overflow-hidden mb-8" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden mb-8" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rpt-bra-lost">
         <div class="px-4 py-3" style="border-bottom: 1px solid var(--border);">
             <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Lost this period</h2>
         </div>

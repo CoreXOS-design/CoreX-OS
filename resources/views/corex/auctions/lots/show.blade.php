@@ -59,7 +59,9 @@
     @permission('auctions.edit')
     <div>
         @if($lot->deal_id)
+        @feature('deals')
         <a href="{{ route('deals-dr2.edit', $lot->deal_id) }}" class="corex-btn-outline text-sm">View Deal</a>
+        @endfeature
         @else
         <form method="POST" action="{{ route('corex.auctions.lots.open-deal', $lot) }}">
             @csrf

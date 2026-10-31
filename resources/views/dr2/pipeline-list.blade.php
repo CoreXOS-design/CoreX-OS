@@ -11,62 +11,78 @@
              section (each comment shown against its step name — not an anonymous feed).
      Reads buildPhased(); QA1 only; a pure overlay — nothing here changes DR1 deal state. --}}
 
-@section('content')
+@section('corex-content')
 @include('dr2._pipeline-surface-styles')
 <style>
-  #dr2ls{display:flex;flex-direction:column;height:calc(100vh - 4.2rem);min-height:520px;color:#1e293b;font-size:14px}
-  #dr2ls .thead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px}
-  #dr2ls .h1{font-size:16px;font-weight:800;color:#0f172a;margin:0}#dr2ls .hsub{color:#64748b;font-size:12.5px}
-  #dr2ls .toggle{display:inline-flex;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;font-size:13px}
-  #dr2ls .toggle a{padding:6px 14px;color:#374151;text-decoration:none}#dr2ls .toggle .on{background:#0f172a;color:#fff;font-weight:700}
-  #dr2ls .toggle span.on{padding:6px 14px}
-  #dr2ls .back{color:#2563eb;font-size:12.5px;text-decoration:none;font-weight:600}
+  /* Theme tokens only (var(--surface) / --border / --text-* / --brand-button / --ds-*) so the page follows
+     the light/dark theme like every other CoreX page. */
+  #dr2ls{--ls-brand:var(--brand-button,#0ea5e9);--ls-green:var(--ds-green,#059669);--ls-red:var(--ds-red,#dc2626);
+    display:flex;flex-direction:column;height:calc(100vh - 3rem);min-height:520px;color:var(--text-primary);font-size:14px}
+  #dr2ls .ls-banner{flex:0 0 auto;margin-bottom:12px}
+  #dr2ls .ls-ico{width:14px;height:14px;flex:0 0 auto;display:inline-block;vertical-align:-2px}
+  #dr2ls .toggle{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:12px;background:var(--surface)}
+  #dr2ls .toggle a,#dr2ls .toggle span{padding:6px 14px;color:var(--text-secondary);text-decoration:none;font-weight:600;transition:background 200ms,color 200ms}
+  #dr2ls .toggle a:hover{background:var(--surface-2);color:var(--text-primary)}
+  #dr2ls .toggle .on{background:var(--ls-brand);color:#fff}
+  #dr2ls .back{display:inline-flex;align-items:center;gap:5px;color:var(--text-secondary);font-size:12px;text-decoration:none;font-weight:600;transition:color 200ms}
+  #dr2ls .back:hover{color:var(--ls-brand)}
+  #dr2ls .declined{display:inline-flex;align-items:center;gap:6px;color:var(--ls-red);font-size:12px;font-weight:700}
+  #dr2ls .declined::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+  #dr2ls .decline-btn{font-family:inherit;font-size:12px;font-weight:600;padding:5px 12px;border-radius:6px;cursor:pointer;color:var(--ls-red)!important;background:var(--surface)!important;border:1px solid color-mix(in srgb,var(--ls-red) 40%,transparent)!important;box-shadow:none!important;transition:background 200ms}
+  #dr2ls .decline-btn:hover{background:color-mix(in srgb,var(--ls-red) 8%,var(--surface))!important}
+  #dr2ls .flash{border-radius:6px;padding:7px 12px;font-size:12.5px;margin-bottom:8px;flex:0 0 auto;color:var(--text-primary)}
+  #dr2ls .flash.ok{background:color-mix(in srgb,var(--ls-green) 10%,transparent);border:1px solid color-mix(in srgb,var(--ls-green) 30%,transparent)}
+  #dr2ls .flash.err{background:color-mix(in srgb,var(--ls-red) 10%,transparent);border:1px solid color-mix(in srgb,var(--ls-red) 30%,transparent)}
+  #dr2ls .empty{padding:1.5rem;text-align:center;color:var(--text-secondary);font-size:13px}
 
   /* ── the two-panel body ── */
   #dr2ls .two{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 460px;gap:14px;align-items:stretch}
 
   /* LEFT — phased pipeline, scrolls on its own */
-  #dr2ls .left{min-height:0;overflow-y:auto;overscroll-behavior:contain;background:#f4f6fa;border:1px solid #e2e8f0;border-radius:14px;padding:14px 16px 22px}
-  #dr2ls .lhint{font-size:11.5px;color:#64748b;margin-bottom:10px}#dr2ls .lhint b{font-weight:800}
+  #dr2ls .left{min-height:0;overflow-y:auto;overscroll-behavior:contain;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:14px 16px 22px}
+  #dr2ls .lhint{font-size:11.5px;color:var(--text-muted);margin-bottom:10px}#dr2ls .lhint b{font-weight:700;color:var(--text-secondary)}
   /* Sort toggle bar (#3) */
-  #dr2ls .dr2ls-sortbar{position:sticky;top:0;z-index:6;display:flex;align-items:center;gap:6px;padding:6px 2px 8px;margin:0 0 4px;background:#f4f6fa;flex-wrap:wrap}
-  #dr2ls .dr2ls-sortbar .sl{font-size:11.5px;font-weight:700;color:#64748b}
-  #dr2ls .dr2ls-sortbar .sopt{font-size:11.5px;font-weight:600;color:#475569;background:#fff;border:1px solid #e2e8f0;border-radius:999px;padding:4px 11px;cursor:pointer;font-family:inherit}
-  #dr2ls .dr2ls-sortbar .sopt:hover{background:#f1f5f9}
-  #dr2ls .dr2ls-sortbar .sopt.is-on{background:#2563eb;border-color:#2563eb;color:#fff}
-  #dr2ls .dr2ls-sortbar .dr2ls-hide{display:inline-flex;align-items:center;gap:5px;margin-left:auto;font-size:11.5px;font-weight:600;color:#475569;cursor:pointer}
-  #dr2ls .dr2ls-sortbar .dr2ls-hide input{cursor:pointer}
+  /* top/margins cancel .left's 14px/16px padding so the stuck bar sits flush against the top edge and
+     covers the side gutters — no strip of scrolling cards showing above it. Contents stay where they were. */
+  #dr2ls .dr2ls-sortbar{position:sticky;top:-14px;z-index:6;display:flex;align-items:center;gap:6px;padding:20px 18px 8px;margin:-14px -16px 4px;background:var(--surface-2);flex-wrap:wrap}
+  #dr2ls .dr2ls-sortbar .sl{font-size:11.5px;font-weight:600;color:var(--text-muted)}
+  #dr2ls .dr2ls-sortbar .sopt{font-size:11.5px;font-weight:600;color:var(--text-secondary);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:4px 11px;cursor:pointer;font-family:inherit;transition:background 200ms,color 200ms,border-color 200ms}
+  #dr2ls .dr2ls-sortbar .sopt:hover{border-color:var(--border-hover);color:var(--text-primary)}
+  #dr2ls .dr2ls-sortbar .sopt.is-on{background:var(--ls-brand);border-color:var(--ls-brand);color:#fff}
+  #dr2ls .dr2ls-sortbar .dr2ls-hide{display:inline-flex;align-items:center;gap:5px;margin-left:auto;font-size:11.5px;font-weight:600;color:var(--text-secondary);cursor:pointer}
+  #dr2ls .dr2ls-sortbar .dr2ls-hide input{cursor:pointer;accent-color:var(--ls-brand)}
   /* Hide-completed (#3): when armed, completed rows collapse out of every phase group. */
   #dr2ls-list.hide-done .dr2-lrow[data-status="completed"]{display:none}
   /* In due-date mode, drag-reorder is disabled (the order is date-driven, not manual). */
   #dr2ls.sort-due .dr2-tile__grip{opacity:.3;cursor:not-allowed}
 
-  /* Compact per-step action buttons on the LEFT list — small inline coloured pills like the mockup
+  /* Compact per-step action buttons on the LEFT list — small inline pills like the mockup
      (.ai/mockups/dr2_list_phased.html), overriding the shared tile's bulky full-width 3×2 grid so each
      step row is far more condensed. Scoped to #dr2ls .left ONLY — the Timeline/board tile treatment is
      untouched. Keeps every action + its colour (Complete green, Remove red). !important is required to
      beat the global .hfc-card button[type=submit] rule (also !important) so the SUBMIT actions
      (Reopen/Remove/Reinstate) stay compact pills too, not big filled buttons; the id-scoped selector
      is more specific so it wins. */
-  #dr2ls .left .dr2-tile__btns{display:flex;flex-wrap:wrap;gap:5px;margin-top:.4rem;padding-top:.4rem;border-top:1px solid #eef2f7}
+  #dr2ls .left .dr2-tile__btns{display:flex;flex-wrap:wrap;gap:5px;margin-top:.4rem;padding-top:.4rem;border-top:1px solid var(--border)}
   #dr2ls .left .dr2-tile__btns form{display:inline;width:auto;margin:0}
-  #dr2ls .left .dr2-bt{display:inline-block!important;width:auto!important;height:auto!important;min-height:0!important;padding:2px 9px!important;font-size:11px!important;line-height:1.55!important;border-radius:6px!important;border:1px solid #e5e7eb!important;background:#fff!important;color:#374151!important;box-shadow:none!important;white-space:nowrap;overflow:visible;text-overflow:clip}
-  #dr2ls .left .dr2-bt:hover{background:#f1f5f9!important}
+  #dr2ls .left .dr2-bt{display:inline-block!important;width:auto!important;height:auto!important;min-height:0!important;padding:2px 9px!important;font-size:11px!important;font-weight:600!important;line-height:1.55!important;border-radius:6px!important;border:1px solid var(--border)!important;background:var(--surface)!important;color:var(--text-secondary)!important;box-shadow:none!important;white-space:nowrap;overflow:visible;text-overflow:clip}
+  #dr2ls .left .dr2-bt:hover{background:var(--surface-2)!important;border-color:var(--border-hover)!important;color:var(--text-primary)!important}
   /* The green "Complete" ACTION button read like the green "Completed" status BADGE, so users thought
-     the step was already done. Disambiguate it (list-left ONLY): an outlined WHITE button with a green
-     border + a ✓, relabelled "Mark complete" via a pseudo-element (the label text lives in the shared
+     the step was already done. Disambiguate it (list-left ONLY): an outlined button with a green
+     border, relabelled "Mark complete" via a pseudo-element (the label text lives in the shared
      _pipeline-step-tile, which we must not touch). Reads as a clickable action, clearly distinct from the
      solid green "Completed" status pill (whose styling is untouched). */
-  #dr2ls .left .dr2-bt--go{color:#047857!important;background:#fff!important;border:1.5px solid #34d399!important;font-weight:700!important;font-size:0!important;box-shadow:0 1px 0 rgba(16,185,129,.10)!important;}
-  #dr2ls .left .dr2-bt--go::before{content:"✓ Mark complete";font-size:11px;font-weight:700;letter-spacing:.01em;white-space:nowrap;}
-  #dr2ls .left .dr2-bt--go:hover{background:#ecfdf5!important;border-color:#10b981!important;}
-  #dr2ls .left .dr2-bt--danger{color:#b91c1c!important;border-color:#fecaca!important;background:#fff!important}
-  #dr2ls .left .dr2-bt--dis{color:#c7cdd6!important;border-color:#eef2f7!important;background:#fafbfc!important;cursor:not-allowed}
+  #dr2ls .left .dr2-bt--go{color:var(--ls-green)!important;background:var(--surface)!important;border:1px solid color-mix(in srgb,var(--ls-green) 55%,transparent)!important;font-size:0!important}
+  #dr2ls .left .dr2-bt--go::before{content:"Mark complete";font-size:11px;font-weight:600;letter-spacing:.01em;white-space:nowrap;}
+  #dr2ls .left .dr2-bt--go:hover{background:color-mix(in srgb,var(--ls-green) 10%,var(--surface))!important;border-color:var(--ls-green)!important;color:var(--ls-green)!important}
+  #dr2ls .left .dr2-bt--danger{color:var(--ls-red)!important;border-color:color-mix(in srgb,var(--ls-red) 35%,transparent)!important}
+  #dr2ls .left .dr2-bt--danger:hover{background:color-mix(in srgb,var(--ls-red) 8%,var(--surface))!important;color:var(--ls-red)!important}
+  #dr2ls .left .dr2-bt--dis{color:var(--text-muted)!important;border-color:var(--border)!important;background:var(--surface-2)!important;cursor:not-allowed;opacity:.6}
 
   /* Compact each LEFT-list step ROW to ~2 lines. The shared tile stacks head / tags / meta / sub as
      separate BLOCKS (≈6 lines of wasted vertical space); flatten them onto ONE flex row here so
-     line 1 = grip · dot · name · offset(+Nd) · ★ · date … status badge (far right), and line 2 = the
-     action pills. Scoped to #dr2ls .left ONLY — the shared partial markup and the Timeline tiles are
+     line 1 = grip · dot · name · offset(+Nd) · milestone · date … status badge (far right), and line 2 =
+     the action pills. Scoped to #dr2ls .left ONLY — the shared partial markup and the Timeline tiles are
      untouched. Grip, status dot, and every action/behaviour are kept; button STYLING is not changed. */
   #dr2ls .left .dr2-tile{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;column-gap:8px;row-gap:2px;height:auto;min-height:0}
   #dr2ls .left .dr2-tile__head{flex:0 1 auto;min-width:0;align-items:center}
@@ -79,57 +95,59 @@
   #dr2ls .left .dr2-tile__sub,#dr2ls .left .dr2-tile__warnnote,#dr2ls .left .dr2-tile__gatenote{flex:1 0 100%;order:9;margin:0 0 0 20px;line-height:1.2}
   #dr2ls .left .dr2-tile__btns{flex:1 0 100%;order:10;margin-top:3px}
 
-  /* RIGHT — wider rail: deal panels on TOP, comments BELOW */
   /* RIGHT — a SINGLE tabbed pane (deal panels + a Comments tab). One tab at a time, full-height,
      nothing stacked. */
   #dr2ls .right{min-height:0;display:flex;flex-direction:column}
-  #dr2ls .rpane{flex:1;min-height:0;display:flex;flex-direction:column;background:#fff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04)}
-  #dr2ls .rtabs{flex:0 0 auto;display:flex;flex-wrap:wrap;gap:3px;padding:8px 10px 0;border-bottom:1px solid #e2e8f0}
-  #dr2ls .rtabs .dr2-tab{font-size:11px;padding:6px 9px}
+  #dr2ls .rpane{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:6px;overflow:hidden}
+  #dr2ls .rtabs{flex:0 0 auto;display:flex;flex-wrap:wrap;gap:3px;padding:8px 10px;border-bottom:1px solid var(--border);background:var(--surface-2)}
+  #dr2ls .rtabs .dr2-tab{font-size:11px;padding:6px 9px;min-width:0}
   #dr2ls .rbody{flex:1;min-height:0;display:flex;flex-direction:column}
   #dr2ls .rp{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:14px}
   #dr2ls .rp--comments{padding:0;overflow:hidden;display:flex;flex-direction:column}
-  #dr2ls .cbar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #e2e8f0;flex-wrap:wrap}
-  #dr2ls .cbar .t{font-weight:800;color:#0f172a;font-size:13px}#dr2ls .cbar .n{font-size:11px;color:#64748b}
+  #dr2ls .cbar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  #dr2ls .cbar .t{font-weight:700;color:var(--text-primary);font-size:13px}#dr2ls .cbar .n{font-size:11px;color:var(--text-muted)}
   #dr2ls .feed{flex:1;overflow-y:auto;padding:8px 14px}
-  #dr2ls .cm{display:flex;gap:9px;padding:7px 0;border-bottom:1px solid #f4f6fa}
-  #dr2ls .av{width:26px;height:26px;flex:0 0 26px;border-radius:50%;background:#dbe4ff;color:#4f46e5;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  #dr2ls .feed .feed-empty{color:var(--text-muted);font-size:12px;padding:10px 0}
+  #dr2ls .feed .feed-empty b{color:var(--text-secondary)}
+  #dr2ls .cm{display:flex;gap:9px;padding:7px 0;border-bottom:1px solid var(--border)}
+  #dr2ls .av{width:26px;height:26px;flex:0 0 26px;border-radius:50%;background:color-mix(in srgb,var(--ls-brand) 15%,transparent);color:var(--ls-brand);font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center}
   #dr2ls .cm__b{min-width:0}
-  #dr2ls .cmeta{font-size:11px;color:#64748b}#dr2ls .cmeta b{color:#1e293b}
-  #dr2ls .ctag{font-size:9.5px;font-weight:700;padding:1px 7px;border-radius:5px;margin-left:5px;background:#eff6ff;color:#2563eb;white-space:nowrap}
-  #dr2ls .ctag.deal{background:#eef2ff;color:#4f46e5}
-  #dr2ls .ctxt{font-size:12.5px;color:#1e293b;margin-top:1px;white-space:pre-wrap;word-break:break-word}
-  #dr2ls .cadd{display:flex;gap:8px;padding:9px 14px;border-top:1px solid #e2e8f0;align-items:center;flex-wrap:wrap}
-  #dr2ls .cadd select,#dr2ls .cadd input{font-family:inherit;font-size:12px;border:1px solid #e2e8f0;border-radius:7px;padding:6px 9px;color:#1e293b}
+  #dr2ls .cmeta{font-size:11px;color:var(--text-muted)}#dr2ls .cmeta b{color:var(--text-primary)}
+  #dr2ls .ctag{font-size:9.5px;font-weight:600;padding:1px 7px;border-radius:5px;margin-left:5px;background:color-mix(in srgb,var(--ds-blue,#2563eb) 12%,transparent);color:var(--ds-blue,#2563eb);white-space:nowrap}
+  #dr2ls .ctag.deal{background:color-mix(in srgb,var(--ls-brand) 12%,transparent);color:var(--ls-brand)}
+  #dr2ls .ctxt{font-size:12.5px;color:var(--text-primary);margin-top:1px;white-space:pre-wrap;word-break:break-word}
+  #dr2ls .cadd{display:flex;gap:8px;padding:9px 14px;border-top:1px solid var(--border);align-items:center;flex-wrap:wrap}
+  #dr2ls .cadd select,#dr2ls .cadd input,#dr2ls .csort select{font-family:inherit;border:1px solid var(--border);border-radius:6px;color:var(--text-primary);background:var(--surface);transition:border-color 200ms}
+  #dr2ls .cadd select,#dr2ls .cadd input{font-size:12px;padding:6px 9px}
+  #dr2ls .cadd select:focus,#dr2ls .cadd input:focus,#dr2ls .csort select:focus{outline:none;border-color:var(--ls-brand)}
   #dr2ls .cadd select{max-width:150px}#dr2ls .cadd input{flex:1;min-width:120px}
-  #dr2ls .cadd button{font-size:12px;font-weight:600;padding:6px 15px;border:0;border-radius:7px;background:#2563eb;color:#fff;cursor:pointer}
   /* Comments tab — sort control + header-line (step badge · date · who) */
-  #dr2ls .csort{margin-left:auto;font-size:11px;color:#64748b;display:inline-flex;align-items:center;gap:5px}
-  #dr2ls .csort select{font-family:inherit;font-size:11px;border:1px solid #e2e8f0;border-radius:6px;padding:3px 6px;color:#1e293b}
+  #dr2ls .csort{margin-left:auto;font-size:11px;color:var(--text-muted);display:inline-flex;align-items:center;gap:5px}
+  #dr2ls .csort + .csort{margin-left:0}
+  #dr2ls .csort select{font-size:11px;padding:3px 6px}
   #dr2ls .rp--comments .ctag{margin-left:0}
   #dr2ls .rp--comments .cmeta{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
 
   /* Add custom step (restored) */
-  #dr2ls .dr2ls-add{margin-top:14px;padding-top:12px;border-top:1px dashed #d7dee8}
-  #dr2ls .dr2ls-add__toggle{font-size:12px;font-weight:700;color:#2563eb;background:#fff;border:1px solid #cdd8e6;border-radius:8px;padding:6px 12px;cursor:pointer;font-family:inherit}
-  #dr2ls .dr2ls-add__toggle:hover{background:#f1f5f9}
-  #dr2ls .dr2ls-add__form{margin-top:10px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:12px 13px}
+  #dr2ls .dr2ls-add{margin-top:14px;padding-top:12px;border-top:1px dashed var(--border-hover)}
+  #dr2ls .dr2ls-add__toggle{font-size:12px;font-weight:600;color:var(--text-secondary);background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:6px 12px;cursor:pointer;font-family:inherit;transition:background 200ms,color 200ms,border-color 200ms}
+  #dr2ls .dr2ls-add__toggle:hover{color:var(--ls-brand);border-color:var(--border-hover)}
+  #dr2ls .dr2ls-add__form{margin-top:10px;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:12px 13px}
   #dr2ls .dr2ls-add__row{display:flex;gap:10px;flex-wrap:wrap}
-  #dr2ls .dr2ls-add__f{flex:1 1 200px;display:flex;flex-direction:column;font-size:11.5px;font-weight:700;color:#475569;gap:3px}
-  #dr2ls .dr2ls-add__hintt{font-weight:500;color:#94a3b8}
-  #dr2ls .dr2ls-add__f input,#dr2ls .dr2ls-add__f select{font-family:inherit;font-size:13px;font-weight:400;color:#1e293b;border:1px solid #e2e8f0;border-radius:7px;padding:6px 8px}
-  #dr2ls .dr2ls-add__due{margin-top:11px;border-top:1px solid #eef2f7;padding-top:9px}
-  #dr2ls .dr2ls-add__duehdr{font-size:11.5px;font-weight:700;color:#475569;margin-bottom:5px}
-  #dr2ls .dr2ls-add__radio{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#1e293b;padding:3px 0}
-  #dr2ls .dr2ls-add__radio.is-dim{color:#94a3b8}
+  #dr2ls .dr2ls-add__f{flex:1 1 200px;display:flex;flex-direction:column;font-size:11.5px;font-weight:600;color:var(--text-secondary);gap:3px}
+  #dr2ls .dr2ls-add__hintt{font-weight:400;color:var(--text-muted)}
+  #dr2ls .dr2ls-add__f input,#dr2ls .dr2ls-add__f select,#dr2ls .dr2ls-add__radio input[type=date],#dr2ls .dr2ls-add__num{font-family:inherit;font-weight:400;color:var(--text-primary);background:var(--surface);border:1px solid var(--border);border-radius:6px;transition:border-color 200ms}
+  #dr2ls .dr2ls-add__f input,#dr2ls .dr2ls-add__f select{font-size:13px;padding:6px 8px}
+  #dr2ls .dr2ls-add__f input:focus,#dr2ls .dr2ls-add__f select:focus,#dr2ls .dr2ls-add__radio input[type=date]:focus,#dr2ls .dr2ls-add__num:focus{outline:none;border-color:var(--ls-brand)}
+  #dr2ls .dr2ls-add__due{margin-top:11px;border-top:1px solid var(--border);padding-top:9px}
+  #dr2ls .dr2ls-add__duehdr{font-size:11.5px;font-weight:600;color:var(--text-secondary);margin-bottom:5px}
+  #dr2ls .dr2ls-add__radio{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text-primary);padding:3px 0}
+  #dr2ls .dr2ls-add__radio.is-dim{color:var(--text-muted)}
   #dr2ls .dr2ls-add__radio span{display:inline-flex;align-items:center;gap:5px;flex-wrap:wrap}
-  #dr2ls .dr2ls-add__radio input[type=date]{font-family:inherit;font-size:12.5px;border:1px solid #e2e8f0;border-radius:6px;padding:3px 6px}
-  #dr2ls .dr2ls-add__num{font-family:inherit;font-size:12.5px;border:1px solid #e2e8f0;border-radius:6px;padding:3px 6px}
+  #dr2ls .dr2ls-add__radio input[type=date],#dr2ls .dr2ls-add__num{font-size:12.5px;padding:3px 6px}
   #dr2ls .dr2ls-add__num:disabled,#dr2ls .dr2ls-add__radio input:disabled{opacity:.45}
-  #dr2ls .dr2ls-add__note{font-size:11px;color:#94a3b8;margin-top:4px}
+  #dr2ls .dr2ls-add__note{font-size:11px;color:var(--text-muted);margin-top:4px}
   #dr2ls .dr2ls-add__actions{margin-top:11px}
-  #dr2ls .dr2ls-add__submit{font-size:12.5px;font-weight:700;padding:6px 16px;border:0;border-radius:7px;background:#2563eb;color:#fff;cursor:pointer;font-family:inherit}
-  #dr2ls .dr2ls-add__submit:hover{background:#1d4ed8}
 
   @media(max-width:1100px){#dr2ls{height:auto}#dr2ls .two{grid-template-columns:1fr}#dr2ls .left{max-height:none}#dr2ls .rpane{min-height:480px}}
 </style>
@@ -213,40 +231,46 @@
 
 <div id="dr2ls" data-reorder="{{ route('deals-dr2.pipeline.reorder', $deal) }}" data-comment="{{ url('deals-dr2/'.$deal->id.'/pipeline/steps') }}" data-csrf="{{ csrf_token() }}">
 
-  <div class="thead">
+  {{-- Page header --}}
+  <div class="rounded-md px-6 py-5 corex-page-banner ls-banner">
+   <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
     <div>
-      <div class="h1">Deal Pipeline</div>
-      <div class="hsub">{{ $deal->deal_no ? 'Deal ' . $deal->deal_no : ('Deal #' . $deal->id) }}
-        @if($deal->property) — {{ $deal->property->buildDisplayAddress() }} @endif</div>
+      <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Deal Pipeline</h1>
+      <p class="text-xs" style="color: var(--text-muted);">{{ $deal->deal_no ? 'Deal ' . $deal->deal_no : ('Deal #' . $deal->id) }}
+        @if($deal->property) — {{ $deal->property->buildDisplayAddress() }} @endif</p>
     </div>
-    <div style="display:flex;align-items:center;gap:12px;">
+    <div class="flex flex-wrap items-center gap-3">
       {{-- Deal-level DECLINE — visible in the header (not buried in a panel tab). Reuses the canonical
            accepted_status -> 'D' transition (locks the pipeline; re-grantable from the register).
            NB: condition is INLINED into the if/elseif on purpose. This file uses the inline php()
            directive form throughout; introducing a block-php/endphp pair (the only endphp in the
            file) corrupts Blade raw-block extraction. Do not add one here. --}}
       @if((string) ($deal->accepted_status ?? 'P') === 'D')
-        <span style="color:#b91c1c;font-size:12.5px;font-weight:700;">● Declined</span>
+        <span class="declined">Declined</span>
       @elseif((string) ($deal->accepted_status ?? 'P') !== 'R')
         <form method="POST" action="{{ route('deals-dr2.pipeline.decline', $deal) }}" style="display:inline;margin:0;"
               onsubmit="return confirm('Decline this deal? Its pipeline locks (read-only) and it drops to Declined. It stays re-grantable from the register.');">
           @csrf
-          <button type="submit" style="background:#fff;border:1px solid #fca5a5;color:#b91c1c;border-radius:8px;padding:5px 12px;font-size:12.5px;font-weight:600;cursor:pointer;">Decline deal</button>
+          <button type="submit" class="decline-btn">Decline deal</button>
         </form>
       @endif
       <div class="toggle"><a href="{{ route('deals-dr2.pipeline.timeline', $deal) }}">Timeline</a><span class="on">List</span></div>
-      <a class="back" href="{{ route('deals-dr2.index') }}">← Deal Register</a>
+      <a class="back" href="{{ route('deals-dr2.index') }}">
+        <svg class="ls-ico" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+        Deal Register
+      </a>
     </div>
+   </div>
   </div>
 
-  @if(session('info'))<div style="background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:8px;padding:6px 12px;font-size:12.5px;margin-bottom:6px;">{{ session('info') }}</div>@endif
-  @if(session('error'))<div style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:8px;padding:6px 12px;font-size:12.5px;margin-bottom:6px;">{{ session('error') }}</div>@endif
+  @if(session('info'))<div class="flash ok">{{ session('info') }}</div>@endif
+  @if(session('error'))<div class="flash err">{{ session('error') }}</div>@endif
 
   <div class="two">
     {{-- ══════════ LEFT · PHASED PIPELINE ══════════ --}}
     <div class="left dr2-listwrap" id="dr2ls-list">
       @if($board['empty'])
-        <div style="padding:1.5rem;text-align:center;color:#64748b;font-size:13px;">No pipeline steps yet — build from the <strong>Deal Structure</strong> panel on the right.</div>
+        <div class="empty">No pipeline steps yet — build from the <strong>Deal Structure</strong> panel on the right.</div>
       @else
         {{-- Sort toggle (#3) — re-sorts steps WITHIN each phase group (Stage 1 groups / Stage 2), keeping
              the Stage1→GRANTED→Stage2 grouping intact. "by step / sequence" = the drag-reorder order
@@ -285,14 +309,14 @@
           @else
             {{-- STAGE 1 · Suspensive Conditions --}}
             @if(!empty($board['stage1']['groups']))
-            <div class="dr2-ph-arrow">▼</div>
+            <div class="dr2-ph-arrow"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></div>
             <div class="dr2-ph-stage">
               <div class="dr2-ph-stage__h"><span class="dr2-ph-stage__n">1</span><span class="dr2-ph-stage__t">Suspensive Conditions</span></div>
               <div class="dr2-ph-stage__s">All of these must be met for the deal to be granted. They run in parallel.</div>
               @foreach($board['stage1']['groups'] as $grp)
                 <div class="dr2-ph-grp">
                   <div class="dr2-ph-grp__h">
-                    <span class="dr2-ph-grp__ic">{{ $grp['icon'] }}</span>
+                    <span class="dr2-ph-grp__ic">@include('dr2.partials._phase-group-icon', ['icon' => $grp['icon']])</span>
                     <span>{{ $grp['label'] }}@if($grp['sub'])<span class="dr2-ph-grp__sub"> · {{ $grp['sub'] }}</span>@endif</span>
                     <span class="dr2-ph-pill {{ $grp['active'] ? 'dr2-ph-pill--active' : 'dr2-ph-pill--done' }}">{{ $grp['active'] ? 'ACTIVE' : 'DONE' }}</span>
                   </div>
@@ -305,10 +329,10 @@
             @endif
 
             {{-- GRANTED gate --}}
-            <div class="dr2-ph-arrow">▼</div>
+            <div class="dr2-ph-arrow"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></div>
             <div class="dr2-ph-gate {{ $board['gate']['granted'] ? '' : 'dr2-ph-gate--pending' }}">
               <div class="dr2-ph-gate__inner">
-                <span class="dr2-ph-gate__star">★</span>
+                <span class="dr2-ph-gate__star"><svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg></span>
                 <div>
                   <div class="dr2-ph-gate__t">{{ $board['gate']['granted'] ? 'GRANTED' : 'GRANTED — pending' }}</div>
                   <div class="dr2-ph-gate__s">
@@ -318,14 +342,14 @@
                 </div>
               </div>
             </div>
-            <div class="dr2-ph-arrow">▼</div>
+            <div class="dr2-ph-arrow"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg></div>
 
             {{-- STAGE 2 · Transfer & Registration --}}
             @if(!empty($seq))
             <div class="dr2-ph-stage {{ $board['stage2']['active'] ? '' : 'is-locked' }}">
               <div class="dr2-ph-stage__h"><span class="dr2-ph-stage__n">2</span><span class="dr2-ph-stage__t">Transfer &amp; Registration</span></div>
               <div class="dr2-ph-stage__s">Runs once the deal is granted — a single sequence, in date order.</div>
-              @unless($board['stage2']['active'])<div class="dr2-ph-lock">🔒 Activates once the deal is granted. Shown here as what comes next.</div>@endunless
+              @unless($board['stage2']['active'])<div class="dr2-ph-lock"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg> Activates once the deal is granted. Shown here as what comes next.</div>@endunless
               @foreach($seq as $sid)
                 @if($rowById->has($sid))<div class="dr2-lrow" {!! $lrowAttrs($sid) !!}>@include('dr2._pipeline-step-tile', ['row' => $rowById[$sid], 'variant' => 'wide'])</div>@endif
               @endforeach
@@ -342,7 +366,7 @@
       @unless($locked)
       @permission('view_deals')
       <div class="dr2ls-add" x-data="{ open:false, mode:'fixed', link:'' }">
-        <button type="button" class="dr2ls-add__toggle" @click="open=!open" x-text="open ? '× Cancel' : '+ Add custom step'"></button>
+        <button type="button" class="dr2ls-add__toggle" @click="open=!open" x-text="open ? 'Cancel' : '+ Add custom step'"></button>
         <form x-show="open" x-cloak method="POST" action="{{ route('deals-dr2.pipeline.step.add', $deal) }}" class="dr2ls-add__form">@csrf<input type="hidden" name="from" value="list">
           <div class="dr2ls-add__row">
             <label class="dr2ls-add__f">Step name
@@ -367,7 +391,7 @@
             </label>
             <div class="dr2ls-add__note" x-show="!link" x-cloak>Pick a linked step to enable “+N days after”. Standalone steps use a fixed date.</div>
           </div>
-          <div class="dr2ls-add__actions"><button type="submit" class="dr2ls-add__submit">Add step</button></div>
+          <div class="dr2ls-add__actions"><button type="submit" class="corex-btn-primary text-xs">Add step</button></div>
         </form>
       </div>
       @endpermission
@@ -461,7 +485,7 @@
             </div>
             <div class="feed">
               <template x-if="comments.length===0">
-                <div style="color:#94a3b8;font-size:12px;padding:10px 0;">No comments yet. Use a step's <b>Comments</b> action (left), or add one below.</div>
+                <div class="feed-empty">No comments yet. Use a step's <b>Comments</b> action (left), or add one below.</div>
               </template>
               <template x-for="c in sorted()" :key="c.idx">
                 <div class="cm">
@@ -480,7 +504,7 @@
                 @foreach($steps as $r)<option value="{{ $r['model']->id }}">On: {{ $r['model']->name }}</option>@endforeach
               </select>
               <input id="dr2ls-text" placeholder="Add a comment…">
-              <button onclick="dr2lsAddComment()">Add</button>
+              <button type="button" class="corex-btn-primary text-xs" onclick="dr2lsAddComment()">Add</button>
             </div>
             @endunless
           </div>

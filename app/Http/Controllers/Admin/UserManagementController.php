@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Exceptions\SeatReinstatementLockedException;
 use App\Http\Controllers\Controller;
 use App\Jobs\SyncAgentToP24Job;
+use App\Jobs\SendAgentInviteJob;
 use App\Mail\UserInviteMail;
 use App\Models\Agency;
 use App\Models\Billing\AgentSeatRelease;
@@ -411,10 +412,10 @@ class UserManagementController extends Controller
             return $this->sendSubUserInvite(redirect()->route('admin.users.edit', $user), $user, "Sub-user \"{$fullName}\" created with username {$user->email}.");
         }
 
-        // Send invitation email
-        Mail::to($user->email)->send(new UserInviteMail($user));
+        // Send invitation email — queued with retries so a mail-server hiccup cannot lose it.
+        SendAgentInviteJob::dispatch($user->id);
 
-        return redirect()->route('admin.users')->with('status', "User \"{$fullName}\" created. An invitation email has been sent to {$user->email}.");
+        return redirect()->route('admin.users')->with('status', "User \"{$fullName}\" created. The invitation email to {$user->email} is on its way (it retries automatically if the mail server is busy).");
     }
 
     // ── AT-423 — One email (sub-users). Spec: .ai/specs/one-email-sub-users.md ──
@@ -1151,9 +1152,9 @@ class UserManagementController extends Controller
             return $this->sendSubUserInvite($this->withActiveTab(back(), $request), $user, "New set-up link created for {$user->name}.");
         }
 
-        Mail::to($user->email)->send(new UserInviteMail($user));
+        SendAgentInviteJob::dispatch($user->id);
 
-        return $this->withActiveTab(back(), $request)->with('status', "Invitation email resent to {$user->email}.");
+        return $this->withActiveTab(back(), $request)->with('status', "Invitation email to {$user->email} is on its way (it retries automatically if the mail server is busy).");
     }
 
     /**

@@ -20,7 +20,7 @@
             @if($activeProforma)
                 {{-- One active proforma per deal — the only path to a new one is admin void → generate. --}}
                 <a href="{{ route('proforma.show', $activeProforma) }}" class="corex-btn-primary" style="font-size:.8rem;padding:.4rem .9rem;">View Proforma ({{ $activeProforma->number }})</a>
-            @elseif($eligible)
+            @elseif($eligible && feature('deals'))
                 <form method="POST" action="{{ route('deals-dr2.proforma.generate', $deal) }}">@csrf
                     <button type="submit" class="corex-btn-primary" style="font-size:.8rem;padding:.4rem .9rem;">Generate Proforma Invoice</button>
                 </form>

@@ -5,12 +5,13 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (AT-336 — flat neutral bar, worksheet type scale) --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rpt-ic-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Image Converter</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Convert HEIC, JPG, PNG, WEBP, BMP, TIFF or GIF photos into any other image format.</p>
             </div>
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
         </div>
     </div>
 
@@ -20,7 +21,7 @@
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {{-- Left: when to use --}}
             <div class="lg:col-span-5 xl:col-span-4">
-                <div class="rounded-md p-6 h-full" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="rounded-md p-6 h-full" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rpt-ic-when">
                     <div class="flex items-center justify-center w-12 h-12 rounded-md mb-4"
                          style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color: var(--brand-icon, #0ea5e9);">
                         <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24"
@@ -51,7 +52,7 @@
                         @csrf
 
                         <label class="block text-xs font-semibold uppercase tracking-wide mb-1.5" style="color: var(--text-secondary);">Images</label>
-                        <input type="file" name="images[]" accept="image/*,.heic,.heif"
+                        <input type="file" name="images[]" accept="image/*,.heic,.heif" data-tour="rpt-ic-files"
                                multiple required
                                x-ref="fileInput"
                                @change="onFileChange($event)"
@@ -60,7 +61,7 @@
                                style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
 
                         <label class="block text-xs font-semibold uppercase tracking-wide mb-1.5" style="color: var(--text-secondary);">Output format</label>
-                        <select name="format" required x-ref="formatSelect" :disabled="busy"
+                        <select name="format" required x-ref="formatSelect" :disabled="busy" data-tour="rpt-ic-format"
                                 class="w-full px-3 py-2.5 rounded-md text-sm mb-5"
                                 style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                             <option value="png" selected>PNG — lossless, supports transparency</option>
@@ -86,7 +87,7 @@
                              style="background: color-mix(in srgb, var(--ds-crimson, #c41e3a) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson, #c41e3a) 30%, transparent); color: var(--text-primary);"
                              x-text="errorMsg"></div>
 
-                        <button type="submit"
+                        <button type="submit" data-tour="rpt-ic-convert"
                                 :disabled="!hasFile || busy"
                                 :class="(!hasFile || busy) ? 'opacity-50 cursor-not-allowed corex-btn-primary' : 'corex-btn-primary'"
                                 class="text-sm w-full">

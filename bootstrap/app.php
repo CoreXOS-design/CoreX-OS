@@ -69,6 +69,9 @@ return Application::configure(basePath: dirname(__DIR__))
             \App\Http\Middleware\EnforceFeatureRoutes::class,
             // Road to Sold pop-up (22.22) — a screen opened in the pop-up stays in it across redirects (adds embed=1 to a same-site redirect).
             \App\Http\Middleware\KeepEmbedOnRedirect::class,
+            // AT-478 — first time a person opens a feature their agency's gradual rollout switched on
+            // (usage for the admin + CoreX team). Inert (one cached lookup) for an agency not on a rollout.
+            \App\Http\Middleware\RecordRolloutFeatureUse::class,
         ]);
 
         // AT-321 — attribute API-driven property writes (mobile app etc.) too.
@@ -124,6 +127,8 @@ return Application::configure(basePath: dirname(__DIR__))
                 'auth.wa_capture' => \App\Http\Middleware\AuthenticateWaCapture::class,
                 'waha.webhook' => \App\Http\Middleware\VerifyWahaWebhook::class,
                 'permission' => \App\Http\Middleware\CheckPermission::class,
+                // Mobile parity: a mobile route pointed straight at a web action that answers a redirect gets its outcome as JSON.
+                'mobile.web-action' => \App\Http\Middleware\MobileWebAction::class,
                 // leases.md §15.8.4 (Build L3c) — a lease agreement's final approval checks the document against its lease.
                 'lease.agreement.confirmed' => \App\Http\Middleware\EnsureLeaseAgreementConfirmed::class,
                 // Per-agency feature gate — orthogonal to permission; 404s when a
@@ -202,6 +207,11 @@ return Application::configure(basePath: dirname(__DIR__))
 
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // Any email that fails to leave CoreX is logged and the operator is alerted (still reported normally).
+        $exceptions->report(function (\Symfony\Component\Mailer\Exception\TransportExceptionInterface $e) {
+            \App\Services\Mail\MailFailureAlerter::report($e);
+        });
+
         // Agency Admin Rule: convert LastAdminException into a friendly redirect/JSON error.
         $exceptions->render(function (\App\Exceptions\LastAdminException $e, $request) {
             if ($request->expectsJson()) {

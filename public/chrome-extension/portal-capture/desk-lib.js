@@ -19,14 +19,25 @@
     try { return new URL(url).hostname.toLowerCase(); } catch (e) { return ''; }
   }
 
-  /** A host is allowed when it equals an allowed host or is a subdomain of one. The server list is the authority; this is a courtesy check. */
-  function hostAllowed(host, allowed) {
+  /**
+   * A host is allowed when it equals an allowed host or is a subdomain of one - or equals one of the `exact` hosts (the agency's own website: that host
+   * and nothing else, no subdomains). The server list is the authority; this is a courtesy check.
+   */
+  function hostAllowed(host, allowed, exact) {
     host = String(host || '').toLowerCase();
     if (!host) return false;
+    if ((exact || []).some(function (e) { return String(e || '').toLowerCase() === host; })) return true;
     return (allowed || []).some(function (a) {
       a = String(a || '').toLowerCase();
       return a && (host === a || host.slice(-(a.length + 1)) === '.' + a);
     });
+  }
+
+  /** Only https pages can be shared (a page served over http can be rewritten by anyone on the path), and only allowed hosts. */
+  function urlAllowed(url, allowed, exact) {
+    var u;
+    try { u = new URL(url); } catch (e) { return false; }
+    return u.protocol === 'https:' && hostAllowed(u.hostname, allowed, exact);
   }
 
   function tabKey(tabId) { return 'x' + tabId; }
@@ -36,18 +47,37 @@
   // autocomplete, placeholder, aria-label or label text. Deliberately generous: a field masked by mistake costs support one question;
   // a field NOT masked can leak an ID or card number. Displayed text is not masked (support sees what the agent sees on screen).
 
-  var SENSITIVE = /(card|cvv|cvc|ccnum|cc-?(number|exp|csc|name)|iban|swift|routing|sort[-_ ]?code|account|acc[-_ ]?(no|num)|branch[-_ ]?code|\bid[-_ ]?(no|num)|identity|passport|id[-_ ]number|tax[-_ ]?(no|num|ref)|sa[-_ ]?id|\bpin\b|\botp\b|secret|\bssn\b|national)/i;
+  // The text is normalised first - camelCase split ("userIdNumber" -> user_id_number, "SAIdNumber" -> sa_id_number), lower-cased, every run of other
+  // characters one "_" - so the patterns never depend on \b anchors (which do not see a "_" or a camelCase hump as a boundary) or on how a site spells a
+  // separator. LONG terms match anywhere inside the text; SHORT ones (that would also sit inside ordinary words) only as whole "_"-separated words.
+  var LONG = /(card|cvv|cvc|ccnum|cc_?(number|num|exp|csc|name)|iban|swift|routing|sort_?code|account|acc_?(no|num|number)|branch_?code|idnumber|identity|passport|secret|password|passwd|national|bank|birth|credential)/;
+  var SHORT = /(^|_)(pin|otp|ssn|tax|taxno|taxnum|taxref|vat|token|key|dob|sa_id|id_no|id_num|id_number|idno|idnum)(_|$)/;
+
+  function norm(text) {
+    return String(text || '')
+      .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+      .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_');
+  }
+
+  function looksSensitive(text) {
+    var t = norm(text);
+    return LONG.test(t) || SHORT.test(t);
+  }
 
   function isSensitiveField(el) {
     if (!el || el.nodeType !== 1) return false;
-    if (String(el.type || '').toLowerCase() === 'password') return true;
+    var type = String(el.type || '').toLowerCase();
+    if (type === 'password' || type === 'hidden') return true;   // (a hidden input carries tokens, ids and CSRF values: never shown to support)
     if (el.closest && el.closest('[data-desk-mask]')) return true;
     var ac = (el.getAttribute && el.getAttribute('autocomplete')) || '';
     if (/^cc-/i.test(ac) || /current-password|new-password|one-time-code/i.test(ac)) return true;
     var bits = [];
     ['name', 'id', 'placeholder', 'aria-label', 'title'].forEach(function (a) { var v = el.getAttribute && el.getAttribute(a); if (v) bits.push(v); });
     if (el.labels && el.labels.length) { for (var i = 0; i < el.labels.length; i++) bits.push(el.labels[i].textContent || ''); }
-    return SENSITIVE.test(bits.join(' '));
+    for (var j = 0; j < bits.length; j++) { if (looksSensitive(bits[j])) return true; }
+    return false;
   }
 
   /** rrweb maskInputFn: the real value unless the field is sensitive. (rrweb only calls it for input types switched on in maskInputOptions.) */
@@ -85,6 +115,57 @@
     return chunks;
   }
 
+  // ── Take-over signing (spec section 14b) ────────────────────────────────────────
+  // A client-action whisper is { t, seq, p, sig }: p = the action as a JSON string, sig = HMAC-SHA256(grant key, seq + "|" + p). The grant key is derived by
+  // CoreX per take-over and given only to the agent and the support person who holds control; the worker replays nothing whose signature does not verify
+  // or whose seq is not above the last one it accepted. Same format as resources/js/desk/sign.js (the console and the CoreX page) - keep them in step.
+  // No WebCrypto (not a secure context) = no take-over: nothing is accepted without it.
+
+  function subtle() {
+    var c = root.crypto || (typeof crypto !== 'undefined' ? crypto : null);
+    return c && c.subtle ? c.subtle : null;
+  }
+
+  function hexToBytes(hex) {
+    if (typeof hex !== 'string' || !hex.length || hex.length % 2 || !/^[0-9a-f]+$/i.test(hex)) return null;
+    var out = new Uint8Array(hex.length / 2);
+    for (var i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+    return out;
+  }
+
+  async function hmacKey(keyHex, usage) {
+    var raw = hexToBytes(keyHex), sc = subtle();
+    if (!raw || raw.length < 16 || !sc) return null;
+    return sc.importKey('raw', raw, { name: 'HMAC', hash: 'SHA-256' }, false, [usage]);
+  }
+
+  /** @returns {Promise<{seq:number, p:string, sig:string}|null>} */
+  async function signAction(keyHex, seq, payload) {
+    var key = await hmacKey(keyHex, 'sign');
+    if (!key) return null;
+    var p = JSON.stringify(payload);
+    var sig = await subtle().sign('HMAC', key, new TextEncoder().encode(seq + '|' + p));
+    return { seq: seq, p: p, sig: Array.prototype.map.call(new Uint8Array(sig), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('') };
+  }
+
+  /** @returns {Promise<{ok:true, seq:number, action:object}|{ok:false, reason:string}>} */
+  async function verifyAction(keyHex, msg, lastSeq) {
+    if (!msg || typeof msg !== 'object') return { ok: false, reason: 'shape' };
+    var seq = msg.seq, p = msg.p, sig = msg.sig;
+    if (!Number.isSafeInteger(seq) || seq <= lastSeq) return { ok: false, reason: 'seq' };
+    if (typeof p !== 'string' || !p.length || p.length > 20000) return { ok: false, reason: 'shape' };
+    var sigBytes = typeof sig === 'string' && sig.length === 64 ? hexToBytes(sig) : null;
+    if (!sigBytes) return { ok: false, reason: 'shape' };
+    var key = await hmacKey(keyHex, 'verify');
+    if (!key) return { ok: false, reason: 'nocrypto' };
+    var good = await subtle().verify('HMAC', key, sigBytes, new TextEncoder().encode(seq + '|' + p));
+    if (!good) return { ok: false, reason: 'sig' };
+    var action;
+    try { action = JSON.parse(p); } catch (e) { return { ok: false, reason: 'shape' }; }
+    if (!action || typeof action !== 'object' || Array.isArray(action)) return { ok: false, reason: 'shape' };
+    return { ok: true, seq: seq, action: action };
+  }
+
   // ── Pusher protocol ─────────────────────────────────────────────────────────────
 
   function channelName(sessionId) { return 'private-desk.session.' + sessionId; }
@@ -104,7 +185,7 @@
   }
 
   var api = {
-    CHUNK: CHUNK, hostOf: hostOf, hostAllowed: hostAllowed, tabKey: tabKey, isSensitiveField: isSensitiveField, maskInputFn: maskInputFn,
+    CHUNK: CHUNK, hostOf: hostOf, hostAllowed: hostAllowed, urlAllowed: urlAllowed, looksSensitive: looksSensitive, tabKey: tabKey, isSensitiveField: isSensitiveField, maskInputFn: maskInputFn, signAction: signAction, verifyAction: verifyAction,
     encodeBatch: encodeBatch, channelName: channelName, parseFrame: parseFrame, socketUrl: socketUrl,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

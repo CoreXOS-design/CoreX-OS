@@ -47,7 +47,7 @@ final class DeskProtocolTest extends DeskTestCase
         $this->assertSame(['desk.joined', 'desk.highlight', 'desk.highlight_cleared', 'desk.pointer_state', 'desk.ended'], $byName->keys()->all());
 
         $expected = [
-            'desk.joined' => ['support_name', 'joined_at'],
+            'desk.joined' => ['support_name', 'supporters', 'joined_at'],
             'desk.highlight' => ['selector', 'note', 'tab'],
             'desk.highlight_cleared' => ['tab'],
             'desk.pointer_state' => ['on', 'tab'],
@@ -74,17 +74,17 @@ final class DeskProtocolTest extends DeskTestCase
         [$session, $code] = $this->desk->start($agent);
         $this->desk->join($support, $code);
         $this->desk->requestControl($session->fresh(), $support, 'main');
-        $this->desk->respondControl($session->fresh(), $agent, true);
+        $this->desk->respondControl($session->fresh(), $agent, true, $this->rid($session->fresh()));
         $this->desk->revokeControl($session->fresh(), $agent);
         $this->desk->requestControl($session->fresh(), $support, 'main');
-        $this->desk->respondControl($session->fresh(), $agent, false);
+        $this->desk->respondControl($session->fresh(), $agent, false, $this->rid($session->fresh()));
         $this->desk->requestControl($session->fresh(), $support, 'main');
-        $this->desk->respondControl($session->fresh(), $agent, true);
+        $this->desk->respondControl($session->fresh(), $agent, true, $this->rid($session->fresh()));
         $this->desk->endControlBySupport($session->fresh(), $support);
 
         $byName = collect($this->sent())->keyBy('name');
         $expected = [
-            'desk.control_requested' => ['tab', 'support_name'],
+            'desk.control_requested' => ['tab', 'support_name', 'request_id'],
             'desk.control_granted' => ['tab', 'idle_seconds'],
             'desk.control_declined' => ['tab', 'reason'],
             'desk.control_revoked' => ['tab'],
@@ -170,7 +170,7 @@ final class DeskProtocolTest extends DeskTestCase
     {
         $agent = (string) file_get_contents(resource_path('js/desk/agent.js'));
 
-        $this->assertStringContainsString("el.type === 'password'", $agent);
+        $this->assertStringContainsString('L.isSensitiveField(el)', $agent);   // (passwords, [data-desk-mask] and the ID / bank / card look-alikes: one rule, desk-lib.js)
         $this->assertStringContainsString("[data-desk-mask]", $agent);
         $this->assertStringContainsString("blockClass: 'rr-block'", $agent);
         $this->assertStringContainsString('maskTextSelector', $agent);
@@ -195,6 +195,10 @@ final class DeskProtocolTest extends DeskTestCase
                 $this->assertMatchesRegularExpression('/name="' . $name . '" data-desk-mask/', $html, "{$file}: {$name}");
             }
         }
-        $this->assertStringContainsString("str_contains(\$name, 'bank_account')) data-desk-mask", (string) file_get_contents(resource_path('views/components/rental-application-field.blade.php')));
+        $component = (string) file_get_contents(resource_path('views/components/rental-application-field.blade.php'));
+        $this->assertStringContainsString("preg_match('/bank|branch_code|account_n|id_number|passport|tax|spouse_id|iban|swift/i', (string) \$name)) data-desk-mask", $component);
+        foreach (['bank_account_number', 'bank_branch_code', 'id_number', 'spouse_id'] as $field) {
+            $this->assertSame(1, preg_match('/bank|branch_code|account_n|id_number|passport|tax|spouse_id|iban|swift/i', $field), "{$field} is masked by the component");
+        }
     }
 }

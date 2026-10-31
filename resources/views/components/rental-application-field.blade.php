@@ -42,7 +42,7 @@
     // (co_applicant.spouse_name); a plain name is unchanged.
     $dotName = str_replace(['[', ']'], ['.', ''], $name);
 @endphp
-<div @if($order !== null) style="order: {{ (int) $order }}" @endif @if(str_contains($name, 'bank_account')) data-desk-mask @endif>
+<div @if($order !== null) style="order: {{ (int) $order }}" @endif @if(preg_match('/bank|branch_code|account_n|id_number|passport|tax|spouse_id|iban|swift/i', (string) $name)) data-desk-mask @endif>
     <label class="block text-xs text-slate-500 mb-1">{{ $label }}@if($requiredExpr)<span x-show="{{ $requiredExpr }}" x-cloak> *</span>@elseif($required) *@endif</label>
     <input type="{{ $type }}" name="{{ $name }}" value="{{ old($dotName, $value) }}"
            @if($inputmode) inputmode="{{ $inputmode }}" @endif

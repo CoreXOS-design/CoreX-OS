@@ -5,17 +5,18 @@
 <div class="w-full h-full flex flex-col">
 
     {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
+    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0" data-tour="smk-vp-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Viewing Packs</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Buyer-facing property packs assembled for viewings.</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @if($showArchived)
                     <a href="{{ route('corex.viewing-packs.index') }}" class="corex-btn-outline text-xs">Active packs</a>
                 @else
-                    <a href="{{ route('corex.viewing-packs.index', ['archived' => 1]) }}" class="corex-btn-outline text-xs">View archived</a>
+                    <a href="{{ route('corex.viewing-packs.index', ['archived' => 1]) }}" class="corex-btn-outline text-xs" data-tour="smk-vp-archived">View archived</a>
                 @endif
             </div>
         </div>
@@ -29,14 +30,14 @@
          AND with the archived toggle (carried as a hidden field). --}}
     @php $filtersActive = ($filters['q'] ?? '') !== '' || ($filters['agent_id'] ?? '') !== '' || ($filters['status'] ?? '') !== ''; @endphp
     <form method="GET" action="{{ route('corex.viewing-packs.index') }}"
-          class="rounded-md px-4 py-3 mt-3 flex-shrink-0 flex flex-wrap items-center gap-3"
+          class="rounded-md px-4 py-3 mt-3 flex-shrink-0 flex flex-wrap items-center gap-3" data-tour="smk-vp-filters"
           style="background: var(--surface); border: 1px solid var(--border);">
         @if($showArchived)
             <input type="hidden" name="archived" value="1">
         @endif
 
         {{-- Pack title / buyer name --}}
-        <div class="relative flex-1 min-w-[180px] max-w-xs">
+        <div class="relative flex-1 min-w-[180px] max-w-xs" data-tour="smk-vp-search">
             <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color:var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
             </svg>
@@ -48,7 +49,7 @@
 
         {{-- Agent — only above 'own' scope (an own-scope agent's list is already theirs) --}}
         @if($agents->isNotEmpty())
-        <select name="agent_id" onchange="this.form.submit()" class="list-header-filter {{ ($filters['agent_id'] ?? '') !== '' ? 'is-active' : '' }}">
+        <select name="agent_id" data-tour="smk-vp-agent" onchange="this.form.submit()" class="list-header-filter {{ ($filters['agent_id'] ?? '') !== '' ? 'is-active' : '' }}">
             <option value="">All agents</option>
             @foreach($agents as $a)
                 <option value="{{ $a->id }}" {{ (string) ($filters['agent_id'] ?? '') === (string) $a->id ? 'selected' : '' }}>{{ $a->name }}</option>
@@ -57,7 +58,7 @@
         @endif
 
         {{-- Status --}}
-        <select name="status" onchange="this.form.submit()" class="list-header-filter {{ ($filters['status'] ?? '') !== '' ? 'is-active' : '' }}">
+        <select name="status" data-tour="smk-vp-status" onchange="this.form.submit()" class="list-header-filter {{ ($filters['status'] ?? '') !== '' ? 'is-active' : '' }}">
             <option value="" {{ ($filters['status'] ?? '') === '' ? 'selected' : '' }}>All statuses</option>
             @foreach(\App\Models\ViewingPack::STATUSES as $s)
                 <option value="{{ $s }}" {{ ($filters['status'] ?? '') === $s ? 'selected' : '' }}>{{ ucfirst($s) }}</option>
@@ -82,7 +83,7 @@
         </div>
     @endif
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="smk-vp-table">
         @if($packs->isEmpty())
             <div class="py-12 px-6 text-center">
                 <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
@@ -120,11 +121,11 @@
                     <tbody>
                         @foreach($packs as $pack)
                             <tr style="border-top: 1px solid var(--border);">
-                                <td class="px-4 py-3" style="color: var(--text-primary);">{{ $pack->title ?: ('Pack #' . $pack->id) }}</td>
+                                <td class="px-4 py-3" style="color: var(--text-primary);" data-tour="smk-vp-row">{{ $pack->title ?: ('Pack #' . $pack->id) }}</td>
                                 <td class="px-4 py-3" style="color: var(--text-secondary);">{{ optional($pack->contact)->full_name ?? '—' }}</td>
                                 <td class="px-4 py-3" style="color: var(--text-secondary);">{{ optional($pack->agent)->name ?? '—' }}</td>
                                 <td class="px-4 py-3 text-center" style="color: var(--text-secondary);">{{ number_format($pack->viewing_pack_properties_count) }}</td>
-                                <td class="px-4 py-3">
+                                <td class="px-4 py-3" data-tour="smk-vp-badge">
                                     @php
                                         $statusVariant = match($pack->status) {
                                             \App\Models\ViewingPack::STATUS_READY => 'ds-badge-success',
@@ -141,13 +142,13 @@
                                             <button type="submit" class="text-xs font-semibold" style="color: var(--brand-icon);">Recover</button>
                                         </form>
                                     @else
-                                        <a href="{{ route('corex.viewing-packs.show', $pack) }}" class="text-xs font-semibold no-underline" style="color: var(--brand-icon);">Open</a>
+                                        <a href="{{ route('corex.viewing-packs.show', $pack) }}" class="text-xs font-semibold no-underline" style="color: var(--brand-icon);" data-tour="smk-vp-open">Open</a>
                                         <span style="color: var(--border);">·</span>
                                         <form method="POST" action="{{ route('corex.viewing-packs.destroy', $pack) }}" class="inline"
                                               onsubmit="return confirm('Archive this viewing pack? You can recover it later.');">
                                             @csrf
                                             @method('DELETE')
-                                            <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson);">Archive</button>
+                                            <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson);" data-tour="smk-vp-archive">Archive</button>
                                         </form>
                                     @endif
                                 </td>

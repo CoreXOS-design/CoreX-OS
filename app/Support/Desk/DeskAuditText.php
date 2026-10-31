@@ -5,7 +5,7 @@ namespace App\Support\Desk;
 use App\Models\DeskSessionEvent;
 
 /**
- * CoreX Desk - the audit trail in plain words (Compliance > Reports & Logs > Desk sessions, spec .ai/specs/corex-desk.md sections 5, 13, 14).
+ * CoreX Desk - the audit trail in plain words (Admin > Desk > Desk sessions, spec .ai/specs/corex-desk.md sections 5, 13, 14).
  * One place, so the page and the tests read the same sentences. Nothing here ever shows a typed value: the trail never holds one.
  */
 final class DeskAuditText
@@ -20,7 +20,7 @@ final class DeskAuditText
     ];
 
     private const ENDED = ['agent' => 'the agent', 'support' => 'support', 'logout' => 'the agent signing out', 'timeout' => 'the connection being lost',
-        'expired' => 'nobody joining in time', 'disabled' => 'Desk being switched off', 'replaced' => 'a new session being started'];
+        'expired' => 'nobody joining in time', 'disabled' => 'Desk being switched off', 'replaced' => 'a new session being started', 'inactive' => 'the session being inactive'];
 
     private const CONTROL_END = ['support' => 'support handed control back', 'idle' => 'nothing was done for the agency\'s idle limit', 'session' => 'the session ended',
         'tab' => 'the shared tab was closed', 'agent' => 'the agent took it back', 'no_answer' => 'the agent did not answer in time', 'declined' => 'the agent declined'];
@@ -123,7 +123,9 @@ final class DeskAuditText
                 $times = $n > 1 ? ($p['action'] === 'type' || $p['action'] === 'key' ? " ({$n} keystrokes)" : " ({$n} times)") : '';
                 $result = ($p['ok'] ?? true) ? '' : ' - ' . (self::BLOCKED[$p['reason'] ?? ''] ?? 'not done');
 
-                return "{$verb} {$what} on " . self::where($p) . $times . $result;
+                $late = ! empty($p['late']) ? ' (reported just after control ended)' : '';
+
+                return "{$verb} {$what} on " . self::where($p) . $times . $result . $late;
         }
 
         return '';

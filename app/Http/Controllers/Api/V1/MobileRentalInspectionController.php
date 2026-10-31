@@ -100,6 +100,7 @@ class MobileRentalInspectionController extends Controller
             'direction' => ['nullable', Rule::in(['asc', 'desc'])],
             'scope' => ['nullable', Rule::in(['own', 'branch', 'all'])],
             'lease_id' => ['nullable', 'integer'],
+            'archived' => ['nullable', 'boolean'],
             'page' => ['nullable', 'integer', 'min:1'],
         ]);
 
@@ -107,6 +108,11 @@ class MobileRentalInspectionController extends Controller
         $query = $base()
             ->with(['property', 'lease.tenants.contact', 'inspector'])
             ->withExists(['discrepancies as has_unresolved_discrepancy' => fn ($d) => $d->whereNull('resolved_at')]);
+
+        // the archived ones, so Restore can be reached (the web's "Show archived")
+        if ($request->boolean('archived')) {
+            $query->onlyTrashed();
+        }
 
         $search = trim((string) ($v['q'] ?? $v['search'] ?? ''));
         if ($search !== '') {

@@ -6,7 +6,7 @@
     );
 @endphp
 @if($soAny)
-<div class="jc-card space-y-3" id="jc-signoff">
+<div class="jc-card space-y-3" id="jc-signoff" data-tour="rmnt-jcd-signoff">
     <h2>Sign-off &amp; completion</h2>
     @permission('rental_job_cards.sign_off')
     @if(! $jobCard->worker_signed_off_at && $stage['can']['worker_sign_off'])

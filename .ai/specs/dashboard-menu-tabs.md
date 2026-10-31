@@ -16,7 +16,7 @@ gains or loses access. Navigation only.
 | # | Menu item | Tabs (in order) — each is today's page on today's route | Replaces old items |
 |---|---|---|---|
 | 1 | **Today** | *(unchanged, no tabs — it is the home screen)* | Today |
-| 2 | **Alerts** | *(unchanged)* | Alerts |
+| 2 | **Notifications** | *(unchanged; renamed from "Alerts" — AT-509, Andre 27 Oct 2026)* | Alerts |
 | 3 | **Calendar** | Calendar · Invitations | Calendar, Invitations |
 | 4 | **Tasks** | *(unchanged)* | Tasks |
 | 5 | **Performance** | Performance · My Performance · Branch Report · Agency Report · Oversight · Lost Deals | the six report items |

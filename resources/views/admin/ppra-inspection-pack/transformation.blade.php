@@ -4,7 +4,7 @@
 @section('corex-content')
 <div class="w-full space-y-5" x-data="ppraTransformationForm(@json($current?->entry_type === 'structured' ? ($current->structured_data ?? []) : []))">
 
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cop-ptr-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Transformation Initiatives</h1>
@@ -12,7 +12,10 @@
                     Item (i) — write the agency's B-BBEE / transformation initiatives in CoreX, or upload your own statement.
                 </p>
             </div>
-            <a href="{{ route('admin.ppra-inspection-pack.index') }}" class="corex-btn-outline text-xs">Back to checklist</a>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('admin.ppra-inspection-pack.index') }}" class="corex-btn-outline text-xs">Back to checklist</a>
+            </div>
         </div>
     </div>
 
@@ -23,7 +26,7 @@
     @endif
 
     @if($current)
-        <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
+        <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);" data-tour="cop-ptr-current">
             <div class="text-xs font-semibold mb-1" style="color:var(--text-muted);">Current version</div>
             <div class="text-sm" style="color:var(--text-primary);">{{ $current->summary }}</div>
             <div class="text-xs mt-1" style="color:var(--text-muted);">
@@ -36,10 +39,10 @@
     @endif
 
     {{-- Structured form --}}
-    <div class="rounded-md p-4 space-y-3" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md p-4 space-y-3" style="background:var(--surface); border:1px solid var(--border);" data-tour="cop-ptr-write">
         <div class="flex items-center justify-between">
             <h2 class="text-sm font-bold" style="color:var(--text-primary);">Write it in CoreX</h2>
-            <button type="button" @click="askEllie()" :disabled="drafting" class="corex-btn-outline text-xs">
+            <button type="button" @click="askEllie()" :disabled="drafting" class="corex-btn-outline text-xs" data-tour="cop-ptr-ellie">
                 <span x-show="!drafting">Ask Ellie to help me draft</span>
                 <span x-show="drafting">Drafting…</span>
             </button>
@@ -49,7 +52,7 @@
         <form method="POST" action="{{ route('admin.ppra-inspection-pack.transformation.store-structured') }}" class="space-y-3">
             @csrf
             <template x-for="(row, idx) in initiatives" :key="idx">
-                <div class="rounded-md p-3 space-y-2" style="background:var(--surface-2); border:1px solid var(--border);">
+                <div class="rounded-md p-3 space-y-2" style="background:var(--surface-2); border:1px solid var(--border);" data-tour="cop-ptr-initiative">
                     <div class="flex items-start justify-between gap-2">
                         <textarea :name="'initiatives['+idx+'][description]'" x-model="row.description" required
                                   placeholder="Describe the initiative (what, and why it counts as transformation)"
@@ -77,18 +80,18 @@
                 </div>
             </template>
 
-            <button type="button" @click="initiatives.push({description:'', start_date:'', end_date:'', people_involved:'', spend_amount:''})" class="corex-btn-outline text-xs">
+            <button type="button" @click="initiatives.push({description:'', start_date:'', end_date:'', people_involved:'', spend_amount:''})" class="corex-btn-outline text-xs" data-tour="cop-ptr-add">
                 + Add initiative
             </button>
 
             <div>
-                <button type="submit" class="corex-btn-primary text-xs" :disabled="initiatives.length === 0">Save statement</button>
+                <button type="submit" class="corex-btn-primary text-xs" :disabled="initiatives.length === 0" data-tour="cop-ptr-save">Save statement</button>
             </div>
         </form>
     </div>
 
     {{-- Document upload alternative --}}
-    <div class="rounded-md p-4 space-y-3" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md p-4 space-y-3" style="background:var(--surface); border:1px solid var(--border);" data-tour="cop-ptr-upload">
         <h2 class="text-sm font-bold" style="color:var(--text-primary);">Or upload your own statement</h2>
         <form method="POST" action="{{ route('admin.ppra-inspection-pack.transformation.store-document') }}" enctype="multipart/form-data" class="flex flex-wrap items-end gap-3">
             @csrf
@@ -105,7 +108,7 @@
     </div>
 
     {{-- Version history — full CRUD-list floor --}}
-    <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);" data-tour="cop-ptr-history">
         <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">Version History</h2>
 
         <form method="GET" class="props-filter-panel flex flex-wrap items-end gap-3 mb-3">

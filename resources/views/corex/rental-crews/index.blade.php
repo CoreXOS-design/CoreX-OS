@@ -25,13 +25,14 @@
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="rmnt-crews-intro">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Crews</h1>
                 <p class="text-xs" style="color: var(--text-muted);">The maintenance teams your job cards assign work to.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @permission('rental_catalogue.manage')
-                <a href="{{ route('corex.rental-crews.create') }}" class="corex-btn-primary text-xs">+ Add Crew</a>
+                <a href="{{ route('corex.rental-crews.create') }}" class="corex-btn-primary text-xs" data-tour="rmnt-crews-add">+ Add Crew</a>
                 @endpermission
             </div>
         </div>
@@ -49,20 +50,20 @@
         </div>
     @endif
 
-    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);" data-tour="rmnt-crews-filters">
     <form method="GET" action="{{ route('corex.rental-crews.index') }}" class="flex flex-wrap items-end gap-3">
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-crews-search">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
             <input type="text" name="q" value="{{ request('q') }}" placeholder="Name, email or number" class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}">
         </div>
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-crews-status">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
             <select name="status" class="list-header-filter text-sm {{ $status !== 'active' ? 'is-active' : '' }}">
                 <option value="active" @selected($status === 'active')>Active</option>
                 <option value="archived" @selected($status === 'archived')>Archived</option>
             </select>
         </div>
-        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;" data-tour="rmnt-crews-filter-btn">Filter</button>
         <div class="flex-1"></div>
         <span class="ds-badge ds-badge-pill ds-badge-info">
             {{ number_format($crews->total()) }} {{ \Illuminate\Support\Str::plural('crew', $crews->total()) }}
@@ -70,14 +71,14 @@
     </form>
     </div>
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-crews-table">
         <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
                 <tr style="background: var(--surface-2); color: var(--text-muted); border-bottom: 1px solid var(--border);">
                     <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ route('corex.rental-crews.index', array_merge(request()->except('page'), ['sort' => 'name', 'direction' => $sort === 'name' && $direction === 'asc' ? 'desc' : 'asc'])) }}">Name</a></th>
                     <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Contact</th>
-                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Members</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap" data-tour="rmnt-crews-members-col">Members</th>
                     @permission('rental_job_cards.share')<th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Crew link</th>@endpermission
                     <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Notes</th>
                     <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Actions</th>
@@ -114,11 +115,11 @@
                                         <button type="submit" class="corex-btn-outline text-xs">Restore</button>
                                     </form>
                                 @else
-                                    <a href="{{ route('corex.rental-crews.edit', $crew) }}" class="corex-btn-outline text-xs">Edit</a>
+                                    <a href="{{ route('corex.rental-crews.edit', $crew) }}" class="corex-btn-outline text-xs" @if($loop->first) data-tour="rmnt-crews-edit" @endif>Edit</a>
                                     <form method="POST" action="{{ route('corex.rental-crews.archive', $crew) }}" class="inline" data-confirm="Archive this crew? It stays visible on job cards it is already assigned to, but can no longer be newly picked." data-confirm-danger data-confirm-label="Archive">
                                         @csrf
                                         @method('DELETE')
-                                        <button type="submit" class="corex-btn-danger text-xs">Archive</button>
+                                        <button type="submit" class="corex-btn-danger text-xs" @if($loop->first) data-tour="rmnt-crews-archive" @endif>Archive</button>
                                     </form>
                                 @endif
                             @endpermission

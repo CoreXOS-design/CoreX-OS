@@ -78,7 +78,36 @@ window.reminderToast = function () {
         intervalMs: {{ (int) ($reminderPollSeconds ?? 60) }} * 1000,
         timer: null,
 
+        // AT-509 (Andre, 27 Oct 2026): a reminder popup closes itself 5 seconds after it is first shown. It is NOT marked read.
+        // The server keeps sending a due reminder until it is read, so this tab remembers when each one was first shown
+        // (sessionStorage, per user) - the 5 seconds run on across a page change and a closed one does not pop up again.
+        autoCloseMs: 5000,
+        shownKey: 'corex_reminders_shown_{{ (int) auth()->id() }}',
+        shown: {},
+        closeTimers: {},
+
+        loadShown() {
+            try { this.shown = JSON.parse(window.sessionStorage.getItem(this.shownKey) || '{}') || {}; } catch (e) { this.shown = {}; }
+        },
+
+        saveShown() {
+            try { window.sessionStorage.setItem(this.shownKey, JSON.stringify(this.shown)); } catch (e) { /* storage blocked - this page still closes them */ }
+        },
+
+        isClosed(r) { return this.shown[r.id] && (Date.now() - this.shown[r.id]) >= this.autoCloseMs; },
+
+        armAutoClose(r) {
+            if (this.closeTimers[r.id]) return;
+            if (!this.shown[r.id]) { this.shown[r.id] = Date.now(); this.saveShown(); }
+            const left = Math.max(0, this.autoCloseMs - (Date.now() - this.shown[r.id]));
+            this.closeTimers[r.id] = setTimeout(() => {
+                delete this.closeTimers[r.id];
+                this.toasts = this.toasts.filter(t => t.id !== r.id);
+            }, left);
+        },
+
         start() {
+            this.loadShown();
             this.poll();
             this.timer = setInterval(() => { if (!document.hidden) this.poll(); }, this.intervalMs);
             window.addEventListener('focus', () => this.poll());
@@ -94,7 +123,8 @@ window.reminderToast = function () {
                 const list = (data && data.reminders) ? data.reminders : [];
                 // Server is the source of truth (handles read + snooze re-surface):
                 // replace the visible set with the currently-due list.
-                this.toasts = list;
+                this.toasts = list.filter(r => !this.isClosed(r));
+                this.toasts.forEach(r => this.armAutoClose(r));
                 // Chime once per newly-seen reminder id.
                 let isNew = false;
                 for (const r of list) {
@@ -124,7 +154,13 @@ window.reminderToast = function () {
             } catch (e) { /* swallow — next poll reconciles */ }
         },
 
-        remove(r) { this.toasts = this.toasts.filter(t => t.id !== r.id); },
+        // Dismissed, read or snoozed by hand: forget when it was shown, so a snoozed reminder gets its full 5 seconds when it is due again.
+        remove(r) {
+            if (this.closeTimers[r.id]) { clearTimeout(this.closeTimers[r.id]); delete this.closeTimers[r.id]; }
+            delete this.shown[r.id];
+            this.saveShown();
+            this.toasts = this.toasts.filter(t => t.id !== r.id);
+        },
 
         dismiss(r)  { this.remove(r); this.postAction(r.id, 'read'); },
         markRead(r) { this.remove(r); this.postAction(r.id, 'read'); },  // link still navigates

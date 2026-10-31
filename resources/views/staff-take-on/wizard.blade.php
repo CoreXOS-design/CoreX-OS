@@ -3,7 +3,7 @@
 @section('corex-content')
 <div class="w-full">
     {{-- Page header (Pattern A) --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cop-stkw-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Take-On: {{ $takeOn->user->name }}</h1>
@@ -11,7 +11,7 @@
             <div class="flex flex-wrap items-center gap-2">
                 @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @if(!$takeOn->isComplete())
-                    <a href="{{ route('staff-take-on.index') }}" class="corex-btn-outline text-xs">Save &amp; Exit</a>
+                    <a href="{{ route('staff-take-on.index') }}" class="corex-btn-outline text-xs" data-tour="cop-stkw-exit">Save &amp; Exit</a>
                 @endif
                 <a href="{{ route('staff-take-on.index') }}" class="corex-btn-outline text-xs inline-flex items-center gap-1.5">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
@@ -30,7 +30,7 @@
         @endif
 
         {{-- Progress strip --}}
-        <div class="flex flex-wrap gap-1 mb-6">
+        <div class="flex flex-wrap gap-1 mb-6" data-tour="cop-stkw-strip">
             @php
                 $stepLabels = ['User', 'Personal', 'Tax/Banking', 'Employment', 'Compensation', 'Leave', 'Compliance', 'Review'];
                 $verifiedFlags = [

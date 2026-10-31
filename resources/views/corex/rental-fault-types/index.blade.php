@@ -24,13 +24,14 @@
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="rmnt-ft-intro">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Fault Types</h1>
                 <p class="text-xs" style="color: var(--text-muted);">The kinds of fault your agency can report, with how urgent each is and the first-aid steps shown to the reporter.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @permission('rental_fault_types.create')
-                <a href="{{ route('corex.rental-fault-types.create') }}" class="corex-btn-primary text-xs">+ Add Fault Type</a>
+                <a href="{{ route('corex.rental-fault-types.create') }}" class="corex-btn-primary text-xs" data-tour="rmnt-ft-add">+ Add Fault Type</a>
                 @endpermission
             </div>
         </div>
@@ -43,13 +44,13 @@
         <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">{{ session('success') }}</div>
     @endif
 
-    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);" data-tour="rmnt-ft-filters">
     <form method="GET" action="{{ route('corex.rental-fault-types.index') }}" class="flex flex-wrap items-end gap-3">
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-ft-search">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
             <input type="text" name="q" value="{{ request('q') }}" placeholder="Name or category" class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}">
         </div>
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-ft-category">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Category</label>
             <select name="category" class="list-header-filter text-sm {{ filled(request('category')) ? 'is-active' : '' }}">
                 <option value="">All categories</option>
@@ -58,7 +59,7 @@
                 @endforeach
             </select>
         </div>
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-ft-urgency">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Urgency</label>
             <select name="urgency" class="list-header-filter text-sm {{ filled(request('urgency')) ? 'is-active' : '' }}">
                 <option value="">All urgencies</option>
@@ -67,14 +68,14 @@
                 @endforeach
             </select>
         </div>
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-ft-status">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
             <select name="status" class="list-header-filter text-sm {{ $status !== 'active' ? 'is-active' : '' }}">
                 <option value="active" @selected($status === 'active')>Active</option>
                 <option value="archived" @selected($status === 'archived')>Archived</option>
             </select>
         </div>
-        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;" data-tour="rmnt-ft-filter-btn">Filter</button>
         <div class="flex-1"></div>
         <span class="ds-badge ds-badge-pill ds-badge-info">
             {{ number_format($faultTypes->total()) }} {{ \Illuminate\Support\Str::plural('fault type', $faultTypes->total()) }}
@@ -82,7 +83,7 @@
     </form>
     </div>
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-ft-table">
         <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
@@ -119,7 +120,7 @@
                                         <button type="submit" class="corex-btn-outline text-xs">Restore</button>
                                     </form>
                                 @else
-                                    <a href="{{ route('corex.rental-fault-types.edit', $ft) }}" class="corex-btn-outline text-xs">Edit</a>
+                                    <a href="{{ route('corex.rental-fault-types.edit', $ft) }}" class="corex-btn-outline text-xs" @if($loop->first) data-tour="rmnt-ft-edit" @endif>Edit</a>
                                     <form method="POST" action="{{ route('corex.rental-fault-types.archive', $ft) }}" class="inline" data-confirm="Archive this fault type?" data-confirm-danger data-confirm-label="Archive">
                                         @csrf
                                         <button type="submit" class="corex-btn-danger text-xs">Archive</button>

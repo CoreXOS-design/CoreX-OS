@@ -96,7 +96,7 @@ final class DeskSupporterIdentityTest extends DeskTestCase
 
         $this->actingAs($second)->postJson("/corex/desk/sessions/{$s->id}/attach")->assertOk();
         $this->desk->requestControl($s->fresh(), $first, 'main');
-        $this->desk->respondControl($s->fresh(), $agent, true);
+        $this->desk->respondControl($s->fresh(), $agent, true, $this->rid($s->fresh()));
         $this->desk->endControlBySupport($s->fresh(), $first);
         $this->desk->requestControl($s->fresh(), $second, 'main');
         Event::assertDispatched(DeskBroadcast::class, fn ($e) => $e->name === 'desk.control_requested' && $e->payload['support_name'] === 'Elize Reichel — Home Finders Coastal, Principal');

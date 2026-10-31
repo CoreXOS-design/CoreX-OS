@@ -41,7 +41,7 @@
          top, same as Contacts etc.). The functional sticky toolbar (period selector,
          reset/print, deal-status toggles) is a SEPARATE block below — see "fix #2"
          comment there — so it keeps its own scroll-pinned behaviour untouched. --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rpt-perf-intro">
         <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Agency Performance &amp; ROI</h1>
         <p class="text-xs" style="color:var(--text-muted);">
             {{ $report['period']['label'] }} · {{ ucfirst($report['scope']['level']) }} view
@@ -53,12 +53,13 @@
     <div x-ref="topBlock" class="sticky top-0 z-30 -mx-4 lg:-mx-6 px-4 lg:px-6 py-3 space-y-3"
          style="background:var(--bg,#f4f6fb); border-bottom:1px solid var(--border);">
         <div class="flex items-end justify-end flex-wrap gap-2 print:hidden">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             {{-- #3 Reset view — back to default period (this month) + clear sort/filter/toggles --}}
-            <button type="button" @click="resetView()"
+            <button type="button" @click="resetView()" data-tour="rpt-perf-reset"
                     class="text-[11px] px-3 py-1 rounded"
                     style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                     title="Reset period, sort, filters and toggles to default">Reset view</button>
-            <a href="{{ route('performance.agency-report.print', ['period' => $preset]) }}" target="_blank"
+            <a href="{{ route('performance.agency-report.print', ['period' => $preset]) }}" target="_blank" data-tour="rpt-perf-print"
                class="text-[11px] px-3 py-1 rounded no-underline"
                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                title="Print the whole-company report">Print report</a>
@@ -143,7 +144,7 @@
             return $sign . 'R' . number_format($v);
         };
     @endphp
-    <div class="rounded p-4 lg:p-5" style="background:var(--surface-2); border:1px solid var(--border);">
+    <div class="rounded p-4 lg:p-5" style="background:var(--surface-2); border:1px solid var(--border);" data-tour="rpt-perf-hero">
         <p class="text-lg lg:text-xl font-semibold" style="color:var(--text-primary);">
             {{ $report['period']['label'] }}, the agency earned
             <span style="color:var(--brand-icon, #0ea5e9);">{{ $compactRand($heroValue) }}</span>
@@ -166,7 +167,7 @@
     {{-- Company totals — each card drills into its detail (contract §B) --}}
     <div>
         <h2 class="text-xs font-bold uppercase tracking-widest mb-2" style="color:var(--text-muted);">Company</h2>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3" data-tour="rpt-perf-company">
             @foreach($report['metrics'] as $m)
                 @php $c = $comparison['company'][$m['key']] ?? null; @endphp
                 <button type="button" @click="drill('{{ $m['key'] }}', 'company', null, @js($m['label']))"
@@ -218,7 +219,7 @@
              at ~30 real agents a bar chart adds noise, not clarity; the table
              (with the same arrow+colour+delta treatment) stays the agent view.
              This is a scoping call, flagged here rather than made silently. --}}
-        <div class="corex-chart-container mb-3" style="height:220px; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:0.75rem;">
+        <div class="corex-chart-container mb-3" data-tour="rpt-perf-branch" style="height:220px; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:0.75rem;">
             <canvas x-ref="branchChart" role="img" aria-label="Commission by branch, current vs comparison period"></canvas>
         </div>
         @if($comparisonMeta)
@@ -276,7 +277,7 @@
         <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
             <h2 class="text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted);">By agent</h2>
             <div class="flex items-center gap-2 flex-wrap print:hidden" role="group" aria-label="Agent filters">
-                <input type="search" x-model="search" placeholder="Filter agent…" aria-label="Filter by agent name"
+                <input type="search" x-model="search" data-tour="rpt-perf-agent-search" placeholder="Filter agent…" aria-label="Filter by agent name"
                        class="text-[11px] px-2 py-1 rounded" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                 <select x-model="branchFilter" aria-label="Filter by branch"
                         class="text-[11px] px-2 py-1 rounded" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
@@ -334,7 +335,7 @@
                 .report-metric-table thead { display: table-header-group; } /* repeat header per printed page where supported */
             }
         </style>
-        <div class="report-agent-scroll rounded max-w-full"
+        <div class="report-agent-scroll rounded max-w-full" data-tour="rpt-perf-agents"
              style="border:1px solid var(--border); background:var(--bg,#f4f6fb);
                     position:sticky; top:var(--report-top-h, 0px); z-index:20;
                     max-height:calc(100vh - var(--report-top-h, 0px) - 1.5rem); overflow:auto;">

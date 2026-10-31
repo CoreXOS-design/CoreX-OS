@@ -431,13 +431,14 @@ function _paginateWrapper(wrapper, docIdx, parties) {
     children = children.filter(function (el) {
         var cl = el.classList;
         if (!cl) return true;
-        if (cl.contains('corex-page-header')) { frame.header = el; return false; }
-        if (cl.contains('corex-page-footer')) { frame.footer = el; return false; }
+        // corex-page-first marks the variant the source uses on page ONE only (different first page); the plain one is every other page.
+        if (cl.contains('corex-page-header')) { if (cl.contains('corex-page-first')) { frame.headerFirst = el; } else { frame.header = el; } return false; }
+        if (cl.contains('corex-page-footer')) { if (cl.contains('corex-page-first')) { frame.footerFirst = el; } else { frame.footer = el; } return false; }
         if (cl.contains('corex-page-header-cover')) return false;   // the print-time cover is not needed: the header is per page
         return true;
     });
     wrapper._srcFrame = frame;
-    var hasFooter = !!frame.footer;
+    var hasFooter = !!(frame.footer || frame.footerFirst);
     // The document's own footer carries the page number, so CoreX's "Page X of Y" is not added. CoreX's per-page INITIALS strip
     // STAYS: paginateDocument() removes every in-document [data-marker-type="initial"] before packing (initials are the strip's
     // page-break slots), and an imported document's own initial places are plain lines (initials-line), so without the strip
@@ -551,12 +552,13 @@ function _paginateWrapper(wrapper, docIdx, parties) {
         pageDiv.setAttribute('data-doc-total', String(total));
         pageChildren.forEach(function (c) { pageDiv.appendChild(c); });
 
-        if (frame.header && !(p === 0 && frame.header.hasAttribute('data-first-different'))) {
-            pageDiv.insertBefore(_frameClone(frame.header, p + 1), pageDiv.firstChild);
+        var pageHeader = (p === 0 && frame.headerFirst) ? frame.headerFirst : frame.header;
+        if (pageHeader && !(p === 0 && !frame.headerFirst && pageHeader.hasAttribute('data-first-different'))) {
+            pageDiv.insertBefore(_frameClone(pageHeader, p + 1), pageDiv.firstChild);
         }
         if (hasFooter) {
             // The document has a footer of its own (with its own page number text): CoreX's "Page X of Y" is not added.
-            pageDiv.appendChild(_frameClone(frame.footer, p + 1));
+            pageDiv.appendChild(_frameClone((p === 0 && frame.footerFirst) ? frame.footerFirst : frame.footer, p + 1));
         } else {
             var pn = doc.createElement('div');
             pn.className = 'page-number';
@@ -589,8 +591,10 @@ function _paginateWrapper(wrapper, docIdx, parties) {
  */
 function _splitSourceTable(el, doc) {
     if (!el || el.nodeType !== 1 || el.tagName !== 'TABLE' || !el.hasAttribute('data-src-borders')) return [el];
-    var spacer = el.querySelector('tr.corex-grid-widths');
-    var rows = Array.from(el.querySelectorAll('tr')).filter(function (tr) { return tr !== spacer; });
+    // This table's OWN rows only (direct children / row groups): a table nested in a cell must not have its rows pulled out.
+    var ownRows = ':scope > tbody > tr, :scope > thead > tr, :scope > tfoot > tr, :scope > tr';
+    var spacer = el.querySelector(':scope > tbody > tr.corex-grid-widths, :scope > thead > tr.corex-grid-widths, :scope > tr.corex-grid-widths');
+    var rows = Array.from(el.querySelectorAll(ownRows)).filter(function (tr) { return tr !== spacer; });
     if (rows.length < 2) return [el];
 
     var groups = [], cur = [], carry = 0;
@@ -621,6 +625,7 @@ function _splitSourceTable(el, doc) {
 function _frameClone(el, pageNo) {
     var c = el.cloneNode(true);
     c.removeAttribute('data-first-different');
+    c.classList.remove('corex-page-first');
     c.querySelectorAll('.corex-page-number').forEach(function (n) { n.textContent = String(pageNo); n.classList.add('is-set'); });
     return c;
 }

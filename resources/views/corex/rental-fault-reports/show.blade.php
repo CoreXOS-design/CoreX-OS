@@ -29,25 +29,19 @@
     $isOpen = ! in_array($faultReport->status, ['resolved', 'cancelled'], true);
 @endphp
 
-@section('content')
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
 @include('corex.rentals._stage-screen-style')
 {{-- AT-439 Part 3 — full-width (was max-w-3xl), matching the Lease Hub/Work
      Order show precedent: every line of space is data the agent needs or a
      control they act on. Two-column below the header: record + actions
      left, photos/history right. --}}
-<div class="p-6 max-w-7xl mx-auto space-y-4 cx-equal-btns">
-    {{-- (the success message is the layout's toast - J8: it is not repeated here as a second banner) --}}
-    {{-- §17.3.2 / §17.10.6 — a refused "Create work order" or a refused "repaired" outcome says WHY, in plain words. --}}
-    @if($errors->any())
-        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
-            @foreach ($errors->all() as $error)<div>{{ $error }}</div>@endforeach
-        </div>
-    @endif
-
-    {{-- AT-464 / section 28 - after an action the page lands on the Returned | Next bar (data-land-on-next), just under the tabs. --}}
+<div class="rx-page w-full space-y-4 cx-equal-btns">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
     <div class="flex items-center justify-between">
-        <div>
-            <h1 class="text-lg font-semibold">{{ $faultReport->title }}</h1>
+        <div data-tour="rmnt-frd-title">
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $faultReport->title }}</h1>
             <span class="ds-badge {{ $statusBadgeClass }}">{{ $faultReport->statusLabel() }}</span>
             @if($faultReport->typeName())
                 <span class="ds-badge ds-badge-muted" @if($faultReport->isOtherType()) data-type-other @endif>{{ $faultReport->typeName() }}</span>
@@ -79,7 +73,8 @@
             </span>
         </div>
         @include('partials.header-actions-style')
-        <div class="flex flex-wrap items-center gap-2" data-header-actions>
+        <div class="flex flex-wrap items-center gap-2" data-header-actions data-tour="rmnt-frd-actions">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             @permission('rental_fault_reports.cancel')
                 {{-- J7 (Johan, 9 Oct 2026): "Cancel report" only while the owner has not decided; once decided the fault is handled through its work order / outcome. --}}
                 @if(in_array($faultReport->status, [\App\Models\RentalFaultReport::STATUS_REPORTED, \App\Models\RentalFaultReport::STATUS_UNDER_REVIEW, \App\Models\RentalFaultReport::STATUS_AWAITING_APPROVAL], true))
@@ -99,6 +94,18 @@
             <a href="{{ route('corex.rental-fault-reports.index') }}" class="corex-btn-outline text-xs">&larr; All fault reports</a>
         </div>
     </div>
+    </div>
+    {{-- (the success message is the layout's toast - J8: it is not repeated here as a second banner) --}}
+    {{-- §17.3.2 / §17.10.6 — a refused "Create work order" or a refused "repaired" outcome says WHY, in plain words. --}}
+    @if($errors->any())
+        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
+            @foreach ($errors->all() as $error)<div>{{ $error }}</div>@endforeach
+        </div>
+    @endif
+
+    {{-- AT-464 / section 28 - after an action the page lands on the Returned | Next bar (data-land-on-next), just under the tabs. --}}
+
+
     <form id="cancel-fault-report-form" method="POST" action="{{ route('corex.rental-fault-reports.cancel', $faultReport) }}" class="hidden space-y-2 rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         @csrf
         <label class="text-xs font-medium">Reason for cancellation (required)</label>
@@ -175,7 +182,7 @@
         $fsReturned = $screen['returned'];
         $fsAnchor = in_array($fsReturned['anchor'], ['owner-questions', 'owner-comment'], true) ? $fsReturned['anchor'] : 'wo-panel-' . $fsReturned['anchor'];
     @endphp
-    <ol class="wo-strip" data-wo-strip aria-label="Where this fault is">
+    <ol class="wo-strip" data-wo-strip aria-label="Where this fault is" data-tour="rmnt-frd-strip">
         @foreach($screen['steps'] as $st)
             <li class="wo-step" data-step="{{ $st['key'] }}" data-state="{{ $st['state'] }}" @if($st['state'] === 'current') aria-current="step" @endif>
                 <span class="wo-dot">@if($st['state'] === 'done')&#10003;@elseif($st['state'] === 'current')&#9679;@else&nbsp;@endif</span>
@@ -184,7 +191,7 @@
             </li>
         @endforeach
     </ol>
-    <div class="wo-next wo-next-{{ $fsNext['tone'] }}" data-next-step data-land-on-next data-stage="{{ $stage }}" data-next="{{ $fsNext['key'] }}">
+    <div class="wo-next wo-next-{{ $fsNext['tone'] }}" data-tour="rmnt-frd-next" data-next-step data-land-on-next data-stage="{{ $stage }}" data-next="{{ $fsNext['key'] }}">
         <div class="jc-bar-half" data-returned data-returned-anchor="{{ $fsReturned['anchor'] }}">
             <div><span class="wo-next-label">{{ $fsReturned['label'] }}</span>
                 <a href="#{{ $fsAnchor }}" class="jc-returned-link" data-returned-text>{{ $fsReturned['text'] }}</a>@if($fsReturned['waiting'])<span class="jc-waiting">waiting for you</span>@endif</div>

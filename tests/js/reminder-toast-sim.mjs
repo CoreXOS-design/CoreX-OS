@@ -87,6 +87,18 @@ t.snooze(t.toasts[0]);
 await new Promise(r => setTimeout(r, 0));
 ok(posts.includes('/api/v1/command-center/reminders/7/snooze'), 'snooze POSTs to the snooze endpoint');
 
+// AT-509 — a reminder closes itself after autoCloseMs (5s shipped; shortened here), is NOT marked read, and the next poll does not bring it back.
+ok(t.autoCloseMs === 5000, 'a reminder popup closes itself after 5 seconds');
+t.autoCloseMs = 30;
+const postsBefore = posts.length;
+await t.poll();
+ok(t.toasts.length === 1, 'a due reminder shows');
+await new Promise(r => setTimeout(r, 60));
+ok(t.toasts.length === 0, 'it closes itself once the time is up');
+ok(posts.length === postsBefore, 'closing on its own is not a read or a snooze (nothing is posted)');
+await t.poll();
+ok(t.toasts.length === 0, 'the next poll does not pop it up again');
+
 // ── 4. Prove it reaches NON-calendar pages: wired into both shells + property page extends one ──
 const corex = read('resources/views/layouts/corex.blade.php');
 const corexApp = read('resources/views/layouts/corex-app.blade.php');

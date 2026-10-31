@@ -16,6 +16,7 @@ use App\Services\AI\KnowledgeSearchService;
 use App\Services\AI\NavigationAtlasService;
 use App\Services\AI\TourKnowledgeService;
 use App\Services\Agent\AgentPerformanceService;
+use App\Services\FeatureRollout\FeatureRolloutUpdates;
 use App\Services\PropertyCostService;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -56,6 +57,7 @@ class EllieToolkit
         private readonly TourKnowledgeService $tours,
         private readonly AgentPerformanceService $performance,
         private readonly EllieReferenceSourceSearchService $referenceSources,
+        private readonly FeatureRolloutUpdates $rolloutUpdates,
     ) {
     }
 
@@ -197,6 +199,15 @@ class EllieToolkit
                 'input_schema' => ['type' => 'object', 'properties' => (object) []],
             ],
             [
+                'name' => 'whats_new_for_me',
+                'description' =>
+                    'What has recently switched on in CoreX for this user and what is coming next, when their '
+                    . 'agency is being introduced to CoreX a few features at a time. USE THIS for "what\'s new", '
+                    . '"what changed", "what can I use now", "what is coming", "when do I get X". Returns only '
+                    . 'features this user can open, each with its guided tour link where there is one.',
+                'input_schema' => ['type' => 'object', 'properties' => (object) []],
+            ],
+            [
                 'name' => 'find_contact',
                 'description' =>
                     'Look up a person in the agency contact book by name, phone or email — buyers, '
@@ -298,6 +309,7 @@ class EllieToolkit
                 'my_listings'             => $this->myListings($input, $user),
                 'my_deals'                => $this->myDeals($input, $user),
                 'my_performance'          => $this->myPerformance($user),
+                'whats_new_for_me'        => $this->whatsNewForMe($user),
                 'find_contact'            => $this->findContact($input),
                 'find_property'           => $this->findProperty($input, $user),
                 'calculate_transfer_costs' => $this->transferCosts($input),
@@ -569,6 +581,39 @@ class EllieToolkit
             'progress_percent'  => $snapshot['progress'] ?? [],
             'note' => 'Targets come from the agent\'s Worksheet. If every target is zero the Worksheet '
                     . 'for this month has not been completed — tell them that rather than reporting zeros.',
+        ];
+    }
+
+    /** AT-478 §12.6 — "what's new for me?": the user's own agency's gradual rollout, only what they can open. */
+    private function whatsNewForMe(User $user): array
+    {
+        $data = $this->rolloutUpdates->forUser($user);
+        if ($data === null) {
+            return ['result' => 'not on gradual introduction',
+                'hint' => 'This agency has everything switched on already — there is no gradual introduction. For CoreX '
+                        . 'release notes, point them at /corex/whats-new.'];
+        }
+        $recentSince = now()->subDays(30);
+
+        return [
+            'status'   => $data['plan']->status === 'paused' ? 'paused — nothing new switches on until the admin resumes it' : $data['plan']->status,
+            'page'     => '/corex/new-and-coming',
+            'switched_on_recently' => array_values(array_map(fn ($g) => [
+                'group' => $g['wave']->title,
+                'since' => $g['wave']->released_at->format('j F Y'),
+                'features' => array_map(fn ($f) => array_filter([
+                    'name' => $f['label'], 'what_it_is' => $f['explain'],
+                    'tour' => $f['tour']['url'] ?? null,
+                    'note' => $f['state'] === 'waiting' ? 'waiting for the admin to switch it on or finish its setup' : null,
+                ]), $g['features']),
+            ], array_filter($data['on'], fn ($g) => $g['wave']->released_at->gte($recentSince)))),
+            'coming_next' => array_map(fn ($g) => [
+                'group' => $g['wave']->title,
+                'when'  => $g['when'] ? $g['when']->format('l j F') : 'when the admin resumes the introduction',
+                'features' => array_column($g['features'], 'label'),
+            ], array_slice($data['coming'], 0, 5)),
+            'note' => 'Lead with what is new for them, then what is coming. Mention they can ask for a coming feature '
+                    . 'early on /corex/new-and-coming, and give tour links as bare paths.',
         ];
     }
 

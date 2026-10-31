@@ -143,7 +143,7 @@
                                     <div style="display:flex;gap:.5rem;align-items:center;margin-top:.5rem;">
                                         <button type="submit" class="corex-btn-primary" style="font-size:.78rem;padding:.3rem .8rem;" :disabled="!provId">Capture bond attorney</button>
                                         <button type="button" class="corex-btn-outline" style="font-size:.75rem;padding:.28rem .7rem;" @click="addOpen=!addOpen" x-text="addOpen ? '× Cancel' : '+ Add a new bond attorney'"></button>
-                                        <span x-show="provId" x-cloak style="font-size:.72rem;color:#047857;">✓ selected</span>
+                                        <span x-show="provId" x-cloak style="font-size:.72rem;color:#047857;">Selected</span>
                                     </div>
                                     <div x-show="addOpen" x-cloak style="margin-top:.5rem;display:flex;gap:.4rem;flex-wrap:wrap;align-items:flex-end;">
                                         <input type="text" x-model="nFirm" placeholder="Firm *" class="corex-input" style="font-size:.78rem;flex:1 1 10rem;">
@@ -172,7 +172,7 @@
                  Free-text recipient + document picker → deals-dr2.distribute.adhoc (re-gated server-side). --}}
             @if($adhocEnabled && $canEditDeal)
                 <div x-data="{ open:false, email:'' }" style="margin-top:.7rem;border-top:1px dashed var(--border,#e5e7eb);padding-top:.6rem;">
-                    <button type="button" @click="open=true" class="corex-btn-outline" style="font-size:.78rem;padding:.3rem .7rem;">✉ Send documents to any email…</button>
+                    <button type="button" @click="open=true" class="corex-btn-outline" style="font-size:.78rem;padding:.3rem .7rem;">Send documents to any email…</button>
                     <div x-show="open" x-cloak @keydown.escape.window="open=false"
                          style="position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:rgba(2,10,20,.45);padding:1rem;"
                          @click.self="open=false">

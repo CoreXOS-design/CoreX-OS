@@ -53,7 +53,8 @@
     $invoiceCount = $workOrder->invoices()->count();
 @endphp
 
-@section('content')
+@section('corex-content')
+@include('corex.rentals.partials._page-styles')
 <style>
     .wo-strip { display: flex; list-style: none; margin: 0; padding: 12px 8px 10px; overflow-x: auto; gap: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
     .wo-step { flex: 1 0 auto; min-width: 104px; position: relative; text-align: center; padding: 0 6px; font-size: 12px; line-height: 1.25; }
@@ -111,7 +112,23 @@
         .wo-next .corex-btn-primary, .wo-next .corex-btn-outline { width: 100%; }
     }
 </style>
-<div class="p-4 md:p-6 max-w-7xl mx-auto space-y-3 cx-equal-btns" data-wo-screen>
+<div class="rx-page w-full space-y-3 cx-equal-btns" data-wo-screen>
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+        <div data-tour="rmnt-wod-title">
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $workOrder->title }}</h1>
+            <span class="ds-badge {{ $statusBadgeClass }}" title="{{ $workOrder->statusLabel() }}" data-stage-badge>{{ ($screen['goAheadSent'] && $workOrder->status === \App\Models\RentalWorkOrder::STATUS_ORDERED && ! $workOrder->isOwnerContractor()) ? 'Go-ahead sent' : $workOrder->stageLabel('agent') }}</span>
+            <span class="text-xs" style="color: var(--text-muted);">{{ $workOrder->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $workOrder->property?->trashed() ? ' (archived)' : '' }}{{ $workOrder->trashed() ? ' - this work order is archived' : '' }}</span>
+        </div>
+        @include('partials.header-actions-style')
+        <div class="flex flex-wrap items-center gap-2" data-header-actions data-tour="rmnt-wod-actions">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+            <a href="{{ route('corex.rental-work-orders.pdf', $workOrder) }}" target="_blank" class="corex-btn-outline text-xs">Download PDF</a>
+            <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-btn-outline text-xs">&larr; All work orders</a>
+        </div>
+    </div>
+    </div>
     {{-- (success and warning messages are the layout's toasts - J8: not repeated here as a second banner) --}}
     @if($errors->any())
         <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
@@ -122,24 +139,14 @@
     @include('partials.paused-by-owner-banner', ['pauseSubject' => $workOrder])
 
     {{-- A. header --}}
-    <div class="flex flex-wrap items-center justify-between gap-2">
-        <div>
-            <h1 class="text-lg font-semibold">{{ $workOrder->title }}</h1>
-            <span class="ds-badge {{ $statusBadgeClass }}" title="{{ $workOrder->statusLabel() }}" data-stage-badge>{{ ($screen['goAheadSent'] && $workOrder->status === \App\Models\RentalWorkOrder::STATUS_ORDERED && ! $workOrder->isOwnerContractor()) ? 'Go-ahead sent' : $workOrder->stageLabel('agent') }}</span>
-            <span class="text-xs" style="color: var(--text-muted);">{{ $workOrder->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $workOrder->property?->trashed() ? ' (archived)' : '' }}{{ $workOrder->trashed() ? ' - this work order is archived' : '' }}</span>
-        </div>
-        @include('partials.header-actions-style')
-        <div class="flex flex-wrap items-center gap-2" data-header-actions>
-            <a href="{{ route('corex.rental-work-orders.pdf', $workOrder) }}" target="_blank" class="corex-btn-outline text-xs">Download PDF</a>
-            <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-btn-outline text-xs">&larr; All work orders</a>
-        </div>
-    </div>
+
+
 
     {{-- AT-439 Part 3, item 2 - the shared rental context bar. --}}
     <x-rental-context-bar :property="$workOrder->property" :lease="$workOrder->lease" current="work_orders" />
 
     {{-- B. where this job is --}}
-    <ol class="wo-strip" data-wo-strip aria-label="Where this job is">
+    <ol class="wo-strip" data-wo-strip aria-label="Where this job is" data-tour="rmnt-wod-strip">
         @foreach($screen['steps'] as $st)
             <li class="wo-step" data-step="{{ $st['key'] }}" data-state="{{ $st['state'] }}" @if($st['state'] === 'current') aria-current="step" @endif>
                 <span class="wo-dot">@if($st['state'] === 'done')&#10003;@elseif($st['state'] === 'current')&#9679;@else&nbsp;@endif</span>
@@ -151,7 +158,7 @@
 
     {{-- C. next --}}
     @php $nb = $woNext['button'] ?? null; @endphp
-    <div class="wo-next wo-next-{{ $woNext['tone'] }}" data-next-step data-land-on-next data-next="{{ $woNext['key'] }}"
+    <div class="wo-next wo-next-{{ $woNext['tone'] }}" data-next-step data-land-on-next data-next="{{ $woNext['key'] }}" data-tour="rmnt-wod-next"
          @if($woNext['key'] === 'owner_declined') data-quote-declined @endif
          @if($woNext['key'] === 'waiting_owner') data-quote-sent-to-owner @endif
          @if($woNext['key'] === 'quote_not_selected') data-quote-not-selected @endif
@@ -167,7 +174,7 @@
 
     {{-- D. the two summary cards: facts only --}}
     <div class="wo-cards">
-        <div class="wo-card" data-card-job>
+        <div class="wo-card" data-card-job data-tour="rmnt-wod-job">
             <h2>The job</h2>
             <dl class="wo-facts">
                 <dt>Description</dt><dd>{{ $workOrder->description }}</dd>
@@ -208,7 +215,7 @@
             </dl>
         </div>
 
-        <div class="wo-card" data-card-money>
+        <div class="wo-card" data-card-money data-tour="rmnt-wod-money">
             <h2>The money</h2>
             <dl class="wo-facts">
                 @if($selectedQuote && $isOutside)

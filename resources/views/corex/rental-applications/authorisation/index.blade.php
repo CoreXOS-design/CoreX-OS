@@ -24,11 +24,16 @@
 
 @section('corex-content')
 <div class="w-full space-y-5">
-    <div class="rounded-md px-6 py-5 corex-page-banner">
-        <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Applications — Awaiting Authorisation</h1>
-        <p class="text-xs" style="color: var(--text-muted);">
-            Applications an agent has submitted for your decision.
-        </p>
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rops-au-intro">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Applications — Awaiting Authorisation</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    Applications an agent has submitted for your decision.
+                </p>
+            </div>
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+        </div>
     </div>
 
     {{-- .ai/specs/rentals-menu-tabs.md - Application Authorisation is a tab of Rentals > Letting --}}
@@ -59,12 +64,12 @@
     <form method="GET" action="{{ route('corex.rental-applications.authorisation.index') }}" class="flex flex-wrap items-end gap-3">
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
-            <input type="text" name="q" value="{{ request('q') }}" placeholder="Applicant name, email, property, or agent"
+            <input type="text" name="q" data-tour="rops-au-search" value="{{ request('q') }}" placeholder="Applicant name, email, property, or agent"
                    class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}" style="min-width: 260px;">
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Submitted from</label>
-            <input type="date" name="date_from" value="{{ request('date_from') }}" class="list-header-filter text-sm {{ filled(request('date_from')) ? 'is-active' : '' }}">
+            <input type="date" name="date_from" data-tour="rops-au-date-from" value="{{ request('date_from') }}" class="list-header-filter text-sm {{ filled(request('date_from')) ? 'is-active' : '' }}">
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Submitted to</label>
@@ -76,13 +81,13 @@
              index.blade.php/returned.blade.php's own selectors. --}}
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Per page</label>
-            <select name="per_page" class="list-header-filter text-sm" onchange="this.form.submit()">
+            <select name="per_page" data-tour="rops-au-per-page" class="list-header-filter text-sm" onchange="this.form.submit()">
                 @foreach([10, 25, 50, 100] as $option)
                     <option value="{{ $option }}" @selected($perPage === $option)>{{ $option }}</option>
                 @endforeach
             </select>
         </div>
-        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;" data-tour="rops-au-filter-btn">Filter</button>
         @if(request()->hasAny(['q', 'date_from', 'date_to', 'per_page']))
             <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>
         @endif
@@ -93,10 +98,10 @@
     </form>
     </div>
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rops-au-list">
         <div class="overflow-x-auto">
         <table class="w-full text-sm">
-            <thead>
+            <thead data-tour="rops-au-sort">
                 <tr style="background: var(--surface-2); color: var(--text-muted); border-bottom: 1px solid var(--border);">
                     <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('contact') }}">Contact{{ $sortIndicator('contact') }}</a></th>
                     <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('property') }}">Property{{ $sortIndicator('property') }}</a></th>
@@ -113,7 +118,7 @@
                     <td class="px-4 py-3">{{ $application->createdBy->name ?? '—' }}</td>
                     <td class="px-4 py-3">{{ $application->submitted_for_approval_at?->format('d M Y H:i') }}</td>
                     <td class="px-4 py-3 text-right">
-                        <a href="{{ route('corex.rental-applications.authorisation.show', $application) }}" class="corex-btn-primary text-xs">Review &amp; Decide</a>
+                        <a href="{{ route('corex.rental-applications.authorisation.show', $application) }}" class="corex-btn-primary text-xs" data-tour="rops-au-open">Review &amp; Decide</a>
                     </td>
                 </tr>
                 @empty

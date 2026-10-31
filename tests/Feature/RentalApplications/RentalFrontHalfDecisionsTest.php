@@ -355,12 +355,12 @@ final class RentalFrontHalfDecisionsTest extends TestCase
         $app = $this->application('approved', ['property_id' => $this->property->id, 'occupation_date' => '2026-11-01', 'rental_term_months' => 12]);
 
         $html = $this->actingAs($this->admin)->get(route('corex.leases.create', ['property_id' => $this->property->id, 'rental_application_id' => $app->id]))->assertOk()->getContent();
-        $this->assertMatchesRegularExpression('/name="start_date" value="2026-11-01"/', $html);
-        $this->assertMatchesRegularExpression('/name="end_date" value="2027-10-31"/', $html);
+        $this->assertMatchesRegularExpression('/name="start_date"[^>]*? value="2026-11-01"/', $html);
+        $this->assertMatchesRegularExpression('/name="end_date"[^>]*? value="2027-10-31"/', $html);
 
         $this->setting(['prefill_lease_from_application' => false]);
         $html = $this->actingAs($this->admin)->get(route('corex.leases.create', ['property_id' => $this->property->id, 'rental_application_id' => $app->id]))->assertOk()->getContent();
-        $this->assertDoesNotMatchRegularExpression('/name="start_date" value="2026-11-01"/', $html);
+        $this->assertDoesNotMatchRegularExpression('/name="start_date"[^>]*? value="2026-11-01"/', $html);
     }
 
     public function test_an_approved_row_offers_create_lease_until_a_lease_exists(): void

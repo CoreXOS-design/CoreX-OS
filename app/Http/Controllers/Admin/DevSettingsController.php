@@ -8,15 +8,10 @@ use App\Models\AI\AiSpendGuardEvent;
 use App\Models\DevSetting;
 use App\Services\AI\AiSpendGuard;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 
 class DevSettingsController extends Controller
 {
-    /**
-     * Gate password required to flip the "Enable demo mode" toggle either way.
-     * Demo mode is an authentication bypass, so changing it needs confirmation.
-     */
-    private const DEMO_TOGGLE_PASSWORD = 'Demo@on&off@$';
-
     /**
      * Sections of the Dev Settings hub. ?s=<key> drives the right pane, same
      * contract as the main settings hub (CoreX\SettingsController::index).
@@ -88,14 +83,15 @@ class DevSettingsController extends Controller
         }
 
         // Demo mode is an auth bypass — flipping it (on OR off) requires the
-        // gate password. If demo mode isn't changing, no password is needed.
+        // signed-in owner to re-enter their OWN account password (no shared
+        // secret in code). If demo mode isn't changing, no password is needed.
         $currentDemo   = DevSetting::bool('demo_mode_enabled');
         $requestedDemo = $request->boolean('demo_mode_enabled');
 
         if ($currentDemo !== $requestedDemo) {
             $supplied = (string) $request->input('demo_toggle_password', '');
 
-            if (!hash_equals(self::DEMO_TOGGLE_PASSWORD, $supplied)) {
+            if ($supplied === '' || !Hash::check($supplied, (string) $request->user()->password)) {
                 // Land back on the Demo pane — otherwise the hub opens on
                 // Compliance and the password error sits on a pane nobody sees.
                 return redirect()->route('admin.dev-settings.index', ['s' => 'demo'])

@@ -4,14 +4,17 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cop-pel-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">PPRA FFC Employment Letters</h1>
             </div>
-            @if(auth()->user()->hasPermission('ppra_employment_letters.manage'))
-            <a href="{{ route('admin.ppra-employment-letters.create') }}" class="corex-btn-primary text-xs">New letter</a>
-            @endif
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                @if(auth()->user()->hasPermission('ppra_employment_letters.manage'))
+                <a href="{{ route('admin.ppra-employment-letters.create') }}" class="corex-btn-primary text-xs" data-tour="cop-pel-new">New letter</a>
+                @endif
+            </div>
         </div>
     </div>
 
@@ -30,12 +33,12 @@
     <form method="GET" class="props-filter-panel flex flex-wrap items-end gap-3 rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Search</label>
-            <input class="list-header-filter {{ (($filters['search'] ?? '') !== '') ? 'is-active' : '' }}" type="text" name="search" value="{{ $filters['search'] ?? '' }}" placeholder="Agent or principal name"
+            <input data-tour="cop-pel-search" class="list-header-filter {{ (($filters['search'] ?? '') !== '') ? 'is-active' : '' }}" type="text" name="search" value="{{ $filters['search'] ?? '' }}" placeholder="Agent or principal name"
                   >
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Status</label>
-            <select class="list-header-filter {{ (($filters['status'] ?? '') !== '') ? 'is-active' : '' }}" name="status">
+            <select data-tour="cop-pel-status" class="list-header-filter {{ (($filters['status'] ?? '') !== '') ? 'is-active' : '' }}" name="status">
                 <option value="">All statuses</option>
                 @foreach($statuses as $s)
                 <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ \App\Models\Compliance\PpraEmploymentLetter::statusLabel($s) }}</option>
@@ -44,7 +47,7 @@
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Branch</label>
-            <select class="list-header-filter {{ (($filters['branch_id'] ?? '') !== '') ? 'is-active' : '' }}" name="branch_id">
+            <select data-tour="cop-pel-branch" class="list-header-filter {{ (($filters['branch_id'] ?? '') !== '') ? 'is-active' : '' }}" name="branch_id">
                 <option value="">All branches</option>
                 @foreach($branches as $b)
                 <option value="{{ $b->id }}" @selected((string) ($filters['branch_id'] ?? '') === (string) $b->id)>{{ $b->name }}</option>
@@ -62,7 +65,7 @@
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">From</label>
-            <input class="list-header-filter {{ (($filters['date_from'] ?? '') !== '') ? 'is-active' : '' }}" type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}">
+            <input data-tour="cop-pel-dates" class="list-header-filter {{ (($filters['date_from'] ?? '') !== '') ? 'is-active' : '' }}" type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}">
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">To</label>
@@ -70,7 +73,7 @@
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Sort</label>
-            <select class="list-header-filter {{ (($filters['sort'] ?? 'created_desc') !== 'created_desc') ? 'is-active' : '' }}" name="sort">
+            <select data-tour="cop-pel-sort" class="list-header-filter {{ (($filters['sort'] ?? 'created_desc') !== 'created_desc') ? 'is-active' : '' }}" name="sort">
                 <option value="created_desc" @selected(($filters['sort'] ?? 'created_desc') === 'created_desc')>Newest first</option>
                 <option value="created_asc" @selected(($filters['sort'] ?? '') === 'created_asc')>Oldest first</option>
                 <option value="agent_name" @selected(($filters['sort'] ?? '') === 'agent_name')>Agent name</option>
@@ -78,13 +81,13 @@
             </select>
         </div>
         <label class="flex items-center gap-1.5 text-xs" style="color:var(--text-muted);">
-            <input type="checkbox" name="archived" value="1" @checked($showArchived)>
+            <input type="checkbox" name="archived" value="1" @checked($showArchived) data-tour="cop-pel-archived">
             Show archived
         </label>
-        <button type="submit" class="corex-btn-primary text-xs" style="height:2.25rem;">Filter</button>
+        <button type="submit" class="corex-btn-primary text-xs" style="height:2.25rem;" data-tour="cop-pel-filter-btn">Filter</button>
     </form>
 
-    <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);" data-tour="cop-pel-table">
         @if($letters->isEmpty())
             <div class="py-12 px-6 text-center">
                 <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary);">
@@ -133,7 +136,7 @@
                             ])
                         </td>
                         <td class="px-4 py-3 text-right">
-                            <a href="{{ route('admin.ppra-employment-letters.show', $letter->id) }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">View</a>
+                            <a href="{{ route('admin.ppra-employment-letters.show', $letter->id) }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);" data-tour="cop-pel-open">View</a>
                             @if($letter->trashed())
                                 <form method="POST" action="{{ route('admin.ppra-employment-letters.restore', $letter->id) }}" class="inline ml-2">
                                     @csrf

@@ -22,7 +22,7 @@
         'scope' => $scope->level, 'branch_id' => $scope->branchId, 'user_id' => $scope->userId,
     ]);
 @endphp
-<div class="rounded-md p-4 mb-8" style="background: var(--surface); border: 1px solid var(--border);"
+<div class="rounded-md p-4 mb-8" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rpt-br-demand"
      x-data="demandAnalysis({ demandBase: @js($demandBase), priceMax: {{ (int) $facets['price_max'] }} })" x-init="fetchDemand()">
     <h3 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Demand analysis — what would we sell them?</h3>
     <p class="text-[11px] mb-3" style="color: var(--text-muted);">
@@ -33,7 +33,7 @@
     @if(empty($facets['types']))
         <p class="text-xs py-4" style="color: var(--text-muted);">No buyers in this scope have a property type recorded yet — nothing to filter on.</p>
     @else
-        <div class="flex flex-wrap gap-2 mb-4">
+        <div class="flex flex-wrap gap-2 mb-4" data-tour="rpt-br-demand-types">
             @foreach($facets['types'] as $t)
                 <label class="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md cursor-pointer"
                        style="background: var(--surface-2); border: 1px solid var(--border);">
@@ -43,7 +43,7 @@
             @endforeach
         </div>
 
-        <div class="mb-4 max-w-md">
+        <div class="mb-4 max-w-md" data-tour="rpt-br-demand-price">
             <div class="flex items-center justify-between text-[11px] mb-1" style="color: var(--text-muted);">
                 <span>Price range</span>
                 <span x-text="'R ' + Number(priceMin).toLocaleString() + ' – R ' + Number(priceMax).toLocaleString() + (priceMax >= {{ (int) $facets['price_max'] }} ? '+' : '')"></span>

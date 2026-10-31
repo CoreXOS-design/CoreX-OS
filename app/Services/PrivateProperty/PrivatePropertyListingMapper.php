@@ -91,7 +91,8 @@ class PrivatePropertyListingMapper
             'Suburb'                  => $property->suburb ?? '',
             'Town'                    => $property->town ?? $property->city ?? '',
             'Province'                => $this->mapProvince($property->province),
-            'Headline'                => $property->headline ?? $property->title ?? '',
+            // PP's headline is the CoreX title; the CoreX headline is only a fallback for stock with no title.
+            'Headline'                => (string) ($property->title ?: $property->headline ?: ''),
             'Description'             => $property->description ?? '',
             'Price'                   => $property->effectivePrice(), // rental_amount for rentals, price for sales (PP carries rent in Price + RentalPriceType)
             'Deposit'                 => $listingType === 'Rental' ? (float) ($property->deposit_amount ?? 0) : 0.0,

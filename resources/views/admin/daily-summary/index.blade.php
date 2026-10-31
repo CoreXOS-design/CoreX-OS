@@ -23,7 +23,7 @@
             </div>
 
             <div class="flex flex-wrap items-center gap-2">
-                <a class="corex-btn-outline text-xs" href="{{ route('admin.dashboard') }}">&larr; Dashboard</a>
+                <a class="corex-btn-outline text-xs" href="{{ route('corex.dashboard') }}">&larr; Dashboard</a>
 
                 <form method="GET" action="{{ route('admin.daily.summary') }}" class="flex flex-wrap items-center gap-2">
                     <select name="range" class="list-header-filter">

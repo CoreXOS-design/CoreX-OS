@@ -4,7 +4,7 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cop-pim-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Mandate / MDF / FICA Register</h1>
@@ -13,7 +13,8 @@
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                <a href="{{ route('admin.ppra-inspection-pack.mandate-register.zip', request()->query()) }}" class="corex-btn-outline text-xs">Download ZIP of all mandates + MDFs</a>
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('admin.ppra-inspection-pack.mandate-register.zip', request()->query()) }}" class="corex-btn-outline text-xs" data-tour="cop-pim-zip">Download ZIP of all mandates + MDFs</a>
                 <a href="{{ route('admin.ppra-inspection-pack.index') }}" class="corex-btn-outline text-xs">Back to checklist</a>
             </div>
         </div>
@@ -33,12 +34,12 @@
     <form method="GET" class="props-filter-panel flex flex-wrap items-end gap-3 rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Search</label>
-            <input class="list-header-filter {{ (request('search') !== null && request('search') !== '') ? 'is-active' : '' }}" type="text" name="search" value="{{ request('search') }}" placeholder="Address, suburb, or agent"
+            <input data-tour="cop-pim-search" class="list-header-filter {{ (request('search') !== null && request('search') !== '') ? 'is-active' : '' }}" type="text" name="search" value="{{ request('search') }}" placeholder="Address, suburb, or agent"
                   >
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Branch</label>
-            <select class="list-header-filter {{ (request('branch_id') !== null && request('branch_id') !== '') ? 'is-active' : '' }}" name="branch_id">
+            <select data-tour="cop-pim-branch" class="list-header-filter {{ (request('branch_id') !== null && request('branch_id') !== '') ? 'is-active' : '' }}" name="branch_id">
                 <option value="">All branches</option>
                 @foreach($branches as $branch)
                     <option value="{{ $branch->id }}" @selected(request('branch_id') == $branch->id)>{{ $branch->name }}</option>
@@ -47,7 +48,7 @@
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Status</label>
-            <select class="list-header-filter {{ (request('status','all') !== 'all') ? 'is-active' : '' }}" name="status">
+            <select data-tour="cop-pim-status" class="list-header-filter {{ (request('status','all') !== 'all') ? 'is-active' : '' }}" name="status">
                 <option value="all" @selected(request('status','all')==='all')>All statuses</option>
                 <option value="missing_mandate" @selected(request('status')==='missing_mandate')>Missing mandate</option>
                 <option value="missing_mdf" @selected(request('status')==='missing_mdf')>Missing MDF</option>
@@ -57,7 +58,7 @@
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">From</label>
-            <input class="list-header-filter {{ (request('date_from') !== null && request('date_from') !== '') ? 'is-active' : '' }}" type="date" name="date_from" value="{{ request('date_from') }}">
+            <input data-tour="cop-pim-dates" class="list-header-filter {{ (request('date_from') !== null && request('date_from') !== '') ? 'is-active' : '' }}" type="date" name="date_from" value="{{ request('date_from') }}">
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">To</label>
@@ -65,19 +66,19 @@
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Sort</label>
-            <select class="list-header-filter {{ (false) ? 'is-active' : '' }}" name="sort">
+            <select data-tour="cop-pim-sort" class="list-header-filter {{ (false) ? 'is-active' : '' }}" name="sort">
                 <option value="address" @selected(request('sort','address')==='address')>Address</option>
                 <option value="status" @selected(request('sort')==='status')>Status (gaps first)</option>
                 <option value="listed_date" @selected(request('sort')==='listed_date')>Listed date</option>
             </select>
         </div>
         <label class="flex items-center gap-1.5 text-xs" style="color:var(--text-secondary);">
-            <input type="checkbox" name="advertised_only" value="1" @checked(request('advertised_only','1') !== '0')> Advertised only
+            <input data-tour="cop-pim-advertised" type="checkbox" name="advertised_only" value="1" @checked(request('advertised_only','1') !== '0')> Advertised only
         </label>
-        <button type="submit" class="corex-btn-primary text-xs" style="height:2.25rem;">Filter</button>
+        <button type="submit" class="corex-btn-primary text-xs" style="height:2.25rem;" data-tour="cop-pim-filter-btn">Filter</button>
     </form>
 
-    <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);" data-tour="cop-pim-table">
         @if($rows->isEmpty())
             <div class="py-12 px-6 text-center">
                 <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary);">

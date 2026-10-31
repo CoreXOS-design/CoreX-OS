@@ -4,8 +4,6 @@ use Illuminate\Support\Facades\Route;
 
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\WorksheetController;
-use App\Http\Controllers\AdminDashboardController;
-use App\Http\Controllers\CompanySummaryController;
 use App\Http\Controllers\Admin\ListingTargetController;
 use App\Http\Controllers\Admin\ViewAsController;
 use App\Http\Controllers\Admin\BranchAssignmentController;
@@ -293,6 +291,10 @@ Route::get('/data-deletion', [\App\Http\Controllers\Public\LegalController::clas
 Route::get('/support', [\App\Http\Controllers\Public\LegalController::class, 'support'])
     ->middleware('throttle:60,1')
     ->name('public.support');
+// CoreX Training Videos — public, no auth. Spec: .ai/specs/training-videos.md §4.3
+Route::get('/training-videos', [\App\Http\Controllers\Public\TrainingVideoController::class, 'index'])
+    ->middleware('throttle:60,1')
+    ->name('public.training-videos');
 Route::get('/extension/privacy', [\App\Http\Controllers\Public\LegalController::class, 'extensionPrivacy'])
     ->middleware('throttle:60,1')
     ->name('public.extension-privacy');
@@ -426,6 +428,18 @@ Route::middleware('auth')->group(function () {
     Route::get('/api/v1/p24/provinces', [\App\Http\Controllers\Api\V1\P24LocationController::class, 'provinces'])->name('api.v1.p24.provinces');
     Route::get('/api/v1/p24/cities',    [\App\Http\Controllers\Api\V1\P24LocationController::class, 'cities'])->name('api.v1.p24.cities');
     Route::get('/api/v1/p24/suburbs',   [\App\Http\Controllers\Api\V1\P24LocationController::class, 'suburbs'])->name('api.v1.p24.suburbs');
+
+    // Training Videos — the owner uploads a video file in pieces from the Add video page (fetch + session cookie, so
+    // these live here, NOT in routes/api.php: that file's group has the session stack stripped and answers
+    // "Unauthenticated" to a logged-in browser). Under /api/v1 so the Admin -> API catalogue lists them
+    // (non-negotiable #7). Owner-only: owner_only here, re-checked in the controller. .ai/specs/training-videos.md §8.5
+    Route::prefix('api/v1/admin/training-video-uploads')->middleware(['owner_only', 'throttle:staff-api'])
+        ->name('api.v1.training-video-uploads.')->group(function () {
+            Route::get('/progress', [\App\Http\Controllers\Api\V1\TrainingVideoUploadController::class, 'progress'])->name('progress');
+            Route::post('/', [\App\Http\Controllers\Api\V1\TrainingVideoUploadController::class, 'start'])->name('start');
+            Route::post('/{upload}/chunks', [\App\Http\Controllers\Api\V1\TrainingVideoUploadController::class, 'chunk'])->name('chunk');
+            Route::post('/{upload}/complete', [\App\Http\Controllers\Api\V1\TrainingVideoUploadController::class, 'complete'])->name('complete');
+        });
 
     // AT-479 — the reOS review screen's saves and pickers (called from the Blade page over fetch with the session cookie,
     // so they live here like the P24 ones above). Under /api/v1 so the Admin → API catalogue lists them (non-negotiable #7).
@@ -566,8 +580,14 @@ Route::middleware('auth')->group(function () {
             // Take-over (phase 2, spec section 14): the agent answers a request, takes control back, and reports what their browser replayed.
             Route::post('/{id}/control/respond', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'controlRespond'])->whereNumber('id')->middleware('throttle:desk-state')->name('control.respond');
             Route::post('/{id}/control/revoke', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'controlRevoke'])->whereNumber('id')->middleware('throttle:desk-state')->name('control.revoke');
+            Route::post('/{id}/control/key', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'controlKey'])->whereNumber('id')->middleware('throttle:desk-state')->name('control.key');
             Route::post('/{id}/control/actions', [\App\Http\Controllers\Api\V1\DeskSessionController::class, 'controlActions'])->whereNumber('id')->middleware('throttle:desk-live')->name('control.actions');
         });
+
+        // CoreX Desk - the SUPPORT person's signing key for the take-over they hold (spec .ai/specs/corex-desk.md section 14b). desk.support to be in the console at all,
+        // desk.control to take control; the controller releases it only to the user the control was granted to.
+        Route::post('desk/support/sessions/{id}/control/key', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'controlKey'])->whereNumber('id')
+            ->middleware(['permission:desk.support', 'permission:desk.control', 'throttle:desk-state'])->name('desk.support.control.key');
 
         // P24 importer gallery-completeness reconciliation — owner-only. The
         // acceptance bar for the parallel importer is "zero galleries
@@ -733,6 +753,17 @@ Route::middleware('auth')->group(function () {
         Route::post('/system-updates/dismiss', \App\Http\Controllers\Api\V1\SystemUpdateDismissController::class)
             ->name('system-updates.dismiss');
 
+        // AT-478 Part 3 — gradual feature rollout pop-ups (server-rendered by
+        // layouts/partials/feature-rollout-popups, so no GET). seen = self-scoped like
+        // system-updates/dismiss; review = the admin's role-access decision.
+        // Spec: .ai/specs/agency-feature-rollout.md §5.3, §5.4
+        Route::post('/feature-rollout/announcements/seen', [\App\Http\Controllers\Api\V1\FeatureRolloutPopupController::class, 'seen'])
+            ->middleware('agency.required')
+            ->name('feature-rollout.announcements.seen');
+        Route::post('/feature-rollout/access-review', [\App\Http\Controllers\Api\V1\FeatureRolloutPopupController::class, 'review'])
+            ->middleware(['permission:manage_feature_rollout', 'agency.required'])
+            ->name('feature-rollout.access-review');
+
         // AT-448 — "Mandates expiring soon" pop-up: per-user "shown" record.
         // Same shape as system-updates/dismiss (self-scoped, idempotent, no GET
         // — the popup is server-rendered by the Properties page).
@@ -795,13 +826,12 @@ Route::middleware('auth')->group(function () {
     ]), 301))->middleware('permission:view_worksheet')->name('worksheet.index');
     Route::post('/worksheet', fn () => redirect()->route('agent.portal', ['sub' => 'targets'], 301))->middleware('permission:view_worksheet')->name('worksheet.store');
 
-    Route::get('/company-summary', [CompanySummaryController::class, 'index'])->middleware('permission:view_dashboard')->name('company.summary');
+    // Company Summary retired (Andre 2026-10-26) — old links land on the main Dashboard, never 404.
+    Route::get('/company-summary', fn () => redirect()->route('corex.dashboard'))->name('company.summary');
 
-    Route::get('/admin/dashboard', [AdminDashboardController::class, 'index'])
-        ->middleware('permission:export_reports')->name('admin.dashboard');
-
-    Route::post('/admin/dashboard/expenses', [AdminDashboardController::class, 'saveExpenses'])
-        ->middleware('permission:export_reports')->name('admin.expenses.save');
+    // Admin Dashboard (incl. ?view=cashflow + its expenses save) retired (Andre 2026-10-26) — old links land on
+    // the main Dashboard, never 404.
+    Route::get('/admin/dashboard', fn () => redirect()->route('corex.dashboard'))->name('admin.dashboard');
 
     Route::get('/admin/branch-assignments', [BranchAssignmentController::class, 'index'])
         ->middleware('permission:access_branch_assignments')->name('admin.branch-assignments');
@@ -2049,7 +2079,8 @@ Route::get('/bm/listings', fn (\Illuminate\Http\Request $request) => redirect()-
     Route::post('/bm/performance', [\App\Http\Controllers\BM\PerformanceController::class, 'save'])->middleware('permission:manage_targets')->name('bm.performance.save');
 
     Route::get('/bm/agent/{userId}/performance', [\App\Http\Controllers\BM\AgentPerformanceController::class, 'show'])->middleware('permission:view_performance')->name('bm.agent.performance');
-    Route::get('/admin/agent/{userId}/performance', [\App\Http\Controllers\Admin\AgentPerformanceController::class, 'show'])->middleware('permission:view_performance')->name('admin.agent.performance');
+    // Admin agent drill-down retired (Andre 2026-10-26) — old links land on the Performance report, never 404.
+    Route::get('/admin/agent/{userId}/performance', fn () => redirect()->route('admin.performance'))->middleware('permission:view_performance')->name('admin.agent.performance');
 
     // Agent Daily Activity (agent menu link)
       // Agent Daily Activity (locked to agents only)
@@ -2191,7 +2222,9 @@ Route::middleware(['auth', 'permission:manage_p24'])->group(function () {
 
 // Admin: Designations (dropdown list management)
 Route::middleware(['auth','verified','permission:manage_designations'])->group(function () {
-    Route::get('/admin/designations', [\App\Http\Controllers\Admin\DesignationController::class, 'index'])
+    // Designations page retired (Andre 2026-10-26) — designations are managed in Settings → User Settings, which
+    // still saves through the POST routes below.
+    Route::get('/admin/designations', fn () => redirect()->route('corex.settings', ['s' => 'user']))
         ->name('admin.designations.index');
     Route::post('/admin/designations', [\App\Http\Controllers\Admin\DesignationController::class, 'store'])
         ->name('admin.designations.store');
@@ -3204,6 +3237,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{submission}/reopen', [\App\Http\Controllers\Compliance\FicaController::class, 'reopenRejected'])->name('reopen');
         Route::post('/{submission}/agent-upload', [\App\Http\Controllers\Compliance\FicaController::class, 'agentUpload'])->name('agent-upload');
         Route::post('/{submission}/documents/{document}/remove', [\App\Http\Controllers\Compliance\FicaController::class, 'removeDocument'])->name('documents.remove');
+        Route::post('/{submission}/documents/{document}/restore', [\App\Http\Controllers\Compliance\FicaController::class, 'restoreDocument'])->whereNumber('document')->name('documents.restore');
         // AT-173 — decrypting stream serve for uploaded FICA documents (replaces the direct Storage::url).
         Route::get('/{submission}/documents/{document}/view', [\App\Http\Controllers\Compliance\FicaController::class, 'viewDocument'])->name('documents.view');
         // AT-361 — link existing contact documents into the FICA (reference, no copy); RO/CO view them here.
@@ -3696,6 +3730,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Conductor's ruling, AT-442 follow-up — own narrow saver, same discipline.
     Route::post('/settings/rental-work-orders/show-costs-on-printed-job-card', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'updateShowCostsOnPrintedJobCard'])
         ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.show-costs-on-printed-job-card');
+    // AT-509 — .ai/specs/property-compliance-gate-settings.md §7.1. Compliance Switches (a section of the
+    // Settings page): the agency's own on/off for each property marketing-compliance check, with the
+    // disclaimer and permanent history. Save endpoint only — the form lives on /corex/settings.
+    Route::prefix('settings/compliance-switches')->middleware('permission:compliance_switches.manage')->group(function () {
+        Route::post('/', [\App\Http\Controllers\CoreX\ComplianceSwitchesController::class, 'update'])->name('corex.settings.compliance-switches.update');
+    });
     // AT-445 — .ai/specs/rental-portal-access.md §7. Tenant/landlord/contractor portal on/off switches.
     // attorney-portal.md §5 - per-agency on/off, grace days, link life. The Setup Wizard saves through the same POST.
     Route::prefix('settings/attorney-portal')->middleware('permission:attorney_portal.manage_settings')->group(function () {
@@ -3924,6 +3964,26 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/features', [\App\Http\Controllers\CoreX\FeatureSettingsController::class, 'update'])->middleware('permission:agency_features.manage')->name('corex.settings.features.update');
     // What the agency does (sales / rentals / both) — seeds the feature switches. Shared with the wizard's identity step.
     Route::post('/settings/agency-type', [\App\Http\Controllers\CoreX\AgencyTypeController::class, 'update'])->middleware('permission:agency_features.manage')->name('corex.settings.agency-type.update');
+    // AT-478 §12.5 / §12.9 — "New and coming": what is still to switch on (ask for it early) and everything
+    // that already did. Every signed-in person in an agency on gradual rollout; own agency only, 404 otherwise.
+    Route::middleware('agency.required')->group(function () {
+        Route::get('/new-and-coming', [\App\Http\Controllers\CoreX\NewAndComingController::class, 'index'])->name('corex.new-and-coming.index');
+        Route::post('/new-and-coming/{item}/early', [\App\Http\Controllers\CoreX\NewAndComingController::class, 'requestEarly'])->whereNumber('item')->name('corex.new-and-coming.early');
+    });
+    // AT-478 — the agency's own gradual feature rollout (spec agency-feature-rollout.md §5.2). Own agency only:
+    // no agency/plan id in any URL; item ids are resolved inside the agency's plan.
+    Route::middleware(['permission:manage_feature_rollout', 'agency.required'])->prefix('feature-rollout')->name('corex.feature-rollout.')->group(function () {
+        $c = \App\Http\Controllers\CoreX\FeatureRolloutController::class;
+        Route::get('/',                    [$c, 'index'])->name('index');
+        Route::post('/settings',           [$c, 'saveChoice'])->name('settings');
+        Route::post('/pause',              [$c, 'pause'])->name('pause');
+        Route::post('/resume',             [$c, 'resume'])->name('resume');
+        Route::post('/release-next',       [$c, 'releaseNext'])->name('release-next');
+        Route::post('/finish',             [$c, 'finish'])->name('finish');
+        Route::post('/items/{item}/skip',  [$c, 'skipItem'])->whereNumber('item')->name('items.skip');
+        Route::post('/items/{item}/on',    [$c, 'switchOn'])->whereNumber('item')->name('items.on');
+        Route::post('/access',             [$c, 'saveAccess'])->name('access'); // §18 "Admin decides": who else sees these
+    });
     // AT-392 authoriser flow, 2026-09-08 — RO/CO decision actions. A
     // separate prefix/controller, gated on RO/CO tier membership
     // (User::isRentalApplicationRO()/isRentalApplicationCO()), not the
@@ -5492,6 +5552,32 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/', [\App\Http\Controllers\Admin\IntegrationsController::class, 'index'])->name('index');
     });
 
+    // Training Videos — CoreX's own public training catalogue (YouTube links in
+    // owner-made groups), published at /training-videos. Owner-only, no permission
+    // key by design. Spec: .ai/specs/training-videos.md §4
+    Route::middleware('owner_only')->prefix('admin/integrations/training-videos')->name('admin.training-videos.')->group(function () {
+        // Static segments (/create, /groups) come before /{video} or the binding swallows them.
+        Route::get('/groups',                  [\App\Http\Controllers\Admin\TrainingVideoGroupController::class, 'index'])->name('groups.index');
+        Route::get('/groups/create',           [\App\Http\Controllers\Admin\TrainingVideoGroupController::class, 'create'])->name('groups.create');
+        Route::post('/groups',                 [\App\Http\Controllers\Admin\TrainingVideoGroupController::class, 'store'])->name('groups.store');
+        Route::get('/groups/{group}/edit',     [\App\Http\Controllers\Admin\TrainingVideoGroupController::class, 'edit'])->whereNumber('group')->withTrashed()->name('groups.edit');
+        Route::put('/groups/{group}',          [\App\Http\Controllers\Admin\TrainingVideoGroupController::class, 'update'])->whereNumber('group')->withTrashed()->name('groups.update');
+        Route::post('/groups/{group}/restore', [\App\Http\Controllers\Admin\TrainingVideoGroupController::class, 'restore'])->whereNumber('group')->withTrashed()->name('groups.restore');
+        // "Delete" archives. The row is never removed (non-negotiable #1).
+        Route::delete('/groups/{group}',       [\App\Http\Controllers\Admin\TrainingVideoGroupController::class, 'destroy'])->whereNumber('group')->name('groups.destroy');
+
+        Route::get('/',                        [\App\Http\Controllers\Admin\TrainingVideoController::class, 'index'])->name('index');
+        Route::get('/create',                  [\App\Http\Controllers\Admin\TrainingVideoController::class, 'create'])->name('create');
+        Route::post('/',                       [\App\Http\Controllers\Admin\TrainingVideoController::class, 'store'])->name('store');
+        Route::get('/{video}/edit',            [\App\Http\Controllers\Admin\TrainingVideoController::class, 'edit'])->whereNumber('video')->withTrashed()->name('edit');
+        Route::put('/{video}',                 [\App\Http\Controllers\Admin\TrainingVideoController::class, 'update'])->whereNumber('video')->withTrashed()->name('update');
+        Route::post('/{video}/restore',        [\App\Http\Controllers\Admin\TrainingVideoController::class, 'restore'])->whereNumber('video')->withTrashed()->name('restore');
+        // Uploaded videos: re-queue a failed (or failed-replacement) compression. Spec §8.5.
+        Route::post('/{video}/retry',          [\App\Http\Controllers\Admin\TrainingVideoController::class, 'retry'])->whereNumber('video')->name('retry');
+        // "Delete" archives. The row is never removed (non-negotiable #1).
+        Route::delete('/{video}',              [\App\Http\Controllers\Admin\TrainingVideoController::class, 'destroy'])->whereNumber('video')->name('destroy');
+    });
+
     // Dev Settings — system-wide developer overrides (owner-only).
     Route::middleware('owner_only')->prefix('admin/dev-settings')->name('admin.dev-settings.')->group(function () {
         Route::get('/',  [\App\Http\Controllers\Admin\DevSettingsController::class, 'index'])->name('index');
@@ -5501,6 +5587,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // demo-agency members see.
         Route::get('/demo-sidebar', [\App\Http\Controllers\Admin\DevSettingsController::class, 'demoSidebar'])->name('demo-sidebar');
         Route::put('/demo-sidebar', [\App\Http\Controllers\Admin\DevSettingsController::class, 'updateDemoSidebar'])->name('demo-sidebar.update');
+        // AT-509 — .ai/specs/property-compliance-gate-settings.md §7.3. Every agency's Compliance Switches and
+        // their permanent history. Cross-agency and read-only; owner_only, no grantable key.
+        Route::get('/compliance-switches', [\App\Http\Controllers\Admin\ComplianceSwitchesAuditController::class, 'index'])->name('compliance-switches');
+        Route::get('/compliance-switches/history', [\App\Http\Controllers\Admin\ComplianceSwitchesAuditController::class, 'history'])->name('compliance-switches.history');
+        Route::get('/compliance-switches/history/export', [\App\Http\Controllers\Admin\ComplianceSwitchesAuditController::class, 'export'])->name('compliance-switches.history.export');
     });
 
     // AT-456 Part C — Article Library (system-dev section, Dev Settings → Article Library). owner_only and
@@ -5784,6 +5875,34 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/{item}/restore',  [$c, 'restore'])->whereNumber('item')->name('restore');
         });
 
+        // Dev Settings → Feature rollout (AT-478): the default wave order + pace for gradual rollout.
+        // Same owner-only reasoning as timeline defaults; spec .ai/specs/agency-feature-rollout.md §5.1.
+        Route::prefix('admin/dev-settings/feature-rollout')->name('admin.feature-rollout-defaults.')->group(function () {
+            $c = \App\Http\Controllers\Admin\FeatureRolloutDefaultsController::class;
+            Route::get('/',                 [$c, 'index'])->name('index');
+            Route::put('/pace',             [$c, 'savePacing'])->name('pace');
+            // §22 — several rollout plans: create / copy / edit / default / archive / restore.
+            Route::post('/plans',                  [$c, 'storePlan'])->name('plans.store');
+            Route::put('/plans/{plan}',            [$c, 'updatePlan'])->whereNumber('plan')->name('plans.update');
+            Route::post('/plans/{plan}/default',   [$c, 'makeDefaultPlan'])->whereNumber('plan')->name('plans.default');
+            Route::delete('/plans/{plan}',         [$c, 'archivePlan'])->whereNumber('plan')->name('plans.archive');
+            Route::post('/plans/{plan}/restore',   [$c, 'restorePlan'])->whereNumber('plan')->name('plans.restore');
+            // §20 — the wave planner board saves the whole ordered plan in one post.
+            Route::put('/layout',           [$c, 'saveLayout'])->name('layout');
+            // §19.4 — Feature wording & videos (what the rollout pop-ups say about each feature).
+            $w = \App\Http\Controllers\Admin\FeatureRolloutCopyController::class;
+            Route::get('/wording',                     [$w, 'index'])->name('copy.index');
+            Route::get('/wording/{feature}',           [$w, 'edit'])->where('feature', '[a-z0-9-]+')->name('copy.edit');
+            Route::put('/wording/{feature}',           [$w, 'update'])->where('feature', '[a-z0-9-]+')->name('copy.update');
+            Route::delete('/wording/{feature}',        [$w, 'destroy'])->where('feature', '[a-z0-9-]+')->name('copy.destroy');
+            Route::post('/wording/{feature}/restore',  [$w, 'restore'])->where('feature', '[a-z0-9-]+')->name('copy.restore');
+            Route::post('/',                [$c, 'store'])->name('store');
+            Route::put('/{wave}',           [$c, 'update'])->whereNumber('wave')->name('update');
+            Route::post('/{wave}/move',     [$c, 'move'])->whereNumber('wave')->name('move');
+            Route::delete('/{wave}',        [$c, 'destroy'])->whereNumber('wave')->name('destroy');
+            Route::post('/{wave}/restore',  [$c, 'restore'])->whereNumber('wave')->name('restore');
+        });
+
         // Agency Timeline
         Route::prefix('admin/agency-timelines')->name('admin.agency-timelines.')->group(function () {
             $c = \App\Http\Controllers\Admin\AgencyTimelineController::class;
@@ -5887,6 +6006,24 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // first-login trigger, e.g. the emailed link was lost or has expired.
     Route::middleware('owner_only')->post('/admin/agency-setup-progress/{setupId}/resend', [\App\Http\Controllers\Admin\AgencySetupProgressController::class, 'resend'])
         ->name('admin.agency-setup-progress.resend');
+    // AT-478 Part 4 — one agency's setup + gradual introduction, and the CoreX team's changes to its plan.
+    // Cross-agency owner tool: the agency is in the URL; group / feature ids resolve inside its plan only.
+    // Spec: .ai/specs/agency-feature-rollout.md §5.5
+    Route::middleware('owner_only')->prefix('admin/agency-setup-progress/agencies/{agency}')
+        ->whereNumber('agency')->name('admin.agency-setup-progress.')->group(function () {
+            $c = \App\Http\Controllers\Admin\AgencyRolloutAdminController::class;
+            Route::get('/',                                 [$c, 'show'])->name('show');
+            Route::post('/rollout/start',                   [$c, 'start'])->name('rollout.start');
+            Route::post('/rollout/pace',                    [$c, 'pace'])->name('rollout.pace');
+            Route::post('/rollout/{action}',                [$c, 'control'])->whereIn('action', ['pause', 'resume', 'release-next', 'finish', 'reset'])->name('rollout.control');
+            Route::post('/rollout/waves',                   [$c, 'storeWave'])->name('rollout.waves.store');
+            Route::put('/rollout/waves/{wave}',             [$c, 'updateWave'])->whereNumber('wave')->name('rollout.waves.update');
+            Route::post('/rollout/waves/{wave}/move',       [$c, 'moveWave'])->whereNumber('wave')->name('rollout.waves.move');
+            Route::delete('/rollout/waves/{wave}',          [$c, 'archiveWave'])->whereNumber('wave')->name('rollout.waves.archive');
+            Route::post('/rollout/waves/{wave}/restore',    [$c, 'restoreWave'])->whereNumber('wave')->name('rollout.waves.restore');
+            Route::post('/rollout/waves/{wave}/features',   [$c, 'addFeature'])->whereNumber('wave')->name('rollout.waves.features.store');
+            Route::post('/rollout/items/{item}/{action}',   [$c, 'itemAction'])->whereNumber('item')->whereIn('action', ['move', 'on', 'skip'])->name('rollout.items.action');
+        });
 
     // Agency edit/update — accessible to admins with manage_performance_settings.
     // Controller enforces own-agency scope unless the user is an owner.

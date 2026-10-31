@@ -582,7 +582,7 @@
                         <template x-if="contactKind === 'natural_person'">
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);"><span x-text="idKind === 'passport' ? 'Passport Number' : 'ID Number'"></span> <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
-                            <input type="text" id="id_number" name="id_number" value="{{ old('id_number', $contact->id_number) }}"
+                            <input data-desk-mask type="text" id="id_number" name="id_number" value="{{ old('id_number', $contact->id_number) }}"
                                    :placeholder="idKind === 'passport' ? 'e.g. AB1234567' : 'e.g. 9001010000000'"
                                    :maxlength="idKind === 'passport' ? 50 : 13"
                                    class="w-full rounded-md px-3 py-2 text-sm"
@@ -636,14 +636,14 @@
                         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                             <div>
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Bank Name</label>
-                                <input type="text" name="bank_name" value="{{ old('bank_name', $contact->bank_name) }}"
+                                <input data-desk-mask type="text" name="bank_name" value="{{ old('bank_name', $contact->bank_name) }}"
                                        placeholder="e.g. FNB"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Account Name</label>
-                                <input type="text" name="bank_account_name" value="{{ old('bank_account_name', $contact->bank_account_name) }}"
+                                <input data-desk-mask type="text" name="bank_account_name" value="{{ old('bank_account_name', $contact->bank_account_name) }}"
                                        placeholder="Account holder name"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
@@ -657,7 +657,7 @@
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Branch Name</label>
-                                <input type="text" name="bank_branch_name" value="{{ old('bank_branch_name', $contact->bank_branch_name) }}"
+                                <input data-desk-mask type="text" name="bank_branch_name" value="{{ old('bank_branch_name', $contact->bank_branch_name) }}"
                                        placeholder="e.g. Town name"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">

@@ -1,14 +1,14 @@
 <?php
 // header_display: 'all_pages' (default), 'first_page', 'none'
-// When 'first_page', only the first @include renders; subsequent calls output nothing.
-static $_companyHeaderRenderCount = 0;
-$_companyHeaderRenderCount++;
+// When 'first_page', only the first @include inside ONE document render prints; later includes in that same render output
+// nothing. The count is per render (header_render_key, handed over with header_display), never shared between documents.
 $_headerDisplay = $header_display ?? 'all_pages';
 
 if ($_headerDisplay === 'none') {
     return;
 }
-if ($_headerDisplay === 'first_page' && $_companyHeaderRenderCount > 1) {
+if ($_headerDisplay === 'first_page'
+    && \App\Support\Docuperfect\LetterheadPrintCounter::hit((string) ($header_render_key ?? 'default')) > 1) {
     return;
 }
 

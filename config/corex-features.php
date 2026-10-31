@@ -93,13 +93,42 @@ return [
         'nav_permission' => ['access_contacts'], 'sidebar_section' => 'real-estate',
         'settings_section' => 'feature-contacts', 'route_prefixes' => ['contacts'], 'global_flag' => null,
     ],
+    // AT-478 (Johan 2026-10-20): Deals is switchable so a new agency on gradual rollout can start with only
+    // Properties and Contacts. On by default — every existing agency keeps it. NOT owned here, on purpose:
+    // suppliers & contractors and their service types (shared with Rentals), and the plain property / contact /
+    // attorney / supplier lookups under deals-v2.search / deals-dr2.{search,attorney,contact,suppliers}, which
+    // other screens (seller info, deeds capture) call.
     'deals' => [
-        'label' => 'Deal Register', 'category' => 'Core',
-        'explain' => 'The Deal pillar — the register of every sale and rental transaction.',
-        'affects' => 'Always available. Deals are a core pillar and cannot be switched off.',
-        'default' => true, 'core' => true, 'depends_on' => [],
+        'label' => 'Deal Register', 'category' => 'Deals & Commission',
+        'explain' => 'The Deal pillar — the register of every sale and rental transaction, its pipeline, documents and settlement.',
+        'affects' => 'Whether the Deal Register (My Deals, the deal pipeline, deal documents and settlements) appears for your agents. Off hides it; every deal is kept and comes back when you switch it on.',
+        'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['view_deals'], 'sidebar_section' => 'deals',
         'settings_section' => null, 'route_prefixes' => [], 'global_flag' => null,
+        'route_names' => [
+            'admin.deals', 'admin.deals.*', 'agent.deals.*', 'api.v1.deals.*',
+            'admin.settings.deal-*', 'admin.settings.document-distribution*',
+            'deals-dr2.index', 'deals-dr2.store', 'deals-dr2.create', 'deals-dr2.update', 'deals-dr2.edit',
+            'deals-dr2.log', 'deals-dr2.quickUpdate', 'deals-dr2.remark', 'deals-dr2.comms-body.*',
+            'deals-dr2.unfiled-emails.*', 'deals-dr2.work-order.*', 'deals-dr2.communications.*',
+            'deals-dr2.distribute.*', 'deals-dr2.documents.*', 'deals-dr2.pipeline*', 'deals-dr2.proforma.*',
+            'deals-dr2.properties.*', 'deals-dr2.settle*',
+            'deals-v2.index', 'deals-v2.store', 'deals-v2.create', 'deals-v2.create-wizard*', 'deals-v2.distributions.*',
+            'deals-v2.export', 'deals-v2.ical.*', 'deals-v2.overview', 'deals-v2.pipeline.*', 'deals-v2.remarks.*',
+            'deals-v2.search.deals', 'deals-v2.secure-doc.*', 'deals-v2.stage*', 'deals-v2.steps.*', 'deals-v2.update',
+            'deals-v2.destroy', 'deals-v2.show', 'deals-v2.distribute*', 'deals-v2.documents.*', 'deals-v2.edit',
+            'deals-v2.providers*', 'deals-v2.settlement*',
+        ],
+        'view_dirs' => [
+            'admin/deals/', 'agent/deals/', 'dr2/', 'deals-v2/',
+            'admin/deal-distribution-rules/', 'admin/deal-property-sync/', 'admin/settings/document-distribution',
+        ],
+        'permission_modules' => ['deals', 'dr2_unfiled_emails'],
+        'permission_keys'    => [
+            'access_deal_register_v2', 'deals_v2.view', 'deals_v2.create', 'deals_v2.capture_own', 'deals_v2.edit',
+            'deals_v2.archive', 'deals_v2.manage_pipeline', 'deals_v2.override_dates', 'deals_v2.distribute_documents',
+            'deals_v2.manage_distribution_rules', 'deals_v2.view_overview',
+        ],
     ],
     'agents' => [
         'label' => 'Users & Agents', 'category' => 'Core',
@@ -359,7 +388,7 @@ return [
         'label' => 'Commission Management', 'category' => 'Deals & Commission',
         'explain' => 'The principal\'s commission overview and management tools that sit on top of the deal register.',
         'affects' => 'Whether the Commission Management area appears for principals. Off hides it; commission calculations are kept.',
-        'default' => true, 'core' => false, 'depends_on' => ['agency-tracker'],
+        'default' => true, 'core' => false, 'depends_on' => ['agency-tracker', 'deals'],
         'nav_permission' => [], 'sidebar_section' => 'agency-tracker',
         'settings_section' => null, 'route_prefixes' => [], 'global_flag' => null,
         'route_names' => ['commission.dashboard'],
@@ -369,7 +398,7 @@ return [
         'label' => 'Proforma Invoices', 'category' => 'Deals & Commission',
         'explain' => 'Generate proforma invoices for a deal\'s commission and fees.',
         'affects' => 'Whether the Proforma Invoices area appears for your admins. Off hides it; issued invoices are kept.',
-        'default' => true, 'core' => false, 'depends_on' => [],
+        'default' => true, 'core' => false, 'depends_on' => ['deals'],
         'nav_permission' => ['proforma.manage'], 'sidebar_section' => 'company',
         'settings_section' => null, 'route_prefixes' => ['proforma'], 'global_flag' => null,
         'permission_modules' => ['proforma'],

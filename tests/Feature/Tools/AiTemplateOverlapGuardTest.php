@@ -53,13 +53,17 @@ final class AiTemplateOverlapGuardTest extends TestCase
             ['field' => 'price_per_m2', 'x' => 730, 'y' => 354, 'w' => 420, 'h' => 40, 'zIndex' => 10, 'fontSize' => 17, 'color' => '#ffffff'],
         ]);
 
-        foreach ([(new AdLayoutValidator())->validate($option, 'facebook'), (new AdLayoutValidator())->validateAndRepair($option, 'facebook')] as $r) {
-            $this->assertFalse($r['ok'], 'a clash is never shown, repaired or not');
-            $this->assertNull($r['layout']);
-            $errors = implode(' | ', $r['errors']);
-            $this->assertStringContainsString('(erf_size at x 730, y 354) and Element', $errors);
-            $this->assertStringContainsString('(price_per_m2 at x 730, y 354) sit on top of each other (they share 260 x 40 pixels)', $errors);
-        }
+        $r = (new AdLayoutValidator())->validate($option, 'facebook');
+        $this->assertFalse($r['ok'], 'the plain check still refuses a clash');
+        $this->assertNull($r['layout']);
+        $errors = implode(' | ', $r['errors']);
+        $this->assertStringContainsString('(erf_size at x 730, y 354) and Element', $errors);
+        $this->assertStringContainsString('(price_per_m2 at x 730, y 354) sit on top of each other (they share 260 x 40 pixels)', $errors);
+
+        // Johan 2026-10-30: the repairing check pulls the two apart instead of refusing the whole design.
+        $fixed = (new AdLayoutValidator())->validateAndRepair($option, 'facebook');
+        $this->assertTrue($fixed['ok'], implode(' | ', $fixed['errors']));
+        $this->assertNotEmpty(array_filter($fixed['repairs'], fn ($x) => str_contains($x, 'sat on top of')));
     }
 
     public function test_the_same_two_facts_side_by_side_or_one_under_the_other_pass(): void
@@ -172,9 +176,10 @@ final class AiTemplateOverlapGuardTest extends TestCase
     public function test_a_design_with_a_clash_is_retried_with_both_elements_named_and_the_user_gets_three_clean_options(): void
     {
         [, $user] = $this->agencyWithUser();
+        // Two boxes covering the whole canvas: no move can separate them, so the design is still refused and retried.
         $clash = $this->option([
-            ['field' => 'erf_size', 'x' => 730, 'y' => 354, 'w' => 260, 'h' => 40, 'fontSize' => 17, 'color' => '#ffffff'],
-            ['field' => 'price_per_m2', 'x' => 730, 'y' => 354, 'w' => 420, 'h' => 40, 'fontSize' => 17, 'color' => '#ffffff'],
+            ['field' => 'erf_size', 'x' => 0, 'y' => 0, 'w' => 1200, 'h' => 628, 'fontSize' => 17, 'color' => '#ffffff'],
+            ['field' => 'price_per_m2', 'x' => 0, 'y' => 0, 'w' => 1200, 'h' => 628, 'fontSize' => 17, 'color' => '#ffffff'],
         ], 'Clash');
         $fake = $this->fakeAi([[$this->option([], 'One'), $clash, $this->option([], 'Two')], [$this->option([], 'Three')]]);
         $this->actingAs($user);
@@ -186,7 +191,7 @@ final class AiTemplateOverlapGuardTest extends TestCase
         $this->assertSame(2, $fake->calls());
         $retry = json_encode($fake->requestBody(1)['messages']);
         $this->assertStringContainsString('Option 2:', $retry);
-        $this->assertStringContainsString('(price_per_m2 at x 730, y 354) sit on top of each other', $retry);
+        $this->assertStringContainsString('sit on top of each other', $retry);
 
         $rejected = collect($gen->validation_log_json)->firstWhere('outcome', 'rejected');
         $this->assertSame('Clash', $rejected['name']);

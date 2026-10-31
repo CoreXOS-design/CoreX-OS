@@ -89,15 +89,16 @@
 <div class="w-full space-y-4">
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rops-cc-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Command Centre</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Every rental property's current state in one place, and what needs action.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             @if(count($scopeOptions) > 1)
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2" data-tour="rops-cc-scope">
                 <span class="text-xs font-medium" style="color: var(--text-secondary);">Showing:</span>
                 <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
                     @foreach($scopeOptions as $i => $sc)
@@ -108,7 +109,7 @@
                 </div>
             </div>
             @endif
-            <a href="{{ route('corex.rentals.command-centre.print', request()->query()) }}" target="_blank" class="corex-btn-outline text-xs">Print</a>
+            <a href="{{ route('corex.rentals.command-centre.print', request()->query()) }}" target="_blank" class="corex-btn-outline text-xs" data-tour="rops-cc-print">Print</a>
             {{-- The all-inventories list had no way in once the sidebar entry was retired on purpose
                  (it lives on a property); this is its one door for staff who want the whole list. --}}
             @permission('rental_inventories.view')
@@ -138,7 +139,7 @@
          the lg breakpoint, so the eleven tiles make exactly TWO rows (6 + 5) at laptop and desktop widths (1366, 1920).
          Narrower screens wrap to more rows (tablet 4 across, phone 2 across) — nothing scrolls sideways. The
          freed height goes to the needs-action panel and the property list below, which fill the viewport. --}}
-    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-1.5" data-qa="rcc-tiles">
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-1.5" data-qa="rcc-tiles" data-tour="rops-cc-tiles">
         @foreach($tiles as $key => $label)
         @php
             $active = $filters['tile'] === $key;
@@ -183,7 +184,7 @@
             <button type="button" onclick="corexRccSetQueueCollapsed(false)" class="corex-btn-outline text-xs">Needs action ({{ $queueTotalCount }}) — Expand</button>
         </div>
 
-        <div id="rcc-queue-panel" class="{{ $queueCollapsed ? 'hidden' : 'flex' }} w-full lg:basis-[300px] lg:max-w-[28%] lg:flex-shrink-0 lg:grow-0 flex-col rounded-md" style="background: var(--surface); border: 1px solid var(--border); min-height: 0;">
+        <div id="rcc-queue-panel" data-tour="rops-cc-queue" class="{{ $queueCollapsed ? 'hidden' : 'flex' }} w-full lg:basis-[300px] lg:max-w-[28%] lg:flex-shrink-0 lg:grow-0 flex-col rounded-md" style="background: var(--surface); border: 1px solid var(--border); min-height: 0;">
             <div class="px-3 py-2.5 flex items-center justify-between gap-2 flex-shrink-0" style="background: var(--surface-2); border-bottom: 1px solid var(--border);">
                 <span class="text-sm font-semibold" style="color: var(--text-primary);">Needs action ({{ $queueTotalCount }})</span>
                 <button type="button" onclick="corexRccSetQueueCollapsed(true)" class="text-xs flex-shrink-0" style="color: var(--text-muted);">Collapse</button>
@@ -236,7 +237,7 @@
                     <option value="property" @selected($queueGroupBy === 'property')>By prop</option>
                     <option value="date" @selected($queueGroupBy === 'date')>By date</option>
                 </select>
-                <select name="queue_sort" onchange="this.form.submit()" class="list-header-filter {{ $queueSort !== 'urgency' ? 'is-active' : '' }} text-[11px] flex-shrink-0 min-w-0" style="height: auto; padding: 0.25rem; width: 46px;" aria-label="Sort needs-action by">
+                <select name="queue_sort" data-tour="rops-cc-queue-sort" onchange="this.form.submit()" class="list-header-filter {{ $queueSort !== 'urgency' ? 'is-active' : '' }} text-[11px] flex-shrink-0 min-w-0" style="height: auto; padding: 0.25rem; width: 46px;" aria-label="Sort needs-action by">
                     <option value="urgency" @selected($queueSort === 'urgency')>Urgent</option>
                     <option value="date" @selected($queueSort === 'date')>Date</option>
                     <option value="property" @selected($queueSort === 'property')>Prop</option>
@@ -320,7 +321,7 @@
              visible while rows scroll — independent of the queue panel's
              own scroll, and without the page itself ever needing to scroll
              to reach a row. --}}
-        <div id="rcc-table-section" class="w-full lg:flex-1 min-w-0 flex flex-col" style="min-height: 0;">
+        <div id="rcc-table-section" data-tour="rops-cc-list" class="w-full lg:flex-1 min-w-0 flex flex-col" style="min-height: 0;">
             {{-- Heading (Johan, 2026-10-07: the right-hand panel had none) — says what the list is, how many rows the
                  current tile / search / filters leave, and which tile is filtering it. --}}
             <div class="flex items-center justify-between gap-2 flex-shrink-0 mb-1.5">
@@ -340,8 +341,8 @@
                 @foreach(request()->only(['queue_group_by', 'queue_sort', 'queue_property_id', 'queue_date_from', 'queue_date_to']) as $qk => $qv)
                     <input type="hidden" name="{{ $qk }}" value="{{ $qv }}">
                 @endforeach
-                <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Search" aria-label="Search address, tenant, landlord, or erf number" class="list-header-filter {{ filled($filters['q'] ?? null) ? 'is-active' : '' }} text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 120px;">
-                <select name="status" aria-label="Status" class="list-header-filter {{ filled($filters['status'] ?? null) ? 'is-active' : '' }} text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 86px;">
+                <input type="text" name="q" data-tour="rops-cc-search" value="{{ $filters['q'] ?? '' }}" placeholder="Search" aria-label="Search address, tenant, landlord, or erf number" class="list-header-filter {{ filled($filters['q'] ?? null) ? 'is-active' : '' }} text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 120px;">
+                <select name="status" data-tour="rops-cc-status" aria-label="Status" class="list-header-filter {{ filled($filters['status'] ?? null) ? 'is-active' : '' }} text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 86px;">
                     <option value="">Status</option>
                     @foreach($statusOptions as $s)
                         <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ $humanise($s) }}</option>
@@ -359,14 +360,14 @@
                         <option value="{{ $b->id }}" @selected((string) ($filters['branch_id'] ?? '') === (string) $b->id)>{{ $b->name }}</option>
                     @endforeach
                 </select>
-                <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" aria-label="Lease end from" class="list-header-filter {{ filled($filters['date_from'] ?? null) ? 'is-active' : '' }} text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 98px;">
+                <input type="date" name="date_from" data-tour="rops-cc-date-from" value="{{ $filters['date_from'] ?? '' }}" aria-label="Lease end from" class="list-header-filter {{ filled($filters['date_from'] ?? null) ? 'is-active' : '' }} text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 98px;">
                 <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" aria-label="Lease end to" class="list-header-filter {{ filled($filters['date_to'] ?? null) ? 'is-active' : '' }} text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 98px;">
                 <select name="per_page" onchange="this.form.submit()" aria-label="Rows per page" class="list-header-filter text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 54px;">
                     @foreach([10, 25, 50, 100] as $pp)
                         <option value="{{ $pp }}" @selected($properties->perPage() === $pp)>{{ $pp }}</option>
                     @endforeach
                 </select>
-                <button type="submit" class="corex-btn-primary text-xs flex-shrink-0" style="height: 2rem;">Filter</button>
+                <button type="submit" class="corex-btn-primary text-xs flex-shrink-0" style="height: 2rem;" data-tour="rops-cc-filter-btn">Filter</button>
                 @if(request()->hasAny(['q', 'status', 'agent_id', 'branch_id', 'date_from', 'date_to', 'tile']))
                     <a href="{{ route('corex.rentals.command-centre.index', array_merge(['scope' => $scope], request()->only(['queue_group_by', 'queue_sort', 'queue_property_id', 'queue_date_from', 'queue_date_to']))) }}" class="corex-btn-outline text-xs flex-shrink-0" style="height: 2rem;">Clear</a>
                 @endif
@@ -414,7 +415,7 @@
                                 @endif
                             </td>
                             <td class="px-3 py-2 whitespace-nowrap">{{ $property->last_inspection_at ? \Illuminate\Support\Carbon::parse($property->last_inspection_at)->format('Y-m-d') : 'Never' }}</td>
-                            <td class="px-3 py-2 text-right" style="position: sticky; right: 0; background: var(--surface); min-width: 90px;">
+                            <td class="px-3 py-2 text-right" style="position: sticky; right: 0; background: var(--surface); min-width: 90px;" @if($loop->first) data-tour="rops-cc-row-actions" @endif>
                                 <x-row-actions-popup>
                                     @if($property->active_lease_id)
                                     @feature('rental-leases')

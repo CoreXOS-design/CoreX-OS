@@ -125,6 +125,7 @@ words when the first result is thin. That single behaviour fixes §1.4.
 | `my_listings` | `status?`, `listing_type?`, `limit?` | Count + sample: address, suburb, price, status, type | `Property::visibleTo()` |
 | `my_deals` | `status?`, `limit?` | Count + sample: deal no, address, value, status, dates | `Deal::visibleTo()` |
 | `my_performance` | — | Month targets, actuals, gap, pace, days left | `AgentPerformanceService` |
+| `whats_new_for_me` | — | What the agency's gradual rollout switched on for this user (last 30 days, with tour links) and what is coming next (AT-478 §12.6) | `FeatureRolloutUpdates::forUser()` — own agency, only features the user can open |
 | `find_contact` | `name`, `limit?` | Matching people: name, type, agent, last contacted | `Contact::search()` + `AgencyScope` |
 | `find_property` | `query`, `limit?` | Matching properties: address, suburb, price, status, agent | `Property::visibleTo()` + address search |
 
@@ -355,7 +356,7 @@ can already see, never a bypass.
 | Property | `my_listings`, `find_property` | never |
 | Contact | `find_contact` | never |
 | Deal | `my_deals` | never |
-| Agent (User) | `my_performance` | never |
+| Agent (User) | `my_performance`, `whats_new_for_me` | never |
 
 Ellie is a **read-only lens across all four pillars** — the first surface in CoreX
 that spans them all in one conversation.

@@ -6,13 +6,14 @@
 <div class="w-full space-y-5">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rpt-kbc-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $category->name }}</h1>
                 <p class="text-xs" style="color: var(--text-muted);">{{ number_format($documents->total()) }} {{ Str::plural('document', $documents->total()) }}</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <a href="{{ route('admin.knowledge.index') }}" class="corex-btn-outline text-xs">&larr; Back</a>
             </div>
         </div>
@@ -36,7 +37,7 @@
     @endif
 
     {{-- Upload form (category pre-selected) --}}
-    <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rpt-kbc-upload">
         <h3 class="text-base font-semibold mb-4" style="color: var(--text-primary);">Upload to {{ $category->name }}</h3>
         <form action="{{ route('admin.knowledge.upload') }}" method="POST" enctype="multipart/form-data">
             @csrf
@@ -90,7 +91,7 @@
             <p class="text-sm" style="color: var(--text-muted);">Use the upload form above to add your first document.</p>
         </div>
     @else
-        <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rpt-kbc-table">
             <div class="overflow-x-auto">
                 <table class="min-w-full text-sm ds-table">
                     <thead>
@@ -116,7 +117,7 @@
                                 <td class="px-4 py-3 text-center">{!! $doc->status_badge !!}</td>
                                 <td class="px-4 py-3 text-center text-sm" style="color: var(--text-secondary);">{{ $doc->chunk_count }}</td>
                                 <td class="px-4 py-3 text-center">
-                                    <form action="{{ route('admin.knowledge.toggleEllie', $doc->id) }}" method="POST" class="inline">
+                                    <form action="{{ route('admin.knowledge.toggleEllie', $doc->id) }}" method="POST" class="inline" data-tour="rpt-kbc-ellie">
                                         @csrf
                                         <button type="submit"
                                                 class="text-xs px-2 py-0.5 rounded-md font-medium transition-all duration-300"
@@ -129,7 +130,7 @@
                                     </form>
                                 </td>
                                 <td class="px-4 py-3 text-center">
-                                    <form action="{{ route('admin.knowledge.toggleActive', $doc->id) }}" method="POST" class="inline">
+                                    <form action="{{ route('admin.knowledge.toggleActive', $doc->id) }}" method="POST" class="inline" data-tour="rpt-kbc-active">
                                         @csrf
                                         <button type="submit"
                                                 class="text-xs px-2 py-0.5 rounded-md font-medium transition-all duration-300"
@@ -145,7 +146,7 @@
                                 <td class="px-4 py-3 text-xs" style="color: var(--text-muted);">{{ $doc->created_at->format('d M Y') }}</td>
                                 <td class="px-4 py-3 text-right">
                                     <div class="flex items-center justify-end gap-2">
-                                        <a href="{{ route('admin.knowledge.preview', $doc->id) }}" class="text-xs font-medium transition-all duration-300 hover:underline" style="color: var(--brand-icon);">Preview</a>
+                                        <a href="{{ route('admin.knowledge.preview', $doc->id) }}" data-tour="rpt-kbc-preview" class="text-xs font-medium transition-all duration-300 hover:underline" style="color: var(--brand-icon);">Preview</a>
                                         <form action="{{ route('admin.knowledge.reprocess', $doc->id) }}" method="POST" class="inline">
                                             @csrf
                                             <button type="submit" class="text-xs font-medium transition-all duration-300 hover:underline" style="color: var(--ds-amber);">Reprocess</button>

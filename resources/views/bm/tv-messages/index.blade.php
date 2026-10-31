@@ -16,7 +16,7 @@
 <div class="w-full space-y-6">
 
     {{-- Page Header (AT-336: flat neutral bar) --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rpt-tvb-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">TV Messages (Branch)</h1>
@@ -25,6 +25,7 @@
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @if($bmBranchId)
                     <div class="inline-flex items-center gap-2 text-xs px-3 py-1 rounded-md"
                          style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);">
@@ -62,7 +63,7 @@
     @endif
 
     {{-- Add Message Form --}}
-    <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rpt-tvb-add">
         <h2 class="text-sm font-semibold mb-4" style="color: var(--text-primary);">Add TV Message</h2>
 
         <form method="POST" action="{{ route('bm.tv-messages.store') }}"
@@ -72,12 +73,12 @@
 
             <div>
                 <label for="tv-message-input" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Message</label>
-                <input id="tv-message-input" name="message" required
+                <input id="tv-message-input" name="message" required data-tour="rpt-tvb-message"
                        class="w-full rounded-md text-sm px-3 py-2 transition-all duration-300 placeholder:opacity-50"
                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                        placeholder="Motivational message, announcement, etc.">
 
-                <div class="mt-3">
+                <div class="mt-3" data-tour="rpt-tvb-values">
                     <div class="text-[0.6875rem] uppercase tracking-wider mb-2" style="color: var(--text-muted);">Insert values</div>
                     <div class="flex flex-wrap gap-1.5">
                         @php
@@ -104,7 +105,7 @@
             <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
                 <div class="md:col-span-3">
                     <label for="tv-display-area" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Show on</label>
-                    <select id="tv-display-area" name="display_area"
+                    <select id="tv-display-area" name="display_area" data-tour="rpt-tvb-showon"
                             class="w-full rounded-md text-sm px-3 py-2 transition-all duration-300"
                             style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         <option value="both" style="background: var(--surface); color: var(--text-primary);" selected>Hero + Ticker</option>
@@ -121,14 +122,14 @@
                 </div>
 
                 <div class="md:col-span-2">
-                    <button class="w-full corex-btn-primary">Add Message</button>
+                    <button class="w-full corex-btn-primary" data-tour="rpt-tvb-addbtn">Add Message</button>
                 </div>
             </div>
         </form>
     </div>
 
     {{-- Branch Messages List --}}
-    <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);">
+    <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);" data-tour="rpt-tvb-list">
         <div class="px-5 py-4 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
             <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Your Branch Messages</h2>
             <div class="text-xs" style="color: var(--text-muted);">{{ number_format(count($messages)) }} message{{ count($messages) !== 1 ? 's' : '' }}</div>
@@ -139,7 +140,7 @@
                 <div class="px-5 py-4 space-y-3" style="border-bottom: 1px solid var(--border);">
                     <form method="POST"
                           action="{{ route('bm.tv-messages.update', $m->id) }}"
-                          class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                          class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end" @if($loop->first) data-tour="rpt-tvb-row" @endif>
                         @csrf
                         <input type="hidden" name="branch_id" value="{{ $bmBranchId }}">
 
@@ -218,7 +219,7 @@
     </div>
 
     {{-- Global Messages (read-only) --}}
-    <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);">
+    <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);" data-tour="rpt-tvb-global">
         <div class="px-5 py-4 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
             <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Global Messages (Admin)</h2>
             <div class="text-xs" style="color: var(--text-muted);">{{ number_format(count($globalMessages ?? [])) }} global</div>

@@ -56,7 +56,7 @@
     .ai/specs/at366-period-comparison.md §2.
 --}}
 <form method="GET" @if(isset($formAction)) action="{{ $formAction }}" @endif
-      class="flex items-end gap-2 flex-wrap"
+      class="flex items-end gap-2 flex-wrap" data-tour="rpt-period"
       x-data="{
           preset: {{ Js::from($preset) }},
           start: {{ Js::from((string) request('start')) }},

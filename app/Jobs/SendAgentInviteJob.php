@@ -25,12 +25,21 @@ class SendAgentInviteJob implements ShouldQueue
      */
     public int $timeout = 120;
 
-    public int $tries = 3;
+    public int $tries = 5;
 
     /** Back off on a flapping mail host rather than burning all 3 tries at once. */
-    public array $backoff = [10, 60];
+    public array $backoff = [60, 300, 900, 1800];
 
     public function __construct(public int $userId) {}
+
+    /** Every retry (~47 min of them) failed: leave a loud trail so the invite can be resent. */
+    public function failed(\Throwable $e): void
+    {
+        Log::error('SendAgentInviteJob: invite could not be delivered after all retries', [
+            'user_id' => $this->userId,
+            'error'   => $e->getMessage(),
+        ]);
+    }
 
     public function handle(): void
     {

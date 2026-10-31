@@ -131,9 +131,9 @@
 
 <div x-data="catalogueItemPricing({{ \Illuminate\Support\Js::from($init) }}, {{ \Illuminate\Support\Js::from($cfg) }})" class="space-y-4">
     {{-- ITEM --}}
-    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-item-card">
         <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
-            <div>
+            <div data-tour="rmnt-item-type">
                 <label class="prop-label">Type</label>
                 <select name="rental_catalogue_item_type_id" required class="prop-select w-full">
                     <option value="">— Select —</option>
@@ -142,11 +142,11 @@
                     @endforeach
                 </select>
             </div>
-            <div>
+            <div data-tour="rmnt-item-code">
                 <label class="prop-label">Code</label>
                 <input type="text" name="code" value="{{ old('code', $itemOrNull?->code) }}" required maxlength="50" style="font-family: monospace;" class="prop-input w-full">
             </div>
-            <div>
+            <div data-tour="rmnt-item-unit">
                 <label class="prop-label">Unit</label>
                 <select name="rental_catalogue_unit_id" required class="prop-select w-full">
                     <option value="">— Select —</option>
@@ -155,7 +155,7 @@
                     @endforeach
                 </select>
             </div>
-            <div class="flex items-center gap-2 pb-2">
+            <div class="flex items-center gap-2 pb-2" data-tour="rmnt-item-active">
                 <input type="hidden" name="is_active" value="0">
                 <input type="checkbox" id="is_active" name="is_active" value="1" @checked(old('is_active', $itemOrNull?->is_active ?? true)) class="rounded">
                 <label for="is_active" class="prop-label !mb-0">Active</label>
@@ -167,14 +167,14 @@
         @if($catalogueUnits->isEmpty())
             <p class="text-[11px]" style="color:var(--ds-crimson);">No units configured yet — <a href="{{ route('admin.company-settings') }}#catalogue-units" class="underline">add one in Company Settings</a>.</p>
         @endif
-        <div>
+        <div data-tour="rmnt-item-desc">
             <label class="prop-label">Description</label>
             <input type="text" name="description" value="{{ old('description', $itemOrNull?->description) }}" required maxlength="500" class="prop-input w-full">
         </div>
     </div>
 
     {{-- PRICING --}}
-    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-catalogue-pricing>
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-catalogue-pricing data-tour="rmnt-item-pricing">
         <div class="flex items-center justify-between gap-3">
             <h2 class="text-sm font-semibold">Pricing</h2>
             @if($vatTypes->isNotEmpty())
@@ -206,12 +206,12 @@
 
             @if($canViewCosts)
                 <span class="cip-label">Cost</span>
-                <input type="text" inputmode="decimal" @focus="selectAll($event)" @mouseup="keepSelected($event)" name="cost_excl" :value="costExcl" @input="typeCostExcl($event.target.value)" @change="tidy('costExcl')" class="prop-input" autocomplete="off">
+                <input type="text" inputmode="decimal" @focus="selectAll($event)" @mouseup="keepSelected($event)" name="cost_excl" :value="costExcl" @input="typeCostExcl($event.target.value)" @change="tidy('costExcl')" class="prop-input" autocomplete="off" data-tour="rmnt-item-cost">
                 <input type="text" :value="vat('costExcl', 'costIncl')" readonly tabindex="-1" class="prop-input" aria-label="Cost VAT">
                 <input type="text" inputmode="decimal" @focus="selectAll($event)" @mouseup="keepSelected($event)" name="cost_incl" :value="costIncl" @input="typeCostIncl($event.target.value)" @change="tidy('costIncl')" class="prop-input" autocomplete="off">
 
                 <span class="cip-label">Markup</span>
-                <input type="text" inputmode="decimal" @focus="selectAll($event)" @mouseup="keepSelected($event)" name="markup_value" :value="markupValue" @input="typeMarkup($event.target.value)" @change="tidy('markupValue')" class="prop-input" autocomplete="off" aria-label="Markup value">
+                <input type="text" inputmode="decimal" @focus="selectAll($event)" @mouseup="keepSelected($event)" name="markup_value" :value="markupValue" @input="typeMarkup($event.target.value)" @change="tidy('markupValue')" class="prop-input" autocomplete="off" aria-label="Markup value" data-tour="rmnt-item-markup">
                 <div class="cip-radios">
                     <input type="hidden" name="markup_type" :value="markupType">
                     <label><input type="radio" :checked="markupType === 'rand'" @change="setMarkupType('rand')"> R</label>
@@ -221,7 +221,7 @@
             @endif
 
             <span class="cip-label">Selling</span>
-            <input type="text" inputmode="decimal" @focus="selectAll($event)" @mouseup="keepSelected($event)" name="selling_excl" :value="sellExcl" @input="typeSellExcl($event.target.value)" @change="tidy('sellExcl')" class="prop-input" autocomplete="off">
+            <input type="text" inputmode="decimal" @focus="selectAll($event)" @mouseup="keepSelected($event)" name="selling_excl" :value="sellExcl" @input="typeSellExcl($event.target.value)" @change="tidy('sellExcl')" class="prop-input" autocomplete="off" data-tour="rmnt-item-selling">
             <input type="text" :value="vat('sellExcl', 'sellIncl')" readonly tabindex="-1" class="prop-input" aria-label="Selling VAT">
             <input type="text" inputmode="decimal" @focus="selectAll($event)" @mouseup="keepSelected($event)" name="selling_incl" :value="sellIncl" @input="typeSellIncl($event.target.value)" @change="tidy('sellIncl')" class="prop-input" autocomplete="off">
         </div>

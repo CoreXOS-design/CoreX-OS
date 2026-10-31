@@ -8,8 +8,8 @@
 @section('content')
 <div class="p-6 space-y-4">
     <div class="flex items-center justify-between">
-        <h1 class="text-lg font-semibold">Import preview — {{ $source_filename }}</h1>
-        <a href="{{ route('corex.rental-catalogue-items.import.index') }}" class="text-xs underline" style="color: var(--text-muted);">&larr; Upload a different file</a>
+        <h1 class="text-lg font-semibold" data-tour="rmnt-impprev-title">Import preview — {{ $source_filename }}</h1>
+        <a href="{{ route('corex.rental-catalogue-items.import.index') }}" class="text-xs underline" style="color: var(--text-muted);" data-tour="rmnt-impprev-back">&larr; Upload a different file</a>
     </div>
 
     @if(session('success'))
@@ -21,7 +21,7 @@
         </div>
     @endif
 
-    <div class="flex flex-wrap gap-3 text-sm">
+    <div class="flex flex-wrap gap-3 text-sm" data-tour="rmnt-impprev-counts">
         <span class="ds-badge ds-badge-muted">{{ $counts['total'] }} row(s)</span>
         <span class="ds-badge ds-badge-info">{{ $counts['create'] }} new</span>
         <span class="ds-badge" style="background: #eff6ff; color: #1d4ed8;">{{ $counts['update'] }} will update</span>
@@ -31,7 +31,7 @@
         @endif
     </div>
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-impprev-table">
         <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
@@ -44,7 +44,7 @@
                     <th class="text-left px-3 py-2 font-medium">VAT type</th>
                     <th class="text-right px-3 py-2 font-medium">Price (excl)</th>
                     @if(!empty($with_cost))<th class="text-right px-3 py-2 font-medium">Cost (excl)</th>@endif
-                    <th class="text-left px-3 py-2 font-medium">Action</th>
+                    <th class="text-left px-3 py-2 font-medium" data-tour="rmnt-impprev-actioncol">Action</th>
                 </tr>
             </thead>
             <tbody>
@@ -83,7 +83,7 @@
 
     <form method="POST" action="{{ route('corex.rental-catalogue-items.import.confirm', $token) }}" data-confirm="Import {{ $counts['create'] }} new item(s) and update {{ $counts['update'] }} existing item(s)?" data-confirm-label="Import">
         @csrf
-        <button type="submit" class="corex-btn-primary text-sm" @disabled($counts['create'] === 0 && $counts['update'] === 0)>
+        <button type="submit" class="corex-btn-primary text-sm" data-tour="rmnt-impprev-confirm" @disabled($counts['create'] === 0 && $counts['update'] === 0)>
             Confirm import ({{ $counts['create'] + $counts['update'] }} row(s))
         </button>
     </form>

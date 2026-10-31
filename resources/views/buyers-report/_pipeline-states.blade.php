@@ -22,7 +22,7 @@
 <p class="text-[11px] mb-3" style="color: var(--text-muted);">
     Current state, right now — matches the Buyer Pipeline board exactly (not a period figure).
 </p>
-<div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-4">
+<div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-4" data-tour="rpt-br-pipeline">
     @foreach(\App\Services\BuyersReport\PipelineStateService::STATES as $key => $label)
         @php $mv = $m[$key] ?? ['entered' => 0, 'left' => 0]; @endphp
         <button type="button" @click="drill('pipeline_state', @js($label), null, @js($key))"

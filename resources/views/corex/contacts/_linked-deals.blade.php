@@ -2,7 +2,9 @@
      while, but nothing on this page ever surfaced it (see ContactController::show()
      2026-09-02 addition). Read-only: deal-party linking is managed from the deal
      itself, not here — this list exists so an agent can see, at a glance, every
-     deal this contact has been a buyer or seller party on. --}}
+     deal this contact has been a buyer or seller party on.
+     AT-478: hidden as a whole when the agency has Deals switched off. --}}
+@feature('deals')
 <div>
     <h3 class="text-xs font-bold uppercase tracking-widest mb-3" style="color:var(--text-muted);">
         Linked Deals ({{ $linkedDeals->count() }})
@@ -44,3 +46,4 @@
     </div>
     @endforelse
 </div>
+@endfeature

@@ -26,9 +26,14 @@
 @section('corex-content')
 <div class="w-full space-y-5">
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
-        <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental take-on import</h1>
-        <p class="text-xs" style="color: var(--text-muted);">Bring an existing rental book into CoreX: upload it, check each row, then confirm. Nothing is created or sent until you confirm.</p>
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rops-imp-intro">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental take-on import</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Bring an existing rental book into CoreX: upload it, check each row, then confirm. Nothing is created or sent until you confirm.</p>
+            </div>
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+        </div>
     </div>
 
     @if (session('status'))
@@ -39,7 +44,7 @@
     @endif
 
     @unless ($showArchived)
-    <div class="corex-card p-4 space-y-3">
+    <div class="corex-card p-4 space-y-3" data-tour="rops-imp-upload">
         <h2 class="text-sm font-semibold">Upload a take-on book</h2>
         <p class="text-xs text-muted">
             Download the template, fill in one row per tenancy, then upload it here.
@@ -47,13 +52,13 @@
             Importing never emails or messages a landlord or tenant.
         </p>
         <div class="flex items-center gap-3">
-            <a href="{{ route('corex.rentals.take-on-import.template') }}" class="corex-btn-secondary text-xs">Download template</a>
-            <a href="{{ route('corex.rentals.take-on-import.mappings.index') }}" class="corex-btn-secondary text-xs">Saved column mappings</a>
+            <a href="{{ route('corex.rentals.take-on-import.template') }}" class="corex-btn-secondary text-xs" data-tour="rops-imp-template">Download template</a>
+            <a href="{{ route('corex.rentals.take-on-import.mappings.index') }}" class="corex-btn-secondary text-xs" data-tour="rops-imp-mappings">Saved column mappings</a>
         </div>
         <form method="POST" action="{{ route('corex.rentals.take-on-import.upload') }}" enctype="multipart/form-data" class="flex items-center gap-3">
             @csrf
-            <input type="file" name="file" accept=".xlsx,.csv" required class="text-xs">
-            <button type="submit" class="corex-btn-primary text-xs">Upload &amp; preview</button>
+            <input type="file" name="file" accept=".xlsx,.csv" required class="text-xs" data-tour="rops-imp-file">
+            <button type="submit" class="corex-btn-primary text-xs" data-tour="rops-imp-submit">Upload &amp; preview</button>
         </form>
         <p class="text-xs text-muted">
             Uploading a file from another CRM? Upload it directly — if its columns don't match our
@@ -89,15 +94,15 @@
     @endunless
 
     <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
-        <form method="GET" class="flex flex-wrap items-end gap-3">
+        <form method="GET" class="flex flex-wrap items-end gap-3" data-tour="rops-imp-filters">
             <input type="hidden" name="archived" value="{{ $showArchived ? 1 : 0 }}">
             <div class="flex flex-col gap-1">
                 <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
-                <input type="text" name="q" value="{{ request('q') }}" placeholder="Filename or uploader" class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}">
+                <input type="text" name="q" data-tour="rops-imp-search" value="{{ request('q') }}" placeholder="Filename or uploader" class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}">
             </div>
             <div class="flex flex-col gap-1">
                 <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
-                <select name="status" class="list-header-filter text-sm {{ filled(request('status')) ? 'is-active' : '' }}">
+                <select name="status" data-tour="rops-imp-status" class="list-header-filter text-sm {{ filled(request('status')) ? 'is-active' : '' }}">
                     <option value="">All statuses</option>
                     @foreach (['parsing', 'mapping_pending', 'pending_confirm', 'importing', 'completed', 'failed', 'cancelled'] as $s)
                         <option value="{{ $s }}" @selected(request('status') === $s)>{{ ucfirst(str_replace('_', ' ', $s)) }}</option>
@@ -112,7 +117,7 @@
                 <label class="text-xs font-medium" style="color: var(--text-secondary);">To</label>
                 <input type="date" name="date_to" value="{{ request('date_to') }}" class="list-header-filter text-sm {{ filled(request('date_to')) ? 'is-active' : '' }}">
             </div>
-            <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+            <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;" data-tour="rops-imp-filter-btn">Filter</button>
             <a href="{{ route('corex.rentals.take-on-import.index', ['archived' => $showArchived ? 0 : 1]) }}" class="corex-btn-outline text-sm" style="height:2.25rem;">
                 {{ $showArchived ? 'Back to active batches' : 'View archived batches' }}
             </a>
@@ -123,7 +128,7 @@
         </form>
     </div>
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rops-imp-list">
         @if ($runs->isEmpty())
             <div class="ds-empty-state px-6 py-12 text-center text-sm text-muted">
                 @if ($showArchived)

@@ -769,6 +769,8 @@ html.dark :is(.docuperfect-document-body, .corex-document-wrapper) textarea {
 .corex-page-footer.corex-page-rule { border-top: 0.75pt solid #000; padding-top: 3pt; }
 .corex-page-number::before { content: "1"; }
 .corex-page-header-cover { display: none; }
+/* The first-page variant of a header / footer: only the e-sign paginator draws it (page one); everywhere else the default shows. */
+.corex-page-header.corex-page-first, .corex-page-footer.corex-page-first { display: none; }
 @media print {
     /* In the page margin (negative offset), so the body never runs underneath them. */
     .corex-page-header { position: fixed; top: -0.32in; left: 0; right: 0; }

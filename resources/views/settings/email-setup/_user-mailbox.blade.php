@@ -74,7 +74,7 @@
 
             {{-- Revealed once, only for the mailbox just revealed. --}}
             @if($allowReveal && (int) $revealedId === (int) $mbx->id && $revealedPass !== null)
-                <div class="mt-2 rounded-md px-3 py-2 text-xs" style="background: color-mix(in srgb, var(--ds-amber, #d97706) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #d97706) 30%, transparent); color: var(--text-primary, #1f2937);">
+                <div data-desk-mask class="mt-2 rounded-md px-3 py-2 text-xs" style="background: color-mix(in srgb, var(--ds-amber, #d97706) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #d97706) 30%, transparent); color: var(--text-primary, #1f2937);">
                     Password (shown once, this reveal is logged): <code class="font-mono font-semibold">{{ $revealedPass }}</code>
                 </div>
             @endif

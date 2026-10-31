@@ -5,7 +5,7 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (Pattern A) --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cop-stkc-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Start New Take-On</h1>
@@ -32,7 +32,7 @@
                 @if($eligibleUsers->isEmpty())
                     <p class="text-xs" style="color:var(--text-muted);">All users are already on payroll. Create a new user in User Management first.</p>
                 @else
-                    <select name="user_id" required class="w-full px-3 py-2 text-sm rounded-md focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    <select name="user_id" data-tour="cop-stkc-user-select" required class="w-full px-3 py-2 text-sm rounded-md focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                         <option value="">-- Choose a user --</option>
                         @foreach($eligibleUsers as $user)
                             <option value="{{ $user->id }}">{{ $user->name }} ({{ $user->designation ?? 'No designation' }}) — {{ $user->email }}</option>
@@ -47,7 +47,7 @@
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Take-On Type <span style="color:var(--ds-crimson);">*</span></label>
-                        <select name="take_on_type" required class="w-full px-3 py-2 text-sm rounded-md focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                        <select name="take_on_type" data-tour="cop-stkc-type" required class="w-full px-3 py-2 text-sm rounded-md focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                             <option value="new_hire">New Hire</option>
                             <option value="migration_from_old_system">Migration from Old System</option>
                             <option value="transfer_from_other_branch">Transfer from Other Branch</option>
@@ -55,14 +55,14 @@
                     </div>
                     <div>
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Take-On Date <span style="color:var(--ds-crimson);">*</span></label>
-                        <input type="date" name="take_on_date" value="{{ date('Y-m-d') }}" required
+                        <input type="date" data-tour="cop-stkc-date" name="take_on_date" value="{{ date('Y-m-d') }}" required
                                class="w-full px-3 py-2 text-sm rounded-md focus:outline-none" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                     </div>
                 </div>
             </div>
 
             <div class="flex items-center gap-3">
-                <button type="submit" class="corex-btn-primary text-xs disabled:opacity-40 disabled:cursor-not-allowed" {{ $eligibleUsers->isEmpty() ? 'disabled' : '' }}>Start Wizard</button>
+                <button type="submit" data-tour="cop-stkc-start" class="corex-btn-primary text-xs disabled:opacity-40 disabled:cursor-not-allowed" {{ $eligibleUsers->isEmpty() ? 'disabled' : '' }}>Start Wizard</button>
                 <a href="{{ route('staff-take-on.index') }}" class="corex-btn-outline text-xs">Cancel</a>
             </div>
         </div>

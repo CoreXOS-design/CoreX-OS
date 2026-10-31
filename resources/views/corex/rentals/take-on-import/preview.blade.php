@@ -8,9 +8,12 @@
 
 @section('content')
 <div class="p-6 space-y-4">
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between" data-tour="rops-top-intro">
         <h1 class="text-lg font-semibold">Review take-on import — {{ $run->source_filename }}</h1>
-        <a href="{{ route('corex.rentals.take-on-import.index') }}" class="corex-btn-secondary text-xs">Back to batches</a>
+        <div class="flex items-center gap-2">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+            <a href="{{ route('corex.rentals.take-on-import.index') }}" class="corex-btn-secondary text-xs">Back to batches</a>
+        </div>
     </div>
 
     @if (session('status'))
@@ -20,7 +23,7 @@
         <div class="ds-alert-danger">{{ session('error') }}</div>
     @endif
 
-    <div class="corex-card p-4 text-xs flex gap-6">
+    <div class="corex-card p-4 text-xs flex gap-6" data-tour="rops-top-counts">
         <div><strong>{{ $run->counts_json['total'] ?? 0 }}</strong> rows</div>
         <div><strong>{{ $run->counts_json['will_create_property'] ?? 0 }}</strong> new properties</div>
         <div><strong>{{ $run->counts_json['will_match_property'] ?? 0 }}</strong> matched properties</div>
@@ -29,7 +32,7 @@
         <div><strong>{{ $run->counts_json['errors'] ?? 0 }}</strong> rows with errors</div>
     </div>
 
-    <p class="text-xs text-muted">
+    <p class="text-xs text-muted" data-tour="rops-top-note">
         Nothing below has been created yet. Tick the rows you want to import and press "Import selected",
         or import one row at a time. Rows with errors cannot be imported until fixed in the spreadsheet and
         re-uploaded as a new batch. Importing never emails or messages a landlord or tenant.
@@ -46,12 +49,12 @@
     <div class="corex-card p-4">
             <div class="flex items-center justify-between mb-3">
                 <label class="text-xs flex items-center gap-2">
-                    <input type="checkbox" id="rtoi-select-all" onclick="document.querySelectorAll('.rtoi-row-check').forEach(cb => { if (!cb.disabled) cb.checked = this.checked; })">
+                    <input type="checkbox" data-tour="rops-top-select-all" id="rtoi-select-all" onclick="document.querySelectorAll('.rtoi-row-check').forEach(cb => { if (!cb.disabled) cb.checked = this.checked; })">
                     Select all without errors
                 </label>
-                <button type="submit" form="rtoi-bulk-form" class="corex-btn-primary text-xs">Import selected</button>
+                <button type="submit" form="rtoi-bulk-form" class="corex-btn-primary text-xs" data-tour="rops-top-bulk">Import selected</button>
             </div>
-            <div class="overflow-x-auto">
+            <div class="overflow-x-auto" data-tour="rops-top-table">
             <table class="ds-table w-full text-xs">
                 <thead>
                     <tr>
@@ -100,11 +103,11 @@
                                 @if (!in_array($row->status, ['confirmed', 'excluded']))
                                     <form method="POST" action="{{ route('corex.rentals.take-on-import.rows.confirm', $row) }}" class="inline">
                                         @csrf
-                                        <button type="submit" class="corex-btn-secondary text-xs" @disabled($row->hasBlockingErrors())>Import</button>
+                                        <button type="submit" class="corex-btn-secondary text-xs" data-tour="rops-top-import" @disabled($row->hasBlockingErrors())>Import</button>
                                     </form>
                                     <form method="POST" action="{{ route('corex.rentals.take-on-import.rows.exclude', $row) }}" class="inline">
                                         @csrf
-                                        <button type="submit" class="corex-btn-danger-outline text-xs">Exclude</button>
+                                        <button type="submit" class="corex-btn-danger-outline text-xs" data-tour="rops-top-exclude">Exclude</button>
                                     </form>
                                 @endif
                             </td>

@@ -1,9 +1,9 @@
 @extends('layouts.corex')
 
 @section('content')
-<div class="mb-4">@include('corex.notices._tabs', ['active' => 'breaches'])</div>
 <div class="p-6 space-y-4 max-w-4xl" data-qa="bulk-result">
     <h1 class="text-lg font-semibold">Breach notices sent</h1>
+    @include('corex.notices._tabs', ['active' => 'breaches'])
     <p class="text-sm"><strong data-issued-count>{{ count($result['issued']) }}</strong> breach {{ count($result['issued']) === 1 ? 'notice' : 'notices' }} sent (reference {{ $result['batch'] }}).
         @if($ignored > 0) {{ $ignored }} {{ $ignored === 1 ? 'lease' : 'leases' }} with no amount {{ $ignored === 1 ? 'was' : 'were' }} left alone. @endif
         Each was emailed from your own mailbox, the landlord was told, and both can read it in their portal.</p>

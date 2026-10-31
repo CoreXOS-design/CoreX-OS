@@ -259,7 +259,7 @@
                                             @php
                                                 $taskLink = $task->property ? route('corex.properties.show', $task->property)
                                                           : ($task->contact  ? route('corex.contacts.show',  $task->contact)
-                                                          : ($task->deal_id  ? route('deals-v2.show',        $task->deal_id) : null));
+                                                          : (($task->deal_id && feature('deals')) ? route('deals-v2.show',        $task->deal_id) : null));
                                                 $tag = $task->pillarTag();
                                                 $searchHay = strtolower(trim(
                                                     ($task->title ?? '') . ' ' .

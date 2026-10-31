@@ -232,3 +232,68 @@ the screens they describe, like the existing tours.
   product decision, recorded in `AdvancedGuidingTest::RETIRED_SCREENS`.
 - Manager reporting on who used which guide.
 - The guide filling anything in for the agent (by design, per Principle #5).
+
+## 12. Coverage pass — a guide for every switchable feature (2026-10-20, AT-478 follow-on)
+
+**Why.** The gradual feature rollout (AT-478) tells an agency "this group is now on — here is the
+guided tour". Dev Settings → Feature rollout showed **40 of the 66 switchable features with no tour
+at all**, so for those the release pop-up has nothing to hand the agent. Andre's instruction:
+"build all the tours and advanced tours that are missing".
+
+**What gets built.** Every feature below gets at least one tour on its main screen, written to the
+same standard as every existing tour (one definition drives all three modes):
+- a **Guided Tour** that explains the screen in plain words;
+- **Advanced Guide** steps (`do`: fill / choose / click / appear) that walk the job the screen is for;
+- **Spot Help** `section`s naming each part of the screen;
+- record screens (one lease, one work order…) declare `pick_from` + `pick_note`;
+- the page header carries the shared "?" slot (`tour-header-launcher`).
+
+A feature with several distinct jobs (a list and its create form, a register and its detail page)
+gets one tour per main screen, not one per route.
+
+| Group | Features |
+|-------|----------|
+| Rentals | Rentals, Rental Command Centre, Leases, Rental Applications, Rental Take-On Import, Rental Reports, Rental Notices, Rental Fault Reports & Types, Rental Work Orders, Rental Job Cards, Rental Crews, Parts & Labour Catalogue, Rental Inspections & Inventories |
+| Sales & marketing | Road to Sold, Marketing, Public website, Marketing Suppressions, Imported Stock, Viewing Packs, Deeds Capture, Address Review |
+| Company & people | Billing, Finance Engine, Proforma Invoices, Multi-branch offices, Staff Take-On, Agent Onboarding, PPRA Employment Letters, PPRA Inspection Pack |
+| Reports & tools | Buyers Report, Lead Response Report, Performance & ROI Report, Contact Governance, Misfiled Documents, Soft Deletes (recover archived records), Title Deeds, Knowledge Base, Guided Tours (the directory), Image Converter, TV Display |
+
+**Rules (unchanged from §8, restated for this pass).**
+- Anchors are `data-tour="…"` attributes added to the existing markup only — no layout, wording,
+  behaviour or styling change to any screen.
+- Wording is neutral for any agency (multi-agency rule): no agency names, no agency-specific
+  examples, amounts or addresses.
+- A tour's `permission` is its page's own gate (`AdvancedGuidingTest::test_tour_permission_matches_its_page_gate`),
+  so a tour is offered to exactly the people who can open the page.
+- Each tour is counted for its feature by `FeatureTourCoverage` (through its permission or route),
+  so the "no tour yet" label disappears in Dev Settings and on the agency progress page.
+- The guide never types, picks or saves for the agent (Principle #5).
+
+**Data / permissions / API.** None new — tours are code-defined data (`app/Support/Tours/defs/*.php`).
+
+**Acceptance.**
+- Dev Settings → Feature rollout shows a tour for every switchable feature.
+- `TourRegistryIntegrityTest` and `AdvancedGuidingTest` green (every anchor exists in a view; every
+  page tour has hands-on steps and sections; permissions match page gates).
+- Every new tour's main screen renders on QA2 with all of its always-visible anchors present.
+
+### 12.1 Round 2 — side pages (2026-10-20)
+
+Andre: tour the remaining real screens of those features too. 49 more tours: record and side screens of
+Rentals (hub contacts / pipeline / properties / matches, document types, lease agreement confirm, breach,
+deposit deductions, renewal, notice and breach detail, application review and submission, the authorisation
+queue and decision, take-on import batch / map columns / preview / saved mappings, property history), rental
+maintenance (fault-type edit, crew link log, catalogue import preview, deposit comparison, scan review,
+inventory start / detail / comparison), reports (one agent / one branch of the Buyers and Performance reports),
+finance audit run and deal, PPRA inspection pack practitioners / sales & rentals / transformation, the agent's
+own PPRA employment letter, Road to Sold settings / areas / outcomes, title deed hand-over, and the branch
+manager's TV messages.
+
+Deliberately NOT toured (nothing to guide): print views, spreadsheet/CSV exports, JSON lookups, file
+downloads, previews, the retired `/rental*` and `/rentals*` addresses that only redirect, the tenant's
+on-device signing page, the social-media page picker mid-OAuth, and the CoreX owner's agency management.
+
+New optional tour key `user_check` (TourRegistry::visibleTo): a no-argument User method that must return
+true — for a screen gated on named people rather than a permission or role. Used by the authorisation queue
+tours (`seesRentalAuthorisationQueue`), so the Guided Tours page never offers them to someone the queue turns
+away. Test: `AdvancedGuidingTest::test_user_check_offers_the_authorisation_guides_only_to_reviewers`.

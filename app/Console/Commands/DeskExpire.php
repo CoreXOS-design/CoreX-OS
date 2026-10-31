@@ -17,7 +17,7 @@ class DeskExpire extends Command
 
     public function handle(DeskSessionService $desk): int
     {
-        $this->info('Closed ' . $desk->expireStale() . ' Desk session(s).');
+        $this->info('Closed ' . $desk->expireStale(true) . ' Desk session(s).');
 
         return self::SUCCESS;
     }

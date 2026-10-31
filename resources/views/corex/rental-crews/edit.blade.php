@@ -17,6 +17,7 @@
                 <p class="text-xs" style="color: var(--text-muted);">Edit this crew, give it a link for its phone, and manage its members.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 <a href="{{ route('corex.rental-crews.index') }}" class="corex-btn-outline text-xs">&larr; All crews</a>
             </div>
         </div>
@@ -31,10 +32,10 @@
         </div>
     @endif
 
-    <form method="POST" action="{{ route('corex.rental-crews.update', $crew) }}" class="space-y-5 rounded-md p-6 max-w-3xl" style="background: var(--surface); border: 1px solid var(--border);">
+    <form method="POST" action="{{ route('corex.rental-crews.update', $crew) }}" class="space-y-5 rounded-md p-6 max-w-3xl" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-crewedit-details">
         @csrf
         @method('PUT')
-        <div>
+        <div data-tour="rmnt-crewedit-name">
             <label class="prop-label">Name</label>
             <input type="text" name="name" value="{{ old('name', $crew->name) }}" required maxlength="191" class="prop-input w-full">
         </div>
@@ -52,18 +53,18 @@
             <label class="prop-label">Notes</label>
             <textarea name="notes" rows="3" class="prop-input w-full">{{ old('notes', $crew->notes) }}</textarea>
         </div>
-        <div class="flex items-center gap-2" style="color: var(--text-primary);">
+        <div class="flex items-center gap-2" style="color: var(--text-primary);" data-tour="rmnt-crewedit-active">
             <input type="checkbox" id="is_active" name="is_active" value="1" @checked($crew->is_active) class="rounded">
             <label for="is_active" class="prop-label !mb-0">Active</label>
         </div>
         <div class="flex justify-end pt-4" style="border-top: 1px solid var(--border);">
-            <button type="submit" class="corex-btn-primary text-sm">Save</button>
+            <button type="submit" class="corex-btn-primary text-sm" data-tour="rmnt-crewedit-save">Save</button>
         </div>
     </form>
 
     @include('corex.rental-crews._crew-link-panel', ['crew' => $crew])
 
-    <div class="rounded-md p-6 space-y-3 max-w-3xl" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-6 space-y-3 max-w-3xl" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-crewedit-members">
         <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Members</h2>
         @forelse($crew->members as $member)
             <div class="flex items-center justify-between gap-2 text-sm" style="color: var(--text-primary); border-top: 1px solid var(--border); padding-top: 8px;">
@@ -84,10 +85,10 @@
 
         <form method="POST" action="{{ route('corex.rental-crews.members.store', $crew) }}" class="grid grid-cols-1 sm:grid-cols-4 gap-2 pt-3 items-end">
             @csrf
-            <input type="text" name="name" required maxlength="191" placeholder="Name" aria-label="Member name" class="prop-input">
+            <input type="text" name="name" required maxlength="191" placeholder="Name" aria-label="Member name" class="prop-input" data-tour="rmnt-crewedit-member-name">
             <input type="text" name="role" maxlength="100" placeholder="Role (optional)" aria-label="Role" class="prop-input">
             <input type="text" name="phone" maxlength="30" placeholder="Phone (optional)" aria-label="Phone" class="prop-input">
-            <button type="submit" class="corex-btn-outline text-xs">Add member</button>
+            <button type="submit" class="corex-btn-outline text-xs" data-tour="rmnt-crewedit-member-add">Add member</button>
         </form>
 
         @if($archivedMembers->isNotEmpty())
