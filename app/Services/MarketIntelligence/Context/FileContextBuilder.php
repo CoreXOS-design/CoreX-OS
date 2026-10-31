@@ -128,6 +128,7 @@ final class FileContextBuilder
             'suburb' => $suburb !== null ? (int) $suburb : null, 'class' => $class, 'price' => $price, 'date' => substr($date, 0, 10), 'size' => $size,
             'address' => $address !== null && trim($address) !== '' ? trim($address) : null,
             'street' => self::streetKey($streetName ?? $address), 'complex' => self::complexKey($complex), 'tp' => $tp, 'source' => $source,
+            'addr' => self::addressKey($address),
         ];
     }
 
@@ -152,6 +153,18 @@ final class FileContextBuilder
         $t = trim((string) preg_replace('/\s+/u', ' ', (string) preg_replace('/[^\p{L}0-9 ]/u', ' ', (string) $t)));
 
         return mb_strlen($t) >= 4 && preg_match('/[a-z]{3}/u', $t) ? $t : null;
+    }
+
+    /** "66 EFFINGHAM PARADE, TRAFALGAR" -> "66 effingham parade" (number + street, suburb dropped); null without a house number. Used to keep a file's own sale out of its nearby list. */
+    public static function addressKey(?string $text): ?string
+    {
+        if ($text === null) {
+            return null;
+        }
+        $t = mb_strtolower(trim(explode(',', $text)[0]));
+        $t = trim((string) preg_replace('/\s+/u', ' ', (string) preg_replace('/[^\p{L}0-9 ]/u', ' ', $t)));
+
+        return preg_match('/^[0-9]+[a-z]? [a-z]/u', $t) ? $t : null;
     }
 
     public static function complexKey(?string $text): ?string
@@ -249,14 +262,15 @@ final class FileContextBuilder
 
             // nearby sales: same street, then same complex, then same suburb + class; newest first within a tier, never the file's own sale
             $picked = [];
-            $take = function (array $indexes, string $match) use (&$picked, $pool, $id) {
+            $ownAddr = self::addressKey(trim(($tp->street_number ? $tp->street_number . ' ' : '') . $tp->street_name));
+            $take = function (array $indexes, string $match) use (&$picked, $pool, $id, $ownAddr) {
                 foreach ($indexes as $i) {
                     if (count($picked) >= 3) {
                         return;
                     }
                     $s = $pool['all'][$i];
-                    if (($s['tp'] ?? null) === $id || isset($picked[$i])) {
-                        continue;
+                    if (($s['tp'] ?? null) === $id || isset($picked[$i]) || ($ownAddr !== null && $s['addr'] === $ownAddr && $match !== 'complex')) {
+                        continue;      // never the file's own sale (by file id, or by its own street address)
                     }
                     $picked[$i] = $s + ['match' => $match];
                 }
