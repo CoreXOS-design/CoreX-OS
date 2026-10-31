@@ -83,7 +83,8 @@ final class MicCaptureBackfill
 
         /** @var array<string, array{size: ?int, numbers: list<string>, first: ?string, last: ?string}> $all */
         $all = [];
-        DB::table('portal_captures')->where('page_type', 'search')->where('source_site', 'like', '%property24%')->whereNotNull('raw_html_path')
+        // any stored Property24 page: a results page filed under another page type still carries the same group markup
+        DB::table('portal_captures')->where('source_site', 'like', '%property24%')->whereNotNull('raw_html_path')
             ->orderBy('id')->select('id', 'raw_html_path', 'created_at')->chunkById(50, function ($rows) use (&$all, &$stats) {
                 foreach ($rows as $r) {
                     $html = $this->readCapture((string) $r->raw_html_path);
