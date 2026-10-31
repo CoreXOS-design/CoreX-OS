@@ -617,7 +617,7 @@ class MarketIntelligenceController extends Controller
 
         // Sorting
         // Score (mic-work-tab.md 3) is the default sort once cc5 has computed it; the old sorts all still work. It orders by the file's stored score, so it
-        // runs on the full-hydration path (the SQL-paginated fast path knows plain columns only).
+        // has its own expression in the SQL-paginated fast path (ProspectingListingPageResolver::SCORE_EXPR); the slow path (buyer sorts, bands) orders by the same expression.
         $hasScores = \App\Services\Prospecting\MicWork\MicWorkList::hasScores();
         $sortBy = $request->get('sort', $hasScores ? 'score' : 'last_seen_at');
         $sortDir = $request->get('dir', 'desc');
@@ -650,11 +650,11 @@ class MarketIntelligenceController extends Controller
         $page = (int) $request->get('page', 1);
         $perPage = 50;
         $pageResolver = app(\App\Services\Prospecting\ProspectingListingPageResolver::class);
-        $useFastPath = $sortBy !== 'score' && $pageResolver->canUseFastPath($request, $isProspectingManager, $selectedBuyerId);
+        $useFastPath = $pageResolver->canUseFastPath($request, $isProspectingManager, $selectedBuyerId);
         $injectedStockCountBySuburb = [];
 
         if ($useFastPath) {
-            $effectiveSortBy = in_array($sortBy, $allowedSorts) ? $sortBy : 'last_seen_at';
+            $effectiveSortBy = ($sortBy === 'score' && $hasScores) || in_array($sortBy, $allowedSorts) ? $sortBy : 'last_seen_at';
             $effectiveSortDir = $sortDir === 'asc' ? 'asc' : 'desc';
 
             $resolved = $pageResolver->resolvePage(clone $query, $effectiveSortBy, $effectiveSortDir, $page, $perPage);
