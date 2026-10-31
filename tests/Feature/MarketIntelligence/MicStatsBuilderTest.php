@@ -206,7 +206,13 @@ final class MicStatsBuilderTest extends TestCase
         $this->assertSame(40, $s->detailPagesPerSession());
         $this->assertSame(45, $s->fastSaleDays());
         $this->assertSame(range(1, 11), $s->tilesShown());
+        $this->assertSame([7, 50, 3, 3], [$s->refreshStaleDays(), $s->approxReadMinSharePct(), $s->approxReadMinAdverts(), $s->workingSuburbMinCount()], 'cc4 rules: refresh 7 d, approx read 50% / 3 adverts, working suburb 3');
         $this->assertSame(0, MicAgencySetting::query()->count(), 'reading settings never writes');
+
+        $custom = new MicAgencySetting(['agency_id' => $this->a, 'values' => ['refresh_interval_days' => 10, 'approx_read_min_share_pct' => 80, 'approx_read_min_adverts' => 5, 'working_suburb_min_count' => 2]]);
+        $this->assertSame([10, 80, 5, 2], [$custom->refreshStaleDays(), $custom->approxReadMinSharePct(), $custom->approxReadMinAdverts(), $custom->workingSuburbMinCount()], 'refreshStaleDays is the Settings page refresh interval, not a second value');
+        $capped = new MicAgencySetting(['agency_id' => $this->a, 'values' => ['approx_read_min_share_pct' => 250, 'working_suburb_min_count' => 0]]);
+        $this->assertSame([100, 3], [$capped->approxReadMinSharePct(), $capped->workingSuburbMinCount()], 'share is capped at 100; a non-positive count falls back to the default');
 
         $bad = new MicAgencySetting(['agency_id' => $this->a, 'values' => ['score_weights' => ['seller' => 50, 'buyer' => 50, 'pocket' => 20, 'known' => 15, 'reachable' => 10]]]);
         $this->assertSame(30, $bad->scoreWeights()['seller'], 'weights that do not sum to 100 fall back to the defaults');

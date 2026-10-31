@@ -85,4 +85,16 @@ final class MicSettingsPageTest extends TestCase
             ->assertRedirect()->assertSessionHas('status', fn ($m) => str_contains($m, 'Nowheresville'));
         $this->assertSame([$id], MicAgencySetting::for($this->agency->id)->areas());
     }
+
+    public function test_count_a_suburb_as_ours_is_saved_read_back_and_an_older_form_without_it_does_not_reset_it(): void
+    {
+        $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload(['working_suburb_min_count' => 5]))->assertRedirect(route('market-intelligence.settings'));
+        $this->assertSame(5, \App\Models\MicAgencySetting::for((int) $this->admin->agency_id)->workingSuburbMinCount());
+        $this->actingAs($this->admin)->get(route('market-intelligence.settings'))->assertOk()->assertSee('Count a suburb as ours from', false);
+
+        $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload())->assertRedirect();
+        $this->assertSame(5, \App\Models\MicAgencySetting::for((int) $this->admin->agency_id)->workingSuburbMinCount(), 'a form that did not post the field leaves it alone');
+
+        $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload(['working_suburb_min_count' => 0]))->assertSessionHasErrors('working_suburb_min_count');
+    }
 }
