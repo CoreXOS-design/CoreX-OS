@@ -96,11 +96,11 @@ class TrainingMicSeeder
         $advert($sold, ['address' => '5 Example Drive, Ramsgate', 'suburb' => 'Ramsgate', 'price' => 1_620_000, 'agency' => 'Sample Realty', 'first' => 80, 'status' => 'sold', 'status_days' => 12,
             'last' => 9]);
 
-        // 5. Deeds registered 9 days ago (the third kind of trigger) - not on the market, so it has an advert-less file; give it a finished sale advert so it shows in the list too
+        // 5. Deeds registered 9 days ago (the third kind of trigger) - not on the market, so it has an advert-less file; its advert (still showing on the portal until the next read) lets it show in the list too
         $reg = $file(['no' => '31', 'street' => 'Academy Lane', 'suburb' => 'Uvongo', 'seen' => 200, 'owner' => $owner('Naledi'), 'registered' => $now->copy()->subDays(9)->toDateString(), 'sold_price' => 2_040_000]);
         DB::table('tracked_property_external_refs')->insert(['agency_id' => $aid, 'tracked_property_id' => $reg, 'source_type' => 'deeds_capture', 'source_ref' => 'TRN-DEEDS-31', 'first_seen_at' => $now, 'last_seen_at' => $now,
             'created_at' => $now, 'updated_at' => $now]);
-        $advert($reg, ['address' => '31 Academy Lane, Uvongo', 'suburb' => 'Uvongo', 'price' => 2_095_000, 'agency' => 'Example Estates', 'first' => 110, 'last' => 8, 'status' => 'sold', 'status_days' => 20]);
+        $advert($reg, ['address' => '31 Academy Lane, Uvongo', 'suburb' => 'Uvongo', 'price' => 2_095_000, 'agency' => 'Example Estates', 'first' => 110, 'last' => 8]);
 
         // 6. Matched by a P24 alert email (the envelope) with a price drop the portal read has not caught yet
         $alert = $file(['no' => '17', 'street' => 'Tutor Crescent', 'suburb' => 'Margate', 'seen' => 40, 'beds' => 3]);

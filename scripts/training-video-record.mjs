@@ -144,6 +144,12 @@ for (const [i, s] of job.steps.entries()) {
       else if (s.action === 'press') { await page.keyboard.press(s.value); }
       else if (s.action === 'goto') { await page.goto(job.baseUrl.replace(/\/$/, '') + s.value, { waitUntil: 'networkidle2', timeout: 60000 }); await inject(); await tidy(); }
     }
+    // a click on a link navigates: wait for the new page to settle, then put the spotlight / cursor helpers back (they live in the page that was replaced)
+    if (s.action === 'click') {
+      await sleep(900);
+      await page.waitForNetworkIdle({ idleTime: 600, timeout: 20000 }).catch(() => {});
+      if (!(await page.evaluate(() => typeof window.__tvSpot === 'function').catch(() => false))) { await inject(); await tidy(); }
+    }
   } catch (e) { rec1.error = String(e.message || e).slice(0, 200); log(`step ${i + 1} error: ${rec1.error}`); }
   const left = stepEnd - at();
   if (left > 0) await sleep(left * 1000);
