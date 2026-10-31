@@ -147,7 +147,7 @@ class AdComposer
                 $url = $ts->url();
                 $loginAs = $i === 0 ? $ts->loginAs() : $loginAs;
                 $steps[] = ['selector' => $st['selector'] ?? null, 'action' => $st['action'] ?? 'highlight', 'value' => $st['value'] ?? null, 'wait_for' => $st['wait_for'] ?? null,
-                    'url' => $url, 'rect_selector' => $b['zoom']['selector'] ?? ($st['selector'] ?? null), 'seconds' => round($durs[$i] + 3.0, 2)];
+                    'url' => $url, 'rect_selector' => $b['zoom']['selector'] ?? ($st['selector'] ?? null), 'seconds' => round($durs[$i] + 3.0, 2), 'scroll_seconds' => round($durs[$i], 2)];
             } else {
                 $url = (string) ($sc['url'] ?? '');
                 if ($url === '' && ($sc['route'] ?? '') !== '') {
@@ -158,7 +158,7 @@ class AdComposer
                     }
                 }
                 $steps[] = ['selector' => $sc['selector'], 'action' => $sc['action'] ?? 'highlight', 'value' => $sc['value'] ?? null, 'wait_for' => $sc['wait_for'] ?? null,
-                    'url' => $url, 'rect_selector' => $b['zoom']['selector'] ?? $sc['selector'], 'seconds' => round($durs[$i] + 3.0, 2)];
+                    'url' => $url, 'rect_selector' => $b['zoom']['selector'] ?? $sc['selector'], 'seconds' => round($durs[$i] + 3.0, 2), 'scroll_seconds' => round($durs[$i], 2)];
             }
             $firstUrl ??= $url;
         }

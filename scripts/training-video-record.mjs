@@ -151,7 +151,7 @@ for (const [i, s] of job.steps.entries()) {
       await page.waitForSelector(s.selector, { timeout: 8000 }).catch(() => { rec1.found = false; });
       if (job.ad) {
         // an ad shows the screen itself: no spotlight, no cursor - the target is only measured (and scrolled into view) so the cut can zoom on it
-        if (rec1.found) pt = await page.evaluate((sel) => { const e = document.querySelector(sel); if (!e) return null; e.scrollIntoView({ block: 'center', behavior: 'instant' }); const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, s.selector);
+        if (rec1.found) pt = await page.evaluate((sel, blk) => { const e = document.querySelector(sel); if (!e) return null; e.scrollIntoView({ block: blk, behavior: 'instant' }); const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, s.selector, s.action === 'scroll' ? 'start' : 'center');
       } else {
         if (rec1.found) pt = await page.evaluate((sel) => window.__tvSpot(sel), s.selector);
         if (pt) { await page.evaluate((x, y) => window.__tvMove(x, y), pt.x, pt.y); await sleep(700); }
@@ -173,7 +173,13 @@ for (const [i, s] of job.steps.entries()) {
     if (job.ad) {
       // where the action is, in screen pixels (after the click's navigation has settled): the zoom / crop target of this cut
       rec1.settled = Math.round((at() - start) * 100) / 100;   // seconds into this step when the action had settled: the cut starts here
-      rec1.rect = await page.evaluate((sel) => { const e = sel && document.querySelector(sel); if (!e) return null; e.scrollIntoView({ block: 'center', behavior: 'instant' }); const r = e.getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }; }, s.rect_selector || s.selector).catch(() => null);
+      rec1.rect = await page.evaluate((sel, blk) => { const e = sel && document.querySelector(sel); if (!e) return null; e.scrollIntoView({ block: blk, behavior: 'instant' }); const r = e.getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }; }, s.rect_selector || s.selector, s.action === 'scroll' ? 'start' : 'center').catch(() => null);
+      if (s.action === 'scroll' && rec1.rect) {
+        // a scroll shot: the crop window is the target's rectangle measured NOW; the page then scrolls slowly down (about one row every `row_seconds`) for the whole shot and stays there
+        const rowPx = await page.evaluate((sel) => { const c = document.querySelector(sel); const r = c && (c.querySelector('[data-qa="work-row"], [data-qa="row-wrap"]') || c.firstElementChild); return r ? (Math.round(r.getBoundingClientRect().height) || 70) : 70; }, s.rect_selector || s.selector).catch(() => 70);
+        const pxPerSec = rowPx / (s.row_seconds || 0.3);
+        await page.evaluate((pps, secs) => new Promise((resolve) => { const t0 = performance.now(); const y0 = window.scrollY; const tick = (t) => { const el = (t - t0) / 1000; window.scrollTo(0, y0 + pps * Math.min(el, secs)); if (el < secs) requestAnimationFrame(tick); else resolve(); }; requestAnimationFrame(tick); }), pxPerSec, s.scroll_seconds || 3).catch(() => {});
+      }
     }
   } catch (e) { rec1.error = String(e.message || e).slice(0, 200); log(`step ${i + 1} error: ${rec1.error}`); }
   const left = stepEnd - at();

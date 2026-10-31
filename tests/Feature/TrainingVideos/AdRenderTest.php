@@ -149,6 +149,29 @@ final class AdRenderTest extends TestCase
         Bus::assertDispatched(RenderAdJob::class, fn ($j) => $j->voiceKey === 'bf_lily');
     }
 
+    public function test_a_scroll_shot_reaches_the_recorder_with_its_action_target_and_length(): void
+    {
+        app(TrainingAgencySeeder::class)->seed();
+        $beats = [['benefit' => 'See every house', 'screen' => ['url' => '/corex/market-intelligence', 'selector' => '[data-qa="work-property-list"]', 'action' => 'scroll'], 'zoom' => ['scale' => 1.2], 'seconds' => 4.0]];
+        $segs = [['type' => 'beat', 'i' => 0, 'dur' => 4.4]];
+        $seen = null;
+        $m = new \ReflectionMethod(AdComposer::class, 'record');
+        $m->setAccessible(true);
+        $m->invoke(app(AdComposer::class), $beats, $segs, $this->dir . '/work-scroll', function (array $job) use (&$seen) {
+            $seen = $job;
+
+            return ['steps' => [], 'total' => 1.0];
+        });
+        $step = $seen['steps'][0];
+        $this->assertSame('scroll', $step['action']);
+        $this->assertSame('[data-qa="work-property-list"]', $step['selector']);
+        $this->assertSame('[data-qa="work-property-list"]', $step['rect_selector']);
+        $this->assertSame(4.4, $step['scroll_seconds'], 'the page scrolls for the whole shot');
+        $this->assertSame('/corex/market-intelligence', $step['url']);
+        $this->assertStringContainsString("'scroll'", file_get_contents(base_path('scripts/training-video-record.mjs')) . "'scroll'");
+        $this->assertStringContainsString("s.action === 'scroll'", file_get_contents(base_path('scripts/training-video-record.mjs')), 'the recorder scrolls on a scroll shot');
+    }
+
     public function test_an_invalid_request_is_refused_with_plain_sentences_and_nothing_is_queued(): void
     {
         Bus::fake();
