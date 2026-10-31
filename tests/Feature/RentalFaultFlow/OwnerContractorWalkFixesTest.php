@@ -294,7 +294,7 @@ final class OwnerContractorWalkFixesTest extends TestCase
 
         $this->get($show)->assertOk()
             ->assertSee('Accepted the job')->assertDontSee('Accept the job')->assertDontSee('Decline the job')->assertDontSee('If you cannot take it')
-            ->assertSee('Upload a quote')->assertSee('Work finished')->assertSee('What did you find?')->assertSee('Upload after photos');
+            ->assertSee('Upload a quote')->assertSee('Work finished')->assertSee('What did you find?')->assertSee('Photos of the finished work');   // section 31.5: the photos ride in the finish form
     }
 
     public function test_once_a_quote_is_chosen_the_contractor_is_told_where_it_stands_instead_of_being_offered_the_form_again(): void

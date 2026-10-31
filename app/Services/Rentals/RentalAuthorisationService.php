@@ -24,6 +24,9 @@ use Illuminate\Support\Facades\Mail;
  */
 class RentalAuthorisationService
 {
+    /** section 31.4 - how an automatic authorisation starts its record note (a later manual press of the same amount is then a no-op) */
+    public const AUTO_NOTE_PREFIX = 'Authorised automatically';
+
     // ───────────────────────── reading ─────────────────────────
 
     /** @return Collection<int, RentalAuthorisation> oldest first */
@@ -582,12 +585,17 @@ class RentalAuthorisationService
         }
         $typed = isset($in['typed_amount']) && $in['typed_amount'] !== '' ? (float) $in['typed_amount'] : null;
 
-        $row = DB::transaction(function () use ($wo, $by, $emergency, $reason, $typed) {
+        $row = DB::transaction(function () use ($wo, $by, $emergency, $reason, $typed, $in) {
             $locked = RentalWorkOrder::withoutGlobalScopes()->lockForUpdate()->findOrFail($wo->id);
             if ($locked->jobCard) {
                 $locked->jobCard->recalcTotal();   // the crew's price is read fresh at the moment of authorising
             }
             $previous = $this->activeFor($locked, RentalAuthorisation::POINT_COST);
+            // section 31.4 - a press on a page that has not caught up with the AUTOMATIC authorisation (same amount) is a harmless repeat, not an error
+            if ($previous && $previous->isAuthorised() && empty($in['auto']) && str_starts_with((string) $previous->note, self::AUTO_NOTE_PREFIX)
+                && $typed === null && round((float) $previous->amount_up_to, 2) === round((float) ($this->costMeasure($locked)['amount'] ?? 0), 2)) {
+                return $previous;
+            }
             if ($previous && $previous->isAuthorised()) {
                 throw new \LogicException('The cost is already authorised' . ($previous->amount_up_to !== null ? ' (up to ' . $this->rand((float) $previous->amount_up_to) . ')' : '') . ' - extra money goes to the owner as a request for the extra.');
             }
@@ -601,7 +609,7 @@ class RentalAuthorisationService
                 'point' => RentalAuthorisation::POINT_COST, 'outcome' => RentalAuthorisation::OUTCOME_AUTHORISED, 'basis' => $eval['basis'], 'stage' => $this->stageNow($locked),
                 'amount_up_to' => $eval['amount'], 'limit_amount' => $eval['limit'], 'is_emergency' => $emergency, 'emergency_reason' => $emergency ? $reason : null,
                 'by_user_id' => $by->id, 'told_at' => now(),
-                'note' => $eval['source'] === 'typed' ? 'Amount typed by the agent (no quote).' : null,
+                'note' => $eval['source'] === 'typed' ? 'Amount typed by the agent (no quote).' : (! empty($in['auto']) ? self::AUTO_NOTE_PREFIX . ": the quote is inside the owner's repair limit." : null),
             ]);
             $this->supersede($previous, $row, $locked, $by);
 
@@ -659,7 +667,7 @@ class RentalAuthorisationService
             throw new \InvalidArgumentException('Choose what the owner decided.');
         }
         $via = (string) ($d['told_via'] ?? '');
-        if (! in_array($via, RentalAuthorisation::VIAS, true)) {
+        if (! in_array($via, array_merge(RentalAuthorisation::VIAS, [RentalAuthorisation::VIA_PHONE_WHATSAPP]), true)) {
             throw new \InvalidArgumentException('Say how the owner told you: phone call, WhatsApp or email.');
         }
         $toldAt = $this->parseToldAt($wo, $d['told_at'] ?? null);
@@ -696,6 +704,35 @@ class RentalAuthorisationService
         $wo->refresh();
         $wo->jobCard?->fresh()?->syncStatusFromWorkOrder();
         $this->tellOwner($row);
+
+        return $row->fresh();
+    }
+
+    /**
+     * Section 31.4 - "Owner authorised by phone/WhatsApp": ONE click. The agent has the owner's yes already; this writes it down as the owner's approval of exactly
+     * the amount being asked (the selected quote or the crew's price), by the property's owner, now, via "phone / WhatsApp", under the agent's name. It is the same
+     * record as "Record the owner's decision" (immutable, replaced only by a newer one, the owner is emailed and sees it on their link) - nothing is skipped, only the
+     * seven fields the agent no longer has to retype.
+     */
+    public function recordOwnerAuthorisedQuick(User $by, RentalWorkOrder $wo): RentalAuthorisation
+    {
+        $amount = $this->costMeasure($wo)['amount'];
+        if ($amount === null) {
+            throw new \LogicException('Nothing is priced yet - choose a quote first.');
+        }
+        $owner = $this->ownersFor($wo)->first();
+        if (! $owner) {
+            throw new \LogicException('No owner is on file for this property - add the owner first.');
+        }
+        $name = trim(($by->name ?? 'The agent'));
+
+        $row = $this->recordOwnerCostDecision($by, $wo, [
+            'owner_contact_id' => $owner->id, 'decision' => 'approved', 'approved_up_to' => $amount,
+            'told_via' => RentalAuthorisation::VIA_PHONE_WHATSAPP, 'told_at' => null,
+            'note' => 'Owner authorised ' . $this->rand($amount) . ' by phone/WhatsApp - recorded by ' . $name . ' in one click on ' . now()->format('j M Y H:i') . '.',
+        ]);
+        // the shared writer maps the evidence back to phone / WhatsApp / email; this one is both, and says so
+        $row->forceFill(['told_via' => RentalAuthorisation::VIA_PHONE_WHATSAPP])->save();
 
         return $row->fresh();
     }

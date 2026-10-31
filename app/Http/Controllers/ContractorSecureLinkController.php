@@ -302,6 +302,8 @@ class ContractorSecureLinkController extends Controller
 
         $quote = $workOrder->recordQuote($data, null, 'via contractor link');
         app(\App\Services\Rentals\RentalContractorJobService::class)->recordResponse($workOrder, \App\Services\Rentals\RentalContractorJobService::RESPONSE_QUOTE, null, $quote);
+        // section 31.4 - the quote is selected for the agent; inside the owner's repair limit it is authorised and the go-ahead goes out by itself
+        app(\App\Services\Rentals\RentalQuoteAutoAdvanceService::class)->afterQuote($workOrder, $quote);
 
         $record->forceFill(['last_used_at' => now()])->save();
 
@@ -384,9 +386,20 @@ class ContractorSecureLinkController extends Controller
             return redirect()->route('rentals.secure-link.show', $token)->with('success', 'Thank you - the agency has been told the work is finished. They will check it and close the job.');
         }
 
-        // spec section 22.13.2 - a job that came from a fault is not done until the contractor says what was found and what caused it
+        // section 31.5 - ONE form: the photos of the finished work travel with "Work finished" (and are optional); stored as the job's "completed" photos before it is reported done
+        $request->validate([
+            'photos' => ['nullable', 'array', 'max:10'],
+            'photos.*' => ['file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
+        ], ['photos.*.mimes' => 'Photos must be JPG, PNG, WEBP or HEIC.', 'photos.*.max' => 'A photo is too large - each one can be up to 50 MB.']);
+        $stored = 0;
+        foreach (array_values($request->file('photos', [])) as $photo) {
+            app(RentalWorkOrderService::class)->storePhoto($record->workOrder, $photo, RentalWorkOrder::PHOTO_COMPLETED, null, null);
+            $stored++;
+        }
+
+        // spec section 22.13.2 / 31.5 - what was found and what caused it is ASKED on the link for a fault job, but it is OPTIONAL there: it never stops "Work finished". The Who pays ruling asks for it when it is needed.
         $who = app(\App\Services\Rentals\RentalWhoPaysService::class);
-        if ($who->isFaultJob($record->workOrder)) {
+        if ($who->isFaultJob($record->workOrder) && trim((string) $request->input('found_text')) !== '') {
             $data = $request->validate(['found_text' => ['nullable', 'string', 'max:2000'], 'cause_id' => ['nullable', 'integer'], 'cause_note' => ['nullable', 'string', 'max:500']]);
             try {
                 $who->recordFindings($record->workOrder, $data['found_text'] ?? null, ($data['cause_id'] ?? null) ? (int) $data['cause_id'] : null, $data['cause_note'] ?? null,
@@ -405,6 +418,9 @@ class ContractorSecureLinkController extends Controller
         }
 
         $record->forceFill(['last_used_at' => now()])->save();
+        if ($stored > 0) {
+            $this->tellAgents($record->workOrder, 'Contractor uploaded ' . $stored . ' after photo' . ($stored === 1 ? '' : 's'), $this->contractorName($record->workOrder) . ': ' . $record->workOrder->title, \App\Services\Rentals\RentalContractorJobService::EV_PHOTO);
+        }
 
         // one message to the agent per report - a second press while the first still waits opens no new round and says nothing more
         if ($round->wasRecentlyCreated) {

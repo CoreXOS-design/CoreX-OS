@@ -117,6 +117,41 @@ final class RentalWorkOrderScreen
         $btnForm = fn (string $label, string $form) => NextAction::form($label, $form);
         $btnOpen = fn (string $label, string $dialog) => NextAction::open($label, $dialog);
         $authoriseUrl = route('corex.rental-work-orders.cost.authorise', $wo);
+        // section 31.4 - above the repair limit the owner authorises: on their link (it was sent), or the agent presses ONE button with the owner's yes already in hand
+        $ownerQuick = NextAction::post('Owner authorised by phone/WhatsApp', route('corex.rental-work-orders.cost.owner-authorised', $wo));
+        $ownerSend = fn (string $label) => NextAction::post($label, route('corex.rental-work-orders.cost.send-to-owner', $wo));
+        // section 31.6 - ONE "Close": the final cost is prefilled (invoices, else the authorised amount, else the quote), who pays follows the ruling (a fault job) or defaults to the owner,
+        // and the press closes the job. The hard stops stay - they show here, in words, with the fix: a missing completed photo links to the Photos panel, a final cost above the
+        // authorised amount offers "Send the extra to the owner" (the same guard the close always ran). Where a figure has to be typed, the button opens the details dialog instead.
+        $closeBlocker = null;
+        $closeAction = function () use ($wo, $can, $fault, &$closeBlocker) {
+            if (! ($can['complete'] ?? false)) {
+                return null;
+            }
+            $url = route('corex.rental-work-orders.complete', $wo);
+            if (\App\Models\RentalWorkOrderSetting::completionRequiresPhotoFor($wo->agency_id) && $wo->photos()->where('photo_type', RentalWorkOrder::PHOTO_COMPLETED)->doesntExist()) {
+                $closeBlocker = ['text' => 'A "completed" photo is needed before this job can be closed.', 'href' => '#wo-panel-photos', 'label' => 'Add a photo'];
+
+                return null;
+            }
+            $outside = $wo->assignment_type === RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER;
+            $cost = $wo->cost_amount !== null ? (float) $wo->cost_amount : (app(RentalWorkOrderInvoiceService::class)->suggestedFinalCost($wo)['amount'] ?? null);
+            $fields = $fault ? [] : ['paid_by' => RentalWorkOrder::PAID_BY_OWNER];
+            if ($outside && $cost === null) {
+                return NextAction::open('Close', 'complete-work');   // a final cost has to be typed
+            }
+            if ($cost !== null) {
+                $fields['cost_amount'] = number_format((float) $cost, 2, '.', '');
+            }
+            if ($cost !== null && ! app(RentalApprovalGateService::class)->isEmergency($wo) && $wo->hasApprovedBaseline() && round((float) $cost, 2) > round((float) $wo->approved_amount, 2)) {
+                $closeBlocker = ['text' => 'The final cost (' . self::money($cost) . ') is above what was authorised (' . self::money($wo->approved_amount) . '). The difference has to go to the owner before the job can be closed.', 'href' => null, 'label' => null];
+
+                return NextAction::post('Send the extra ' . self::money($cost - (float) $wo->approved_amount) . ' to the owner', $url, $fields);
+            }
+
+            return NextAction::post('Close', $url, $fields);
+        };
+        $closeDetails = fn () => ($can['complete'] ?? false) && $wo->assignment_type === RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER ? NextAction::open('Close with details', 'complete-work') : null;
         // AT-494 - a money decision the person may not make: no dead button, the sentence that tells them who can
         $ask = NextAction::note(RentalWorkOrderApprovalRules::ASK_MANAGER);
         $canApprove = (bool) ($can['record_approval'] ?? false);
@@ -144,7 +179,7 @@ final class RentalWorkOrderScreen
             $tn = $tenantSays['name'] ?: 'The tenant';
             if ($tenantSays['fixed']) {
                 $next = ['key' => 'tenant_finished', 'tone' => 'warn', 'text' => $tn . ' says the work is finished (' . $fmt($tenantSays['at']) . ').', 'panel' => 'completion',
-                    'button' => ($can['complete'] ?? false) ? $btnOpen('Mark the work as complete', 'complete-work') : null];
+                    'button' => $closeAction()];
             } else {
                 $next = ['key' => 'tenant_not_fixed', 'tone' => 'danger', 'text' => 'Tenant says it is NOT fixed' . ($tenantSays['note'] ? ' - ' . $tenantSays['note'] : '.'), 'panel' => 'contractor',
                     'button' => (($can['create'] ?? false) && ($js['can_send'] ?? false)) ? $btnForm('Send the contractor back', 'wo-send-job-form') : null];
@@ -152,17 +187,17 @@ final class RentalWorkOrderScreen
         } elseif ($finished && in_array($wo->status, [RentalWorkOrder::STATUS_ORDERED, RentalWorkOrder::STATUS_IN_PROGRESS], true)) {
             $by = $finished->reported_via === \App\Models\RentalWorkCompletionRound::VIA_OWNER_PORTAL ? 'The owner' : ($finished->reported_by_label ?: 'The contractor');
             $next = ['key' => 'reported_finished', 'tone' => 'warn', 'text' => $by . ' reported the work finished on ' . $fmt($finished->opened_at) . '. Check it and complete the job.', 'panel' => 'completion',
-                'button' => ($can['complete'] ?? false) ? $btnOpen('Mark the work as complete', 'complete-work') : null];
+                'button' => $closeAction()];
         } elseif ($wo->status === RentalWorkOrder::STATUS_DISPUTED) {
             $next = ['key' => 'disputed', 'tone' => 'danger', 'text' => 'The tenant says the work is not fixed. It has been sent back - waiting for ' . $contractor . ' to report it fixed.', 'panel' => 'completion',
                 'button' => null];
         } elseif ($wo->status === RentalWorkOrder::STATUS_IN_PROGRESS) {
             $next = ['key' => 'in_progress', 'tone' => 'info', 'text' => 'Work is in progress.' . ($internal ? ' The crew works from the job card.' : ''), 'panel' => 'completion',
                 'button' => $internal ? ($wo->jobCard ? NextAction::link('Open the job card', route('corex.rental-job-cards.show', $wo->jobCard)) : null)
-                    : (($can['complete'] ?? false) ? $btnOpen('Mark the work as complete', 'complete-work') : null)];
+                    : ($closeAction())];
         } elseif ($ownerC && $wo->status === RentalWorkOrder::STATUS_ORDERED) {
             $next = ['key' => 'owner_arranges', 'tone' => 'info', 'text' => 'The owner arranges and pays their own contractor - nothing is sent from here. Mark the work as complete when it is done.', 'panel' => 'completion',
-                'button' => ($can['complete'] ?? false) ? $btnOpen('Mark the work as complete', 'complete-work') : null];
+                'button' => $closeAction()];
         } elseif ($internal) {
             $m = $c['costMeasure'] ?? ['amount' => null];
             if ($proceed->authorised && ($costActive?->isAuthorised() || $wo->approved_amount !== null || $wo->hasApprovedBaseline())) {
@@ -170,7 +205,7 @@ final class RentalWorkOrderScreen
                     'button' => $wo->jobCard ? NextAction::link('Open the job card', route('corex.rental-job-cards.show', $wo->jobCard)) : null];
             } elseif ($wo->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING || ($m['amount'] !== null && ! ($repair['agent_can'] ?? false))) {
                 $next = ['key' => 'cost_owner', 'tone' => 'warn', 'text' => 'Our crew price of ' . self::money($m['amount']) . ' must be approved by the owner.' . ($sentToOwner ? ' Sent to the owner ' . $fmt($sentToOwner) . '.' : ''), 'panel' => 'cost',
-                    'button' => $canApprove ? $btnOpen("Record the owner's decision", 'cost-owner-decision') : $ask];
+                    'button' => $canApprove ? $ownerQuick : $ask];
             } elseif ($m['amount'] !== null) {
                 $next = ['key' => 'cost_inside_limit', 'tone' => 'info', 'text' => 'Our crew price of ' . self::money($m['amount']) . " is inside the owner's repair limit.", 'panel' => 'cost',
                     'button' => $canApprove ? NextAction::post('Authorise ' . self::money($m['amount']), $authoriseUrl) : $ask];
@@ -191,7 +226,7 @@ final class RentalWorkOrderScreen
                     'button' => $canQuote ? $btnOpen('Capture a quote', 'quote-capture') : $ask];
             } elseif ($authorised && $goAheadAt && $wo->status === RentalWorkOrder::STATUS_ORDERED) {
                 $next = ['key' => 'go_ahead_sent', 'tone' => 'ok', 'text' => 'Approved. Go-ahead sent to ' . $contractor . ' ' . $fmt($goAheadAt) . '.', 'panel' => 'completion',
-                    'button' => ($can['complete'] ?? false) ? $btnOpen('Mark the work as complete', 'complete-work') : null];
+                    'button' => $closeAction()];
             } elseif ($authorised) {
                 $next = ['key' => 'authorised', 'tone' => 'ok', 'text' => 'Approved' . ($selected ? ' (' . $amount . ')' : '') . '. The go-ahead has not been sent to ' . $contractor . ' yet.', 'panel' => 'contractor',
                     'button' => ($can['create'] ?? false) && $selected ? $btnForm('Send the go-ahead', 'wo-go-ahead-form') : null];
@@ -200,14 +235,15 @@ final class RentalWorkOrderScreen
                 $next = ['key' => 'same_call', 'tone' => 'ok', 'text' => 'Quote ' . $amount . ' is in, and the owner approved up to ' . self::money($sameCall['figure']) . ' on the same call as the go-ahead (' . $sameCall['via'] . ', ' . $sameCall['when'] . ').', 'panel' => 'cost',
                     'button' => $canApprove ? $btnForm('Use it - approve ' . self::money($sameCall['figure']), 'wo-same-call-form') : $ask];
             } elseif ($selected && $wo->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING) {
-                $next = ['key' => 'waiting_owner', 'tone' => 'warn', 'text' => 'Quote ' . $amount . ' is in. The owner must approve it' . ($sentToOwner ? ' - sent to the owner ' . $fmt($sentToOwner) : '') . '.', 'panel' => 'cost',
-                    'button' => $canApprove ? $btnOpen("Record the owner's decision", 'cost-owner-decision') : $ask];
+                $next = ['key' => 'waiting_owner', 'tone' => 'warn', 'text' => 'Quote ' . $amount . ' is in. The owner must approve it' . ($sentToOwner ? ' - sent to the owner ' . $fmt($sentToOwner) : ' - it has not been sent to them yet') . '.', 'panel' => 'cost',
+                    'button' => $canApprove ? ($sentToOwner ? $ownerQuick : $ownerSend('Send to owner for approval')) : $ask,
+                    'secondary' => $canApprove ? ($sentToOwner ? $ownerSend('Send to owner again') : $ownerQuick) : null];
             } elseif ($selected && ($repair['agent_can'] ?? false)) {
                 $next = ['key' => 'quote_inside_limit', 'tone' => 'info', 'text' => 'Quote ' . $amount . " is inside the owner's repair limit.", 'panel' => 'cost',
                     'button' => $canApprove ? NextAction::post('Authorise ' . $amount, $authoriseUrl) : $ask];
             } elseif ($selected) {
                 $next = ['key' => 'quote_needs_owner', 'tone' => 'warn', 'text' => 'Quote ' . $amount . " is above the owner's repair limit (or none is set), so the owner decides.", 'panel' => 'cost',
-                    'button' => $canApprove ? $btnOpen("Record the owner's decision", 'cost-owner-decision') : $ask];
+                    'button' => $canApprove ? $ownerQuick : $ask];
             } elseif ($wo->quotes->isNotEmpty()) {
                 $next = ['key' => 'quote_not_selected', 'tone' => 'warn', 'text' => 'No quote chosen yet - the owner has not been asked. Choose one of the quotes.', 'panel' => 'quotes',
                     'button' => $canQuote ? $btnOpen('Choose a quote', 'quote-pick') : $ask];
@@ -229,6 +265,16 @@ final class RentalWorkOrderScreen
                 $next = ['key' => 'waiting_contractor', 'tone' => 'info', 'text' => $answer, 'panel' => 'quotes',
                     'button' => $canQuote ? $btnOpen('Capture a quote', 'quote-capture') : $ask,
                     'secondary' => ($can['create'] ?? false) && $js['can_send'] ? $btnForm('Send the job again', 'wo-send-job-form') : null];
+            }
+        }
+
+        // section 31.6 - the close states carry their hard stop (if any) as a sentence with the fix, and "Close with details" beside the one press
+        if (in_array($next['key'], ['tenant_finished', 'reported_finished', 'in_progress', 'owner_arranges', 'go_ahead_sent'], true)) {
+            if ($closeBlocker) {
+                $next['blocker'] = $closeBlocker;
+            }
+            if (($next['button']['kind'] ?? '') === 'post' && ($next['button']['label'] ?? '') === 'Close') {
+                $next['secondary'] = $closeDetails();
             }
         }
 

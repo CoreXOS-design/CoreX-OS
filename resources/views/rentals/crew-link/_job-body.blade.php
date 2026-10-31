@@ -234,18 +234,16 @@
         @php $disputed = !empty($job['blocks']['dispute'] ?? []); @endphp
         <div class="cj-card" id="cj-complete">
             <h2>{{ $disputed ? 'Report fixed' : 'Mark work completed' }}</h2>
-            <form method="POST" action="{{ $actions['complete'] }}" class="cj-complete-form">
+            <form method="POST" action="{{ $actions['complete'] }}" class="cj-complete-form" enctype="multipart/form-data">
                 @csrf
+                <label class="cj-label" for="cj-done-photos">Photos of the finished work <span class="cj-muted" style="font-weight:400;">(optional)</span></label>
+                <input id="cj-done-photos" type="file" name="photos[]" accept="image/*" capture="environment" multiple style="width:100%; min-height:48px; font-size:15px;">
                 @if(! $disputed && ! empty($job['work_order_id']))
                     @include('rentals._report-back-fields', ['workOrder' => \App\Models\RentalWorkOrder::withoutGlobalScopes()->find($job['work_order_id'])])
                 @endif
-                <label class="cj-label" for="cj-full-name">Your full name</label>
+                <label class="cj-label" for="cj-full-name">Your full name (signs the job as done)</label>
                 <input id="cj-full-name" type="text" name="full_name" required maxlength="191" autocomplete="name" value="{{ old('full_name') }}">
-                <label class="cj-confirm">
-                    <input type="checkbox" name="confirm" value="1" required>
-                    <span>{{ $disputed ? 'I confirm what the tenant reported has been put right.' : 'I confirm the work on this job is completed.' }}</span>
-                </label>
-                <button type="submit" class="cj-btn ok">{{ $disputed ? 'Report fixed' : 'Mark work completed' }}</button>
+                <button type="submit" class="cj-btn ok">{{ $disputed ? 'Report fixed' : 'Job done' }}</button>
             </form>
         </div>
     @endif

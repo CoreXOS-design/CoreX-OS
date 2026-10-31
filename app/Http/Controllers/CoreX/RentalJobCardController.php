@@ -407,7 +407,14 @@ class RentalJobCardController extends Controller
             return back()->withErrors(['rental_job_card' => $e->getMessage()]);
         }
 
-        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Crew assigned.');
+        // section 31.4 - a crew assigned LATER gets its link at once too (the same rule as a crew picked when the work order was made): no second "Send the crew their link" press
+        $sentNote = '';
+        if ($rentalJobCard->rental_work_order_id && \App\Services\Rentals\RentalContractorJobService::crewAutoSendOn($rentalJobCard->agency_id)) {
+            $sent = app(\App\Services\Rentals\RentalContractorJobService::class)->sendCrewLink($rentalJobCard->fresh(), $request->user());
+            $sentNote = $sent['sent'] ? ' Their link has been sent.' : ($sent['not_sent'] ? ' Their link could NOT be sent - see the crew card.' : '');
+        }
+
+        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Crew assigned.' . $sentNote);
     }
 
     public function schedule(Request $request, RentalJobCard $rentalJobCard): RedirectResponse
@@ -819,13 +826,18 @@ class RentalJobCardController extends Controller
 
         $revision = $rentalJobCard->quoteRevisions()->max('revision');
         $workOrder = $rentalJobCard->workOrder()->first();
+        // section 31.4 - a confirmed price inside the owner's repair limit is authorised at once (the crew route's go-ahead is the card opening for booking)
+        $advance = $workOrder ? app(\App\Services\Rentals\RentalQuoteAutoAdvanceService::class)->authoriseInsideLimit($workOrder->fresh(), $request->user()) : null;
+        $workOrder = $rentalJobCard->workOrder()->first();
 
         // Say what really happened (J2): approved automatically within the limit with nothing sent, or put to the owner.
         if ($workOrder && $workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_PENDING) {
             $message = $revision > 1 ? "Revised quote (Rev {$revision}) sent to the owner — it replaces the earlier one." : 'Quote sent to the owner.';
         } else {
             $limit = \App\Services\Rentals\RentalOwnerFaultSettings::for($rentalJobCard->property)->repairLimit();
-            $message = 'Price confirmed' . ($limit !== null ? " - it is inside the owner's repair limit (R" . number_format($limit, 2) . ')' : '') . '. Nothing is approved yet and nothing was sent to the owner: authorise the cost under "Approve the cost" on the work order.';
+            $message = ($advance && $advance['authorised'])
+                ? 'Price confirmed and authorised - it is inside the owner\'s repair limit' . ($limit !== null ? ' (R' . number_format($limit, 2) . ')' : '') . '. The owner has been told and the job is open for booking.'
+                : 'Price confirmed' . ($limit !== null ? " - it is inside the owner's repair limit (R" . number_format($limit, 2) . ')' : '') . '. Nothing is approved yet and nothing was sent to the owner: authorise the cost under "Approve the cost" on the work order.';
         }
 
         return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', $message);
@@ -926,6 +938,37 @@ class RentalJobCardController extends Controller
         }
 
         return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Job card completed.');
+    }
+
+    /**
+     * Section 31.6 - ONE "Close" for an own-crew job: the agent's sign-off (if not given yet) and the completion are one press, in one transaction - both or neither.
+     * The crew's own mark-done (worker sign-off) must already be in; the hard stops (a missing completed photo, a final cost above the authorised amount, an open request for
+     * extra money, a paused job) are the same ones the completion always ran, answered in the same plain words.
+     */
+    public function close(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
+
+        $validated = $request->validate([
+            'paid_by' => ['nullable', 'in:' . implode(',', [
+                \App\Models\RentalWorkOrder::PAID_BY_OWNER, \App\Models\RentalWorkOrder::PAID_BY_TENANT,
+                \App\Models\RentalWorkOrder::PAID_BY_DEPOSIT_DEDUCTION, \App\Models\RentalWorkOrder::PAID_BY_NOT_YET_PAID,
+            ])],
+        ]);
+
+        try {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($rentalJobCard, $service, $request, $validated) {
+                $card = $rentalJobCard->fresh();
+                if (! $card->agent_signed_off_at) {
+                    $card->agentSignOff($request->user());
+                }
+                $service->complete($card->fresh(), $request->user(), $validated['paid_by'] ?? null);
+            });
+        } catch (\LogicException $e) {
+            return back()->withErrors(['rental_job_card' => $e->getMessage()]);
+        }
+
+        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Job closed. The owner and the tenant have been told.');
     }
 
     public function cancel(Request $request, RentalJobCard $rentalJobCard): RedirectResponse

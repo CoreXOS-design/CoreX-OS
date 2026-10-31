@@ -469,8 +469,13 @@ class RentalFaultReportController extends Controller
         $recordBlock = $authSvc->recordBlockReason($rentalFaultReport);
         $ownerHold = $holdSvc->activeFor($rentalFaultReport);
         $ownerQueries = $holdSvc->queriesFor($rentalFaultReport);
+        // section 31.4 - the property's default contractor (or the owner's pick) is the one-press "Send to X" in the Next bar
+        $defaultSupplierId = app(\App\Services\Rentals\RentalFaultContractorService::class)->defaultSupplierId($rentalFaultReport, collect(app(\App\Services\Rentals\RentalFaultContractorService::class)->pickerFor($rentalFaultReport)));
+        $ownersOwn = ($d = $rentalFaultReport->decision()) && $d->contractor_source === \App\Models\RentalApproval::CONTRACTOR_OWN;
+        $defaultSupplier = $defaultSupplierId && ! $ownersOwn ? \App\Models\DealV2\AgencyServiceProvider::withoutGlobalScopes()->where('agency_id', $rentalFaultReport->agency_id)->find($defaultSupplierId) : null;
         // section 28 - the stage strip, the Returned | Next bar and each folded panel's one-line summary: one pure read
         $screen = app(\App\Services\Rentals\RentalFaultScreen::class)->build($rentalFaultReport, [
+            'defaultSupplier' => $defaultSupplier ? ['id' => $defaultSupplier->id, 'name' => $defaultSupplier->name] : null,
             'can' => [
                 'send_to_owner' => $user->hasPermission('rental_fault_reports.send_to_owner'),
                 'record_approval' => $user->hasPermission('rental_fault_reports.record_approval'),
@@ -786,7 +791,20 @@ class RentalFaultReportController extends Controller
             'contractor_phone' => ['nullable', 'string', 'max:40'],
             // the internal crew to put on the job card (optional; checked against the agency's active crews by the service)
             'rental_crew_id' => ['nullable', 'integer'],
+            // section 31.4 - the one picker: "s:<supplier id>" (an agency contractor) or "c:<crew id>" / "c:" (an own crew, or the team with no crew yet)
+            'pick' => ['nullable', 'string', 'max:40', 'regex:/^(s:\d+|c:\d*)$/'],
         ]);
+        if (! empty($validated['pick'])) {
+            [$kind, $id] = explode(':', $validated['pick'], 2);
+            if ($kind === 's') {
+                $validated['assignment_type'] = \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER;
+                $validated['agency_service_provider_id'] = (int) $id;
+            } else {
+                $validated['assignment_type'] = \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL;
+                $validated['rental_crew_id'] = $id !== '' ? (int) $id : null;
+            }
+        }
+        unset($validated['pick']);
         // A chosen contractor with no explicit "who" means the agency's contractor; nothing at all keeps the old default (internal crew).
         $validated['assignment_type'] = $validated['assignment_type']
             ?? (! empty($validated['agency_service_provider_id']) ? \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER : \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL);

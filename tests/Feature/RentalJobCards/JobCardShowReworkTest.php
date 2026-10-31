@@ -67,14 +67,10 @@ final class JobCardShowReworkTest extends TestCase
         $this->assertSame('Confirm the price', $this->nextButton($html));
         $this->assertStringContainsString('Confirm the price: R345.00', $this->nextText($html));
 
-        // price confirmed, nothing authorised yet -> authorise the cost
+        // section 31.4: price confirmed inside the owner's limit -> authorised by itself; the card is approved, no second press
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $card))->assertSessionHasNoErrors();
-        $html = $this->page($card);
-        $this->assertStringContainsString('data-stage="quoted"', $html);
-        $this->assertSame('Authorise R345.00', $this->nextButton($html));
-
+        $this->authoriseCostOf($wo->fresh());   // a stale press afterwards is a harmless repeat
         // approved, no crew -> assign the crew; with a crew -> book the date
-        $this->authoriseCostOf($wo->fresh());
         $html = $this->page($card);
         $this->assertStringContainsString('data-stage="approved"', $html);
         $this->assertSame('Assign the crew', $this->nextButton($html));
@@ -97,18 +93,15 @@ final class JobCardShowReworkTest extends TestCase
         $this->assertSame('Send the crew their link', $this->nextButton($html));
         $this->assertMatchesRegularExpression('/data-next-secondary data-next-open="jc-worker-signoff"[^>]*>Record the sign-off</', $html);
 
-        // the crew is done -> the agent signs it off, then completes it
+        // the crew is done -> ONE Close (section 31.6): the agent's sign-off and the completion are the same press
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.worker-sign-off', $card), ['worker_sign_off_name' => 'Sam'])->assertSessionHasNoErrors();
         $html = $this->page($card);
         $this->assertStringContainsString('data-stage="signed_off"', $html);
-        $this->assertSame('Agent sign-off', $this->nextButton($html));
-        $this->assertStringContainsString('id="jc-agent-signoff-form"', $html);
-
-        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.agent-sign-off', $card))->assertSessionHasNoErrors();
-        $this->assertSame('Mark complete', $this->nextButton($this->page($card)));
+        $this->assertSame('Close', $this->nextButton($html));
+        $this->assertStringContainsString('/close"', $html, 'the button is its own POST to the close route');
 
         // closed -> no button
-        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.complete', $card), ['paid_by' => 'owner'])->assertSessionHasNoErrors();
+        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.close', $card), ['paid_by' => 'owner'])->assertSessionHasNoErrors();
         $html = $this->page($card);
         $this->assertNull($this->nextButton($html));
         $this->assertStringContainsString('Completed', $this->nextText($html));
@@ -127,16 +120,15 @@ final class JobCardShowReworkTest extends TestCase
 
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $card))->assertSessionHasNoErrors();
         $html = $this->page($card);
-        $this->assertSame("Record the owner's decision", $this->nextButton($html));
+        $this->assertSame('Owner authorised by phone/WhatsApp', $this->nextButton($html));   // section 31.4: ONE click when the owner has said yes
         $this->assertStringContainsString('Waiting for the owner to approve R1,200.00', $this->nextText($html));
         // …and the Money card's one button is the same decision button (it presses the hidden one inside the shared "Approve the cost" box)
         $dom = new \DOMDocument();
         @$dom->loadHTML('<?xml encoding="utf-8" ?>' . $html);
         $buttons = (new \DOMXPath($dom))->query("//*[@id='jc-quote-box']//*[(self::a or self::button) and contains(@class,'corex-btn-primary')]");
         $this->assertSame(1, $buttons->length, 'one primary button in the Money & approval card');
-        $this->assertSame("Record the owner's decision", trim($buttons->item(0)->textContent));
-        $this->assertSame('cost-owner-decision', $buttons->item(0)->getAttribute('data-next-open'));
-        $this->assertStringContainsString('data-cost-owner-decision-open', $html, 'the box it presses exists');
+        $this->assertSame('Owner authorised by phone/WhatsApp', trim($buttons->item(0)->textContent));
+        $this->assertStringContainsString('data-cost-owner-decision-open', $html, 'the full decision form is still on the page for declines');
     }
 
     // ── Returned: the latest thing that came back into the office ─────────────────────────────────────────────────────────────────

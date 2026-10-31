@@ -49,6 +49,7 @@ class SendRentalClientPush
             $f = $e->fault;
             $text = match ($e->stepKey) {
                 'sent_to_agent' => 'We have your fault report',
+                'sent_to_contractor' => 'Your repair is being arranged',
                 'sent_to_owner' => 'Your fault has been sent to the owner for approval',
                 'owner_approved' => 'Your fault has been approved',
                 'not_approved' => 'Your fault was not approved',

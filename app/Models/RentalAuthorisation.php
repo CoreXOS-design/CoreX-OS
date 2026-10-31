@@ -34,6 +34,8 @@ class RentalAuthorisation extends Model
     public const VIA_WHATSAPP = 'whatsapp';
     public const VIA_EMAIL = 'email';
     public const VIA_LINK = 'link';
+    /** section 31.4 - the agent's one-click "Owner authorised by phone/WhatsApp": how exactly is not asked, so it is recorded as both */
+    public const VIA_PHONE_WHATSAPP = 'phone_whatsapp';
     /** What an agent may pick in "Record the owner's decision". */
     public const VIAS = [self::VIA_PHONE, self::VIA_WHATSAPP, self::VIA_EMAIL];
 
@@ -111,6 +113,7 @@ class RentalAuthorisation extends Model
             self::VIA_WHATSAPP => 'WhatsApp',
             self::VIA_EMAIL => 'email',
             self::VIA_LINK => 'their link',
+            self::VIA_PHONE_WHATSAPP => 'phone / WhatsApp',
             default => 'a message',
         };
     }

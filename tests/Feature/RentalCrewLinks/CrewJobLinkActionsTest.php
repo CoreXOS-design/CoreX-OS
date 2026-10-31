@@ -129,12 +129,15 @@ final class CrewJobLinkActionsTest extends TestCase
         $this->assertSame(1, RentalWorkOrderPhoto::where('rental_job_card_id', $this->card->id)->count());
     }
 
-    public function test_mark_completed_needs_the_name_and_the_tick(): void
+    public function test_mark_completed_needs_the_name_and_nothing_else_the_press_is_the_confirmation_and_photos_ride_along(): void
     {
         $this->post("{$this->base}/complete", ['full_name' => '', 'confirm' => '1'])->assertSessionHasErrors('full_name');
-        $this->post("{$this->base}/complete", ['full_name' => 'Sipho Dlamini'])->assertSessionHasErrors('confirm');
-
         $this->assertNull($this->card->fresh()->worker_signed_off_at);
+
+        // section 31.5: no separate tick; the finished-work photos are part of the same press
+        $this->post("{$this->base}/complete", ['full_name' => 'Sipho Dlamini', 'photos' => [UploadedFile::fake()->image('done.jpg')]])->assertSessionHasNoErrors();
+        $this->assertNotNull($this->card->fresh()->worker_signed_off_at);
+        $this->assertSame(1, RentalWorkOrderPhoto::where('rental_job_card_id', $this->card->id)->where('photo_type', 'completed')->count());
     }
 
     public function test_a_second_completion_from_the_link_is_refused(): void

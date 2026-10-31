@@ -81,4 +81,36 @@ class RentalWorkOrderCostController extends Controller
 
         return back()->with('success', 'Cost authorised up to R' . number_format((float) $row->amount_up_to, 2) . ' on what the owner said on the call. The owner has been emailed.');
     }
+
+    /** Section 31.4 - "Owner authorised by phone/WhatsApp": one click, the agent's own record of the owner's yes (who, when, how), the owner is told and sees it on their link. */
+    public function ownerAuthorised(Request $request, RentalAuthorisationService $service, RentalWorkOrder $rentalWorkOrder): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
+        try {
+            $row = $service->recordOwnerAuthorisedQuick($request->user(), $rentalWorkOrder);
+        } catch (\LogicException|\InvalidArgumentException $e) {
+            return back()->withErrors(['cost_decision' => $e->getMessage()]);
+        }
+
+        return back()->with('success', 'Owner authorised up to R' . number_format((float) $row->amount_up_to, 2) . ' by phone/WhatsApp. It is recorded under your name and the owner has been told.');
+    }
+
+    /** Section 31.4 - "Send to owner for approval": the selected quote goes to the owner (again) for their decision on their link. */
+    public function sendToOwner(Request $request, RentalWorkOrder $rentalWorkOrder): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
+        $quote = $rentalWorkOrder->quotes()->where('is_selected', true)->whereNull('declined_at')->first();
+        if (! $quote) {
+            return back()->withErrors(['cost_decision' => 'Choose a quote first - there is nothing to send the owner yet.']);
+        }
+        if ($rentalWorkOrder->owner_approval_status !== RentalWorkOrder::APPROVAL_PENDING) {
+            return back()->withErrors(['cost_decision' => 'This quote does not need the owner: it is inside the owner\'s repair limit or already decided.']);
+        }
+        $sent = app(\App\Services\Rentals\RentalWorkOrderService::class)->sendOwnerQuote($rentalWorkOrder, $quote, $request->user(), needsDecision: true);
+        if ($sent === 0) {
+            return back()->withErrors(['cost_decision' => 'No owner has an email address on file, so nothing could be sent. Phone them, then press "Owner authorised by phone/WhatsApp".']);
+        }
+
+        return back()->with('success', 'Sent to the owner for approval.');
+    }
 }

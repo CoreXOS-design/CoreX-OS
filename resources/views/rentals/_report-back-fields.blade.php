@@ -11,10 +11,10 @@
 @endphp
 @if($rbShow)
     <div data-report-back>
-        <label for="rb-found" style="{{ $rbLabel }}">What did you find?</label>
-        <textarea id="rb-found" name="found_text" rows="3" required minlength="3" maxlength="2000" style="{{ $rbField }}">{{ old('found_text', $rbSvc->carriedFindings($workOrder)) }}</textarea>
+        <label for="rb-found" style="{{ $rbLabel }}">What did you find? <span style="font-weight:400;color:#5a6472;">(optional)</span></label>
+        <textarea id="rb-found" name="found_text" rows="3" maxlength="2000" style="{{ $rbField }}">{{ old('found_text', $rbSvc->carriedFindings($workOrder)) }}</textarea>
         @if(! old('found_text') && ! trim((string) $workOrder->found_text) && $rbSvc->carriedFindings($workOrder))<p data-findings-carried style="font-size:12px;color:#5a6472;margin:4px 0 0;">Filled in from what you already told the office - change it if needed.</p>@endif
-        <label for="rb-cause" style="{{ $rbLabel }}">What caused it?</label>
+        <label for="rb-cause" style="{{ $rbLabel }}">What caused it? <span style="font-weight:400;color:#5a6472;">(optional)</span></label>
         <select id="rb-cause" name="cause_id" style="{{ $rbField }}">
             @foreach($rbOptions as $o)
                 <option value="{{ $o->id }}" @selected((int) old('cause_id', $workOrder->cause_id) === $o->id)>{{ $o->label }}</option>

@@ -288,8 +288,8 @@ final class RentalJobCardLifecycleTest extends TestCase
 
         $jobCard->refresh();
         $this->assertSame(RentalWorkOrder::APPROVAL_NOT_REQUIRED, $jobCard->workOrder->owner_approval_status, 'the owner is not asked');
-        $this->assertNull($jobCard->workOrder->approved_amount, 'but nothing is approved');
-        $this->assertSame(RentalJobCard::STATUS_QUOTED, $jobCard->status);
+        $this->assertNotNull($jobCard->workOrder->approved_amount, 'section 31.4: inside the limit the price is authorised by itself');
+        $this->assertSame(RentalJobCard::STATUS_APPROVED, $jobCard->status);
         $quote = $jobCard->quotes()->first();
         $this->assertTrue($quote->is_selected);
         $this->assertNull($quote->agency_service_provider_id);

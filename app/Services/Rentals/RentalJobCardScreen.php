@@ -229,7 +229,7 @@ final class RentalJobCardScreen
                         'button' => ($can['record_approval'] ?? false) && $authoriseUrl ? NextAction::post('Authorise ' . self::money($amount), $authoriseUrl) : null];
                 } else {
                     $out = ['text' => 'Waiting for the owner to approve ' . self::money($amount) . '.', 'tone' => 'warn',
-                        'button' => ($can['record_approval'] ?? false) ? NextAction::open("Record the owner's decision", 'cost-owner-decision') : null,
+                        'button' => ($can['record_approval'] ?? false) && $wo ? NextAction::post('Owner authorised by phone/WhatsApp', route('corex.rental-work-orders.cost.owner-authorised', $wo)) : null,
                         'secondary' => $resendQuote];
                 }
                 break;
@@ -257,13 +257,20 @@ final class RentalJobCardScreen
                 $out = ['text' => 'The work is under way. Waiting for the crew to finish.', 'tone' => 'info', 'button' => $crewSend ?? $sign, 'secondary' => $crewSend ? $sign : null];
                 break;
             case 'signed_off':
-                if (! $card->agent_signed_off_at) {
-                    $out = ['text' => 'The crew says it is done. Check the work, then sign it off.', 'tone' => 'warn',
-                        'button' => ($can['sign_off'] ?? false) && $stage['can']['agent_sign_off'] ? $form('Agent sign-off', 'jc-agent-signoff-form') : null];
-                } else {
-                    $out = ['text' => 'Both sign-offs are in. Choose who pays and complete the job card.', 'tone' => 'ok',
-                        'button' => ($can['sign_off'] ?? false) && $stage['can']['complete'] ? NextAction::open('Mark complete', 'jc-complete') : null];
+                // section 31.6 - ONE Close: the agent's check and the completion are the same press
+                $canClose = ($can['sign_off'] ?? false) && ($stage['can']['complete'] || $stage['can']['agent_sign_off']);
+                $closeBlock = null;
+                if ($canClose && $wo && \App\Models\RentalWorkOrderSetting::completionRequiresPhotoFor($wo->agency_id) && $wo->photos()->where('photo_type', RentalWorkOrder::PHOTO_COMPLETED)->doesntExist()) {
+                    $closeBlock = ['text' => 'A "completed" photo is needed before this job can be closed.', 'href' => '#jc-photos', 'label' => 'Add a photo'];
+                    $canClose = false;
                 }
+                $out = [
+                    'text' => $card->agent_signed_off_at ? 'Both sign-offs are in. Close the job - the owner and the tenant are told.' : 'The crew says it is done. Check the work, then close the job - the owner and the tenant are told.',
+                    'tone' => 'warn',
+                    'button' => $canClose ? NextAction::post('Close', route('corex.rental-job-cards.close', $card), ['paid_by' => RentalWorkOrder::PAID_BY_OWNER]) : null,
+                    'secondary' => $canClose ? NextAction::open('Close and choose who pays', 'jc-complete') : null,
+                    'blocker' => $closeBlock,
+                ];
                 break;
             case 'disputed':
                 $out = ['text' => 'The tenant says the work is not complete. It is back with the crew.', 'tone' => 'danger', 'button' => NextAction::focus('Resolve dispute', '#jc-completion')];
@@ -280,7 +287,7 @@ final class RentalJobCardScreen
             $out['secondary'] = $go('Review ' . $awaiting . ' crew ' . ($awaiting === 1 ? 'line' : 'lines'), '#jc-lines');
         }
 
-        return ['key' => $key, 'tone' => $out['tone'] ?? 'info', 'text' => $out['text'], 'button' => $out['button'] ?? null, 'secondary' => $out['secondary'] ?? null];
+        return ['key' => $key, 'tone' => $out['tone'] ?? 'info', 'text' => $out['text'], 'button' => $out['button'] ?? null, 'secondary' => $out['secondary'] ?? null, 'blocker' => $out['blocker'] ?? null];
     }
 
     // ── the money card's "Authorised" fact ───────────────────────────────────────────────────────────────────────────────────────────────
