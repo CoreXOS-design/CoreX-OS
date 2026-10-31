@@ -14,6 +14,8 @@
 // Durable IndexedDB send-queue (self.CoreXQueue). Replaces the old
 // chrome.storage.local array queue that silently dropped batches on quota.
 importScripts('queue-idb.js');
+// MIC capture helpers (3.13.0): sha1, PP search-URL clean-up. Same file the content scripts load.
+importScripts('mic-lib.js');
 // CoreX Desk (spec .ai/specs/corex-desk.md section 13): share chosen tabs into the agent's open support session.
 importScripts('desk-ext.js');
 
@@ -73,6 +75,18 @@ function defaultCaptureState() {
     apiToken:         null,
     tabId:            null,
     authError:        false, // set when CoreX rejected our token — capture paused, not "offline"
+    // MIC capture (3.13.0) — one id per run, so the server can tell which adverts one crawl saw.
+    sessionId:        null,
+    startedAtIso:     null,
+    suburb:           null,
+    // listing-page reads (new adverts / changed price only, capped per session by the agency setting)
+    needsDetail:      [],    // refs the server asked for
+    urlByRef:         {},    // ref -> listing url (from the tiles we sent)
+    detailCap:        40,
+    detailDone:       0,
+    detailTotal:      0,
+    detailPhase:      false,
+    reloadPage1:      false, // PP: the user's page had the "exclude sold / under offer" filter - read page 1 again without it
   };
 }
 
@@ -335,6 +349,9 @@ async function persistCaptureState() {
     pendingListings:  capture.pendingListings,
     batchesSent:      capture.batchesSent,
     parseWarnings:    capture.parseWarnings,
+    sessionId:        capture.sessionId,
+    startedAtIso:     capture.startedAtIso,
+    suburb:           capture.suburb,
     savedAt:          Date.now(),
   };
   return new Promise(resolve => {
@@ -598,14 +615,22 @@ async function sendBatchToApi(listings, context) {
     source: capture.portal,
     // Snapshot the context at send time — intermediate (partial) batches must never
     // pick up a capture_complete flag set later for the final batch (shared-ref race).
-    search_context: { ...context },
+    search_context: { ...context, crawl: crawlBlock(!!context.capture_complete) },
     listings: listings,
   };
+  listings.forEach(l => { if (l && l.portal_ref && l.portal_url) capture.urlByRef[l.portal_ref] = l.portal_url; });
 
   try {
     const result = await handleSendToCorex(capture.apiUrl, capture.apiToken, payload);
 
     if (result && !result.error) {
+      // MIC capture (3.13.0): remember which adverts the server wants the listing page of, and the agency's cap.
+      if (Array.isArray(result.needs_detail)) {
+        result.needs_detail.forEach(r => { if (capture.needsDetail.indexOf(r) === -1) capture.needsDetail.push(r); });
+      }
+      if (result.limits && Number.isFinite(result.limits.detail_pages_per_session)) {
+        capture.detailCap = result.limits.detail_pages_per_session;
+      }
       capture.sentListings += listings.length;
       capture.importedCount += (result.imported || 0);
       capture.updatedCount += (result.updated || 0);
@@ -648,6 +673,159 @@ async function sendBatchToApi(listings, context) {
   }
 }
 
+// ── MIC capture (3.13.0): crawl session, listing pages ─────
+function crawlBlock(complete) {
+  const c = {
+    session_id: capture.sessionId || undefined,
+    portal:     capture.portal,
+    suburb:     capture.suburb || undefined,
+    page:       capture.currentPage || undefined,
+    pages_total: capture.totalPages || undefined,
+    complete:   !!complete,
+    started_at: capture.startedAtIso || undefined,
+  };
+  if (complete) c.finished_at = new Date().toISOString();
+  Object.keys(c).forEach(k => c[k] === undefined && delete c[k]);
+  return c.session_id ? c : undefined;
+}
+
+// The suburb as the portal's own address names it: P24 /for-sale/<suburb>/..., PP .../<suburb>/ (last non-numeric segment).
+function crawlSuburb(portal, baseUrl, searchTerm) {
+  try {
+    const segs = new URL(baseUrl).pathname.split('/').filter(Boolean).filter(x => !/^(p\d+|\d+)$/i.test(x));
+    const pick = portal === 'p24' ? segs[1] : segs[segs.length - 1];
+    if (pick) return pick.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()).slice(0, 120);
+  } catch (e) { /* fall through */ }
+  return (searchTerm || '').slice(0, 120) || null;
+}
+
+function sendTabMessage(tabId, msg) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(tabId, msg, response => {
+      if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+      else resolve(response);
+    });
+  });
+}
+
+function navigateTab(tabId, url) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { chrome.tabs.onUpdated.removeListener(onUpdated); reject(new Error('Page load timeout')); }, 20000);
+    const onUpdated = (updatedTabId, changeInfo) => {
+      if (updatedTabId === tabId && changeInfo.status === 'complete') {
+        clearTimeout(timer);
+        chrome.tabs.onUpdated.removeListener(onUpdated);
+        resolve();
+      }
+    };
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    chrome.tabs.update(tabId, { url });
+  });
+}
+
+// Private Property keeps its parsed page data in window.serverVariables (MAIN world). Read ONLY the public fields we
+// need: agency, the listed contact's NAME and id, the map point, the description (hashed later, never sent).
+function ppServerVariablesFn() {
+  var sv = (window.serverVariables || {});
+  var bp = sv.bundleParams || {};
+  var agency = bp.agencyInfo || null;
+  var contacts = bp.contactDetails || [];
+  var contact = contacts.filter(function (c) { return c.contactType === 'Agent'; })[0] || contacts[0] || null;
+  var photos = bp.galleryPhotos || [];
+  var first = photos[0] || null;
+  return {
+    hasAgency: !!agency,
+    agencyName: agency ? (agency.agencyName || null) : null,
+    agencyId: agency ? (agency.agencyId || agency.id || null) : null,
+    contactName: contact ? (contact.name || null) : null,
+    agentId: contact ? (contact.agentId || contact.id || null) : null,
+    lat: bp.mapCoOrdinates ? bp.mapCoOrdinates.lat : null,
+    lng: bp.mapCoOrdinates ? bp.mapCoOrdinates.lng : null,
+    description: bp.description || '',
+    photoUrl: first ? (first.mediumUrl || (first.srcSet && first.srcSet[0]) || null) : null,
+  };
+}
+
+async function readPpServerVariables(tabId) {
+  try {
+    const res = await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: ppServerVariablesFn });
+    return (res && res[0] && res[0].result) || {};
+  } catch (e) { return {}; }
+}
+
+// Difference hash of a photo (16 hex chars): the bytes are fetched, shrunk to 9x8 grey, compared pixel to pixel, and
+// thrown away. Same photo on P24 and on PP gives (nearly) the same hash. Needs the image host to allow a cross-origin
+// read; when it does not, the answer is null - never a made-up value.
+async function photoFingerprint(url) {
+  try {
+    if (!url || typeof createImageBitmap !== 'function' || typeof OffscreenCanvas === 'undefined') return null;
+    const resp = await fetch(url, { mode: 'cors', credentials: 'omit' });
+    if (!resp.ok) return null;
+    const bmp = await createImageBitmap(await resp.blob(), { resizeWidth: 9, resizeHeight: 8, resizeQuality: 'high' });
+    const cv = new OffscreenCanvas(9, 8);
+    const ctx = cv.getContext('2d');
+    ctx.drawImage(bmp, 0, 0, 9, 8);
+    const px = ctx.getImageData(0, 0, 9, 8).data;
+    const g = (x, y) => { const i = (y * 9 + x) * 4; return 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]; };
+    let bits = '';
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) bits += g(x, y) > g(x + 1, y) ? '1' : '0';
+    let hex = '';
+    for (let i = 0; i < 64; i += 4) hex += parseInt(bits.slice(i, i + 4), 2).toString(16);
+    return hex;
+  } catch (e) { return null; }
+}
+
+async function postDetailBatch(listings, context) {
+  const payload = {
+    source: capture.portal,
+    search_context: { ...context, detail_only: true, capture_complete: false, crawl: crawlBlock(false) },
+    listings,
+  };
+  try {
+    await handleSendToCorex(capture.apiUrl, capture.apiToken, payload);
+  } catch (err) {
+    // keep it for the durable queue; the next send replays it
+    try { await queueLocally(payload); } catch (e) { /* storage full: the tile data is already safe */ }
+  }
+}
+
+async function runDetailPhase(context) {
+  const refs = capture.needsDetail.filter(r => capture.urlByRef[r]).slice(0, capture.detailCap);
+  capture.detailTotal = refs.length;
+  capture.detailPhase = true;
+  const out = [];
+  try {
+    for (const ref of refs) {
+      if (capture.cancelled) break;
+      try {
+        await navigateTab(capture.tabId, capture.urlByRef[ref]);
+        await sleep(600);
+        const msg = { action: 'getListingFacts' };
+        if (capture.portal === 'pp') msg.sv = await readPpServerVariables(capture.tabId);
+        const res = await sendTabMessage(capture.tabId, msg);
+        const facts = res && res.facts;
+        if (facts) {
+          const photoUrl = facts._photo_url;
+          delete facts._photo_url;
+          delete facts._ref;
+          const fp = await photoFingerprint(photoUrl);
+          if (fp) facts.first_photo_fingerprint = fp;
+          out.push(Object.assign({ portal_ref: ref, portal_url: capture.urlByRef[ref] }, facts));
+          capture.detailDone++;
+        }
+      } catch (e) { /* one unreadable page never stops the rest */ }
+      if (out.length >= 5) await postDetailBatch(out.splice(0, out.length), context);
+      // human pace, like the search pages
+      await sleep(2500 + Math.floor(Math.random() * 1500));
+    }
+    if (out.length > 0) await postDetailBatch(out.splice(0, out.length), context);
+  } finally {
+    capture.detailPhase = false;
+    // leave the agent's tab where the search was
+    try { await chrome.tabs.update(capture.tabId, { url: buildPageUrl(capture.baseUrl, 1, capture.portal) }); } catch (e) { /* tab closed */ }
+  }
+}
+
 // ── Main capture loop ──────────────────────────────────────
 async function startCapture(msg) {
   capture = defaultCaptureState();
@@ -661,6 +839,19 @@ async function startCapture(msg) {
   capture.apiToken    = msg.apiToken;
   capture.tabId       = msg.tabId;
   capture.startTime   = Date.now();
+  capture.sessionId   = (self.crypto && self.crypto.randomUUID) ? self.crypto.randomUUID() : null;
+  capture.startedAtIso = new Date().toISOString();
+
+  // PP: the search must include sold and under-offer adverts (spec 5). If the page the agent is on carries the filter
+  // that hides them, drop it and read page 1 again from the cleaned address.
+  if (capture.portal === 'pp' && self.CorexMic) {
+    const cleaned = self.CorexMic.cleanPpSearchUrl(capture.baseUrl);
+    if (cleaned.changed) {
+      capture.baseUrl = cleaned.url;
+      capture.reloadPage1 = true;
+    }
+  }
+  capture.suburb = crawlSuburb(capture.portal, capture.baseUrl, capture.searchTerm);
 
   await runCaptureLoop(1);
 }
@@ -686,6 +877,9 @@ async function resumeCapture(apiUrl, apiToken) {
   capture.apiUrl           = apiUrl;
   capture.apiToken         = apiToken;
   capture.startTime        = Date.now();
+  capture.sessionId        = saved.sessionId || ((self.crypto && self.crypto.randomUUID) ? self.crypto.randomUUID() : null);
+  capture.startedAtIso     = saved.startedAtIso || new Date().toISOString();
+  capture.suburb           = saved.suburb || crawlSuburb(saved.portal, saved.baseUrl, saved.searchTerm);
 
   const startPage = saved.currentPage + 1;
   await runCaptureLoop(startPage);
@@ -718,15 +912,24 @@ async function runCaptureLoop(startPage) {
       capture.error = null;
 
       try {
-        const page1 = await new Promise((resolve, reject) => {
-          chrome.tabs.sendMessage(capture.tabId, { action: 'getListings' }, response => {
-            if (chrome.runtime.lastError) {
-              reject(new Error(chrome.runtime.lastError.message));
-            } else {
-              resolve(response);
-            }
+        let page1;
+        if (capture.reloadPage1) {
+          // PP filter stripped: navigate to the cleaned page 1, then re-read the result count and page count from it
+          page1 = { listings: await getListingsFromTab(capture.tabId, buildPageUrl(capture.baseUrl, 1, capture.portal)) };
+          const info = await sendTabMessage(capture.tabId, { action: 'getPageInfo' }).catch(() => null);
+          if (info && info.totalPages) capture.totalPages = info.totalPages;
+          if (info && info.totalResults) { capture.totalResults = info.totalResults; context.total_results = info.totalResults; }
+        } else {
+          page1 = await new Promise((resolve, reject) => {
+            chrome.tabs.sendMessage(capture.tabId, { action: 'getListings' }, response => {
+              if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message));
+              } else {
+                resolve(response);
+              }
+            });
           });
-        });
+        }
 
         if (page1 && page1.listings) {
           capture.pendingListings.push(...page1.listings);
@@ -810,6 +1013,17 @@ async function runCaptureLoop(startPage) {
       await sendBatchToApi(batch, context);
     }
 
+    // MIC capture (3.13.0): AFTER the complete-suburb batch (so the reconcile is untouched), read the listing page of
+    // each new / re-priced advert the server asked for, up to the agency's cap, and send what the pages show.
+    if (!capture.cancelled && capture.needsDetail.length > 0 && capture.detailCap > 0) {
+      try {
+        await runDetailPhase(context);
+      } catch (e) {
+        // listing pages are a bonus: a failure here never turns a good tile capture into an error
+        capture.error = null;
+      }
+    }
+
     // Mark complete
     capture.active = false;
     capture.complete = !capture.cancelled;
@@ -828,7 +1042,8 @@ async function runCaptureLoop(startPage) {
           type: 'basic',
           iconUrl: 'icons/icon-128.png',
           title: 'CoreX: Capture Complete',
-          message: count.toLocaleString() + ' listings captured from ' + portalName,
+          message: count.toLocaleString() + ' listings captured from ' + portalName
+            + (capture.detailDone ? ' (' + capture.detailDone + ' listing pages read)' : ''),
           priority: 2,
         });
       } catch (e) { /* notifications may not be available */ }
