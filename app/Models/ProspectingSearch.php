@@ -19,10 +19,22 @@ class ProspectingSearch extends Model
         'pages_captured',
         'listing_count',
         'captured_at',
+        // MIC capture lane (.ai/specs/mic-work-tab.md §11.2) — the extension run this search row belongs to
+        'crawl_session_id',
+        'crawl_portal',
+        'crawl_suburb',
+        'crawl_page',
+        'crawl_pages_total',
+        'crawl_complete',
+        'crawl_started_at',
+        'crawl_finished_at',
     ];
 
     protected $casts = [
         'captured_at' => 'datetime',
+        'crawl_complete'    => 'boolean',
+        'crawl_started_at'  => 'datetime',
+        'crawl_finished_at' => 'datetime',
     ];
 
     public function agency()

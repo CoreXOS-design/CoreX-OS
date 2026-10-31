@@ -41,6 +41,29 @@ final class SharedPortalPool
         'listing_agent_name'      => 'listing_agent_name',
         'listing_agency_name'     => 'listing_agency_name',
         'portal_status'           => 'status',
+        // MIC capture lane (.ai/specs/mic-work-tab.md §11.2) — public advert facts only; fingerprints, never text/images
+        'advertiser_type'         => 'advertiser_type',
+        'agent_portal_id'         => 'agent_portal_id',
+        'agency_portal_id'        => 'agency_portal_id',
+        'listed_date'             => 'listed_date',
+        'rates_amount'            => 'rates_amount',
+        'levies_amount'           => 'levies_amount',
+        'is_reduced'              => 'is_reduced',
+        'is_exclusive'            => 'is_exclusive',
+        'badges'                  => 'badges',
+        'p24_group_id'            => 'p24_group_id',
+        'p24_mandate_id'          => 'p24_mandate_id',
+        'wording_fingerprint'     => 'wording_fingerprint',
+        'first_photo_fingerprint' => 'first_photo_fingerprint',
+    ];
+
+    /**
+     * Advert-only facts (MIC capture lane). They are stored in the pool but find() never hands them back as
+     * tracked-property pre-fill facts: they describe the advert, not the property file.
+     */
+    private const ADVERT_ONLY = [
+        'advertiser_type', 'agent_portal_id', 'agency_portal_id', 'listed_date', 'rates_amount', 'levies_amount',
+        'is_reduced', 'is_exclusive', 'badges', 'p24_group_id', 'p24_mandate_id', 'wording_fingerprint', 'first_photo_fingerprint',
     ];
 
     private const STATUSES = ['active', 'sold', 'withdrawn', 'unknown'];
@@ -68,7 +91,7 @@ final class SharedPortalPool
             if ($v === null || $v === '' || (is_string($v) && in_array(strtolower(trim($v)), ['-', 'n/a', 'na'], true))) {
                 continue;
             }
-            $new[$column] = is_string($v) ? trim($v) : $v;
+            $new[$column] = is_string($v) ? trim($v) : (is_array($v) ? json_encode(array_values($v)) : $v);
         }
         if (isset($new['suburb'])) {
             $new['suburb_normalised'] = TrackedPropertyAddress::normaliseSuburb($new['suburb']);
@@ -154,7 +177,7 @@ final class SharedPortalPool
 
         $out = [];
         foreach (self::ALLOWED as $key => $column) {
-            if ($key === 'portal_status') {
+            if ($key === 'portal_status' || in_array($key, self::ADVERT_ONLY, true)) {
                 continue;
             }
             if ($row->{$column} !== null && $row->{$column} !== '') {

@@ -79,6 +79,24 @@ class ProspectingListing extends Model
         // AT-454 — the advert's REAL listed date (portal's own), separate from first_seen_at
         'listed_date',
         'listed_date_source',
+        // MIC capture lane (.ai/specs/mic-work-tab.md §11.2) — public advert facts read off tiles / listing pages
+        'advertiser_type',
+        'agent_portal_id',
+        'agency_portal_id',
+        'rates_amount',
+        'levies_amount',
+        'portal_latitude',
+        'portal_longitude',
+        'portal_geo_source',
+        'is_reduced',
+        'is_exclusive',
+        'badges',
+        'p24_group_id',
+        'p24_mandate_id',
+        'wording_fingerprint',
+        'first_photo_fingerprint',
+        'details_read_at',
+        'details_read_price',
     ];
 
     protected $casts = [
@@ -97,7 +115,19 @@ class ProspectingListing extends Model
         'off_market_at'            => 'datetime',
         'last_search_id'           => 'integer',
         'listed_date'              => 'date',
+        'is_reduced'               => 'boolean',
+        'is_exclusive'             => 'boolean',
+        'badges'                   => 'array',
+        'details_read_at'          => 'datetime',
+        'portal_latitude'          => 'float',
+        'portal_longitude'         => 'float',
     ];
+
+    /** MIC capture lane — who is advertising (spec §11.2). NULL = not read yet. */
+    public const ADVERTISER_TYPES = ['agency', 'owner', 'developer'];
+
+    /** MIC capture lane — the badge slugs the extension may send (spec §11.2). */
+    public const BADGES = ['retirement', 'auction', 'repossessed', 'on_show', 'no_transfer_duty', 'bank_sale'];
 
     public const LISTED_DATE_SOURCE_PORTAL = 'portal';
     public const LISTED_DATE_SOURCE_AGENT  = 'agent';
