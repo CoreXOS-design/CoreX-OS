@@ -54,6 +54,10 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        // AT-520 step 4.1: ONE merger per process. The apply commands open the row journal on one instance and the sweep merges through another;
+        // as two instances the M2/M3 journals were written empty (31 Oct). A singleton makes `journalTo()` reach every merge.
+        $this->app->singleton(\App\Services\Prospecting\TrackedPropertyMerger::class);
+
         // section 21.3 of rentals-faults-work-orders.md - the one seam behind "Send <name> to inspect"; records only until the fault flow replaces it.
 
         // ─────────────────────────────────────────────────────────────────────────────
