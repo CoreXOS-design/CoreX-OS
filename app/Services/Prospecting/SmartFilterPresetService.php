@@ -35,6 +35,13 @@ final class SmartFilterPresetService
      */
     public function presetsFor(int $agencyId, int $userId): array
     {
+        // Four counts over the whole agency's adverts (the "Pitch Today" one alone is ~450 ms on a full agency) on every Work load; the cards move slowly,
+        // so they are cached for a minute per agency + viewer (bypassed under test).
+        return \App\Services\Prospecting\MicWork\MicWorkList::remember('presets:' . $agencyId . ':' . $userId, 60, fn () => $this->buildPresetsFor($agencyId, $userId));
+    }
+
+    private function buildPresetsFor(int $agencyId, int $userId): array
+    {
         $strongMinScore = (int) ($this->config->buyerMatchTiers($agencyId)['strong_min_score'] ?? 80);
 
         return [
