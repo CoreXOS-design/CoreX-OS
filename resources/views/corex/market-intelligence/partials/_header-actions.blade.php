@@ -42,6 +42,9 @@
     $spin   = 'display:none; font-size:0.625rem; color:rgba(255,255,255,0.7); font-style:italic;';
 @endphp
 
+{{-- AT-525 - "Watch how" for this screen's how-to video (nothing on a tab that has none). --}}
+<x-watch-how inline />
+
 @if($showTicks)
 {{-- With-address (pull-all): restrict to listings that have a street address. --}}
 <a href="{{ $toggleUrl('address_filter', 'with_address', $addrOn) }}"

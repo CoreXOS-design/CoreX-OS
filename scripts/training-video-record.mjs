@@ -26,6 +26,16 @@ const browser = await puppeteer.launch({ executablePath: job.chromium, headless:
 const page = await browser.newPage();
 await page.setViewport({ width: job.viewport.width, height: job.viewport.height, deviceScaleFactor: 1 });
 await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);   // readable on every screen, whatever the training user's OS theme
+// Every page the recording loads (a click that navigates, a goto) starts clean: the test-site banners and the app's own guided-tour popover are hidden from the first
+// moments of the load, not only after the helpers are put back (which waits for the page to settle and showed the banners for a few seconds in the first MIC video).
+await page.evaluateOnNewDocument(() => {
+  const css = '.driver-popover, .driver-overlay, .driver-stage { display: none !important; }';
+  const sweep = () => {
+    if (!document.getElementById('__tv-hide')) { const st = document.createElement('style'); st.id = '__tv-hide'; st.textContent = css; (document.head || document.documentElement).appendChild(st); }
+    document.querySelectorAll('body *').forEach((e) => { if (e.offsetHeight > 0 && e.offsetHeight < 60 && e.children.length < 4 && /^QA ·|^STAGING ·|This is a test site/i.test((e.textContent || '').trim().slice(0, 40))) e.style.display = 'none'; });
+  };
+  setInterval(sweep, 120);
+});
 const host = new URL(job.baseUrl).hostname;
 await page.setCookie({ name: job.cookie.name, value: job.cookie.value, domain: host, path: '/', httpOnly: true, secure: job.baseUrl.startsWith('https') });
 const resp = await page.goto(job.baseUrl.replace(/\/$/, '') + job.url, { waitUntil: 'networkidle2', timeout: 90000 });

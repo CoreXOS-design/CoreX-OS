@@ -194,6 +194,27 @@ final class TrainingLibraryTest extends TestCase
         $this->assertStringNotContainsString('data-watch-how', view($partial)->render());
     }
 
+    public function test_the_button_can_sit_in_a_page_header_and_then_the_floating_one_is_not_drawn_twice(): void
+    {
+        $this->video();
+        $this->actingAs($this->agent);
+        $route = new \Illuminate\Routing\Route('GET', '/corex/command-center/calendar', []);
+        $route->name('command-center.calendar');
+        request()->setRouteResolver(fn () => $route);
+
+        $inline = \Illuminate\Support\Facades\Blade::render('<x-watch-how inline />');
+        $this->assertStringContainsString('data-watch-how="book-a-viewing"', $inline);
+        $this->assertStringNotContainsString('fixed z-40', $inline, 'the header version is not the floating pill');
+        $this->assertStringContainsString('Watch how (1:24)', $inline);
+        $this->assertSame('', trim(view('layouts.partials.watch-how')->render()), 'the layout adds no second button once the header drew its own');
+    }
+
+    public function test_the_mic_work_header_carries_the_watch_how_button(): void
+    {
+        $this->assertStringContainsString('<x-watch-how inline />', file_get_contents(resource_path('views/corex/market-intelligence/partials/_header-actions.blade.php')));
+        $this->assertSame('market-intelligence.work', (require resource_path('training/scripts/mic-work.php'))['route']);
+    }
+
     public function test_the_library_is_in_the_sidebar_and_the_permissions_exist(): void
     {
         $sidebar = file_get_contents(resource_path('views/layouts/corex-sidebar.blade.php'));
