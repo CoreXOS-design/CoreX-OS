@@ -199,10 +199,14 @@ final class MicWorkTilesTest extends TestCase
         $this->advert($tp, 'P24-140000002', ['advertiser_type' => 'owner']);
         $this->fileTile(2, fn () => DB::table('tracked_properties')->select('id')->where('id', $tp->id), 1);
         // the cached tile row must exist for the note to carry the tile's own number (a cold page defers the tiles)
-        $this->actingAs($this->admin)->get(route('market-intelligence.work'))->assertOk();
         $note = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['tile' => 'owner']))->assertOk();
         $note->assertSee('data-qa="tile-note"', false)->assertSee('Owner selling', false)->assertSee('rows below', false)->assertSee('Clear this tile', false);
         $this->assertSame(1, preg_match('/1\s+properties\s+→\s+1\s+rows below/u', strip_tags($note->getContent())), 'properties -> rows, both numbers');
+
+        // a tile whose own number counts something else says what: 5 on the tile, 1 property in the list
+        $this->fileTile(6, fn () => DB::table('tracked_properties')->select('id')->where('id', $tp->id), 5);
+        $this->actingAs($this->admin)->get(route('market-intelligence.work'))->assertOk(); // warms the tile row (it now holds tile 6)
+        $other = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['tile' => 'lead_sources']))->assertOk();
+        $this->assertStringContainsString('the tile\'s 5 counts "x", not this list', preg_replace('/\s+/', ' ', strip_tags($other->getContent())));
     }
 }
-

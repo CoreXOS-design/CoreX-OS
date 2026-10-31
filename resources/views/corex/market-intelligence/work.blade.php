@@ -45,9 +45,10 @@
 @if(!empty($tileNote))
 <div data-qa="tile-note" style="margin: -4px 0 8px 0; font-size: .75rem; color: var(--text-secondary);">
     <strong>{{ $tileNote['title'] }}</strong>:
-    @if($tileNote['count'] !== null){{ number_format($tileNote['count']) }} {{ $tileNote['unit'] }} →@endif
+    @if($tileNote['files'] !== null){{ number_format($tileNote['files']) }} properties →@endif
     {{ number_format($tileNote['rows']) }} rows below
-    @if($tileNote['count'] !== null)<span style="color: var(--text-muted);">(a property whose P24 and PP adverts are not linked yet shows as more than one row)</span>@endif
+    @if($tileNote['files'] !== null)<span style="color: var(--text-muted);">(a property whose P24 and PP adverts are not linked yet shows as more than one row)</span>@endif
+    @if($tileNote['tileCount'] !== null)<span style="color: var(--text-muted);"> · the tile's {{ number_format($tileNote['tileCount']) }} counts "{{ $tileNote['tileCounts'] }}", not this list</span>@endif
     @if($tileNote['asOf'])<span style="color: var(--text-muted);"> · figures as of {{ $tileNote['asOf'] }}</span>@endif
     · <a href="{{ route('market-intelligence.work', request()->except(['tile', 'page'])) }}" style="color: var(--brand-icon); text-decoration: none;">Clear this tile</a>
 </div>

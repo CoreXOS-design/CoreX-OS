@@ -1360,10 +1360,11 @@ class MarketIntelligenceController extends Controller
     }
 
     /**
-     * The one line under the tile row when a tile filter is on: what the tile counted and what the list below counts (they are different units - a tile counts
-     * PROPERTIES, the list counts ROWS, and a property whose P24 and PP adverts are not linked yet shows as more than one row), and how fresh the figures are.
+     * The one line under the tile row when a tile filter is on: how many PROPERTIES the tile put in the list, how many ROWS that is (a property whose P24 and
+     * PP adverts are not linked yet shows as more than one row), what the tile's own number counted when that is something else (our stock on the market,
+     * portal leads, pockets), and how fresh the stored figures are.
      *
-     * @return array{title:string, rows:int, count:?int, unit:?string, asOf:?string}|null
+     * @return array{title:string, rows:int, files:?int, tileCount:?int, tileCounts:?string, asOf:?string}|null
      */
     private function tileNote(Request $request, int $rows, int $agencyId, $user): ?array
     {
@@ -1373,12 +1374,16 @@ class MarketIntelligenceController extends Controller
             return null;
         }
         $svc = \App\Services\Prospecting\MicWork\MicWorkTiles::fromContainer();
+        $ids = $svc->propertyIds($key, $agencyId, $user);
+        $files = $ids ? (int) \DB::query()->fromSub($ids, 'tile_files')->distinct()->count() : null;
         $tile = collect($svc->cachedRow($agencyId, $user) ?? [])->firstWhere('key', $key);
         $stamp = $svc->statsStamp($agencyId);
+        $differs = $tile && $tile['count'] !== null && $files !== null && (int) $tile['count'] !== $files;
 
         return [
-            'title' => \App\Services\Prospecting\MicWork\MicWorkTiles::TILES[$n][1], 'rows' => $rows,
-            'count' => $tile && ($tile['unit'] ?? null) === 'properties' ? $tile['count'] : null, 'unit' => $tile['unit'] ?? null,
+            'title' => \App\Services\Prospecting\MicWork\MicWorkTiles::TILES[$n][1], 'rows' => $rows, 'files' => $files,
+            'tileCount' => $differs ? (int) $tile['count'] : null,
+            'tileCounts' => $differs ? trim(explode(' · ', (string) $tile['reason'])[0]) : null,
             'asOf' => $stamp !== '' ? \Carbon\Carbon::parse($stamp)->timezone(config('app.timezone'))->format('j M H:i') : null,
         ];
     }
