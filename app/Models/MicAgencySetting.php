@@ -27,6 +27,7 @@ class MicAgencySetting extends Model
         'min_sales_for_pocket'    => 3,
         'stuck_dom_days'          => 90,
         'detail_pages_per_session' => 40,
+        'context_min_sales'       => 3,
         'trusted_sales_after'     => '2026-06-26',
         'bulk_status_day_events'  => 10,
         'buyer_states_excluded'   => ['cold', 'lost'],
@@ -106,6 +107,9 @@ class MicAgencySetting extends Model
     public function minSalesForPocket(): int { return $this->positiveInt('min_sales_for_pocket'); }
 
     public function stuckDomDays(): int { return $this->positiveInt('stuck_dom_days'); }
+
+    /** 5.9: below this many sales a suburb figure on the record card is null (no guessing). */
+    public function contextMinSales(): int { return $this->positiveInt('context_min_sales'); }
 
     /** cc3 11.2.C: listing pages the extension may open per session. */
     public function detailPagesPerSession(): int { return $this->positiveInt('detail_pages_per_session'); }

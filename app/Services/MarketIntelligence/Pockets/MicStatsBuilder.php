@@ -28,6 +28,7 @@ final class MicStatsBuilder
         private readonly DomEstimator $dom,
         private readonly PropertyTypeResolver $types,
         private readonly \App\Services\MarketIntelligence\Score\OpportunityScoreService $score,
+        private readonly \App\Services\MarketIntelligence\Context\FileContextBuilder $context,
     ) {
     }
 
@@ -51,8 +52,9 @@ final class MicStatsBuilder
 
         $pockets = $this->refreshPockets($agencyId, $now, $ctx);
         $scored = $this->score->scoreAgency($agencyId, $now);   // needs today's pocket rows
+        $context = $this->context->refreshAgency($agencyId, $now);   // 5.9 market context per file (needs the lead advert + price stored above)
 
-        return ['files' => $files, 'stale_removed' => $removed, 'pockets' => $pockets, 'scored' => $scored];
+        return ['files' => $files, 'stale_removed' => $removed, 'pockets' => $pockets, 'scored' => $scored, 'context' => $context];
     }
 
     /** Re-count one file (used on change). */
