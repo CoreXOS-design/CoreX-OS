@@ -35,8 +35,13 @@ class TrainingVideoGenerator
             throw new \InvalidArgumentException("The script '{$script->key()}' cannot be recorded yet:\n - " . implode("\n - ", $problems));
         }
 
-        $video = TrainingVideo::withTrashed()->where('source', TrainingVideo::SOURCE_GENERATED)->where('screen_key', $script->key())->first()
-            ?? TrainingVideo::create(['source' => TrainingVideo::SOURCE_GENERATED, 'screen_key' => $script->key(), 'title' => $script->title(), 'status' => TrainingVideo::STATUS_PROCESSING, 'generated_by' => $byUserId]);
+        // one video per (screen, voice): audio is made ONCE per voice and shared by every agency on it (spec 9.20). A video made before voices were per video adopts the platform default.
+        $voiceKey = $voiceKey ?: app(\App\Services\TrainingVideos\Tts\TrainingVoices::class)->defaultKey();
+        $video = TrainingVideo::withTrashed()->where('source', TrainingVideo::SOURCE_GENERATED)->where('screen_key', $script->key())->where('voice_key', $voiceKey)->first();
+        if (! $video && $voiceKey === app(\App\Services\TrainingVideos\Tts\TrainingVoices::class)->defaultKey()) {
+            $video = TrainingVideo::withTrashed()->where('source', TrainingVideo::SOURCE_GENERATED)->where('screen_key', $script->key())->whereNull('voice_key')->first();
+        }
+        $video ??= TrainingVideo::create(['source' => TrainingVideo::SOURCE_GENERATED, 'screen_key' => $script->key(), 'voice_key' => $voiceKey, 'title' => $script->title(), 'status' => TrainingVideo::STATUS_PROCESSING, 'generated_by' => $byUserId]);
         $hadFile = $video->file_name !== null;
         $video->forceFill(['processing_started_at' => now(), 'failure_reason' => null, 'progress_percent' => 0, 'generated_by' => $byUserId ?? $video->generated_by]);
         if (! $hadFile) {
@@ -49,14 +54,27 @@ class TrainingVideoGenerator
         $session = null;
         try {
             $voice = $this->tts->provider($voiceKey);
+            $video->forceFill(['voice_key' => $voiceKey])->save();
             $user = $this->sessions->userFor($script->loginAs());
             $pad = (float) config('training-videos.auto.step_pad_seconds', 0.6);
 
             // 1. speak every line and measure it
             $clips = [];
-            foreach ($script->spokenLines() as $n => $line) {
-                $wav = $work . '/line-' . $n . '.wav';
-                $clips[] = ['file' => $wav, 'text' => $line, 'seconds' => $voice->synthesize($line, $wav)];
+            $lines = $script->spokenLines();
+            if ($voice instanceof \App\Services\TrainingVideos\Tts\BatchTtsProvider) {
+                // an engine with a heavy start-up (Chatterbox) gets every line at once, so its model loads once
+                $jobs = [];
+                foreach ($lines as $n => $line) {
+                    $jobs[] = ['text' => $line, 'out' => $work . '/line-' . $n . '.wav'];
+                }
+                foreach ($voice->synthesizeMany($jobs) as $n => $seconds) {
+                    $clips[] = ['file' => $jobs[$n]['out'], 'text' => $lines[$n], 'seconds' => $seconds];
+                }
+            } else {
+                foreach ($lines as $n => $line) {
+                    $wav = $work . '/line-' . $n . '.wav';
+                    $clips[] = ['file' => $wav, 'text' => $line, 'seconds' => $voice->synthesize($line, $wav)];
+                }
             }
             $video->update(['progress_percent' => 25]);
 

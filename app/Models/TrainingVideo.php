@@ -35,7 +35,7 @@ class TrainingVideo extends Model
         'title',
         'description',
         'source',
-        'screen_key',
+        'screen_key', 'voice_key',
         'source_hash',
         'generated_at',
         'tts_voice',

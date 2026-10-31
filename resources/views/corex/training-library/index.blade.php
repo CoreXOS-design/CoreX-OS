@@ -15,7 +15,8 @@
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-voice-picker>
         <div class="flex flex-wrap items-start justify-between gap-2">
             <div>
-                <h2 class="text-sm font-bold">Voice</h2>
+                <h2 class="text-sm font-bold">Voice @if($isSystemOwner)<a href="{{ route('corex.training-library.voices') }}" class="text-xs underline font-normal ml-2" data-voices-link>Make or manage CoreX voices (system owner)</a>@endif</h2>
+                <p class="text-xs" style="color: var(--text-muted);" data-voice-status>Your agency uses the platform default ({{ $voices->find($defaultVoice)['label'] ?? '' }}) unless you choose another. {{ $inMyVoice }} of {{ $approvedCount }} videos exist in {{ $voices->find($currentVoice)['label'] ?? 'your' }} voice.</p>
                 <p class="text-xs" style="color: var(--text-muted);">Every voice below reads the same two sentences: <em>{{ $sampleText }}</em> Press play, then pick the one you like.</p>
             </div>
             @if($approvedCount > 0)
@@ -34,10 +35,15 @@
                     <div class="flex items-center justify-between gap-2">
                         <strong class="text-sm">{{ $v['label'] }}</strong>
                         @if($v['current'])<span class="text-xs font-semibold rounded px-2 py-0.5" style="background: var(--brand-icon, #0ea5e9); color: #fff;" data-voice-current>Current voice</span>@endif
+                        @if($v['platform_default'])<span class="text-xs rounded px-2 py-0.5" style="border: 1px solid var(--border);" data-voice-platform-default>Platform default</span>@endif
                     </div>
                     <div class="text-xs flex-1" style="color: var(--text-muted);">{{ $v['about'] }}</div>
                     @if($v['installed'])
+                        @if($v['sample'] || $v['provider'] !== 'chatterbox')
                         <button type="button" class="corex-btn-outline text-xs" data-voice-play="{{ route('corex.training-library.voice-sample', $v['key']) }}" onclick="window.__tlPlayVoice(this)">&#9654; Play sample</button>
+                        @else
+                        <span class="text-xs" style="color: var(--text-muted);" data-sample-pending>Sample is being made...</span>
+                        @endif
                         @unless($v['current'])
                         <form method="POST" action="{{ route('corex.training-library.voice.choose') }}">@csrf
                             <input type="hidden" name="voice" value="{{ $v['key'] }}">

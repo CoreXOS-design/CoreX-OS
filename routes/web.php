@@ -3604,6 +3604,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // the files are on the private disk and are streamed here (range requests). Generate / Regenerate needs training_videos.generate (checked in the controller too).
     Route::prefix('training-library')->name('corex.training-library.')->group(function () {
         Route::get('/', [\App\Http\Controllers\CoreX\TrainingLibraryController::class, 'index'])->middleware('permission:training_videos.view')->name('index');
+        // CoreX voices (spec 9.20): the system owner makes them with Chatterbox; registered before /{screenKey} so 'voices' is never read as a screen
+        Route::middleware('owner_only')->group(function () {
+            $c = \App\Http\Controllers\CoreX\TrainingVoicesController::class;
+            Route::get('/voices', [$c, 'index'])->name('voices');
+            Route::post('/voices', [$c, 'store'])->name('voices.store');
+            Route::post('/voices/{voice}/default', [$c, 'makeDefault'])->whereNumber('voice')->name('voices.default');
+            Route::post('/voices/{voice}/archive', [$c, 'archive'])->whereNumber('voice')->name('voices.archive');
+        });
         // the voice picker (spec 9.12): registered BEFORE /{screenKey} so 'voice' is never read as a screen
         Route::get('/voice-sample/{key}', [\App\Http\Controllers\CoreX\TrainingLibraryController::class, 'voiceSample'])->middleware('permission:training_videos.generate')->where('key', '[a-z0-9_]+')->name('voice-sample');
         Route::post('/voice', [\App\Http\Controllers\CoreX\TrainingLibraryController::class, 'chooseVoice'])->middleware('permission:training_videos.generate')->name('voice.choose');

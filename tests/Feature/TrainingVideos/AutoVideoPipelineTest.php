@@ -148,6 +148,20 @@ final class AutoVideoPipelineTest extends TestCase
         $this->assertStringContainsString('00:00:00.150 -->', $vtt, 'the intro line (0.3 s on the recorder clock) starts at 0.15 s of the video');
     }
 
+    public function test_each_voice_gets_its_own_video_for_a_screen_and_regenerating_one_voice_leaves_the_others(): void
+    {
+        app(TrainingAgencySeeder::class)->seed();
+        $gen = app(TrainingVideoGenerator::class);
+        $a = $gen->generate($this->script(), null, $this->fakeRecorder(), 'bf_emma');
+        $b = $gen->generate($this->script(), null, $this->fakeRecorder(), 'bf_lily');
+        $this->assertNotSame($a->id, $b->id, 'one row per (screen, voice)');
+        $this->assertSame(['bf_emma', 'bf_lily'], TrainingVideo::where('source', 'generated')->orderBy('id')->pluck('voice_key')->all());
+
+        $a2 = $gen->generate($this->script(), null, $this->fakeRecorder(), 'bf_emma');
+        $this->assertSame($a->id, $a2->id, 'the same voice is re-made in place');
+        $this->assertSame(2, TrainingVideo::where('source', 'generated')->count());
+    }
+
     public function test_regenerating_replaces_the_files_and_a_failed_regeneration_keeps_the_old_video_playing(): void
     {
         app(TrainingAgencySeeder::class)->seed();

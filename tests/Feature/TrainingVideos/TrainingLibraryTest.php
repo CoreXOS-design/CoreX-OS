@@ -247,6 +247,7 @@ final class TrainingLibraryTest extends TestCase
 
     public function test_use_this_voice_saves_it_as_the_agencys_setting_and_the_default_comes_from_config(): void
     {
+        Bus::fake();   // choosing a voice queues the videos that do not exist in it yet
         $agency = Agency::withoutGlobalScopes()->find($this->admin->agency_id);
         $this->assertNull($agency->training_video_voice);
         $this->assertSame(config('training-videos.auto.default_voice'), app(\App\Services\TrainingVideos\Tts\TrainingVoices::class)->keyFor($agency));
@@ -265,8 +266,8 @@ final class TrainingLibraryTest extends TestCase
     {
         $this->script('draft-one', 'Draft', ['approved' => false]);
         $this->app->forgetInstance(\App\Services\TrainingVideos\Auto\TrainingScriptRepository::class);
+        app(\App\Services\TrainingVideos\Tts\TrainingVoices::class)->choose(Agency::withoutGlobalScopes()->find($this->admin->agency_id), 'af_heart');
         Bus::fake();
-        $this->actingAs($this->admin)->post(route('corex.training-library.voice.choose'), ['voice' => 'af_heart']);
         $this->actingAs($this->agent)->post(route('corex.training-library.regenerate-all'))->assertForbidden();
         $this->actingAs($this->admin)->post(route('corex.training-library.regenerate-all'))->assertSessionHas('success');
 

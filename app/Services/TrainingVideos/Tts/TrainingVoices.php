@@ -19,13 +19,29 @@ class TrainingVoices
             $out[$key] = ['key' => (string) $key, 'label' => (string) $v['label'], 'provider' => $provider, 'model' => (string) $v['model'], 'speaker' => $v['speaker'] ?? null,
                 'about' => (string) ($v['about'] ?? ''), 'listed' => (bool) ($v['listed'] ?? true), 'installed' => $this->installed($provider, (string) $v['model'])];
         }
+        // CoreX voices: the system owner's Chatterbox voices (section 9.20), the same for every agency. First in the picker.
+        $platform = [];
+        foreach ($this->platformVoices() as $pv) {
+            $platform[$pv->voice_key] = ['key' => $pv->voice_key, 'label' => $pv->name, 'provider' => 'chatterbox', 'model' => 'chatterbox', 'speaker' => null,
+                'about' => (string) ($pv->about ?: 'A CoreX voice.'), 'listed' => true, 'installed' => $this->installed('chatterbox', 'chatterbox'), 'is_default' => (bool) $pv->is_default];
+        }
 
-        return $out;
+        return $platform + $out;
+    }
+
+    public function engineInstalled(string $provider): bool
+    {
+        return $this->installed($provider, $provider);
     }
 
     /** Is the engine (and, for Piper, the voice model) on this server? */
     private function installed(string $provider, string $model): bool
     {
+        if ($provider === 'chatterbox') {
+            $c = (array) config('training-videos.auto.tts.chatterbox');
+
+            return is_file((string) ($c['python'] ?? '')) && is_file((string) ($c['script'] ?? ''));
+        }
         if ($provider === 'kokoro') {
             $c = (array) config('training-videos.auto.tts.kokoro');
 
@@ -54,11 +70,24 @@ class TrainingVoices
         return $key ? ($this->catalogue()[$key] ?? null) : null;
     }
 
+    /** The platform's active CoreX voices (none when the table is not migrated yet). */
+    public function platformVoices()
+    {
+        return \Illuminate\Support\Facades\Schema::hasTable('training_platform_voices')
+            ? \App\Models\TrainingPlatformVoice::query()->where('is_active', true)->orderByDesc('is_default')->orderBy('name')->get()
+            : collect();
+    }
+
+    /** The platform default: the CoreX voice the system owner picked, else the configured default (Kokoro). Every agency uses it unless its admin chooses another. */
     public function defaultKey(): string
     {
-        $k = (string) config('training-videos.auto.default_voice', 'jenny');
+        $pd = $this->platformVoices()->firstWhere('is_default', true);
+        if ($pd) {
+            return $pd->voice_key;
+        }
+        $k = (string) config('training-videos.auto.default_voice', 'bf_emma');
 
-        return isset(config('training-videos.auto.voices', [])[$k]) ? $k : (string) array_key_first((array) config('training-videos.auto.voices', [])) ;
+        return isset(config('training-videos.auto.voices', [])[$k]) ? $k : (string) array_key_first((array) config('training-videos.auto.voices', []));
     }
 
     /** The voice key an agency has chosen (or the default when none, or when its choice is no longer on offer). */
@@ -91,10 +120,18 @@ class TrainingVoices
         return array_merge((array) config('training-videos.auto.tts.kokoro'), ['voice' => $key, 'key' => $key]);
     }
 
+    /** What a ChatterboxTtsProvider needs for a CoreX voice key: the engine paths plus the (private) reference clip. */
+    public function chatterboxConfig(string $key): array
+    {
+        $pv = \App\Models\TrainingPlatformVoice::query()->where('voice_key', $key)->firstOrFail();
+
+        return array_merge((array) config('training-videos.auto.tts.chatterbox'), ['key' => $key, 'reference' => \Illuminate\Support\Facades\Storage::disk((string) config('training-videos.auto.disk', 'local'))->path($pv->reference_file)]);
+    }
+
     /** Label for a stored tts_voice ("piper:cori", or an older "piper:en_GB-jenny_dioco-medium"). */
     public function labelFor(?string $stored): string
     {
-        $k = preg_replace('/^(piper|kokoro):/', '', (string) $stored);
+        $k = preg_replace('/^(piper|kokoro|chatterbox):/', '', (string) $stored);
         if ($v = $this->find($k)) {
             return $v['label'];
         }

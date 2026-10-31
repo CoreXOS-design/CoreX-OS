@@ -86,6 +86,14 @@ return [
         'tts' => [
             // 'piper' (free, offline, MIT) | 'fake' (silent, tests). A paid voice is one more class implementing App\Services\TrainingVideos\Tts\TtsProvider.
             'driver' => env('TRAINING_TTS_DRIVER', 'piper'),
+            // Chatterbox (Resemble AI, MIT) - voice cloning from a consented reference clip, CPU, own venv on the DATA volume; scripts/chatterbox-tts.py.
+            'chatterbox' => [
+                'python' => env('CHATTERBOX_PYTHON', '/mnt/HC_Volume_103099143/training-videos/chatterbox-venv/bin/python'),
+                'script' => base_path('scripts/chatterbox-tts.py'),
+                'hf_home' => env('CHATTERBOX_HF_HOME', '/mnt/HC_Volume_103099143/training-videos/chatterbox/hf'),
+                'tmp' => env('CHATTERBOX_TMP', '/mnt/HC_Volume_103099143/training-videos/tmp'),
+                'timeout' => 900,
+            ],
             // Kokoro-82M via kokoro-onnx (CPU), in its own venv on the DATA volume; scripts/kokoro-tts.py speaks one text.
             'kokoro' => [
                 'python' => env('KOKORO_PYTHON', '/mnt/HC_Volume_103099143/training-videos/kokoro-venv/bin/python'),
@@ -107,6 +115,7 @@ return [
         'fallback_voice' => env('TRAINING_FALLBACK_VOICE', 'jenny'),
         // The voice engines (spec section 9.18 / 9.19): licence and cost are shown above each group in the picker.
         'providers' => [
+            'chatterbox' => ['label' => 'CoreX voices', 'licence' => 'Chatterbox, MIT - made by the system owner from a recording the speaker agreed to', 'cost' => 'Free - runs on our own server'],
             'kokoro' => ['label' => 'Kokoro', 'licence' => 'Apache-2.0, commercial use OK', 'cost' => 'Free - runs on our own server'],
             'piper' => ['label' => 'Piper', 'licence' => 'MIT code; each voice keeps its own dataset licence', 'cost' => 'Free - runs on our own server'],
         ],
