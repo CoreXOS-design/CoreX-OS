@@ -34,6 +34,21 @@ final class MicWorkList
 
     public function __construct(private readonly PropertySourceFacts $sourceFacts) {}
 
+    /** The ONE suburb formatter for the Work tab (list, panels): title case, never the raw capitals the portals send. */
+    public static function titleSuburb(?string $name): string
+    {
+        return \Illuminate\Support\Str::title(mb_strtolower(trim((string) $name)));
+    }
+
+    /** "12 Foo Road, SHELLY BEACH" -> "12 Foo Road, Shelly Beach": the suburb after the last comma goes through the same formatter. */
+    public static function tidyAddress(?string $address): string
+    {
+        $a = trim((string) $address);
+        $at = strrpos($a, ', ');
+
+        return $at === false ? $a : substr($a, 0, $at + 2) . self::titleSuburb(substr($a, $at + 2));
+    }
+
     /** @return list<string> */
     public static function sortKeys(): array
     {
@@ -174,6 +189,65 @@ final class MicWorkList
                 });
         }
 
+        // Pending review pairs ("Possible match" chip): this agency's pending identity_possible decisions that touch a page file, either side.
+        $pairs = [];
+        if ($tpIds) {
+            $pend = DB::table('property_match_decisions as d')->where('d.agency_id', $agencyId)->where('d.subject_type', \App\Services\Prospecting\PropertyIdentityResolver::DECISION_SUBJECT)
+                ->whereNull('d.deleted_at')->whereNull('d.confirmed_at')->whereNull('d.rejected_at')
+                ->where(fn ($q) => $q->whereIn('d.matched_id', $tpIds)->orWhereRaw("CAST(JSON_UNQUOTE(JSON_EXTRACT(d.incoming_facts, '$.incoming_tracked_property_id')) AS UNSIGNED) IN (" . implode(',', array_map('intval', $tpIds)) . ')'))
+                ->get(['d.id', 'd.matched_id', 'd.incoming_facts']);
+            foreach ($pend as $d) {
+                $inc = (int) (json_decode((string) $d->incoming_facts, true)['incoming_tracked_property_id'] ?? 0);
+                foreach ([(int) $d->matched_id, $inc] as $side) {
+                    if ($side && in_array($side, $tpIds, true)) {
+                        $pairs[$side][] = (int) $d->id;
+                    }
+                }
+            }
+        }
+
+        // Top matched buyers per file (own agency, strong enough to count), for the expand.
+        $buyerNames = [];
+        if ($advertIds) {
+            $advKey = [];
+            foreach ($adverts as $fk => $list) {
+                foreach ($list as $a) {
+                    $advKey[$a->id] = $fk;
+                }
+            }
+            DB::table('prospecting_buyer_matches as m')->join('contacts as c', 'c.id', '=', 'm.contact_id')
+                ->where('m.agency_id', $agencyId)->where('c.agency_id', $agencyId)->whereNull('c.deleted_at')->whereNull('m.dismissed_at')->where('m.score', '>=', 50)
+                ->whereIn('m.prospecting_listing_id', $advertIds)->orderByDesc('m.score')->limit(600)
+                ->get(['m.prospecting_listing_id', 'm.contact_id', 'm.score', 'c.first_name', 'c.last_name'])
+                ->each(function ($m) use (&$buyerNames, $advKey) {
+                    $fk = $advKey[$m->prospecting_listing_id] ?? null;
+                    if ($fk !== null && ! isset($buyerNames[$fk][$m->contact_id]) && count($buyerNames[$fk] ?? []) < 3) {
+                        $buyerNames[$fk][$m->contact_id] = ['id' => (int) $m->contact_id, 'name' => trim($m->first_name . ' ' . $m->last_name) ?: 'Buyer #' . $m->contact_id, 'score' => (int) $m->score];
+                    }
+                });
+        }
+
+        // Our history: claims on the file's adverts, and our own past/present mandates on the file.
+        $claims = $advertIds ? DB::table('prospecting_claims as cl')->leftJoin('users as u', 'u.id', '=', 'cl.user_id')->where('cl.agency_id', $agencyId)->whereNull('cl.deleted_at')
+            ->whereIn('cl.prospecting_listing_id', $advertIds)->orderByDesc('cl.claimed_at')->limit(300)->get(['cl.prospecting_listing_id', 'cl.status', 'cl.claimed_at', 'cl.released_at', 'cl.release_reason', 'u.name as who']) : collect();
+        $claimsByKey = [];
+        foreach ($claims as $c) {
+            $claimsByKey[$advKey[$c->prospecting_listing_id] ?? 0][] = ['who' => $c->who, 'status' => $c->status, 'at' => $c->claimed_at ? \Carbon\Carbon::parse($c->claimed_at)->format('j M Y') : null, 'released' => $c->released_at ? \Carbon\Carbon::parse($c->released_at)->format('j M Y') : null, 'reason' => $c->release_reason];
+        }
+        $mandates = $tpIds ? DB::table('properties')->where('agency_id', $agencyId)->whereNull('deleted_at')->whereIn('tracked_property_id', $tpIds)
+            ->orderByDesc('id')->get(['tracked_property_id', 'status', 'mandate_type', 'expiry_date', 'price'])->groupBy('tracked_property_id') : collect();
+
+        // cc5's market context per file (spec 11.1b, FileContext::forFiles) - nearby sales and the suburb line - when that service exists.
+        $context = [];
+        $ctxClass = 'App\\Services\\MarketIntelligence\\Context\\FileContext';
+        if ($tpIds && class_exists($ctxClass) && method_exists($ctxClass, 'forFiles')) {
+            try {
+                $context = app($ctxClass)->forFiles($agencyId, $tpIds);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('MIC Work list: MarketContext failed', ['error' => $e->getMessage()]);
+            }
+        }
+
         $out = [];
         foreach ($keys as $key) {
             $list = $adverts->get($key, collect());
@@ -186,7 +260,7 @@ final class MicWorkList
             $lead = $live->first();
 
             // Price now and the move come from ONE advert: the lead advert on the file (the live one seen last). Its own history only.
-            $leadHist = $history->get($lead->id, collect());
+            $leadHist = $history->get($lead->id, collect())->filter(fn ($h) => (float) $h->old_price > 0 && (float) $h->new_price > 0)->values(); // R 0 = price on application, not a price
             $priceNow = (int) ($lead->price ?: 0);
             $firstPrice = $leadHist->isNotEmpty() ? (int) $leadHist->first()->old_price : null;
             $move = ($firstPrice && $priceNow && $priceNow !== $firstPrice) ? $priceNow - $firstPrice : null;
@@ -196,7 +270,7 @@ final class MicWorkList
                 ? trim(implode(' ', array_filter([in_array(trim((string) $tp->street_number), ['', '0'], true) ? null : trim((string) $tp->street_number), trim((string) $tp->street_name)])))
                 : ($list->first(fn ($a) => trim((string) $a->address) !== '' && $a->address !== ProspectingListing::ADDRESS_PLACEHOLDER)?->address);
             $pid = $tp?->p24_suburb_id ?: $lead->p24_suburb_id;
-            $suburb = $pid && $subNames->has($pid) ? $subNames[$pid] : \Illuminate\Support\Str::title(mb_strtolower((string) ($tp?->suburb ?: $lead->suburb)));
+            $suburb = $pid && $subNames->has($pid) ? $subNames[$pid] : self::titleSuburb($tp?->suburb ?: $lead->suburb);
             $type = $tp?->property_type ?: $lead->property_type;
             $beds = $tp?->bedrooms ?? $list->max('bedrooms');
             $baths = $tp?->bathrooms ?? $list->max('bathrooms');
@@ -247,6 +321,12 @@ final class MicWorkList
                 'pp' => $list->contains('portal_source', 'pp'),
                 'alert' => $srcRows->contains(fn ($s) => $s['alert']) || ! empty($alertsByKey[$key]),
                 'alerts' => $alertsByKey[$key] ?? [],
+                'pair_ids' => $pairs[$key] ?? [],
+                'buyer_names' => array_values($buyerNames[$key] ?? []),
+                'claims' => $claimsByKey[$key] ?? [],
+                'mandates' => ($mandates->get($key) ?? collect())->map(fn ($m) => ['status' => $m->status, 'type' => $m->mandate_type, 'expiry' => $m->expiry_date ? \Carbon\Carbon::parse($m->expiry_date)->format('j M Y') : null, 'price' => $m->price ? (int) $m->price : null])->all(),
+                'context' => $context[$key] ?? null,
+                'advert_count' => $live->count(),
                 'own_stock' => (bool) ($w->is_own_stock ?? false),
                 'deeds' => $deeds->has($key),
                 'owner' => $owner,
@@ -270,7 +350,7 @@ final class MicWorkList
                     'portal' => strtoupper($a->portal_source), 'ref' => $a->portal_ref, 'url' => $a->portal_url, 'agency' => $a->agency_name, 'agent' => $a->agent_name,
                     'price' => $a->price, 'listed' => $a->listed_date?->format('j M Y'), 'seen' => $a->first_seen_at?->format('j M Y'), 'active' => (bool) $a->is_active,
                     'status' => $a->portal_status,
-                    'changes' => $history->get($a->id, collect())->map(fn ($h) => ['date' => \Carbon\Carbon::parse($h->changed_at)->format('j M Y'), 'old' => (int) $h->old_price, 'new' => (int) $h->new_price])->all(),
+                    'changes' => $history->get($a->id, collect())->filter(fn ($h) => (float) $h->old_price > 0 && (float) $h->new_price > 0)->map(fn ($h) => ['date' => \Carbon\Carbon::parse($h->changed_at)->format('j M Y'), 'old' => (int) $h->old_price, 'new' => (int) $h->new_price])->all(),
                 ])->all(),
                 'deeds_info' => $tp && $tp->deeds_captured_at ? ['registered' => $tp->deeds_registered_date ? \Carbon\Carbon::parse($tp->deeds_registered_date)->format('j M Y') : null, 'price' => $tp->last_known_sold_price, 'bond' => $tp->bond_amount] : null,
             ];

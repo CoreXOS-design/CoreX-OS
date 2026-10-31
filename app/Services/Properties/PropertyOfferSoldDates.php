@@ -100,14 +100,14 @@ final class PropertyOfferSoldDates
         $runId ??= (string) Str::uuid();
         $r = [
             'run_id' => $runId, 'apply' => $apply, 'agencies' => [], 'events_considered' => 0, 'events_excluded_console' => 0, 'events_excluded_import' => 0,
-            'skipped_mismatch' => 0, 'under_offer_filled' => 0, 'sold_filled' => 0, 'sold_stock_corrected' => 0, 'event_days' => [], 'by_suburb' => [],
+            'events_excluded_bulk_days' => 0, 'bulk_days' => [], 'skipped_mismatch' => 0, 'under_offer_filled' => 0, 'sold_filled' => 0, 'sold_stock_corrected' => 0, 'event_days' => [], 'by_suburb' => [],
         ];
 
         $agencies = DB::table('properties')->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId))->distinct()->pluck('agency_id');
         foreach ($agencies as $aid) {
             $cutoff = MicAgencySetting::for((int) $aid)->trustedSalesAfter();
             $r['agencies'][(int) $aid] = $cutoff;
-            $this->backfillAgency((int) $aid, $cutoff . ' 00:00:00', $apply, $runId, $r);
+            $this->backfillAgency((int) $aid, $cutoff . ' 00:00:00', MicAgencySetting::for((int) $aid)->bulkStatusDayEvents(), $apply, $runId, $r);
             $this->correctSoldStock((int) $aid, $cutoff, $apply, $runId, $r);
         }
         arsort($r['event_days']);
@@ -133,13 +133,29 @@ final class PropertyOfferSoldDates
     }
 
     /** @param array<string, mixed> $r */
-    private function backfillAgency(int $agencyId, string $cutoff, bool $apply, string $runId, array &$r): void
+    private function backfillAgency(int $agencyId, string $cutoff, int $bulkDayEvents, bool $apply, string $runId, array &$r): void
     {
         $events = DB::table('property_audit_log as a')->join('properties as p', 'p.id', '=', 'a.property_id')
             ->where('a.agency_id', $agencyId)->where('a.event_type', 'status_changed')->where('a.created_at', '>=', $cutoff)
-            ->whereNull('p.deleted_at')->where(fn ($q) => $q->whereNull('p.sold_at')->orWhereNull('p.under_offer_at'))
+            ->whereNull('p.deleted_at')
             ->orderBy('a.property_id')->orderBy('a.created_at')->orderBy('a.id')
             ->get(['a.property_id', 'a.old_values', 'a.new_values', 'a.created_at', 'a.source', 'p.status', 'p.p24_imported_at', 'p.under_offer_at as cur_offer', 'p.sold_at as cur_sold']);
+
+        // Catch-up days: this many sale-side status changes (into Under Offer / Sold) on ONE day is data entry after the fact, not the sales themselves.
+        $perDay = [];
+        foreach ($events as $e) {
+            if (str_starts_with((string) $e->source, 'console:') || $this->isImportEvent($e)) {
+                continue;
+            }
+            if (self::isSaleSide(json_decode((string) $e->new_values, true)['status'] ?? null)) {
+                $day = substr((string) $e->created_at, 0, 10);
+                $perDay[$day] = ($perDay[$day] ?? 0) + 1;
+            }
+        }
+        $bulkDays = array_keys(array_filter($perDay, fn ($n) => $n >= $bulkDayEvents));
+        foreach ($bulkDays as $day) {
+            $r['bulk_days'][$agencyId . ' ' . $day] = $perDay[$day];
+        }
 
         $by = [];
         foreach ($events as $e) {
@@ -154,13 +170,14 @@ final class PropertyOfferSoldDates
                     $r['events_excluded_console']++;
                     continue;
                 }
-                if ($e->p24_imported_at !== null) {
-                    $imp = Carbon::parse($e->p24_imported_at);
-                    $at = Carbon::parse($e->created_at);
-                    if ($at->isSameDay($imp) || abs($at->diffInHours($imp, false)) < 24) {
-                        $r['events_excluded_import']++;
-                        continue;
-                    }
+                if ($this->isImportEvent($e)) {
+                    $r['events_excluded_import']++;
+                    continue;
+                }
+                if ($bulkDays && in_array(substr((string) $e->created_at, 0, 10), $bulkDays, true)
+                    && self::isSaleSide(json_decode((string) $e->new_values, true)['status'] ?? null)) {
+                    $r['events_excluded_bulk_days']++;
+                    continue;
                 }
                 $kept[] = $e;
             }
@@ -240,6 +257,24 @@ final class PropertyOfferSoldDates
                 });
             }
         }
+    }
+
+    private function isImportEvent(object $e): bool
+    {
+        if ($e->p24_imported_at === null) {
+            return false;
+        }
+        $imp = Carbon::parse($e->p24_imported_at);
+        $at = Carbon::parse($e->created_at);
+
+        return $at->isSameDay($imp) || abs($at->diffInHours($imp, false)) < 24;
+    }
+
+    private static function isSaleSide(?string $status): bool
+    {
+        $k = self::key($status);
+
+        return $k === self::OFFER_KEY || in_array($k, self::SOLD_KEYS, true);
     }
 
     /** Put every value a run wrote back (only where the column still holds what the run wrote). */

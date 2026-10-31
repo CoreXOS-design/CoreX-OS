@@ -123,10 +123,15 @@ final class MicWorkTiles
                 continue;
             }
             $panelReady = $kind === 'panel' && isset($this->panels[$n]);
+            if (! $provider && $panelReady && ($bridge = $this->panelNumbers($n, $agencyId, $user))) {
+                $out[] = ['number' => $n, 'key' => $key, 'title' => $title, 'short' => $short, 'kind' => $kind, 'ready' => true,
+                    'count' => $bridge['count'], 'reason' => $bridge['reason'], 'note' => $bridge['note'] ?? null, 'display' => $bridge['display'] ?? null];
+                continue;
+            }
             if ($provider) {
                 $s = $provider->summary($agencyId, $user);
                 $out[] = ['number' => $n, 'key' => $key, 'title' => $title, 'short' => $short, 'kind' => $kind, 'ready' => true,
-                    'count' => $s['count'], 'reason' => $s['reason'], 'note' => $s['note'] ?? null];
+                    'count' => $s['count'], 'reason' => $s['reason'], 'note' => $s['note'] ?? null, 'display' => $s['display'] ?? null];
             } else {
                 $out[] = ['number' => $n, 'key' => $key, 'title' => $title, 'short' => $short, 'kind' => $kind, 'ready' => $panelReady,
                     'count' => null, 'reason' => $panelReady ? 'Open' : 'Coming', 'note' => null];
@@ -148,6 +153,43 @@ final class MicWorkTiles
         }
 
         return class_exists(self::CC5_SERVICE) && in_array($n, [1, 4, 5, 6, 7, 8, 9], true) ? app(self::CC5_SERVICE)->fileIds($key, $user) : null;
+    }
+
+    /**
+     * Tile 10 / 11 headline numbers. cc4 owns them: a TileProvider tagged for tile 10 / 11 (summary() = count + reason + note, optional `display`)
+     * wins. Until it is tagged this reads the SAME panel providers' own rows - nothing is invented, it is only counted:
+     * tile 10 = triggers this month with a resolvable address; tile 11 = the oldest age among the agency's suburbs and how many are overdue.
+     *
+     * @return array{count:?int, reason:string, note?:?string, display?:?string}|null
+     */
+    private function panelNumbers(int $n, int $agencyId, User $user): ?array
+    {
+        $panel = $this->panels[$n] ?? null;
+        if (! $panel) {
+            return null;
+        }
+        try {
+            if ($n === 10) {
+                $rows = array_values(array_filter($panel->rows($agencyId, $user, ['months' => 0]), fn ($r) => ! empty($r['has_address'])));
+
+                return ['count' => count($rows), 'reason' => 'sales & offers this month'];
+            }
+            $rows = $panel->rows($agencyId, $user, ['scope' => 'all']);
+            $aged = array_values(array_filter($rows, fn ($r) => $r['age_days'] !== null));
+            if (! $aged) {
+                return ['count' => null, 'reason' => 'No suburb has been read in full yet'];
+            }
+            usort($aged, fn ($a, $b) => $b['age_days'] <=> $a['age_days']);
+            $interval = MicTileSettings::refreshIntervalDays($agencyId);
+            $older = count(array_filter($aged, fn ($r) => $r['age_days'] > $interval));
+
+            return ['count' => null, 'display' => MicWorkList::titleSuburb($aged[0]['suburb']) . ' ' . $aged[0]['age_days'] . ' d',
+                'reason' => $older . ' ' . ($older === 1 ? 'suburb' : 'suburbs') . ' older than ' . $interval . ' d', 'note' => $older . ' ' . ($older === 1 ? 'suburb' : 'suburbs') . ' older than ' . $interval . ' d'];
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('MIC Work tiles: panel numbers failed', ['tile' => $n, 'error' => $e->getMessage()]);
+
+            return null;
+        }
     }
 
     public function panel(int $number): ?PanelProvider

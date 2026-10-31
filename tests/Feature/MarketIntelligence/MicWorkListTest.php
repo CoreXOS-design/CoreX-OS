@@ -50,8 +50,8 @@ final class MicWorkListTest extends TestCase
     public function test_adverts_of_one_file_are_one_row_with_both_portals_and_the_files_address(): void
     {
         $tp = $this->tp($this->agency, 'P24-119000001', '13', 'Newport Road');
-        $this->advert($this->agency, 'p24', 'P24-119000001', $tp);
-        $pp = $this->advert($this->agency, 'pp', 'PP-T9100001', $tp, ['agency_name' => 'Other Agents', 'price' => 1_400_000]);
+        $this->advert($this->agency, 'p24', 'P24-119000001', $tp, ['last_seen_at' => now()->subDay()]);
+        $pp = $this->advert($this->agency, 'pp', 'PP-T9100001', $tp, ['agency_name' => 'Other Agents', 'price' => 1_400_000]); // the lead advert (seen last)
         DB::table('prospecting_price_history')->insert(['prospecting_listing_id' => $pp->id, 'old_price' => 1_600_000, 'new_price' => 1_400_000, 'changed_at' => now()->subDays(3), 'created_at' => now(), 'updated_at' => now()]);
         $lone = $this->advert($this->agency, 'p24', 'P24-119000002', null);
         $this->advert($this->b, 'p24', 'P24-119000003', null); // another agency's advert never shows
@@ -148,6 +148,33 @@ final class MicWorkListTest extends TestCase
         $this->assertStringContainsString('was R 1,500,000', $html);
 
         $this->actingAs($this->admin)->get(route('market-intelligence.work', ['include_in_stock' => 1]))->assertOk()->assertSee('22 Avon Road', false);
+    }
+
+    public function test_item_batch_poa_hidden_first_seen_possible_match_chip_agencies_and_address_format(): void
+    {
+        $this->assertSame('12 Foo Road, Shelly Beach', MicWorkList::tidyAddress('12 Foo Road, SHELLY BEACH'));
+        $this->assertSame('Oslo Beach', MicWorkList::titleSuburb('OSLO BEACH'));
+
+        $a = $this->tp($this->agency, 'P24-119000060', '13', 'Newport Road');
+        $b = $this->tp($this->agency, 'P24-119000061', '77', 'Marine Parade');
+        $lead = $this->advert($this->agency, 'p24', 'P24-119000060', $a, ['price' => 1_499_000, 'agency_name' => 'RE/MAX', 'listed_date' => null]);
+        $this->advert($this->agency, 'pp', 'PP-T9100060', $a, ['price' => 1_499_000, 'agency_name' => 'RE/MAX', 'last_seen_at' => now()->subDay()]);
+        $this->advert($this->agency, 'p24', 'P24-119000061', $b);
+        $h = fn ($old, $new) => DB::table('prospecting_price_history')->insert(['prospecting_listing_id' => $lead->id, 'old_price' => $old, 'new_price' => $new, 'changed_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+        $h(1_499_000, 0);
+        $h(0, 4_500_000);
+        $decision = \App\Models\PropertyMatchDecision::forceCreate(['agency_id' => $this->agency->id, 'subject_type' => \App\Services\Prospecting\PropertyIdentityResolver::DECISION_SUBJECT,
+            'subject_key' => 'tracked:' . $b->id, 'matched_type' => 'tracked_property', 'matched_id' => $a->id, 'strategy' => 'same_address', 'confidence_score' => 80, 'reason' => 'test', 'decided_at' => now(),
+            'incoming_facts' => ['incoming_tracked_property_id' => $b->id, 'kind' => 'same_address']]);
+
+        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work'))->assertOk()->getContent();
+        $this->assertStringContainsString('RE/MAX · 2 adverts', preg_replace('/\s+/', ' ', strip_tags($html)));
+        $this->assertStringContainsString('first seen', $html, 'no listed date = first seen is the estimate');
+        $this->assertStringNotContainsString('R 0', $html, 'a price on application is not a price');
+        $this->assertSame(2, substr_count($html, 'data-qa="possible-match-chip"'), 'both files of the pending pair carry the chip');
+        $this->assertStringContainsString(route('corex.possible-matches.index', ['pair' => $decision->id]), $html);
+        $this->assertStringContainsString('data-qa="record-card"', $html);
+        $this->assertStringContainsString('Open the property page', $html);
     }
 }
 
