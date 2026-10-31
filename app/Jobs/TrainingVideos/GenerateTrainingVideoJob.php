@@ -20,7 +20,7 @@ class GenerateTrainingVideoJob implements ShouldQueue
     public int $timeout = 1500;
     public int $tries = 1;
 
-    public function __construct(public readonly string $screenKey, public readonly ?int $byUserId = null)
+    public function __construct(public readonly string $screenKey, public readonly ?int $byUserId = null, public readonly ?string $voiceKey = null)
     {
         $this->onQueue((string) config('training-videos.queue', 'training-videos'));
     }
@@ -31,6 +31,6 @@ class GenerateTrainingVideoJob implements ShouldQueue
         if (! $script) {
             throw new \RuntimeException("No training script '{$this->screenKey}'.");
         }
-        $generator->generate($script, $this->byUserId);
+        $generator->generate($script, $this->byUserId, null, $this->voiceKey);
     }
 }

@@ -75,10 +75,26 @@ return [
             'driver' => env('TRAINING_TTS_DRIVER', 'piper'),
             'piper' => [
                 'python' => env('PIPER_PYTHON', '/mnt/HC_Volume_103099143/training-videos/tts-venv/bin/python'),
-                'voice' => env('PIPER_VOICE', 'en_GB-jenny_dioco-medium'),
                 'data_dir' => env('PIPER_DATA_DIR', '/mnt/HC_Volume_103099143/training-videos/voices'),
                 'timeout' => 120,
             ],
+        ],
+
+        // The voice every agency starts with; an agency picks its own in the Training library (agencies.training_video_voice).
+        'default_voice' => env('TRAINING_DEFAULT_VOICE', 'jenny'),
+        // Two plain sentences every voice speaks in the Training library's voice picker, so the voices can be compared like for like.
+        'sample_text' => 'Click the house to see everything we know about it. Then press Claim, so you know who to phone first.',
+        // The Piper voices on offer (British English, female; free and offline; models live on the DATA volume, in piper.data_dir). `speaker` = the id inside a
+        // multi-speaker model. A voice is added here and its model downloaded with `python -m piper.download_voices <model> --data-dir <data_dir>`.
+        'voices' => [
+            'jenny' => ['label' => 'Jenny', 'model' => 'en_GB-jenny_dioco-medium', 'speaker' => null, 'about' => 'Warm and friendly, southern British. The voice used so far.'],
+            'cori' => ['label' => 'Cori', 'model' => 'en_GB-cori-high', 'speaker' => null, 'about' => 'Clear and calm, high quality (the fullest sound of the set).'],
+            'southern' => ['label' => 'Southern', 'model' => 'en_GB-southern_english_female-low', 'speaker' => null, 'about' => 'Plain southern English, neutral and even. Lighter quality.'],
+            'prudence' => ['label' => 'Prudence', 'model' => 'en_GB-semaine-medium', 'speaker' => 0, 'about' => 'Bright and upbeat British voice.'],
+            'poppy' => ['label' => 'Poppy', 'model' => 'en_GB-semaine-medium', 'speaker' => 3, 'about' => 'Lively and animated British voice.'],
+            'clara' => ['label' => 'Clara', 'model' => 'en_GB-vctk-medium', 'speaker' => 107, 'about' => 'Standard southern English, even pace (speaker p225).'],
+            'grace' => ['label' => 'Grace', 'model' => 'en_GB-vctk-medium', 'speaker' => 85, 'about' => 'Standard English, soft and steady (speaker p229).'],
+            'heather' => ['label' => 'Heather', 'model' => 'en_GB-vctk-medium', 'speaker' => 18, 'about' => 'Standard English, clear and brisk (speaker p257).'],
         ],
 
         'recorder' => [

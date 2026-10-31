@@ -28,7 +28,7 @@ class TrainingVideoGenerator
     /**
      * @param  callable|null  $recorder  fn (array $job): array — runs the recording and returns its timeline (tests swap this for a fake; default = the node recorder)
      */
-    public function generate(TrainingScript $script, ?int $byUserId = null, ?callable $recorder = null): TrainingVideo
+    public function generate(TrainingScript $script, ?int $byUserId = null, ?callable $recorder = null, ?string $voiceKey = null): TrainingVideo
     {
         $problems = $this->validator->problems($script);
         if ($problems !== []) {
@@ -48,7 +48,7 @@ class TrainingVideoGenerator
         File::ensureDirectoryExists($work);
         $session = null;
         try {
-            $voice = $this->tts->provider();
+            $voice = $this->tts->provider($voiceKey);
             $user = $this->sessions->userFor($script->loginAs());
             $pad = (float) config('training-videos.auto.step_pad_seconds', 0.6);
 

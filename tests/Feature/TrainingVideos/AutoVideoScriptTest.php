@@ -152,8 +152,8 @@ final class AutoVideoScriptTest extends TestCase
 
     public function test_the_real_piper_voice_speaks_when_it_is_installed_on_this_box(): void
     {
-        $cfg = (array) config('training-videos.auto.tts.piper');
-        if (! is_file($cfg['python'] ?? '') || ! is_file(($cfg['data_dir'] ?? '') . '/' . ($cfg['voice'] ?? '') . '.onnx')) {
+        $cfg = app(\App\Services\TrainingVideos\Tts\TrainingVoices::class)->piperConfig(null);
+        if (! is_file($cfg['python'] ?? '') || ! is_file(($cfg['data_dir'] ?? '') . '/' . $cfg['voice'] . '.onnx')) {
             $this->markTestSkipped('Piper is not installed here.');
         }
         $out = sys_get_temp_dir() . '/tv-piper-' . uniqid() . '.wav';

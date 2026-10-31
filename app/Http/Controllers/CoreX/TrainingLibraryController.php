@@ -8,6 +8,8 @@ use App\Models\TrainingVideo;
 use App\Services\TrainingVideos\Auto\SourceHasher;
 use App\Services\TrainingVideos\Auto\TrainingScript;
 use App\Services\TrainingVideos\Auto\TrainingScriptRepository;
+use App\Services\TrainingVideos\Tts\TrainingVoices;
+use App\Services\TrainingVideos\Tts\VoiceSamples;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -17,8 +19,13 @@ use Illuminate\Support\Facades\Storage;
  */
 class TrainingLibraryController extends Controller
 {
-    public function __construct(private readonly TrainingScriptRepository $scripts, private readonly SourceHasher $hasher)
+    public function __construct(private readonly TrainingScriptRepository $scripts, private readonly SourceHasher $hasher, private readonly TrainingVoices $voices, private readonly VoiceSamples $samples)
     {
+    }
+
+    private function agencyOf($user): ?\App\Models\Agency
+    {
+        return \App\Models\Agency::withoutGlobalScopes()->find($user->agency_id);
     }
 
     public function index(Request $request)
@@ -40,7 +47,16 @@ class TrainingLibraryController extends Controller
             $rows[] = ['script' => $s, 'video' => $v, 'outOfDate' => $v ? $this->hasher->isOutOfDate($v, $s) : false];
         }
 
-        return view('corex.training-library.index', ['rows' => $rows, 'canGenerate' => $canGenerate]);
+        $voiceRows = [];
+        $currentVoice = $this->voices->keyFor($this->agencyOf($user));
+        if ($canGenerate) {
+            foreach ($this->voices->catalogue() as $key => $v) {
+                $voiceRows[] = $v + ['current' => $key === $currentVoice, 'sample' => $v['installed'] && $this->samples->exists($key)];
+            }
+        }
+
+        return view('corex.training-library.index', ['rows' => $rows, 'canGenerate' => $canGenerate, 'voiceRows' => $voiceRows, 'currentVoice' => $currentVoice, 'voices' => $this->voices,
+            'sampleText' => (string) config('training-videos.auto.sample_text'), 'approvedCount' => collect($this->scripts->all())->filter(fn ($s) => $s->approved())->count()]);
     }
 
     public function show(Request $request, string $screenKey)
@@ -75,9 +91,48 @@ class TrainingLibraryController extends Controller
         if (! $script->approved()) {
             return back()->withErrors(['training' => 'This script has not been approved yet.']);
         }
-        GenerateTrainingVideoJob::dispatch($script->key(), $request->user()->id);
+        GenerateTrainingVideoJob::dispatch($script->key(), $request->user()->id, $this->voices->keyFor($this->agencyOf($request->user())));
 
         return back()->with('success', 'The video is being made - it takes a few minutes and appears here when it is ready. The old video keeps playing meanwhile.');
+    }
+
+    /** One voice's sample (the same two sentences for every voice), made on first ask if it is not there yet. Only people who can choose the voice may hear the picker. */
+    public function voiceSample(Request $request, string $key)
+    {
+        abort_unless($request->user()->hasPermission('training_videos.generate'), 403);
+        abort_unless($this->voices->find($key), 404);
+        $path = $this->samples->ensure($key);
+        abort_unless($path, 404);
+
+        return response()->file(Storage::disk((string) config('training-videos.auto.disk', 'local'))->path($path), ['Content-Type' => 'audio/mpeg', 'Cache-Control' => 'private, max-age=3600']);
+    }
+
+    /** "Use this voice": saved as the agency's training-video voice (agencies.training_video_voice). */
+    public function chooseVoice(Request $request)
+    {
+        abort_unless($request->user()->hasPermission('training_videos.generate'), 403);
+        $data = $request->validate(['voice' => ['required', 'string', 'max:40']]);
+        $agency = $this->agencyOf($request->user());
+        abort_unless($agency && $this->voices->find($data['voice']), 404);
+        $this->voices->choose($agency, $data['voice']);
+
+        return back()->with('success', 'Voice saved: ' . $this->voices->find($data['voice'])['label'] . '. New videos use it. Press "Regenerate all videos with this voice" to re-make the ones you already have.');
+    }
+
+    /** Queue every approved script again, in the agency's chosen voice. */
+    public function regenerateAll(Request $request)
+    {
+        abort_unless($request->user()->hasPermission('training_videos.generate'), 403);
+        $key = $this->voices->keyFor($this->agencyOf($request->user()));
+        $n = 0;
+        foreach ($this->scripts->all() as $script) {
+            if ($script->approved()) {
+                GenerateTrainingVideoJob::dispatch($script->key(), $request->user()->id, $key);
+                $n++;
+            }
+        }
+
+        return back()->with('success', $n . ' video' . ($n === 1 ? ' is' : 's are') . ' being made again in the ' . $this->voices->find($key)['label'] . ' voice. Each takes a few minutes and appears here when it is ready; the old ones keep playing meanwhile.');
     }
 
     /** @return array{0: TrainingScript, 1: TrainingVideo} */

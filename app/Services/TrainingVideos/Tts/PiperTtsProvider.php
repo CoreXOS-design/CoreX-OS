@@ -10,18 +10,23 @@ use Symfony\Component\Process\Process;
  */
 class PiperTtsProvider implements TtsProvider
 {
+    /** $config = training-videos.auto.tts.piper (python, data_dir, timeout) + `voice` (the model), optional `speaker` (id inside a multi-speaker model) and `key` (the catalogue key). */
     public function __construct(private readonly array $config)
     {
     }
 
     public function name(): string
     {
-        return 'piper:' . $this->config['voice'];
+        return 'piper:' . ($this->config['key'] ?? $this->config['voice']);
     }
 
     public function synthesize(string $text, string $outWav): float
     {
-        $p = new Process([$this->config['python'], '-m', 'piper', '-m', $this->config['voice'], '--data-dir', $this->config['data_dir'], '-f', $outWav]);
+        $cmd = [$this->config['python'], '-m', 'piper', '-m', $this->config['voice'], '--data-dir', $this->config['data_dir'], '-f', $outWav];
+        if (isset($this->config['speaker']) && $this->config['speaker'] !== null) {
+            array_push($cmd, '-s', (string) (int) $this->config['speaker']);
+        }
+        $p = new Process($cmd);
         $p->setInput(trim($text));
         $p->setTimeout((float) ($this->config['timeout'] ?? 120));
         $p->run();

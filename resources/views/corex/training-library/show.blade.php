@@ -22,7 +22,7 @@
         <source src="{{ route('corex.training-library.file', [$script->key(), 'mp4']) }}" type="video/mp4">
         <track kind="subtitles" srclang="en" label="English" src="{{ route('corex.training-library.file', [$script->key(), 'vtt']) }}" default>
     </video>
-    <div class="text-xs" style="color: var(--text-muted);">{{ $video->durationLabel() }} · made {{ $video->generated_at?->format('j M Y') }} · voice-over: {{ $video->tts_voice }}@if($script->route()) · <a class="underline" href="{{ $script->url() }}">Open this screen</a>@endif</div>
+    <div class="text-xs" style="color: var(--text-muted);">{{ $video->durationLabel() }} · made {{ $video->generated_at?->format('j M Y') }} · voice: {{ app(\App\Services\TrainingVideos\Tts\TrainingVoices::class)->labelFor($video->tts_voice) }}@if($script->route()) · <a class="underline" href="{{ $script->url() }}">Open this screen</a>@endif</div>
     @if(! empty($video->chapters))
         <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-chapters>
             <h2 class="text-sm font-semibold mb-2">In this video</h2>
