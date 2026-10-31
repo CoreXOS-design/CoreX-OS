@@ -397,3 +397,31 @@ Data-quality notes (not fixed — report only): two "18 Duke Road" sales on one 
 - 6.13 **Search speed: generated search columns** (migration `2027_01_06_100000_add_search_text_for_mic_work_search`). `prospecting_listings.search_text` = address + suburb + agent + agency + advert ref; `tracked_properties.search_text` = street number + street name + complex + suburb. They are STORED GENERATED columns, so MySQL maintains them on every write (Eloquent, raw updates, imports, merges) and the ALTER back-fills every existing row once - no observer to forget, no drift, no data written by hand. `ProspectingListing::scopeSearchResolved()` matches each word with ONE `LIKE %word%` on the advert's column plus a semi-join on the file's column (it falls back to the old five-column form on a database without the columns). Same case-insensitive collation, parts joined by a space (a one-word search cannot match across two fields), NULL parts skipped, so it is the same substring match: every result the old search found is still found (`MicWorkSearchColumnTest` compares 19 terms - mid-word, ref digits, case, punctuation, `%`/`_`/quotes, multi-word, no-match - against the old five-column rule and requires identical id lists). Figures: see the Jira comment.
 - 6.13b **What the measuring showed (QA1, 48k adverts / 51k files, MySQL 8.0.46):** the leading-wildcard LIKE itself is cheap - a connect-and-`select 1` floor is 50 ms, the five-LIKE count 126 ms (76 net), the same on the one `search_text` column 110 ms (60 net). The cost was the property-FILE half OR-ed in as a semi-join: 267 ms. So the fix that matters is how the file match is joined: the file ids are now looked up first (indexed scan of `tracked_properties (agency_id, search_text)`, migration `2027_01_06_110000`) and handed to the main query as a short id list (more than 5,000 files = the old semi-join). **FULLTEXT was tried and rejected:** an ngram FULLTEXT index on `search_text` (22 s to build per table) gave extra false-positive rows (a phrase of 2-grams is not a substring: "palm" 1,542 rows against 1,451 for the old search) and was slower for common words ("margate" 655 ms against 184 ms); a composite index on `prospecting_listings (agency_id, search_text)` gave nothing and was dropped. Both trials were run on QA1's database and reverted. Figures: Jira.
 
+### 11.10b "Expand, don't rebuild" audit - QA1 against Staging (31 Oct 2026, user 22 on both, real Chromium via puppeteer at 1523 px; nothing was sent or claimed)
+Result: **no failures; nothing had to be restored.** Counts differ between the two because the two databases differ (QA1 holds about twice Staging's adverts); every label, option, control, target and behaviour below matches. Code check: the list's view files differ from Staging only by additions plus the removed greeting (10 lines removed in total: the greeting block, the old sort default, and one reference cell on the portal-alerts page); the chip, slide-over, comments modal, stats strip, legend and ticks files are byte-identical to Staging's.
+
+| Item | Staging | QA1 | Result |
+|---|---|---|---|
+| Left column groups | Prospect for buyer, By region (6), By suburb (+N more), By type (11), By beds (1-7), Demand pockets (4), By price (4), By status (3), By captured by, By date (3), By agency | the same ten, same labels and option sets; adds "By source" (3) | PASS (additive) |
+| Option links work (first two of each group fetched) | 200, rows shown | 200, rows shown | PASS |
+| Prospect for buyer: My buyers / My branch / Whole company, named buyers, buyer search, buyer_id | all present; buyer_id page "No listings matching…" for the first buyer | identical | PASS |
+| Ticks: With address only, Show in-stock too, P24, PP | 4 ticks, P24/PP on | same 4, same state | PASS |
+| Tick click refreshes in place (no reload) | list 10,491 -> 2,364, same document, URL updated | 20,345 -> 4,025, same document, URL updated | PASS |
+| Stats bar: Properties matched / Pitch now / My claims / Expiring / New today | present | present, same labels (numbers are data) | PASS |
+| Buyer match % slider + strong/mid/weak legend | range 0-100 at 75-100; score_min=90 filters | same | PASS |
+| Sort options | Last seen, First seen, Price down, Price up, Suburb, Buyer demand: all 6 load 50 rows | same 6 + "Opportunity score" (default); all 7 load 50 rows | PASS (additive) |
+| Search | box "Search address, agent…"; term returns rows | same box, finds everything the old one found + the file's address; "Margate" 200 with 50 rows (Staging's own request gave a 502 gateway timeout) | PASS |
+| Empty state | "0 rows shown · matching "…"" | identical text | PASS |
+| Pagination and "N rows shown" | 13 page links, page 2 = 50 rows | identical | PASS |
+| Pitch now (flow up to the confirm step) | link to /corex/prospecting/{id}/outreach/compose; page 200, same controls | same target and page; label reads "Pitch now · high" on strong-buyer rows (the chip file is identical; Staging's first page has none) | PASS |
+| Claim | POST form /corex/market-intelligence/{id}/claim with CSRF (not submitted) | identical | PASS |
+| Comments icon | opens the comments modal for that row | identical | PASS |
+| Buyers icon | opens the slide-over on the buyers panel | identical | PASS |
+| Row click slide-over | opens; tabs Overview / Buyers / Activity / Source / Market; Esc closes | identical | PASS |
+| Property intel | /corex/tracked-properties/{id} 200 | identical | PASS |
+| Images | img on all 50 rows; file present for 6.8% of active adverts | img on all 50; file present for 17.7% | PASS (data) |
+| "tune ↗" and "About this page" | present | present, same targets | PASS |
+| Classic page without the additions | greeting box shown | greeting box gone (Johan's ask) | as ruled |
+
+Scripts: scratchpad `audit/` (`inv.mjs`, `beh.mjs`, `beh2.mjs`, `slide.mjs`) - re-runnable with two minted session cookies.
+
