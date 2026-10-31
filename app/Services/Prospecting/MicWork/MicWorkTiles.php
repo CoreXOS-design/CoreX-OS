@@ -16,7 +16,7 @@ use Illuminate\Database\Query\Builder;
 final class MicWorkTiles
 {
     /** Bump when a tile's face/number logic changes, so a deploy never serves the previous face from the 10-minute cache. */
-    private const CACHE_VERSION = 3;
+    private const CACHE_VERSION = 4;
 
     /** number => [key, full title (tooltip), what a click does: filter | strip | panel, short label shown on the tile] */
     public const TILES = [
@@ -190,8 +190,8 @@ final class MicWorkTiles
                     'note' => 'sales & registrations this month' . ($open > 0 ? ' · ' . number_format($open) . ' neighbours to call' : '')];
             }
             $oldest = $s['oldest_age_days'] ?? $s['count'] ?? null;
-            $stale = (int) ($s['stale_after_days'] ?? 14);
-            $line = ((int) ($s['older_than_14d'] ?? 0)) . ' of ' . ((int) ($s['working_suburbs'] ?? 0)) . ' working suburbs older than ' . $stale . ' d';
+            $stale = (int) ($s['interval_days'] ?? $s['stale_after_days'] ?? 7);
+            $line = ((int) ($s['older_than_days'] ?? $s['older_than_14d'] ?? 0)) . ' of ' . ((int) ($s['working_suburbs'] ?? 0)) . ' working suburbs older than ' . $stale . ' d';
             if ($oldest === null) {
                 return ['count' => null, 'reason' => $s['reason'] ?? 'No working suburbs yet', 'display' => ((int) ($s['never_read'] ?? 0)) > 0 ? ((int) $s['never_read']) . ' never read' : null,
                     'note' => ((int) ($s['working_suburbs'] ?? 0)) > 0 ? $line : null];

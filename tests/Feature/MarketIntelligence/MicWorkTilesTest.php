@@ -96,7 +96,7 @@ final class MicWorkTilesTest extends TestCase
             public function around(int $agencyId, User $user, string $triggerId): array { return []; }
             public function summary(int $agencyId, User $user): array
             {
-                return ['count' => 46, 'oldest_age_days' => 46, 'oldest_suburb' => 'SHAKAS ROCK', 'older_than_14d' => 12, 'working_suburbs' => 43, 'stale_after_days' => 14, 'never_read' => 0, 'reason' => 'x'];
+                return ['count' => 46, 'oldest_age_days' => 46, 'oldest_suburb' => 'SHAKAS ROCK', 'older_than_days' => 12, 'working_suburbs' => 43, 'interval_days' => 14, 'never_read' => 0, 'reason' => 'x'];
             }
         };
         $row = collect((new MicWorkTiles([], [$p10, $p11]))->row($this->agency->id, $this->admin))->keyBy('number');
