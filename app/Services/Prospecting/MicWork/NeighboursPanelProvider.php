@@ -77,7 +77,7 @@ final class NeighboursPanelProvider implements PanelProvider
         $known = array_values(array_filter($rows, fn ($r) => $r['has_address']));
         $unknown = array_values(array_filter($rows, fn ($r) => ! $r['has_address']));
 
-        return array_merge(array_slice($known, 0, 300), array_slice($unknown, 0, 100));
+        return array_merge(array_slice($known, 0, 300), array_slice($unknown, 0, 300));
     }
 
     public function around(int $agencyId, User $user, string $triggerId): array
