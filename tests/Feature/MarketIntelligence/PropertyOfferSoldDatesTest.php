@@ -142,10 +142,10 @@ final class PropertyOfferSoldDatesTest extends TestCase
         $this->assertSame([null, null], $this->dates($sold));
     }
 
-    public function test_sold_stock_rows_on_the_backfill_day_get_the_real_sale_date_and_days_and_the_portal_window_is_untouched(): void
+    public function test_sold_stock_rows_with_the_fallback_date_get_the_real_sale_date_and_days_and_the_portal_window_is_untouched(): void
     {
         $p = $this->property('sold', ['listed_date' => '2026-07-01']);
-        DB::table('properties')->where('id', $p->id)->update(['sold_at' => '2026-08-01 15:00:00', 'portal_sold_until' => '2026-12-31']);
+        DB::table('properties')->where('id', $p->id)->update(['sold_at' => '2026-08-01 15:00:00', 'portal_sold_until' => '2026-12-31', 'updated_at' => '2026-09-17 08:00:00']);
         $row = DB::table('sold_stock')->insertGetId([
             'agency_id' => $this->agency->id, 'property_id' => $p->id, 'cycle_no' => 1, 'source' => 'backfill', 'listed_date' => '2026-07-01',
             'sale_date' => '2026-09-17', 'days_on_market' => 78, 'created_at' => '2026-09-17 12:00:00', 'updated_at' => '2026-09-17 12:00:00',

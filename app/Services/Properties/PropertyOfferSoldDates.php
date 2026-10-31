@@ -91,7 +91,7 @@ final class PropertyOfferSoldDates
     }
 
     /**
-     * Fill empty under_offer_at / sold_at from trustworthy audit events, then correct sold_stock rows that carry the backfill day.
+     * Fill empty under_offer_at / sold_at from trustworthy audit events, then correct sold_stock rows whose sale date is the old fallback (property last-update date) or pre-dates the trusted date.
      *
      * @return array<string, mixed>
      */
@@ -108,7 +108,7 @@ final class PropertyOfferSoldDates
             $cutoff = MicAgencySetting::for((int) $aid)->trustedSalesAfter();
             $r['agencies'][(int) $aid] = $cutoff;
             $this->backfillAgency((int) $aid, $cutoff . ' 00:00:00', $apply, $runId, $r);
-            $this->correctSoldStock((int) $aid, $apply, $runId, $r);
+            $this->correctSoldStock((int) $aid, $cutoff, $apply, $runId, $r);
         }
         arsort($r['event_days']);
         $r['event_days'] = array_slice($r['event_days'], 0, 8, true);
@@ -211,12 +211,16 @@ final class PropertyOfferSoldDates
         }
     }
 
-    /** sold_stock rows whose sale date is the backfill day (their own created date, source backfill) get the property's real sold_at. */
-    private function correctSoldStock(int $agencyId, bool $apply, string $runId, array &$r): void
+    /**
+     * A backfilled sold_stock row whose sale date is NOT trustworthy gets the property's real sold_at. Untrusted = the old fallback (the property's
+     * last update date, 434 rows on 17 Sep) or a date before the agency's trusted-sales date. A row with a real date is never touched.
+     */
+    private function correctSoldStock(int $agencyId, string $trustedAfter, bool $apply, string $runId, array &$r): void
     {
         $rows = DB::table('sold_stock as s')->join('properties as p', 'p.id', '=', 's.property_id')
             ->where('s.agency_id', $agencyId)->whereNull('s.deleted_at')->where('s.source', 'backfill')
-            ->whereNotNull('p.sold_at')->whereRaw('s.sale_date = DATE(s.created_at)')->whereRaw('DATE(p.sold_at) <> s.sale_date')
+            ->whereNotNull('p.sold_at')->whereRaw('DATE(p.sold_at) <> s.sale_date')
+            ->where(fn ($q) => $q->whereRaw('s.sale_date = DATE(p.updated_at)')->orWhere('s.sale_date', '<=', $trustedAfter))
             ->get(['s.id', 's.sale_date', 's.listed_date', 's.days_on_market', 'p.sold_at']);
 
         foreach ($rows as $row) {
