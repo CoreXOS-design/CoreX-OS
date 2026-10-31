@@ -15,7 +15,7 @@ _MIC Work tab, capture lane (cc3). Built 31 Oct 2026 on QA1. Spec: `mic-work-tab
 **What you do.** Nothing different: open a search, press Capture Listings as before. Leave the tab alone until the notification says it is complete (it now says how many listing pages were read).
 
 ## Install / update (QA1 test build)
-1. Download the new zip from CoreX QA1: profile menu > the Chrome extension download (file `corex-extension.zip`, version **3.14.0**). Unzip it to a new folder (not over the old one).
+1. Download the new zip from CoreX QA1: sign in, then open `https://qatesting1.corexos.co.za/corex/extension/download` (there is no menu link; the file is `corex-extension.zip`). Unzip it to a new folder (not over the old one).
 2. Chrome > `chrome://extensions` > turn on **Developer mode** > **Remove** the old CoreX extension > **Load unpacked** > pick the new folder. Check the card says **3.14.0**.
 3. Open the extension popup > Settings: the CoreX address must be `https://qatesting1.corexos.co.za` and the token must be a QA1 token (QA1 only - do not point this build at live).
 
@@ -36,6 +36,20 @@ Each step says what to look at. "QA1 check" = the proof on the QA1 side (the con
  - QA1 check: "Listed privately" adverts are `owner`; "Under Offer" adverts have `portal_status = under_offer`; "Only on Private Property" adverts have `is_exclusive = 1`; floor and land size are separate; the capture covers sold / under-offer adverts too.
  - **The Private Property page structure could not be checked from the build machine (no saved PP search or listing page exists in the repo).** The selectors follow what was seen in Chrome on 31 Oct (`.listing-result__listed-privately`, `.listing-banner--offer-pending`, "Only on Private Property", `[title="Floor size"]` / `[title="Land size"]`). If any PP step shows nothing, send the page (File > Save as, "Webpage, HTML only") - a saved page lets the reader be fixed and tested the same way the P24 one was.
 **F. Old data intact.** The adverts you re-captured keep their earlier address, price history and claims; a tile that lacks an agent or agency does not wipe the stored one.
+
+## Johan's checklist for the 3.15.0 Chrome check (about 10 lines; same steps for the conductor's summary)
+1. Sign in to QA1 in Chrome, then open `https://qatesting1.corexos.co.za/corex/extension/download` - it saves `corex-extension.zip` (version 3.15.0; checked: the address answers for user 22). Unzip it into a NEW folder.
+2. Go to `chrome://extensions`, switch on Developer mode, Remove the old CoreX, press Load unpacked and pick the new folder. The card must say 3.15.0.
+3. Click the CoreX icon > Settings: address `https://qatesting1.corexos.co.za` and your QA1 API token (QA1 only - never live).
+4. In MIC open the Work tab > "Market data last refreshed". Pick one suburb row (Uvongo is fine) and note its age, e.g. "30 d".
+5. **Page 1 - Property24:** on that row press "Open in P24" (it opens newest first). Click the CoreX icon > Capture Listings. Let it finish (you get a notification; afterwards it opens a few adverts one by one and comes back - leave the tab alone).
+6. **Page 2 - Private Property:** on the same row press "Open in PP" and find a page-1 result that says LISTED PRIVATELY (try another suburb's PP link if this one has none). Click the CoreX icon > Capture Listings and let it finish.
+7. **Page 3 - Read area pages:** on the same row press "Read area pages". A small blue note appears bottom-right: "CoreX: saved". The tab then moves on by itself - trends, then agencies, then every street (a few minutes; do not close it).
+8. Back in MIC, reload the Work tab: that suburb's age is now **0 d**; the **Owner selling** tile shows more owners than before (63 today) and the private advert you saw is in its list; reduced and under-offer adverts are flagged.
+9. The suburb snapshot (sales, average prices, stock, agencies) has no screen yet - tell the conductor the suburb name and they read the figures back from the database.
+10. If something fails, send the conductor: which step number, a screenshot of the blue note or the CoreX popup message, and - for anything on Private Property - the page saved with File > Save as > "Webpage, HTML only" (that lets us fix the reader the way the Property24 one was fixed).
+
+**What the capture adds today (QA1, HFC, live adverts, 31 Oct 2026, before your check):** see the coverage report in the Jira comment on AT-522 - almost every figure above is still 0 because only this extension fills them.
 
 ## What is verified, and how
 - Property24 tiles: run against a REAL saved Property24 results page (21 tiles; tests/fixtures/p24-search) and three more real stored pages: owner adverts, price-reduced flags, 21/21 mandate ids, groups with every member number, floor vs erf separated, badges - all read correctly.
