@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Jobs\Prospecting;
 
 use App\Services\Prospecting\MicWork\NeighboursPanelProvider;
+use App\Services\Prospecting\MicWork\RefreshStatusPanelProvider;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -23,10 +24,11 @@ final class RefreshTileSummariesJob implements ShouldQueue
     {
     }
 
-    public function handle(NeighboursPanelProvider $tile10): void
+    public function handle(NeighboursPanelProvider $tile10, RefreshStatusPanelProvider $tile11): void
     {
         try {
             $tile10->refreshSummary($this->agencyId);
+            $tile11->refreshSummary($this->agencyId);
         } catch (\Throwable $e) {
             Log::warning('tile summary refresh failed', ['agency_id' => $this->agencyId, 'message' => $e->getMessage()]);
         }

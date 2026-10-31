@@ -309,6 +309,8 @@ final class MicTileServicesTest extends TestCase
         $this->assertTrue($all[0]['working']);
         $this->assertFalse($all[2]['working']);
         $this->assertSame(['area'], $all[0]['working_why']);
+        $this->assertTrue($p->summary($this->a->id, $this->u)['pending'], 'nothing stored yet: a placeholder, never a wait');
+        $p->refreshSummary($this->a->id);
         $this->assertSame('Ramsgate', $p->summary($this->a->id, $this->u)['oldest_suburb']);
 
         $s = $p->summary($this->a->id, $this->u);

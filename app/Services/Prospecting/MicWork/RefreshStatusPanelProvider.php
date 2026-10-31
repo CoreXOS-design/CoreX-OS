@@ -9,7 +9,9 @@ use App\Services\Prospecting\CrawlRecords;
 use App\Services\Prospecting\P24AreaPageLinks;
 use App\Services\Prospecting\MicWork\Contracts\PanelProvider;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Tile 11 "Market data last refreshed" (contract 11.3.F / 11.9): one row per suburb the agency works, oldest first, the viewer's own suburbs first,
@@ -117,6 +119,42 @@ final class RefreshStatusPanelProvider implements PanelProvider
      */
     public function summary(int $agencyId, User $user): array
     {
+        // read from storage (`mic_tile_summaries`, written by `refreshSummary()`): the calculation reads every working suburb's adverts, so the tile row never waits on it
+        $row = Schema::hasTable('mic_tile_summaries') ? DB::table('mic_tile_summaries')->where('agency_id', $agencyId)->where('tile', 'refresh')->first() : null;
+        if ($row === null || $row->computed_at === null || Carbon::parse($row->computed_at)->lt(now()->subHours(self::SUMMARY_STALE_HOURS))) {
+            try {
+                if (Cache::add('mic:tile11:refresh-queued:' . $agencyId, 1, 600)) {
+                    \App\Jobs\Prospecting\RefreshTileSummariesJob::dispatch($agencyId);
+                }
+            } catch (\Throwable $e) {
+                // never block the tile row
+            }
+        }
+        if ($row !== null) {
+            return json_decode((string) $row->payload, true) + ['computed_at' => $row->computed_at, 'pending' => false];
+        }
+
+        return ['count' => null, 'reason' => 'Being calculated', 'note' => 'the first calculation is running', 'oldest_age_days' => null, 'oldest_suburb' => null, 'oldest_suburb_id' => null, 'older_than_days' => 0,
+            'interval_days' => MicTileSettings::refreshStaleDays($agencyId), 'never_read' => 0, 'working_suburbs' => 0, 'computed_at' => null, 'pending' => true];
+    }
+
+    private const SUMMARY_STALE_HOURS = 6;
+
+    /** Calculate the face numbers (slow) and store them: nightly `mic:refresh-stats`, the after-import job and the queued refresh call this. */
+    public function refreshSummary(int $agencyId): array
+    {
+        $t = microtime(true);
+        $payload = $this->computeSummary($agencyId);
+        DB::table('mic_tile_summaries')->updateOrInsert(['agency_id' => $agencyId, 'tile' => 'refresh'], ['payload' => json_encode($payload), 'computed_at' => now(),
+            'took_ms' => (int) ((microtime(true) - $t) * 1000), 'updated_at' => now(), 'created_at' => now()]);
+
+        return $payload;
+    }
+
+    /** @return array<string,mixed> */
+    public function computeSummary(int $agencyId): array
+    {
+        $user = new User();
         $interval = MicTileSettings::refreshStaleDays($agencyId);
         $rows = collect($this->rows($agencyId, $user, ['show_all' => false]))->where('working', true)->values();
         $ages = $rows->pluck('age_days')->filter(fn ($a) => $a !== null);
