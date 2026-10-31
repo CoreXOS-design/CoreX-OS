@@ -581,7 +581,16 @@ class MarketIntelligenceController extends Controller
                 $kpiCountBase, (int) $agencyId, $sortKey, (string) $request->query('dir', 'desc'), max(1, (int) $request->query('page', 1)), $request->boolean('include_in_stock') && $isProspectingManager,
             );
             $defaultSortKey = $defaultSort;
-            [$workTiles, $workPanel] = $this->workTilesData($request, (int) $agencyId, $user, $isProspectingManager);
+            // The tile row is the slow part when it is not cached (cc5/cc4 queries): the page does not wait for it. A cold page gets placeholders and the
+            // browser fetches the row from this same URL with _tiles=1 (HTML of the tile row + any open panel). Never deferred in tests unless asked.
+            if ($request->boolean('_tiles')) {
+                [$workTiles, $workPanel] = $this->workTilesData($request, (int) $agencyId, $user, $isProspectingManager);
+
+                return response(view('corex.market-intelligence.partials._work-tiles', ['workTiles' => $workTiles, 'workPanel' => $workPanel, 'tilesDeferred' => false])->render());
+            }
+            $micTilesSvc = \App\Services\Prospecting\MicWork\MicWorkTiles::fromContainer();
+            $tilesDeferred = (! app()->runningUnitTests() || $request->boolean('_defer_tiles')) && $micTilesSvc->cachedRow((int) $agencyId, $user) === null;
+            [$workTiles, $workPanel] = $tilesDeferred ? [[], ['ready' => false, 'rows' => [], 'around' => []]] : $this->workTilesData($request, (int) $agencyId, $user, $isProspectingManager);
             $isManager = $isProspectingManager;
             if ($isFragment) {
                 return response()->json([
@@ -591,7 +600,7 @@ class MarketIntelligenceController extends Controller
                 ]);
             }
 
-            return view('corex.market-intelligence.work', compact('listings', 'workTiles', 'workPanel', 'micView', 'isProspectingManager', 'isManager', 'defaultSortKey'));
+            return view('corex.market-intelligence.work', compact('listings', 'workTiles', 'workPanel', 'micView', 'isProspectingManager', 'isManager', 'defaultSortKey', 'tilesDeferred'));
         }
 
         // Sorting

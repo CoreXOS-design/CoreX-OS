@@ -40,7 +40,7 @@
 
 {{-- 11-tile row + tile 10 / 11 panels (mic-work-tab.md 2.1). The old "Hi ..., here's your week" greeting block is gone. --}}
 <div data-tour="mic-tiles">
-@include('corex.market-intelligence.partials._work-tiles', ['workTiles' => $workTiles ?? [], 'workPanel' => $workPanel ?? []])
+@include('corex.market-intelligence.partials._work-tiles', ['workTiles' => $workTiles ?? [], 'workPanel' => $workPanel ?? [], 'tilesDeferred' => $tilesDeferred ?? false])
 </div>
 
 

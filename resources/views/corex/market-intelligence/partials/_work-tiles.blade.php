@@ -10,7 +10,37 @@
         return route('market-intelligence.work', $merged);
     };
 @endphp
-<div data-qa="work-tiles" style="display: grid; grid-template-columns: repeat({{ max(1, count($workTiles)) }}, minmax(0, 1fr)); gap: 6px; margin-bottom: 10px; align-items: stretch;">
+@if(!empty($tilesDeferred))
+<div id="mic-work-tile-row" data-qa="work-tiles-deferred" style="display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); gap: 6px; margin-bottom: 10px; align-items: stretch;">
+    @foreach(\App\Services\Prospecting\MicWork\MicWorkTiles::TILES as $n => $def)
+        <div style="padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); opacity: .7;" title="{{ $def[1] }}">
+            <div style="font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); line-height: 1.2;">{{ $def[3] }}</div>
+            <div style="font-size: .8125rem; line-height: 1.6; color: var(--text-muted);">…</div>
+            <div style="font-size: 0.6875rem;">&nbsp;</div>
+        </div>
+    @endforeach
+</div>
+<script>
+(function () {
+    var row = document.getElementById('mic-work-tile-row');
+    if (!row || !window.fetch) return;
+    var u = new URL(window.location.href); u.searchParams.set('_tiles', '1');
+    var ctl = new AbortController(); var t = setTimeout(function () { ctl.abort(); }, 30000);
+    fetch(u.toString(), { credentials: 'same-origin', signal: ctl.signal, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+        .then(function (html) {
+            clearTimeout(t);
+            var doc = new DOMParser().parseFromString(html, 'text/html');
+            var fresh = doc.getElementById('mic-work-tile-row') || doc.querySelector('[data-qa="work-tiles"]');
+            if (fresh) { fresh.id = 'mic-work-tile-row'; row.replaceWith(fresh); }
+            var panel = doc.querySelector('[data-qa^="work-panel-"]');
+            if (panel && fresh) { fresh.insertAdjacentElement('afterend', panel); }
+        })
+        .catch(function () { clearTimeout(t); row.style.opacity = '.5'; row.title = 'Tiles could not load - reload the page'; });
+})();
+</script>
+@else
+<div id="mic-work-tile-row" data-qa="work-tiles" style="display: grid; grid-template-columns: repeat({{ max(1, count($workTiles)) }}, minmax(0, 1fr)); gap: 6px; margin-bottom: 10px; align-items: stretch;">
     @foreach($workTiles as $t)
         @php
             $isActive = $t['kind'] === 'panel' ? $activePanel === $t['number'] : $activeTile === $t['key'];
@@ -42,8 +72,9 @@
         @if($clickable)</a>@else</div>@endif
     @endforeach
 </div>
+@endif
 
-@if(in_array($activePanel, [10, 11], true))
+@if(empty($tilesDeferred) && in_array($activePanel, [10, 11], true))
 <div data-qa="work-panel-{{ $activePanel }}" style="margin-bottom: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
     <div style="display:flex; align-items:center; justify-content:space-between; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--surface-2);">
         <strong style="font-size: .8125rem; color: var(--text-primary);">{{ $activePanel === 10 ? 'Neighbours of a sale' : 'Market data last refreshed' }}</strong>

@@ -99,10 +99,20 @@ final class MicWorkTiles
     public function row(int $agencyId, User $user, ?array $shown = null): array
     {
         // The tile numbers are stored counts that move slowly; a per-viewer cache (10 minutes) keeps the page fast (mic-work-tab.md 6.6).
-        $shown ??= $this->shownFor($agencyId);
-        $key = 'mic-work:tiles:' . $agencyId . ':' . $user->id . ':' . md5(json_encode($shown) . (class_exists(self::CC5_SETTINGS) ? json_encode(app(self::CC5_SETTINGS)::for($agencyId)->areas()) : '') . count($this->tiles) . count($this->panels) . (class_exists(self::CC5_SERVICE) ? 'c5' : ''));
+        return \Illuminate\Support\Facades\Cache::remember($this->cacheKey($agencyId, $user, $shown), 600, fn () => $this->buildRow($agencyId, $user, $shown ?? $this->shownFor($agencyId)));
+    }
 
-        return \Illuminate\Support\Facades\Cache::remember($key, 600, fn () => $this->buildRow($agencyId, $user, $shown));
+    /** The cached tile row, or null when it would have to be built (the page then loads the tiles after itself instead of waiting for them). */
+    public function cachedRow(int $agencyId, User $user): ?array
+    {
+        return \Illuminate\Support\Facades\Cache::get($this->cacheKey($agencyId, $user, null));
+    }
+
+    private function cacheKey(int $agencyId, User $user, ?array $shown): string
+    {
+        $shown ??= $this->shownFor($agencyId);
+
+        return 'mic-work:tiles:' . $agencyId . ':' . $user->id . ':' . md5(json_encode($shown) . (class_exists(self::CC5_SETTINGS) ? json_encode(app(self::CC5_SETTINGS)::for($agencyId)->areas()) : '') . count($this->tiles) . count($this->panels) . (class_exists(self::CC5_SERVICE) ? 'c5' : ''));
     }
 
     /** @return list<array<string, mixed>> */
