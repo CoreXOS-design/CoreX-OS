@@ -36,9 +36,11 @@ final class MicWorkTilesTest extends TestCase
             $r->assertSee('data-qa="tile-' . $n . '"', false);
         }
         $this->assertSame(11, count(MicWorkTiles::fromContainer()->row($this->agency->id, $this->admin)));
-        $byNo = collect(MicWorkTiles::fromContainer()->row($this->agency->id, $this->admin))->keyBy('number');
-        $this->assertNull($byNo[2]['count'], 'a tile whose service has not landed has no number');
-        $this->assertFalse($byNo[2]['ready']);
+        $byNo = collect((new MicWorkTiles([], []))->row($this->agency->id, $this->admin))->keyBy('number');
+        foreach ([2, 3, 10, 11] as $n) {
+            $this->assertNull($byNo[$n]['count'], 'a tile with no tagged service has no number');
+            $this->assertFalse($byNo[$n]['ready']);
+        }
     }
 
     public function test_a_tagged_provider_feeds_its_tile_and_a_click_filters_the_list(): void
@@ -76,4 +78,30 @@ final class MicWorkTilesTest extends TestCase
         $this->actingAs($this->admin)->get(route('market-intelligence.work', ['panel' => 11]))
             ->assertOk()->assertSee('data-qa="refresh-row"', false)->assertSee('Margate', false)->assertSee('Open in P24', false);
     }
+
+    public function test_tiles_10_and_11_show_numbers_read_from_the_panel_providers(): void
+    {
+        $p10 = new class implements PanelProvider {
+            public function tile(): int { return 10; }
+            public function rows(int $agencyId, User $user, array $filters): array
+            {
+                return [['id' => 'sold:1', 'type' => 'sold', 'address' => '1 A Road', 'suburb' => 'MARGATE', 'has_address' => true], ['id' => 'sold:2', 'type' => 'sold', 'address' => 'x', 'suburb' => 'MARGATE', 'has_address' => false]];
+            }
+            public function around(int $agencyId, User $user, string $triggerId): array { return []; }
+        };
+        $p11 = new class implements PanelProvider {
+            public function tile(): int { return 11; }
+            public function rows(int $agencyId, User $user, array $filters): array
+            {
+                return [['suburb' => 'MARGATE', 'age_days' => 12], ['suburb' => 'UVONGO', 'age_days' => 3], ['suburb' => 'OSLO BEACH', 'age_days' => null]];
+            }
+            public function around(int $agencyId, User $user, string $triggerId): array { return []; }
+        };
+        $row = collect((new MicWorkTiles([], [$p10, $p11]))->row($this->agency->id, $this->admin))->keyBy('number');
+        $this->assertSame(1, $row[10]['count'], 'only triggers with a resolvable address are counted');
+        $this->assertSame('sales & offers this month', $row[10]['reason']);
+        $this->assertSame('Margate 12 d', $row[11]['display'], 'oldest age among the working suburbs, title case');
+        $this->assertSame('1 suburb older than 7 d', $row[11]['reason']);
+    }
 }
+

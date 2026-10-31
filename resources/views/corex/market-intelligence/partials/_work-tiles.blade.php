@@ -3,7 +3,9 @@
     $activeTile = request('tile');
     $activePanel = (int) request('panel');
     $tileUrl = function (array $params) {
-        $merged = array_merge(request()->except(['page', 'tile', 'panel']), $params);
+        // panel-specific params never survive a panel change or close (months / type / trigger; its suburb filter too)
+        $drop = ['page', 'tile', 'panel', 'trigger', 'months', 'type'] + (request('panel') ? [6 => 'suburb'] : []);
+        $merged = array_merge(request()->except($drop), $params);
         foreach ($merged as $k => $v) if ($v === null || $v === '') unset($merged[$k]);
         return route('market-intelligence.work', $merged);
     };
@@ -21,7 +23,10 @@
         @endphp
         @if($clickable)<a href="{{ $href }}" data-qa="tile-{{ $t['number'] }}" style="{{ $box }}" title="{{ $t['title'] }}">@else<div data-qa="tile-{{ $t['number'] }}" style="{{ $box }}" title="{{ $t['title'] }} - data coming">@endif
             <div style="font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); line-height: 1.2;">{{ $t['short'] }}</div>
-            @if($t['count'] !== null)
+            @if(!empty($t['display']))
+                <div style="font-size: .9375rem; font-weight: 700; line-height: 1.4; color: {{ $isActive ? 'var(--brand-icon)' : 'var(--text-primary)' }};">{{ $t['display'] }}</div>
+                <div style="font-size: 0.6875rem; line-height: 1.25; color: var(--text-muted);">{{ $t['note'] ?? $t['reason'] }}</div>
+            @elseif($t['count'] !== null)
                 <div style="font-size: 1.0625rem; font-weight: 700; line-height: 1.3; color: {{ $isActive ? 'var(--brand-icon)' : 'var(--text-primary)' }};">{{ number_format($t['count']) }}</div>
                 <div style="font-size: 0.6875rem; line-height: 1.25; color: var(--text-muted);">{{ $t['note'] ?? $t['reason'] }}</div>
             @elseif($t['ready'] && $t['kind'] === 'panel')
@@ -72,14 +77,14 @@
                 <a href="{{ $openTrigger ? $tileUrl(request()->only(['months', 'type', 'suburb']) + ['panel' => 10]) : $tileUrl(request()->only(['months', 'type', 'suburb']) + ['panel' => 10, 'trigger' => $r['id']]) }}"
                    style="display:grid; grid-template-columns: 110px 1fr 140px 110px 120px 90px; gap: 8px; padding: 5px 10px; font-size: .8125rem; text-decoration: none; color: var(--text-secondary); {{ $openTrigger ? 'background: var(--surface-2);' : '' }}">
                     <span>{{ ['registered' => 'Registered', 'sold' => 'Sold', 'under_offer' => 'Under offer', 'our_sale' => 'Our sale'][$r['type']] ?? $r['type'] }}</span>
-                    <span style="color: var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ $r['address'] }}</span>
-                    <span>{{ $r['suburb'] }}</span><span>{{ $r['property_type'] ?? '' }}</span>
+                    <span style="color: var(--text-primary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ \App\Services\Prospecting\MicWork\MicWorkList::tidyAddress($r['address']) }}</span>
+                    <span>{{ \App\Services\Prospecting\MicWork\MicWorkList::titleSuburb($r['suburb']) }}</span><span>{{ $r['property_type'] ?? '' }}</span>
                     <span>{{ !empty($r['price']) ? 'R ' . number_format($r['price']) : '' }}</span><span>{{ $r['date'] ?? '' }}</span>
                 </a>
                 @if($openTrigger)
                     @forelse($workPanel['around'][$r['id']] ?? [] as $h)
                         <div data-qa="neighbour-row" style="display:grid; grid-template-columns: 1fr 160px 90px 140px 190px; gap: 8px; padding: 4px 10px 4px 24px; font-size: .75rem; color: var(--text-secondary); border-top: 1px dotted var(--border);">
-                            <span style="color: var(--text-primary);">{{ $h['address'] }}</span><span>{{ $h['owner'] ?? '' }}</span>
+                            <span style="color: var(--text-primary);">{{ \App\Services\Prospecting\MicWork\MicWorkList::tidyAddress($h['address']) }}</span><span>{{ $h['owner'] ?? '' }}</span>
                             <span>{{ ($h['on_market'] ?? false) ? 'On market' : 'Not listed' }}</span><span>{{ $h['last_contact'] ?? '' }}</span>
                             <span>@if(!empty($h['property_id']))<a href="{{ route('market-intelligence.opportunities.show', ['tp' => $h['property_id']]) }}" style="color: var(--brand-icon); text-decoration: none;">Open / Claim</a>@endif</span>
                         </div>
@@ -97,7 +102,7 @@
         </div>
         @forelse($workPanel['rows'] as $r)
             <div data-qa="refresh-row" style="display:grid; grid-template-columns: 1fr 150px 150px 80px 200px; gap: 8px; padding: 5px 10px; font-size: .8125rem; border-top: 1px solid var(--border); color: var(--text-secondary);">
-                <span style="color: var(--text-primary);">{{ $r['suburb'] }}</span>
+                <span style="color: var(--text-primary);">{{ \App\Services\Prospecting\MicWork\MicWorkList::titleSuburb($r['suburb']) }}</span>
                 <span>{{ !empty($r['p24_read_at']) ? \Carbon\Carbon::parse($r['p24_read_at'])->diffForHumans() : 'never' }}</span>
                 <span>{{ !empty($r['pp_read_at']) ? \Carbon\Carbon::parse($r['pp_read_at'])->diffForHumans() : 'never' }}</span>
                 <span style="color: {{ !empty($r['overdue']) ? 'var(--ds-crimson, #dc2626)' : 'inherit' }};">{{ $r['age_days'] !== null ? $r['age_days'] . ' d' : '-' }}</span>

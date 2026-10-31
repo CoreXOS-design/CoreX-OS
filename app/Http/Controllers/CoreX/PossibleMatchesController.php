@@ -84,6 +84,9 @@ class PossibleMatchesController extends Controller
         if ($source !== '') {
             $q->where('d.strategy', $source);
         }
+        if (ctype_digit((string) $request->query('pair', ''))) {
+            $q->where('d.id', (int) $request->query('pair')); // from the Work tab's "Possible match" chip: exactly this pair
+        }
         if ($term !== '') {
             $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $term) . '%';
             $q->where(function ($w) use ($like, $term) {
