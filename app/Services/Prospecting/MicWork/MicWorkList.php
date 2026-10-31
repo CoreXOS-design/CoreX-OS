@@ -57,6 +57,21 @@ final class MicWorkList
         return $a !== '' && $a === mb_strtoupper($a) ? \Illuminate\Support\Str::title(mb_strtolower($a)) : self::tidyAddress($a);
     }
 
+    /**
+     * Which pending review pairs raise the "Possible match" chip on a row: only pairs that say two files are probably the SAME property - a Property24
+     * group, a same-agency twin, a same-address freehold. Flat / complex / unit / scheme pairs ("no unit number - may be a different unit"), own-stock
+     * and capture pairs, advert clashes, map-point and unit-split reviews do not (they are noise on the worklist; they stay on the Possible matches page).
+     * Interim until cc4 lists the kinds in 11.3 with an explicit unit/scheme flag: the same_address kind is told apart by its reason text.
+     */
+    public static function raisesPossibleMatch(?string $kind, string $reason): bool
+    {
+        if (in_array($kind, ['portal_group', 'twin'], true)) {
+            return true;
+        }
+
+        return $kind === 'same_address' && ! preg_match('/flat|complex|unit|scheme/i', $reason);
+    }
+
     /** @return list<string> */
     public static function sortKeys(): array
     {
@@ -105,8 +120,17 @@ final class MicWorkList
             ->selectRaw('MAX(last_seen_at) AS last_seen, MIN(COALESCE(listed_date, first_seen_at)) AS since, COUNT(*) AS n')
             ->groupBy('fkey');
 
-        // one flat DISTINCT count over the same filtered set - cheaper than counting the grouped subquery
-        $total = (int) (clone $filtered)->toBase()->reorder()->selectRaw('COUNT(DISTINCT COALESCE(prospecting_listings.tracked_property_id, -prospecting_listings.id)) AS c')->value('c');
+        // one flat DISTINCT count over the same filtered set - cheaper than counting the grouped subquery. Total and the page's keys are cached for a
+        // few minutes per exact query (the SQL + its bindings carry the agency and the viewer's own/branch scope), never in tests.
+        $remember = function (string $part, int $ttl, \Closure $fn) use ($filtered, $sort, $dir, $page) {
+            if (app()->runningUnitTests()) {
+                return $fn();
+            }
+            $q = (clone $filtered)->toBase();
+
+            return \Illuminate\Support\Facades\Cache::remember('mic-work:' . $part . ':' . md5($q->toSql() . json_encode($q->getBindings()) . "|$sort|$dir|$page"), $ttl, $fn);
+        };
+        $total = (int) $remember('total', 300, fn () => (clone $filtered)->toBase()->reorder()->selectRaw('COUNT(DISTINCT COALESCE(prospecting_listings.tracked_property_id, -prospecting_listings.id)) AS c')->value('c'));
 
         $q = clone $base;
         if (in_array($sort, ['score', 'buyers'], true) && self::hasFileStats()) {
@@ -119,7 +143,7 @@ final class MicWorkList
             // "time" most-first = the longest on the market = the OLDEST date first.
             $q->orderBy('ord', $sort === 'time' ? ($dir === 'desc' ? 'asc' : 'desc') : $dir);
         }
-        $keys = $q->orderBy('fkey')->forPage($page, self::PER_PAGE)->pluck('fkey')->map(fn ($k) => (int) $k)->all();
+        $keys = $remember('keys', 120, fn () => $q->orderBy('fkey')->forPage($page, self::PER_PAGE)->pluck('fkey')->map(fn ($k) => (int) $k)->all());
 
         $rows = $keys ? $this->rows($keys, $agencyId) : [];
 
@@ -203,8 +227,11 @@ final class MicWorkList
             $pend = DB::table('property_match_decisions as d')->where('d.agency_id', $agencyId)->where('d.subject_type', \App\Services\Prospecting\PropertyIdentityResolver::DECISION_SUBJECT)
                 ->whereNull('d.deleted_at')->whereNull('d.confirmed_at')->whereNull('d.rejected_at')
                 ->where(fn ($q) => $q->whereIn('d.matched_id', $tpIds)->orWhereRaw("CAST(JSON_UNQUOTE(JSON_EXTRACT(d.incoming_facts, '$.incoming_tracked_property_id')) AS UNSIGNED) IN (" . implode(',', array_map('intval', $tpIds)) . ')'))
-                ->get(['d.id', 'd.matched_id', 'd.incoming_facts']);
+                ->get(['d.id', 'd.matched_id', 'd.incoming_facts', 'd.reason']);
             foreach ($pend as $d) {
+                if (! self::raisesPossibleMatch(json_decode((string) $d->incoming_facts, true)['kind'] ?? null, (string) $d->reason)) {
+                    continue;
+                }
                 $inc = (int) (json_decode((string) $d->incoming_facts, true)['incoming_tracked_property_id'] ?? 0);
                 foreach ([(int) $d->matched_id, $inc] as $side) {
                     if ($side && in_array($side, $tpIds, true)) {
@@ -268,11 +295,11 @@ final class MicWorkList
             $lead = $live->first();
 
             // Price now and the move come from ONE advert: the lead advert on the file (the live one seen last). Its own history only.
-            $leadHist = $history->get($lead->id, collect())->filter(fn ($h) => (float) $h->old_price > 0 && (float) $h->new_price > 0)->values(); // R 0 = price on application, not a price
+            $leadChanges = $this->netChanges($history->get($lead->id, collect())); // R 0 (POA) dropped, same-day flip-flops netted
             $priceNow = (int) ($lead->price ?: 0);
-            $firstPrice = $leadHist->isNotEmpty() ? (int) $leadHist->first()->old_price : null;
+            $firstPrice = $leadChanges ? (int) $leadChanges[0]['old'] : null;
             $move = ($firstPrice && $priceNow && $priceNow !== $firstPrice) ? $priceNow - $firstPrice : null;
-            $cuts = $move !== null && $move < 0 ? $leadHist->filter(fn ($h) => (float) $h->new_price < (float) $h->old_price)->count() : 0;
+            $cuts = $move !== null && $move < 0 ? count(array_filter($leadChanges, fn ($c) => $c['new'] < $c['old'])) : 0;
 
             $addr = $tp && trim((string) $tp->street_name) !== ''
                 ? trim(implode(' ', array_filter([in_array(trim((string) $tp->street_number), ['', '0'], true) ? null : trim((string) $tp->street_number), trim((string) $tp->street_name)])))
@@ -355,10 +382,10 @@ final class MicWorkList
                 'work_status' => $w->prospecting_status ?? null,
                 'work_reason' => $w->prospecting_reason ?? null,
                 'adverts' => $list->map(fn ($a) => [
-                    'portal' => strtoupper($a->portal_source), 'ref' => $a->portal_ref, 'url' => $a->portal_url, 'agency' => $a->agency_name, 'agent' => $a->agent_name,
+                    'portal' => strtoupper($a->portal_source), 'owner' => $a->advertiser_type === 'owner', 'ref' => $a->portal_ref, 'url' => $a->portal_url, 'agency' => $a->agency_name, 'agent' => $a->agent_name,
                     'price' => $a->price, 'listed' => $a->listed_date?->format('j M Y'), 'seen' => $a->first_seen_at?->format('j M Y'), 'active' => (bool) $a->is_active,
                     'status' => $a->portal_status,
-                    'changes' => $history->get($a->id, collect())->filter(fn ($h) => (float) $h->old_price > 0 && (float) $h->new_price > 0)->map(fn ($h) => ['date' => \Carbon\Carbon::parse($h->changed_at)->format('j M Y'), 'old' => (int) $h->old_price, 'new' => (int) $h->new_price])->all(),
+                    'changes' => $this->netChanges($history->get($a->id, collect())),
                 ])->all(),
                 'deeds_info' => $tp && $tp->deeds_captured_at ? ['registered' => $tp->deeds_registered_date ? \Carbon\Carbon::parse($tp->deeds_registered_date)->format('j M Y') : null, 'price' => $tp->last_known_sold_price, 'bond' => $tp->bond_amount] : null,
             ];
@@ -386,5 +413,36 @@ final class MicWorkList
         }
 
         return array_slice(array_values($out), 0, 6);
+    }
+
+    /**
+     * A price history as the REAL changes: R 0 (price on application) rows are dropped, and a run of changes on the same day is netted into one line
+     * (first old price -> last new price) - and vanishes when the day ends where it began (990k -> 1.05m -> 990k is not a change).
+     *
+     * @param  \Illuminate\Support\Collection<int, object>  $rows  prospecting_price_history rows, oldest first
+     * @return list<array{date:string, old:int, new:int}>
+     */
+    private function netChanges($rows): array
+    {
+        $days = [];
+        foreach ($rows as $h) {
+            if ((float) $h->old_price <= 0 || (float) $h->new_price <= 0) {
+                continue;
+            }
+            $day = \Carbon\Carbon::parse($h->changed_at)->format('Y-m-d');
+            if (isset($days[$day])) {
+                $days[$day]['new'] = (int) $h->new_price;
+            } else {
+                $days[$day] = ['day' => $day, 'old' => (int) $h->old_price, 'new' => (int) $h->new_price];
+            }
+        }
+        $out = [];
+        foreach ($days as $d) {
+            if ($d['old'] !== $d['new']) {
+                $out[] = ['date' => \Carbon\Carbon::parse($d['day'])->format('j M Y'), 'old' => $d['old'], 'new' => $d['new']];
+            }
+        }
+
+        return $out;
     }
 }

@@ -178,5 +178,40 @@ final class MicWorkListTest extends TestCase
         $this->assertStringContainsString('data-qa="record-card"', $html);
         $this->assertStringContainsString('Open the property page', $html);
     }
+
+    public function test_chip_only_for_same_property_kinds_owner_advert_label_and_flip_flops_netted(): void
+    {
+        $this->assertTrue(MicWorkList::raisesPossibleMatch('portal_group', 'Property24 groups these adverts as one property, but the bedrooms differ'));
+        $this->assertTrue(MicWorkList::raisesPossibleMatch('twin', 'x'));
+        $this->assertTrue(MicWorkList::raisesPossibleMatch('same_address', 'Same address on many files - check which are the same property.'));
+        $this->assertFalse(MicWorkList::raisesPossibleMatch('same_address', 'Same address, but a flat or complex with no unit number - may be a different unit'));
+        $this->assertFalse(MicWorkList::raisesPossibleMatch(null, 'Probable match: Same address, no unit number - may be a different unit'));
+        $this->assertFalse(MicWorkList::raisesPossibleMatch('unit_split', 'This property holds adverts of 5 different-looking flats'));
+
+        $a = $this->tp($this->agency, 'P24-119000070', '33', 'Windsor Avenue');
+        $b = $this->tp($this->agency, 'P24-119000071', '90', 'Colin Street');
+        $c = $this->tp($this->agency, 'P24-119000072', '12', 'Palm Road');
+        $lead = $this->advert($this->agency, 'p24', 'P24-119000070', $a, ['price' => 990_000, 'advertiser_type' => 'owner', 'agency_name' => null]);
+        $this->advert($this->agency, 'p24', 'P24-119000071', $b);
+        $this->advert($this->agency, 'p24', 'P24-119000072', $c);
+        $mk = fn ($kind, $reason, $matched, $incoming, $key) => \App\Models\PropertyMatchDecision::forceCreate(['agency_id' => $this->agency->id, 'subject_type' => \App\Services\Prospecting\PropertyIdentityResolver::DECISION_SUBJECT,
+            'subject_key' => $key, 'matched_type' => 'tracked_property', 'matched_id' => $matched, 'strategy' => 'address_unit', 'confidence_score' => 70, 'reason' => $reason, 'decided_at' => now(),
+            'incoming_facts' => ['incoming_tracked_property_id' => $incoming, 'kind' => $kind]]);
+        $mk('same_address', 'Same address, but a flat or complex with no unit number - may be a different unit', $a->id, $b->id, 'k1'); // unit pair: no chip
+        $mk('portal_group', 'Property24 groups these adverts as one property', $b->id, $c->id, 'k2'); // involves b and c only
+
+        $h = fn ($old, $new, $when) => DB::table('prospecting_price_history')->insert(['prospecting_listing_id' => $lead->id, 'old_price' => $old, 'new_price' => $new, 'changed_at' => $when, 'created_at' => now(), 'updated_at' => now()]);
+        $h(990_000, 1_050_000, '2026-08-06 09:00:00');
+        $h(1_050_000, 990_000, '2026-08-06 15:00:00'); // same-day flip-flop nets to nothing
+        $h(1_050_000, 990_000, '2026-08-10 09:00:00');
+
+        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work'))->assertOk()->getContent();
+        $text = preg_replace('/\s+/', ' ', strip_tags($html));
+        $this->assertSame(2, substr_count($html, 'data-qa="possible-match-chip"'), 'only the two files of the portal-group pair; the unit pair raises nothing');
+        $this->assertStringContainsString(route('corex.possible-matches.index', ['pair' => \App\Models\PropertyMatchDecision::where('subject_key', 'k2')->value('id')]), $html);
+        $this->assertStringContainsString('Owner (private)', $text);
+        $this->assertSame(1, substr_count($text, '10 Aug 2026 · P24-119000070'), 'one real change');
+        $this->assertSame(0, substr_count($text, '6 Aug 2026 · P24-119000070'), 'the same-day flip-flop is gone');
+    }
 }
 

@@ -81,7 +81,7 @@
                             @if($r['tp_id'])<a href="{{ route('market-intelligence.opportunities.show', ['tp' => $r['tp_id']]) }}" @click.stop style="color: inherit; text-decoration: none;">{{ $r['address'] }}</a>@else{{ $r['address'] }}@endif
                             @if($r['suburb'] && !str_contains($r['address'], (string) $r['suburb']))<span style="color: var(--text-muted);"> · {{ $r['suburb'] }}</span>@endif
                         </span>
-                        @if($r['pair_ids'])<a href="{{ count($r['pair_ids']) === 1 ? route('corex.possible-matches.index', ['pair' => $r['pair_ids'][0]]) : route('corex.possible-matches.index', ['q' => $r['tp_id']]) }}" @click.stop data-qa="possible-match-chip" title="CoreX is not sure this is the same property as another file. Click to review." style="font-size:.625rem; font-weight:700; padding: 0 5px; margin-right: 4px; border: 1px solid var(--ds-amber, #f59e0b); border-radius: 3px; color: var(--ds-amber, #f59e0b); text-decoration:none;">Possible match{{ count($r['pair_ids']) > 1 ? ' (' . count($r['pair_ids']) . ')' : '' }}</a>@endif
+                        @if($r['pair_ids'])<a href="{{ count($r['pair_ids']) === 1 ? route('corex.possible-matches.index', ['pair' => $r['pair_ids'][0]]) : route('corex.possible-matches.index', ['file' => $r['tp_id']]) }}" @click.stop data-qa="possible-match-chip" title="CoreX is not sure this is the same property as another file. Click to review." style="font-size:.625rem; font-weight:700; padding: 0 5px; margin-right: 4px; border: 1px solid var(--ds-amber, #f59e0b); border-radius: 3px; color: var(--ds-amber, #f59e0b); text-decoration:none;">Possible match{{ count($r['pair_ids']) > 1 ? ' (' . count($r['pair_ids']) . ')' : '' }}</a>@endif
                         @if($r['reasons'])<span style="font-size:.6875rem; color: var(--text-muted);">{{ collect($r['reasons'])->take(2)->map(fn ($c) => $reasonLabel[$c] ?? $c)->implode(' · ') }}</span>@endif
                     </span>
                     <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
@@ -111,7 +111,7 @@
                         <div style="display:grid; grid-template-columns: 40px 140px 1fr 110px 100px 100px 90px; gap: 8px; padding: 1px 0; {{ $a['active'] ? '' : 'opacity:.6;' }}">
                             <span>{{ $a['portal'] }}</span>
                             <span>@if($a['url'])<a href="{{ $a['url'] }}" target="_blank" rel="noopener" style="color: var(--brand-icon); text-decoration:none;">{{ $a['ref'] }}</a>@else{{ $a['ref'] }}@endif</span>
-                            <span>{{ trim(($a['agency'] ?: '-') . ($a['agent'] ? ' · ' . $a['agent'] : '')) }}</span>
+                            <span>{{ $a['owner'] ? 'Owner (private)' . ($a['agent'] ? ' · ' . $a['agent'] : '') : trim(($a['agency'] ?: '-') . ($a['agent'] ? ' · ' . $a['agent'] : '')) }}</span>
                             <span>{{ $a['price'] ? $money($a['price']) : '-' }}</span>
                             <span>{{ $a['listed'] ? 'listed ' . $a['listed'] : 'first seen ' . ($a['seen'] ?? '-') }}</span><span></span>
                             <span>{{ $a['active'] ? ($a['status'] && $a['status'] !== 'active' ? ucfirst(str_replace('_', ' ', $a['status'])) : 'Active') : 'Gone' }}</span>
