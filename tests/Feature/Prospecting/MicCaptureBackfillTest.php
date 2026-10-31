@@ -197,6 +197,66 @@ final class MicCaptureBackfillTest extends TestCase
         $this->assertSame(0, $svc->saleAgency(true, [])['adverts_stored_with_agency_sale']);
     }
 
+    // ---- erf-floor -----------------------------------------------------------------------------------------------
+
+    private function tp(Agency $agency, ?float $erf, array $over = []): int
+    {
+        return (int) DB::table('tracked_properties')->insertGetId($over + [
+            'agency_id' => $agency->id, 'external_id' => (string) \Illuminate\Support\Str::uuid(), 'erf_size_m2' => $erf,
+            'source_chain' => json_encode([['type' => 'p24', 'ref' => 'P24-1', 'fields_contributed' => ['erf_size_m2']]]),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    public function test_erf_that_is_really_the_floor_size_is_cleared_on_the_advert_and_the_file_unless_another_source_gives_it(): void
+    {
+        $svc = app(MicCaptureBackfill::class);
+        $t1 = $this->tp($this->a, 100);
+        $a1 = $this->listing($this->a, 'P24-119000001', ['canonical_ref' => 'p24:119000001', 'tracked_property_id' => $t1, 'property_size_m2' => 100, 'erf_size_m2' => 100]);
+        $real = $this->listing($this->a, 'P24-119000002', ['property_size_m2' => 90, 'erf_size_m2' => 600]);
+        $pageRead = $this->listing($this->a, 'P24-119000003', ['property_size_m2' => 120, 'erf_size_m2' => 120, 'details_read_at' => now()]);
+        $t2 = $this->tp($this->a, 110, ['deeds_captured_at' => now()]);
+        $a4 = $this->listing($this->a, 'P24-119000004', ['tracked_property_id' => $t2, 'property_size_m2' => 110, 'erf_size_m2' => 110]);
+        $t3 = $this->tp($this->a, 130, ['source_chain' => json_encode([['type' => 'p24', 'fields_contributed' => ['erf_size_m2']], ['type' => 'cmainfo', 'fields_contributed' => ['erf_size_m2']]])]);
+        $a5 = $this->listing($this->a, 'P24-119000005', ['tracked_property_id' => $t3, 'property_size_m2' => 130, 'erf_size_m2' => 130]);
+        $t4 = $this->tp($this->a, 140);
+        $a6 = $this->listing($this->a, 'P24-119000006', ['tracked_property_id' => $t4, 'property_size_m2' => 140, 'erf_size_m2' => 140]);
+        $a7 = $this->listing($this->a, 'P24-119000007', ['tracked_property_id' => $t4, 'property_size_m2' => 80, 'erf_size_m2' => 140]);
+        $testAgency = Agency::create(['name' => 'Test copy', 'slug' => 'test-copy']);
+        $ex = $this->listing($testAgency, 'P24-119000008', ['property_size_m2' => 70, 'erf_size_m2' => 70]);
+        DB::table('portal_advert_facts')->insert(['canonical_ref' => 'p24:119000001', 'portal' => 'p24', 'listing_id' => '119000001', 'erf_size_m2' => 100, 'status' => 'active', 'seen_count' => 1, 'created_at' => now(), 'updated_at' => now()]);
+
+        $dry = $svc->erfFloor(false, [$testAgency->id]);
+        $this->assertSame(5, $dry['before']['adverts_erf_equals_floor']);
+        $this->assertSame(1, $dry['adverts_kept_listing_page_read']);
+        $this->assertSame(4, $dry['adverts_to_clear']);
+        $this->assertSame(4, $dry['files_whose_erf_matches_a_cleared_advert']);
+        $this->assertSame([1, 1, 1, 1], [$dry['files_kept_deeds'], $dry['files_kept_other_source'], $dry['files_kept_real_erf_on_another_advert'], $dry['files_to_clear']]);
+        $this->assertSame(1, $dry['pool_rows_carrying_the_same_wrong_erf_not_changed']);
+        $this->assertEquals(100, DB::table('prospecting_listings')->where('id', $a1)->value('erf_size_m2'), 'a dry run writes nothing');
+
+        $j = $this->journal();
+        $svc->journalTo($j);
+        $done = $svc->erfFloor(true, [$testAgency->id]);
+        $svc->journalTo(null);
+
+        foreach ([$a1, $a4, $a5, $a6] as $id) {
+            $this->assertNull(DB::table('prospecting_listings')->where('id', $id)->value('erf_size_m2'), "advert $id");
+        }
+        $this->assertEquals(600, DB::table('prospecting_listings')->where('id', $real)->value('erf_size_m2'));
+        $this->assertEquals(120, DB::table('prospecting_listings')->where('id', $pageRead)->value('erf_size_m2'), 'a listing-page erf is real');
+        $this->assertEquals(140, DB::table('prospecting_listings')->where('id', $a7)->value('erf_size_m2'));
+        $this->assertEquals(70, DB::table('prospecting_listings')->where('id', $ex)->value('erf_size_m2'));
+        $this->assertNull(DB::table('tracked_properties')->where('id', $t1)->value('erf_size_m2'));
+        $this->assertEquals(110, DB::table('tracked_properties')->where('id', $t2)->value('erf_size_m2'), 'deeds win');
+        $this->assertEquals(130, DB::table('tracked_properties')->where('id', $t3)->value('erf_size_m2'), 'another source wins');
+        $this->assertEquals(140, DB::table('tracked_properties')->where('id', $t4)->value('erf_size_m2'), 'a real erf on another advert wins');
+        $this->assertEquals(100, DB::table('portal_advert_facts')->where('canonical_ref', 'p24:119000001')->value('erf_size_m2'), 'the pool is counted, not changed');
+        $this->assertCount(5, file($j));
+        $this->assertSame(1, $done['after']['adverts_erf_equals_floor'], 'only the page-read advert is left');
+        $this->assertSame(0, $svc->erfFloor(true, [$testAgency->id])['adverts_to_clear']);
+    }
+
     // ---- the command ---------------------------------------------------------------------------------------------
 
     public function test_command_defaults_to_a_dry_run_and_rejects_unknown_steps_and_both_flags(): void

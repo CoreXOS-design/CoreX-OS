@@ -14,13 +14,13 @@ use Illuminate\Support\Facades\File;
  *   php artisan mic:capture-backfill p24-groups --dry-run
  *   php artisan mic:capture-backfill p24-groups --apply --journal-dir=/mnt/HC_Volume_103099143/qa1-mic-capture-2026-10-31
  *
- * Steps: p24-groups | floor-sizes | sale-agency. Default is --dry-run (counts only). --apply journals every changed row.
+ * Steps: p24-groups | floor-sizes | sale-agency | erf-floor. Default is --dry-run (counts only). --apply journals every changed row.
  * Refuses to run outside QA / local / testing. The test agency (20) is left out.
  */
 final class MicCaptureBackfillCommand extends Command
 {
     protected $signature = 'mic:capture-backfill
-        {step : p24-groups | floor-sizes | sale-agency}
+        {step : p24-groups | floor-sizes | sale-agency | erf-floor}
         {--dry-run : Count what would change, write nothing (the default)}
         {--apply : Write the change and journal every row}
         {--exclude-agency=20 : Comma-separated agency ids to leave out (test / demo agencies)}
@@ -63,6 +63,7 @@ final class MicCaptureBackfillCommand extends Command
             'p24-groups'  => $backfill->p24Groups($apply, $exclude),
             'floor-sizes' => $backfill->floorSizes($apply, $exclude),
             'sale-agency' => $backfill->saleAgency($apply, $exclude),
+            'erf-floor'   => $backfill->erfFloor($apply, $exclude),
         };
         $backfill->journalTo(null);
 
