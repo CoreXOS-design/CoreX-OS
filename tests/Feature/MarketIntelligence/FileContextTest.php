@@ -181,4 +181,17 @@ final class FileContextTest extends TestCase
         $stored = json_encode(DB::table('mic_file_context')->where('agency_id', $this->a)->where('tracked_property_id', $tp)->first());
         $this->assertStringNotContainsString('Secret Owner', $stored, 'no personal names in the stats table');
     }
+
+    public function test_the_files_own_street_address_is_never_one_of_its_nearby_sales(): void
+    {
+        $this->comp($this->a, ['address' => '13 NEWPORT ROAD, UVONGO', 'sale_price' => 2_000_000, 'sale_date' => now()->subMonth()->toDateString()]);   // this very property
+        $this->comp($this->a, ['address' => '15 Newport Road', 'sale_price' => 900_000, 'sale_date' => now()->subMonths(2)->toDateString()]);
+        $tp = $this->file($this->a);   // 13 Newport Road
+        $this->advert($this->a, $tp);
+
+        app(MicStatsBuilder::class)->refreshAgency($this->a);
+
+        $nearby = $this->row($this->a, $tp)['nearby_sales'];
+        $this->assertSame([900_000], array_column($nearby, 'price'));
+    }
 }
