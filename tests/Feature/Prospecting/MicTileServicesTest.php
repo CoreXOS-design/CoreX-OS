@@ -291,7 +291,8 @@ final class MicTileServicesTest extends TestCase
                 DB::table('prospecting_listings')->where('id', $l->id)->update(['p24_suburb_id' => $sid, 'last_seen_at' => now()->subDays($sid === $north ? 226 : ($sid === $ours ? 20 : 3))]);
             }
         }
-        \App\Models\MicAgencySetting::saveValues($this->a->id, ['areas' => [$ours, $ours2]]);
+        // the agency ticked two Areas and chose "Hide this suburb" for the estate it imported by mistake; an imported suburb is otherwise ours
+        \App\Models\MicAgencySetting::saveValues($this->a->id, ['areas' => [$ours, $ours2], 'hidden_suburbs' => [$north]]);
         $p = new RefreshStatusPanelProvider();
 
         $default = $p->rows($this->a->id, $this->u, []);
@@ -301,7 +302,8 @@ final class MicTileServicesTest extends TestCase
         $this->assertSame(['Ramsgate', 'Uvongo', 'Ballito Gardens Estate'], array_column($all, 'suburb'), 'with "show all" the rest follow, after ours');
         $this->assertTrue($all[0]['working']);
         $this->assertFalse($all[2]['working']);
-        $this->assertSame(['area'], $all[0]['working_why']);
+        $this->assertSame(['area', 'import'], $all[0]['working_why']);
+        $this->assertSame('Ramsgate', $p->summary($this->a->id, $this->u)['oldest_suburb']);
 
         $s = $p->summary($this->a->id, $this->u);
         $this->assertSame(20, $s['oldest_age_days']);
@@ -358,39 +360,40 @@ final class MicTileServicesTest extends TestCase
         DB::table('portal_leads')->insert(['agency_id' => $this->a->id, 'portal' => 'p24', 'lead_type' => 'enquiry', 'name' => 'Lead', 'lead_source_raw' => '{}', 'listing_id' => $propertyId, 'received_at' => now()->subMonths($monthsAgo), 'created_at' => now(), 'updated_at' => now()]);
     }
 
-    public function test_with_no_areas_a_suburb_is_ours_only_with_three_of_our_stock_claims_or_leads_in_twelve_months(): void
+    public function test_a_suburb_is_ours_where_the_agency_imports_or_holds_stock_or_claims_unless_hidden(): void
     {
         $country = (int) DB::table('p24_countries')->insertGetId(['name' => 'South Africa', 'p24_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
         $province = (int) DB::table('p24_provinces')->insertGetId(['name' => 'KwaZulu-Natal', 'p24_id' => 2, 'p24_country_id' => $country, 'created_at' => now(), 'updated_at' => now()]);
         $city = (int) DB::table('p24_cities')->insertGetId(['name' => 'Margate', 'p24_id' => 376, 'p24_province_id' => $province, 'created_at' => now(), 'updated_at' => now()]);
-        $margate = $this->suburb('Margate', 6001, $city);
-        $shakas = $this->suburb('Shakas Rock', 6002, $city);
-        $old = $this->suburb('Ramsgate', 6003, $city);
-        foreach (range(1, 2) as $i) { $this->stock($margate); }
-        $this->claim($margate);                                  // 2 stock + 1 claim = 3
-        $this->lead($margate);                                   // ...+ 1 lead = 4
-        $this->stock($shakas);                                   // one own listing only
-        $this->claim($old, 14);                                  // claimed 14 months ago: outside the 12 months
-        $this->lead($old, 15);
-        $this->claim($old, 13);
+        $imported = $this->suburb('Margate', 6001, $city);
+        $claimed = $this->suburb('Shakas Rock', 6002, $city);
+        $ticked = $this->suburb('Ramsgate', 6003, $city);
+        $mistake = $this->suburb('Durban North', 6004, $city);
+        $nothing = $this->suburb('Umzumbe', 6005, $city);
+        $l = $this->advert($this->file(), 'active', 0);
+        DB::table('prospecting_listings')->where('id', $l->id)->update(['p24_suburb_id' => $imported]);
+        $l = $this->advert($this->file(), 'active', 0);
+        DB::table('prospecting_listings')->where('id', $l->id)->update(['p24_suburb_id' => $mistake]);
+        $this->claim($claimed);
+        $this->lead($nothing);                                   // a lead alone no longer makes a suburb ours
         $svc = new \App\Services\Prospecting\MicWork\WorkingSuburbs();
+        \App\Models\MicAgencySetting::saveValues($this->a->id, ['areas' => [$ticked], 'hidden_suburbs' => [$mistake]]);
 
         $counts = collect($svc->counts($this->a->id))->keyBy('suburb');
+        $ids = $svc->ids($this->a->id);
 
-        $this->assertSame(['stock' => 2, 'claims' => 1, 'leads' => 1, 'total' => 4], collect($counts['Margate'])->only(['stock', 'claims', 'leads', 'total'])->all());
-        $this->assertTrue($counts['Margate']['qualifies']);
-        $this->assertSame(1, $counts['Shakas Rock']['total']);
-        $this->assertFalse($counts['Shakas Rock']['qualifies'], 'one own listing no longer makes a whole suburb ours');
-        $this->assertArrayNotHasKey('Ramsgate', $counts->all(), 'work older than twelve months does not count');
-        $this->assertSame(['Margate'], array_map(fn ($id) => $counts->firstWhere('suburb_id', $id)['suburb'], array_keys($svc->ids($this->a->id))));
-        $this->assertSame(['stock', 'claim', 'lead'], $svc->ids($this->a->id)[$margate]);
+        $this->assertSame(['import'], $ids[$imported], 'one imported advert is enough: why would we import where we do not work');
+        $this->assertSame(['claim'], $ids[$claimed]);
+        $this->assertSame(['area'], $ids[$ticked]);
+        $this->assertArrayNotHasKey($mistake, $ids, '"Hide this suburb"');
+        $this->assertTrue($counts['Durban North']['hidden']);
+        $this->assertFalse($counts['Durban North']['qualifies']);
+        $this->assertArrayNotHasKey($nothing, $ids, 'a portal lead alone is information, not a working suburb');
+        $this->assertSame(1, $counts['Umzumbe']['leads']);
+        $this->assertSame(1, $counts['Margate']['adverts']);
 
-        \App\Models\MicAgencySetting::saveValues($this->a->id, ['working_suburb_min_count' => 1]);
-        $this->assertEqualsCanonicalizing([$margate, $shakas], array_keys($svc->ids($this->a->id)), 'the 3 is an agency setting');
-
-        \App\Models\MicAgencySetting::saveValues($this->a->id, ['areas' => [$old]]);
-        $this->assertSame([$old => ['area']], $svc->ids($this->a->id), 'ticked Areas are the working suburbs');
-        $this->assertTrue(collect($svc->counts($this->a->id))->firstWhere('suburb_id', $old)['is_area']);
+        \App\Models\MicAgencySetting::saveValues($this->a->id, ['areas' => [$mistake]]);
+        $this->assertArrayHasKey($mistake, $svc->ids($this->a->id), 'a suburb ticked as an Area stays even if also hidden');
         $this->assertSame([], $svc->ids($this->b->id), "another agency's work is its own");
     }
 }

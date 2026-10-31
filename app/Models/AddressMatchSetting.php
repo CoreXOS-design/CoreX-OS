@@ -19,7 +19,7 @@ class AddressMatchSetting extends Model
         'agency_id', 'rule_erf_exact', 'rule_scheme_exact', 'rule_street_exact',
         'possible_min_agreeing_columns', 'neighbour_suburb_credit', 'gps_radius_m', 'unit_missing_on_one_side',
         'fuzzy_threshold', 'auto_merge_min_confidence', 'auto_claim_min_confidence', 'same_address_sweep',
-        'portal_group_link_enabled', 'portal_group_price_spread', 'portal_group_auto_link_min_confidence', 'twin_match_enabled', 'twin_price_tolerance_pct', 'twin_min_corroboration', 'twin_auto_link', 'complex_group_enabled', 'complex_min_land_m2', 'map_point_check_enabled', 'map_point_distance_m', 'unit_split_min_adverts', 'unit_split_price_spread', 'unit_split_land_size_gap_pct',
+        'portal_group_link_enabled', 'portal_group_price_spread', 'portal_group_auto_link_min_confidence', 'twin_match_enabled', 'twin_price_tolerance_pct', 'twin_min_corroboration', 'twin_auto_link', 'complex_group_enabled', 'auto_tidy', 'complex_min_land_m2', 'map_point_check_enabled', 'map_point_distance_m', 'unit_split_min_adverts', 'unit_split_price_spread', 'unit_split_land_size_gap_pct',
     ];
 
     protected $casts = [
@@ -34,6 +34,7 @@ class AddressMatchSetting extends Model
         'twin_match_enabled'            => 'boolean',
         'twin_auto_link'                => 'boolean',
         'complex_group_enabled'         => 'boolean',
+        'auto_tidy'                     => 'boolean',
         'map_point_check_enabled'       => 'boolean',
     ];
 
@@ -66,6 +67,7 @@ class AddressMatchSetting extends Model
         'twin_min_corroboration'        => 2,
         'twin_auto_link'                => false,
         'complex_group_enabled'         => true,
+        'auto_tidy'                     => true,
         'complex_min_land_m2'           => 1000,
         'map_point_check_enabled'       => true,
         'map_point_distance_m'          => 150,
@@ -124,7 +126,7 @@ class AddressMatchSetting extends Model
         $out['unit_split_min_adverts'] = max(3, min(30, (int) $out['unit_split_min_adverts']));
         $out['unit_split_price_spread'] = max(1.2, min(10.0, (float) $out['unit_split_price_spread']));
         $out['unit_split_land_size_gap_pct'] = max(2, min(50, (int) $out['unit_split_land_size_gap_pct']));
-        foreach (['rule_erf_exact', 'rule_scheme_exact', 'rule_street_exact', 'same_address_sweep', 'portal_group_link_enabled', 'twin_match_enabled', 'twin_auto_link', 'complex_group_enabled', 'map_point_check_enabled'] as $flag) {
+        foreach (['rule_erf_exact', 'rule_scheme_exact', 'rule_street_exact', 'same_address_sweep', 'portal_group_link_enabled', 'twin_match_enabled', 'twin_auto_link', 'complex_group_enabled', 'auto_tidy', 'map_point_check_enabled'] as $flag) {
             $out[$flag] = (bool) $out[$flag];
         }
 

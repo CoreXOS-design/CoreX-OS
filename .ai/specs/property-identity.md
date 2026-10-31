@@ -1,5 +1,9 @@
 # Property identity — one record per property, one door in
 
+> **STANDING PRINCIPLE FOR ALL MATCHING (Johan, 31 Oct 2026, verbatim):** "We do our utmost to match, but it's best effort. If we cannot match with confidence, we don't match. Rather UNDER-match than OVER-match."
+> What it means in practice: automatic rules MERGE or LINK only on confident evidence (no contradiction, the rule's thresholds met). Uncertain pairs stay SEPARATE and are never merged automatically to clear a backlog. Collapsing the review list is display and grouping only. The review list is optional extra help: nothing in MIC depends on it being cleared. When in doubt, unlink.
+
+
 **Status:** A1 spec (this file). QA1 only. Nothing goes to Staging or live without Johan's order.
 **Owner of this file:** lane A (foundation). Lane B (cc4, per-agency work layer on MIC) adds its own section at §12 and touches nothing else here.
 **Pillars:** Property (`properties`), Tracked Properties (MIC), Deal (`deals`). Contact untouched; Agent untouched.
@@ -508,6 +512,8 @@ P24 card and listing page: `advertiser_type = owner` only when the page states i
 - **Why Shakas Rock, Durban North and Umhlanga are "our working suburbs" for HFC.** The rule (`RefreshStatusPanelProvider::workingSuburbs`): a suburb is ours when the agency has listed it in the MIC Settings areas (HFC has set none), OR holds at least one OWN-STOCK property there, OR a claimed property, OR a property with leads (cc5's `mic_file_stats`). QA1: 43 working suburbs - 41 by stock, 27 by claim, 8 by lead, none by lead alone. Shakas Rock: 228 files, **1 own-stock**, 0 claimed, 0 leads. Durban North: 412 files, **1 own-stock**, 0 claimed. Umhlanga Central: 2 files, **2 own-stock**. So one HFC listing makes a whole suburb "working". Proposal: Johan lists the real areas in the MIC Settings (the clean answer), and/or a minimum number of own listings or claims before a suburb counts (default 1 today; set 3 to drop these three). Not changed.
 - **Panel 11 "5 hours ago" on both portals was a REAL full read**: in Margate, Uvongo, Shelly Beach, Ramsgate and Manaba Beach 100% of the live adverts were last seen between 10:57 (P24) and 11:15 (PP) in Johan's morning run, and nothing touched `last_seen_at` after 11:20 (no back-fill or ingest touched it). It reads "approx" only because that run predates crawl tracking (`mic_crawls` is empty). Rule now: see `mic-work-tab.md` 11.3.J.
 - **Tile 10 dates (item 2):** the 31 Oct dates are the day OUR capture first recorded the advert as under offer / sold: 131 adverts that existed before flipped in that day's re-capture (P24 only); no job of mine wrote them. Printed as "seen 31 Oct". `?file=ID` filter on Possible matches and `SamePropertyChips`: `mic-work-tab.md` 11.3.J. Tests: cases in `MicTileServicesTest` and `MatchingRulesTest`.
+
+**PRINCIPLE (Johan, 31 Oct):** "We do our utmost to match, but it's best effort. If we cannot match with confidence, we don't match. Rather UNDER-match than OVER-match." Every rule below leaves uncertain cases SEPARATE; collapsing the review list groups and closes questions as "not the same, grouped under the complex" - it never merges.
 
 ### 17.9 Lists for Johan (31 Oct 17:15)
 **(a) Ten random "different town" moves, to spot-check** (10 of the 499, seed 31102026; "advert says" = what the advert itself shows; every one was a suburb-only or complex-style advert sitting on a file in another town):

@@ -158,6 +158,13 @@
             <p class="text-xs mt-1" style="color:var(--text-muted);">Flats with no address that sit on the same land size in the same suburb are grouped as one complex (never merged). Standard: on.</p>
         </div>
         <div>
+            <label class="inline-flex items-center gap-2 text-sm font-semibold" style="color:var(--text-secondary);">
+                <input type="checkbox" name="auto_tidy" value="1" data-qa="auto-tidy" @checked(old('matching_rules_present') ? old('auto_tidy') : $settings['auto_tidy'])>
+                Tidy up automatically after every import and each night
+            </label>
+            <p class="text-xs mt-1" style="color:var(--text-muted);">Moves an advert back to its own property when its address clearly belongs elsewhere, and closes questions that no longer need an answer (never merges anything). Standard: on.</p>
+        </div>
+        <div>
             <label class="block text-sm font-semibold mb-1" style="color:var(--text-secondary);">Smallest land size that counts as a complex (m2)</label>
             <input type="number" name="complex_min_land_m2" min="100" max="100000" step="100" value="{{ old('complex_min_land_m2', $settings['complex_min_land_m2']) }}"
                    class="w-28 px-3 py-2 text-sm rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">

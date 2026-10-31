@@ -100,6 +100,7 @@ class AddressMatchingRulesController extends Controller
             'twin_match_enabled'         => $flag('twin_match_enabled'),
             'twin_auto_link'             => $flag('twin_auto_link'),
             'complex_group_enabled'      => $flag('complex_group_enabled'),
+            'auto_tidy'                  => $flag('auto_tidy'),
             'map_point_check_enabled'    => $flag('map_point_check_enabled'),
             'portal_group_price_spread'  => (float) ($v['portal_group_price_spread'] ?? $current['portal_group_price_spread']),
             'portal_group_auto_link_min_confidence' => $v['portal_group_auto_link_min_confidence'] ?? $current['portal_group_auto_link_min_confidence'],

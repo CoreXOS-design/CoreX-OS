@@ -368,7 +368,9 @@ final class AddressMatchingIntegrationTest extends TestCase
         $resp->assertSee('Same property — link to it');
         $resp->assertSee('Different property — add as new');
         $resp->assertSee('neighbouring suburb');
-        $resp->assertDontSee('Add as a new property', false);
+        // the silent "Add as a new property" BUTTON (its form) must not render for a possible match. The phrase itself may appear in the page's
+        // guided-tour copy (AT-478), so the page as a whole is not searched for the words.
+        $this->assertDoesNotMatchRegularExpression('/<button[^>]*>\\s*Add as a new property\\s*<\\/button>/', $resp->getContent());
     }
 
     public function test_the_mic_promote_asks_too(): void

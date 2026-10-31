@@ -113,7 +113,7 @@ final class RefreshStatusPanelProvider implements PanelProvider
      * `interval_days` = Settings > Market data refresh "Every N days" (the SAME value the row `overdue` flag uses), `working_suburbs` = how many there are.
      * Approximate reads count, flagged in the rows.
      *
-     * @return array{count:?int, reason:string, note:?string, oldest_age_days:?int, older_than_days:int, interval_days:int, never_read:int, working_suburbs:int}
+     * @return array{count:?int, reason:string, note:?string, oldest_age_days:?int, oldest_suburb:?string, oldest_suburb_id:?int, older_than_days:int, interval_days:int, never_read:int, working_suburbs:int}
      */
     public function summary(int $agencyId, User $user): array
     {
@@ -123,10 +123,11 @@ final class RefreshStatusPanelProvider implements PanelProvider
         $never = $rows->filter(fn ($r) => $r['age_days'] === null)->count();
         $older = $rows->filter(fn ($r) => $r['age_days'] === null || $r['age_days'] > $interval)->count();
         $oldest = $ages->isEmpty() ? null : (int) $ages->max();
+        $oldestRow = $oldest === null ? null : $rows->first(fn ($r) => $r['age_days'] === $oldest);
 
         return [
-            'count' => $oldest, 'oldest_age_days' => $oldest, 'older_than_days' => $older, 'interval_days' => $interval, 'never_read' => $never, 'working_suburbs' => $rows->count(),
-            'reason' => $rows->isEmpty() ? 'No working suburbs yet' : 'Oldest read ' . ($oldest === null ? 'never' : $oldest . ' days ago') . '; ' . $older . ' of ' . $rows->count() . ' working suburbs older than ' . $interval . ' days',
+            'count' => $oldest, 'oldest_age_days' => $oldest, 'oldest_suburb' => $oldestRow['suburb'] ?? null, 'oldest_suburb_id' => $oldestRow['suburb_id'] ?? null, 'older_than_days' => $older, 'interval_days' => $interval, 'never_read' => $never, 'working_suburbs' => $rows->count(),
+            'reason' => $rows->isEmpty() ? 'No working suburbs yet' : 'Oldest read ' . ($oldest === null ? 'never' : ($oldestRow['suburb'] . ' ' . $oldest . ' days ago')) . '; ' . $older . ' of ' . $rows->count() . ' working suburbs older than ' . $interval . ' days',
             'note' => $rows->contains(fn ($r) => $r['p24_approx'] || $r['pp_approx']) ? 'some reads are approximate (before crawl tracking)' : null,
         ];
     }
