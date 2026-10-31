@@ -57,4 +57,17 @@ class TrainingScriptRepository
 
         return null;
     }
+
+    /** The script of a screen reached by an unnamed alias route (e.g. /corex/market-intelligence/work, which is the named "/" route's twin): matched on its path. */
+    public function forPath(?string $path): ?TrainingScript
+    {
+        $path = '/' . trim((string) $path, '/');
+        foreach ($this->all() as $s) {
+            if ($s->url() !== '' && '/' . trim($s->url(), '/') === $path) {
+                return $s;
+            }
+        }
+
+        return null;
+    }
 }

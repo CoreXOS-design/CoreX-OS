@@ -7,7 +7,8 @@
     $__whScript = null; $__whVideo = null;
     try {
         if (auth()->user()->hasPermission('training_videos.view')) {
-            $__whScript = app(\App\Services\TrainingVideos\Auto\TrainingScriptRepository::class)->forRoute(optional(request()->route())->getName());
+            $__whScript = app(\App\Services\TrainingVideos\Auto\TrainingScriptRepository::class)->forRoute(optional(request()->route())->getName())
+                ?? app(\App\Services\TrainingVideos\Auto\TrainingScriptRepository::class)->forPath(request()->path());
             if ($__whScript && ($__whScript->audience() === [] || in_array((string) auth()->user()->role, $__whScript->audience(), true) || auth()->user()->isOwnerRole())) {
                 $__whVideo = \App\Models\TrainingVideo::where('source', 'generated')->where('screen_key', $__whScript->key())->where('status', 'ready')->first();
             }

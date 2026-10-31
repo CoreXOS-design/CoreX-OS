@@ -209,6 +209,17 @@ final class TrainingLibraryTest extends TestCase
         $this->assertSame('', trim(view('layouts.partials.watch-how')->render()), 'the layout adds no second button once the header drew its own');
     }
 
+    public function test_a_screen_reached_by_an_unnamed_alias_route_still_finds_its_video_by_path(): void
+    {
+        $this->video();
+        $this->actingAs($this->agent);
+        $route = new \Illuminate\Routing\Route('GET', '/corex/x', []);   // no name, like the "/work" twin of the named MIC route
+        request()->setRouteResolver(fn () => $route);
+        request()->server->set('REQUEST_URI', '/corex/x');
+        $this->assertSame('book-a-viewing', app(\App\Services\TrainingVideos\Auto\TrainingScriptRepository::class)->forPath('/corex/x')?->key());
+        $this->assertNull(app(\App\Services\TrainingVideos\Auto\TrainingScriptRepository::class)->forPath('/corex/elsewhere'));
+    }
+
     public function test_the_mic_work_header_carries_the_watch_how_button(): void
     {
         $this->assertStringContainsString('<x-watch-how inline />', file_get_contents(resource_path('views/corex/market-intelligence/partials/_header-actions.blade.php')));
