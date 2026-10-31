@@ -306,7 +306,9 @@ final class MicTileServicesTest extends TestCase
         $s = $p->summary($this->a->id, $this->u);
         $this->assertSame(20, $s['oldest_age_days']);
         $this->assertSame(20, $s['count']);
-        $this->assertSame(1, $s['older_than_14d'], 'Ramsgate (20 days); the north-coast estate is not one of ours and is not counted');
+        $this->assertSame(1, $s['older_than_days'], 'Ramsgate (20 days) is older than the 7-day refresh interval; Uvongo (3) is not; the north-coast estate is not one of ours');
+        $this->assertSame(7, $s['interval_days'], 'the SAME 7 days as Settings > Market data refresh, not a separate 14');
+        $this->assertStringContainsString('older than 7 days', $s['reason']);
         $this->assertSame(2, $s['working_suburbs']);
     }
     public function test_an_approximate_read_needs_half_the_live_adverts_seen_not_one(): void
@@ -334,5 +336,61 @@ final class MicTileServicesTest extends TestCase
         $this->assertTrue($rows['Margate']['p24_approx'], 'still flagged approximate: no crawl record exists for it');
         $this->assertSame(20, $rows['Uvongo']['age_days'], 'one advert seen today is not a read of the suburb: the 50% point is 20 days ago');
         $this->assertNull($rows['Ramsgate']['p24_read_at'], 'two live adverts are too few to approximate a read');
+    }
+    private function claim(int $suburbId, int $monthsAgo = 1): void
+    {
+        $f = $this->file();
+        DB::table('tracked_properties')->where('id', $f->id)->update(['p24_suburb_id' => $suburbId]);
+        DB::table('tracked_property_agency_work')->insert(['agency_id' => $this->a->id, 'tracked_property_id' => $f->id, 'claimed_by_user_id' => $this->u->id, 'claimed_at' => now()->subMonths($monthsAgo),
+            'created_at' => now(), 'updated_at' => now()]);
+    }
+
+    private function stock(int $suburbId): void
+    {
+        $f = $this->file();
+        DB::table('mic_file_stats')->insert(['agency_id' => $this->a->id, 'tracked_property_id' => $f->id, 'p24_suburb_id' => $suburbId, 'own_stock' => 1]);
+    }
+
+    private function lead(int $suburbId, int $monthsAgo = 1): void
+    {
+        $propertyId = DB::table('properties')->insertGetId(['agency_id' => $this->a->id, 'title' => 'x', 'agent_id' => $this->u->id, 'branch_id' => $this->u->branch_id, 'external_id' => uniqid('P'), 'p24_suburb_id' => $suburbId,
+            'created_at' => now(), 'updated_at' => now()]);
+        DB::table('portal_leads')->insert(['agency_id' => $this->a->id, 'portal' => 'p24', 'lead_type' => 'enquiry', 'name' => 'Lead', 'lead_source_raw' => '{}', 'listing_id' => $propertyId, 'received_at' => now()->subMonths($monthsAgo), 'created_at' => now(), 'updated_at' => now()]);
+    }
+
+    public function test_with_no_areas_a_suburb_is_ours_only_with_three_of_our_stock_claims_or_leads_in_twelve_months(): void
+    {
+        $country = (int) DB::table('p24_countries')->insertGetId(['name' => 'South Africa', 'p24_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        $province = (int) DB::table('p24_provinces')->insertGetId(['name' => 'KwaZulu-Natal', 'p24_id' => 2, 'p24_country_id' => $country, 'created_at' => now(), 'updated_at' => now()]);
+        $city = (int) DB::table('p24_cities')->insertGetId(['name' => 'Margate', 'p24_id' => 376, 'p24_province_id' => $province, 'created_at' => now(), 'updated_at' => now()]);
+        $margate = $this->suburb('Margate', 6001, $city);
+        $shakas = $this->suburb('Shakas Rock', 6002, $city);
+        $old = $this->suburb('Ramsgate', 6003, $city);
+        foreach (range(1, 2) as $i) { $this->stock($margate); }
+        $this->claim($margate);                                  // 2 stock + 1 claim = 3
+        $this->lead($margate);                                   // ...+ 1 lead = 4
+        $this->stock($shakas);                                   // one own listing only
+        $this->claim($old, 14);                                  // claimed 14 months ago: outside the 12 months
+        $this->lead($old, 15);
+        $this->claim($old, 13);
+        $svc = new \App\Services\Prospecting\MicWork\WorkingSuburbs();
+
+        $counts = collect($svc->counts($this->a->id))->keyBy('suburb');
+
+        $this->assertSame(['stock' => 2, 'claims' => 1, 'leads' => 1, 'total' => 4], collect($counts['Margate'])->only(['stock', 'claims', 'leads', 'total'])->all());
+        $this->assertTrue($counts['Margate']['qualifies']);
+        $this->assertSame(1, $counts['Shakas Rock']['total']);
+        $this->assertFalse($counts['Shakas Rock']['qualifies'], 'one own listing no longer makes a whole suburb ours');
+        $this->assertArrayNotHasKey('Ramsgate', $counts->all(), 'work older than twelve months does not count');
+        $this->assertSame(['Margate'], array_map(fn ($id) => $counts->firstWhere('suburb_id', $id)['suburb'], array_keys($svc->ids($this->a->id))));
+        $this->assertSame(['stock', 'claim', 'lead'], $svc->ids($this->a->id)[$margate]);
+
+        \App\Models\MicAgencySetting::saveValues($this->a->id, ['working_suburb_min_count' => 1]);
+        $this->assertEqualsCanonicalizing([$margate, $shakas], array_keys($svc->ids($this->a->id)), 'the 3 is an agency setting');
+
+        \App\Models\MicAgencySetting::saveValues($this->a->id, ['areas' => [$old]]);
+        $this->assertSame([$old => ['area']], $svc->ids($this->a->id), 'ticked Areas are the working suburbs');
+        $this->assertTrue(collect($svc->counts($this->a->id))->firstWhere('suburb_id', $old)['is_area']);
+        $this->assertSame([], $svc->ids($this->b->id), "another agency's work is its own");
     }
 }

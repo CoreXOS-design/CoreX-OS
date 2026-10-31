@@ -108,7 +108,7 @@
                             <a href="{{ $p['right_url'] }}" target="_blank" rel="noopener" class="no-underline" style="color:var(--text-primary);">{{ \Illuminate\Support\Str::limit($p['right'], 70) }}</a>
                         </td>
                         <td class="px-3 py-2 align-top whitespace-nowrap"><span class="ds-badge {{ in_array($p['confidence'], ['Exact', 'High'], true) ? 'ds-badge-success' : 'ds-badge-warning' }}">{{ $p['confidence'] }}</span></td>
-                        <td class="px-3 py-2 align-top whitespace-nowrap text-xs" style="color:var(--text-secondary);">{{ ucfirst(str_replace('_', ' ', (string) $r->strategy)) }}</td>
+                        <td class="px-3 py-2 align-top whitespace-nowrap text-xs" style="color:var(--text-secondary);">{{ \App\Http\Controllers\CoreX\PossibleMatchesController::foundByLabel((string) $p['kind'], (string) $r->strategy) }}</td>
                         <td class="px-3 py-2 align-top text-xs" style="color:var(--text-muted); max-width:20rem;">{{ \Illuminate\Support\Str::limit((string) $r->reason, 110) }}</td>
                         <td class="px-3 py-2 align-top whitespace-nowrap text-xs" style="color:var(--text-muted);">{{ $r->decided_at ? \Illuminate\Support\Carbon::parse($r->decided_at)->format('j M Y') : '—' }}</td>
                         <td class="px-3 py-2 align-top whitespace-nowrap">

@@ -183,7 +183,7 @@ final class SameAddressSweep
             return;
         }
         if ($apply) {
-            $d = $this->decisions->record($agencyId, $type, $key, 'tracked_property', (int) $other->id, 'address_unit', mb_substr($reason, 0, 480), null,
+            $d = $this->decisions->record($agencyId, $type, $key, 'tracked_property', (int) $other->id, 'same_address', mb_substr($reason, 0, 480), null,
                 ['kind' => 'same_address', 'incoming_tracked_property_id' => (int) $first->id], null);
             $this->decisions->recordOutcome($d, 'pending');
         }

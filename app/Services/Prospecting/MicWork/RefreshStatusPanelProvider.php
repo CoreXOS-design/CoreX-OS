@@ -109,60 +109,32 @@ final class RefreshStatusPanelProvider implements PanelProvider
 
     /**
      * The numbers on the face of tile 11 (contract 11.3.I), over OUR working suburbs only: `count` = `oldest_age_days` (the oldest read, in days; null when
-     * a working suburb was never read - see `never_read`), `older_than_14d` = working suburbs never read or read longer ago than the agency's stale limit
-     * (default 14 days), `working_suburbs` = how many there are. Approximate reads count, flagged in the rows.
+     * a working suburb was never read - see `never_read`), `older_than_days` = working suburbs never read or read longer ago than `interval_days`,
+     * `interval_days` = Settings > Market data refresh "Every N days" (the SAME value the row `overdue` flag uses), `working_suburbs` = how many there are.
+     * Approximate reads count, flagged in the rows.
      *
-     * @return array{count:?int, reason:string, note:?string, oldest_age_days:?int, older_than_14d:int, never_read:int, working_suburbs:int, stale_after_days:int}
+     * @return array{count:?int, reason:string, note:?string, oldest_age_days:?int, older_than_days:int, interval_days:int, never_read:int, working_suburbs:int}
      */
     public function summary(int $agencyId, User $user): array
     {
-        $stale = MicTileSettings::refreshStaleDays($agencyId);
+        $interval = MicTileSettings::refreshStaleDays($agencyId);
         $rows = collect($this->rows($agencyId, $user, ['show_all' => false]))->where('working', true)->values();
         $ages = $rows->pluck('age_days')->filter(fn ($a) => $a !== null);
         $never = $rows->filter(fn ($r) => $r['age_days'] === null)->count();
-        $older = $rows->filter(fn ($r) => $r['age_days'] === null || $r['age_days'] > $stale)->count();
+        $older = $rows->filter(fn ($r) => $r['age_days'] === null || $r['age_days'] > $interval)->count();
         $oldest = $ages->isEmpty() ? null : (int) $ages->max();
 
         return [
-            'count' => $oldest, 'oldest_age_days' => $oldest, 'older_than_14d' => $older, 'never_read' => $never, 'working_suburbs' => $rows->count(), 'stale_after_days' => $stale,
-            'reason' => $rows->isEmpty() ? 'No working suburbs yet' : 'Oldest read ' . ($oldest === null ? 'never' : $oldest . ' days ago') . '; ' . $older . ' of ' . $rows->count() . ' working suburbs older than ' . $stale . ' days',
+            'count' => $oldest, 'oldest_age_days' => $oldest, 'older_than_days' => $older, 'interval_days' => $interval, 'never_read' => $never, 'working_suburbs' => $rows->count(),
+            'reason' => $rows->isEmpty() ? 'No working suburbs yet' : 'Oldest read ' . ($oldest === null ? 'never' : $oldest . ' days ago') . '; ' . $older . ' of ' . $rows->count() . ' working suburbs older than ' . $interval . ' days',
             'note' => $rows->contains(fn ($r) => $r['p24_approx'] || $r['pp_approx']) ? 'some reads are approximate (before crawl tracking)' : null,
         ];
     }
 
-    /**
-     * Suburbs (our p24_suburbs.id) the agency actually works: it holds stock there, has a claim or a lead there (cc5's per-file figures), or lists it as an
-     * area in the MIC Settings. Returns suburb id => reasons (`area`, `stock`, `claim`, `lead`).
-     *
-     * @return array<int,list<string>>
-     */
+    /** @return array<int,list<string>> suburb id => why - see WorkingSuburbs */
     public function workingSuburbs(int $agencyId): array
     {
-        $out = [];
-        $add = function ($id, string $why) use (&$out) {
-            if ($id) {
-                $out[(int) $id] = array_values(array_unique(array_merge($out[(int) $id] ?? [], [$why])));
-            }
-        };
-        try {
-            if (class_exists('App\\Models\\MicAgencySetting')) {
-                foreach ((\App\Models\MicAgencySetting::for($agencyId))->areas() as $id) {
-                    $add($id, 'area');
-                }
-            }
-        } catch (\Throwable $e) {
-            // settings unavailable: the other sources still count
-        }
-        if (\Illuminate\Support\Facades\Schema::hasTable('mic_file_stats')) {
-            foreach (DB::table('mic_file_stats')->where('agency_id', $agencyId)->whereNotNull('p24_suburb_id')->where(fn ($q) => $q->where('own_stock', 1)->orWhere('claimed', 1)->orWhere('leads_total', '>', 0))
-                ->groupBy('p24_suburb_id')->selectRaw('p24_suburb_id, MAX(own_stock) as stock, MAX(claimed) as claim, MAX(leads_total) as leads')->get() as $r) {
-                $r->stock ? $add($r->p24_suburb_id, 'stock') : null;
-                $r->claim ? $add($r->p24_suburb_id, 'claim') : null;
-                $r->leads > 0 ? $add($r->p24_suburb_id, 'lead') : null;
-            }
-        }
-
-        return $out;
+        return app(WorkingSuburbs::class)->ids($agencyId);
     }
 
     public function around(int $agencyId, User $user, string $triggerId): array

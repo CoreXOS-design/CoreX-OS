@@ -344,4 +344,24 @@ final class MatchingRulesTest extends TestCase
         $this->actingAs(User::factory()->create(['agency_id' => $this->a->id, 'role' => 'admin']));
         $this->assertStringContainsString('file=' . $a1->id, app(\App\Services\Prospecting\Matching\SamePropertyChips::class)->forFile($this->a->id, $a1->id)['url']);
     }
+    public function test_found_by_is_labelled_from_the_pairs_kind(): void
+    {
+        $label = fn (string $kind, string $strategy = 'address_unit') => \App\Http\Controllers\CoreX\PossibleMatchesController::foundByLabel($kind, $strategy);
+
+        $this->assertSame('P24 group', $label('portal_group'));
+        $this->assertSame('Same-agency twin', $label('twin'));
+        $this->assertSame('Same address', $label('same_address'));
+        $this->assertSame('Unit/scheme', $label('unit_split'));
+        $this->assertSame('Unit/scheme', $label('capture', 'address_unit'), 'an old pair that really is a unit/scheme match keeps that label');
+        $this->assertSame('Address history', $label('capture', 'address_history'));
+    }
+
+    public function test_new_pairs_record_their_own_kind_as_the_strategy(): void
+    {
+        $one = $this->file(['street_number' => '1', 'street_name' => 'Alpha Road', 'suburb' => 'Uvongo']);
+        $two = $this->file(['street_number' => '2', 'street_name' => 'Beta Road', 'suburb' => 'Uvongo']);
+        app(\App\Services\Prospecting\Matching\ReviewPairs::class)->queue($this->a->id, $one->id, $two->id, 'portal_group', 'x', null, true);
+
+        $this->assertSame('portal_group', DB::table('property_match_decisions')->where('subject_key', 'portal_group:' . $one->id)->value('strategy'));
+    }
 }

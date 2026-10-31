@@ -17,10 +17,16 @@ final class MicTileSettings
         return max(1, self::int($agencyId, 'refreshIntervalDays', 7));
     }
 
-    /** tile 11's face number counts working suburbs read longer ago than this (conductor, 31 Oct: 14 days) */
+    /** tile 11 counts a working suburb as old when its read is older than this: the SAME value as Settings > Market data refresh ("Every N days") */
     public static function refreshStaleDays(int $agencyId): int
     {
-        return max(1, self::int($agencyId, 'refreshStaleDays', 14));
+        return max(1, self::int($agencyId, 'refreshStaleDays', self::refreshIntervalDays($agencyId)));
+    }
+
+    /** with no Areas ticked, a suburb is "working" only with at least this many of our stock, claims and portal leads (last 12 months) (default 3) */
+    public static function workingSuburbMinCount(int $agencyId): int
+    {
+        return max(1, self::int($agencyId, 'workingSuburbMinCount', 3));
     }
 
     /** an approximate read counts only when at least this percentage of a suburb's live adverts on a portal were seen on/after that moment (default 50) */
@@ -57,7 +63,8 @@ final class MicTileSettings
     {
         try {
             if (class_exists(self::MODEL) && method_exists(self::MODEL, $method)) {
-                $v = (self::MODEL)::$method($agencyId);
+                // cc5's accessors are static (`MicAgencySetting::refreshIntervalDays($agencyId)`) or on the settings object (`->workingSuburbMinCount()`)
+                $v = (new \ReflectionMethod(self::MODEL, $method))->isStatic() ? (self::MODEL)::$method($agencyId) : (self::MODEL)::for($agencyId)->$method();
 
                 return is_numeric($v) ? (int) $v : $default;
             }

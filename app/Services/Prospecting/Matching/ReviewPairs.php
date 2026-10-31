@@ -42,7 +42,7 @@ final class ReviewPairs
             return false;
         }
         if ($apply) {
-            $d = $this->decisions->record($agencyId, PropertyIdentityResolver::DECISION_SUBJECT, $kind . ':' . $first, 'tracked_property', $other, 'address_unit',
+            $d = $this->decisions->record($agencyId, PropertyIdentityResolver::DECISION_SUBJECT, $kind . ':' . $first, 'tracked_property', $other, $kind,
                 mb_substr($reason, 0, 480), null, ['kind' => $kind, 'incoming_tracked_property_id' => $first] + $extra, $score);
             $this->decisions->recordOutcome($d, 'pending');
         }

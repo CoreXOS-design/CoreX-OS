@@ -45,6 +45,21 @@ class PossibleMatchesController extends Controller
     /** kinds recorded in incoming_facts.kind by the AT-520 rules */
     private const FACT_KINDS = ['advert_clash', 'same_address', 'portal_group', 'twin', 'complex', 'map_point', 'unit_split'];
 
+    /** the "Found by" column, from the pair's KIND first (a P24 group is not an "address unit" match), else from how the matcher found it */
+    public static function foundByLabel(string $kind, string $strategy): string
+    {
+        return match (true) {
+            $kind === 'portal_group' => 'P24 group',
+            $kind === 'twin' => 'Same-agency twin',
+            $kind === 'same_address' => 'Same address',
+            in_array($kind, ['unit_split', 'complex'], true) => 'Unit/scheme',
+            $kind === 'map_point' => 'Map point',
+            $kind === 'advert_clash' => 'Same advert',
+            in_array($strategy, ['address_unit', 'unit', 'scheme', '3b_scheme_section'], true) => 'Unit/scheme',
+            default => ucfirst(str_replace('_', ' ', $strategy)),
+        };
+    }
+
     private function agencyId(Request $request): int
     {
         $agencyId = (int) ($request->user()->effectiveAgencyId() ?: 0);
