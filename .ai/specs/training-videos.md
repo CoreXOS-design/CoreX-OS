@@ -501,3 +501,41 @@ Johan rejected all eight Piper voices. ElevenLabs ("Ava", "Thandi" were liked) i
 - **Legacy:** the two videos made before this change (`voice_key` null, Piper Jenny) stay playable for everyone until regenerated; the first regeneration in the default voice adopts them.
 - **Not in the Setup Wizard:** a platform content choice, not an agency operating setting (Johan's call, rule 10a).
 - **Consent / POPIA:** the consent tick is the control; the reference clip is personal information of the speaker - private disk, owner-only creation, never exposed to agencies, deletable on request (archive plus file removal by an admin).
+
+### 9.16.1 Ad render contract v1 - DRAFT for cc5 to agree (Johan's "big play": one-click video ADS from the CoreX owners menu, 31 Oct)
+**Split of ownership.** cc5 builds the **Ad Studio** page, the **brand settings** and the **ad scripts** (a new ticket linked to AT-525). The training-video pipeline owns the **render side**: it turns an ad script into mp4s. The two meet at one PHP service call and one table - nothing else is shared. Ads **sell**, training videos **explain**; but the screen actions inside an ad are NOT a second format: a beat points at a step of a training script (9.15), so a screen is described once.
+
+**Input - `AdRenderRequest`** (a plain array / DTO passed to `App\Services\TrainingVideos\Ads\AdRenderer::queue($request): string $batchId`; in-process, no HTTP):
+```
+ad_ref        string|int   cc5's id for the ad (we only echo it back)
+length        15 | 30 | 60 seconds (target; the validator rejects a script whose beats cannot fit)
+formats       subset of ["9:16", "1:1", "16:9"]
+voice         a voice key (9.12 / 9.20); null = the platform default
+captions      bool (default true) - burned in on every ad format
+music         null | track_id  (null until Johan approves a track - 9.16)
+script
+  hook        { text: <= 12 words about the AGENT'S PROBLEM, seconds: 3-4 }
+  beats[]     { benefit: <= 15 words, benefit-led ("Never lose a buyer again", never "Press Add Event"),
+                screen: { script_key, step }      the training-script step to show (selector / action / value / wait_for are read from it), or
+                        { route, selector, action, value? } when no training step exists yet,
+                zoom:   { selector?, scale: 1.0-2.5 }   what to crop / zoom to (default = the step's selector),
+                seconds: 2-6 }                    fast cuts: 2-6 s a beat
+  proof       { text: "HFC runs on CoreX, and we keep expanding it" style line, seconds: 2-3 }
+  cta         { line: "Join CoreX", follow: "Follow us" }
+brand         { name, logo (path on the private disk), colours {primary, accent, text, background}, font?, cta_url, website, contact_email (johan@corexos.co.za), phone?,
+                socials { facebook?, instagram?, linkedin?, youtube?, tiktok? } }
+```
+**Output - one row per format in `ad_renders`** (`id, batch_id, ad_ref, format, status queued|rendering|ready|failed, file_name, poster_name, duration_seconds, size_bytes, width, height, voice_key, source_hash, failure_reason, rendered_at, deleted_at`; files on the private disk under `training-videos-auto/ads/<batch>/`). **`ready` = an mp4 (H.264/AAC, faststart) AND a poster jpg for that format.** cc5 polls `AdRenderer::status($batchId)` (rows + `percent`) or listens for the `AdRenderFinished` event, and serves downloads through its own authenticated routes (admin / owners menu only; nothing is posted anywhere - Johan posts the files himself). Re-queueing an ad with the same script, voice, brand and formats returns the existing renders (cache by `source_hash`; audio is made once per script text + voice).
+
+**What the renderer does**
+- **One recording per ad, at 1920x1080**, signed in only to the CoreX Training Academy (invented data only - no real client, agent or address can appear; the recorder refuses any other login). Each beat's screen step is performed live; the recorder writes each beat's target rectangle (the step's selector, or `zoom.selector`) in the timeline.
+- **Fast cuts, zoom and crop on the action:** each beat is cut from the recording and cropped to the format around its target rectangle - **9:16 1080x1920** (zoomed hard to the action), **1:1 1080x1080**, **16:9 1920x1080** (full frame, a slow push-in on the target). Beats are 2-6 s with hard cuts or 6-frame crossfades.
+- **Captions burned in, inside the safe zones:** in 9:16 the platform's own buttons cover roughly the top 14% and bottom 22% and the right 12% edge, so captions sit between 62% and 78% of the height with 6% side margins, in the brand font; 1:1 and 16:9 use the lower third. Large, high-contrast, at most two lines.
+- **Voice:** `hook`, every `benefit`, `proof` and `cta.line` are spoken in the chosen voice (cached per text + voice, shared by every agency); the hook is 3-4 s, the whole ad fits `length`.
+- **End card, 3-4 s:** brand logo and colours, **"Join CoreX"**, **"Follow us"** with the social handles, the website and `contact_email`.
+- **Music:** optional; a royalty-free track licensed for commercial use and ads **without attribution**, stored on the data volume with its licence beside it and listed in the table in 9.16; mixed low under the voice. **No track is used until Johan approves one.**
+- **Brand:** logo, colours and font come from cc5's brand settings (per agency - an ad for the second agency carries ITS brand, never HFC's); the renderer has no hard-coded brand.
+- **Validator (before anything is rendered):** length and beat budget fit; hook <= 4 s; plain words (9.13); never "build / building / built / developing" about CoreX ("HFC runs on CoreX, and we keep expanding it"); no price or discount promise; no claim that the screen cannot show; every `screen` step exists and its selector resolves on the training agency; the formats are known. Problems come back as plain sentences to cc5 so the Ad Studio can show them.
+- **Out of scope here:** posting or scheduling, captions in other languages, analytics, editing an ad's footage by hand.
+
+**Open points for cc5:** (a) is `ad_ref` an integer id or a uuid? (b) does cc5 want a `webhook`-style callback or is the `AdRenderFinished` event plus polling enough? (c) logo format (png with transparency; svg is rasterised) and the minimum size; (d) which fonts the brand settings allow (the renderer needs the font file on the server - proposal: a fixed list of 6 free fonts installed once); (e) the ad script's authoring UI: free text per beat with the validator's messages shown inline?
