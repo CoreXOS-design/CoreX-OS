@@ -173,19 +173,37 @@ test('a refusal from the server is shown in words and the form stays open', asyn
   assert.equal(w.step, 'form');
 });
 
-test('a fault type with something to show goes to "Try this first"; one with nothing goes straight to the form', () => {
+test('a fault type with something to show gets the "Try this first" panel beside the form (never in front of it); no type is fine', () => {
   const { p } = boot();
-  p.faultTypesByProperty = { 5: [{ id: 1, name: 'Geyser', first_aid_steps: 'Switch it off.', photos: [], documents: [] }, { id: 2, name: 'Odd', first_aid_steps: '', photos: [], documents: [] }, { id: 3, name: 'Gate', first_aid_steps: '', photos: [], documents: [{ type: 'video_link', url: 'https://x.test' }] }] };
+  p.faultTypesByProperty = { 5: [{ id: 1, name: 'Geyser', first_aid_steps: 'Switch it off.', photos: [], documents: [] }, { id: 2, name: 'Odd', first_aid_steps: '', photos: [], documents: [] }, { id: 3, name: 'Gate', first_aid_steps: '', photos: [], documents: [{ url: 'x', type: 'pdf' }] }] };
   p.faultWizard = p.blankFaultWizard(5);
+  assert.equal(p.faultWizard.step, 'form', 'the form is the first and only step');
+  assert.equal(p.faultWizard.hasAid, false);
   p.faultWizard.faultTypeId = '1'; p.selectFaultType();
-  assert.equal(p.faultWizard.step, 'aid');
+  assert.equal(p.faultWizard.step, 'form');
+  assert.equal(p.faultWizard.hasAid, true);
   assert.equal(p.faultWizard.title, 'Geyser');
   p.faultWizard.faultTypeId = '2'; p.selectFaultType();
-  assert.equal(p.faultWizard.step, 'form');
-  assert.equal(p.faultWizard.title, 'Odd', 'the title follows the type until the person has typed their own');
-  p.faultWizard.title = 'My own words'; p.faultWizard.faultTypeId = '3'; p.selectFaultType();
-  assert.equal(p.faultWizard.step, 'aid', 'a document alone is enough to show the panel');
-  assert.equal(p.faultWizard.title, 'My own words');
+  assert.equal(p.faultWizard.hasAid, false);
+  p.faultWizard.faultTypeId = '3'; p.selectFaultType();
+  assert.equal(p.faultWizard.hasAid, true, 'a document alone is enough to show the panel');
+  p.faultWizard.faultTypeId = ''; p.selectFaultType();
+  assert.equal(p.faultWizard.hasAid, false);
+  assert.equal(p.faultWizard.title, '');
+});
+
+test('a report with no type needs the description; with a type it does not', async () => {
+  const { p, calls } = boot();
+  p.faultTypesByProperty = { 5: [{ id: 1, name: 'Geyser', first_aid_steps: '', photos: [], documents: [] }] };
+  p.tenantLeases = [{ id: 9, property_id: 5 }];
+  p.faultWizard = p.blankFaultWizard(5);
+  await p.submitFault('still_a_problem');
+  assert.match(p.faultWizard.error, /tell us what is wrong/);
+  assert.equal(calls.xhr.length, 0);
+  p.faultWizard.description = 'Water on the floor';
+  await p.submitFault('still_a_problem');
+  await settle();
+  assert.equal(calls.xhr.length, 1, 'untyped but described: sent');
 });
 
 test('the first-aid "That fixed it" button is guarded the same way', async () => {
@@ -1061,7 +1079,9 @@ test('the owner decision screen has the five sections in order, each with a head
 test('"Try this first": safety line in a warning box with an icon, a real heading, the steps as a list, and two equal buttons', () => {
   const aid = fs.readFileSync(path.join(here, '../../resources/views/rentals/portal/_fault-aid.blade.php'), 'utf8');
   assert.match(aid, /class="aid-safety"[\s\S]*?<svg[\s\S]*?class="aid-h">Try this first<\/h2>[\s\S]*?<ol class="aid-list"/);
-  assert.match(blade, /class="btn-pair" data-fault-aid-buttons>\s*<button class="btn btn-ok"[\s\S]*?That fixed it[\s\S]*?<button class="btn btn-brand"[\s\S]*?Still a problem/);
+  const wiz = fs.readFileSync(path.join(here, '../../resources/views/rentals/portal/_fault-wizard.blade.php'), 'utf8');
+  assert.match(wiz, /<details open[^>]*data-fault-aid-step>[\s\S]*?_fault-aid[\s\S]*?data-fault-fixed-it[\s\S]*?That fixed it/, 'section 31.2: the advice is a panel beside the form, "That fixed it" is a small button inside it');
+  assert.match(wiz, /data-fault-submit[\s\S]*?Report fault/, 'one submit, always there');
   assert.match(blade, /@media \(max-width:420px\) \{ \.btn-pair \{ flex-direction:column/, 'stacked on a narrow phone');
   assert.doesNotMatch(blade, /<h2>Try this first<\/h2>/, 'the old plain heading is gone from the tenant step');
 });

@@ -76,6 +76,27 @@ class RentalPortalNotificationService
         return ['sent' => $sent, 'failed' => $failed, 'reason' => null];
     }
 
+    /**
+     * Section 31.2 - the tenant is told the moment their report is in ("we have your fault, your agent has been told"): a phone push always, an email under the
+     * agency's "notify tenant on status change" setting. Once per fault - it is remembered as the step told, so the later steps are not suppressed or doubled.
+     */
+    public function notifyTenantFaultReceived(RentalFaultReport $faultReport): void
+    {
+        \App\Events\Rentals\RentalTenantFaultStatusChanged::dispatch($faultReport, 'sent_to_agent');
+        if (! RentalPortalSetting::notifyTenantOnStatusChangeFor($faultReport->agency_id)) {
+            return;
+        }
+        $lease = $faultReport->lease;
+        if (! $lease) {
+            return;
+        }
+        foreach ($lease->tenantContacts() as $tenant) {
+            if ($tenant->email) {
+                Mail::to($tenant->email)->send(new \App\Mail\Rentals\RentalTenantFaultReceivedMail($faultReport, $tenant->first_name ?? '', $tenant));
+            }
+        }
+    }
+
     /** The steps the tenant is told about (Johan, 8 Oct 2026) - the appointment has its own mail; "work completed - please check" is the completion-check mail. */
     public const TENANT_STEPS = ['sent_to_owner', 'owner_approved', 'not_approved', 'completed'];
 

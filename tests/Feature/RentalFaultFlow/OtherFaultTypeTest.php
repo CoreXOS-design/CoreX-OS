@@ -117,8 +117,9 @@ final class OtherFaultTypeTest extends TestCase
         $this->assertFalse($f->isOtherType());
         $this->assertCount(1, $f->tenantSelfChecks());
 
-        // and a report with neither a type nor "other" is still refused
-        $this->postJson("/api/v1/client/rentals/properties/{$this->property->id}/fault-reports", ['resolution' => 'still_a_problem', 'title' => 'x', 'description' => 'y'])->assertStatus(422);
+        // section 31.2: a report with neither a type nor "other" is an UNTYPED report - accepted when it says what is wrong, refused in words when it does not
+        $this->postJson("/api/v1/client/rentals/properties/{$this->property->id}/fault-reports", ['resolution' => 'still_a_problem'])->assertStatus(422);
+        $this->postJson("/api/v1/client/rentals/properties/{$this->property->id}/fault-reports", ['resolution' => 'still_a_problem', 'description' => 'y'])->assertCreated();
     }
 
     public function test_both_forms_offer_other_as_the_last_choice_on_top_of_the_agencys_own_list(): void
@@ -127,10 +128,10 @@ final class OtherFaultTypeTest extends TestCase
         $this->assertStringContainsString('Other — not on the list', $html);
         $this->assertGreaterThan(strpos($html, 'Leaking tap'), strpos($html, 'data-fault-type-other'), 'Other comes after the agency list');
 
-        $shell = file_get_contents(base_path('resources/views/rentals/portal/shell.blade.php'));
-        $this->assertStringContainsString('data-fault-type-other', $shell);
-        $this->assertStringContainsString('What needs attention?', $shell);
-        $this->assertLessThan(strpos($shell, 'data-fault-type-other'), strpos($shell, 'faultTypesByProperty[faultWizard.property]'), 'Other comes after the agency list on the tenant link');
+        // section 31.2: the tenant's form has no "Other" choice any more - the type is optional, and "Not sure / not on the list" is the empty choice at the top
+        $wizard = file_get_contents(base_path('resources/views/rentals/portal/_fault-wizard.blade.php'));
+        $this->assertStringContainsString('Not sure / not on the list', $wizard);
+        $this->assertStringContainsString('What is wrong?', $wizard);
     }
 
     public function test_the_agent_form_logs_other_the_same_way(): void

@@ -90,15 +90,16 @@ class FaultOwnerFlowTest extends TestCase
         $this->getJson("$base/fault-reports/{$fault->id}")->assertNotFound();
         $this->getJson("$base/decisions")->assertOk()->assertJsonCount(0, 'fault_reports');
         $this->postJson("$base/fault-reports/{$fault->id}/decision", ['decision' => 'decline', 'note' => 'no'])->assertNotFound();
-        Mail::assertNothingQueued();
-        Mail::assertNothingSent();
+        // section 31.2: the TENANT is now told their report arrived (queued) - the point of this test is that the OWNER is told nothing
+        Mail::assertNotQueued(fn (\Illuminate\Mail\Mailable $m) => $m->hasTo($this->landlord->email));
+        Mail::assertNotSent(fn (\Illuminate\Mail\Mailable $m) => $m->hasTo($this->landlord->email));
 
         // 'under review' (version saved, NOT sent) is still invisible.
         $fault->saveOwnerVersion(['owner_title' => 'Geyser fault'], $this->agent);
         $this->assertSame(RentalFaultReport::STATUS_UNDER_REVIEW, $fault->fresh()->status);
         $this->getJson("$base/fault-reports")->assertOk()->assertJsonCount(0, 'fault_reports');
         $this->getJson("$base/fault-reports/{$fault->id}")->assertNotFound();
-        Mail::assertNothingQueued();
+        Mail::assertNotQueued(fn (\Illuminate\Mail\Mailable $m) => $m->hasTo($this->landlord->email));
     }
 
     public function test_status_walks_reported_under_review_sent_owner_decided_and_history_records_each_step(): void
@@ -195,7 +196,7 @@ class FaultOwnerFlowTest extends TestCase
         $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.send-to-owner', $fault))
             ->assertSessionHasErrors('rental_fault_report');
         $this->assertNull($fault->fresh()->sent_to_owner_at);
-        Mail::assertNothingQueued();
+        Mail::assertNotQueued(fn (\Illuminate\Mail\Mailable $m) => $m->hasTo($this->landlord->email));
     }
 
     public function test_the_tenants_report_cannot_be_edited_in_place(): void

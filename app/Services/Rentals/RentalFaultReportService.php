@@ -36,6 +36,14 @@ class RentalFaultReportService
         ]));
 
         $this->notifyCreated($faultReport);
+        // section 31.2 - the tenant who reported it on their own phone is told it arrived (not when an agent captured it for them, not an owner's request)
+        if ($faultReport->reported_by_type === RentalFaultReport::REPORTED_BY_TENANT && ! $faultReport->captured_by_user_id) {
+            try {
+                app(RentalPortalNotificationService::class)->notifyTenantFaultReceived($faultReport);
+            } catch (\Throwable $e) {
+                report($e);   // the report is made; a failed confirmation must never undo it
+            }
+        }
 
         return $faultReport;
     }
