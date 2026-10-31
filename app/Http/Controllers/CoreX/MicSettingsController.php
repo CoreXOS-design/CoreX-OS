@@ -47,6 +47,7 @@ final class MicSettingsController extends Controller
                 'area_agency_pages_per_run' => $s->areaAgencyPagesPerRunValue(),
                 'area_street_pages_per_run' => $s->areaStreetPagesPerRunValue(),
                 'opt_out_registry_check' => $s->optOutRegistryCheck(),
+                'working_suburb_min_count' => $s->workingSuburbMinCount(),
             ],
             'suburbs' => $known->values(),
             'tiles' => MicWorkTiles::TILES,
@@ -62,6 +63,7 @@ final class MicSettingsController extends Controller
             'areas.*' => ['integer', 'exists:p24_suburbs,id'],
             'add_areas' => ['nullable', 'string', 'max:500'],
             'refresh_interval_days' => ['required', 'integer', 'min:1', 'max:60'],
+            'working_suburb_min_count' => ['nullable', 'integer', 'min:1', 'max:100'],
             'tiles_shown' => ['nullable', 'array'],
             'tiles_shown.*' => ['integer', 'between:1,11'],
             'weights' => ['required', 'array'],
@@ -94,7 +96,10 @@ final class MicSettingsController extends Controller
             $id ? $areas[] = (int) $id : $unknown[] = $name;
         }
 
-        MicAgencySetting::saveValues($agencyId, [
+        MicAgencySetting::saveValues($agencyId, array_filter([
+            // only when the form posted it (non-negotiable 10a: an older form without the field must not reset it)
+            'working_suburb_min_count' => $request->filled('working_suburb_min_count') ? (int) $data['working_suburb_min_count'] : null,
+        ], fn ($v) => $v !== null) + [
             'areas' => array_values(array_unique($areas)),
             'refresh_interval_days' => (int) $data['refresh_interval_days'],
             'tiles_shown' => $tiles,

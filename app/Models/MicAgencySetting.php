@@ -40,6 +40,10 @@ class MicAgencySetting extends Model
         'area_agency_pages_per_run'  => 10,
         'area_street_pages_per_run'  => 150,
         'opt_out_registry_check'     => false,
+        // cc4's "approx read" and "working suburb" rules (AT-519, spec 11.1): were hard-coded 50 / 3 / 3
+        'approx_read_min_share_pct'  => 50,
+        'approx_read_min_adverts'    => 3,
+        'working_suburb_min_count'   => 3,
     ];
 
     /** The agency's settings; an unsaved defaults object when none stored. Never writes on read. */
@@ -145,6 +149,24 @@ class MicAgencySetting extends Model
     }
 
     public function refreshIntervalDaysValue(): int { return $this->positiveInt('refresh_interval_days'); }
+
+    /**
+     * Days after which a suburb's market data counts as stale. This is the SAME setting the Settings page saves as "Market data refresh - Every N days"
+     * (`refresh_interval_days`, 7 by default) - an alias, never a second value.
+     */
+    public function refreshStaleDays(): int { return $this->refreshIntervalDaysValue(); }
+
+    /** A crawl counts as an "approx read" of a suburb only when it saw at least this share (%) of the suburb's live adverts. Default 50, 1-100. */
+    public function approxReadMinSharePct(): int { return min(100, $this->positiveInt('approx_read_min_share_pct')); }
+
+    /** ...and at least this many adverts. Default 3. */
+    public function approxReadMinAdverts(): int { return $this->positiveInt('approx_read_min_adverts'); }
+
+    /**
+     * With no Areas ticked, a suburb counts as "ours" when it has at least this many of our stock, claims or leads in the last 12 months. Default 3.
+     * (Settings page, under Areas: "Count a suburb as ours from N listings/claims/leads".)
+     */
+    public function workingSuburbMinCount(): int { return $this->positiveInt('working_suburb_min_count'); }
 
     public function goneTileDaysValue(): int { return $this->positiveInt('gone_tile_days'); }
 

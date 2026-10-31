@@ -30,6 +30,11 @@
                 @endforelse
             </div>
             <input type="text" name="add_areas" value="{{ old('add_areas') }}" placeholder="Add suburbs by name, e.g. Margate, Uvongo" style="{{ $in }} width: 360px; margin-top: 8px;">
+            {{-- AT-519 (cc5): used only while no area is ticked - a suburb then counts as ours once it has this many of our stock, claims or leads in the last 12 months. --}}
+            <div style="margin-top: 10px; font-size:.8125rem;" data-qa="working-suburb-min-count">
+                <label>Count a suburb as ours from <input type="number" name="working_suburb_min_count" min="1" max="100" value="{{ old('working_suburb_min_count', $values['working_suburb_min_count'] ?? 3) }}" style="{{ $in }} width: 70px;"> listings/claims/leads</label>
+                <span style="color: var(--text-muted);"> (in the last 12 months; only used when no area is ticked above)</span>
+            </div>
         </div>
 
         <div style="{{ $box }}">
