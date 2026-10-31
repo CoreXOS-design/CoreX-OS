@@ -660,6 +660,43 @@
   }
 
   // ══════════════════════════════════════════════════════════
+  // ── MIC AREA PAGES (3.14.0) ───────────────────────────────
+  // CoreX opens a P24 trends / agencies / property-values page with "#corex-area" on the address. Only then does the
+  // extension read it (browsing P24 normally never sends anything), tells the background worker, and shows a small line.
+  // ══════════════════════════════════════════════════════════
+  function areaBanner(text) {
+    try {
+      let el = document.getElementById('corex-area-banner');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'corex-area-banner';
+        el.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:2147483647;max-width:340px;padding:8px 12px;border-radius:6px;' +
+          'font:13px/1.35 system-ui,sans-serif;color:#fff;background:#0f3d5c;box-shadow:0 2px 8px rgba(0,0,0,.3)';
+        (document.body || document.documentElement).appendChild(el);
+      }
+      el.textContent = text;
+    } catch (e) { /* the banner is a courtesy only */ }
+  }
+
+  function runAreaCapture() {
+    try {
+      const payload = self.CorexMic ? self.CorexMic.p24AreaPage(document, window.location.href) : null;
+      if (!payload) { areaBanner('CoreX: this is not a page CoreX reads.'); return; }
+      areaBanner('CoreX: reading this page...');
+      chrome.runtime.sendMessage({ action: 'captureAreaPage', payload }, (res) => {
+        if (chrome.runtime.lastError) { areaBanner('CoreX: could not reach the extension.'); return; }
+        areaBanner(res && res.ok ? ('CoreX: saved. ' + (res.summary || '')) : ('CoreX: not saved - ' + ((res && res.error) || 'unknown error')));
+      });
+    } catch (e) {
+      areaBanner('CoreX: could not read this page.');
+    }
+  }
+
+  if (/corex-area/.test(window.location.hash || '')) {
+    setTimeout(runAreaCapture, 1200);
+  }
+
+  // ══════════════════════════════════════════════════════════
   // ── MESSAGE HANDLER (single handler for all P24 actions) ──
   // ══════════════════════════════════════════════════════════
 
@@ -696,6 +733,22 @@
         sendResponse({ facts: null, error: String(e && e.message || e) });
       }
       return true;
+    }
+
+    // MIC area pages (3.14.0): what this P24 trends / agencies / street page holds (spec 11.2.2).
+    if (msg.action === 'getAreaPage') {
+      try {
+        sendResponse({ payload: self.CorexMic ? self.CorexMic.p24AreaPage(document, window.location.href) : null });
+      } catch (e) {
+        sendResponse({ payload: null, error: String(e && e.message || e) });
+      }
+      return true;
+    }
+
+    // status line from the background worker while it walks further pages
+    if (msg.action === 'areaStatus') {
+      areaBanner(msg.text || '');
+      return false;
     }
 
     // Extract full property detail (used by Pull Property flow)

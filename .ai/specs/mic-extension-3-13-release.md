@@ -1,4 +1,4 @@
-# CoreX browser extension 3.13.0 - release note and real-browser test steps
+# CoreX browser extension 3.14.0 (3.13 capture + 3.14 area pages) - release note and real-browser test steps
 
 _MIC Work tab, capture lane (cc3). Built 31 Oct 2026 on QA1. Spec: `mic-work-tab.md` sections 5 and 11.2._
 
@@ -15,8 +15,8 @@ _MIC Work tab, capture lane (cc3). Built 31 Oct 2026 on QA1. Spec: `mic-work-tab
 **What you do.** Nothing different: open a search, press Capture Listings as before. Leave the tab alone until the notification says it is complete (it now says how many listing pages were read).
 
 ## Install / update (QA1 test build)
-1. Download the new zip from CoreX QA1: profile menu > the Chrome extension download (file `corex-extension.zip`, version **3.13.0**). Unzip it to a new folder (not over the old one).
-2. Chrome > `chrome://extensions` > turn on **Developer mode** > **Remove** the old CoreX extension > **Load unpacked** > pick the new folder. Check the card says **3.13.0**.
+1. Download the new zip from CoreX QA1: profile menu > the Chrome extension download (file `corex-extension.zip`, version **3.14.0**). Unzip it to a new folder (not over the old one).
+2. Chrome > `chrome://extensions` > turn on **Developer mode** > **Remove** the old CoreX extension > **Load unpacked** > pick the new folder. Check the card says **3.14.0**.
 3. Open the extension popup > Settings: the CoreX address must be `https://qatesting1.corexos.co.za` and the token must be a QA1 token (QA1 only - do not point this build at live).
 
 ## Test steps for the real-browser check (Johan, Chrome)
@@ -42,3 +42,14 @@ Each step says what to look at. "QA1 check" = the proof on the QA1 side (the con
 - Property24 listing pages: run against the 7 real saved listing pages (listing date, agent and agency names and ids, rates, levies, floor size, wording fingerprint).
 - Private Property: written to the selectors seen in Chrome and covered by synthetic pages only - needs the real-browser check above.
 - Server: `MicCaptureIngestTest` (16 tests), `MicCaptureStorageTest` (4); extension: `node tests/mic-lib.test.cjs` (27 checks, needs jsdom).
+
+## 3.14.0 - monthly area pages (new)
+**For agents.** CoreX can now keep the free Property24 suburb statistics up to date for you. When CoreX opens a Property24 "trends", "estate agencies" or "property values" page for one of your suburbs (the button on the Market data last refreshed panel), the extension reads that page - and only that page; ordinary browsing is never sent - and shows a small blue note in the corner: "CoreX: saved". For the agencies list it moves through the next pages by itself (up to your agency's limit, 10 pages), and for the street list it visits each street a few seconds apart (up to your agency's limit, 150 streets), then returns your tab. Prices on the street pages are paid information and are never read; only the house numbers and the year are kept.
+
+**Test steps (Johan, Chrome, extension 3.14.0).** Use a suburb you know. Open each address yourself with `#corex-area` on the end (the Work-tab button will do this once built):
+ 1. Trends: `https://www.property24.com/margate/uvongo/property-trends/6359#corex-area` - the blue note should say "saved. ~150 figures saved". QA1 check: rows in `p24_suburb_trends` for suburb 6359 (annual sales and prices, monthly stock, stock by bedrooms, sold erven vs sectional, age profile), all dated today.
+ 2. Agencies: `https://www.property24.com/estate-agencies/uvongo/margate/kwazulu-natal/6359#corex-area` - the note walks "page 2 of 10" and so on; QA1 check: `p24_suburb_agencies` has one row per agency with its listings in Uvongo and total.
+ 3. Streets: `https://www.property24.com/property-values/uvongo/margate/kwazulu-natal/6359#corex-area` - the tab visits each street (about 50 for Uvongo, one every 3-4 seconds), then comes back; QA1 check: `p24_street_numbers` has the house numbers per street and no price anywhere.
+ 4. Open one of the pages WITHOUT `#corex-area`: nothing is sent and no blue note appears.
+**Verified on real pages (saved 31 Oct 2026, tests/fixtures/p24-area):** Uvongo trends (10 years of sales and prices, 12 months of stock, stock by bedrooms, erven vs sectional, age profile), agencies (20 tiles, with the pager), street list (53 streets), Marine Drive (house numbers). The walking between pages (next agency page, next street) uses the same page reader but could not be exercised without a browser.
+

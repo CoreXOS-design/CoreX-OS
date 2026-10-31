@@ -680,6 +680,8 @@ Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(f
         // AT-267 — /import creates tracked-property records and carries NO permission key of
         // its own; an assistant may never bring a property onto the books by any path.
         Route::post('/prospecting/import',      [ProspectingApiController::class, 'import'])->middleware('deny_assistant_property_write')->name('v1.prospecting.import');
+        // MIC capture lane (spec 11.2.2): the free Property24 area pages (trends, street house numbers, agencies), read monthly.
+        Route::post('/prospecting/area-pages',  [\App\Http\Controllers\Api\ProspectingAreaPagesController::class, 'store'])->middleware('deny_assistant_property_write')->name('v1.prospecting.area-pages');
         Route::get('/prospecting/check-search', [ProspectingApiController::class, 'checkSearch'])->name('v1.prospecting.check-search');
 
         // ── CMA / deeds capture (phase 1) — mirrors the portal-capture ingest. ──
