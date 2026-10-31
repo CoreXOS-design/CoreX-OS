@@ -425,3 +425,202 @@ Result: **no failures; nothing had to be restored.** Counts differ between the t
 
 Scripts: scratchpad `audit/` (`inv.mjs`, `beh.mjs`, `beh2.mjs`, `slide.mjs`) - re-runnable with two minted session cookies.
 
+
+## 12. Promotion runbook - MIC, QA1 -> Staging (cc3 for the conductor, AT-522; written 31 Oct 2026 evening; NOTHING is applied to Staging by this section)
+
+**Status:** runbook + dry-run proof on a copy of Staging. Staging itself has not been touched (one read-only dump of its database was taken, nothing was written to it). Applying any of this needs Johan's order for that exact action. Sources: 11.1-11.4 and 11.9-11.10 above, `.ai/specs/property-identity.md` 16-19, `structured-address-matching.md`, the lanes' own apply logs. QA1 tip when written: `b581e5d9b`; Staging tip `b4539b3b8` (Staging has no commit QA1 lacks, so QA1 is a straight fast-forward of Staging: 560+ commits).
+
+### 12.0 What the proof on the copy found (read this first)
+
+1. **Staging has none of the data work.** On the copy: no canonical advert numbers, no suburb ids on adverts or CMA rows (529 of 46,862 files, 0 of 45,713 adverts, 0 of 3,642 comps), an empty shared pool, no P24 groups, no agency work rows, no stats tables. The whole chain below has to run in order; it is not a top-up. Staging's data is HFC's live shape: agency 1 (HFC) holds it all; agencies 20-23 (Demo, Mobile Demo, Caprivi, Mega) have next to none.
+2. **A step I had missed:** `property-refs:normalise` (canonical advert numbers, the identity foundation). Until it has run, `own-stock-joins`, `advert-clashes`, `share`, `matching-rules`, `audit-advert-links` and `alerts:link-properties` find **nothing** (dry-run shows 0 / "no property file yet 14,092"). A dry-run on the untouched copy therefore understates every step that comes after it. The first-order numbers are in 12.8; the numbers after the earlier steps were applied, on the scratch copy only, are in 12.9.
+3. **Every clean-up command refuses to run unless the environment is `local`, `testing` or `qa`.** Staging is `APP_ENV=staging`, so on Staging every step in 12.4 stops with "Refusing to run outside QA". The dry-runs here were run on the scratch copy with `APP_ENV=qa` for that reason. **Needs Johan's order (business terms): "may the clean-up tools run on Staging?"** The guard is in 16 command files across four lanes; lifting it is one deliberate change (an allow-list value per command or one shared setting), which is a separate step from this runbook and is not done.
+4. **Migrations ran clean on Staging-shaped data** (all 45 pending files; the first 38 took 75 s on the copy, the later 7 are timed in 12.9). Two need care on the real box: `2027_01_06_100000_add_search_text_for_mic_work_search` adds STORED generated columns, which makes MySQL rebuild `prospecting_listings` (45.7k rows) and `tracked_properties` (46.9k rows) with writes blocked meanwhile (timed in 12.9; run it in a quiet minute, the imports and the extension should not be writing), and `2026_12_31_100000_add_agency_to_portal_capture_tables_and_fix_p24_listing_key` writes agency ids onto capture rows and changes a unique key (see 12.3).
+5. **Nightly work has no runner on Staging.** Staging's `schedule:run` cron is switched off (root crontab line commented; the www-data one points at an old `/hfc-staging` path). The code puts `mic:refresh-stats` (03:30), `property-identity:nightly` (02:30), `pp:import` and the P24 alert import on Laravel's schedule, so on Staging none of them fire. Fix = system cron lines (12.5), the way QA1 already does it for `mic:refresh-stats` and the queue watchdog. The nightly matching tidy has **no cron line anywhere yet** (gap G1 in 12.7).
+
+### 12.1 Rules for the day (same on every step)
+
+Before the first step: git tag on Staging's tip (`pre-mic-promotion-<date>`), then a full DB dump to the data volume (`/mnt/HC_Volume_103099143/...`, never `/`), then the code by whichever promotion route the conductor picks (Staging has no commit QA1 lacks, so a fast-forward works; but QA1 also carries other lanes' unpromoted work - Road to Sold, billing, training videos, rentals - which rides along with a fast-forward and whose migrations are in 12.3; never commit in the deploy directory). Per data step: dry-run first and read the counts, row journal on (`--journal-dir` on the data volume, owned by www-data), apply, counts before/after saved beside the journal, a short dump before the heavy ones (steps 6-9, 11-12, 19-20 move or merge files). Soft delete only: merged/emptied files become `status=duplicate`, adverts are moved never deleted. **Agency 20 ("Demo Agency Test") is the default `--exclude-agency=20` on every step - on Staging agency 20 is the same Demo agency, so the default is right there; on live check the ids first and pass `--exclude-agency=` explicitly (gap G8).** Run as `www-data`, with `HOME` set to a writable temp directory, and queue workers running (change-triggered jobs need the `default` queue).
+
+### 12.2 Order at a glance
+
+`migrate` -> `deploy:sync-reference-data` -> (1) normalise -> (2) suburb ids -> (3) structured address -> (4) agency work -> (5) doubled street names -> (6-9) identity: own-stock joins, advert clashes, split over-merged, share -> (10) claim joined stock -> (11-12) same-address -> (13) P24 groups -> (14) "Sale" agency -> (15) floor sizes -> (16) erf = floor -> (17) pool erf = floor -> (18) file floor size -> (19) matching rules R3-R6 + unit-split -> (20) advert-link audit -> (21) stuck withdrawn -> (22) alert links -> (23) CMA duplicates -> (24) offer/sold dates -> (25) `mic:refresh-stats` -> cron lines on -> extension.
+
+Why this order: 1 first (every identity step reads the canonical number); 2 and 3 before 6-12 (they key on suburb id / street core); 5 before 6-12 (a doubled "Road Road" splits one street into two keys); 6-9 in that order (QA1's order, each reads what the last wrote), 9 before 13/14/17 (those touch the shared pool, which step 9 creates); 10 after 6 (needs the joins); 11-12 after 6-9; 13 before 19 (R3 reads the group table); **15 before 16 (erf = floor can only be seen once the floor size is filled; 2,189 of the 2,265 floor fills on the copy also equal the erf)**; 16 before 18 (file fill reads the erf-floor journal); 20 after 19 (R3 guarded per advert, audit moves what contradicts); 23 and 24 before 25 (the stats read `sold_at` and the duplicate flags); 25 last.
+
+QA1's own order differed in places (it was built over three days): that is why running the same chain in one sitting on Staging is itself something to prove (12.9).
+
+### 12.3 Migrations (QA1 tip, 45 files, in file order; `php artisan migrate --force`)
+
+All 45 have a `down()`. Most are additive (new tables, nullable columns, indexes). **Rollback for the set = the pre-promotion dump** (Staging is 2 GB, restore is minutes); `migrate:rollback` is only safe for the purely additive ones and was not exercised. After `migrate`: `php artisan deploy:sync-reference-data` (adds the new permission keys to the role templates; on the copy it added 7 admin / 5 branch-manager / 1 each agent, viewer, office-admin permission per agency, nothing removed) and `view:clear`, `route:clear`, `config:clear`, FPM reload, worker restart.
+
+| # | Migration file | Belongs to | Note |
+|---|---|---|---|
+| 1 | `2026_10_29_500100_add_canonical_portal_ref_and_shared_pool` | Identity (A2/A3) |  |
+| 2 | `2026_10_29_500200_property_identity_links_and_settings` | Identity (A2/A3) |  |
+| 3 | `2026_10_29_500300_property_identity_shared_rows` | Identity (A2/A3) |  |
+| 4 | `2026_10_31_200100_add_p24_suburb_id_to_mic_tables` | MIC cc5 (stats/context/suburb ids) |  |
+| 5 | `2026_10_31_210100_create_property_type_map_table` | MIC cc5 (stats/context/suburb ids) | seeds property_type_map |
+| 6 | `2026_10_31_220100_create_mic_stats_tables` | MIC cc5 (stats/context/suburb ids) |  |
+| 7 | `2026_10_31_230100_add_lead_advert_and_flags_to_mic_file_stats` | MIC cc5 (stats/context/suburb ids) |  |
+| 8 | `2026_10_31_240100_create_mic_file_context_table` | MIC cc5 (stats/context/suburb ids) |  |
+| 9 | `2026_10_31_250100_add_own_size_source_to_mic_file_context` | MIC cc5 (stats/context/suburb ids) |  |
+| 10 | `2026_11_29_100000_create_rts_recipe_tables` | Road to Sold (not MIC) |  |
+| 11 | `2026_11_29_200000_add_recipe_view_settings_to_rts_settings` | Road to Sold (not MIC) |  |
+| 12 | `2026_11_30_100000_rts_phase3_daily_activity_bridge` | Road to Sold (not MIC) | data write (RTS bridge) |
+| 13 | `2026_12_01_100000_add_manager_review_to_road_to_sold` | Road to Sold (not MIC) |  |
+| 14 | `2026_12_03_100000_create_rts_level_signoff_tables` | Road to Sold (not MIC) | data write (RTS) |
+| 15 | `2026_12_04_100000_create_rts_funnel_tables` | Road to Sold (not MIC) | data write (RTS) |
+| 16 | `2026_12_13_100000_rts_capture_backdate_working_days` | Road to Sold (not MIC) |  |
+| 17 | `2026_12_20_100000_add_generated_video_columns_at525` | Training videos / ads (not MIC) |  |
+| 18 | `2026_12_20_100000_create_rts_v3_prospect_tables` | Road to Sold (not MIC) |  |
+| 19 | `2026_12_29_100000_add_task_mapping_default_and_audit_to_rts` | Road to Sold (not MIC) |  |
+| 20 | `2026_12_30_100000_add_on_behalf_of_user_id_to_remaining_audit_tables` | Audit tables (not MIC) |  |
+| 21 | `2026_12_31_100000_add_agency_to_portal_capture_tables_and_fix_p24_listing_key` | Identity lane B (agency on capture tables) | DATA: fills agency_id on capture rows (rows with none go to the lowest agency id) and changes a unique key |
+| 22 | `2026_12_31_100000_create_revenue_tables` | Billing / revenue (not MIC) |  |
+| 23 | `2026_12_31_100100_create_tracked_property_agency_work` | Identity lane B (agency work record) | creates table + 1 data write |
+| 24 | `2026_12_31_110000_create_billing_price_lists` | Billing / revenue (not MIC) |  |
+| 25 | `2027_01_01_100000_create_private_property_alert_tables` | Identity lane C (PP alerts / claim confidence) |  |
+| 26 | `2027_01_01_100100_add_auto_claim_min_confidence_to_address_match_settings` | Identity lane C (PP alerts / claim confidence) |  |
+| 27 | `2027_01_04_100000_add_same_address_sweep_to_address_match_settings` | MIC cc4 (same-address, crawls, matching rules, tidy, tile summaries) |  |
+| 28 | `2027_01_04_100000_mic_capture_advert_facts` | MIC cc3 (capture / area pages) |  |
+| 29 | `2027_01_04_110000_create_p24_area_page_tables` | MIC cc3 (capture / area pages) |  |
+| 30 | `2027_01_04_120000_create_mic_crawls` | MIC cc4 (same-address, crawls, matching rules, tidy, tile summaries) |  |
+| 31 | `2027_01_04_130000_add_matching_rules_to_address_match_settings` | MIC cc4 (same-address, crawls, matching rules, tidy, tile summaries) |  |
+| 32 | `2027_01_04_140000_add_unit_split_to_address_match_settings` | MIC cc4 (same-address, crawls, matching rules, tidy, tile summaries) |  |
+| 33 | `2027_01_04_150000_add_unit_split_land_gap_to_address_match_settings` | MIC cc4 (same-address, crawls, matching rules, tidy, tile summaries) |  |
+| 34 | `2027_01_04_160000_add_auto_tidy_to_address_match_settings` | MIC cc4 (same-address, crawls, matching rules, tidy, tile summaries) |  |
+| 35 | `2027_01_04_170000_create_mic_tile_summaries` | MIC cc4 (same-address, crawls, matching rules, tidy, tile summaries) |  |
+| 36 | `2027_01_05_100000_mic_comp_sale_duplicates` | MIC cc2 (CMA duplicates / offer-sold dates) |  |
+| 37 | `2027_01_05_110000_add_offer_and_sold_dates_to_properties` | MIC cc2 (CMA duplicates / offer-sold dates) |  |
+| 38 | `2027_01_06_100000_add_search_text_for_mic_work_search` | MIC cc6 (search column + index) | STORED generated column: rebuilds prospecting_listings and tracked_properties |
+| 39 | `2027_01_06_100000_add_training_video_voice_to_agencies_at525` | Training videos / ads (not MIC) |  |
+| 40 | `2027_01_06_110000_add_search_index_to_tracked_properties` | MIC cc6 (search column + index) | adds an index to tracked_properties |
+| 41 | `2027_01_06_110000_training_platform_voices_and_per_voice_videos_at525` | Training videos / ads (not MIC) |  |
+| 42 | `2027_01_06_120000_create_ad_renders_at525` | Training videos / ads (not MIC) |  |
+| 43 | `2027_01_06_130000_create_training_settings_at525` | Training videos / ads (not MIC) |  |
+| 44 | `2027_01_12_100000_create_video_ads_tables_at527` | Training videos / ads (not MIC) |  |
+| 45 | `2027_01_12_110000_video_ad_posts_and_platform_social_account_at527` | Training videos / ads (not MIC) |  |
+
+MIC is the 26 files of lanes Identity / cc2 / cc3 / cc4 / cc5 / cc6 (the rest ride along with a QA1 fast-forward). Data-moving or slow ones: `2026_10_31_210100` (seeds the property-type map, global), `2026_12_31_100000_add_agency_to_portal_capture_tables...` (HFC assumption inside a migration: capture rows with no owner are given to the **lowest agency id**, which on Staging is agency 1 = HFC; harmless today, wrong for a first-ever second agency's orphan rows - one-time), `2027_01_06_100000_add_search_text...` (table rebuild, timed in 12.8), `2027_01_06_110000_add_search_index...`. The schema snapshot `database/schema/mysql-schema.sql` was regenerated on QA1 by another lane; not mine.
+
+### 12.4 Data steps, in order
+
+"Guard" = refuses outside QA/local/testing (all of them except where stated). "Rollback" = `--rollback=<run_id>` where the command has it (steps 2, 23, 24); otherwise the row journal (JSONL: table, key, column, old, new) shows exactly what changed, and the dump taken before the step restores it. **There is no journal-replay tool; undoing a journalled step means restoring the dump (gap G6).**
+
+| # | Step and command | Needs first | Rollback | Staging-copy dry-run (first-order, untouched copy) |
+|---|---|---|---|---|
+| 1 | Canonical advert numbers: `php artisan property-refs:normalise --dry-run` then `--apply` | migration 500100 | dump | writes 49,653 + 45,712 + 14,092 + 8,764 + 8,270 + 214 + 2 values over 7 tables; 4,714 clashes (one advert on two files of one agency) reported, not changed |
+| 2 | Suburb ids: `mic:backfill-suburb-ids --dry-run` / `--apply` | 200100 | `--rollback=<run_id>` | fills properties 69/281, tracked files 37,188/39,975, adverts 42,513/45,712, CMA rows 3,297/3,642; unresolved texts left blank and listed (2,787 + 3,199 + 212 + 345 rows) |
+| 3 | Structured addresses: `address:backfill-structured --dry-run` / (no flag = write) | 2 | dump (it records the old text in `address_raw`) | properties 9,787 of 9,799 change; tracked files 39,446 of 46,311; address history 12,191 of 12,289; 405 "needs a look", 59 unparseable properties |
+| 4 | Agency work records: `agency-work:backfill --dry-run` / (no flag) | - | dump | agency 1: 83 claims, 2,099 own-stock, 54 not-selling; agencies 20-23: 0 |
+| 5 | Doubled street names: `property-identity:fix-doubled-street-type --dry-run` / `--apply` | - | journal + dump | 49 rows (20 files, 29 address-history) |
+| 6 | `property-identity:apply own-stock-joins --dry-run` / `--apply` | 1-3 | journal + dump | dry-run on untouched copy: **18.5 min**; applied on the scratch copy: 344 own listings joined (12.9) |
+| 7 | `property-identity:apply advert-clashes` | 6 | journal + dump | 0 before step 1 ran; see 12.9 |
+| 8 | `property-identity:apply split-over-merged` | 7 | journal + dump | 153 files split into 1,138 new files |
+| 9 | `property-identity:apply share` (builds the shared pool; agency 20 excluded) | 8 | journal + dump | 0 before step 1; see 12.9 |
+| 10 | `property-identity:claim-joined` | 6 | journal + dump | 0 before step 6; see 12.9 |
+| 11 | `property-identity:same-address no-suburb` | 6-9 | journal + dump | agency 1: 174 groups / 459 files, 194 merged, 91 to review |
+| 12 | `property-identity:same-address exact` | 11 | journal + dump | 266 groups / 585 files, 69 merged, 250 to review (117 flat groups) |
+| 13 | `mic:capture-backfill p24-groups` | 9 | journal + dump | 565 stored pages readable (361 database rows point at pages missing from Staging's disk): 712 groups, 2,123 member numbers, 983 adverts get a group id |
+| 14 | `mic:capture-backfill sale-agency` (agency "Sale" = private owner) | 9 | journal | 129 adverts (58 active); pool 0 until step 9 |
+| 15 | `mic:capture-backfill floor-sizes` | - | journal | 2,265 fill (3,822 portal rows, 2,267 matched), 2 implausible skipped |
+| 16 | `mic:capture-backfill erf-floor` (erf copied from floor, from the old extension) | **15** | journal | 0 before step 15 (floor empty); expect about 2,189 once 15 ran |
+| 17 | `mic:capture-backfill erf-floor-pool` | 9, 15, 16 | journal | 0 before step 9 |
+| 18 | `mic:capture-backfill file-floor-size --from-journal=<step 16 journal>` | 16 | journal | 0 before step 16 |
+| 19 | `property-identity:matching-rules all` (R3 P24 groups, R4 twins, R5 complexes, R6 map points, unit-split) | 13 | journal + dump | all 0 on the untouched copy (needs 1, 2, 13); see 12.9 |
+| 20 | `property-identity:audit-advert-links` (also runs inside the after-import job) | 19 | journal + dump | 0 on the untouched copy; see 12.9 |
+| 21 | `mic:fix-stuck-withdrawn` | - | journal | 0 (Staging has none of the 4,286 PP adverts QA1 had) |
+| 22 | `alerts:link-properties` | 1, 6 | dump | 14,092 P24 alert rows read, 0 link yet ("no property file yet") |
+| 23 | `mic:flag-comp-duplicates` | 2 | `--rollback=<run_id>` | 3,671 sales -> 1,309 repeats in 794 sales, 2,362 canonical; 1,360 presentation comps are copies of a CMA row |
+| 24 | `mic:backfill-offer-sold-dates` | - | `--rollback=<run_id>` | 26 `under_offer_at` and 40 `sold_at` would fill; 7 properties skipped; 37 events on two catch-up days (27 Jun, 1 Jul) ignored |
+| 25 | `mic:refresh-stats` (no dry-run; rebuilds derived tables only; ~30 s on QA1) | 2, 23, 24 | none needed (derived; rerun) | run on the scratch copy only, see 12.9 |
+
+Not MIC and not run here: the Road to Sold commands (`rts:adopt-prospects` etc.), the training-video and ad commands. They belong to their own lanes' runbooks.
+
+### 12.5 Crons, workers, extension, settings
+
+- **`/etc/cron.d/corex-mic-refresh`**: the Staging line is already written, commented. Enable only after step 25: `30 3 * * * www-data flock -n /tmp/corex-staging-mic-refresh.lock bash -c 'cd /corex-staging && php8.2 artisan mic:refresh-stats' >> /corex-staging/storage/logs/mic-refresh-stats.log 2>&1`. Rollback: comment it out.
+- **`/etc/cron.d/corex-queue-watchdog`** (AT-523): Staging line written, commented; the command arrives with the code. Enable after deploy. Rollback: comment out.
+- **NEW LINE NEEDED (does not exist anywhere yet): the nightly matching tidy** - `30 2 * * * www-data flock -n /tmp/corex-staging-pi-nightly.lock bash -c 'cd /corex-staging && php8.2 artisan property-identity:nightly' >> /corex-staging/storage/logs/property-identity-nightly.log 2>&1` (the same job also runs after every import, so this is only the safety net; QA1 has the same gap today).
+- **Queue workers:** Staging has `default,matching,mail,bg_removal,webhooks` (and the thumbnails/transcription/training-video/buyer-matching units); the MIC jobs (`RunSameAddressSweepJob`, `RefreshMicFileStatsJob`) use `default`.
+- **Imports that depend on the scheduler:** `p24:import` (tile 8, e-mail alerts; needs the IMAP login in Staging's `.env` and `P24_IMPORT_ENABLED=true`) and `pp:import` (off until `PP_IMPORT_ENABLED=true`). Neither fires on Staging without a cron line; say so before anyone reads tile 8 as "no new alerts".
+- **Extension 3.15.0:** it lives in the code (`public/chrome-extension/portal-capture`); the download page `https://<staging address>/corex/extension/download` rebuilds the zip from that folder every time, so nothing is copied by hand. Each agent removes the old CoreX card at `chrome://extensions`, loads the unzipped folder, and Chrome re-asks for site access if a release adds a site permission (3.15.0 may, for the photo-fingerprint image hosts - not yet confirmed in a real browser). The older extension keeps working against the new API (every new field is optional), but **keeps writing the floor size into the erf** until it is replaced - so roll the extension out BEFORE steps 16-18 are run and again after, and re-run 16-18 if old-extension captures arrive in between (idempotent). There is no menu link to the download page (spec 11.2.3).
+- **Settings:** none to set by hand. All MIC thresholds are agency settings with spec defaults (`mic_agency_settings` has no row until an agency changes something; `address_match_settings` rows are created by `forAgency` defaults). They change on the Settings page only (Johan's rulings of 31 Oct); none go in the Setup Wizard.
+
+### 12.6 Rollback in one place
+
+| Layer | How |
+|---|---|
+| Code | tag on Staging's tip before the pull; to go back, redeploy that tag with the normal deploy script (never `reset --hard` a production checkout) |
+| Schema + all data | the pre-promotion dump (data volume); restore only on Johan's order |
+| One data step | steps 2, 23, 24: `--rollback=<run_id>`; every other step: dump taken just before it, and its journal (read-only record of old/new values) to see what to expect |
+| Crons | comment the line out |
+| Extension | agents load the previous zip (kept on the data volume as `qa1-corex-extension-3.10.0-before-3.13.0.zip`); the API accepts both |
+
+### 12.7 New agency, day one (Johan's ruling: MIC must work "from the word go" for any new agency, and sort out HFC's stock on live)
+
+Each data step is (a) **automatic** - runs on every import, on save, nightly or on the first import, or (b) **ONE-TIME** - a live clean-up for HFC's existing data only. A step that is neither is a **gap**. "Auto" below was read from the code (observers, model hooks, the after-import job), not assumed; what is not yet proven on a real second agency is said so. A brand-new agency starts with no rows: every step is a no-op for it until its first import, and every automatic path runs from that first import.
+
+| # | Step | New agency | HFC's existing data on live |
+|---|---|---|---|
+| 1 | Canonical advert numbers | **(a)** model hook sets `canonical_ref` on every advert, file, ref row on save | (b) `property-refs:normalise` |
+| 2 | Suburb ids | **(a)** `MicSuburbIdObserver` (adverts, CMA rows) + structurer hook (files, properties) at save | (b) `mic:backfill-suburb-ids`; names that match several suburbs (Glenmore, Ballito, Melville, Somerset Park, Athlone, Ramsgate Beach) stay blank and need a person or a province - **gap G2: no screen lists them for the agency** (only the command report does) |
+| 3 | Structured addresses | **(a)** `Property`/`TrackedProperty` saving hook | (b) `address:backfill-structured` |
+| 4 | Agency work records | **(a)** created by the claim / status services as agents work | (b) `agency-work:backfill` |
+| 5 | Doubled street names | **(a)** model hook collapses at save | (b) `fix-doubled-street-type` |
+| 6 | Own-stock joins | **(a)** resolver joins when a listing is created or edited; "Same property" on the review screen | (b) `property-identity:apply own-stock-joins` |
+| 7 | Advert clashes (two files for one advert) | **(a)** match-or-create door + after-import sweep | (b) `apply advert-clashes` |
+| 8 | Over-merged files split | not needed for a new agency (the over-merged files came from old data; no new cause found, not proven on a second agency) | (b) `apply split-over-merged` |
+| 9 | Shared public pool | **(a)** `SharedPortalPool::contribute` on every capture; only the public facts, never agency work | (b) `apply share` (HFC's history) |
+| 10 | Claim on join | **(a)** claim-on-join in the resolver; imports claim nothing by design | (b) `claim-joined` |
+| 11-12 | Same-address merge | **(a)** after-import job (debounced, per agency, switch `same_address_sweep` default on) + nightly | (b) first run on live's backlog |
+| 13 | P24 groups | **(a)** every P24 tile read by the 3.15 extension records its group; **needs the new extension installed** | (b) `capture-backfill p24-groups` replays stored pages (HFC only) |
+| 14 | "Sale" agency = owner | **(a)** ingest reads the owner banner | (b) `capture-backfill sale-agency` |
+| 15 | Floor sizes | **(a)** tile/listing page read by 3.15 | (b) `capture-backfill floor-sizes` (from portal rows) |
+| 16-18 | erf = floor errors | prevented: 3.13+ never writes floor into erf | (b) `erf-floor`, `erf-floor-pool`, `file-floor-size` - only for data the OLD extension captured |
+| 19 | Matching rules R3-R6, unit split | **(a)** after-import job, switch per agency; nightly `property-identity:nightly` | (b) first run on live. **Gap G1: the nightly has no cron on Staging/QA1/QA2 (no scheduler)** |
+| 20 | Advert-link audit, backlog collapse | **(a)** inside the same job (cc4 4.10) | (b) first run |
+| 21 | Stuck withdrawn | **(a)** GoneRule + reappearing observer | (b) `fix-stuck-withdrawn` (0 on Staging) |
+| 22 | E-mail alert links | **(a)** `AlertPropertyLinker` at alert import | (b) `alerts:link-properties`. **Gap G3: alerts need the agency's IMAP login and the scheduler; a new agency has neither set up (no setup step found, no cron)** |
+| 23 | CMA duplicate flags | **(a)** `MicCompDuplicateObserver` at save | (b) `mic:flag-comp-duplicates`. **Gap G4: the nightly flagger inside `mic:refresh-stats` is blocked by the QA-only guard, so on Staging/live only the save-time observer works; a late duplicate is never caught** |
+| 24 | Offer / sold dates | **(a)** stamped on every status change (cc2 5.4) | (b) `mic:backfill-offer-sold-dates` (QA-only; reads the old audit log) |
+| 25 | Stored stats, scores, tiles | **(a)** `mic:refresh-stats` nightly + change-triggered jobs. **Needs the cron line (G1 family)**; until it runs the Work tab tiles are empty | (b) first run after the steps above |
+| - | First data at all | **GAP G5: a new agency has no listings until an agent installs the extension and runs "Capture Listings" (and "Read area pages" monthly). Both are manual, by design (they need a person's Chrome).** The Work tab should say so on its empty state; the working-suburb list then builds itself from where the agency imports (cc4 4.10) | HFC already has its history |
+| - | Roll-back safety | - | **Gap G6: no journal-replay command; undoing a journalled back-fill needs the dump** |
+| - | HFC-only assumptions | no agency id is hard-coded in the MIC services or jobs (grep). Two HFC-shaped items: the migration `2026_12_31_100000...` (orphan capture rows -> lowest agency id) and **the default `--exclude-agency=20` on 11 commands/services (20 is the Demo agency on QA1 and on the Staging copy; on live id 20 could be a real agency and would be skipped silently - pass `--exclude-agency=` explicitly and check `select id,name from agencies` first; gap G8)** | one-time |
+
+**Gaps to close (for the conductor / Johan):**
+
+- **G1** nightly matching tidy and `mic:refresh-stats` need cron lines on Staging (lines written, 12.5); the tidy line does not exist yet. Same on live until its cron runs `schedule:run` (Andre to confirm).
+- **G2** unresolved suburb names have no agency-facing list.
+- **G3** e-mail alert import: no setup step, no cron on Staging.
+- **G4** CMA duplicate nightly pass is guarded off outside QA (the guard on the nightly call, not the observer).
+- **G5** no data until the extension is installed; no empty-state guidance; area pages are by-hand per suburb.
+- **G6** no journal-replay rollback.
+- **G8** `--exclude-agency=20` is a default, not a setting: confirm the Demo agency's id on live and pass it explicitly.
+- **G7** the QA-only guard on all 16 clean-up commands (12.0 item 3) - the one decision Johan has to make before any step can run on Staging or live.
+
+### 12.8 Proof on a copy of Staging (31 Oct 2026, 19:00-20:00 SAST) - dry-run
+
+**How:** a read-only `mysqldump --single-transaction` of `hfc_staging` (nothing written to Staging; 2.0 GB of data, 278 MB gzipped) was restored into a scratch schema `hfc_dash_test_promo_dryrun` on the **tests-only MySQL** (127.0.0.1:3317, data volume - not the instance that serves Staging/QA/live). The migrations were run on the copy, then every command of 12.4 was run in `--dry-run` from the cc3 worktree with the database pointed at the copy and `APP_ENV=qa` (to get past the guard, 12.0 item 3); cache, session, queue and mail drivers were set so nothing could leave the box. Staging's stored P24 pages (659 files) were linked into the worktree read-only so step 13 could read them.
+
+| Result | Detail |
+|---|---|
+| Migrations | the 38 files then on QA1 ran clean, 75 s (the 7 added since are timed in 12.9). Nothing failed on Staging-shaped data. |
+| Every command | exit 0, no exception, no step behaves differently from QA1 in kind |
+| Counts per step | the "Staging-copy dry-run" column of 12.4 |
+| Slowest | `own-stock-joins` **18.5 min** (QA1: 10-25 min); `alerts:link-properties` 66 s; structured addresses 90 s; migrate 75 s; everything else under 25 s |
+| Total runtime | dry-run chain 23.7 min wall (the 11 independent steps were run in parallel with the identity step, 3 min) |
+| Differences that matter | (1) **step 1 was missing from my list** (above). (2) **Dry-runs of 6-10, 13, 17-20, 22 show 0 on the untouched copy because the steps before them have not been applied - 0 means "not ready", not "nothing to do"**; the numbers after the earlier steps were applied are in 12.9. (3) Step 13: **361 of 926 stored P24 page records point at files that no longer exist on Staging's disk** (565 read), so Staging gets 712 groups where QA1 got 1,548. (4) Step 16 shows 0 until 15 has run (QA1 order was floor sizes first too). (5) `address:backfill-structured` has never been applied on Staging: 39,446 files / 9,787 properties change. |
+| Not run | `property-identity:reconcile` and `property-identity:share` (report-only twins of steps 6-9; stopped by me after 10 minutes each as duplicates of the apply dry-runs) and `geocoding:backfill` (not MIC) |
+
+Staging itself: unchanged (read-only dump only). Agencies on Staging: 1 HFC, 20 Demo Agency Test, 21 Mobile Agency Demo, 22 Caprivi Properties, 23 Mega Real Estate.
+
+### 12.9 Rehearsal on the scratch copy (the chain APPLIED, scratch only - cc3's extra, nothing to do with Staging)
+
+*In progress when this was committed; filled in below by a follow-up commit.*
+
+### 12.10 Where the logs live
+
+Data volume folder `/mnt/HC_Volume_103099143/mic-promo-dryrun-2026-10-31/`: `logs/` (one log per step, `timings.tsv`, `timings-b.tsv`), `logs/rehearsal/` (apply logs, `counts-before.txt`, `counts-after-<step>.txt`), `journals/` and `journals-apply/` (dry-run reports and the apply row journals), the read-only dump `hfc_staging-readonly-copy-20261031.sql.gz` (a copy of live data: deleted with the scratch schema, see below). The scripts that drove it: scratchpad `run-dry.sh`, `run-dry-b.sh`, `rehearse.sh`, `counts.sql`. The diff reports the identity commands save also sit in the cc3 worktree under `storage/app/reports/` (git-ignored). Scratch schema: **dropped when the rehearsal is done (12.9 says when).**
