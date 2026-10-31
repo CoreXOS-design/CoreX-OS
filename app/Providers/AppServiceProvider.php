@@ -58,6 +58,10 @@ class AppServiceProvider extends ServiceProvider
         // as two instances the M2/M3 journals were written empty (31 Oct). A singleton makes `journalTo()` reach every merge.
         $this->app->singleton(\App\Services\Prospecting\TrackedPropertyMerger::class);
 
+        // AT-520 step 4.6: cc4's Work-tab data (tile 3 under offer / sold / gone, tile 10 neighbours, tile 11 refresh status) - mic-work-tab.md 11.3.F and 11.9
+        $this->app->tag([\App\Services\Prospecting\MicWork\GoneTileProvider::class], 'mic.work.tiles');
+        $this->app->tag([\App\Services\Prospecting\MicWork\NeighboursPanelProvider::class, \App\Services\Prospecting\MicWork\RefreshStatusPanelProvider::class], 'mic.work.panels');
+
         // section 21.3 of rentals-faults-work-orders.md - the one seam behind "Send <name> to inspect"; records only until the fault flow replaces it.
 
         // ─────────────────────────────────────────────────────────────────────────────
