@@ -32,6 +32,14 @@ final class CompSaleIdentityTest extends TestCase
         $this->assertTrue(CompSaleIdentity::same($a, $b));
     }
 
+    public function test_a_scheme_named_with_an_extra_word_in_one_report_is_the_same_scheme(): void
+    {
+        $a = $this->row(['scheme_name' => 'CASA-UVONGO', 'section_number' => '14', 'ss_number' => '66', 'extent_m2' => 118]);
+        $b = $this->row(['scheme_name' => 'UVONGO', 'section_number' => '14', 'ss_number' => '66', 'extent_m2' => 118]);
+        $this->assertTrue(CompSaleIdentity::same($a, $b));
+        $this->assertSame(['scheme', 'ss', 'extent'], CompSaleIdentity::evidence($a, $b));
+    }
+
     public function test_two_different_sections_sold_for_the_same_price_on_the_same_day_are_two_sales(): void
     {
         $a = $this->row(['scheme_name' => 'LAGUNA LA CRETE', 'section_number' => '236', 'extent_m2' => 69, 'p24_suburb_id' => 15548]);

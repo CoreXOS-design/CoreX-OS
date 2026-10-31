@@ -72,33 +72,29 @@ final class CompDuplicateFlagger
     }
 
     /**
-     * Place the unchecked sale rows of ONE bucket (agency + sale date + sale price). Used by run() and by the save-time observer.
+     * Pure placement of $new rows (one agency + date + price bucket) around the already-canonical $heads: a row joins the first cluster
+     * whose head it is the same sale as, else it starts a new cluster. Richest rows are placed first so they become the heads.
      *
-     * @return array{checked:int,duplicates:int,groups_with_repeats:int,by_row_type:array<string,int>,samples:list<array<string,mixed>>}
+     * @param  list<array<string, mixed>>  $heads
+     * @param  list<array<string, mixed>>  $new
+     * @return array{dupOf: array<int, array{canonical:int, evidence:list<string>}>, clusters: list<array{head: array<string, mixed>, members: list<int>}>}
      */
-    public function flagBucket(int $agencyId, string $saleDate, int $price, bool $apply = true, ?string $runId = null): array
+    public static function cluster(array $heads, array $new): array
     {
-        $rows = $this->bucketRows($agencyId, $saleDate, $price);
-
-        // clusters start from the rows already checked and canonical
         $clusters = [];
-        foreach ($rows as $r) {
-            if ($r['dup_checked_at'] !== null && $r['duplicate_of_id'] === null) {
-                $clusters[] = ['head' => $r, 'members' => []];
-            }
+        foreach ($heads as $h) {
+            $clusters[] = ['head' => $h, 'members' => []];
         }
-        $headIds = array_map(fn ($c) => $c['head']['id'], $clusters);
-
-        $new = array_values(array_filter($rows, fn ($r) => $r['dup_checked_at'] === null));
         usort($new, fn ($x, $y) => [CompSaleIdentity::completeness($y), $x['id']] <=> [CompSaleIdentity::completeness($x), $y['id']]);
 
         $dupOf = [];
         foreach ($new as $r) {
             $placed = false;
             foreach ($clusters as $ci => $c) {
-                if (CompSaleIdentity::same($c['head'], $r)) {
+                $ev = CompSaleIdentity::evidence($c['head'], $r);
+                if ($ev !== null) {
                     $clusters[$ci]['members'][] = $r['id'];
-                    $dupOf[$r['id']] = $c['head']['id'];
+                    $dupOf[$r['id']] = ['canonical' => $c['head']['id'], 'evidence' => $ev];
                     $placed = true;
                     break;
                 }
@@ -107,6 +103,23 @@ final class CompDuplicateFlagger
                 $clusters[] = ['head' => $r, 'members' => []];
             }
         }
+
+        return ['dupOf' => $dupOf, 'clusters' => $clusters];
+    }
+
+    /**
+     * Place the unchecked sale rows of ONE bucket (agency + sale date + sale price). Used by run() and by the save-time observer.
+     *
+     * @return array{checked:int,duplicates:int,groups_with_repeats:int,by_row_type:array<string,int>,samples:list<array<string,mixed>>}
+     */
+    public function flagBucket(int $agencyId, string $saleDate, int $price, bool $apply = true, ?string $runId = null): array
+    {
+        $rows = $this->bucketRows($agencyId, $saleDate, $price);
+
+        $heads = array_values(array_filter($rows, fn ($r) => $r['dup_checked_at'] !== null && $r['duplicate_of_id'] === null));
+        $new = array_values(array_filter($rows, fn ($r) => $r['dup_checked_at'] === null));
+        ['dupOf' => $dupOfEv, 'clusters' => $clusters] = self::cluster($heads, $new);
+        $dupOf = array_map(fn ($e) => $e['canonical'], $dupOfEv);
 
         $byType = [];
         $samples = [];
