@@ -105,9 +105,9 @@
                         <td class="px-3 py-2 align-top whitespace-nowrap">
                             @if(! $decided)
                                 <form method="POST" action="{{ route('corex.possible-matches.confirm', $r->id) }}" class="inline">@csrf
-                                    <button type="submit" class="text-xs font-semibold px-3 py-1 rounded-md text-white" style="background:var(--brand-button,#0ea5e9); border:0; cursor:pointer;">Same property</button></form>
+                                    <button type="submit" class="text-xs font-semibold px-3 py-1 rounded-md text-white" style="background:var(--brand-button,#0ea5e9); border:0; cursor:pointer;">{{ $p['kind'] === 'unit_split' ? 'Split off as its own property' : 'Same property' }}</button></form>
                                 <form method="POST" action="{{ route('corex.possible-matches.reject', $r->id) }}" class="inline">@csrf
-                                    <button type="submit" class="text-xs px-3 py-1 rounded-md" style="border:1px solid var(--border); background:var(--surface); color:var(--text-primary); cursor:pointer;">Not the same</button></form>
+                                    <button type="submit" class="text-xs px-3 py-1 rounded-md" style="border:1px solid var(--border); background:var(--surface); color:var(--text-primary); cursor:pointer;">{{ $p['kind'] === 'unit_split' ? 'Keep together' : 'Not the same' }}</button></form>
                             @else
                                 <span class="text-xs" style="color:var(--text-muted);">{{ $r->confirmed_at ? 'Joined' : 'Not the same' }}</span>
                                 <form method="POST" action="{{ route('corex.possible-matches.restore', $r->id) }}" class="inline">@csrf

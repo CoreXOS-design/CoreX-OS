@@ -293,7 +293,7 @@ final class PropertyIdentityApplier
     }
 
     /** A new property file for one address group of an over-merged file. Public advert facts only — never the old file's deeds / owner. */
-    private function createSplitFile(TrackedProperty $orig, array $rows, bool $apply): ?int
+    public function createSplitFile(TrackedProperty $orig, array $rows, bool $apply): ?int
     {
         if (! $apply) {
             return null;

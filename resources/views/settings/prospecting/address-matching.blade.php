@@ -177,6 +177,19 @@
             <p class="text-xs mt-1" style="color:var(--text-muted);">Standard: 150.</p>
         </div>
 
+        <div>
+            <label class="block text-sm font-semibold mb-1" style="color:var(--text-secondary);">A property with this many adverts or more may be several flats (3-30)</label>
+            <input type="number" name="unit_split_min_adverts" min="3" max="30" step="1" value="{{ old('unit_split_min_adverts', $settings['unit_split_min_adverts']) }}"
+                   class="w-28 px-3 py-2 text-sm rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+            <p class="text-xs mt-1" style="color:var(--text-muted);">Together with the price gap below, a property with this many adverts is offered on the Possible matches list for splitting into one property per flat. Nothing is split until an agent presses the button. Standard: 5.</p>
+        </div>
+        <div>
+            <label class="block text-sm font-semibold mb-1" style="color:var(--text-secondary);">...and the dearest advert is this many times the cheapest (1.2-10)</label>
+            <input type="number" name="unit_split_price_spread" min="1.2" max="10" step="0.1" value="{{ old('unit_split_price_spread', $settings['unit_split_price_spread']) }}"
+                   class="w-28 px-3 py-2 text-sm rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+            <p class="text-xs mt-1" style="color:var(--text-muted);">Standard: 2.</p>
+        </div>
+
         <div class="flex flex-wrap items-center gap-3">
             <button type="submit" class="text-sm font-semibold px-5 py-2 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Save address matching settings</button>
             <button type="submit" name="reset" value="1" formnovalidate class="text-sm px-4 py-2 rounded-md" style="background:transparent; border:1px solid var(--border); color:var(--text-primary);"
