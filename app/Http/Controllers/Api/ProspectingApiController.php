@@ -115,24 +115,24 @@ class ProspectingApiController extends Controller
             ? (clone $searchQuery)->where('crawl_session_id', $sessionId)->first()
             : (clone $searchQuery)->whereDate('captured_at', $now->toDateString())->whereNull('crawl_session_id')->first();
 
-        if ($search) {
-            if (! $detailOnly) {
-                $update = [
-                    'total_results'      => $context['total_results'],
-                    'pages_captured'     => max($search->pages_captured, $context['pages_captured']),
-                    'search_description' => $context['search_term'],
+        if ($detailOnly) {
+            // a listing-page read never opens, completes or counts a crawl: it finds no row and creates none
+        } elseif ($search) {
+            $update = [
+                'total_results'      => $context['total_results'],
+                'pages_captured'     => max($search->pages_captured, $context['pages_captured']),
+                'search_description' => $context['search_term'],
+            ];
+            if ($sessionId) {
+                $update += [
+                    'crawl_page'        => max((int) $search->crawl_page, (int) ($crawlColumns['crawl_page'] ?? 0)),
+                    'crawl_pages_total' => $crawlColumns['crawl_pages_total'] ?? $search->crawl_pages_total,
+                    // a session is complete once ANY batch of it said so, and never goes back
+                    'crawl_complete'    => (bool) $search->crawl_complete || (bool) ($crawlColumns['crawl_complete'] ?? false),
+                    'crawl_finished_at' => $crawlColumns['crawl_finished_at'] ?? $search->crawl_finished_at,
                 ];
-                if ($sessionId) {
-                    $update += [
-                        'crawl_page'        => max((int) $search->crawl_page, (int) ($crawlColumns['crawl_page'] ?? 0)),
-                        'crawl_pages_total' => $crawlColumns['crawl_pages_total'] ?? $search->crawl_pages_total,
-                        // a session is complete once ANY batch of it said so, and never goes back
-                        'crawl_complete'    => (bool) $search->crawl_complete || (bool) ($crawlColumns['crawl_complete'] ?? false),
-                        'crawl_finished_at' => $crawlColumns['crawl_finished_at'] ?? $search->crawl_finished_at,
-                    ];
-                }
-                $search->update($update);
             }
+            $search->update($update);
         } else {
             $search = ProspectingSearch::create([
                 'agency_id'          => $agencyId,

@@ -199,6 +199,30 @@ final class MicCaptureIngestTest extends TestCase
         $this->assertNull($this->listing()->listed_date);
     }
 
+    public function test_a_listing_page_read_never_opens_or_completes_a_crawl_session(): void
+    {
+        Sanctum::actingAs($this->user);
+        $this->postJson(self::URL, $this->body([$this->tile()]))->assertOk();
+        $before = ProspectingSearch::count();
+
+        $this->postJson(self::URL, $this->body([$this->tile(['agent_name' => 'Jane Smith', 'page_read' => true])], [
+            'detail_only' => true,
+            'crawl' => ['session_id' => '44444444-4444-4444-8444-444444444444', 'complete' => true],
+        ]))->assertOk()->assertJsonPath('updated', 1);
+
+        $this->assertSame($before, ProspectingSearch::count(), 'no search row is created by a listing-page read');
+        $this->assertSame(0, ProspectingSearch::whereNotNull('crawl_session_id')->count());
+    }
+
+    public function test_first_photo_fingerprint_accepts_a_sha1_or_the_16_hex_difference_hash_only(): void
+    {
+        Sanctum::actingAs($this->user);
+        $this->postJson(self::URL, $this->body([$this->tile(['first_photo_fingerprint' => 'a1b2c3d4e5f60718'])]))->assertOk()->assertJsonPath('dropped_fields', 0);
+        $this->assertSame('a1b2c3d4e5f60718', trim($this->listing()->first_photo_fingerprint));
+        $this->postJson(self::URL, $this->body([$this->tile(['first_photo_fingerprint' => 'a1b2c3d4e5'])]))->assertOk()->assertJsonPath('dropped_fields', 1);
+        $this->assertSame('a1b2c3d4e5f60718', trim($this->listing()->first_photo_fingerprint), 'a bad value never replaces a good one');
+    }
+
     public function test_an_agent_corrected_listed_date_is_never_overwritten(): void
     {
         Sanctum::actingAs($this->user);

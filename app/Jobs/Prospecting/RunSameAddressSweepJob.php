@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Jobs\Prospecting;
 
 use App\Models\AddressMatchSetting;
+use App\Services\Prospecting\Matching\MatchingRules;
 use App\Services\Prospecting\SameAddressSweep;
 use App\Services\Prospecting\TrackedPropertyMerger;
 use Illuminate\Bus\Queueable;
@@ -57,7 +58,7 @@ final class RunSameAddressSweepJob implements ShouldQueue
         return true;
     }
 
-    public function handle(SameAddressSweep $sweep, TrackedPropertyMerger $merger): void
+    public function handle(SameAddressSweep $sweep, TrackedPropertyMerger $merger, MatchingRules $rules): void
     {
         Cache::forget(self::key($this->agencyId));
         if (! AddressMatchSetting::forAgency($this->agencyId)['same_address_sweep']) {
@@ -73,6 +74,8 @@ final class RunSameAddressSweepJob implements ShouldQueue
                 $r = $sweep->run($this->agencyId, $scope, true, 'same-address-auto-' . $scope);
                 $result[$scope] = ['groups' => $r['groups'], 'merged' => $r['merged_files'], 'review_pairs' => $r['review_pairs'], 'refused' => $r['merge_refused']];
             }
+            // AT-520 4.4: P24 groups, same-agency twins, complexes and map points follow the same trigger, each behind its own agency switch
+            $result['rules'] = $rules->run($this->agencyId, true);
             Log::info('same-address sweep (after import)', ['agency_id' => $this->agencyId] + $result);
         } finally {
             $merger->journalTo(null);

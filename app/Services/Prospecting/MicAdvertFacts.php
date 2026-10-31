@@ -103,10 +103,11 @@ final class MicAdvertFacts
             }
         }
 
-        foreach (['wording_fingerprint', 'first_photo_fingerprint'] as $k) {
+        // wording = SHA-1 of the normalised text (40 hex); first photo = SHA-1 or the extension's 16-hex difference hash
+        foreach (['wording_fingerprint' => '/^[0-9a-f]{40}$/', 'first_photo_fingerprint' => '/^(?:[0-9a-f]{16}|[0-9a-f]{40})$/'] as $k => $re) {
             if (self::present($data, $k)) {
                 $v = strtolower(trim((string) $data[$k]));
-                preg_match('/^[0-9a-f]{40}$/', $v) ? $cols[$k] = $v : $drop();
+                preg_match($re, $v) ? $cols[$k] = $v : $drop();
             }
         }
 

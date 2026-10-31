@@ -90,7 +90,7 @@ final class SameAddressSweepAutoTest extends TestCase
         $journal = storage_path('app/reports/same-address-auto-' . now()->format('Ymd') . '.jsonl');
         @unlink($journal);
 
-        (new RunSameAddressSweepJob($this->a->id))->handle(app(SameAddressSweep::class), app(TrackedPropertyMerger::class));
+        (new RunSameAddressSweepJob($this->a->id))->handle(app(SameAddressSweep::class), app(TrackedPropertyMerger::class), app(\App\Services\Prospecting\Matching\MatchingRules::class));
 
         $statuses = TrackedProperty::queryWithoutAgencyScope()->where('agency_id', $this->a->id)->pluck('status')->sort()->values()->all();
         $this->assertSame(['active', 'duplicate'], $statuses);
@@ -108,7 +108,7 @@ final class SameAddressSweepAutoTest extends TestCase
         $this->file($this->a);
         AddressMatchSetting::query()->updateOrCreate(['agency_id' => $this->a->id], ['same_address_sweep' => false]);
 
-        (new RunSameAddressSweepJob($this->a->id))->handle(app(SameAddressSweep::class), app(TrackedPropertyMerger::class));
+        (new RunSameAddressSweepJob($this->a->id))->handle(app(SameAddressSweep::class), app(TrackedPropertyMerger::class), app(\App\Services\Prospecting\Matching\MatchingRules::class));
 
         $this->assertSame(2, TrackedProperty::queryWithoutAgencyScope()->where('agency_id', $this->a->id)->where('status', 'active')->count());
     }

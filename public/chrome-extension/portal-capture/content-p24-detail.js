@@ -287,6 +287,9 @@
     // MIC SOLD / OFF-MARKET — portal lifecycle status (active/under_offer/sold/withdrawn).
     listing.portal_status = extractP24Status(card);
 
+    // MIC capture (3.13.0): owner vs agency (never "Sale" as the agency), reduced, group, mandate id, badges, floor vs erf.
+    try { if (self.CorexMic) self.CorexMic.p24Tile(card, listing); } catch (e) { /* never block the tile */ }
+
     return listing;
   }
 
@@ -681,6 +684,17 @@
     // Extract all listings from search page (used by Capture Listings flow)
     if (msg.action === 'getListings') {
       sendResponse({ listings: extractAllListings() });
+      return true;
+    }
+
+    // MIC capture (3.13.0): the public facts of ONE listing page (listing date, agent, rates, levies, map point,
+    // fingerprints). Nothing is clicked; no contact number is ever requested.
+    if (msg.action === 'getListingFacts') {
+      try {
+        sendResponse({ facts: self.CorexMic ? self.CorexMic.p24ListingPage(document, window.location.href) : null });
+      } catch (e) {
+        sendResponse({ facts: null, error: String(e && e.message || e) });
+      }
       return true;
     }
 
