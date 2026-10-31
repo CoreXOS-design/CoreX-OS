@@ -98,6 +98,16 @@ final class MicWorkTiles
      */
     public function row(int $agencyId, User $user, ?array $shown = null): array
     {
+        // The tile numbers are stored counts that move slowly; a short per-viewer cache keeps the page fast (mic-work-tab.md 6.6).
+        $shown ??= $this->shownFor($agencyId);
+        $key = 'mic-work:tiles:' . $agencyId . ':' . $user->id . ':' . md5(json_encode($shown) . count($this->tiles) . count($this->panels) . (class_exists(self::CC5_SERVICE) ? 'c5' : ''));
+
+        return \Illuminate\Support\Facades\Cache::remember($key, 120, fn () => $this->buildRow($agencyId, $user, $shown));
+    }
+
+    /** @return list<array<string, mixed>> */
+    private function buildRow(int $agencyId, User $user, ?array $shown): array
+    {
         $shown ??= $this->shownFor($agencyId);
         $cc5 = $this->cc5Results($user);
         $out = [];

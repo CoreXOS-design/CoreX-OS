@@ -8431,6 +8431,13 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
         Route::get('/portal-alerts', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'portalAlertsAwaitingAddress'])
             ->name('portal-alerts');
 
+        // MIC Settings (mic-work-tab.md section 9): areas, refresh interval, tiles shown, score weights, neighbour window, opt-out switch.
+        // Agency admins / managers only (prospecting_setup.manage); everything is per agency.
+        Route::get('/settings', [\App\Http\Controllers\CoreX\MicSettingsController::class, 'edit'])
+            ->middleware('permission:prospecting_setup.manage')->name('settings');
+        Route::put('/settings', [\App\Http\Controllers\CoreX\MicSettingsController::class, 'update'])
+            ->middleware('permission:prospecting_setup.manage')->name('settings.update');
+
         // Phase G2 — BM team dashboard. Permission-gated via the controller.
         Route::get('/team', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'team'])->name('team');
 

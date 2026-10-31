@@ -75,7 +75,8 @@ final class MicWorkList
             ->selectRaw('MAX(last_seen_at) AS last_seen, MIN(COALESCE(listed_date, first_seen_at)) AS since, COUNT(*) AS n')
             ->groupBy('fkey');
 
-        $total = (int) DB::query()->fromSub((clone $base), 'g')->count();
+        // one flat DISTINCT count over the same filtered set - cheaper than counting the grouped subquery
+        $total = (int) (clone $filtered)->toBase()->reorder()->selectRaw('COUNT(DISTINCT COALESCE(prospecting_listings.tracked_property_id, -prospecting_listings.id)) AS c')->value('c');
 
         $q = clone $base;
         if (in_array($sort, ['score', 'buyers'], true) && self::hasFileStats()) {

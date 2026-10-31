@@ -26,44 +26,55 @@ final class CompSaleIdentity
      */
     public static function same(array $a, array $b): bool
     {
+        return self::evidence($a, $b) !== null;
+    }
+
+    /**
+     * The evidence that two rows are one sale: NULL = different sales; otherwise the agreeing fields, a subset of
+     * scheme, ss, extent, erf, address - or ['suburb'] for two sectional rows that carry nothing but the section and the suburb.
+     *
+     * @return list<string>|null
+     */
+    public static function evidence(array $a, array $b): ?array
+    {
         $secA = self::section($a['section_number'] ?? null);
         $secB = self::section($b['section_number'] ?? null);
         if ($secA !== null || $secB !== null) {
             if ($secA === null || $secB === null || $secA !== $secB) {
-                return false;
+                return null;
             }
             $sectional = true;
         } else {
             $sectional = false;
         }
 
-        $strong = 0;
+        $agree = [];
 
         $schemeA = self::tokens($a['scheme_name'] ?? null);
         $schemeB = self::tokens($b['scheme_name'] ?? null);
         if ($schemeA && $schemeB) {
-            if (! self::prefixCompatible($schemeA, $schemeB)) {
-                return false;
+            if (! self::prefixCompatible($schemeA, $schemeB) && ! self::contained($schemeA, $schemeB)) {
+                return null;
             }
-            $strong++;
+            $agree[] = 'scheme';
         }
 
         $ssA = self::digits($a['ss_number'] ?? null);
         $ssB = self::digits($b['ss_number'] ?? null);
         if ($ssA !== null && $ssB !== null) {
             if ($ssA !== $ssB) {
-                return false;
+                return null;
             }
-            $strong++;
+            $agree[] = 'ss';
         }
 
         $extA = (int) ($a['extent_m2'] ?? 0);
         $extB = (int) ($b['extent_m2'] ?? 0);
         if ($extA > 0 && $extB > 0) {
             if ($extA !== $extB) {
-                return false;
+                return null;
             }
-            $strong++;
+            $agree[] = 'extent';
         }
 
         $erfOk = false;
@@ -72,9 +83,9 @@ final class CompSaleIdentity
             $erfB = self::alnum($b['erf'] ?? null);
             if ($erfA !== null && $erfB !== null) {
                 if ($erfA !== $erfB) {
-                    return false;
+                    return null;
                 }
-                $strong++;
+                $agree[] = 'erf';
                 $erfOk = true;
             }
         }
@@ -83,17 +94,17 @@ final class CompSaleIdentity
         $addrB = self::tokens($b['address'] ?? null);
         if (count($addrA) >= 2 && count($addrB) >= 2) {
             if (self::prefixCompatible($addrA, $addrB)) {
-                $strong++;
+                $agree[] = 'address';
             } elseif (! $sectional && ! $erfOk) {
-                return false;
+                return null;
             }
         }
 
-        if ($strong > 0) {
-            return true;
+        if ($agree) {
+            return $agree;
         }
 
-        return $sectional && self::sameSuburb($a, $b);
+        return $sectional && self::sameSuburb($a, $b) ? ['suburb'] : null;
     }
 
     /** How much identity a row carries; the richest row of a group becomes the canonical one. */
@@ -159,5 +170,13 @@ final class CompSaleIdentity
         $n = min(count($a), count($b));
 
         return array_slice($a, 0, $n) === array_slice($b, 0, $n);
+    }
+
+    /** Every word of the shorter name is in the longer one ("CASA UVONGO" / "UVONGO"). */
+    private static function contained(array $a, array $b): bool
+    {
+        [$short, $long] = count($a) <= count($b) ? [$a, $b] : [$b, $a];
+
+        return array_diff($short, $long) === [];
     }
 }

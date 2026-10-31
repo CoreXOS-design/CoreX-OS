@@ -29,6 +29,15 @@ class MicAgencySetting extends Model
         'detail_pages_per_session' => 40,
         'trusted_sales_after'     => '2026-06-26',
         'buyer_states_excluded'   => ['cold', 'lost'],
+        // Settings page (cc6, spec section 9). Read by cc4's tiles (MicTileSettings) and cc3's capture limits through the static accessors below.
+        'areas'                      => [],
+        'refresh_interval_days'      => 7,
+        'gone_tile_days'             => 30,
+        'neighbour_months'           => 6,
+        'neighbour_each_side'        => 5,
+        'area_agency_pages_per_run'  => 10,
+        'area_street_pages_per_run'  => 150,
+        'opt_out_registry_check'     => false,
     ];
 
     /** The agency's settings; an unsaved defaults object when none stored. Never writes on read. */
@@ -114,5 +123,51 @@ class MicAgencySetting extends Model
         $s = $this->value('buyer_states_excluded');
 
         return is_array($s) ? array_values(array_map('strval', $s)) : self::DEFAULTS['buyer_states_excluded'];
+    }
+
+    /** @return list<int> p24_suburbs.id the agency works (the areas it lists once in Settings); empty = derive from its active adverts. */
+    public function areas(): array
+    {
+        $a = $this->value('areas');
+
+        return is_array($a) ? array_values(array_unique(array_filter(array_map('intval', $a), fn ($n) => $n > 0))) : [];
+    }
+
+    public function refreshIntervalDaysValue(): int { return $this->positiveInt('refresh_interval_days'); }
+
+    public function goneTileDaysValue(): int { return $this->positiveInt('gone_tile_days'); }
+
+    public function neighbourMonthsValue(): int { return min(6, $this->positiveInt('neighbour_months')); }
+
+    public function neighbourEachSideValue(): int { return min(15, $this->positiveInt('neighbour_each_side')); }
+
+    public function areaAgencyPagesPerRunValue(): int { return $this->positiveInt('area_agency_pages_per_run'); }
+
+    public function areaStreetPagesPerRunValue(): int { return $this->positiveInt('area_street_pages_per_run'); }
+
+    /** Opt-out registry check before contacting an owner. OFF until NCC guidance (Johan, 31 Oct). */
+    public function optOutRegistryCheck(): bool { return (bool) $this->value('opt_out_registry_check'); }
+
+    // Static accessors by the names cc4 (MicTileSettings) and cc3 (11.2.C / area pages) asked for.
+    public static function refreshIntervalDays(int $agencyId): int { return static::for($agencyId)->refreshIntervalDaysValue(); }
+
+    public static function goneTileDays(int $agencyId): int { return static::for($agencyId)->goneTileDaysValue(); }
+
+    public static function neighbourMonths(int $agencyId): int { return static::for($agencyId)->neighbourMonthsValue(); }
+
+    public static function neighbourEachSide(int $agencyId): int { return static::for($agencyId)->neighbourEachSideValue(); }
+
+    public static function areaAgencyPagesPerRun(int $agencyId): int { return static::for($agencyId)->areaAgencyPagesPerRunValue(); }
+
+    public static function areaStreetPagesPerRun(int $agencyId): int { return static::for($agencyId)->areaStreetPagesPerRunValue(); }
+
+    /** Merge $patch into the stored values (the Settings page's one write path). */
+    public static function saveValues(int $agencyId, array $patch): self
+    {
+        $row = static::query()->firstOrNew(['agency_id' => $agencyId]);
+        $row->values = array_merge($row->values ?? [], $patch);
+        $row->save();
+
+        return $row;
     }
 }

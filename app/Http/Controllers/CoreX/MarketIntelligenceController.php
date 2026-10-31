@@ -1328,7 +1328,7 @@ class MarketIntelligenceController extends Controller
                 ? ['months' => (int) $request->query('months', 0), 'type' => $request->query('type'), 'suburb' => $request->query('suburb')]
                 : ['scope' => $isProspectingManager ? 'all' : 'mine']);
             $workPanel = ['ready' => true, 'rows' => $rows, 'around' => $panelNo === 10
-                ? collect($rows)->mapWithKeys(fn ($r) => [$r['id'] => $pp->around($agencyId, $user, (string) $r['id'])])->all() : []];
+                ? ($request->filled('trigger') ? [(string) $request->query('trigger') => $pp->around($agencyId, $user, (string) $request->query('trigger'))] : []) : []];
         }
 
         return [$workTiles, $workPanel];

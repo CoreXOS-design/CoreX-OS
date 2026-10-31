@@ -24,8 +24,11 @@ final class MicStatsBuilder
 {
     private const CHUNK = 1000;
 
-    public function __construct(private readonly DomEstimator $dom, private readonly PropertyTypeResolver $types)
-    {
+    public function __construct(
+        private readonly DomEstimator $dom,
+        private readonly PropertyTypeResolver $types,
+        private readonly \App\Services\MarketIntelligence\Score\OpportunityScoreService $score,
+    ) {
     }
 
     /** @return array<string, int|float> counters for the report */
@@ -47,14 +50,16 @@ final class MicStatsBuilder
         $removed = DB::table('mic_file_stats')->where('agency_id', $agencyId)->where('computed_at', '<', $started)->delete();
 
         $pockets = $this->refreshPockets($agencyId, $now, $ctx);
+        $scored = $this->score->scoreAgency($agencyId, $now);   // needs today's pocket rows
 
-        return ['files' => $files, 'stale_removed' => $removed, 'pockets' => $pockets];
+        return ['files' => $files, 'stale_removed' => $removed, 'pockets' => $pockets, 'scored' => $scored];
     }
 
     /** Re-count one file (used on change). */
     public function refreshFile(int $agencyId, int $trackedPropertyId): void
     {
         $this->buildChunk($agencyId, [$trackedPropertyId], $this->context($agencyId, Carbon::now()));
+        $this->score->score($agencyId, $trackedPropertyId);
     }
 
     /** @return array<string, mixed> */

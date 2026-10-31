@@ -286,6 +286,9 @@ class AppServiceProvider extends ServiceProvider
         // MIC 5.1 (AT-519): new/re-suburbed MIC listings and CMA comp rows get their p24_suburb_id at save time.
         \App\Models\ProspectingListing::observe(\App\Observers\MicSuburbIdObserver::class);
         \App\Models\MarketReports\MarketReportCompRow::observe(\App\Observers\MicSuburbIdObserver::class);
+        // MIC 5.7 (AT-519): a claim or a price drop re-counts that one file's stored stats + score (delayed, unique per file).
+        \App\Models\ProspectingClaim::saved(fn ($m) => \App\Jobs\MarketIntelligence\RefreshMicFileStatsJob::forListing($m->prospecting_listing_id !== null ? (int) $m->prospecting_listing_id : null));
+        \App\Models\ProspectingPriceHistory::created(fn ($m) => \App\Jobs\MarketIntelligence\RefreshMicFileStatsJob::forListing($m->prospecting_listing_id !== null ? (int) $m->prospecting_listing_id : null));
         // MIC 5.3 (AT-524): a new CMA comp row is placed as canonical or as a repeat of an existing sale at save time.
         \App\Models\MarketReports\MarketReportCompRow::observe(\App\Observers\MicCompDuplicateObserver::class);
         // Property identity (.ai/specs/property-identity.md §7): attach new rows to their property file on save.
