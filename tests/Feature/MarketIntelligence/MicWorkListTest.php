@@ -104,4 +104,50 @@ final class MicWorkListTest extends TestCase
         $this->assertSame(0, substr_count($get(['search' => 'newport beach']), 'data-qa="work-row"'));
         $this->assertStringContainsString('P24-119000031', $get(['search' => 'Beach', 'view' => 'adverts']), 'the old advert list gets the same search');
     }
+
+    public function test_price_move_comes_from_the_lead_advert_only_and_never_contradicts_itself(): void
+    {
+        $tp = $this->tp($this->agency, 'P24-119000040', '13', 'Newport Road');
+        $p24 = $this->advert($this->agency, 'p24', 'P24-119000040', $tp, ['price' => 1_499_000, 'last_seen_at' => now()]);
+        $pp = $this->advert($this->agency, 'pp', 'PP-T9100040', $tp, ['price' => 700_000, 'agency_name' => 'eXp', 'last_seen_at' => now()->subDays(2)]);
+        $h = fn ($id, $old, $new) => DB::table('prospecting_price_history')->insert(['prospecting_listing_id' => $id, 'old_price' => $old, 'new_price' => $new, 'changed_at' => now()->subDay(), 'created_at' => now(), 'updated_at' => now()]);
+        $h($p24->id, 1_600_000, 1_499_000);
+        $h($pp->id, 1_499_000, 700_000); // a different advert's history must not leak into the lead's move
+        $up = $this->tp($this->agency, 'P24-119000041', '4', 'Rise Road');
+        $a = $this->advert($this->agency, 'p24', 'P24-119000041', $up, ['price' => 1_195_000]);
+        $h($a->id, 1_000_000, 900_000);
+        $h($a->id, 900_000, 1_195_000);
+
+        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work'))->assertOk()->getContent();
+        $this->assertStringContainsString('▼ R101k', $html);
+        $this->assertStringNotContainsString('R799k', $html);
+        $this->assertStringContainsString('▲ R195k', $html);
+        $this->assertStringNotContainsString('▲ R195k ·', $html, 'a net rise never prints a cuts count');
+    }
+
+    public function test_own_stock_is_out_by_default_suburb_is_the_resolved_name_new_is_labelled_and_alerts_list_in_place(): void
+    {
+        DB::table('p24_suburbs')->insert(['name' => 'Southbroom', 'slug' => 'southbroom', 'p24_id' => 987002, 'created_at' => now(), 'updated_at' => now()]);
+        $subId = (int) DB::table('p24_suburbs')->where('name', 'Southbroom')->value('id');
+        $ours = $this->tp($this->agency, 'P24-119000050', '22', 'Avon Road');
+        $this->advert($this->agency, 'p24', 'P24-119000050', $ours);
+        \App\Models\Prospecting\TrackedPropertyAgencyWork::forceCreate(['agency_id' => $this->agency->id, 'tracked_property_id' => $ours->id, 'is_own_stock' => true]);
+        $theirs = $this->tp($this->agency, 'P24-119000051', '8', 'Beach Road');
+        $this->advert($this->agency, 'p24', 'P24-119000051', $theirs, ['suburb' => 'SOUTHBROOM', 'p24_suburb_id' => $subId, 'first_seen_at' => now()->subDays(2)]);
+        $alert = \App\Models\P24Listing::create(['agency_id' => $this->agency->id, 'p24_listing_number' => 'P24-119000051', 'asking_price' => 1_400_000, 'original_price' => 1_500_000,
+            'suburb' => 'Southbroom', 'first_seen_date' => '2026-06-03', 'last_seen_date' => '2026-06-26', 'times_seen' => 2]);
+        $alert->forceFill(['tracked_property_id' => $theirs->id])->save();
+
+        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work'))->assertOk()->getContent();
+        $this->assertStringNotContainsString('22 Avon Road', $html, 'our own stock is not prospecting');
+        $this->assertStringContainsString('8 Beach Road', $html);
+        $this->assertStringContainsString('Southbroom', $html);
+        $this->assertStringNotContainsString('SOUTHBROOM', $html);
+        $this->assertStringContainsString('>new<', preg_replace('/\s+/', '', $html) === '' ? '' : str_replace(["\n", '  '], '', $html));
+        $this->assertStringContainsString('data-qa="alert-line"', $html);
+        $this->assertStringContainsString('was R 1,500,000', $html);
+
+        $this->actingAs($this->admin)->get(route('market-intelligence.work', ['include_in_stock' => 1]))->assertOk()->assertSee('22 Avon Road', false);
+    }
 }
+
