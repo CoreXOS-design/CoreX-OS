@@ -142,7 +142,7 @@
                         <div style="font-weight: 700; margin: 2px 0;">Recent sales nearby</div>
                         @if($cx && !empty($cx['nearby_sales']))
                             @foreach($cx['nearby_sales'] as $ns)
-                                <div data-qa="nearby-sale">{{ $ns['address'] ?? 'Address not shown' }} · {{ !empty($ns['sold_on']) ? \Carbon\Carbon::parse($ns['sold_on'])->format('j M Y') : '-' }} · {{ $money($ns['price']) }}@if(!empty($ns['r_per_m2'])) · R {{ number_format($ns['r_per_m2']) }}/m²@endif <span style="color: var(--text-muted);">· same {{ $ns['match'] ?? 'suburb' }}</span></div>
+                                <div data-qa="nearby-sale">{{ \App\Services\Prospecting\MicWork\MicWorkList::tidyLine($ns['address'] ?? '') ?: 'Address not shown' }} · {{ !empty($ns['sold_on']) ? \Carbon\Carbon::parse($ns['sold_on'])->format('j M Y') : '-' }} · {{ $money($ns['price']) }}@if(!empty($ns['r_per_m2'])) · R {{ number_format($ns['r_per_m2']) }}/m²@endif <span style="color: var(--text-muted);">· same {{ $ns['match'] ?? 'suburb' }}</span></div>
                             @endforeach
                         @else
                             <div style="color: var(--text-muted);">{{ $cx ? 'No recent sales found nearby.' : 'Market context is still being built for this property.' }}</div>
@@ -151,7 +151,7 @@
                             <div style="font-weight: 700; margin: 8px 0 2px;">This suburb</div>
                             <div data-qa="suburb-line">
                                 @if(!empty($cx['suburb_avg_sold_12m']))Average sold ({{ $cx['sale_class'] ?? 'all types' }}, last 12 months): <strong>{{ $money($cx['suburb_avg_sold_12m']) }}</strong> from {{ $cx['suburb_avg_sold_n'] }} sales @if($cx['asking_vs_avg_sold_pct'] !== null)· asking is {{ abs($cx['asking_vs_avg_sold_pct']) }}% {{ $cx['asking_vs_avg_sold_pct'] >= 0 ? 'above' : 'below' }} the average @endif
-                                @else<span style="color: var(--text-muted);">Too few sales in this suburb to compare ({{ $cx['suburb_avg_sold_n'] ?? 0 }}).</span>@endif
+                                @else<span style="color: var(--text-muted);">Not enough sales in this suburb to compare ({{ $cx['suburb_avg_sold_n'] ?? 0 }} found, 3 needed).</span>@endif
                                 @if(!empty($cx['suburb_r_per_m2']) && $cx['own_vs_suburb_pct'] !== null)<br>Asking R {{ number_format($cx['own_r_per_m2']) }}/m² on {{ $cx['own_size_basis'] ?? 'erf' }} size is {{ abs($cx['own_vs_suburb_pct']) }}% {{ $cx['own_vs_suburb_pct'] >= 0 ? 'above' : 'below' }} the suburb R {{ number_format($cx['suburb_r_per_m2']) }}/m².@endif
                             </div>
                         @endif
@@ -164,7 +164,7 @@
                         </div>
                         <div style="font-weight: 700; margin: 8px 0 2px;">Our history</div>
                         <div data-qa="our-history">
-                            @forelse($r['claims'] as $c)<div>Claim · {{ $c['who'] ?? 'agent' }} · {{ $c['at'] }} · {{ str_replace('_', ' ', $c['status'] ?? '') }}@if($c['released']) · released {{ $c['released'] }}@endif @if($c['reason']) ({{ $c['reason'] }})@endif</div>@empty<div style="color: var(--text-muted);">No claims yet.</div>@endforelse
+                            @forelse($r['claims'] as $c)<div>Claim{{ ($c['count'] ?? 1) > 1 ? ' ×' . $c['count'] : '' }} · {{ $c['who'] ?? 'agent' }} · {{ $c['at'] }} · {{ str_replace('_', ' ', $c['status'] ?? '') }}@if($c['released']) · released {{ $c['released'] }}@endif @if($c['reason']) ({{ $c['reason'] }})@endif</div>@empty<div style="color: var(--text-muted);">No claims yet.</div>@endforelse
                             @if($r['work_status'])<div>Status · {{ ucfirst(str_replace('_', ' ', $r['work_status'])) }}@if($r['work_reason']) · {{ $r['work_reason'] }}@endif</div>@endif
                             @foreach($r['mandates'] as $m)<div>Mandate · {{ $m['type'] ? ucfirst($m['type']) : '-' }} · {{ ucfirst(str_replace('_', ' ', (string) $m['status'])) }}@if($m['expiry']) · expires {{ $m['expiry'] }}@endif @if($m['price']) · {{ $money($m['price']) }}@endif</div>@endforeach
                         </div>

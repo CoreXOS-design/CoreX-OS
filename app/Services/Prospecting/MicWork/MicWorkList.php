@@ -49,6 +49,14 @@ final class MicWorkList
         return $at === false ? $a : substr($a, 0, $at + 2) . self::titleSuburb(substr($a, $at + 2));
     }
 
+    /** CMA / deeds addresses arrive in capitals ("938 FASCADALE"): title-case the whole line when it has no lowercase at all, else tidy the suburb only. */
+    public static function tidyLine(?string $address): string
+    {
+        $a = trim((string) $address);
+
+        return $a !== '' && $a === mb_strtoupper($a) ? \Illuminate\Support\Str::title(mb_strtolower($a)) : self::tidyAddress($a);
+    }
+
     /** @return list<string> */
     public static function sortKeys(): array
     {
@@ -323,7 +331,7 @@ final class MicWorkList
                 'alerts' => $alertsByKey[$key] ?? [],
                 'pair_ids' => $pairs[$key] ?? [],
                 'buyer_names' => array_values($buyerNames[$key] ?? []),
-                'claims' => $claimsByKey[$key] ?? [],
+                'claims' => $this->collapseClaims($claimsByKey[$key] ?? []),
                 'mandates' => ($mandates->get($key) ?? collect())->map(fn ($m) => ['status' => $m->status, 'type' => $m->mandate_type, 'expiry' => $m->expiry_date ? \Carbon\Carbon::parse($m->expiry_date)->format('j M Y') : null, 'price' => $m->price ? (int) $m->price : null])->all(),
                 'context' => $context[$key] ?? null,
                 'advert_count' => $live->count(),
@@ -357,5 +365,26 @@ final class MicWorkList
         }
 
         return $out;
+    }
+
+    /**
+     * The same person claiming the same advert the same day with the same outcome is one line with a count (a file's adverts each carry their own claim).
+     *
+     * @param  list<array<string, mixed>>  $claims
+     * @return list<array<string, mixed>>
+     */
+    private function collapseClaims(array $claims): array
+    {
+        $out = [];
+        foreach ($claims as $c) {
+            $k = ($c['who'] ?? '') . '|' . ($c['status'] ?? '') . '|' . ($c['at'] ?? '') . '|' . ($c['released'] ?? '') . '|' . ($c['reason'] ?? '');
+            if (isset($out[$k])) {
+                $out[$k]['count']++;
+            } else {
+                $out[$k] = $c + ['count' => 1];
+            }
+        }
+
+        return array_slice(array_values($out), 0, 6);
     }
 }

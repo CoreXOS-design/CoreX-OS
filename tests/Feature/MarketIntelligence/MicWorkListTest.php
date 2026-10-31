@@ -154,6 +154,8 @@ final class MicWorkListTest extends TestCase
     {
         $this->assertSame('12 Foo Road, Shelly Beach', MicWorkList::tidyAddress('12 Foo Road, SHELLY BEACH'));
         $this->assertSame('Oslo Beach', MicWorkList::titleSuburb('OSLO BEACH'));
+        $this->assertSame('938 Fascadale', MicWorkList::tidyLine('938 FASCADALE'));
+        $this->assertSame('12 Foo Road, Shelly Beach', MicWorkList::tidyLine('12 Foo Road, SHELLY BEACH'));
 
         $a = $this->tp($this->agency, 'P24-119000060', '13', 'Newport Road');
         $b = $this->tp($this->agency, 'P24-119000061', '77', 'Marine Parade');
