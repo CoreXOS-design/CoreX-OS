@@ -47,7 +47,8 @@
     <strong>{{ $tileNote['title'] }}</strong>:
     @if($tileNote['files'] !== null){{ number_format($tileNote['files']) }} properties →@endif
     {{ number_format($tileNote['rows']) }} rows below
-    @if($tileNote['files'] !== null)<span style="color: var(--text-muted);">(a property whose P24 and PP adverts are not linked yet shows as more than one row)</span>@endif
+    @if($tileNote['files'] !== null && $tileNote['rows'] > $tileNote['files'])<span style="color: var(--text-muted);">(a property whose P24 and PP adverts are not linked yet shows as more than one row)</span>
+    @elseif($tileNote['files'] !== null && $tileNote['rows'] < $tileNote['files'])<span style="color: var(--text-muted);">({{ number_format($tileNote['files'] - $tileNote['rows']) }} of them have no advert this list shows - taken down, or outside your scope)</span>@endif
     @if($tileNote['tileCount'] !== null)<span style="color: var(--text-muted);"> · the tile's {{ number_format($tileNote['tileCount']) }} counts "{{ $tileNote['tileCounts'] }}", not this list</span>@endif
     @if($tileNote['asOf'])<span style="color: var(--text-muted);"> · figures as of {{ $tileNote['asOf'] }}</span>@endif
     · <a href="{{ route('market-intelligence.work', request()->except(['tile', 'page'])) }}" style="color: var(--brand-icon); text-decoration: none;">Clear this tile</a>
