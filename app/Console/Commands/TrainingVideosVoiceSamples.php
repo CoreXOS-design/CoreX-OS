@@ -15,7 +15,7 @@ class TrainingVideosVoiceSamples extends Command
     public function handle(VoiceSamples $samples, TrainingVoices $voices): int
     {
         $bad = 0;
-        foreach ($voices->catalogue() as $key => $v) {
+        foreach ($voices->listed() as $key => $v) {
             if (! $v['installed']) {
                 $this->warn("{$key}: model {$v['model']} is not installed");
                 $bad++;
@@ -33,7 +33,7 @@ class TrainingVideosVoiceSamples extends Command
             }
             $abs = \Storage::disk((string) config('training-videos.auto.disk', 'local'))->path($path);
             $secs = trim((string) shell_exec('ffprobe -v error -show_entries format=duration -of csv=p=0 ' . escapeshellarg($abs)));
-            $this->line(sprintf('%-9s %-34s %5.1fs audio, made in %.1fs, %d KB', $key, $v['model'] . ($v['speaker'] !== null ? '#' . $v['speaker'] : ''), (float) $secs, microtime(true) - $t, round(filesize($abs) / 1024)));
+            $this->line(sprintf('%-9s %-34s %5.1fs audio, made in %.1fs, %d KB', $key, $v['provider'] . ':' . $v['model'] . ($v['speaker'] !== null ? '#' . $v['speaker'] : ''), (float) $secs, microtime(true) - $t, round(filesize($abs) / 1024)));
         }
 
         return $bad ? self::FAILURE : self::SUCCESS;

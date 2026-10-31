@@ -10,17 +10,43 @@ use App\Models\Agency;
  */
 class TrainingVoices
 {
-    /** @return array<string, array{key: string, label: string, model: string, speaker: ?int, about: string, installed: bool}> */
+    /** @return array<string, array{key: string, label: string, provider: string, model: string, speaker: ?int, about: string, listed: bool, installed: bool}> */
     public function catalogue(): array
     {
-        $dir = rtrim((string) config('training-videos.auto.tts.piper.data_dir'), '/');
         $out = [];
         foreach ((array) config('training-videos.auto.voices', []) as $key => $v) {
-            $out[$key] = ['key' => (string) $key, 'label' => (string) $v['label'], 'model' => (string) $v['model'], 'speaker' => $v['speaker'] ?? null, 'about' => (string) ($v['about'] ?? ''),
-                'installed' => is_file($dir . '/' . $v['model'] . '.onnx')];
+            $provider = (string) ($v['provider'] ?? 'piper');
+            $out[$key] = ['key' => (string) $key, 'label' => (string) $v['label'], 'provider' => $provider, 'model' => (string) $v['model'], 'speaker' => $v['speaker'] ?? null,
+                'about' => (string) ($v['about'] ?? ''), 'listed' => (bool) ($v['listed'] ?? true), 'installed' => $this->installed($provider, (string) $v['model'])];
         }
 
         return $out;
+    }
+
+    /** Is the engine (and, for Piper, the voice model) on this server? */
+    private function installed(string $provider, string $model): bool
+    {
+        if ($provider === 'kokoro') {
+            $c = (array) config('training-videos.auto.tts.kokoro');
+
+            return is_file((string) ($c['python'] ?? '')) && is_file((string) ($c['model'] ?? '')) && is_file((string) ($c['voices'] ?? ''));
+        }
+        $dir = rtrim((string) config('training-videos.auto.tts.piper.data_dir'), '/');
+
+        return is_file($dir . '/' . $model . '.onnx');
+    }
+
+    /** The voices the picker offers (Piper's are kept out: Johan rejected them, they remain only as the last-resort fallback). */
+    public function listed(): array
+    {
+        return array_filter($this->catalogue(), fn ($v) => $v['listed']);
+    }
+
+    public function fallbackKey(): string
+    {
+        $k = (string) config('training-videos.auto.fallback_voice', 'jenny');
+
+        return isset(config('training-videos.auto.voices', [])[$k]) ? $k : $this->defaultKey();
     }
 
     public function find(?string $key): ?array
@@ -59,15 +85,21 @@ class TrainingVoices
         return array_merge((array) config('training-videos.auto.tts.piper'), ['voice' => $v['model'], 'speaker' => $v['speaker'], 'key' => $v['key']]);
     }
 
+    /** What a KokoroTtsProvider needs for this voice key. */
+    public function kokoroConfig(string $key): array
+    {
+        return array_merge((array) config('training-videos.auto.tts.kokoro'), ['voice' => $key, 'key' => $key]);
+    }
+
     /** Label for a stored tts_voice ("piper:cori", or an older "piper:en_GB-jenny_dioco-medium"). */
     public function labelFor(?string $stored): string
     {
-        $k = preg_replace('/^piper:/', '', (string) $stored);
+        $k = preg_replace('/^(piper|kokoro):/', '', (string) $stored);
         if ($v = $this->find($k)) {
             return $v['label'];
         }
         foreach ($this->catalogue() as $v) {
-            if ($v['model'] === $k && $v['speaker'] === null) {
+            if ($v['provider'] === 'piper' && $v['model'] === $k && $v['speaker'] === null) {
                 return $v['label'];
             }
         }

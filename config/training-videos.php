@@ -86,6 +86,14 @@ return [
         'tts' => [
             // 'piper' (free, offline, MIT) | 'fake' (silent, tests). A paid voice is one more class implementing App\Services\TrainingVideos\Tts\TtsProvider.
             'driver' => env('TRAINING_TTS_DRIVER', 'piper'),
+            // Kokoro-82M via kokoro-onnx (CPU), in its own venv on the DATA volume; scripts/kokoro-tts.py speaks one text.
+            'kokoro' => [
+                'python' => env('KOKORO_PYTHON', '/mnt/HC_Volume_103099143/training-videos/kokoro-venv/bin/python'),
+                'script' => base_path('scripts/kokoro-tts.py'),
+                'model' => env('KOKORO_MODEL', '/mnt/HC_Volume_103099143/training-videos/kokoro/kokoro-v1.0.onnx'),
+                'voices' => env('KOKORO_VOICES', '/mnt/HC_Volume_103099143/training-videos/kokoro/voices-v1.0.bin'),
+                'timeout' => 180,
+            ],
             'piper' => [
                 'python' => env('PIPER_PYTHON', '/mnt/HC_Volume_103099143/training-videos/tts-venv/bin/python'),
                 'data_dir' => env('PIPER_DATA_DIR', '/mnt/HC_Volume_103099143/training-videos/voices'),
@@ -94,20 +102,35 @@ return [
         ],
 
         // The voice every agency starts with; an agency picks its own in the Training library (agencies.training_video_voice).
-        'default_voice' => env('TRAINING_DEFAULT_VOICE', 'jenny'),
+        'default_voice' => env('TRAINING_DEFAULT_VOICE', 'bf_emma'),
+        // The LAST-RESORT voice: used only when the chosen voice's engine is not installed on this server (never on a runtime error - a video must not change voice half way).
+        'fallback_voice' => env('TRAINING_FALLBACK_VOICE', 'jenny'),
+        // The voice engines (spec section 9.18 / 9.19): licence and cost are shown above each group in the picker.
+        'providers' => [
+            'kokoro' => ['label' => 'Kokoro', 'licence' => 'Apache-2.0, commercial use OK', 'cost' => 'Free - runs on our own server'],
+            'piper' => ['label' => 'Piper', 'licence' => 'MIT code; each voice keeps its own dataset licence', 'cost' => 'Free - runs on our own server'],
+        ],
         // Two plain sentences every voice speaks in the Training library's voice picker, so the voices can be compared like for like.
         'sample_text' => 'Click a house to see everything we know about it. To go after it, press Claim.',
         // The Piper voices on offer (British English, female; free and offline; models live on the DATA volume, in piper.data_dir). `speaker` = the id inside a
         // multi-speaker model. A voice is added here and its model downloaded with `python -m piper.download_voices <model> --data-dir <data_dir>`.
         'voices' => [
-            'jenny' => ['label' => 'Jenny', 'model' => 'en_GB-jenny_dioco-medium', 'speaker' => null, 'about' => 'Warm and friendly, southern British. The voice used so far.'],
-            'cori' => ['label' => 'Cori', 'model' => 'en_GB-cori-high', 'speaker' => null, 'about' => 'Clear and calm, high quality (the fullest sound of the set).'],
-            'southern' => ['label' => 'Southern', 'model' => 'en_GB-southern_english_female-low', 'speaker' => null, 'about' => 'Plain southern English, neutral and even. Lighter quality.'],
-            'prudence' => ['label' => 'Prudence', 'model' => 'en_GB-semaine-medium', 'speaker' => 0, 'about' => 'Bright and upbeat British voice.'],
-            'poppy' => ['label' => 'Poppy', 'model' => 'en_GB-semaine-medium', 'speaker' => 3, 'about' => 'Lively and animated British voice.'],
-            'clara' => ['label' => 'Clara', 'model' => 'en_GB-vctk-medium', 'speaker' => 107, 'about' => 'Standard southern English, even pace (speaker p225).'],
-            'grace' => ['label' => 'Grace', 'model' => 'en_GB-vctk-medium', 'speaker' => 85, 'about' => 'Standard English, soft and steady (speaker p229).'],
-            'heather' => ['label' => 'Heather', 'model' => 'en_GB-vctk-medium', 'speaker' => 18, 'about' => 'Standard English, clear and brisk (speaker p257).'],
+            // Kokoro (free, Apache-2.0). British female first, two natural American female voices for comparison.
+            'bf_emma' => ['label' => 'Emma', 'provider' => 'kokoro', 'model' => 'kokoro', 'speaker' => null, 'about' => 'British female.'],
+            'bf_isabella' => ['label' => 'Isabella', 'provider' => 'kokoro', 'model' => 'kokoro', 'speaker' => null, 'about' => 'British female.'],
+            'bf_alice' => ['label' => 'Alice', 'provider' => 'kokoro', 'model' => 'kokoro', 'speaker' => null, 'about' => 'British female.'],
+            'bf_lily' => ['label' => 'Lily', 'provider' => 'kokoro', 'model' => 'kokoro', 'speaker' => null, 'about' => 'British female.'],
+            'af_heart' => ['label' => 'Heart', 'provider' => 'kokoro', 'model' => 'kokoro', 'speaker' => null, 'about' => 'American female, for comparison.'],
+            'af_bella' => ['label' => 'Bella', 'provider' => 'kokoro', 'model' => 'kokoro', 'speaker' => null, 'about' => 'American female, for comparison.'],
+            // Piper: no longer offered in the picker (Johan rejected all eight, 31 Oct); kept as the last-resort fallback and so older videos still show a voice name.
+            'jenny' => ['label' => 'Jenny', 'provider' => 'piper', 'listed' => false, 'model' => 'en_GB-jenny_dioco-medium', 'speaker' => null, 'about' => 'Warm and friendly, southern British. The voice used so far.'],
+            'cori' => ['label' => 'Cori', 'provider' => 'piper', 'listed' => false, 'model' => 'en_GB-cori-high', 'speaker' => null, 'about' => 'Clear and calm, high quality (the fullest sound of the set).'],
+            'southern' => ['label' => 'Southern', 'provider' => 'piper', 'listed' => false, 'model' => 'en_GB-southern_english_female-low', 'speaker' => null, 'about' => 'Plain southern English, neutral and even. Lighter quality.'],
+            'prudence' => ['label' => 'Prudence', 'provider' => 'piper', 'listed' => false, 'model' => 'en_GB-semaine-medium', 'speaker' => 0, 'about' => 'Bright and upbeat British voice.'],
+            'poppy' => ['label' => 'Poppy', 'provider' => 'piper', 'listed' => false, 'model' => 'en_GB-semaine-medium', 'speaker' => 3, 'about' => 'Lively and animated British voice.'],
+            'clara' => ['label' => 'Clara', 'provider' => 'piper', 'listed' => false, 'model' => 'en_GB-vctk-medium', 'speaker' => 107, 'about' => 'Standard southern English, even pace (speaker p225).'],
+            'grace' => ['label' => 'Grace', 'provider' => 'piper', 'listed' => false, 'model' => 'en_GB-vctk-medium', 'speaker' => 85, 'about' => 'Standard English, soft and steady (speaker p229).'],
+            'heather' => ['label' => 'Heather', 'provider' => 'piper', 'listed' => false, 'model' => 'en_GB-vctk-medium', 'speaker' => 18, 'about' => 'Standard English, clear and brisk (speaker p257).'],
         ],
 
         'recorder' => [

@@ -230,9 +230,14 @@ final class TrainingLibraryTest extends TestCase
     {
         $html = $this->actingAs($this->admin)->get(route('corex.training-library.index'))->assertOk()->getContent();
         $this->assertStringContainsString('data-voice-picker', $html);
-        foreach (array_keys(config('training-videos.auto.voices')) as $key) {
+        foreach (app(\App\Services\TrainingVideos\Tts\TrainingVoices::class)->listed() as $key => $v) {
             $this->assertStringContainsString('data-voice="' . $key . '"', $html);
         }
+        foreach (['jenny', 'cori', 'clara'] as $piper) {
+            $this->assertStringNotContainsString('data-voice="' . $piper . '"', $html, 'the Piper voices are no longer offered');
+        }
+        $this->assertStringContainsString('data-voice-group="kokoro"', $html);
+        $this->assertStringContainsString('Apache-2.0', $html, 'the licence is shown above the group');
         $this->assertSame(1, substr_count($html, 'data-voice-current'), 'exactly one voice is marked as the current one');
         $this->assertStringContainsString(config('training-videos.auto.sample_text'), $html, 'the same sample sentences are shown');
 
@@ -246,14 +251,14 @@ final class TrainingLibraryTest extends TestCase
         $this->assertNull($agency->training_video_voice);
         $this->assertSame(config('training-videos.auto.default_voice'), app(\App\Services\TrainingVideos\Tts\TrainingVoices::class)->keyFor($agency));
 
-        $this->actingAs($this->admin)->post(route('corex.training-library.voice.choose'), ['voice' => 'cori'])->assertSessionHas('success');
-        $this->assertSame('cori', $agency->fresh()->training_video_voice);
+        $this->actingAs($this->admin)->post(route('corex.training-library.voice.choose'), ['voice' => 'bf_lily'])->assertSessionHas('success');
+        $this->assertSame('bf_lily', $agency->fresh()->training_video_voice);
         $html = $this->actingAs($this->admin)->get(route('corex.training-library.index'))->getContent();
-        $this->assertMatchesRegularExpression('/data-voice="cori".*?data-voice-current/s', $html);
+        $this->assertMatchesRegularExpression('/data-voice="bf_lily".*?data-voice-current/s', $html);
 
         $this->actingAs($this->admin)->post(route('corex.training-library.voice.choose'), ['voice' => 'nobody'])->assertNotFound();
-        $this->actingAs($this->agent)->post(route('corex.training-library.voice.choose'), ['voice' => 'poppy'])->assertForbidden();
-        $this->assertSame('cori', $agency->fresh()->training_video_voice);
+        $this->actingAs($this->agent)->post(route('corex.training-library.voice.choose'), ['voice' => 'af_bella'])->assertForbidden();
+        $this->assertSame('bf_lily', $agency->fresh()->training_video_voice);
     }
 
     public function test_regenerate_all_queues_every_approved_script_in_the_chosen_voice(): void
@@ -261,22 +266,22 @@ final class TrainingLibraryTest extends TestCase
         $this->script('draft-one', 'Draft', ['approved' => false]);
         $this->app->forgetInstance(\App\Services\TrainingVideos\Auto\TrainingScriptRepository::class);
         Bus::fake();
-        $this->actingAs($this->admin)->post(route('corex.training-library.voice.choose'), ['voice' => 'poppy']);
+        $this->actingAs($this->admin)->post(route('corex.training-library.voice.choose'), ['voice' => 'af_heart']);
         $this->actingAs($this->agent)->post(route('corex.training-library.regenerate-all'))->assertForbidden();
         $this->actingAs($this->admin)->post(route('corex.training-library.regenerate-all'))->assertSessionHas('success');
 
         Bus::assertDispatchedTimes(\App\Jobs\TrainingVideos\GenerateTrainingVideoJob::class, 1);
-        Bus::assertDispatched(\App\Jobs\TrainingVideos\GenerateTrainingVideoJob::class, fn ($j) => $j->screenKey === 'book-a-viewing' && $j->voiceKey === 'poppy' && $j->queue === 'training-videos');
+        Bus::assertDispatched(\App\Jobs\TrainingVideos\GenerateTrainingVideoJob::class, fn ($j) => $j->screenKey === 'book-a-viewing' && $j->voiceKey === 'af_heart' && $j->queue === 'training-videos');
     }
 
     public function test_a_voice_sample_is_served_only_to_people_who_can_choose_the_voice(): void
     {
         $samples = app(\App\Services\TrainingVideos\Tts\VoiceSamples::class);
-        Storage::disk('local')->put($samples->path('cori'), 'MP3DATA');
-        $r = $this->actingAs($this->admin)->get(route('corex.training-library.voice-sample', 'cori'));
+        Storage::disk('local')->put($samples->path('bf_emma'), 'MP3DATA');
+        $r = $this->actingAs($this->admin)->get(route('corex.training-library.voice-sample', 'bf_emma'));
         $r->assertOk();
         $this->assertSame('audio/mpeg', $r->headers->get('Content-Type'));
-        $this->actingAs($this->agent)->get(route('corex.training-library.voice-sample', 'cori'))->assertForbidden();
+        $this->actingAs($this->agent)->get(route('corex.training-library.voice-sample', 'bf_emma'))->assertForbidden();
         $this->actingAs($this->admin)->get(route('corex.training-library.voice-sample', 'nobody'))->assertNotFound();
     }
 
@@ -289,6 +294,11 @@ final class TrainingLibraryTest extends TestCase
         }
         $this->assertSame('Jenny', $v->labelFor('piper:en_GB-jenny_dioco-medium'));
         $this->assertSame('Cori', $v->labelFor('piper:cori'));
+        $this->assertSame('Emma', $v->labelFor('kokoro:bf_emma'));
+        $this->assertSame('bf_emma', $v->defaultKey(), 'Kokoro is the default');
+        $this->assertSame('jenny', $v->fallbackKey(), 'Piper stays as the last-resort fallback');
+        $this->assertSame('bf_isabella', $v->kokoroConfig('bf_isabella')['voice']);
+        $this->assertSame('kokoro:bf_isabella', (new \App\Services\TrainingVideos\Tts\KokoroTtsProvider($v->kokoroConfig('bf_isabella')))->name());
         $cfg = $v->piperConfig('clara');
         $this->assertSame('en_GB-vctk-medium', $cfg['voice']);
         $this->assertSame(107, $cfg['speaker']);

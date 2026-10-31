@@ -50,7 +50,7 @@ class TrainingLibraryController extends Controller
         $voiceRows = [];
         $currentVoice = $this->voices->keyFor($this->agencyOf($user));
         if ($canGenerate) {
-            foreach ($this->voices->catalogue() as $key => $v) {
+            foreach ($this->voices->listed() as $key => $v) {
                 $voiceRows[] = $v + ['current' => $key === $currentVoice, 'sample' => $v['installed'] && $this->samples->exists($key)];
             }
         }

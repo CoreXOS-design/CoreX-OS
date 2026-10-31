@@ -24,8 +24,12 @@
             </form>
             @endif
         </div>
+        @foreach(collect($voiceRows)->groupBy('provider') as $prov => $group)
+        @php($meta = config('training-videos.auto.providers.' . $prov, ['label' => ucfirst($prov), 'licence' => '', 'cost' => '']))
+        <div data-voice-group="{{ $prov }}">
+        <div class="text-xs mb-2" style="color: var(--text-muted);"><strong style="color: var(--text-primary);">{{ $meta['label'] }}</strong> &middot; {{ $meta['cost'] }} &middot; {{ $meta['licence'] }}</div>
         <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            @foreach($voiceRows as $v)
+            @foreach($group as $v)
                 <div class="rounded-md p-3 flex flex-col gap-2" style="border: 1px solid {{ $v['current'] ? 'var(--brand-icon, #0ea5e9)' : 'var(--border)' }}; background: var(--surface-2);" data-voice="{{ $v['key'] }}">
                     <div class="flex items-center justify-between gap-2">
                         <strong class="text-sm">{{ $v['label'] }}</strong>
@@ -46,6 +50,8 @@
                 </div>
             @endforeach
         </div>
+        </div>
+        @endforeach
     </div>
     <script>
         window.__tlPlayVoice = function (btn) {

@@ -473,3 +473,18 @@ Piper stays as the **free fallback and the default**. The pipeline gains a provi
 Both pilot videos (about 1,500 characters each) re-made in a new voice cost **about 5 US cents on Azure or Polly, about 30 cents on ElevenLabs Creator**; a voice change is therefore cheap, and the real cost is Johan's listening time. Providers likely to sound most natural for plain South African English: Azure Leah / Luke and Polly Ayanda (generative) are the two that are explicitly `en-ZA`; ElevenLabs gives the most natural result but is the only paid-monthly option.
 
 **Build order when Johan chooses** (each step its own commit, QA1 only): (1) provider classes + `VoiceCatalogue` + usage counter + cap (no UI, tested with faked HTTP); (2) System settings screen for the keys (owner role, encrypted, masked); (3) picker grouped by provider with the cost note; (4) then regenerate in the chosen voice. Nothing is regenerated until Johan picks.
+
+### 9.19 Voices: provider, licence, cost (31 Oct, Johan: CoreX has no paying customers yet, so voices are FREE wherever possible)
+Johan rejected all eight Piper voices. ElevenLabs ("Ava", "Thandi" were liked) is **parked**: its free plan bans commercial use and the cheapest commercial plan is about $6 a month. All voice engines live on the DATA volume. Provider is part of the voice: the picker groups voices by provider and shows its licence and cost above the group.
+
+| Provider | Voices | Licence | Cost | Where | Status (31 Oct) |
+|---|---|---|---|---|---|
+| **Kokoro-82M** (kokoro-onnx, CPU) | British female `bf_emma`, `bf_isabella`, `bf_alice`, `bf_lily`; American female `af_heart`, `af_bella` (for comparison) | Apache-2.0, commercial use OK | Free, our own server; about 0.7-0.9 s of work per second of speech | venv `/mnt/HC_Volume_103099143/training-videos/kokoro-venv`, model `.../kokoro/kokoro-v1.0.onnx` (326 MB) + `voices-v1.0.bin`, `scripts/kokoro-tts.py` | **LIVE in the picker; the default engine** |
+| **Chatterbox** (Resemble AI) | Your own voice, cloned from a 5-10 s recording (admin, consent tick) | MIT, commercial use OK | Free, own server | own venv on the data volume | next - speed on this CPU to be measured first |
+| **Azure Speech free tier** | `en-ZA-LeahNeural` (F), `en-ZA-LukeNeural` (M), plus Afrikaans and Zulu | Microsoft Azure terms | 0.5 million characters a month free, ongoing (about 330 scripts a month); about $15-16 per million after | cloud; needs Johan's own Azure key | stub only: shown greyed "needs an Azure key", disabled by a setting |
+| Piper (en_GB, 8 voices) | Jenny, Cori, ... | MIT code, per-voice dataset licences | Free | `.../voices` | **removed from the picker (rejected); kept as the last-resort fallback** |
+| ElevenLabs | Ava, Thandi (library) | commercial use needs a paid plan | from about $6 a month | cloud | **parked** |
+
+- **Fallback rule:** the default voice is `bf_emma` (Kokoro). If a chosen voice's engine is not installed on a server, the fallback voice (`jenny`, Piper) speaks instead and a warning is logged; a runtime error is never swapped for another voice (a video must not change voice half way).
+- **Chatterbox consent rule (when built):** admin only; "Record or upload your own voice" needs the tick "I confirm the person in this recording agreed to their voice being used"; the reference clip is stored privately on the data volume and used only to read the samples and videos; CoreX never clones a real person, celebrity or third-party sample itself.
+- **Azure key:** Johan creates the Azure account and key; we never create accounts or enter keys. Stored encrypted in a System setting (9.18).
