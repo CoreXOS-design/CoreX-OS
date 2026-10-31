@@ -183,6 +183,8 @@ final class QueueWatchdogTest extends TestCase
         foreach (['default', 'mail', 'thumbnails', 'training-videos', 'p24import', 'p24images', 'matching', 'webhooks', 'buyer-matching', 'bg_removal'] as $q) {
             $this->assertContains($q, $queues, $q);
         }
+        $this->assertNotContains('ai', $queues, 'a queue named only in a comment is not a dispatch');
+        $this->assertContains('p24', $queues);
         $this->consumed(['default', 'mail']);
         $c = app(QueueWatchdogService::class)->coverage();
         $this->assertContains('thumbnails', $c['missing']);

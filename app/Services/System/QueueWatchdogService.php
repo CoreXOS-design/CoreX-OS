@@ -201,7 +201,8 @@ class QueueWatchdogService
             }
         }
         foreach ($files as $path) {
-            $src = (string) @file_get_contents($path);
+            // a queue named only in a comment (e.g. "->onQueue('ai') here") is not a dispatch
+            $src = implode("\n", array_filter(explode("\n", (string) @file_get_contents($path)), fn ($l) => ! preg_match('#^\s*(//|\*|/\*|\#)#', $l)));
             if (preg_match_all('/onQueue\(\s*[\'"]([a-z0-9_-]+)[\'"]/i', $src, $m)) {
                 foreach ($m[1] as $q) { $found[$q] = true; }
             }
