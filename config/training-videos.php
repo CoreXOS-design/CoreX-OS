@@ -142,6 +142,12 @@ return [
             'heather' => ['label' => 'Heather', 'provider' => 'piper', 'listed' => false, 'model' => 'en_GB-vctk-medium', 'speaker' => 18, 'about' => 'Standard English, clear and brisk (speaker p257).'],
         ],
 
+        // Ad Studio's video ads (spec 9.16.1): optional music lives on the DATA volume with its licence beside it; NO track is configured or used until Johan approves one.
+        'ads' => [
+            'music_dir' => env('TRAINING_ADS_MUSIC_DIR', '/mnt/HC_Volume_103099143/training-videos/music'),
+            'folder' => 'training-videos-auto/ads',
+        ],
+
         'recorder' => [
             'node' => env('TRAINING_NODE_BIN', 'node'),
             'script' => base_path('scripts/training-video-record.mjs'),

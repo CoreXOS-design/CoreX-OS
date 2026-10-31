@@ -79,7 +79,8 @@ await tidy();
 
 if (job.probe) {
   const missing = [];
-  for (const [i, s] of job.steps.entries()) {
+  let lastUrl = job.url;
+for (const [i, s] of job.steps.entries()) {
     if (!s.selector) continue;
     const ok = await page.$(s.selector).then((h) => !!h).catch(() => false);
     if (!ok) missing.push({ step: i + 1, selector: s.selector });
@@ -90,7 +91,7 @@ if (job.probe) {
   process.exit(missing.length ? 4 : 0);
 }
 
-const timeline = { recording_started: null, intro: null, steps: [], outro: null, total: 0 };
+const timeline = { viewport: job.viewport, recording_started: null, intro: null, steps: [], outro: null, total: 0 };
 // Frames are captured through the DevTools protocol WITH THEIR REAL TIMESTAMPS and assembled at true timing. (page.screencast encodes frames as they arrive and
 // drops frames when the page is busy, which made the video run about 16% faster than the clock the timeline and the voice-over use.)
 const framesDir = path.join(path.dirname(job.out), 'frames');
@@ -142,13 +143,20 @@ for (const [i, s] of job.steps.entries()) {
   const rec1 = { i, start, end: null, found: true, error: null };
   try {
     let pt = null;
+    if (job.ad && s.url && s.url !== lastUrl) { await page.goto(job.baseUrl.replace(/\/$/, '') + s.url, { waitUntil: 'networkidle2', timeout: 60000 }); lastUrl = s.url; await inject(); await tidy(); }
+    if (job.ad && s.wait_for) { await page.waitForSelector(s.wait_for, { timeout: 10000 }).catch(() => { rec1.found = false; }); }
     if (s.selector) {
       await page.waitForSelector(s.selector, { timeout: 8000 }).catch(() => { rec1.found = false; });
-      if (rec1.found) pt = await page.evaluate((sel) => window.__tvSpot(sel), s.selector);
-      if (pt) { await page.evaluate((x, y) => window.__tvMove(x, y), pt.x, pt.y); await sleep(700); }
+      if (job.ad) {
+        // an ad shows the screen itself: no spotlight, no cursor - the target is only measured (and scrolled into view) so the cut can zoom on it
+        if (rec1.found) pt = await page.evaluate((sel) => { const e = document.querySelector(sel); if (!e) return null; e.scrollIntoView({ block: 'center', behavior: 'instant' }); const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, s.selector);
+      } else {
+        if (rec1.found) pt = await page.evaluate((sel) => window.__tvSpot(sel), s.selector);
+        if (pt) { await page.evaluate((x, y) => window.__tvMove(x, y), pt.x, pt.y); await sleep(700); }
+      }
     }
     if (rec1.found) {
-      if (s.action === 'click' && pt) { await page.evaluate(() => window.__tvClickFx()); await sleep(250); await page.click(s.selector).catch(async () => { await page.evaluate((sel) => document.querySelector(sel)?.click(), s.selector); }); }
+      if (s.action === 'click' && pt) { if (!job.ad) { await page.evaluate(() => window.__tvClickFx()); await sleep(250); } await page.click(s.selector).catch(async () => { await page.evaluate((sel) => document.querySelector(sel)?.click(), s.selector); }); }
       else if (s.action === 'type' && pt) { await page.click(s.selector).catch(() => {}); await page.type(s.selector, s.value || '', { delay: 70 }); }
       else if (s.action === 'select' && pt) { await page.select(s.selector, s.value); }
       else if (s.action === 'press') { await page.keyboard.press(s.value); }
@@ -160,10 +168,15 @@ for (const [i, s] of job.steps.entries()) {
       await page.waitForNetworkIdle({ idleTime: 600, timeout: 20000 }).catch(() => {});
       if (!(await page.evaluate(() => typeof window.__tvSpot === 'function').catch(() => false))) { await inject(); await tidy(); }
     }
+    if (job.ad) {
+      // where the action is, in screen pixels (after the click's navigation has settled): the zoom / crop target of this cut
+      rec1.settled = Math.round((at() - start) * 100) / 100;   // seconds into this step when the action had settled: the cut starts here
+      rec1.rect = await page.evaluate((sel) => { const e = sel && document.querySelector(sel); if (!e) return null; e.scrollIntoView({ block: 'center', behavior: 'instant' }); const r = e.getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }; }, s.rect_selector || s.selector).catch(() => null);
+    }
   } catch (e) { rec1.error = String(e.message || e).slice(0, 200); log(`step ${i + 1} error: ${rec1.error}`); }
   const left = stepEnd - at();
   if (left > 0) await sleep(left * 1000);
-  await page.evaluate(() => window.__tvSpot(null)).catch(() => {});
+  if (!job.ad) { await page.evaluate(() => window.__tvSpot(null)).catch(() => {}); }
   rec1.end = at();
   timeline.steps.push(rec1);
   log(`step ${i + 1}/${job.steps.length} ${s.action} ${rec1.found ? 'ok' : 'NOT FOUND'} (${(rec1.end - rec1.start).toFixed(1)}s)`);
