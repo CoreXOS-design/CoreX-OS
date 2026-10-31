@@ -56,6 +56,7 @@ class TrainingAgencySeeder
         }
 
         $this->seedDemoData($agency, $branch, $users['agent']);
+        app(TrainingMicSeeder::class)->seed($agency->fresh(), $users['agent']);   // the Market Intelligence Work tab (9.11); does nothing when already there
 
         return ['agency' => $agency, 'users' => $users, 'created' => $created];
     }
@@ -66,6 +67,7 @@ class TrainingAgencySeeder
         $agency = Agency::withoutGlobalScopes()->where('slug', self::SLUG)->where('is_training', true)->first();
         if ($agency) {
             DB::table('calendar_events')->where('agency_id', $agency->id)->delete();
+            app(TrainingMicSeeder::class)->clear($agency);
             Property::withoutGlobalScope(AgencyScope::class)->where('agency_id', $agency->id)->forceDelete();
             Contact::withoutGlobalScope(AgencyScope::class)->where('agency_id', $agency->id)->forceDelete();
         }
