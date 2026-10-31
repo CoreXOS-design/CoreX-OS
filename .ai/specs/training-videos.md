@@ -296,3 +296,71 @@ Upload pieces are JSON, so per non-negotiable #7 they live under `/api/v1`, name
 **What the owner sees:** a video that is being shrunk shows a progress bar under its title on the Training Videos list — "Waiting in line…" until the video worker picks it up, then "Shrinking… 37% · about 6 min left", and the line "It goes live on the public page the moment this reaches 100%." The bar updates by itself every 5 seconds; when the video finishes, the list refreshes and it shows Ready. A replacement file shows the same bar with "The current video keeps playing until the new one is ready."
 
 **How:** new nullable column `training_videos.progress_percent` (NULL = waiting, 0–99 = shrinking, cleared when done or failed). `FfmpegVideoCompressor::compress()` takes an optional progress callback fed from ffmpeg's `-progress` output (position ÷ clip length); the job writes it at most every 2 seconds and restarts `processing_started_at` when the shrink actually begins, so the time-left estimate (`TrainingVideo::etaSeconds()`, shown only after 3%) ignores queue wait. Polled endpoint: `GET /api/v1/admin/training-video-uploads/progress` (`api.v1.training-video-uploads.progress`, owner-only). Migration `2026_12_14_100000_add_progress_to_training_videos`. No setting added, so no Setup Wizard entry. Test: `TrainingVideoUploadTest::test_progress_endpoint_reports_videos_being_shrunk_and_is_owner_only`.
+
+---
+
+## §9 — Auto-generated how-to videos (AT-525, Johan 2026-10-31)
+
+> **Status:** framework APPROVED by Johan (option 2, 2026-10-31); built on QA1 first, Staging after Johan's approval. Builds ON this module (§3-§8: model, admin, the `training-videos` queue and worker, the 720p ffmpeg compress) and on Johan's driver.js tours (`app/Support/Tours`, `.ai/specs/advanced-guiding.md`). **No second copy of either.**
+
+### 9.1 What it does and why
+Someone presses **Generate** on a screen. CoreX opens that screen itself in a headless browser as a **training user in a demo-data agency**, runs through a **script** (highlight, click, type), records it, speaks an AI voice-over that explains **what to click and why it matters** (what the step feeds elsewhere - e.g. booking a viewing in the diary means the buyer's feedback later goes to the seller's live link), and saves a short MP4 (max 2 minutes). Any agent opens it from that screen with a **Watch how (1:45)** button, or from a **Training library**. When a feature is built or changed, its video is flagged out of date and regenerated. Johan and Andre stop doing manual training.
+
+### 9.2 What already exists (checked 2026-10-31 - build on it)
+- **AT-509 Training Videos (Andre)** - on Staging and QA1: `TrainingVideo` model (YouTube or uploaded file), owner-only admin `admin/integrations/training-videos`, public `/training-videos`, chunked upload, `CompressTrainingVideoJob` (ffmpeg 720p, CRF 26) on queue `training-videos` with its own worker (`corex-worker-staging-training-videos`; QA1/QA2 workers added 2026-10-31), `config/training-videos.php`. It does no recording and no voice.
+- **Guided Tours (Johan)** - `TourRegistry` (`app/Support/Tours/TourRegistry.php` + 22 files in `defs/`): **217 tours, 1,750 steps, 992 with a `do` action** (click / fill / choose / appear). Engine = driver.js 1.3.6 in `layouts/partials/tour-engine.blade.php` (3 modes: Guided, Advanced, Spot Help), anchors are `data-tour="..."` attributes in the views, "?" launcher via `layouts/partials/tour-header-launcher.blade.php`. A step carries `title` + `body` (the WHAT) - **never the WHY**. Biggest tours: re-property-page 46 steps, calc-hub 22, property-capture 21, calendar 18.
+- **Ellie tour knowledge** (`ellie-tour-knowledge.md`) already reads the registry live - the same registry can seed scripts.
+
+### 9.3 Decisions
+| # | Decision | Why |
+|---|---|---|
+| T1 | A generated video is a `TrainingVideo` row with `source = 'generated'` (additive columns: `screen_key`, `source_hash`, `generated_at`, `tts_voice`, `captions_file`, `chapters`, `generated_by`). | Reuse the table, the admin, the queue and the compress code; one place for every training video. |
+| T2 | Generated videos are **private**: stored on the local (private) disk under `storage/app/training-videos-auto/` and streamed through an authenticated route (HTTP range supported). They never appear on the public `/training-videos` page (`scopePubliclyVisible` excludes them). | They are for agents; the library page is signed-in only. |
+| T3 | A screen's **script** is a PHP file `resources/training/scripts/<screen-key>.php` (format in 9.4). Claude drafts it from the spec + the code + the tour, Johan approves (`approved => true`); only approved scripts are generated automatically. `php artisan training-videos:draft <tour-key>` writes a skeleton from a tour (its title/body become the narration, the `why` is left for Claude to fill from the specs). | The tour already knows the selectors and the order; what it lacks is the why - that needs the specs, which is a writing job, not a recording job. |
+| T4 | Voice: **Piper** (free, offline, MIT code), provider-swappable behind `TtsProvider`. Default voice `en_GB-jenny_dioco-medium`. A paid voice is one more class + one `match` branch + `TRAINING_TTS_DRIVER`. | See 9.6. No data leaves the server, no per-minute cost. |
+| T5 | **Sync by construction:** the voice is generated FIRST, each clip's length measured, then the recorder holds every step for its clip's length (+ padding). The audio track is the clips placed at the step start times the recorder reports. | No guessing, no drift. |
+| T6 | The recorder logs in as a **training-agency user** only (`agencies.is_training = true`): `TrainingSessionService` refuses any other user. Demo data only (9.8). | POPIA. |
+| T7 | **Out of date** = the stored `source_hash` (script file + the tour definition + the spec files named in the script + the voice) no longer matches. Computed live in the library; `training-videos:check-outdated` lists them; Regenerate re-makes it. | Touch the tour / script / spec when the feature changes and the video flags itself. |
+| T8 | Hard cap **120 s**. The validator estimates the length from the word count BEFORE recording and refuses a script that would overrun, in a sentence; the assembler checks the real length again. | Max ~2 minutes (Johan). |
+| T9 | Permissions: `training_videos.view` (everyone who can use a screen sees its video) and `training_videos.generate` (agency admin / Command-Center / platform owner). | Non-negotiable #5. |
+| T10 | Nothing here is an agency setting, so nothing is added to the Setup Wizard (#10a). The training agency itself is platform data. | |
+
+### 9.4 Script format
+```php
+return [
+    'key' => 'book-a-viewing',            // kebab-case = the file name
+    'title' => 'Book a viewing and capture the buyer's feedback',
+    'route' => 'command-center.calendar', // where the "Watch how" button appears (null = library only)
+    'url'   => '/corex/command-center/calendar',
+    'tour'  => 'calendar',                // changed tour => video out of date
+    'specs' => ['.ai/specs/viewing-packs.md'],   // the why came from these => changed spec => out of date
+    'audience' => [],                     // roles; empty = every signed-in user
+    'related' => ['capture-a-buyer'],     // "watch next"
+    'login_as' => 'agent',
+    'approved' => true,                   // Johan's sign-off
+    'intro' => 'In this video: ...', 'outro' => 'Next: ...',
+    'steps' => [
+        ['selector' => '[data-tour="cal-add"]', 'action' => 'click',          // highlight | click | type | scroll | wait | goto | press
+         'narration' => 'Click Add Event.',                                    // WHAT
+         'why' => 'A viewing booked here is linked to the buyer and the property, so the feedback you capture later goes to the seller's live link.', // WHY - required
+         'hold' => 0],
+    ],
+];
+```
+
+### 9.5 Pipeline (`GenerateTrainingVideoJob`, queue `training-videos`)
+validate script -> speak every line (TtsProvider) and measure -> forge a session for the training user -> `scripts/training-video-record.mjs` (puppeteer-core + system Chromium, `page.screencast`) plays the steps (spotlight + cursor + click ripple injected, title cards for intro/outro) and writes a timeline JSON -> `VideoAssembler`: mux the audio clips at the timeline offsets, H.264 + AAC (CRF 26, faststart), burn-in captions (libass) and write a `.vtt` sidecar, poster frame at 3 s, enforce 120 s -> store, set `ready`, record `source_hash`. Failure at any stage leaves the previous video playing and the reason on the row.
+
+### 9.6 Findings from the investigation (2026-10-31, this box)
+- **Recording is proven.** puppeteer-core 24 (already in `package.json`) + `/usr/bin/chromium` 156 (a snap wrapper; box is **aarch64**), logged in to QA1 with a forged database session, drove the `calendar` tour with `?tour=calendar`, `page.screencast` -> 1280x720, 25 fps, 23.6 s, **3.2 MB raw VP9 -> 0.57 MB** H.264 CRF 26 (about **1.5 MB per minute**), ffmpeg 6.1 encode 2.8 s; the whole run 36 s of which 13 s was the page loading. ffmpeg has libx264, aac, libass (`subtitles`) and drawtext.
+- **Voice options.** Browser `speechSynthesis` cannot be captured headless. *Piper* (offline, MIT code, aarch64 wheel installs cleanly in a venv on the data volume): 11.7 s of speech in 4.3 s including model load (about 0.4x real time), 63 MB per voice; English voices are British/US (no South African voice exists in Piper); medium voices are clear and neutral but audibly synthetic - **not ear-checked by me; Johan to listen to the two samples** in `/mnt/HC_Volume_103099143/training-videos/sample-*.wav`. Voice licences differ per voice (jenny_dioco and alba are Creative Commons - confirm the exact licence on the model card before publishing outside CoreX). Paid options (for later, pluggable): OpenAI TTS about US$15 per million characters (a 2-minute video is about 1,500 characters = about US$0.02), ElevenLabs from about US$5-22 a month (most natural; has accent choice), Azure Neural TTS has **en-ZA voices (Leah, Luke)** at about US$16 per million characters, Google Cloud TTS has en-ZA (Standard/WaveNet) at US$4-16 per million. Cost per video with a paid voice: **under 5 cents**; Piper: free.
+- **Storage.** About 1.5 MB per minute of 720p: a 2-minute video is about 3 MB, 200 videos about 600 MB. The app storage already lives on the data volume (bind mount), so no object storage is needed until the library passes tens of GB; if it does, the `disk` in `config/training-videos.php` can point at S3-compatible storage with no other change.
+- **The WHY.** It does not exist in the tours. It lives in the specs (`.ai/specs/*.md` - e.g. `viewing-packs.md`, `buyer-pipeline`, `rental-owner-live-link.md`, `agency-tracker.md`, ...) and in the code (what a save dispatches: domain events in `corex-domain-events-spec.md`). Per-screen script = tour steps (selectors, order) + a `why` line per step written from the spec/events catalogue.
+- **Real client data.** QA1 and Staging hold copies of real HFC data (names, addresses visible in the first recording). The recorder therefore only ever uses the training agency (9.8).
+
+### 9.7 Build list and cost
+S1 schema + script format + validator + out-of-date hash + voice provider (done) - S2 recorder + assembler + job + training session + training agency seeder - S3 library page + "Watch how" button + generate/regenerate + permissions + sidebar - S4 one sample video on QA1. Later: scripts for the top 5 screens (Johan's call), `training-videos:draft`, a nightly "out of date" digest, Staging rollout. Compute per video: about 1-3 minutes of one CPU core (record 1-2 min, voice 20-40 s, encode 5-10 s); TTS Piper free / paid under 5 cents. Writing a script: about 30-60 minutes of Claude time per screen (spec + code reading), Johan approves in a few minutes.
+
+### 9.8 Training agency
+`php artisan training:seed-agency` creates (idempotently) the agency **CoreX Training Academy** (`is_training = true`), a branch, an agent, a branch manager and an admin, 12 demo properties, buyers and sellers, a booked viewing with feedback and a seller live link - all invented. `--reset` deletes and re-seeds only that agency's rows, so it stays fresh (run weekly and before every recording). The recorder refuses any user outside it. The agency is hidden from agency pickers and reports (`is_training` scope) and gets no real mail (the non-production mail guard + no real addresses).
+

@@ -50,4 +50,45 @@ return [
         // null = half the server's cores, so a long compress never starves the site.
         'threads'          => null,
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Auto-generated how-to videos (AT-525, spec section 9)
+    |--------------------------------------------------------------------------
+    */
+    'auto' => [
+        // Screen scripts: resources/training/scripts/<screen_key>.php (written by Claude from the spec + code, approved by Johan).
+        'scripts_dir' => resource_path('training/scripts'),
+        // Finished files + working files. PRIVATE disk (agents only, streamed through an authenticated route), on the data volume with the rest of storage.
+        'disk' => 'local',
+        'folder' => 'training-videos-auto',
+        'work_dir' => storage_path('app/training-videos-work'),
+        'max_seconds' => 120,
+        'intro_seconds' => 3.0,
+        'outro_seconds' => 4.0,
+        // Silence kept after each narrated step so the picture can breathe, and the pause before a step's action starts.
+        'step_pad_seconds' => 0.6,
+        'words_per_second' => 2.5,
+
+        'tts' => [
+            // 'piper' (free, offline, MIT) | 'fake' (silent, tests). A paid voice is one more class implementing App\Services\TrainingVideos\Tts\TtsProvider.
+            'driver' => env('TRAINING_TTS_DRIVER', 'piper'),
+            'piper' => [
+                'python' => env('PIPER_PYTHON', '/mnt/HC_Volume_103099143/training-videos/tts-venv/bin/python'),
+                'voice' => env('PIPER_VOICE', 'en_GB-jenny_dioco-medium'),
+                'data_dir' => env('PIPER_DATA_DIR', '/mnt/HC_Volume_103099143/training-videos/voices'),
+                'timeout' => 120,
+            ],
+        ],
+
+        'recorder' => [
+            'node' => env('TRAINING_NODE_BIN', 'node'),
+            'script' => base_path('scripts/training-video-record.mjs'),
+            'chromium' => env('TRAINING_CHROMIUM', '/usr/bin/chromium'),
+            'base_url' => env('TRAINING_BASE_URL'),   // null = APP_URL
+            'width' => 1280,
+            'height' => 720,
+            'timeout' => 600,
+        ],
+    ],
 ];

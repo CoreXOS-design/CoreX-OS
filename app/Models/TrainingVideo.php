@@ -23,6 +23,8 @@ class TrainingVideo extends Model
 
     public const SOURCE_YOUTUBE = 'youtube';
     public const SOURCE_UPLOAD  = 'upload';
+    /** AT-525 - recorded by CoreX itself from a screen script (spec section 9). Private files, agents only - never on the public page. */
+    public const SOURCE_GENERATED = 'generated';
 
     public const STATUS_READY      = 'ready';
     public const STATUS_PROCESSING = 'processing';
@@ -33,6 +35,13 @@ class TrainingVideo extends Model
         'title',
         'description',
         'source',
+        'screen_key',
+        'source_hash',
+        'generated_at',
+        'tts_voice',
+        'captions_file',
+        'chapters',
+        'generated_by',
         'status',
         'failure_reason',
         'youtube_url',
@@ -52,6 +61,8 @@ class TrainingVideo extends Model
 
     protected $casts = [
         'processing_started_at' => 'datetime',
+        'generated_at' => 'datetime',
+        'chapters' => 'array',
     ];
 
     protected static function booted(): void
@@ -82,10 +93,15 @@ class TrainingVideo extends Model
      */
     public function scopePubliclyVisible(Builder $query): Builder
     {
-        return $query->where('training_videos.status', self::STATUS_READY)->where(function (Builder $q) {
+        return $query->where('training_videos.status', self::STATUS_READY)->where('training_videos.source', '!=', self::SOURCE_GENERATED)->where(function (Builder $q) {
             $q->whereNull('training_video_group_id')
               ->orWhereHas('group', fn (Builder $g) => $g->whereNull('deleted_at'));
         });
+    }
+
+    public function isGenerated(): bool
+    {
+        return $this->source === self::SOURCE_GENERATED;
     }
 
     public function isUpload(): bool
