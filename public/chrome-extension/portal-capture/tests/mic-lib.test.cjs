@@ -221,6 +221,69 @@ t('real search page: owner, groups with members, mandate ids, reduced, badges, f
   assert.ok(n((l) => l.badges && l.badges.length) >= 1);
 });
 
+console.log('P24 area pages (REAL saved pages, 31 Oct 2026)');
+const AREA = path.join(__dirname, 'fixtures', 'p24-area');
+const UPDATE = process.env.UPDATE_GOLDEN === '1';
+const areaCases = [
+  ['uvongo-property-trends-6359', 'https://www.property24.com/margate/uvongo/property-trends/6359#corex-area'],
+  ['uvongo-estate-agencies-6359', 'https://www.property24.com/estate-agencies/uvongo/margate/kwazulu-natal/6359#corex-area'],
+  ['uvongo-marine-drive-values', 'https://www.property24.com/property-values/marine-drive/uvongo/margate/kwazulu-natal/6359'],
+];
+const areaPayload = (name, url) => MIC.p24AreaPage(doc(fs.readFileSync(path.join(AREA, name + '.html'), 'utf8'), url), url);
+areaCases.forEach(([name, url]) => t('golden payload ' + name, () => {
+  const got = areaPayload(name, url);
+  const file = path.join(AREA, name + '.payload.json');
+  if (UPDATE || !fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify(got, null, 2) + '\n');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(got)), JSON.parse(fs.readFileSync(file, 'utf8')));
+}));
+
+t('area kind from the address', () => {
+  assert.strictEqual(MIC.p24AreaKind('https://www.property24.com/margate/uvongo/property-trends/6359').kind, 'trends');
+  assert.strictEqual(MIC.p24AreaKind('https://www.property24.com/estate-agencies/uvongo/margate/kwazulu-natal/6359/p3').page, 3);
+  assert.strictEqual(MIC.p24AreaKind('https://www.property24.com/property-values/uvongo/margate/kwazulu-natal/6359').kind, 'street_index');
+  assert.strictEqual(MIC.p24AreaKind('https://www.property24.com/property-values/marine-drive/uvongo/margate/kwazulu-natal/6359').kind, 'street');
+  assert.strictEqual(MIC.p24AreaKind('https://www.property24.com/property-values/1214-alexander-avenue/uvongo/margate/kwazulu-natal/gsxdiolg3x6vbsvsq'), null, 'a single property page (paid) is not read');
+  assert.strictEqual(MIC.p24AreaKind('https://www.property24.com/for-sale/uvongo/margate/kwazulu-natal/6359'), null);
+});
+
+t('trends: every chart table and the bedroom table are read', () => {
+  const p = areaPayload('uvongo-property-trends-6359', areaCases[0][1]);
+  assert.strictEqual(p.p24_suburb_id, 6359);
+  assert.strictEqual(p.suburb, 'Uvongo');
+  const d = p.trends.datasets;
+  assert.strictEqual(d.annual.rows.length, 10);
+  assert.strictEqual(d.stock.rows.length, 12);
+  assert.strictEqual(d.age.rows.length, 3);
+  assert.match(p.trends.sold_labels.popular1, /Erven/i);
+  assert.match(p.trends.sold_labels.popular2, /Sectional/i);
+  assert.strictEqual(p.trends.stock_by_beds.months.length, 6);
+  assert.ok(p.trends.stock_by_beds.rows.some((r) => r.beds === '3 bed') && p.trends.stock_by_beds.rows.some((r) => /^all$/i.test(r.beds)));
+});
+
+t('agencies: id, name and the two listing counts per tile', () => {
+  const p = areaPayload('uvongo-estate-agencies-6359', areaCases[1][1]);
+  assert.strictEqual(p.agencies.length, 20);
+  assert.deepStrictEqual(p.agencies[0], { agency_portal_id: '32381', agency_name: 'PdH Properties', listings_in_suburb: 78, total_listings: 461 });
+  assert.ok(p.pages_total >= 2, 'the pager links to further pages');
+});
+
+t('street index: every street of the suburb, no property (paid) pages', () => {
+  const url = 'https://www.property24.com/property-values/uvongo/margate/kwazulu-natal/6359';
+  const p = MIC.p24AreaPage(doc(fs.readFileSync(path.join(AREA, 'uvongo-property-values-6359.html'), 'utf8'), url), url);
+  assert.strictEqual(p.kind, 'street_index');
+  assert.strictEqual(p.streets.length, 53);
+  assert.ok(p.streets.every((s) => /^\/property-values\/[a-z0-9-]+\/uvongo\/margate\/kwazulu-natal\/6359$/.test(s.path)));
+});
+
+t('street page: house numbers only - no price anywhere in the payload', () => {
+  const p = areaPayload('uvongo-marine-drive-values', areaCases[2][1]);
+  const a = p.streets[0].addresses;
+  assert.strictEqual(p.streets[0].street_slug, 'marine-drive');
+  assert.ok(a.length >= 6);
+  assert.deepStrictEqual(a.slice(0, 2).map((x) => x.house_number), ['96', '98']);
+  assert.ok(!/\bR\s?\d/.test(JSON.stringify(p)), 'no rand amount');
+});
+
 console.log('content scripts (wiring)');
 function loadContent(file, html, url) {
   const dom = new JSDOM(html, { url, runScripts: 'outside-only' });
@@ -259,6 +322,26 @@ t('PP content script sends status/owner/exclusive on getListings and getListingF
     assert.strictEqual(by['PP-T1000002'].portal_status, 'under_offer');
     return send({ action: 'getListingFacts', sv: { hasAgency: false } });
   }).then((r) => { assert.strictEqual(r.facts.advertiser_type, 'owner'); });
+});
+
+t('area trigger: #corex-area on a trends page sends it to the background worker; a plain visit sends nothing', () => {
+  const html = fs.readFileSync(path.join(AREA, 'uvongo-property-trends-6359.html'), 'utf8');
+  const run = (url) => {
+    const dom = new JSDOM(html, { url, runScripts: 'outside-only' });
+    const w = dom.window; const sent = [];
+    w.chrome = { runtime: { onMessage: { addListener: () => {} }, sendMessage: (m, cb) => { sent.push(m); cb && cb({ ok: true, summary: '123 figures saved' }); } } };
+    w.eval(fs.readFileSync(path.join(EXT, 'mic-lib.js'), 'utf8'));
+    w.eval(fs.readFileSync(path.join(EXT, 'content-p24-detail.js'), 'utf8'));
+    return new Promise((resolve) => setTimeout(() => resolve({ sent, banner: (w.document.getElementById('corex-area-banner') || {}).textContent }), 1500));
+  };
+  return Promise.all([run('https://www.property24.com/margate/uvongo/property-trends/6359#corex-area'), run('https://www.property24.com/margate/uvongo/property-trends/6359')]).then(([withHash, plain]) => {
+    assert.strictEqual(withHash.sent.length, 1);
+    assert.strictEqual(withHash.sent[0].action, 'captureAreaPage');
+    assert.strictEqual(withHash.sent[0].payload.kind, 'trends');
+    assert.match(withHash.banner, /saved/);
+    assert.strictEqual(plain.sent.length, 0, 'ordinary browsing sends nothing');
+    assert.strictEqual(plain.banner, undefined);
+  });
 });
 
 setTimeout(() => console.log('\n' + passed + ' passed' + (process.exitCode ? ' (with failures)' : '')), 50);

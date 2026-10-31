@@ -442,6 +442,154 @@
     return f;
   };
 
+  // ── Property24 AREA pages (monthly; spec 11.2.2) ────────────────────────────────────────────────
+  // Free pages only. Street pages show a paid last-sold PRICE: it is never read - only the address and the year column.
+  function titleCase(slug) { return String(slug || '').replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()); }
+  function pathSegs(url) {
+    try { return new URL(url, 'https://www.property24.com').pathname.split('/').filter(Boolean).map((x) => { try { return decodeURIComponent(x); } catch (e) { return x; } }); } catch (e) { return []; }
+  }
+
+  // Which area page is this? null when it is not one we read.
+  MIC.p24AreaKind = function (url) {
+    const s = pathSegs(url);
+    const num = (x) => /^\d{1,8}$/.test(x || '');
+    if (s.length === 4 && s[2] === 'property-trends' && num(s[3])) return { kind: 'trends', town: s[0], suburb: s[1], p24_suburb_id: +s[3] };
+    if (s[0] === 'estate-agencies' && num(s[4]) && s.length <= 6 && (s.length === 5 || /^p\d+$/.test(s[5]))) {
+      return { kind: 'agencies', suburb: s[1], town: s[2], province: s[3], p24_suburb_id: +s[4], page: s[5] ? +s[5].slice(1) : 1 };
+    }
+    if (s[0] === 'property-values' && s.length === 5 && num(s[4])) return { kind: 'street_index', suburb: s[1], town: s[2], province: s[3], p24_suburb_id: +s[4] };
+    if (s[0] === 'property-values' && s.length === 6 && num(s[5])) return { kind: 'street', street_slug: s[1], suburb: s[2], town: s[3], province: s[4], p24_suburb_id: +s[5] };
+    return null;
+  };
+
+  // The label P24 prints above a chart ("Sold Erven" / "Sold Sectional Scheme Units"), found in the page text before its element.
+  function labelBefore(doc, id) {
+    if (!id) return null;
+    const html = doc.documentElement ? doc.documentElement.outerHTML : '';
+    const at = html.indexOf('id="' + id + '"');
+    if (at < 0) return null;
+    const before = html.slice(Math.max(0, at - 1800), at);
+    let last = null, m; const re = /Sold\s+(Erven|Sectional\s+Scheme\s+Units)/gi;
+    while ((m = re.exec(before)) !== null) last = m[0];
+    return last;
+  }
+
+  function embeddedTrendProps(doc) {
+    const scripts = doc.querySelectorAll('script:not([src])');
+    for (let i = 0; i < scripts.length; i++) {
+      const t = scripts[i].textContent || '';
+      const m = t.match(/renderComponent\(\s*(\{"name":"AreaTrends"[\s\S]*?\})\s*\)\s*\)\s*;/);
+      if (!m) continue;
+      try { const d = JSON.parse(m[1]); if (d && d.props) return d.props; } catch (e) { /* next script */ }
+    }
+    return null;
+  }
+
+  MIC.p24AreaTrends = function (doc, url) {
+    const info = MIC.p24AreaKind(url);
+    if (!info || info.kind !== 'trends') return null;
+    const props = embeddedTrendProps(doc);
+    if (!props) return null;
+    const h1 = doc.querySelector('h1');
+    const suburb = h1 ? (h1.textContent || '').replace(/\s*Property Trends and Statistics.*$/i, '').trim() : titleCase(info.suburb);
+    const out = {
+      kind: 'trends', p24_suburb_id: info.p24_suburb_id, suburb: suburb || titleCase(info.suburb), town: titleCase(info.town), url: String(url).split('#')[0],
+      trends: {
+        datasets: {
+          annual: props.annualSaleAndListingTrendsGraph || null, stock: props.propertiesOnSaleGraph || null,
+          avg_ask_beds: props.averageListPriceVsBedroomsGraph || null, sold: props.soldPropertiesGraph || null, age: props.ageProfileGraph || null,
+        },
+        sold_labels: { popular1: labelBefore(doc, props.soldPropertiesGraphElement1), popular2: labelBefore(doc, props.soldPropertiesGraphElement2) },
+        stock_by_beds: null,
+      },
+    };
+    const tbl = doc.querySelector('#totalNumberOfPropertiesTable table');
+    if (tbl) {
+      const heads = Array.prototype.map.call(tbl.querySelectorAll('thead th, tr:first-child th'), (th) => (th.textContent || '').trim());
+      const months = heads.slice(1).filter(Boolean);
+      const rows = [];
+      tbl.querySelectorAll('tbody tr, tr').forEach((tr) => {
+        const cells = Array.prototype.map.call(tr.querySelectorAll('td'), (td) => (td.textContent || '').replace(/\s+/g, ' ').trim());
+        if (cells.length >= 2 && /bed|other|all/i.test(cells[0])) rows.push({ beds: cells[0], values: cells.slice(1) });
+      });
+      out.trends.stock_by_beds = { months, rows };
+    }
+    return out;
+  };
+
+  MIC.p24AreaAgencies = function (doc, url) {
+    const info = MIC.p24AreaKind(url);
+    if (!info || info.kind !== 'agencies') return null;
+    const agencies = [];
+    doc.querySelectorAll('[class*="p24_agencyResultTile"]').forEach((tile) => {
+      const a = tile.querySelector('h5 a[href*="/estate-agents/"]');
+      if (!a) return;
+      const id = ((a.getAttribute('href') || '').match(/\/(\d+)\/?$/) || [])[1];
+      const name = (a.textContent || '').trim();
+      const text = (tile.textContent || '').replace(/\s+/g, ' ');
+      const m = text.match(/has\s+([\d\s,]+?)\s+listings?\s+in\b[\s\S]*?total of\s+([\d\s,]+?)\s+listings?/i);
+      if (!id || !name || agencies.some((x) => x.agency_portal_id === id)) return;
+      agencies.push({
+        agency_portal_id: id, agency_name: name,
+        listings_in_suburb: m ? parseInt(m[1].replace(/\D/g, ''), 10) : null, total_listings: m ? parseInt(m[2].replace(/\D/g, ''), 10) : null,
+      });
+    });
+    let pagesTotal = info.page;
+    doc.querySelectorAll('a[href]').forEach((l) => {
+      const m = (l.getAttribute('href') || '').match(/\/estate-agencies\/[^?#]*\/(\d+)\/p(\d+)\/?$/);
+      if (m && +m[1] === info.p24_suburb_id && +m[2] > pagesTotal) pagesTotal = +m[2];
+    });
+    return { kind: 'agencies', p24_suburb_id: info.p24_suburb_id, suburb: titleCase(info.suburb), town: titleCase(info.town), url: String(url).split('#')[0],
+      agencies, page: info.page, pages_total: pagesTotal };
+  };
+
+  MIC.p24StreetIndex = function (doc, url) {
+    const info = MIC.p24AreaKind(url);
+    if (!info || info.kind !== 'street_index') return null;
+    const seen = {}; const streets = [];
+    doc.querySelectorAll('a[href*="/property-values/"]').forEach((a) => {
+      const s = pathSegs(a.getAttribute('href') || '');
+      if (s[0] === 'property-values' && s.length === 6 && /^\d+$/.test(s[5]) && +s[5] === info.p24_suburb_id && s[2] === info.suburb && !seen[s[1]]) {
+        seen[s[1]] = true;
+        streets.push({ street_slug: s[1], street_name: (a.textContent || '').trim() || titleCase(s[1]), path: '/' + s.map(encodeURIComponent).join('/') });
+      }
+    });
+    return { kind: 'street_index', p24_suburb_id: info.p24_suburb_id, suburb: titleCase(info.suburb), town: titleCase(info.town), url: String(url).split('#')[0], streets };
+  };
+
+  // One street page: the house numbers P24 lists. The price cell is never read; the year cell is (a year, not money).
+  MIC.p24StreetPage = function (doc, url) {
+    const info = MIC.p24AreaKind(url);
+    if (!info || info.kind !== 'street') return null;
+    const h1 = doc.querySelector('h1');
+    const name = h1 ? (h1.textContent || '').split(',')[0].trim() : titleCase(info.street_slug);
+    const byNumber = {};
+    doc.querySelectorAll('tr.p24_markerRow, tr[class*="p24_markerRow"]').forEach((tr) => {
+      const a = tr.querySelector('.p24_addressLink a, .p24_addressLink, td:nth-child(2) a');
+      const address = a ? (a.textContent || '').replace(/\s+/g, ' ').trim() : '';
+      const m = address.match(/^(\d{1,6}[A-Za-z]?)\b/);
+      if (!m) return;
+      const tds = tr.querySelectorAll('td');
+      const yearText = tds.length >= 4 ? (tds[3].textContent || '').trim() : '';
+      const ym = yearText.match(/^(19|20)\d{2}$/);
+      const num = m[1].toUpperCase();
+      if (!byNumber[num]) byNumber[num] = { address, house_number: num, last_sold_year: ym ? +yearText : null };
+      else if (ym && !byNumber[num].last_sold_year) byNumber[num].last_sold_year = +yearText;
+    });
+    return { kind: 'streets', p24_suburb_id: info.p24_suburb_id, suburb: titleCase(info.suburb), town: titleCase(info.town), url: String(url).split('#')[0],
+      streets: [{ street_slug: info.street_slug, street_name: name, addresses: Object.keys(byNumber).map((k) => byNumber[k]) }] };
+  };
+
+  // What the current P24 area page offers, for any of the kinds (null when it is not an area page).
+  MIC.p24AreaPage = function (doc, url) {
+    const info = MIC.p24AreaKind(url);
+    if (!info) return null;
+    if (info.kind === 'trends') return MIC.p24AreaTrends(doc, url);
+    if (info.kind === 'agencies') return MIC.p24AreaAgencies(doc, url);
+    if (info.kind === 'street_index') return MIC.p24StreetIndex(doc, url);
+    return MIC.p24StreetPage(doc, url);
+  };
+
   // PP search must include under-offer and sold: strip the filter that excludes them (spec §5)
   MIC.cleanPpSearchUrl = function (url) {
     try {

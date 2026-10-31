@@ -124,6 +124,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // MIC area pages (3.14.0, spec 11.2.2): a P24 trends / agencies / property-values page opened with #corex-area
+  if (msg.action === 'captureAreaPage') {
+    runAreaCapture(msg.payload, sender && sender.tab ? sender.tab.id : null)
+      .then(r => sendResponse(r))
+      .catch(e => sendResponse({ ok: false, error: (e && e.message) || String(e) }));
+    return true;
+  }
+
   if (msg.action === 'getIncompleteCapture') {
     getIncompleteCapture().then(s => sendResponse(s));
     return true;
@@ -670,6 +678,84 @@ async function sendBatchToApi(listings, context) {
                       ' listings safely queued; will retry.';
     }
     return false;
+  }
+}
+
+// ── MIC area pages (3.14.0; spec 11.2.2) ─────────────────
+let areaRunActive = false;
+
+async function postAreaPage(settings, payload) {
+  const url = settings.apiUrl.replace(/\/+$/, '') + '/api/v1/prospecting/area-pages';
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'Authorization': 'Bearer ' + settings.apiToken },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(response.status === 401 || response.status === 419 ? 'login rejected - check your CoreX token' : ('CoreX answered ' + response.status + ' ' + text.slice(0, 120)));
+  }
+  return response.json();
+}
+
+function areaStatus(tabId, text) {
+  try { chrome.tabs.sendMessage(tabId, { action: 'areaStatus', text }, () => void chrome.runtime.lastError); } catch (e) { /* tab gone */ }
+}
+
+async function runAreaCapture(payload, tabId) {
+  if (!payload || !payload.kind) return { ok: false, error: 'nothing to save from this page' };
+  if (areaRunActive) return { ok: false, error: 'another area page is being read - wait for it to finish' };
+  const settings = await new Promise(r => chrome.storage.local.get(['apiUrl', 'apiToken'], r));
+  if (!settings.apiToken) return { ok: false, error: 'set your CoreX address and token in the extension first' };
+  settings.apiUrl = settings.apiUrl || 'https://www.corexos.co.za';
+  areaRunActive = true;
+  try {
+    const pace = () => sleep(2500 + Math.floor(Math.random() * 1500));
+    if (payload.kind === 'trends' || payload.kind === 'streets') {
+      const res = await postAreaPage(settings, payload);
+      return { ok: true, summary: payload.kind === 'trends' ? (res.trend_values + ' figures saved') : (res.house_numbers + ' house numbers saved') };
+    }
+    if (payload.kind === 'agencies') {
+      let res = await postAreaPage(settings, payload);
+      let agencies = res.agencies || 0;
+      const cap = Math.max(1, (res.limits && res.limits.agency_pages_per_run) || 10);
+      const last = Math.min(payload.pages_total || 1, cap);
+      const base = payload.url.replace(/\/p\d+\/?$/, '').replace(/\/+$/, '');
+      for (let p = 2; p <= last && tabId; p++) {
+        await pace();
+        areaStatus(tabId, 'CoreX: reading agencies page ' + p + ' of ' + last + '...');
+        await navigateTab(tabId, base + '/p' + p);
+        await sleep(600);
+        const r = await sendTabMessage(tabId, { action: 'getAreaPage' });
+        if (!r || !r.payload) break;
+        res = await postAreaPage(settings, r.payload);
+        agencies += res.agencies || 0;
+      }
+      if (tabId && last > 1) { try { await chrome.tabs.update(tabId, { url: base }); } catch (e) { /* tab closed */ } }
+      return { ok: true, summary: agencies + ' agencies saved' };
+    }
+    if (payload.kind === 'street_index') {
+      let cap = 150, done = 0, numbers = 0;
+      const list = payload.streets || [];
+      for (let i = 0; i < list.length && done < cap && tabId; i++) {
+        areaStatus(tabId, 'CoreX: reading street ' + (i + 1) + ' of ' + Math.min(list.length, cap) + '...');
+        await navigateTab(tabId, 'https://www.property24.com' + list[i].path);
+        await sleep(600);
+        const r = await sendTabMessage(tabId, { action: 'getAreaPage' });
+        if (r && r.payload) {
+          const res = await postAreaPage(settings, r.payload);
+          numbers += res.house_numbers || 0;
+          done++;
+          if (res.limits && Number.isFinite(res.limits.street_pages_per_run)) cap = res.limits.street_pages_per_run;
+        }
+        await pace();
+      }
+      if (tabId && payload.url) { try { await chrome.tabs.update(tabId, { url: payload.url }); } catch (e) { /* tab closed */ } }
+      return { ok: true, summary: done + ' streets, ' + numbers + ' house numbers saved' };
+    }
+    return { ok: false, error: 'this page kind is not read' };
+  } finally {
+    areaRunActive = false;
   }
 }
 

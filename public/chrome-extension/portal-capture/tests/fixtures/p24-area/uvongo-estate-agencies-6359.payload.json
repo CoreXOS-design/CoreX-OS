@@ -1,0 +1,131 @@
+{
+  "kind": "agencies",
+  "p24_suburb_id": 6359,
+  "suburb": "Uvongo",
+  "town": "Margate",
+  "url": "https://www.property24.com/estate-agencies/uvongo/margate/kwazulu-natal/6359",
+  "agencies": [
+    {
+      "agency_portal_id": "32381",
+      "agency_name": "PdH Properties",
+      "listings_in_suburb": 78,
+      "total_listings": 461
+    },
+    {
+      "agency_portal_id": "10930",
+      "agency_name": "RE/MAX Coast and Country Shelly Beach",
+      "listings_in_suburb": 71,
+      "total_listings": 596
+    },
+    {
+      "agency_portal_id": "13007",
+      "agency_name": "Property Port",
+      "listings_in_suburb": 64,
+      "total_listings": 989
+    },
+    {
+      "agency_portal_id": "12149",
+      "agency_name": "Pam Golding Properties - Port Shepstone / Margate",
+      "listings_in_suburb": 48,
+      "total_listings": 628
+    },
+    {
+      "agency_portal_id": "12312",
+      "agency_name": "Just Property Living",
+      "listings_in_suburb": 48,
+      "total_listings": 447
+    },
+    {
+      "agency_portal_id": "35333",
+      "agency_name": "EXP South Africa",
+      "listings_in_suburb": 33,
+      "total_listings": 8347
+    },
+    {
+      "agency_portal_id": "32112",
+      "agency_name": "Seeff Hibiscus Coast",
+      "listings_in_suburb": 28,
+      "total_listings": 271
+    },
+    {
+      "agency_portal_id": "32803",
+      "agency_name": "Chas Everitt KZN South Coast",
+      "listings_in_suburb": 27,
+      "total_listings": 375
+    },
+    {
+      "agency_portal_id": "34348",
+      "agency_name": "Mandated",
+      "listings_in_suburb": 27,
+      "total_listings": 2957
+    },
+    {
+      "agency_portal_id": "34998",
+      "agency_name": "Real & Proper T",
+      "listings_in_suburb": 22,
+      "total_listings": 292
+    },
+    {
+      "agency_portal_id": "24328",
+      "agency_name": "Wakefields Estate Agents Shelly Beach",
+      "listings_in_suburb": 20,
+      "total_listings": 288
+    },
+    {
+      "agency_portal_id": "33676",
+      "agency_name": "Real Estate Services",
+      "listings_in_suburb": 15,
+      "total_listings": 7687
+    },
+    {
+      "agency_portal_id": "33115",
+      "agency_name": "Property.CoZa - Legends",
+      "listings_in_suburb": 15,
+      "total_listings": 611
+    },
+    {
+      "agency_portal_id": "12645",
+      "agency_name": "Harcourts Scott Bay",
+      "listings_in_suburb": 15,
+      "total_listings": 199
+    },
+    {
+      "agency_portal_id": "25836",
+      "agency_name": "Alpha Estates",
+      "listings_in_suburb": 10,
+      "total_listings": 279
+    },
+    {
+      "agency_portal_id": "35729",
+      "agency_name": "KZN South Coast Property Group",
+      "listings_in_suburb": 9,
+      "total_listings": 56
+    },
+    {
+      "agency_portal_id": "29692",
+      "agency_name": "Acutts Real Estate",
+      "listings_in_suburb": 9,
+      "total_listings": 192
+    },
+    {
+      "agency_portal_id": "34094",
+      "agency_name": "RealNet South Coast",
+      "listings_in_suburb": 9,
+      "total_listings": 157
+    },
+    {
+      "agency_portal_id": "29159",
+      "agency_name": "Home Finders Coastal",
+      "listings_in_suburb": 8,
+      "total_listings": 159
+    },
+    {
+      "agency_portal_id": "26588",
+      "agency_name": "Tyson Properties Shelly Beach",
+      "listings_in_suburb": 8,
+      "total_listings": 67
+    }
+  ],
+  "page": 1,
+  "pages_total": 3
+}
