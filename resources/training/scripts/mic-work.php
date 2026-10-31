@@ -31,7 +31,7 @@ return [
         [
             'selector' => '[data-qa="work-row"] a.corex-btn-outline', 'action' => 'highlight',
             'narration' => 'To go after it, press Claim.',
-            'why' => 'Then it is yours. It goes on your Road to Sold, and no colleague phones the same owner.',
+            'why' => 'Then it is yours, and no colleague phones the same owner.',
         ],
         [
             'selector' => '[data-qa="row-sources"] span[title="Seen in a P24 e-mail alert"]', 'action' => 'highlight',
