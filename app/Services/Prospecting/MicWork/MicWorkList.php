@@ -442,6 +442,7 @@ final class MicWorkList
                 'portal_url' => $lead->portal_url,
                 'thumbnail_source_url' => $thumbAdvert->thumbnail_source_url,
                 'thumbnail_path' => $thumbAdvert->thumbnail_path,
+                'thumbnail_advert_id' => (int) $thumbAdvert->id,
                 'flags' => $flags,
                 'buyers' => (int) $list->sum(fn ($a) => (int) ($buyers[$a->id] ?? 0)),
                 'buyers_strong' => $st->buyers_strong ?? null,

@@ -49,7 +49,7 @@ final class MicWorkClassicTest extends TestCase
     public function test_the_default_work_screen_is_the_classic_list_with_the_tiles_above_the_stat_bar_and_no_greeting(): void
     {
         $this->advert($this->agency, 'p24', 'P24-120000001', null);
-        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work'))->assertOk()->getContent();
+        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'list']))->assertOk()->getContent();
 
         $this->assertStringContainsString('class="mi-row"', $html, 'the classic per-advert row');
         $this->assertStringContainsString('Properties matched', $html, 'the stat bar stays');
@@ -73,7 +73,7 @@ final class MicWorkClassicTest extends TestCase
             'matched_type' => 'tracked_property', 'matched_id' => $tp->id, 'strategy' => 'address_unit', 'confidence_score' => 80, 'reason' => 'Property24 groups these adverts as one property', 'decided_at' => now(),
             'incoming_facts' => ['incoming_tracked_property_id' => $other->id, 'kind' => 'portal_group']]);
 
-        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work'))->assertOk()->getContent();
+        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'list']))->assertOk()->getContent();
         $text = preg_replace('/\s+/', ' ', strip_tags($html));
         $this->assertStringContainsString('data-qa="score-badge"', $html);
         $this->assertStringContainsString('Score 83', $text);
@@ -95,9 +95,9 @@ final class MicWorkClassicTest extends TestCase
         foreach ([[$low, 20.0], [$high, 90.0]] as [$t, $sc]) {
             DB::table('mic_file_stats')->insert(['agency_id' => $this->agency->id, 'tracked_property_id' => $t->id, 'score' => $sc, 'computed_at' => now()]);
         }
-        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work'))->assertOk()->getContent();
+        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'list']))->assertOk()->getContent();
         $this->assertLessThan(strpos($html, '1 Low Road'), strpos($html, '2 High Road'), 'highest score first by default');
-        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['sort' => 'last_seen_at', 'dir' => 'desc']))->assertOk()->getContent();
+        $html = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'list', 'sort' => 'last_seen_at', 'dir' => 'desc']))->assertOk()->getContent();
         $this->assertLessThan(strpos($html, '2 High Road'), strpos($html, '1 Low Road'), 'the old sort still works');
     }
 

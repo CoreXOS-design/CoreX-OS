@@ -231,6 +231,8 @@
                     'canViewComments' => $canViewComments ?? false,
                     'source' => ($sourceByListingId ?? [])[$_lid] ?? null,
                     'extras' => ($rowExtras ?? [])[$_lid] ?? null,
+                    'rowMode' => ($micViewChoice ?? 'list') === 'adverts' ? 'advert' : 'row',
+                    'adv' => ($fileRows ?? [])[$_lid] ?? null,
                 ])
                 {{-- Record card (mic-work-tab.md 2.1 E): fetched on first "Card" click, so the list itself stays as light as it was. --}}
                 <div x-show="card" x-cloak data-qa="record-card-host" style="border-bottom: 1px solid var(--border);">

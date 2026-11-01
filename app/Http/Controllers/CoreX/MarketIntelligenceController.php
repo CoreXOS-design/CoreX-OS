@@ -672,7 +672,8 @@ class MarketIntelligenceController extends Controller
         // pre-filtered INPUT change, not a second implementation that could
         // drift from the first.
         $page = (int) $request->get('page', 1);
-        $perPage = 50;
+        // The Adverts view pages by the agency's own setting (mic-work-tab.md 13.2); the List keeps its 50.
+        $perPage = ($micViewChoice ?? 'list') === 'adverts' ? \App\Models\MicAgencySetting::rowsPerPageFor((int) $agencyId) : 50;
         $pageResolver = app(\App\Services\Prospecting\ProspectingListingPageResolver::class);
         $useFastPath = $pageResolver->canUseFastPath($request, $isProspectingManager, $selectedBuyerId);
         $injectedStockCountBySuburb = [];
@@ -1151,6 +1152,8 @@ class MarketIntelligenceController extends Controller
 
         $sourceByListingId = app(\App\Services\Prospecting\PropertySourceFacts::class)->forListings((int) $agencyId, $listings->items());
         $rowExtras = $this->classicRowExtras($listings->items(), (int) $agencyId);
+        // 13.3 / 13.4: the full file read (MicWorkList::forFiles, one batched read per source) for this page's rows, keyed by listing id. The Adverts cards are built from it.
+        $fileRows = $this->fileRowsFor($listings->items(), (int) $agencyId);
         $tileNote = $this->tileNote($request, $listings->total(), (int) $agencyId, $user);
         $suburbOptions = app(\App\Services\Prospecting\MicWork\MicAdvertFilters::class)->suburbOptions((int) $agencyId);
 
@@ -1258,6 +1261,7 @@ class MarketIntelligenceController extends Controller
                 'micViewChoice'                  => $micViewChoice,
                 'suburbOptions'                  => $suburbOptions,
                 'rowExtras'                      => $rowExtras,
+                'fileRows'                       => $fileRows,
                 'buyerTiers'                     => $buyerTiers,
                 'tierConfig'                     => $tierConfig,
                 'suggestedActions'               => $suggestedActions,
@@ -1337,7 +1341,7 @@ class MarketIntelligenceController extends Controller
             // never touches $listing itself.
             'displayAddressByListingId',
             'sourceByListingId',
-            'rowExtras', 'tilesDeferred', 'tileNote', 'suburbOptions',
+            'rowExtras', 'fileRows', 'tilesDeferred', 'tileNote', 'suburbOptions',
         ));
     }
 
@@ -1402,6 +1406,34 @@ class MarketIntelligenceController extends Controller
             'tileCounts' => $differs ? trim(explode(' · ', (string) $tile['reason'])[0]) : null,
             'asOf' => $stamp !== '' ? \Carbon\Carbon::parse($stamp)->timezone(config('app.timezone'))->format('j M H:i') : null,
         ];
+    }
+
+    /**
+     * The file record (MicWorkList::forFiles) of each row on the page, keyed by the row's advert id. A row that is not linked to a property file is its own file.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function fileRowsFor(iterable $items, int $agencyId): array
+    {
+        $keyOf = [];
+        foreach ($items as $l) {
+            $keyOf[(int) $l->id] = $l->tracked_property_id ? (int) $l->tracked_property_id : -(int) $l->id;
+        }
+        if (! $keyOf) {
+            return [];
+        }
+        $byKey = [];
+        foreach (app(\App\Services\Prospecting\MicWork\MicWorkList::class)->forFiles(array_values(array_unique($keyOf)), $agencyId) as $row) {
+            $byKey[$row['key']] = $row;
+        }
+        $out = [];
+        foreach ($keyOf as $id => $key) {
+            if (isset($byKey[$key])) {
+                $out[$id] = $byKey[$key];
+            }
+        }
+
+        return $out;
     }
 
     /**

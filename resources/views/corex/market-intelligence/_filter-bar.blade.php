@@ -31,7 +31,7 @@
     };
     $view = $micViewChoice ?? 'adverts';
     // The Adverts cards (mic-work-tab.md 13.3) are switched on here the moment they render: until then List stays selected and Adverts is disabled.
-    $advertsReady = false;
+    $advertsReady = true;
     $layout = $advertsReady ? $view : 'list';
 
     // ── active filter chips: one per filter, each with its own × ──────────────────────────────────────
