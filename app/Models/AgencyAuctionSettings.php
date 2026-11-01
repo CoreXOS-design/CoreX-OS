@@ -24,7 +24,7 @@ class AgencyAuctionSettings extends Model
         'agency_id', 'site_title', 'intro_text', 'contact_email', 'contact_phone', 'reference_prefix',
         'default_increments', 'soft_close_minutes', 'reserve_visibility', 'show_bid_count', 'show_bidder_numbers',
         'registration_closes_hours', 'docs_required_individual', 'docs_required_company', 'terms_text',
-        'notify_enquiry_to', 'outbid_emails', 'confirmation_days', 'notify_emails_enabled', 'notify_emails_to', 'start_emails_enabled',
+        'notify_enquiry_to', 'outbid_emails', 'confirmation_days', 'notify_emails_enabled', 'notify_emails_to', 'start_emails_enabled', 'show_bid_history',
         'hero_image_path', 'accent_color', 'how_it_works', 'footer_text', 'show_past_auctions',
         'buyers_commission_percent', 'buyers_commission_minimum', 'deposit_percent', 'deposit_due_days', 'balance_due_days', 'payment_details',
     ];
@@ -41,6 +41,7 @@ class AgencyAuctionSettings extends Model
         'outbid_emails' => 'boolean',
         'notify_emails_enabled' => 'boolean',
         'start_emails_enabled' => 'boolean',
+        'show_bid_history' => 'boolean',
         'show_past_auctions' => 'boolean',
         'buyers_commission_percent' => 'float',
         'buyers_commission_minimum' => 'float',
@@ -139,6 +140,8 @@ class AgencyAuctionSettings extends Model
     public static function referencePrefixFor(int $agencyId): string { return (string) static::value($agencyId, 'reference_prefix', 'AUC'); }
     public static function softCloseMinutesFor(int $agencyId): int { return (int) static::value($agencyId, 'soft_close_minutes', 5); }
     public static function reserveVisibilityFor(int $agencyId): string { return (string) static::value($agencyId, 'reserve_visibility', 'met_not_met'); }
+    /** The "Bidding activity" list on the public lot page (§20). On unless the agency switched it off. */
+    public static function showBidHistoryFor(int $agencyId): bool { return (bool) static::value($agencyId, 'show_bid_history', true); }
     public static function showBidCountFor(int $agencyId): bool { return (bool) static::value($agencyId, 'show_bid_count', true); }
     public static function showBidderNumbersFor(int $agencyId): bool { return (bool) static::value($agencyId, 'show_bidder_numbers', false); }
     public static function registrationClosesHoursFor(int $agencyId): int { return (int) static::value($agencyId, 'registration_closes_hours', 24); }

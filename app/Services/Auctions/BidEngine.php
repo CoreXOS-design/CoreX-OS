@@ -219,6 +219,20 @@ class BidEngine
         if (AgencyAuctionSettings::showBidCountFor($agencyId)) {
             $out['bid_count'] = $lot->bids()->valid()->count();
         }
+        if (AgencyAuctionSettings::showBidHistoryFor($agencyId)) {
+            // "Bidding activity" on the lot page (§20): the latest valid bids, newest first. No names - only the bidder number, and only when
+            // the agency lets bidders see bidder numbers - plus whether a row is the viewer's own.
+            $showNumbers = AgencyAuctionSettings::showBidderNumbersFor($agencyId);
+            $rows = $lot->bids()->valid()->orderByDesc('amount')->orderBy('id')->limit(8)->get(['id', 'registration_id', 'amount', 'placed_at']);
+            $numbers = $showNumbers ? AuctionRegistration::withoutGlobalScopes()->whereIn('id', $rows->pluck('registration_id'))->pluck('bidder_number', 'id') : collect();
+            $out['recent_bids'] = $rows->values()->map(fn ($b, $i) => [
+                'amount' => (float) $b->amount,
+                'who' => $showNumbers ? ($numbers[$b->registration_id] ?? null) : null,
+                'at' => $b->placed_at?->toIso8601String(),
+                'highest' => $i === 0,
+                'mine' => $reg && (int) $b->registration_id === (int) $reg->id,
+            ])->all();
+        }
         if ($high && AgencyAuctionSettings::showBidderNumbersFor($agencyId)) {
             $out['leader_number'] = AuctionRegistration::withoutGlobalScopes()->whereKey($high->registration_id)->value('bidder_number');
         }

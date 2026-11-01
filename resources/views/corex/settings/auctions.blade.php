@@ -91,6 +91,7 @@
                     </select>
                     <p class="{{ $hint }}" style="color:var(--text-muted);">The reserve amount itself is never shown to buyers.</p></div>
                 <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="show_bid_count" value="1" @checked(old('show_bid_count', $values['show_bid_count']))> Show how many bids a lot has</label>
+                <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="show_bid_history" value="1" @checked(old('show_bid_history', $values['show_bid_history']))> Show the latest bids on a lot ("Bidding activity")</label>
                 <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="show_bidder_numbers" value="1" @checked(old('show_bidder_numbers', $values['show_bidder_numbers']))> Show bidder numbers to other bidders</label>
                 <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="outbid_emails" value="1" @checked(old('outbid_emails', $values['outbid_emails']))> Email a bidder when they are outbid</label>
             </div>

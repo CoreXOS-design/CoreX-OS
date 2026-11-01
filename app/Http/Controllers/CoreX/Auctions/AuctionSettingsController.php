@@ -28,6 +28,7 @@ class AuctionSettingsController extends Controller
                 'soft_close_minutes' => AgencyAuctionSettings::softCloseMinutesFor($agencyId),
                 'reserve_visibility' => AgencyAuctionSettings::reserveVisibilityFor($agencyId),
                 'show_bid_count' => AgencyAuctionSettings::showBidCountFor($agencyId),
+                'show_bid_history' => AgencyAuctionSettings::showBidHistoryFor($agencyId),
                 'show_bidder_numbers' => AgencyAuctionSettings::showBidderNumbersFor($agencyId),
                 'registration_closes_hours' => AgencyAuctionSettings::registrationClosesHoursFor($agencyId),
                 'docs_required_individual' => AgencyAuctionSettings::docsRequiredIndividualFor($agencyId),
@@ -60,6 +61,7 @@ class AuctionSettingsController extends Controller
         $data = $request->validate($this->rules());
         $write = $this->scalarWrites($data) + [
             'show_bid_count' => $request->boolean('show_bid_count'),
+            'show_bid_history' => $request->boolean('show_bid_history'),
             'show_bidder_numbers' => $request->boolean('show_bidder_numbers'),
             'outbid_emails' => $request->boolean('outbid_emails'),
             'notify_emails_enabled' => $request->boolean('notify_emails_enabled'),
@@ -84,7 +86,7 @@ class AuctionSettingsController extends Controller
         $data = $request->validate($this->rules(wizard: true));
 
         $write = $this->scalarWrites($data, guardWithHas: $request);
-        foreach (['show_bid_count', 'show_bidder_numbers', 'outbid_emails', 'show_past_auctions', 'notify_emails_enabled', 'start_emails_enabled'] as $bool) {
+        foreach (['show_bid_count', 'show_bid_history', 'show_bidder_numbers', 'outbid_emails', 'show_past_auctions', 'notify_emails_enabled', 'start_emails_enabled'] as $bool) {
             if ($request->has($bool)) {
                 $write[$bool] = $request->boolean($bool);
             }
