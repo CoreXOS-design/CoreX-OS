@@ -11,12 +11,11 @@
     };
 @endphp
 @if(!empty($tilesDeferred))
-<div id="mic-work-tile-row" data-qa="work-tiles-deferred" style="display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); gap: 6px; margin-bottom: 10px; align-items: stretch;">
+<div id="mic-work-tile-row" data-qa="work-tiles-deferred" style="display: grid; grid-template-columns: repeat(11, minmax(0, 1fr)); gap: 6px; margin-bottom: 6px; align-items: stretch;">
     @foreach(\App\Services\Prospecting\MicWork\MicWorkTiles::TILES as $n => $def)
         <div style="padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); opacity: .7;" title="{{ $def[1] }}">
-            <div style="font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); line-height: 1.2;">{{ $def[3] }}</div>
-            <div style="font-size: .8125rem; line-height: 1.6; color: var(--text-muted);">…</div>
-            <div style="font-size: 0.6875rem;">&nbsp;</div>
+            <div style="font-size: 1.0625rem; line-height: 1.3; color: var(--text-muted);">…</div>
+            <div style="font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $def[3] }}</div>
         </div>
     @endforeach
 </div>
@@ -40,7 +39,7 @@
 })();
 </script>
 @else
-<div id="mic-work-tile-row" data-qa="work-tiles" style="display: grid; grid-template-columns: repeat({{ max(1, count($workTiles)) }}, minmax(0, 1fr)); gap: 6px; margin-bottom: 10px; align-items: stretch;">
+<div id="mic-work-tile-row" data-qa="work-tiles" style="display: grid; grid-template-columns: repeat({{ max(1, count($workTiles)) }}, minmax(0, 1fr)); gap: 6px; margin-bottom: 6px; align-items: stretch;">
     @foreach($workTiles as $t)
         @php
             $isActive = $t['kind'] === 'panel' ? $activePanel === $t['number'] : $activeTile === $t['key'];
@@ -51,24 +50,24 @@
             $box = 'display:block; padding: 6px 8px; border: 1px solid ' . ($isActive ? 'var(--brand-icon)' : 'var(--border)') . '; border-radius: 6px; background: var(--surface); text-decoration: none; min-width: 0;'
                 . ($clickable ? '' : ' opacity: .6;');
         @endphp
-        @if($clickable)<a href="{{ $href }}" data-qa="tile-{{ $t['number'] }}" style="{{ $box }}" title="{{ $t['title'] }}">@else<div data-qa="tile-{{ $t['number'] }}" style="{{ $box }}" title="{{ $t['title'] }} - data coming">@endif
-            <div style="font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); line-height: 1.2;">{{ $t['short'] }}</div>
+        @php
+            // The face is the number and the name only (mic-work-tab.md 13.2b); the explanatory text is the hover popup (title + the same text).
+            $tipText = $t['title'] . (!empty($t['note'] ?? $t['reason'] ?? null) ? "\n" . ($t['note'] ?? $t['reason']) : '');
+            $numColor = $isActive ? 'var(--brand-icon)' : 'var(--text-primary)';
+        @endphp
+        @if($clickable)<a href="{{ $href }}" data-qa="tile-{{ $t['number'] }}" style="{{ $box }}" title="{{ $tipText }}">@else<div data-qa="tile-{{ $t['number'] }}" style="{{ $box }}" title="{{ $tipText }} - data coming">@endif
             @if(!empty($t['display']))
-                <div style="font-size: .9375rem; font-weight: 700; line-height: 1.4; color: {{ $isActive ? 'var(--brand-icon)' : 'var(--text-primary)' }};">{{ $t['display'] }}</div>
-                <div style="font-size: 0.6875rem; line-height: 1.25; color: var(--text-muted);">{{ $t['note'] ?? $t['reason'] }}</div>
+                <div style="font-size: .9375rem; font-weight: 700; line-height: 1.3; color: {{ $numColor }}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $t['display'] }}</div>
             @elseif($t['count'] !== null)
-                <div style="font-size: 1.0625rem; font-weight: 700; line-height: 1.3; color: {{ $isActive ? 'var(--brand-icon)' : 'var(--text-primary)' }};">{{ number_format($t['count']) }}@if(!empty($t['unit']))<span style="font-size: .6875rem; font-weight: 600; color: var(--text-muted);"> {{ $t['unit'] }}</span>@endif</div>
-                <div style="font-size: 0.6875rem; line-height: 1.25; color: var(--text-muted);">{{ $t['note'] ?? $t['reason'] }}</div>
+                <div style="font-size: 1.0625rem; font-weight: 700; line-height: 1.3; color: {{ $numColor }};">{{ number_format($t['count']) }}@if(!empty($t['unit']))<span style="font-size: .6875rem; font-weight: 600; color: var(--text-muted);"> {{ $t['unit'] }}</span>@endif</div>
             @elseif($t['ready'] && $t['kind'] === 'panel')
-                <div style="font-size: .8125rem; font-weight: 700; line-height: 1.6; color: {{ $isActive ? 'var(--brand-icon)' : 'var(--text-primary)' }};">Open ▸</div>
-                <div style="font-size: 0.6875rem; color: var(--text-muted);">&nbsp;</div>
+                <div style="font-size: .8125rem; font-weight: 700; line-height: 1.5; color: {{ $numColor }};">Open ▸</div>
             @elseif($t['ready'])
-                <div style="font-size: .8125rem; line-height: 1.6; color: var(--text-muted);">{{ $t['note'] ?? $t['reason'] }}</div>
-                <div style="font-size: 0.6875rem;">&nbsp;</div>
+                <div style="font-size: .8125rem; line-height: 1.5; color: var(--text-muted);">-</div>
             @else
-                <div style="font-size: .8125rem; line-height: 1.6; color: var(--text-muted);">Coming</div>
-                <div style="font-size: 0.6875rem;">&nbsp;</div>
+                <div style="font-size: .8125rem; line-height: 1.5; color: var(--text-muted);">Coming</div>
             @endif
+            <div style="font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $t['short'] }}</div>
         @if($clickable)</a>@else</div>@endif
     @endforeach
 </div>

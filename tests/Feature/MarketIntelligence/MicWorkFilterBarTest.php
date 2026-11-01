@@ -158,4 +158,35 @@ final class MicWorkFilterBarTest extends TestCase
         $this->assertSame(2, $first(['sort' => 'cut', 'dir' => 'desc']), 'Biggest price cut');
         $this->assertSame(2, $first(['sort' => 'buyers', 'dir' => 'desc']), 'Most buyers');
     }
+
+    public function test_the_compact_top_is_one_line_bar_one_line_of_figures_and_a_slim_tile_face(): void
+    {
+        $this->advert('P24-150000040');
+        $h = $this->page();
+        // header: one line, no subtitle
+        $this->assertStringContainsString('Market Intelligence</span>', $h);
+        $this->assertStringNotContainsString('Your prospecting worklist', $h);
+        // the five KPI cards are one text line that also carries the row count
+        $this->assertStringContainsString('data-qa="stats-line"', $h);
+        $this->assertStringNotContainsString('class="mi-stats-strip"', $h);
+        $line = substr($h, (int) strpos($h, 'data-qa="stats-line"'), 6000);
+        $this->assertMatchesRegularExpression('/· [0-9,]+ buyers?<\/span>/', $line);
+        $at = -1;
+        foreach (['Properties matched', 'Pitch now', 'My claims', 'Expiring', 'New today', 'data-qa="rows-total"'] as $part) {
+            $pos = strpos($line, $part);
+            $this->assertNotFalse($pos, $part);
+            $this->assertGreaterThan($at, $pos, "{$part} in order");
+            $at = $pos;
+        }
+        $this->assertDoesNotMatchRegularExpression('/<strong[^>]*>[0-9,]+<\/strong>\s*rows shown/', $h, 'the separate rows-shown line is gone');
+        // the bar: one non-wrapping row holding search, filters, More filters, Clear, sort and the switch
+        $this->assertMatchesRegularExpression('/class="mi-bar-row" style="[^"]*flex-wrap: nowrap/', $h);
+
+        // the buyer-match slider is inside More filters, and there is no chip while it sits at its default
+        $this->assertGreaterThan(strpos($h, 'data-qa="more-filters"'), strpos($h, 'id="mic-score-min"'));
+        $this->assertStringNotContainsString('Buyer match 75', $this->page());
+        $this->assertStringContainsString('Buyer match 50–100%', $this->page(['score_min' => 50, 'score_max' => 100]));
+        // no chips line when nothing is active
+        $this->assertStringNotContainsString('data-qa="filter-chips"', $h);
+    }
 }

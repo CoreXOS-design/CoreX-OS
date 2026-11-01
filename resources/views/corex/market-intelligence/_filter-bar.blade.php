@@ -63,6 +63,10 @@
     if (request('captured_by')) { $u = collect($users ?? [])->firstWhere('id', (int) request('captured_by')); $chips[] = ['Captured · ' . ($u->name ?? '?'), $urlWithout('captured_by')]; }
     if (request('date_from')) { $chips[] = ['Since ' . request('date_from'), $urlWithout(['date_from', 'date_to'])]; }
     if (request('agency_name')) { $chips[] = ['Agency · ' . request('agency_name'), $urlWithout('agency_name')]; }
+    $bmThreshold = (int) (($snapshotKpis['match_threshold'] ?? 75));
+    if ((request()->filled('score_min') || request()->filled('score_max')) && !((int) request('score_min', $bmThreshold) === $bmThreshold && (int) request('score_max', 100) === 100)) {
+        $chips[] = ['Buyer match ' . (int) request('score_min', $bmThreshold) . '–' . (int) request('score_max', 100) . '%', route('market-intelligence.work', request()->except(['page', 'score_min', 'score_max', 'sort']))];
+    }
     if (request('action_preset')) { $chips[] = ['Preset · ' . str_replace('_', ' ', request('action_preset')), $urlWithout('action_preset')]; }
     if (request('tile')) { $chips[] = ['Tile · ' . (\App\Services\Prospecting\MicWork\MicWorkTiles::TILES[\App\Services\Prospecting\MicWork\MicWorkTiles::numberForKey(request('tile'))][3] ?? request('tile')), $urlWithout('tile')]; }
 
@@ -86,17 +90,17 @@
 
 <div class="mi-filter-bar" data-qa="filter-bar" style="margin-bottom: 8px;">
     {{-- Row 1 --}}
-    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;">
+    <div class="mi-bar-row" style="display: flex; flex-wrap: nowrap; align-items: center; gap: 6px;">
         <form method="GET" action="{{ route('market-intelligence.work') }}" data-qa="filter-form" style="display: contents;"
               onsubmit="(function(f){ var has = ['suburbs[]','type[]','price_min','price_max','beds','show_status','owner_only','sole_mandate_only','claimed'].some(function(n){ return Array.prototype.some.call(f.elements, function(e){ return e.name === n && ((e.type === 'checkbox' && e.checked) || (e.type !== 'checkbox' && e.value !== '')); }); }); if (!has) { var c = document.createElement('input'); c.type = 'hidden'; c.name = 'clear'; c.value = '1'; f.appendChild(c); } })(this)">
             @foreach($hidden as $k => $v)<input type="hidden" name="{{ $k }}" value="{{ $v }}">@endforeach
             @foreach($carry as $k => $v)<input type="hidden" name="{{ $k }}" value="{{ $v }}">@endforeach
             @if($view)<input type="hidden" name="view" value="{{ $view }}">@endif
-            <input type="search" name="search" value="{{ request('search') }}" placeholder="Search address, complex, erf, agent, agency, ref" data-qa="filter-search" style="{{ $box }} width: 270px;">
+            <input type="search" name="search" value="{{ request('search') }}" placeholder="Search address, complex, erf, agent, agency, ref" data-qa="filter-search" onkeydown="if (event.key === 'Enter') { event.preventDefault(); this.form.requestSubmit(); }" style="{{ $box }} flex: 1 1 9rem; min-width: 7rem; max-width: 16.25rem;">
 
             {{-- Suburb: several at once, the agency's working suburbs first --}}
             <div x-data="{ open: false, q: '' }" @click.outside="open = false" style="position: relative;">
-                <button type="button" @click="open = !open" data-qa="filter-suburb" style="{{ $box }} cursor: pointer; min-width: 120px; text-align: left;">
+                <button type="button" @click="open = !open" data-qa="filter-suburb" style="{{ $box }} cursor: pointer; width: 6.5rem; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                     Suburb{{ count($selSuburbs) ? ' · ' . count($selSuburbs) : '' }} ▾
                 </button>
                 <div x-show="open" x-cloak style="position: absolute; z-index: 30; top: 34px; left: 0; width: 270px; max-height: 340px; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.18); padding: 6px;">
@@ -115,38 +119,37 @@
                 </div>
             </div>
 
-            <select name="type[]" onchange="this.form.requestSubmit()" data-qa="filter-type" style="{{ $box }}">
+            <select name="type[]" onchange="this.form.requestSubmit()" data-qa="filter-type" style="{{ $box }} width: 6.5rem; flex-shrink: 1; min-width: 4.5rem;">
                 <option value="">Type</option>
                 @foreach($agg['by_type'] as $row)<option value="{{ $row->property_type }}" @selected(in_array($row->property_type, $selTypes, true))>{{ $row->property_type }} ({{ number_format($row->c ?? 0) }})</option>@endforeach
             </select>
-            <input type="number" name="price_min" value="{{ $F['price_min'] ?? '' }}" placeholder="Min price" min="0" step="50000" style="{{ $box }} width: 100px;">
-            <input type="number" name="price_max" value="{{ $F['price_max'] ?? '' }}" placeholder="Max price" min="0" step="50000" style="{{ $box }} width: 100px;">
-            <select name="beds" onchange="this.form.requestSubmit()" data-qa="filter-beds" style="{{ $box }}">
+            <input type="number" name="price_min" value="{{ $F['price_min'] ?? '' }}" placeholder="Min" title="Minimum price" min="0" step="50000" onchange="this.form.requestSubmit()" style="{{ $box }} width: 5.5rem; flex-shrink: 1; min-width: 3.5rem;">
+            <input type="number" name="price_max" value="{{ $F['price_max'] ?? '' }}" placeholder="Max" title="Maximum price" min="0" step="50000" onchange="this.form.requestSubmit()" style="{{ $box }} width: 5.5rem; flex-shrink: 1; min-width: 3.5rem;">
+            <select name="beds" onchange="this.form.requestSubmit()" data-qa="filter-beds" style="{{ $box }} width: 4.75rem; flex-shrink: 1; min-width: 3.5rem;">
                 <option value="">Beds</option>
                 @foreach(range(1, 7) as $b)<option value="{{ $b }}" @selected((string) ($F['beds'] ?? '') === (string) $b)>{{ $b }}+ bed{{ $b > 1 ? 's' : '' }}</option>@endforeach
             </select>
-            <button type="submit" class="corex-btn text-xs" style="height: 30px;">Search</button>
         </form>
 
-        <button type="button" x-data x-on:click="$dispatch('mic-more-toggle')" data-qa="more-filters-toggle" class="corex-btn-outline text-xs" style="height: 30px;">
-            More filters{{ $moreCount ? ' · ' . $moreCount : '' }} ▾
+        <button type="button" x-data x-on:click="$dispatch('mic-more-toggle')" data-qa="more-filters-toggle" class="corex-btn-outline text-xs" style="height: 30px; white-space: nowrap; flex-shrink: 0;">
+            More filters{{ $moreCount ? ' (' . $moreCount . ')' : '' }} ▾
         </button>
-        <a href="{{ route('market-intelligence.work', ['clear' => 1]) }}" data-qa="filter-clear" style="font-size: .8125rem; color: var(--brand-icon); text-decoration: none;">Clear</a>
+        <a href="{{ route('market-intelligence.work', ['clear' => 1]) }}" data-qa="filter-clear" style="flex-shrink: 0; font-size: .8125rem; color: var(--brand-icon); text-decoration: none;">Clear</a>
 
-        <span style="margin-left: auto; display: inline-flex; align-items: center; gap: 8px;">
+        <span style="margin-left: auto; display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;">
             <label for="mi-sort-select" style="font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.625rem; color: var(--text-muted);">Sort</label>
-            <select id="mi-sort-select" data-qa="filter-sort" style="{{ $box }}"
+            <select id="mi-sort-select" data-qa="filter-sort" style="{{ $box }} width: 8.5rem;"
                     onchange="(function(s){ var url = new URL(window.location.href); var p = s.value.split('|'); url.searchParams.set('sort', p[0]); url.searchParams.set('dir', p[1] || 'desc'); url.searchParams.delete('page'); window.location.href = url.toString(); })(this)">
                 @foreach($sortOptions as $v => $label)<option value="{{ $v }}" @selected($sortNow === $v)>{{ $label }}</option>@endforeach
             </select>
             <span data-qa="layout-toggle" role="group" aria-label="View" style="display: inline-flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden;">
                 @foreach(['adverts' => 'Adverts', 'list' => 'List'] as $lv => $ll)
                     @if($lv === 'adverts' && !$advertsReady)
-                        <span data-qa="layout-adverts" aria-disabled="true" aria-pressed="false" style="padding: 0 12px; line-height: 28px; font-size: .8125rem; background: var(--surface); color: var(--text-muted); opacity: .5; cursor: not-allowed;">{{ $ll }}</span>
+                        <span data-qa="layout-adverts" aria-disabled="true" aria-pressed="false" style="padding: 0 10px; line-height: 28px; font-size: .8125rem; background: var(--surface); color: var(--text-muted); opacity: .5; cursor: not-allowed;">{{ $ll }}</span>
                         @continue
                     @endif
                     <a href="{{ $urlWith(['view' => $lv]) }}" data-qa="layout-{{ $lv }}" aria-pressed="{{ $layout === $lv ? 'true' : 'false' }}"
-                       style="padding: 0 12px; line-height: 28px; font-size: .8125rem; text-decoration: none; {{ $layout === $lv ? 'background: var(--brand-button, #0ea5e9); color: #fff; font-weight: 600;' : 'background: var(--surface-2); color: var(--text-secondary);' }}">{{ $ll }}</a>
+                       style="padding: 0 10px; line-height: 28px; font-size: .8125rem; text-decoration: none; {{ $layout === $lv ? 'background: var(--brand-button, #0ea5e9); color: #fff; font-weight: 600;' : 'background: var(--surface-2); color: var(--text-secondary);' }}">{{ $ll }}</a>
                 @endforeach
             </span>
         </span>
@@ -176,6 +179,8 @@
                 <a href="{{ $fLink(['claimed' => $cv === 'any' ? null : $cv]) }}" data-qa="more-claimed-{{ $cv }}" style="font-size: .8125rem; text-decoration: none; padding: 1px 8px; border-radius: 10px; border: 1px solid {{ $cOn ? 'var(--brand-icon)' : 'var(--border)' }}; color: {{ $cOn ? 'var(--brand-icon)' : 'var(--text-secondary)' }};">{{ $cl }}</a>
             @endforeach
         </div>
+        {{-- the buyer-match % slider (it left the KPI strip; the bar keeps a chip when it is off its default) --}}
+        @include('corex.market-intelligence._match-band')
         {{-- the buyer-match legend with the P24 / PP / with-address / in-stock ticks, "tune" and "About this page" - unchanged, moved here --}}
         <div id="mic-slot-buyer-legend">
             @include('corex.market-intelligence._buyer-match-legend')
@@ -184,3 +189,6 @@
         @include('corex.market-intelligence._filter-rail', ['railCompact' => true])
     </div>
 </div>
+<style>
+    @media (max-width: 64rem) { .mi-bar-row { flex-wrap: wrap !important; } }
+</style>

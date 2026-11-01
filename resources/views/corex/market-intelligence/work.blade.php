@@ -24,7 +24,7 @@
 
 <x-mic-page-header
     title="Work"
-    subtitle="{{ ($micView ?? 'adverts') === 'properties' ? 'Every property we know about, one row each - both portals, alerts and deeds together' . (\App\Services\Prospecting\MicWork\MicWorkList::hasScores() ? ', ranked by opportunity score.' : ', newest activity first.') : 'Your prospecting worklist — listings to action, ranked by suggested next step.' }}">
+    :compact="true">
     <x-slot:actions>
         {{-- Slot: filter ticks. AJAX swap target (display:contents = no layout box),
              so a tick toggle refreshes this in place without a full reload. --}}
@@ -72,7 +72,7 @@
      through (Andre, 2026-10-14). --}}
 <header class="mi-header" id="mic-slot-stats"
         style="position: sticky; z-index: 10; background: var(--surface);">
-    @include('corex.market-intelligence._stats-strip')
+    @include('corex.market-intelligence._stats-strip', ['statsLine' => true])
 </header>
 
 {{-- F.8 — one-time dismissable intro banner. localStorage-gated. --}}

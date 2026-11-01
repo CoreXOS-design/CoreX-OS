@@ -95,44 +95,23 @@
          (Johan 2026-08-19) — now rendered in the empty band above the list,
          see work.blade.php's #mic-slot-buyer-legend include. --}}
 
-    {{-- Result-count + sort header strip --}}
-    <div style="display: flex; align-items: flex-start; justify-content: space-between; padding: 4px 0 10px; gap: 12px; flex-wrap: wrap;">
-        <div style="min-width: 0;">
-            <div style="font-size: 0.8125rem; color: var(--text-secondary);"
-                 title="Rows shown: the actual list below, grouped by matched development — not the same dedupe basis as the suburb filter badge on the left (that counts distinct addresses). See the line below when they differ.">
-                <strong style="color: var(--text-primary);">{{ number_format($micRowsShown) }}</strong>
-                rows shown
-                @if(request('action_preset'))
-                    · preset <em>{{ str_replace('_', ' ', request('action_preset')) }}</em>
+    {{-- The row count joined the KPI line (mic-work-tab.md 13.2b). The trust line below only exists when there is something to explain. --}}
+    @if($micShowTrustLine)
+        <div style="font-size: 0.6875rem; color: var(--text-muted); padding: 2px 0 6px;">
+            @if($micAddressGap)
+                {{ number_format($micLeftFilterCount) }} distinct {{ \Illuminate\Support\Str::plural('address', $micLeftFilterCount) }}
+                → {{ number_format($micRowsShown) }} rows shown
+                @if($micInjectedTotal > 0)
+                    ({{ number_format($micScrapedTotal) }} scraped + {{ number_format($micInjectedTotal) }} our own stock, unlisted)
+                @else
+                    (grouped by matched development)
                 @endif
-                @if(request('suburb'))
-                    · {{ request('suburb') }}
-                @endif
-                @if(request('search'))
-                    · matching "{{ request('search') }}"
-                @endif
-            </div>
-            {{-- Trust strip — states the relationship instead of leaving it to look
-                 like a bug. Only rendered when there's actually something to explain. --}}
-            @if($micShowTrustLine)
-                <div style="font-size: 0.6875rem; color: var(--text-muted); margin-top: 2px;">
-                    @if($micAddressGap)
-                        {{ number_format($micLeftFilterCount) }} distinct {{ \Illuminate\Support\Str::plural('address', $micLeftFilterCount) }}
-                        → {{ number_format($micRowsShown) }} rows shown
-                        @if($micInjectedTotal > 0)
-                            ({{ number_format($micScrapedTotal) }} scraped + {{ number_format($micInjectedTotal) }} our own stock, unlisted)
-                        @else
-                            (grouped by matched development)
-                        @endif
-                    @else
-                        {{ number_format($micRowsShown) }} rows shown
-                        ({{ number_format($micScrapedTotal) }} scraped + {{ number_format($micInjectedTotal) }} our own stock, unlisted)
-                    @endif
-                </div>
+            @else
+                {{ number_format($micRowsShown) }} rows shown
+                ({{ number_format($micScrapedTotal) }} scraped + {{ number_format($micInjectedTotal) }} our own stock, unlisted)
             @endif
         </div>
-        {{-- The SORT control moved to the top filter bar (mic-work-tab.md 13.2); this header keeps the row count. --}}
-    </div>
+    @endif
 
     {{-- MIC property row comments — .ai/specs/mic-property-row-comments.md.
          AT-363 fix pattern (documented in .ai/CHAT_STARTER.md and used by

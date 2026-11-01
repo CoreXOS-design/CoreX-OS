@@ -1288,7 +1288,7 @@ class MarketIntelligenceController extends Controller
 
             return response()->json([
                 'listings'      => view('corex.market-intelligence._listings', $fragmentData)->render(),
-                'statsStrip'    => view('corex.market-intelligence._stats-strip', $fragmentData)->render(),
+                'statsStrip'    => view('corex.market-intelligence._stats-strip', $fragmentData + ['statsLine' => true])->render(),
                 'filterRail'    => view('corex.market-intelligence._filter-bar', $fragmentData)->render(),
                 'headerActions' => view('corex.market-intelligence.partials._header-actions', $fragmentData + ['showTicks' => false])->render(),
                 'buyerLegend'   => view('corex.market-intelligence._buyer-match-legend', $fragmentData)->render(),

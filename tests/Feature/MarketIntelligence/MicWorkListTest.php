@@ -66,7 +66,7 @@ final class MicWorkListTest extends TestCase
     {
         $this->advert($this->agency, 'p24', 'P24-119000010', null);
         $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'properties']))->assertOk()->assertDontSee('Properties matched', false)->assertDontSee('listings to action', false);
-        $this->actingAs($this->admin)->get(route('market-intelligence.work'))->assertOk()->assertSee('Properties matched', false)->assertSee('listings to action', false);
+        $this->actingAs($this->admin)->get(route('market-intelligence.work'))->assertOk()->assertSee('Properties matched', false)->assertDontSee('listings to action', false)->assertSee('data-qa="stats-line"', false);
     }
 
     public function test_sorts_and_empty_state(): void

@@ -753,6 +753,14 @@ Link contact: opens the property file at its contacts section (anchor `#linked-c
 
 - **Step C - second round + List (1 Nov ~18:30).** Adverts line counts all adverts with a live count; no-description cards top-aligned; List badges (13.4); List Card button opens the shared intelligence partial. Tests: `MicWorkAdvertsViewTest` (8). Open: none for this step.
 
+### 13.2b Compact top (Johan, 1 Nov 18:22: "reduce the over-the-top space waste and get screen back")
+Target: on a 1366 x 768 window the first advert card is fully visible without scrolling.
+1. **Page header:** two lines only - line 1 "MARKET INTELLIGENCE - Work" with Watch how / Setup at the right, line 2 the tabs. The subtitle is removed.
+2. **Tiles:** one slim row: the number and the tile name only (click filters as before); the explanatory text is the hover popup (the existing native tooltip: title + the same text).
+3. **Filter bar:** one line - Search, Suburb, Type, Min, Max, Beds, More filters (N), Clear - with SORT and the Adverts | List switch at its right end. The chips line shows only when a filter is active.
+4. **KPI strip:** one text line: "Properties matched 16,953 - 268 buyers - Pitch now 9,343 - My claims 90 - Expiring 87 - New today 0 - 20,345 rows" (names muted, numbers bold, the same links as the cards had). The separate "rows shown" line is gone (the trust line under it appears only when it has something to explain).
+5. **Buyer match % slider + tier legend** live inside More filters; the bar shows a chip "Buyer match 50-100%" only when the band is off its default.
+
 ### 13.10 Phone layout (placeholder - to be specified after the web Adverts view is signed off; Johan, 1 Nov 16:47)
 The same Work screen in the phone browser (not the mobile app): tiles as a horizontal swipe row, the filter bar collapsed to search + a Filters button, each advert stacked P24-mobile style (photo full width, price / heading / snippet, icon row) with the intelligence block and the Pitch / Claim / Comment buttons directly under it. Same data, same permissions, same login. **Build rule from now: nothing in the Adverts view markup may assume desktop width - no fixed px widths on the two blocks; flex / grid that can stack.** (The card's CSS already stacks below 56rem.)
 
