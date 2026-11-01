@@ -47,19 +47,19 @@
             $href = $t['kind'] === 'panel'
                 ? $tileUrl($isActive ? [] : ['panel' => $t['number']])
                 : $tileUrl($isActive ? [] : ['tile' => $t['key']]);
-            $box = 'display:block; padding: 6px 8px; border: 1px solid ' . ($isActive ? 'var(--brand-icon)' : 'var(--border)') . '; border-radius: 6px; background: var(--surface); text-decoration: none; min-width: 0;'
+            $box = 'display:block; padding: 4px 8px; border: 1px solid ' . ($isActive ? 'var(--brand-icon)' : 'var(--border)') . '; border-radius: 6px; background: var(--surface); text-decoration: none; min-width: 0;'
                 . ($clickable ? '' : ' opacity: .6;');
         @endphp
         @php
             // The face is the number and the name only (mic-work-tab.md 13.2b); the explanatory text is the hover popup (title + the same text).
-            $tipText = $t['title'] . (!empty($t['note'] ?? $t['reason'] ?? null) ? "\n" . ($t['note'] ?? $t['reason']) : '');
+            $tipText = $t['title'] . (!empty($t['unit']) && $t['count'] !== null ? ' (' . number_format($t['count']) . ' ' . $t['unit'] . ')' : '') . (!empty($t['note'] ?? $t['reason'] ?? null) ? "\n" . ($t['note'] ?? $t['reason']) : '');
             $numColor = $isActive ? 'var(--brand-icon)' : 'var(--text-primary)';
         @endphp
         @if($clickable)<a href="{{ $href }}" data-qa="tile-{{ $t['number'] }}" style="{{ $box }}" title="{{ $tipText }}">@else<div data-qa="tile-{{ $t['number'] }}" style="{{ $box }}" title="{{ $tipText }} - data coming">@endif
             @if(!empty($t['display']))
                 <div style="font-size: .9375rem; font-weight: 700; line-height: 1.3; color: {{ $numColor }}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $t['display'] }}</div>
             @elseif($t['count'] !== null)
-                <div style="font-size: 1.0625rem; font-weight: 700; line-height: 1.3; color: {{ $numColor }};">{{ number_format($t['count']) }}@if(!empty($t['unit']))<span style="font-size: .6875rem; font-weight: 600; color: var(--text-muted);"> {{ $t['unit'] }}</span>@endif</div>
+                <div style="font-size: 1.0625rem; font-weight: 700; line-height: 1.3; color: {{ $numColor }};">{{ number_format($t['count']) }}</div>
             @elseif($t['ready'] && $t['kind'] === 'panel')
                 <div style="font-size: .8125rem; font-weight: 700; line-height: 1.5; color: {{ $numColor }};">Open ▸</div>
             @elseif($t['ready'])
