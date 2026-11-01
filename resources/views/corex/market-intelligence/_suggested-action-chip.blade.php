@@ -83,7 +83,12 @@
         $compact = $compact ?? false;
         if ($compact) {
             $baseChipStyle = 'display:flex; align-items:center; justify-content:center; width:100%; height:26px; padding:0 4px; font-size:.75rem; font-weight:600; line-height:1; border-radius:5px; text-decoration:none; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; box-sizing:border-box;';
-            $chipLabel = trim(explode(' · ', $chipLabel)[0]);
+            $fullLabel = $chipLabel;
+            $chipLabel = trim(preg_replace('/\s*\(.*$/', '', explode(' · ', $chipLabel)[0]));
+            // every label must fit its fifth of the row: known long ones have a short form, any other long one keeps its first word (the full text is the tooltip)
+            $short = ['resolve colleague claim' => 'Colleague', 'involve colleague' => 'Colleague', 'already exists' => 'Exists', 're-pitch stock' => 'Re-pitch', 'log outcome' => 'Outcome'];
+            $chipLabel = $short[mb_strtolower($chipLabel)] ?? (mb_strlen($chipLabel) > 11 ? (explode(' ', $chipLabel)[0] ?? $chipLabel) : $chipLabel);
+            $tooltipText = $fullLabel . ' — ' . $tooltipText;
         }
 
         // Small, non-interactive secondary badge — text-only (no chip
@@ -110,7 +115,7 @@
            style="{{ $baseChipStyle }} {{ $tierStyle }}"
            onclick="event.stopPropagation();">
             {!! $iconSvg !!}
-            <span>{{ $chipLabel }}</span>
+            <span @if($compact) style="min-width:0; overflow:hidden; text-overflow:ellipsis;" @endif>{{ $chipLabel }}</span>
         </a>
     @elseif($s->clickType === 'alpine')
         <button type="button"
@@ -121,7 +126,7 @@
                 style="{{ $baseChipStyle }} {{ $tierStyle }}"
                 @click.stop="{{ $s->alpineCall }}">
             {!! $iconSvg !!}
-            <span>{{ $chipLabel }}</span>
+            <span @if($compact) style="min-width:0; overflow:hidden; text-overflow:ellipsis;" @endif>{{ $chipLabel }}</span>
         </button>
     @elseif($s->clickType === 'modal')
         <button type="button"
@@ -132,7 +137,7 @@
                 style="{{ $baseChipStyle }} {{ $tierStyle }}"
                 @click.stop="$dispatch('mi-open-modal', { key: '{{ $s->modalKey }}', listingId: {{ $listingIdForModal }} })">
             {!! $iconSvg !!}
-            <span>{{ $chipLabel }}</span>
+            <span @if($compact) style="min-width:0; overflow:hidden; text-overflow:ellipsis;" @endif>{{ $chipLabel }}</span>
         </button>
     @endif
 

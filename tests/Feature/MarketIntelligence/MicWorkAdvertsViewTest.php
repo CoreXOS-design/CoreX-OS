@@ -7,6 +7,7 @@ namespace Tests\Feature\MarketIntelligence;
 use App\Models\MicAgencySetting;
 use App\Models\ProspectingListing;
 use App\Models\User;
+use App\Services\Prospecting\SuggestedAction;
 use App\Services\Prospecting\TrackedPropertyMatchOrCreateService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -208,5 +209,22 @@ final class MicWorkAdvertsViewTest extends TestCase
         $this->advert('P24-150100051', 900_000);
         $h2 = $this->page(['view' => 'adverts']);
         $this->assertSame(1, substr_count($h2, 'data-qa="advert-features"'));
+    }
+
+    public function test_every_compact_button_label_fits_including_the_claimed_by_colleague_state(): void
+    {
+        $l = $this->advert('P24-150100060', 1_000_000);
+        $labels = ['RESOLVE COLLEAGUE CLAIM' => 'Colleague', 'ALREADY EXISTS · OPEN PROPERTY' => 'Exists', 'RE-PITCH STOCK' => 'Re-pitch', 'LOG OUTCOME' => 'Outcome',
+            'PITCH NOW · HIGH' => 'Pitch now', 'Involve colleague (Angelique Venter)' => 'Colleague', 'FLAG TO BM' => 'Flag to BM', 'Pitched' => 'Pitched'];
+        foreach ($labels as $full => $short) {
+            $html = view('corex.market-intelligence._suggested-action-chip', [
+                'suggested' => new SuggestedAction(rank: 'R8', label: $full, tier: 'info', icon: 'info', tooltipHtml: 'Angelique Venter held this claim 9 days.', clickType: 'modal', modalKey: 'release-as-manager:1'),
+                'listing' => $l, 'compact' => true,
+            ])->render();
+            $this->assertMatchesRegularExpression('/<span\s+style="min-width:0; overflow:hidden; text-overflow:ellipsis;"\s*>\s*' . preg_quote($short, '/') . '\s*<\/span>/', $html, $full);
+            $this->assertLessThanOrEqual(11, mb_strlen($short), $full);
+            $this->assertSame(1, preg_match('/title="([^"]*)"/', $html, $tm), $full);
+            $this->assertStringContainsString(mb_strtolower(preg_replace('/\s*\(.*$/', '', $full)), mb_strtolower(html_entity_decode($tm[1])), 'the full label is the tooltip: ' . $full);
+        }
     }
 }
