@@ -9,7 +9,7 @@
         if (($adv['portal_status'] ?? null) === 'sold') { $bd[] = ['Sold', 'var(--text-secondary)', 'The portal shows this advert as sold']; }
         if (!empty($adv['is_owner'])) { $bd[] = ['Owner selling', 'var(--brand-icon, #0ea5e9)', 'Advertised by the owner']; }
         if (!empty($adv['is_sole_mandate'])) { $bd[] = ['Sole mandate', '#7c3aed', 'Sole mandate (' . (($adv['sole_mandate_source'] ?? '') === 'alert' ? 'from a P24 alert' : 'from the advert wording') . ')']; }
-        if ((int) ($adv['group_member_count'] ?? 0) >= 2) { $bd[] = ['Listed by ' . (int) $adv['group_member_count'] . ' agencies', 'var(--text-muted)', 'More than one agency has this property listed']; }
+        if ((int) ($adv['group_member_count'] ?? 0) >= 2) { $bd[] = ['Listed by ' . (int) $adv['group_member_count'] . ' agencies', 'var(--text-secondary)', 'More than one agency has this property listed']; }
     @endphp
     @foreach($bd as [$bt, $bc, $btitle])<span data-qa="row-badge" title="{{ $btitle }}" style="font-size: .625rem; font-weight: 700; line-height: 1.4; padding: 0 5px; border: 1px solid {{ $bc }}; border-radius: 8px; color: {{ $bc }}; white-space: nowrap;">{{ $bt }}</span>@endforeach
 @endif

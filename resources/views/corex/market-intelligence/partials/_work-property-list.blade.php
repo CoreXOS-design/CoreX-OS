@@ -31,7 +31,7 @@
     @endphp
     <span style="font-size:.6875rem; color: var(--text-muted);">Status</span>
     {!! $chipLink('On market', ['is_active' => '1'], request('is_active') === '1') !!}
-    {!! $chipLink('Gone', ['is_active' => '0'], request('is_active') === '0') !!}
+    {!! $chipLink('Not seen', ['is_active' => '0'], request('is_active') === '0') !!}
     {!! $chipLink('All', ['is_active' => 'all'], request('is_active') === 'all') !!}
     <span style="font-size:.6875rem; color: var(--text-muted);">Source</span>
     @foreach(\App\Services\Prospecting\PropertySourceFacts::FILTERS as $v => $l)

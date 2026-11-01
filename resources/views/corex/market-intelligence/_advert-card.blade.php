@@ -24,14 +24,18 @@
     if ($ownerSale) { $ribbons[] = ['Owner selling', 'var(--brand-icon, #0ea5e9)', null]; }
     if (!empty($adv['is_sole_mandate'])) { $ribbons[] = ['Sole mandate', '#7c3aed', ($adv['sole_mandate_source'] ?? '') === 'alert' ? 'Sole mandate (from a P24 alert)' : 'Sole mandate (from the advert wording)']; }
     // the photo's P24 / PP marks are the links to the adverts themselves (the live one of that portal first)
-    $portalUrl = function (string $portal) use ($adverts) {
+    $portalAdvert = function (string $portal) use ($adverts) {
         $mine = array_values(array_filter($adverts, fn ($a) => $a['portal'] === $portal && !empty($a['url'])));
         usort($mine, fn ($a, $b) => (int) $b['active'] <=> (int) $a['active']);
 
-        return $mine[0]['url'] ?? null;
+        return $mine[0] ?? null;
     };
-    $p24Url = $portalUrl('P24');
-    $ppUrl = $portalUrl('PP');
+    $p24Ad = $portalAdvert('P24');
+    $ppAd = $portalAdvert('PP');
+    $p24Url = $p24Ad['url'] ?? null;
+    $ppUrl = $ppAd['url'] ?? null;
+    // a mark whose advert is no longer seen is greyed (still a working link) and says since when
+    $markOff = 'background: rgba(100,116,139,.85); text-decoration: line-through;';
     // dates (13.3a): both when held, and the time on market by the section 0 rule
     $dateBits = [];
     if (!empty($adv['listed_date'])) { $dateBits[] = 'Listed ' . \Carbon\Carbon::parse($adv['listed_date'])->format('j M'); }
@@ -40,7 +44,7 @@
     if ($domLabel !== '-' && $domLabel !== '') { $dateBits[] = $domLabel === 'new' ? 'new' : (str_contains($domLabel, '~') || str_ends_with($domLabel, '+') ? $domLabel : '~' . $domLabel) . ' days'; }
     $who = $ownerSale ? 'Owner (private)' : ($adv['agencies'][0] ?? null);
 
-    $muted = 'color: var(--text-muted);';
+    $muted = 'color: var(--text-secondary);';
     $markStyle = 'padding:1px 6px; font-size:.6875rem; font-weight:700; background: rgba(15,23,42,.82); color:#fff; border-radius:3px; text-decoration:none; line-height:1.4;';
 @endphp
 
@@ -66,10 +70,10 @@
         @endif
         <div style="position:absolute; bottom:8px; right:8px; display:flex; gap:4px; align-items:center;" data-qa="photo-marks">
             @if(!empty($adv['p24']))
-                @if($p24Url)<a href="{{ $p24Url }}" target="_blank" rel="noopener" data-qa="mark-p24" title="Open the P24 advert" style="{{ $markStyle }}">P24</a>@else<span data-qa="mark-p24" style="{{ $markStyle }}">P24</span>@endif
+                @if($p24Url)<a href="{{ $p24Url }}" target="_blank" rel="noopener" data-qa="mark-p24" title="{{ !empty($p24Ad['active']) ? 'Open the P24 advert' : 'Not seen since ' . ($p24Ad['last_seen'] ?? '-') . ' - open the P24 advert anyway' }}" style="{{ $markStyle }} {{ !empty($p24Ad['active']) ? '' : $markOff }}">P24</a>@else<span data-qa="mark-p24" style="{{ $markStyle }}">P24</span>@endif
             @endif
             @if(!empty($adv['pp']))
-                @if($ppUrl)<a href="{{ $ppUrl }}" target="_blank" rel="noopener" data-qa="mark-pp" title="Open the PP advert" style="{{ $markStyle }}">PP</a>@else<span data-qa="mark-pp" style="{{ $markStyle }}">PP</span>@endif
+                @if($ppUrl)<a href="{{ $ppUrl }}" target="_blank" rel="noopener" data-qa="mark-pp" title="{{ !empty($ppAd['active']) ? 'Open the PP advert' : 'Not seen since ' . ($ppAd['last_seen'] ?? '-') . ' - open the PP advert anyway' }}" style="{{ $markStyle }} {{ !empty($ppAd['active']) ? '' : $markOff }}">PP</a>@else<span data-qa="mark-pp" style="{{ $markStyle }}">PP</span>@endif
             @endif
             @if(!empty($adv['alert']))
                 <x-dropdown align="right" width="w-96 max-w-[90vw]" content-classes="p-1">
@@ -85,29 +89,47 @@
         <div style="display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;" data-qa="advert-price">
             <span style="font-size:1.5rem; line-height:1.2; font-weight:800; color: var(--text-primary);">{{ !empty($adv['price']) ? $money($adv['price']) : '—' }}</span>
             @if(!empty($adv['old_price']) && !empty($adv['cut_amount']))
-                <span style="font-size:.9375rem; color: var(--text-muted); text-decoration: line-through;">{{ $money($adv['old_price']) }}</span>
+                <span style="font-size:.9375rem; color: var(--text-secondary); text-decoration: line-through;">{{ $money($adv['old_price']) }}</span>
                 <span style="font-size:.8125rem; font-weight:600; color: var(--ds-crimson, #dc2626);">cut {{ $money($adv['cut_amount']) }}{{ !empty($adv['cut_date']) ? ' · ' . \Carbon\Carbon::parse($adv['cut_date'])->format('j M') : '' }}</span>
             @endif
         </div>
         <div style="font-size:1rem; line-height:1.3; font-weight:600; color: var(--text-primary);" data-qa="advert-heading">{{ $heading }}</div>
         <div style="font-size:.875rem; line-height:1.3; font-weight:700; color: var(--text-primary);" data-qa="advert-place">{{ $adv['suburb'] ?? $listing->suburb }}@if($hasAddress) · {{ \Illuminate\Support\Str::limit($displayAddress, 80) }}@endif</div>
 
+        @php
+            // No wording captured: the listing page's feature rows and rates / levies fill the description space (nothing when there are none).
+            $skipKey = '/address|listing (date|number|ref)|erf|floor|bedroom|bathroom|garage|parking|rates|levies|agent|agency/i';
+            $featBits = [];
+            foreach ((is_array($adv['features'] ?? null) ? $adv['features'] : []) as $fk => $fv) {
+                $fk = trim((string) $fk); $fvs = trim(is_scalar($fv) ? (string) $fv : '');
+                if ($fk === '' || preg_match($skipKey, $fk) || $fvs === '' || in_array(mb_strtolower($fvs), ['no', '0', 'false', 'none'], true)) { continue; }
+                $featBits[] = in_array(mb_strtolower($fvs), ['yes', '1', 'true'], true) ? $fk : $fk . ' ' . $fvs;
+            }
+            $featBits = array_slice($featBits, 0, 8);
+            $costBits = array_values(array_filter([!empty($adv['rates_amount']) ? 'Rates ' . $money($adv['rates_amount']) . ' pm' : null, !empty($adv['levies_amount']) ? 'Levies ' . $money($adv['levies_amount']) . ' pm' : null]));
+        @endphp
         @if($text !== '')
-            <div style="font-size:.875rem; line-height:1.4; color: var(--text-secondary);" data-qa="advert-description">
+            <div style="font-size:.875rem; line-height:1.4; color: var(--text-primary);" data-qa="advert-description">
                 <div :style="more ? '' : 'display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden;'">{{ $text }}</div>
                 @if(mb_strlen($text) > 160)<button type="button" @click.stop="more = !more" style="background:none; border:none; padding:0; font-size:.8125rem; color: var(--brand-icon); cursor:pointer;"><span x-text="more ? 'less' : 'more'">more</span></button>@endif
             </div>
         @endif
+        @if($text === '' && ($featBits || $costBits))
+            <div style="font-size:.875rem; line-height:1.4; color: var(--text-primary);" data-qa="advert-features">
+                @if($featBits)<div>{{ implode(' · ', $featBits) }}</div>@endif
+                @if($costBits)<div>{{ implode(' · ', $costBits) }}</div>@endif
+            </div>
+        @endif
 
-        <div style="display:flex; align-items:center; gap:2px 14px; margin-top:{{ $text !== '' ? 'auto' : '4px' }}; font-size:.875rem; color: var(--text-secondary);" data-qa="advert-icons">
-            @if(!empty($f['beds']))<span title="Bedrooms" style="display:inline-flex; align-items:center; gap:4px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px; height:15px; color: var(--text-muted);"><path d="M3 18v-7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7M3 14h18M3 18v2M21 18v2M7 9V6h10v3"/></svg>{{ $f['beds'] }}</span>@endif
-            @if(!empty($f['baths']))<span title="Bathrooms" style="display:inline-flex; align-items:center; gap:4px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px; height:15px; color: var(--text-muted);"><path d="M4 12h16v3a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4v-3zM6 12V6a2 2 0 0 1 4 0M7 19l-1 2M17 19l1 2"/></svg>{{ $f['baths'] }}</span>@endif
-            @if(!empty($f['garages']))<span title="Garages" style="display:inline-flex; align-items:center; gap:4px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px; height:15px; color: var(--text-muted);"><path d="M5 17h14M6 17l1.5-6h9L18 17M7 17v2M17 17v2"/></svg>{{ $f['garages'] }}</span>@endif
-            @if(!empty($adv['parking']))<span title="Parking bays" style="display:inline-flex; align-items:center; gap:4px;"><span style="font-weight:800; color: var(--text-muted);">P</span>{{ $adv['parking'] }}</span>@endif
+        <div style="display:flex; align-items:center; gap:2px 14px; margin-top:{{ ($text !== '' || $featBits || $costBits) ? 'auto' : '4px' }}; font-size:.875rem; color: var(--text-primary);" data-qa="advert-icons">
+            @if(!empty($f['beds']))<span title="Bedrooms" style="display:inline-flex; align-items:center; gap:4px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px; height:15px; color: var(--text-secondary);"><path d="M3 18v-7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7M3 14h18M3 18v2M21 18v2M7 9V6h10v3"/></svg>{{ $f['beds'] }}</span>@endif
+            @if(!empty($f['baths']))<span title="Bathrooms" style="display:inline-flex; align-items:center; gap:4px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px; height:15px; color: var(--text-secondary);"><path d="M4 12h16v3a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4v-3zM6 12V6a2 2 0 0 1 4 0M7 19l-1 2M17 19l1 2"/></svg>{{ $f['baths'] }}</span>@endif
+            @if(!empty($f['garages']))<span title="Garages" style="display:inline-flex; align-items:center; gap:4px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px; height:15px; color: var(--text-secondary);"><path d="M5 17h14M6 17l1.5-6h9L18 17M7 17v2M17 17v2"/></svg>{{ $f['garages'] }}</span>@endif
+            @if(!empty($adv['parking']))<span title="Parking bays" style="display:inline-flex; align-items:center; gap:4px;"><span style="font-weight:800; color: var(--text-secondary);">P</span>{{ $adv['parking'] }}</span>@endif
             @if(!empty($adv['erf_size_m2']))<span title="Erf size">Erf {{ number_format((float) $adv['erf_size_m2']) }} m²</span>@endif
             @if(!empty($adv['floor_size_m2']))<span title="Floor size">Floor {{ number_format((float) $adv['floor_size_m2']) }} m²</span>@endif
         </div>
-        <div style="font-size:.8125rem; line-height:1.3; color: var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" data-qa="advert-source">
+        <div style="font-size:.8125rem; line-height:1.3; color: var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" data-qa="advert-source">
             {{ implode(' · ', array_filter([$who, $adv['agent_name'] ?? null])) }}@if($lead && !empty($lead['ref']))@if($who || !empty($adv['agent_name'])) · @endif<span style="{{ $muted }}">{{ $lead['ref'] }}</span>@endif
         </div>
         <div style="font-size:.8125rem; line-height:1.3; color: var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" data-qa="advert-dates">

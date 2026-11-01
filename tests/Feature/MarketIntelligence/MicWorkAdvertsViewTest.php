@@ -175,4 +175,38 @@ final class MicWorkAdvertsViewTest extends TestCase
         $this->assertStringContainsString('intel = !intel', $h);
         $this->assertStringNotContainsString('data-qa="advert-card"', $h);
     }
+
+    public function test_an_advert_that_is_no_longer_seen_says_since_when_and_its_link_is_greyed_not_removed(): void
+    {
+        $tp = $this->file('P24-150100040');
+        $this->advert('P24-150100040', 1_000_000, ['tracked_property_id' => $tp, 'agency_name' => 'A']);
+        $this->advert('PP-150100041', 1_000_000, ['portal_source' => 'pp', 'portal_url' => 'https://pp.test/150100041', 'tracked_property_id' => $tp, 'agency_name' => 'B', 'is_active' => false, 'last_seen_at' => '2026-08-12 10:00:00']);
+        $h = $this->page(['view' => 'adverts']);
+        $this->assertStringNotContainsString('Gone', $h);
+        $this->assertStringContainsString('Not seen since 12 Aug', $h);
+        $this->assertMatchesRegularExpression('/<a href="https:\/\/pp\.test\/150100041"[^>]*data-qa="mark-pp"[^>]*line-through/', $h, 'the PP mark is greyed but still a link');
+        $this->assertDoesNotMatchRegularExpression('/<a href="https:\/\/p\.test\/P24-150100040"[^>]*data-qa="mark-p24"[^>]*line-through/', $h, 'the live P24 mark is not');
+    }
+
+    public function test_a_card_with_no_wording_shows_the_feature_list_and_rates_and_no_text_uses_the_muted_colour(): void
+    {
+        $tp = $this->file('P24-150100050');
+        $this->advert('P24-150100050', 1_000_000, ['tracked_property_id' => $tp], [
+            'features' => json_encode(['Pets Allowed' => 'Yes', 'Pool' => '1', 'Security' => 'Yes', 'Garden' => 'Yes', 'Street Address' => '7 Card Road', 'Furnished' => 'No']),
+            'rates_amount' => 1200, 'levies_amount' => 950,
+        ]);
+        $h = $this->page(['view' => 'adverts']);
+        $this->assertStringContainsString('data-qa="advert-features"', $h);
+        $this->assertStringContainsString('Pool · Garden · Security · Pets Allowed', $h);
+        $this->assertStringNotContainsString('Furnished', $h);
+        $this->assertStringContainsString('Rates R 1,200 pm · Levies R 950 pm', $h);
+        $this->assertStringNotContainsString('data-qa="advert-description"', $h);
+        // contrast: --text-muted fails 4.5:1 on the card surface, so no text on the card uses it
+        $this->assertSame(1, preg_match('/<article class="mi-advert".*?<\/article>/s', $h, $m));
+        $this->assertStringNotContainsString('text-muted', $m[0]);
+        // and a card with neither wording nor features has no empty block
+        $this->advert('P24-150100051', 900_000);
+        $h2 = $this->page(['view' => 'adverts']);
+        $this->assertSame(1, substr_count($h2, 'data-qa="advert-features"'));
+    }
 }

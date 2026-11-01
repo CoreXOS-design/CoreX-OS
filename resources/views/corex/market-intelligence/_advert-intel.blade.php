@@ -4,15 +4,15 @@
 @php
     $money = fn ($v) => 'R ' . number_format((float) $v, 0, '.', ',');
     $adverts = $adv['adverts'] ?? [];
-    $muted = 'color: var(--text-muted);';
+    $muted = 'color: var(--text-secondary);';
     $cardToggle = "card = !card; if (card && !loaded) { loaded = true; fetch(location.pathname + location.search + (location.search ? '&' : '?') + '_card=" . (int) ($adv['tp_id'] ?? 0) . "', { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.ok ? r.text() : Promise.reject()).then(h => html = h).catch(() => { html = '<div style=&quot;padding:10px 14px;font-size:.75rem;color:var(--ds-crimson,#dc2626);&quot;>The record card could not load - try again.</div>'; loaded = false; }); }";
     // ---- the intelligence block: one line per fact ----
     $cx = $adv['context'] ?? null;
     $btn = 'display:flex; align-items:center; justify-content:center; width:100%; height:26px; padding:0 4px; font-size:.75rem; font-weight:600; line-height:1; border-radius:5px; background: var(--surface); border:1px solid var(--border); color: var(--text-secondary); cursor:pointer; text-decoration:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; box-sizing:border-box;';
-    $btnOff = $btn . ' border-style:dashed; color: var(--text-muted); cursor:default; opacity:.7;';
-    $lineBtn = 'display:block; width:100%; text-align:left; background:none; border:none; padding:0 2px; margin:0; font-size:.75rem; line-height:1.5rem; color: var(--text-secondary); cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;';
-    $lab = 'font-weight:700; color: var(--text-primary); display:inline-block; min-width:3.4rem;';
-    $muted = 'color: var(--text-muted);';
+    $btnOff = $btn . ' border-style:dashed; color: var(--text-secondary); cursor:default; opacity:.7;';
+    $lineBtn = 'display:block; width:100%; text-align:left; background:none; border:none; padding:0 2px; margin:0; font-size:.75rem; line-height:1.5rem; color: var(--text-primary); cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;';
+    $lab = 'font-weight:700; color: var(--text-secondary); display:inline-block; min-width:3.4rem;';
+    $muted = 'color: var(--text-secondary);';
 
     // claim state, far right of line 1
     $claimState = $isCompanyStock ? 'Our stock' : ($claimedByMe ? 'Mine' : ($claimedByOther ? ($adv['claimed_by'] ?? 'Claimed') : 'Unclaimed'));

@@ -761,6 +761,14 @@ Target: on a 1366 x 768 window the first advert card is fully visible without sc
 4. **KPI strip:** one text line: "Properties matched 16,953 - 268 buyers - Pitch now 9,343 - My claims 90 - Expiring 87 - New today 0 - 20,345 rows" (names muted, numbers bold, the same links as the cards had). The separate "rows shown" line is gone (the trust line under it appears only when it has something to explain).
 5. **Buyer match % slider + tier legend** live inside More filters; the bar shows a chip "Buyer match 50-100%" only when the band is off its default.
 
+### 13.3t Adverts card - wording, contrast, features (Johan, 1 Nov 18:14 / 19:12)
+- **"Gone" is never shown.** An advert we no longer see reads "Not seen since 12 Aug" (the popover, the Full card, the file's status chip; the property view's filter chip reads "Not seen"). The P24 / PP mark of an advert no longer seen is greyed with a strike-through and still opens the advert; the popover's reference link is greyed the same way.
+- **Contrast:** `--text-muted` fails 4.5:1 on the card surface in both themes (about 4.3:1 on the slate card, 2.5:1 on the white one), so NO text on the Adverts card, its popovers or the List badges uses it. Facts, description, icon row, agency line and popover text are `--text-primary`; labels, dates and quiet notes are `--text-secondary` (8.7:1 on the card). CoreX tokens only.
+- **No wording captured:** the description space shows the listing page's feature rows ("Pool - Garden - Security - Pets Allowed"; rows that are No / 0 / empty and the rows the card already shows - address, sizes, beds, agent - are skipped; at most 8) and, when held, "Rates R 1,200 pm - Levies R 950 pm". A card with neither wording nor features has no block at all (the icon row moves up). The feature order follows the stored JSON object.
+- More filters is a button (as 13.2) and keeps its (N) count.
+
+- **Step D - wording, contrast, features (1 Nov ~19:30).** See 13.3t. `MicWorkList::forFiles` additive: `rates_amount`, `levies_amount`, per-advert `last_seen`; the file-level 'Gone' flag became 'Not seen since <date>'. Not touched (cc4): tile 3's breakdown labels in `GoneTileProvider` still say 'gone'.
+
 ### 13.10 Phone layout (placeholder - to be specified after the web Adverts view is signed off; Johan, 1 Nov 16:47)
 The same Work screen in the phone browser (not the mobile app): tiles as a horizontal swipe row, the filter bar collapsed to search + a Filters button, each advert stacked P24-mobile style (photo full width, price / heading / snippet, icon row) with the intelligence block and the Pitch / Claim / Comment buttons directly under it. Same data, same permissions, same login. **Build rule from now: nothing in the Adverts view markup may assume desktop width - no fixed px widths on the two blocks; flex / grid that can stack.** (The card's CSS already stacks below 56rem.)
 

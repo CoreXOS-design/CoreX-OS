@@ -185,7 +185,7 @@ final class MicWorkList
             ->get(['id', 'tracked_property_id', 'portal_source', 'portal_ref', 'portal_url', 'address', 'suburb', 'price', 'bedrooms', 'bathrooms', 'garages',
                 'property_size_m2', 'erf_size_m2', 'property_type', 'agent_name', 'agency_name', 'first_seen_at', 'last_seen_at', 'listed_date', 'is_active',
                 'portal_status', 'advertiser_type', 'is_reduced', 'canonical_ref', 'p24_suburb_id', 'p24_group_id', 'thumbnail_source_url', 'thumbnail_path',
-                'card_heading', 'description_snippet', 'description', 'photo_urls', 'photo_count', 'features', 'parking', 'sole_mandate_wording'])
+                'card_heading', 'description_snippet', 'description', 'photo_urls', 'photo_count', 'features', 'parking', 'sole_mandate_wording', 'rates_amount', 'levies_amount'])
             ->groupBy(fn ($l) => $l->tracked_property_id ?: -$l->id);
         $advertIds = $adverts->flatten()->pluck('id')->all();
 
@@ -353,7 +353,7 @@ final class MicWorkList
             $flags = [];
             if ($live->contains(fn ($a) => $a->portal_status === 'under_offer')) { $flags[] = 'Under offer'; }
             if ($statuses->contains('sold')) { $flags[] = 'Sold'; }
-            if ($active->isEmpty()) { $flags[] = 'Gone'; }
+            if ($active->isEmpty()) { $flags[] = 'Not seen since ' . ($list->pluck('last_seen_at')->filter()->max()?->format('j M') ?? '-'); }
             // Reduced (13.4 + Johan's 1 Nov addendum, CONFIDENT only): the portal's Reduced flag on the advert we show, OR that same advert (same portal ref) read at two
             // different prices inside the agency's reduced window. A different advert on the same property at another price is never a cut. old_price / cut_amount /
             // cut_date describe the latest such cut (null for the portal flag alone).
@@ -430,6 +430,8 @@ final class MicWorkList
                 'alert_count' => count($p24Alerts),
                 'alert_last_date' => $lastAlert['last_raw'] ?? null,
                 'alert_last_asking' => $lastAlert ? (int) $lastAlert['price'] : null,
+                'rates_amount' => $live->max('rates_amount') ?: null,
+                'levies_amount' => $live->max('levies_amount') ?: null,
                 'portal_status' => $lead->portal_status,
                 'is_owner' => $owner,
                 'is_sole_mandate' => $byWording || $byAlert,
@@ -454,6 +456,7 @@ final class MicWorkList
                     'portal' => strtoupper($a->portal_source), 'owner' => $a->advertiser_type === 'owner', 'ref' => $a->portal_ref, 'url' => $a->portal_url, 'agency' => $a->agency_name, 'agent' => $a->agent_name,
                     'price' => $a->price, 'listed' => $a->listed_date?->format('j M Y'), 'seen' => $a->first_seen_at?->format('j M Y'), 'active' => (bool) $a->is_active,
                     'status' => $a->portal_status,
+                    'last_seen' => $a->last_seen_at?->format('j M'),
                     'changes' => $this->netChanges($history->get($a->id, collect())),
                 ])->all(),
                 'deeds_info' => $tp && $tp->deeds_captured_at ? ['registered' => $tp->deeds_registered_date ? \Carbon\Carbon::parse($tp->deeds_registered_date)->format('j M Y') : null, 'price' => $tp->last_known_sold_price, 'bond' => $tp->bond_amount] : null,

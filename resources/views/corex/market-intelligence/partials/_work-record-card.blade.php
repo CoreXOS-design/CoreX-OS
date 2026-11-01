@@ -12,7 +12,7 @@
         <span>{{ $a['owner'] ? 'Owner (private)' . ($a['agent'] ? ' · ' . $a['agent'] : '') : trim(($a['agency'] ?: '-') . ($a['agent'] ? ' · ' . $a['agent'] : '')) }}</span>
         <span>{{ $a['price'] ? $money($a['price']) : '-' }}</span>
         <span>{{ $a['listed'] ? 'listed ' . $a['listed'] : 'first seen ' . ($a['seen'] ?? '-') }}</span><span></span>
-        <span>{{ $a['active'] ? ($a['status'] && $a['status'] !== 'active' ? ucfirst(str_replace('_', ' ', $a['status'])) : 'Active') : 'Gone' }}</span>
+        <span>{{ $a['active'] ? ($a['status'] && $a['status'] !== 'active' ? ucfirst(str_replace('_', ' ', $a['status'])) : 'Active') : 'Not seen since ' . ($a['last_seen'] ?? '-') }}</span>
     </div>
 @endforeach
 @php $allChanges = collect($r['adverts'])->flatMap(fn ($a) => collect($a['changes'])->map(fn ($c) => $c + ['ref' => $a['ref']]))->sortBy('date')->values(); @endphp
