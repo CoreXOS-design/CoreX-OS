@@ -168,7 +168,10 @@
                style="font-size: 0.9375rem; font-weight: 600; color: var(--text-primary); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;">
                 {{ $addressShort }}
             </a>
-            <div style="font-size: 0.9375rem; font-weight: 600; color: var(--text-primary); flex-shrink: 0;">{{ $priceLabel }}</div>
+            <div style="display: flex; align-items: baseline; gap: 6px; flex-shrink: 0;">
+                <span style="font-size: 0.9375rem; font-weight: 600; color: var(--text-primary);">{{ $priceLabel }}</span>
+                @include('corex.market-intelligence._row-badges')
+            </div>
         </div>
 
         {{-- Line 2: meta --}}
@@ -203,9 +206,9 @@
                        title="CoreX is not sure this is the same property as another file. Click to review." style="font-size:.625rem; font-weight:700; padding: 0 5px; border: 1px solid var(--ds-amber, #f59e0b); border-radius: 3px; color: var(--ds-amber, #f59e0b); text-decoration:none;">Possible match{{ count($xt['pairs']) > 1 ? ' (' . count($xt['pairs']) . ')' : '' }}</a>
                 @endif
                 @if($xt && $xt['tp'])
-                    <button type="button" data-qa="card-toggle" title="Open the record card: adverts, price history, alerts, deeds, nearby sales, buyers, our history"
-                            @click.stop="card = !card; if (card && !loaded) { loaded = true; fetch(location.pathname + location.search + (location.search ? '&' : '?') + '_card={{ $xt['tp'] }}', { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(r => r.ok ? r.text() : Promise.reject()).then(h => html = h).catch(() => { html = '<div style=&quot;padding:10px 14px;font-size:.75rem;color:var(--ds-crimson,#dc2626);&quot;>The record card could not load - try again.</div>'; loaded = false; }); }"
-                            style="font-size: .6875rem; padding: 0 6px; border: 1px solid var(--border); border-radius: 3px; background: transparent; color: var(--brand-icon); cursor: pointer;"><span x-text="card ? 'Card ▴' : 'Card ▾'">Card ▾</span></button>
+                    <button type="button" data-qa="card-toggle" title="Open the intelligence on this property: buyers, price, adverts, alerts, market, and the full record card"
+                            @click.stop="intel = !intel"
+                            style="font-size: .6875rem; padding: 0 6px; border: 1px solid var(--border); border-radius: 3px; background: transparent; color: var(--brand-icon); cursor: pointer;"><span x-text="intel ? 'Card ▴' : 'Card ▾'">Card ▾</span></button>
                 @endif
             </span>
 
@@ -437,4 +440,10 @@
 
 @include('corex.market-intelligence._row-actions')
 </article>
+{{-- The Card button opens the same intelligence block the Adverts card carries (one partial, two places). --}}
+@if(!empty($adv) && !empty($adv['tp_id']))
+<div x-show="intel" x-cloak data-qa="row-intel-host" style="display:flex; justify-content:flex-end; padding: 8px 14px; background: var(--surface-2); border-bottom: 1px solid var(--border);">
+    <div style="width: 100%; max-width: 28rem;">@include('corex.market-intelligence._advert-intel')</div>
+</div>
+@endif
 @endif

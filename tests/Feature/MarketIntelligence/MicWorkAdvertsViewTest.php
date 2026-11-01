@@ -104,7 +104,7 @@ final class MicWorkAdvertsViewTest extends TestCase
         $other = $this->advert('PP-150100004', 1_000_000, ['portal_source' => 'pp', 'agency_name' => 'Other Agents', 'tracked_property_id' => $tp]);
         $h = $this->page(['view' => 'adverts']);
         $this->assertStringNotContainsString('line-through', $h);
-        $this->assertMatchesRegularExpression('/line-adverts.*2 adverts · 2 agencies/s', $h);
+        $this->assertMatchesRegularExpression('/line-adverts.*2 adverts · 2 agencies · 2 live/s', $h);
         $this->assertStringNotContainsString('>Reduced</span>', $h);
     }
 
@@ -138,7 +138,7 @@ final class MicWorkAdvertsViewTest extends TestCase
         $this->assertStringContainsString('Score 76', $right);
         $this->assertMatchesRegularExpression('/line-buyers.*18 strong · 1 mid/s', $right);
         $this->assertMatchesRegularExpression('/line-price.*cut R 100,000/s', $right);
-        $this->assertMatchesRegularExpression('/line-adverts.*3 adverts · 3 agencies · P24, PP/s', $right);
+        $this->assertMatchesRegularExpression('/line-adverts.*3 adverts · 3 agencies · 3 live · P24, PP/s', $right);
         $this->assertMatchesRegularExpression('/line-alerts.*No alerts/s', $right);
         $this->assertStringContainsString('Intel', $right);
         $this->assertStringNotContainsString('Property intel</button>', $right, 'one short label, no second line');
@@ -147,5 +147,32 @@ final class MicWorkAdvertsViewTest extends TestCase
         $this->assertStringContainsString('data-qa="mark-p24"', $h);
         $this->assertMatchesRegularExpression('/<a href="https:\/\/p\.test\/P24-1501000[^"]*"[^>]*data-qa="mark-p24"/', $h);
         $this->assertMatchesRegularExpression('/<a href="https:\/\/pp\.test\/150100011"[^>]*data-qa="mark-pp"/', $h);
+    }
+
+    public function test_the_adverts_line_counts_gone_adverts_and_a_card_without_text_has_no_gap(): void
+    {
+        $tp = $this->file('P24-150100020');
+        $this->advert('P24-150100020', 1_000_000, ['tracked_property_id' => $tp, 'agency_name' => 'A']);
+        foreach (['B', 'C', 'D'] as $i => $ag) {
+            $this->advert('P24-15010002' . ($i + 1), 1_000_000, ['tracked_property_id' => $tp, 'agency_name' => $ag, 'is_active' => false]);
+        }
+        $h = $this->page(['view' => 'adverts']);
+        $this->assertMatchesRegularExpression('/line-adverts.*4 adverts · 4 agencies · 1 live · P24/s', $h);
+        $this->assertStringNotContainsString('data-qa="advert-description"', $h);
+        $this->assertMatchesRegularExpression('/margin-top:4px;[^"]*" data-qa="advert-icons"/', $h, 'no description: the icon row sits straight under the address');
+    }
+
+    public function test_the_list_row_carries_the_badges_and_its_card_button_opens_the_same_intelligence_block(): void
+    {
+        $tp = $this->file('P24-150100030');
+        $this->advert('P24-150100030', 1_000_000, ['tracked_property_id' => $tp, 'advertiser_type' => 'owner'], ['is_reduced' => 1]);
+        $h = $this->page(['view' => 'list']);
+        $this->assertStringContainsString('data-qa="row-badge"', $h);
+        $this->assertStringContainsString('>Reduced</span>', $h);
+        $this->assertStringContainsString('>Owner selling</span>', $h);
+        $this->assertStringContainsString('data-qa="row-intel-host"', $h);
+        $this->assertStringContainsString('data-qa="line-buyers"', $h, 'the Card button opens the same block as the Adverts card');
+        $this->assertStringContainsString('intel = !intel', $h);
+        $this->assertStringNotContainsString('data-qa="advert-card"', $h);
     }
 }

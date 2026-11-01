@@ -225,7 +225,7 @@
                         'display_address' => $displayAddressByListingId[(int) $_lid] ?? null,
                     ];
                 @endphp
-                <div x-data="{ card: false, loaded: false, html: '' }" data-qa="row-wrap">
+                <div x-data="{ card: false, loaded: false, html: '', intel: false }" data-qa="row-wrap">
                 @include('corex.market-intelligence._listing-row', [
                     'listing'   => $listing,
                     'state'     => $_state,

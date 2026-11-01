@@ -745,6 +745,14 @@ A cut is shown inline ONLY when it is certain: the portal's Reduced flag on THAT
 5. **Test:** `MicWorkAdvertsViewTest` renders the fullest fixture and asserts the right block has exactly seven line elements and no wrapping class.
 Link contact: opens the property file at its contacts section (anchor `#linked-contacts-list`) in the same tab when we hold a Property; a file with no Property opens the file page (it has no contacts section yet).
 
+### 13.3s Adverts card - second round and the List (Johan, 1 Nov 18:05; accepted rework)
+- The **Adverts line counts everything on the file**, live or gone: "5 adverts - 4 agencies - 1 live - P24, PP" (it must agree with "Listed by N agencies" and the popover).
+- A card **without a description** has no gap: the icon row and the agency / ref / dates lines sit directly under the address (top-aligned).
+- **List badges (13.4):** small outline badges after the price on every List row - Reduced (title: was / cut), Under offer, Sold, Owner selling, Sole mandate, Listed by N agencies - from the same file record as the card's ribbons (`_row-badges.blade.php`). The List is otherwise unchanged.
+- **The List's Card button opens the same intelligence block** as the Adverts card (`_advert-intel.blade.php`, one partial, two places); its "Full card" loads the complete record card under the row as before. (Before this the button opened the record card directly.)
+
+- **Step C - second round + List (1 Nov ~18:30).** Adverts line counts all adverts with a live count; no-description cards top-aligned; List badges (13.4); List Card button opens the shared intelligence partial. Tests: `MicWorkAdvertsViewTest` (8). Open: none for this step.
+
 ### 13.10 Phone layout (placeholder - to be specified after the web Adverts view is signed off; Johan, 1 Nov 16:47)
 The same Work screen in the phone browser (not the mobile app): tiles as a horizontal swipe row, the filter bar collapsed to search + a Filters button, each advert stacked P24-mobile style (photo full width, price / heading / snippet, icon row) with the intelligence block and the Pitch / Claim / Comment buttons directly under it. Same data, same permissions, same login. **Build rule from now: nothing in the Adverts view markup may assume desktop width - no fixed px widths on the two blocks; flex / grid that can stack.** (The card's CSS already stacks below 56rem.)
 
