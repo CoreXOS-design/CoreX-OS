@@ -55,7 +55,7 @@ class BuyerAccountService
             }
         }
 
-        $this->client->issueOtp($email, $purpose, $request, $agency);
+        $this->client->issueOtp($email, $purpose, $request, $agency, $purpose === self::PURPOSE_RESET ? 'reset' : 'signup');
 
         return null;
     }

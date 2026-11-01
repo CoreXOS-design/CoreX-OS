@@ -3,7 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ !empty($agencyName) ? 'Your '.$agencyName.' sign-in code' : 'Your sign-in code' }}</title>
+    @php
+        $auctionPurpose = $auctionPurpose ?? null;
+        $heading = $auctionPurpose === 'signup' ? 'Your sign up code' : ($auctionPurpose === 'reset' ? 'Your password reset code' : 'Your sign-in code');
+    @endphp
+    <title>{{ $auctionPurpose ? $heading : (!empty($agencyName) ? 'Your '.$agencyName.' sign-in code' : 'Your sign-in code') }}</title>
 </head>
 <body style="margin:0; padding:0; background:#f4f6fb; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
 
@@ -23,10 +27,10 @@
                     <tr>
                         <td style="background:#ffffff; border-radius:16px; border:1px solid #e5e7eb; padding:40px 36px;">
                             <h1 style="margin:0 0 8px; font-size:1.375rem; font-weight:700; color:#111827;">
-                                Your sign-in code
+                                {{ $heading }}
                             </h1>
                             <p style="margin:0 0 24px; font-size:0.9375rem; line-height:1.6; color:#6b7280;">
-                                @if(!empty($agencyName))Use this code to sign in to your {{ $agencyName }} portal.@else Enter this code to sign in.@endif It will expire in
+                                @if($auctionPurpose === 'signup')Use this code to finish creating your account{{ !empty($agencyName) ? ' with '.$agencyName : '' }} so you can register to bid at our auctions.@elseif($auctionPurpose === 'reset')Use this code to choose a new password for your{{ !empty($agencyName) ? ' '.$agencyName : '' }} auction account.@elseif(!empty($agencyName))Use this code to sign in to your {{ $agencyName }} portal.@else Enter this code to sign in.@endif It will expire in
                                 <strong style="color:#111827;">{{ $expiresMinutes }} minutes</strong>.
                             </p>
 
