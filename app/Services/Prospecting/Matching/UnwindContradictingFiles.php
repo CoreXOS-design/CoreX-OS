@@ -51,7 +51,7 @@ final class UnwindContradictingFiles
                     continue;
                 }
                 $file = $files[$fid];
-                $atFile = fn (array $g) => collect($g)->filter(fn ($a) => $this->saysFileAddress($a, $file))->count();
+                $atFile = fn (array $g) => collect($g)->filter(fn ($a) => $a->at_file !== null)->count();
                 usort($groups, fn ($x, $y) => [-$atFile($x), -collect($x)->sum('is_active'), -count($x), $x[0]->id] <=> [-$atFile($y), -collect($y)->sum('is_active'), -count($y), $y[0]->id]);
                 $stay = array_shift($groups);
                 $row = ['file' => $fid, 'address' => $this->addressOf($file), 'kept' => $this->refs($stay), 'moved' => []];
@@ -100,17 +100,6 @@ final class UnwindContradictingFiles
         }
 
         return null;
-    }
-
-    /** does the advert's own address line carry the file's street number and street name? (the group that stays is the one at the file's own address) */
-    private function saysFileAddress(object $advert, TrackedProperty $file): bool
-    {
-        $norm = fn (?string $t) => preg_replace('/[^a-z0-9]+/', '', mb_strtolower((string) $t));
-        $number = $norm($file->street_number);
-        $street = $norm($file->street_name);
-        $line = $norm($advert->address ?? null);
-
-        return $number !== '' && $street !== '' && $line !== '' && str_contains($line, $number . $street);
     }
 
     private function reasonKind(string $why): string

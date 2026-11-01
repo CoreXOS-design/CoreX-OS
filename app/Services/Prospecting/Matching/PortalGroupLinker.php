@@ -40,7 +40,7 @@ final class PortalGroupLinker
             ->join('tracked_properties as t', function ($j) use ($agencyId) {
                 $j->on('t.id', '=', 'l.tracked_property_id')->where('t.agency_id', $agencyId)->whereNull('t.deleted_at')->whereIn('t.status', ['active', 'promoted']);
             })
-            ->get(['m.p24_group_id as gid', 'l.canonical_ref as ref', 'l.address as advert_address', 'l.suburb as advert_suburb', 't.id as fid', 'l.bedrooms as beds', 'l.property_type as ptype', 'l.price', 'l.portal_ref', 'l.property_size_m2 as floor', 'l.erf_size_m2 as erf', 'l.listing_type as ltype',
+            ->get(['m.p24_group_id as gid', 'l.canonical_ref as ref', 'l.address as advert_address', 'l.suburb as advert_suburb', 't.id as fid', 'l.bedrooms as beds', 'l.property_type as ptype', 'l.price', 'l.portal_ref', 'l.address', 'l.property_size_m2 as floor', 'l.erf_size_m2 as erf', 'l.listing_type as ltype',
                 't.street_number', 't.street_name', 't.suburb', 't.unit_number', 't.erf_number', 't.complex_name']);
 
         foreach ($rows->groupBy('gid') as $members) {

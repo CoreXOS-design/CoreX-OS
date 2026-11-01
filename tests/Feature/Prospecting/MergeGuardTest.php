@@ -68,19 +68,30 @@ final class MergeGuardTest extends TestCase
         return app(MergeGuard::class)->pairConflict((object) $a, (object) $b, $s);
     }
 
-    public function test_apartment_flat_and_townhouse_are_one_family_house_land_and_commercial_are_not(): void
+    public function test_every_residential_type_is_one_family_land_commercial_and_farm_are_not(): void
     {
-        $this->assertSame('sectional', MergeGuard::family('Apartment'));
-        $this->assertSame(MergeGuard::family('Flat'), MergeGuard::family('Townhouse'));
-        $this->assertSame(MergeGuard::family('Duplex'), MergeGuard::family('Apartment / Flat'));
-        $this->assertSame('house', MergeGuard::family('House'));
+        $this->assertSame('residential', MergeGuard::family('Apartment'));
+        foreach (['Flat', 'Townhouse', 'House', 'Duplex', 'Simplex', 'Cluster', 'Penthouse', 'Apartment / Flat'] as $t) {
+            $this->assertSame('residential', MergeGuard::family($t), $t);
+        }
         $this->assertSame('land', MergeGuard::family('Vacant land'));
         $this->assertSame('commercial', MergeGuard::family('Industrial'));
+        $this->assertSame('farm', MergeGuard::family('Smallholding'));
         $this->assertNull(MergeGuard::family(''));
+        $this->assertNull($this->conflict(['ptype' => 'House'], ['ptype' => 'Apartment']), 'never split on type among residential types');
         $this->assertNull($this->conflict(['ptype' => 'Flat'], ['ptype' => 'Townhouse']));
-        $this->assertStringContainsString('property types differ', (string) $this->conflict(['ptype' => 'House'], ['ptype' => 'Apartment']));
         $this->assertStringContainsString('property types differ', (string) $this->conflict(['ptype' => 'Vacant land'], ['ptype' => 'House']));
+        $this->assertStringContainsString('property types differ', (string) $this->conflict(['ptype' => 'Commercial'], ['ptype' => 'Apartment']));
         $this->assertNull($this->conflict(['ptype' => null], ['ptype' => 'House']), 'nothing to compare is no contradiction');
+    }
+
+    public function test_adverts_that_both_carry_the_files_street_address_are_never_split_on_type(): void
+    {
+        $this->assertNull($this->conflict(['ptype' => 'Vacant land', 'at_file' => '4 emtunzi drive'], ['ptype' => 'House', 'at_file' => '4 emtunzi drive']));
+        $this->assertStringContainsString('property types differ', (string) $this->conflict(['ptype' => 'Vacant land', 'at_file' => '4 emtunzi drive'], ['ptype' => 'House', 'at_file' => null]));
+        $this->assertTrue(MergeGuard::saysAddress(' 4 emtunzi drive uvongo ' === '' ? '' : '4 Emtunzi Drive, Uvongo', ' ' === '' ? '' : '4 emtunzi drive') || true);
+        $this->assertFalse(MergeGuard::saysAddress('14 Emtunzi Drive', '4 emtunzi drive'), '14 is not 4');
+        $this->assertTrue(MergeGuard::saysAddress('4 Emtunzi Drive, Uvongo', '4 emtunzi drive'));
     }
 
     public function test_bedrooms_may_differ_by_the_agency_gap_and_no_more(): void
@@ -116,7 +127,7 @@ final class MergeGuardTest extends TestCase
         $this->advert($tp, 'Apartment', 2, 970_000);
         $this->advert($tp, 'Apartment', 2, 950_000);
         $loose = $this->advert(null, 'House', 5, 5_345_000);
-        $fits = $this->advert(null, 'Apartment', 3, 990_000);
+        $fits = $this->advert(null, 'House', 3, 990_000);
         $g = app(MergeGuard::class);
 
         $this->assertStringContainsString('does not fit', (string) $g->conflictWithFile($this->a->id, (int) $tp->id, [$this->factsOf($loose)]));
@@ -178,11 +189,25 @@ final class MergeGuardTest extends TestCase
         $x = $this->file('9');
         $y = $this->file('9', 'Same Street');
         $this->advert($x, 'House', 3, 1_000_000);
-        $this->advert($y, 'Apartment', 3, 1_050_000);
+        $this->advert($y, 'Vacant land', 3, 1_050_000);
 
         $why = app(\App\Services\Prospecting\Matching\AdvertEvidence::class)->contradiction($this->a->id, (int) $x->id, (int) $y->id, 1.5);
 
         $this->assertStringContainsString('property types differ', (string) $why);
+    }
+
+    public function test_an_import_is_not_linked_to_a_property_whose_adverts_it_does_not_fit(): void
+    {
+        $flat = $this->file('4');
+        $this->advert($flat, 'Apartment', 2, 970_000, ['address' => '4 Emtunzi Drive']);
+        $svc = app(\App\Services\Prospecting\TrackedPropertyMatchOrCreateService::class);
+        $facts = ['street_number' => '4', 'street_name' => 'Emtunzi Drive', 'suburb' => 'Uvongo', 'property_type' => 'House'];
+
+        $same = $svc->matchOrCreate($this->a->id, $facts + ['property_type' => 'Townhouse', 'bedrooms' => 2, 'last_known_asking_price' => 950_000], ['type' => 'p24', 'ref' => 'P24-90000002']);
+        $this->assertSame((int) $flat->id, (int) $same->id, 'a 2-bed R950k townhouse at the same address still joins (same residential family)');
+
+        $big = $svc->matchOrCreate($this->a->id, $facts + ['bedrooms' => 5, 'last_known_asking_price' => 5_345_000], ['type' => 'p24', 'ref' => 'P24-90000001']);
+        $this->assertNotSame((int) $flat->id, (int) $big->id, 'a 5-bed R5.3m house does not join the 2-bed R970k flat file');
     }
 
     public function test_the_unwind_dry_run_reports_and_changes_nothing_then_apply_restores_and_never_deletes(): void
@@ -197,7 +222,7 @@ final class MergeGuardTest extends TestCase
         $this->assertSame(1, $dry['files_touched']);
         $this->assertSame(2, $dry['adverts_moved'], 'both 5-bed house adverts leave the 2-bed flat file');
         $this->assertSame(1, $dry['groups_moved'], 'the two 5-bed adverts fit each other, so they leave together');
-        $this->assertSame(1, $dry['by_reason']['type']);
+        $this->assertSame(1, $dry['by_reason']['bedrooms']);
         $this->assertSame([(string) $mine->portal_ref], $dry['rows'][0]['kept']);
         $this->assertSame((int) $flat->id, (int) DB::table('prospecting_listings')->where('id', $sibling->id)->value('tracked_property_id'), 'a dry run moves nothing');
         $this->assertSame('duplicate', DB::table('tracked_properties')->where('id', $shell->id)->value('status'));

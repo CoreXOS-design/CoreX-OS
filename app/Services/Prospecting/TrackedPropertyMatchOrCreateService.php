@@ -93,6 +93,9 @@ final class TrackedPropertyMatchOrCreateService
      */
     private array $lastPossible = [];
 
+    /** the facts of the match in progress (AT-520 4.13 merge guard reads them in linkOrPossible) */
+    private array $factsInFlight = [];
+
     /** @var array{strategy:?string, confidence:?string, method:?string, linked:bool, created:bool, possible:list<array<string,mixed>>}|null */
     private ?array $lastResolution = null;
 
@@ -576,6 +579,12 @@ final class TrackedPropertyMatchOrCreateService
 
             return null;
         }
+        // AT-520 4.13 merge guard: what the new facts say (type, bedrooms, price, sizes) must fit EVERY advert already on that property; otherwise it stays a possible match
+        if (($misfit = $this->misfit($agencyId, $cand)) !== null) {
+            $this->addPossible($cand, $confidence, $method, 'Not joined automatically: ' . $misfit, $score);
+
+            return null;
+        }
         if (! $this->acceptCandidate($agencyId, $source, $cand, $strategy)) {
             return null;
         }
@@ -583,6 +592,16 @@ final class TrackedPropertyMatchOrCreateService
         $this->lastMethod = $method;
 
         return $cand;
+    }
+
+    private function misfit(int $agencyId, TrackedProperty $cand): ?string
+    {
+        $f = $this->factsInFlight;
+        $incoming = (object) ['ref' => '(incoming)', 'ptype' => $f['property_type'] ?? null, 'beds' => isset($f['bedrooms']) && $f['bedrooms'] !== '' ? (int) $f['bedrooms'] : null,
+            'price' => $f['last_known_asking_price'] ?? null, 'floor' => $f['floor_size_m2'] ?? null, 'erf' => $f['erf_size_m2'] ?? null, 'ltype' => $f['listing_type'] ?? null,
+            'address' => $f['address'] ?? trim((string) ($f['street_number'] ?? '') . ' ' . (string) ($f['street_name'] ?? ''))];
+
+        return app(\App\Services\Prospecting\Matching\MergeGuard::class)->conflictWithFile($agencyId, (int) $cand->id, [$incoming]);
     }
 
     /** @return list<array{type:string, ref:string, payload?:array}> */
@@ -932,6 +951,7 @@ final class TrackedPropertyMatchOrCreateService
      */
     private function resolveMatch(int $agencyId, array $facts, array $source, array $extraRefs = []): ?TrackedProperty
     {
+        $this->factsInFlight = $facts;
         $this->lastPossible = [];
         $this->lastConfidence = null;
         $this->lastMethod = null;

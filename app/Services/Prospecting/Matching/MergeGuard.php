@@ -12,7 +12,8 @@ use Illuminate\Support\Facades\DB;
  * AT-520 4.13 (Johan: "rather UNDER-match than OVER-match"; 4 Emtunzi Drive carried a 5-bed R5.3m house next to a 2-bed R950k flat). The one test every
  * automatic rule that puts an advert on a property file runs first: the advert must fit EVERY advert already on that file - not just the others in its
  * own P24 group. It fits when
- *   - the property type is in the same family (apartment / flat / townhouse / duplex / simplex = sectional; house; vacant land; commercial / industrial; farm),
+ *   - the property type is in the same family (residential = house / townhouse / apartment / flat / duplex / simplex / cluster / penthouse - never split on type
+ *     among them; vacant land; commercial / industrial; farm / smallholding), and adverts that BOTH carry the file's own street address are never split on type at all,
  *   - the bedrooms are within the agency's gap (default 1),
  *   - the asking prices (same sale / rent kind) are within the agency's price band (default 40%: the dearer is at most 40% above the cheaper),
  *   - the floor sizes - and, separately, the stand sizes - are within the size band (default 40%) when BOTH adverts show one.
@@ -20,13 +21,12 @@ use Illuminate\Support\Facades\DB;
  */
 final class MergeGuard
 {
-    /** word fragments -> family, first hit wins (so "townhouse" is sectional before "house" is looked at) */
+    /** word fragments -> family, first hit wins */
     private const FAMILIES = [
-        'land'       => ['land', 'plot', 'stand'],
-        'commercial' => ['commercial', 'industrial', 'office', 'retail', 'warehouse'],
-        'farm'       => ['farm', 'smallholding'],
-        'sectional'  => ['apartment', 'flat', 'townhouse', 'duplex', 'simplex', 'penthouse', 'studio', 'cluster', 'maisonette', 'sectional'],
-        'house'      => ['house', 'freehold'],
+        'land'        => ['land', 'plot', 'stand'],
+        'commercial'  => ['commercial', 'industrial', 'office', 'retail', 'warehouse'],
+        'farm'        => ['farm', 'smallholding'],
+        'residential' => ['apartment', 'flat', 'townhouse', 'duplex', 'simplex', 'penthouse', 'studio', 'cluster', 'maisonette', 'sectional', 'house', 'freehold'],
     ];
 
     /** @var array<int,array<string,mixed>> */
@@ -64,7 +64,9 @@ final class MergeGuard
     {
         $fa = self::family($a->ptype ?? null);
         $fb = self::family($b->ptype ?? null);
-        if ($fa !== null && $fb !== null && $fa !== $fb) {
+        // both adverts carry the file's own street address (same number, same street): their type wording is never a reason to split them
+        $sameAddress = ($a->at_file ?? null) !== null && ($a->at_file ?? null) === ($b->at_file ?? null);
+        if (! $sameAddress && $fa !== null && $fb !== null && $fa !== $fb) {
             return 'the property types differ (' . trim((string) $a->ptype) . ' and ' . trim((string) $b->ptype) . ')';
         }
         if (isset($a->beds, $b->beds) && abs((int) $a->beds - (int) $b->beds) > (int) $s['merge_beds_gap']) {
@@ -72,7 +74,7 @@ final class MergeGuard
         }
         $pa = (float) ($a->price ?? 0);
         $pb = (float) ($b->price ?? 0);
-        if ($pa > 0 && $pb > 0 && ((string) ($a->ltype ?? '')) === ((string) ($b->ltype ?? '')) && max($pa, $pb) > min($pa, $pb) * (1 + (int) $s['merge_price_band_pct'] / 100)) {
+        if ($pa > 0 && $pb > 0 && ! (($a->ltype ?? '') !== '' && ($b->ltype ?? '') !== '' && $a->ltype !== $b->ltype) && max($pa, $pb) > min($pa, $pb) * (1 + (int) $s['merge_price_band_pct'] / 100)) {
             return 'the prices are too far apart (R' . number_format(min($pa, $pb), 0, '.', ',') . ' and R' . number_format(max($pa, $pb), 0, '.', ',') . ')';
         }
         foreach ([['floor', 'floor sizes'], ['erf', 'stand sizes']] as [$k, $label]) {
@@ -95,7 +97,9 @@ final class MergeGuard
     {
         $s = $this->settings($agencyId);
         $onFile = $this->advertsOf($agencyId, [$fileId])[$fileId] ?? collect();
+        $key = $this->fileAddressKeys($agencyId, [$fileId])[$fileId] ?? null;
         foreach ($incoming as $a) {
+            $a->at_file ??= $key !== null && self::saysAddress((string) ($a->address ?? $a->advert_address ?? ''), $key) ? $key : null;
             foreach ($onFile as $b) {
                 if ($b->ref === $a->ref) {
                     continue;
@@ -172,15 +176,51 @@ final class MergeGuard
     public function advertsOf(int $agencyId, array $fileIds): array
     {
         $out = array_fill_keys($fileIds, collect());
+        $keys = $this->fileAddressKeys($agencyId, $fileIds);
         $rows = DB::table('prospecting_listings')->where('agency_id', $agencyId)->whereNull('deleted_at')->whereIn('tracked_property_id', $fileIds)
             ->orderBy('id')
             ->get(['id', 'tracked_property_id as fid', 'canonical_ref', 'portal_ref', 'property_type as ptype', 'bedrooms as beds', 'price', 'property_size_m2 as floor',
                 'erf_size_m2 as erf', 'listing_type as ltype', 'address', 'suburb', 'agency_name', 'is_active', 'portal_status', 'created_at']);
         foreach ($rows->groupBy('fid') as $fid => $list) {
-            $out[(int) $fid] = $list->each(fn ($r) => $r->ref = (string) ($r->canonical_ref ?: 'id:' . $r->id))->unique('ref')->values();
+            $key = $keys[(int) $fid] ?? null;
+            $out[(int) $fid] = $list->each(function ($r) use ($key) {
+                $r->ref = (string) ($r->canonical_ref ?: 'id:' . $r->id);
+                $r->at_file = $key !== null && self::saysAddress((string) $r->address, $key) ? $key : null;
+            })->unique('ref')->values();
         }
 
         return $out;
+    }
+
+    /**
+     * "number|street" of each file that has both, lower-cased and space-padded for a whole-word test.
+     *
+     * @param  list<int> $fileIds
+     * @return array<int,string>
+     */
+    private function fileAddressKeys(int $agencyId, array $fileIds): array
+    {
+        $out = [];
+        foreach (DB::table('tracked_properties')->where('agency_id', $agencyId)->whereIn('id', $fileIds)->get(['id', 'street_number', 'street_name']) as $f) {
+            $n = self::words((string) $f->street_number);
+            $st = self::words((string) $f->street_name);
+            if ($n !== '' && $st !== '') {
+                $out[(int) $f->id] = trim($n) . ' ' . trim($st);
+            }
+        }
+
+        return $out;
+    }
+
+    /** does the advert's own address line carry the file's street number and street name as whole words? ("14 Emtunzi Drive" is not "4 Emtunzi Drive") */
+    public static function saysAddress(string $address, string $key): bool
+    {
+        return $address !== '' && str_contains(self::words($address), ' ' . $key . ' ');
+    }
+
+    private static function words(string $t): string
+    {
+        return ' ' . trim((string) preg_replace('/[^a-z0-9]+/', ' ', mb_strtolower($t))) . ' ';
     }
 
     /** @param object $a an advert with ptype, beds, price */
