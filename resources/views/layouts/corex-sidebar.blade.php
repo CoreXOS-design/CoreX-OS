@@ -1509,6 +1509,13 @@
              ═══════════════════════════════════════════ --}}
         @feature('auctions')
         @if($user && $user->hasPermission('access_auctions'))
+        @php
+            // Numbers on the Auctions links (.ai/specs/auctions.md §19.3) - new enquiries, and new bids since the Bids screen was last opened.
+            $auctionNav = app(\App\Services\Auctions\AuctionNavCounts::class);
+            $auctionBidsCount = $auctionNav->bids($user);
+            $auctionEnquiriesCount = $auctionNav->enquiries($user);
+            $auctionTotalCount = $auctionBidsCount + $auctionEnquiriesCount;
+        @endphp
         <div>
             <button type="button" @click="push('auctions')"
                     class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'auctions' ? 'active' : '' }}">
@@ -1516,6 +1523,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M14.25 9.75 16.5 12l-6.75 6.75-2.25-2.25M3 21l3-3m12.75-15L21 5.25m-3.75 3.75L21 5.25m-8.303 8.303 2.652 2.652M5.25 5.25l3.879 3.879" />
                 </svg>
                 <span>Auctions</span>
+                @if($auctionTotalCount > 0)<span style="margin-left:auto;margin-right:6px;display:inline-block;min-width:18px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;" data-auction-count="total">{{ $auctionTotalCount > 99 ? '99+' : $auctionTotalCount }}</span>@endif
                 <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
             </button>
 
@@ -1532,7 +1540,10 @@
                 <a href="{{ route('corex.auctions.lots.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.lots.*') ? 'active' : '' }}">Lots</a>
                 @endpermission
                 @permission('auctions.bids.view')
-                <a href="{{ route('corex.auctions.bids.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.bids.*') ? 'active' : '' }}">Bids</a>
+                <div style="position:relative;">
+                    <a href="{{ route('corex.auctions.bids.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.bids.*') ? 'active' : '' }}">Bids</a>
+                    @if($auctionBidsCount > 0)<span style="position:absolute;right:14px;top:50%;transform:translateY(-50%);pointer-events:none;display:inline-block;min-width:18px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;" data-auction-count="auctionbids">{{ $auctionBidsCount > 99 ? '99+' : $auctionBidsCount }}</span>@endif
+                </div>
                 @endpermission
                 @permission('auctions.bidders.view')
                 <a href="{{ route('corex.auctions.bidders.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.bidders.*') ? 'active' : '' }}">Bidders</a>
@@ -1544,7 +1555,10 @@
                 <a href="{{ route('corex.auctions.results') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.results', 'corex.auctions.results.export') ? 'active' : '' }}">Results</a>
                 @endpermission
                 @permission('auctions.enquiries.view')
-                <a href="{{ route('corex.auctions.enquiries.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.enquiries.*') ? 'active' : '' }}">Enquiries</a>
+                <div style="position:relative;">
+                    <a href="{{ route('corex.auctions.enquiries.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.enquiries.*') ? 'active' : '' }}">Enquiries</a>
+                    @if($auctionEnquiriesCount > 0)<span style="position:absolute;right:14px;top:50%;transform:translateY(-50%);pointer-events:none;display:inline-block;min-width:18px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;" data-auction-count="auctionenquiries">{{ $auctionEnquiriesCount > 99 ? '99+' : $auctionEnquiriesCount }}</span>@endif
+                </div>
                 @endpermission
 
             </div>

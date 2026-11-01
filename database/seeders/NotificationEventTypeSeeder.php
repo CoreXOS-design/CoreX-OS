@@ -105,6 +105,10 @@ class NotificationEventTypeSeeder extends Seeder implements SyncableReferenceSee
             // listeners, one of which pushed without ever reading notify_push (C10).
             $this->row('lead.portal_received', 'contact', 'Leads', 'New portal lead on your listing', 'none', null, null, null, 28),
 
+            // Auctions v2 (.ai/specs/auctions.md §19.4) — in-app only (the agency's registration/enquiry EMAILS are an agency setting, not a per-user channel).
+            $this->row('auction.bid_placed', 'property', 'Auctions', 'New bid on your auction lot', 'none', null, null, null, 60, false, null, inApp: true, email: false, push: false),
+            $this->row('auction.enquiry_received', 'property', 'Auctions', 'New auction enquiry', 'none', null, null, null, 61, false, null, inApp: true, email: false, push: false),
+
             // AT-235 S2b (Communications) — both database-only (no toMail/toFcmPayload).
             $this->row('comms.mailbox_poll_failure', 'agent', 'Communications', 'Mailbox stopped receiving mail', 'none', null, null, null, 29, false, null, inApp: true, email: false, push: false),
             $this->row('comms.access_requested', 'agent', 'Communications', 'Someone requested access to a conversation', 'none', null, null, null, 30, false, null, inApp: true, email: false, push: false),

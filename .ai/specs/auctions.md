@@ -289,3 +289,43 @@ Dates can be changed but are limited to the auction's own dates. Rentals cannot 
 **The public auction site and the Preview are always light (2026-11-01, Johan).** The public layout has no dark-device colour scheme and declares `color-scheme: light`, so every visitor — and the Preview frame — sees the agency's own header/button colours on a light page whatever their device is set to. Test: `test_the_preview_and_the_public_site_are_always_light`.
 
 **The sign-up / password-reset code email (2026-11-01, Johan).** Subject `Your <Agency> auction sign up code: 123456` (reset: `...auction password reset code...`); the sender name is the agency, replies go to the agency, no CoreX anywhere (Johan chose the agency name over "CoreX Auction" so every agency's bidders see their own agency). The sender ADDRESS is `config('mail.auction_from_address')` (env `MAIL_AUCTION_FROM_ADDRESS`; QA2 = info@corexos.co.za); unset = the shared portal sign-in address as before. Before setting it on live, the `otp` SMTP account must be allowed to send as that address or the mail will be rejected / spam-flagged. The rental/tenant portal code email is unchanged. Test: `test_the_sign_up_code_email_says_auction_sign_up_code_and_comes_from_the_configured_address`.
+
+---
+
+## 19. Signed up tab, new-activity emails, sidebar numbers and alerts (added 2026-11-01, Johan)
+
+Johan, verbatim: *"I need a page/section/tab inside the bidders page called Sign uped where the agency can see all users that have signed up. Also for the bidders and enquiries when someone Regiters to bid or sends en enqeuiry a email should be sent to the admin, but add a settings in the settings page for auctions where the agency can set who should reciebe these emails or they can turn the emails off. and when a bid is made or there is an equiry there should be a number that appears on the sidebar link and a notifcation should be sent to the admir or assinged agent"*
+
+**Pillars.** Contact (every sign-up is a Contact in the agency), Agent (who is told), Property (the lot's listing agent), Deal-side only indirectly. Reads existing data; writes only the settings, the "last looked" marker and notifications.
+
+### 19.1 Signed up (Auctions → Bidders → "Signed up" tab)
+- **Who is listed:** every buyer who signed up on, or logged into, THIS agency's public auction site — whether or not they have registered for an auction yet (client access log events `auction_signup` / `auction_login` for this agency). Per agency: another agency's sign-ups never appear; a buyer who has accounts with two agencies is listed in each.
+- **Columns:** Name, Email, Phone, Signed up (first sign-up or first login here), Last seen, Registered for (number of auctions; "Not registered yet"), and a link to their Contact.
+- **Search:** name, email, phone. **Sort:** Name, Signed up (default, newest first), Last seen, Registered for. **Filter:** registered / not registered yet, signed-up date range. Pagination 25; real empty state ("No one has signed up on your auction page yet…").
+- **Scoping:** agency level only — needs `auctions.bidders.view_all`; the tab is hidden otherwise and the URL returns 403. Contacts are read under the agency scope; direct access by id is not offered (no detail page).
+- **No archive/restore here:** the tab is a read view of buyer accounts, which are not owned by this screen (Contacts own that).
+
+### 19.2 Emails to the agency when someone registers to bid or enquires
+- Settings → Auctions gets **"Emails about new registrations and enquiries"**: a switch (default ON) and **"Send them to"** — email addresses, separated by commas or new lines. **Blank = every administrator of the agency.** The switch OFF stops these two emails entirely.
+- Triggers (domain events, §10): `BidderRegistered` → "New bidder registration" email; `AuctionEnquiryReceived` → the existing "New auction enquiry" email. Both go to the addresses above. The older "Who is told about a new enquiry" (listing agent / branch manager) is kept and its people are ALSO emailed, de-duplicated against the list; the switch OFF silences it too.
+- Sent as the agency, never as CoreX (14 Oct rule). A failed send is logged and never blocks the registration or the enquiry.
+- **Setup Wizard (NN #10a):** both controls are in the Auctions step; the saver is `has()`-guarded.
+
+### 19.3 Numbers on the sidebar links
+- **Enquiries** shows the number of enquiries still **New** that the person is allowed to see (counts what the screen is for; it goes down as enquiries are marked contacted/closed or archived).
+- **Bids** shows the number of **new bids since the person last opened the Bids screen** that they are allowed to see (online bids and auto-bids; floor bids typed in by staff are not counted). Opening the Bids screen clears it. First time ever: starts from zero.
+- Hidden at 0, "99+" above 99. Same OWN / BRANCH / AGENCY visibility as the screens (`visibleTo`).
+
+### 19.4 Alerts (in-app notifications)
+- Two new notification types through the notification gateway (so each person can switch them off in their own notification preferences): `auction.bid_placed` ("New bid on your lot") and `auction.enquiry_received` ("New auction enquiry").
+- **Who:** the person the item belongs to — the lot's **listing agent** (a bid) or the enquiry's **assigned agent**; when there is none, every **administrator** of the agency.
+- Bids: one alert per online bid; auto-bids and floor bids do not alert (an auto-bid is the system answering a bid; a floor bid was typed by staff). The alert links to the Bids screen filtered to that lot / the Enquiries screen.
+
+### 19.5 Data and files
+- `agency_auction_settings`: `notify_emails_enabled` (bool, null = on), `notify_emails_to` (text, null = administrators).
+- New table `auction_screen_visits` (user_id, screen, seen_at; unique on the pair) — the "last looked" marker for the Bids number.
+- Two `notification_event_types` rows (migration + seeder).
+- Code: `BidderController::signedUp` + `bidders/signed-up.blade.php`; `NotifyOfBidderRegistration`, extended `NotifyOfAuctionEnquiry`, `NotifyStaffOfAuctionActivity` (sends the gateway's standard alert, no new notification class); `AuctionActivityRecipients`; `AuctionNavCounts`; `AuctionRegistrationMail`; settings screen + wizard copy.
+
+### 19.6 Acceptance
+Signed up lists only this agency's buyers incl. never-registered ones, searches/sorts/filters, and is blocked without `view_all`. Registering / enquiring emails the configured addresses (or admins), nothing when off; settings round-trip incl. the wizard. Sidebar numbers appear, respect scope, and the Bids number clears on opening Bids. An online bid alerts the listing agent (else admins); floor/auto bids do not; an enquiry alerts the assigned agent (else admins).

@@ -24,7 +24,7 @@ class AgencyAuctionSettings extends Model
         'agency_id', 'site_title', 'intro_text', 'contact_email', 'contact_phone', 'reference_prefix',
         'default_increments', 'soft_close_minutes', 'reserve_visibility', 'show_bid_count', 'show_bidder_numbers',
         'registration_closes_hours', 'docs_required_individual', 'docs_required_company', 'terms_text',
-        'notify_enquiry_to', 'outbid_emails', 'confirmation_days',
+        'notify_enquiry_to', 'outbid_emails', 'confirmation_days', 'notify_emails_enabled', 'notify_emails_to',
         'hero_image_path', 'accent_color', 'how_it_works', 'footer_text', 'show_past_auctions',
         'buyers_commission_percent', 'buyers_commission_minimum', 'deposit_percent', 'deposit_due_days', 'balance_due_days', 'payment_details',
     ];
@@ -39,6 +39,7 @@ class AgencyAuctionSettings extends Model
         'show_bid_count' => 'boolean',
         'show_bidder_numbers' => 'boolean',
         'outbid_emails' => 'boolean',
+        'notify_emails_enabled' => 'boolean',
         'show_past_auctions' => 'boolean',
         'buyers_commission_percent' => 'float',
         'buyers_commission_minimum' => 'float',
@@ -142,6 +143,20 @@ class AgencyAuctionSettings extends Model
     public static function registrationClosesHoursFor(int $agencyId): int { return (int) static::value($agencyId, 'registration_closes_hours', 24); }
     public static function notifyEnquiryToFor(int $agencyId): string { return (string) static::value($agencyId, 'notify_enquiry_to', 'listing_agent'); }
     public static function outbidEmailsFor(int $agencyId): bool { return (bool) static::value($agencyId, 'outbid_emails', true); }
+
+    /** Emails to the agency when someone registers to bid or sends an enquiry (§19.2). On unless the agency switched them off. */
+    public static function notifyEmailsEnabledFor(int $agencyId): bool { return (bool) static::value($agencyId, 'notify_emails_enabled', true); }
+
+    /** What the agency typed into "Send them to" — comma / new-line separated, as written. Blank = every administrator. */
+    public static function notifyEmailsToFor(int $agencyId): string { return (string) static::value($agencyId, 'notify_emails_to', ''); }
+
+    /** The valid addresses typed into "Send them to", lower-cased, de-duplicated. */
+    public static function notifyEmailAddressesFor(int $agencyId): array
+    {
+        $parts = preg_split('/[\s,;]+/', static::notifyEmailsToFor($agencyId), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+        return array_values(array_unique(array_filter(array_map('strtolower', $parts), fn ($e) => filter_var($e, FILTER_VALIDATE_EMAIL))));
+    }
     /** Days a seller has to confirm or decline a sale made below the reserve. */
     public static function confirmationDaysFor(int $agencyId): int { return max(1, (int) static::value($agencyId, 'confirmation_days', 3)); }
     public static function termsTextFor(int $agencyId): string { return (string) static::value($agencyId, 'terms_text', ''); }

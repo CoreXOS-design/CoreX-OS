@@ -6,12 +6,13 @@ use App\Events\Auction\AuctionEnquiryReceived;
 use App\Mail\Auctions\AuctionEnquiryMail;
 use App\Models\AgencyAuctionSettings;
 use App\Models\User;
+use App\Services\Auctions\AuctionActivityRecipients;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 /**
- * Emails the people the agency chose (Settings -> Auctions: listing agent / branch manager / both) the moment an
- * enquiry arrives. Idempotent per recipient is not needed: the event fires once per stored enquiry.
+ * Emails the people the agency chose (Settings -> Auctions: its "send them to" list - administrators when blank - plus the listing agent /
+ * branch manager the older setting names) the moment an enquiry arrives, unless the agency switched these emails off. Idempotent per recipient is not needed: the event fires once per stored enquiry.
  */
 class NotifyOfAuctionEnquiry
 {
@@ -19,6 +20,9 @@ class NotifyOfAuctionEnquiry
     {
         $enquiry = $event->enquiry;
         $agencyId = (int) $enquiry->agency_id;
+        if (! AgencyAuctionSettings::notifyEmailsEnabledFor($agencyId)) {
+            return;   // the agency switched these emails off (Settings -> Auctions)
+        }
         $mode = AgencyAuctionSettings::notifyEnquiryToFor($agencyId);
         $property = $enquiry->property()->withoutGlobalScopes()->first();
 
@@ -33,8 +37,11 @@ class NotifyOfAuctionEnquiry
             );
         }
 
-        // Nobody chosen can be reached (e.g. no manager on that branch): fall back to the agency's enquiries address.
-        $emails = $recipients->filter()->pluck('email')->filter(fn ($e) => filter_var($e, FILTER_VALIDATE_EMAIL))->unique()->values();
+        // The people the agency chose in Settings -> Auctions (blank = its administrators) ALWAYS hear about it, plus the listing agent /
+        // branch manager the older setting names; one email per address.
+        $emails = $recipients->filter()->pluck('email')->merge(app(AuctionActivityRecipients::class)->emails($agencyId))
+            ->map(fn ($e) => strtolower(trim((string) $e)))->filter(fn ($e) => filter_var($e, FILTER_VALIDATE_EMAIL))->unique()->values();
+        // Still nobody (no admin has an email address): fall back to the agency's enquiries address.
         if ($emails->isEmpty() && filter_var($fallback = AgencyAuctionSettings::contactEmailFor($agencyId), FILTER_VALIDATE_EMAIL)) {
             $emails = collect([$fallback]);
         }

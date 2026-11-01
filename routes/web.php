@@ -6222,6 +6222,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::prefix('bidders')->name('bidders.')->middleware('permission:auctions.bidders.view')->group(function () {
             $B = \App\Http\Controllers\CoreX\Auctions\BidderController::class;
             Route::get('/', [$B, 'index'])->name('index');
+            Route::get('/signed-up', [$B, 'signedUp'])->name('signed-up');
             Route::get('/{registration}', [$B, 'show'])->whereNumber('registration')->name('show');
             Route::get('/{registration}/documents/{document}/download', [$B, 'downloadDocument'])->whereNumber(['registration', 'document'])->name('documents.download');
             Route::post('/{registration}/approve', [$B, 'approve'])->whereNumber('registration')->middleware('permission:auctions.bidders.approve')->name('approve');

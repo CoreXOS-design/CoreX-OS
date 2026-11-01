@@ -69,8 +69,12 @@ class BidController extends Controller
             $query->orderBy($sort, $dir);
         }
 
+        // opening the Bids screen clears the new-bids number on the sidebar (the page's own list below was read first)
+        $bids = $query->orderByDesc('id')->paginate(30)->withQueryString();
+        app(\App\Services\Auctions\AuctionNavCounts::class)->markBidsSeen($user);
+
         return view('corex.auctions.bids.index', [
-            'bids' => $query->orderByDesc('id')->paginate(30)->withQueryString(),
+            'bids' => $bids,
             'filters' => compact('search', 'auctionId', 'lotId', 'registrationId', 'status', 'source', 'dateFrom', 'dateTo', 'sort', 'dir'),
             'auctions' => Auction::visibleTo($user)->orderByDesc('starts_at')->get(['id', 'reference', 'title']),
         ]);

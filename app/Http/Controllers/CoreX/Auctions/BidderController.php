@@ -4,6 +4,9 @@ namespace App\Http\Controllers\CoreX\Auctions;
 
 use App\Http\Controllers\Controller;
 use App\Models\Auction;
+use App\Models\ClientUser;
+use App\Models\Contact;
+use Illuminate\Support\Facades\DB;
 use App\Models\AuctionRegistration;
 use App\Models\AuctionRegistrationDocument;
 use App\Services\Auctions\AuctionRegistrationService;
@@ -85,8 +88,74 @@ class BidderController extends Controller
             'registrations' => $query->orderByDesc('id')->paginate(25)->withQueryString(),
             'filters' => compact('view', 'search', 'auctionId', 'status', 'type', 'dateFrom', 'dateTo', 'archived', 'sort', 'dir'),
             'views' => self::VIEWS,
+            'canSeeSignedUp' => $user->hasPermission('auctions.bidders.view_all'),
             'auctions' => Auction::visibleTo($user)->orderByDesc('starts_at')->get(['id', 'reference', 'title']),
             'pendingCount' => AuctionRegistration::visibleTo($user)->where('status', AuctionRegistration::STATUS_PENDING)->count(),
+        ]);
+    }
+
+    private const SIGNED_UP_SORTABLE = ['signed_up_at', 'contact_name', 'last_login_at', 'registered_count'];
+
+    /**
+     * The "Signed up" tab (.ai/specs/auctions.md §19.1): every buyer who signed up on, or logged into, THIS agency's public auction site,
+     * whether or not they have registered for an auction yet. Agency level - the people belong to no auction or agent.
+     */
+    public function signedUp(Request $request)
+    {
+        $user = $request->user();
+        abort_unless($user->hasPermission('auctions.bidders.view_all'), 403);
+        $agencyId = (int) $user->effectiveAgencyId();
+
+        $search = trim((string) $request->query('search', ''));
+        $registered = in_array($request->query('registered'), ['yes', 'no'], true) ? $request->query('registered') : '';
+        $dateFrom = trim((string) $request->query('date_from', ''));
+        $dateTo = trim((string) $request->query('date_to', ''));
+        $sort = in_array($request->query('sort'), self::SIGNED_UP_SORTABLE, true) ? $request->query('sort') : 'signed_up_at';
+        $dir = $request->query('dir', 'desc') === 'asc' ? 'asc' : 'desc';
+
+        $first = DB::table('client_access_logs')->where('agency_id', $agencyId)->whereIn('event', ['auction_signup', 'auction_login'])
+            ->whereNull('deleted_at')->groupBy('client_user_id')->selectRaw('client_user_id, MIN(created_at) as signed_up_at');
+        $contact = fn (string $expr) => Contact::withoutGlobalScopes()->whereNull('deleted_at')->where('agency_id', $agencyId)
+            ->whereColumn('contacts.client_user_id', 'client_users.id')->orderBy('contacts.id')->limit(1)->selectRaw($expr);
+
+        $query = ClientUser::query()->joinSub($first, 'su', 'su.client_user_id', '=', 'client_users.id')
+            ->select('client_users.*', 'su.signed_up_at')
+            ->selectSub($contact("TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, '')))"), 'contact_name')
+            ->selectSub($contact('phone'), 'contact_phone')
+            ->selectSub($contact('contacts.id'), 'contact_id')
+            ->selectSub(\App\Models\AuctionRegistration::withoutGlobalScopes()->selectRaw('count(*)')->where('agency_id', $agencyId)
+                ->whereColumn('auction_registrations.client_user_id', 'client_users.id')->whereNull('deleted_at'), 'registered_count');
+
+        if ($search !== '') {
+            $query->where(function ($q) use ($search, $agencyId) {
+                $q->where('client_users.email', 'like', "%{$search}%")
+                    ->orWhereExists(fn ($c) => $c->from('contacts')->whereColumn('contacts.client_user_id', 'client_users.id')
+                        ->where('contacts.agency_id', $agencyId)->whereNull('contacts.deleted_at')
+                        ->where(fn ($w) => $w->where('first_name', 'like', "%{$search}%")->orWhere('last_name', 'like', "%{$search}%")
+                            ->orWhere('phone', 'like', "%{$search}%")->orWhereRaw("CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, '')) like ?", ["%{$search}%"])));
+            });
+        }
+        if ($registered === 'yes') {
+            $query->whereExists(fn ($r) => $r->from('auction_registrations')->whereColumn('auction_registrations.client_user_id', 'client_users.id')
+                ->where('auction_registrations.agency_id', $agencyId)->whereNull('auction_registrations.deleted_at'));
+        } elseif ($registered === 'no') {
+            $query->whereNotExists(fn ($r) => $r->from('auction_registrations')->whereColumn('auction_registrations.client_user_id', 'client_users.id')
+                ->where('auction_registrations.agency_id', $agencyId)->whereNull('auction_registrations.deleted_at'));
+        }
+        if ($dateFrom !== '') {
+            $query->whereDate('su.signed_up_at', '>=', $dateFrom);
+        }
+        if ($dateTo !== '') {
+            $query->whereDate('su.signed_up_at', '<=', $dateTo);
+        }
+
+        $query->orderBy($sort === 'signed_up_at' ? 'su.signed_up_at' : $sort, $dir);
+
+        return view('corex.auctions.bidders.signed-up', [
+            'people' => $query->orderByDesc('client_users.id')->paginate(25)->withQueryString(),
+            'filters' => compact('search', 'registered', 'dateFrom', 'dateTo', 'sort', 'dir'),
+            'views' => self::VIEWS,
+            'canSeeSignedUp' => true,
         ]);
     }
 

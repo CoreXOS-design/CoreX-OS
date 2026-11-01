@@ -448,6 +448,10 @@ class AppServiceProvider extends ServiceProvider
         // The domain-event logging family — every one of these was discovery-only.
         // Auctions v2 (.ai/specs/auctions.md §10) — tell the agency about a new public-site enquiry.
         Event::listen(\App\Events\Auction\AuctionEnquiryReceived::class, \App\Listeners\Auction\NotifyOfAuctionEnquiry::class);
+        Event::listen(\App\Events\Auction\BidderRegistered::class, \App\Listeners\Auction\NotifyOfBidderRegistration::class);
+        // In-app alerts (.ai/specs/auctions.md §19.4): a new online bid -> the lot's listing agent; a new enquiry -> its assigned agent; else the admins.
+        Event::listen(\App\Events\Auction\BidPlaced::class, [\App\Listeners\Auction\NotifyStaffOfAuctionActivity::class, 'handleBid']);
+        Event::listen(\App\Events\Auction\AuctionEnquiryReceived::class, [\App\Listeners\Auction\NotifyStaffOfAuctionActivity::class, 'handleEnquiry']);
         // Phase 3 — bidders hear about their registration and about their lots, as the agency.
         Event::listen(\App\Events\Auction\BidderApproved::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleApproved']);
         Event::listen(\App\Events\Auction\BidderDeclined::class, [\App\Listeners\Auction\NotifyBidder::class, 'handleDeclined']);

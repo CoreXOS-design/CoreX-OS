@@ -10,12 +10,7 @@
     @if(session('status'))<div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,#10b981 12%,transparent);color:#10b981;">{{ session('status') }}</div>@endif
     @if($errors->any())<div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,#ef4444 12%,transparent);color:#ef4444;">{{ $errors->first() }}</div>@endif
 
-    <div class="flex flex-wrap gap-2 text-sm">
-        @foreach($views as $key => $label)
-            <a href="{{ route('corex.auctions.bidders.index', array_merge(request()->except('view', 'page'), ['view' => $key])) }}"
-               class="px-3 py-1.5 rounded-md" style="border:1px solid var(--border);{{ $filters['view'] === $key ? 'background:var(--brand-button,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-primary);' }}" data-bidder-view="{{ $key }}">{{ $label }}</a>
-        @endforeach
-    </div>
+    @include('corex.auctions.bidders._tabs', ['active' => $filters['view']])
 
     <div class="rounded-md px-4 py-3 flex-shrink-0" style="background:var(--surface);border:1px solid var(--border);">
         <form method="GET" action="{{ route('corex.auctions.bidders.index') }}" class="flex flex-wrap items-center gap-3">

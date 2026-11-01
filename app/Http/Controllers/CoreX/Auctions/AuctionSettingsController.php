@@ -35,6 +35,8 @@ class AuctionSettingsController extends Controller
                 'terms_text' => AgencyAuctionSettings::termsTextFor($agencyId),
                 'notify_enquiry_to' => AgencyAuctionSettings::notifyEnquiryToFor($agencyId),
                 'outbid_emails' => AgencyAuctionSettings::outbidEmailsFor($agencyId),
+                'notify_emails_enabled' => AgencyAuctionSettings::notifyEmailsEnabledFor($agencyId),
+                'notify_emails_to' => AgencyAuctionSettings::notifyEmailsToFor($agencyId),
                 'confirmation_days' => AgencyAuctionSettings::confirmationDaysFor($agencyId),
                 'buyers_commission_percent' => AgencyAuctionSettings::buyersCommissionPercentFor($agencyId),
                 'buyers_commission_minimum' => AgencyAuctionSettings::buyersCommissionMinimumFor($agencyId),
@@ -59,6 +61,7 @@ class AuctionSettingsController extends Controller
             'show_bid_count' => $request->boolean('show_bid_count'),
             'show_bidder_numbers' => $request->boolean('show_bidder_numbers'),
             'outbid_emails' => $request->boolean('outbid_emails'),
+            'notify_emails_enabled' => $request->boolean('notify_emails_enabled'),
             'show_past_auctions' => $request->has('show_past_auctions') ? $request->boolean('show_past_auctions') : AgencyAuctionSettings::showPastAuctionsFor($agencyId),
             'docs_required_individual' => array_values($data['docs_required_individual'] ?? []),
             'docs_required_company' => array_values($data['docs_required_company'] ?? []),
@@ -79,7 +82,7 @@ class AuctionSettingsController extends Controller
         $data = $request->validate($this->rules(wizard: true));
 
         $write = $this->scalarWrites($data, guardWithHas: $request);
-        foreach (['show_bid_count', 'show_bidder_numbers', 'outbid_emails', 'show_past_auctions'] as $bool) {
+        foreach (['show_bid_count', 'show_bidder_numbers', 'outbid_emails', 'show_past_auctions', 'notify_emails_enabled'] as $bool) {
             if ($request->has($bool)) {
                 $write[$bool] = $request->boolean($bool);
             }
@@ -114,6 +117,13 @@ class AuctionSettingsController extends Controller
             'how_it_works' => $p . 'nullable|string|max:5000',
             'footer_text' => $p . 'nullable|string|max:1000',
             'terms_text' => $p . 'nullable|string|max:20000',
+            'notify_emails_to' => [$wizard ? 'sometimes' : 'nullable', 'nullable', 'string', 'max:1000', function (string $attribute, mixed $value, \Closure $fail) {
+                foreach (preg_split('/[\s,;]+/', (string) $value, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $address) {
+                    if (! filter_var($address, FILTER_VALIDATE_EMAIL)) {
+                        $fail("'{$address}' is not a valid email address.");
+                    }
+                }
+            }],
             'notify_enquiry_to' => $p . 'nullable|in:' . implode(',', array_keys(AgencyAuctionSettings::NOTIFY_ENQUIRY_TO)),
             'docs_required_individual' => 'sometimes|array',
             'docs_required_individual.*' => 'in:' . $kinds,
@@ -126,7 +136,7 @@ class AuctionSettingsController extends Controller
     private function scalarWrites(array $data, ?Request $guardWithHas = null): array
     {
         $out = [];
-        foreach (['site_title', 'intro_text', 'contact_email', 'contact_phone', 'reference_prefix', 'soft_close_minutes', 'reserve_visibility', 'registration_closes_hours', 'confirmation_days', 'buyers_commission_percent', 'buyers_commission_minimum', 'deposit_percent', 'deposit_due_days', 'balance_due_days', 'payment_details', 'how_it_works', 'footer_text', 'terms_text', 'notify_enquiry_to'] as $key) {
+        foreach (['site_title', 'intro_text', 'contact_email', 'contact_phone', 'notify_emails_to', 'reference_prefix', 'soft_close_minutes', 'reserve_visibility', 'registration_closes_hours', 'confirmation_days', 'buyers_commission_percent', 'buyers_commission_minimum', 'deposit_percent', 'deposit_due_days', 'balance_due_days', 'payment_details', 'how_it_works', 'footer_text', 'terms_text', 'notify_enquiry_to'] as $key) {
             if ($guardWithHas && ! $guardWithHas->has($key)) {
                 continue;
             }
