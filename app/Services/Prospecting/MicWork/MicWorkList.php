@@ -371,7 +371,7 @@ final class MicWorkList
 
             // 13.4 sole mandate: the agency's mandate words in the advert's own wording (snippet or full text, whole phrase), else a P24 alert flagged mandated
             $byWording = $live->contains(fn ($a) => $a->sole_mandate_wording !== null ? (bool) $a->sole_mandate_wording
-                : (MicAdvertFilters::mentionsMandate($a->description_snippet, $mandateWords) || MicAdvertFilters::mentionsMandate($a->description, $mandateWords)));
+                : (MicAdvertFilters::mentionsMandate($a->description_snippet, $mandateWords, $a->agency_name ?? null) || MicAdvertFilters::mentionsMandate($a->description, $mandateWords, $a->agency_name ?? null)));
             $byAlert = collect($alertsByKey[$key] ?? [])->contains(fn ($x) => ! empty($x['mandated']));
             $firstOf = fn (string $col) => $live->pluck($col)->first(fn ($v) => $v !== null && trim((string) $v) !== '');
             $photos = $live->pluck('photo_urls')->map(fn ($v) => is_array($v) ? $v : (is_string($v) ? json_decode($v, true) : null))->first(fn ($v) => is_array($v) && $v !== []);

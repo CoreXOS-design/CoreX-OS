@@ -20,7 +20,7 @@ final class ProspectingListingLifecycleObserver
         if (! $l->isDirty(['description_snippet', 'description'])) {
             return;
         }
-        $l->sole_mandate_wording = \App\Services\Prospecting\MicWork\SoleMandateMatcher::matches($l->description_snippet, $l->description, (int) $l->agency_id);
+        $l->sole_mandate_wording = \App\Services\Prospecting\MicWork\SoleMandateMatcher::matches($l->description_snippet, $l->description, (int) $l->agency_id, $l->agency_name);
     }
 
     public function updating(ProspectingListing $l): void

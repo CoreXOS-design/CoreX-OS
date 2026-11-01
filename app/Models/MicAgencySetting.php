@@ -49,7 +49,7 @@ class MicAgencySetting extends Model
         'rows_per_page'              => 25,
         'reduced_window_days'        => 90,
         'stale_window_days'          => 7,
-        'mandate_words'              => ['sole mandate', 'sole and exclusive', 'exclusive mandate', 'sole agent'],
+        'mandate_words'              => ['sole mandate', 'sole and exclusive', 'exclusive mandate', 'sole agent', 'sole agency'],
     ];
 
     /** The agency's settings; an unsaved defaults object when none stored. Never writes on read. */
@@ -221,12 +221,20 @@ class MicAgencySetting extends Model
         $out = [];
         foreach ($items as $w) {
             $w = mb_strtolower(trim(preg_replace('/\s+/u', ' ', (string) $w)));
-            if (mb_strlen($w) >= 3 && mb_strlen($w) <= 60 && ! in_array($w, $out, true)) {
+            if (mb_strlen($w) >= 3 && mb_strlen($w) <= 60 && self::isMandatePhrase($w) && ! in_array($w, $out, true)) {
                 $out[] = $w;
             }
         }
 
         return array_slice($out, 0, 20);
+    }
+
+    /** a mandate phrase must say "sole" or "exclusive" next to what is sole - mandate, agent or agency - or say both ("sole and exclusive"); "open mandate" or "mandate" alone never flags */
+    public static function isMandatePhrase(string $w): bool
+    {
+        $has = fn (string $alt) => preg_match('/(?<![\p{L}\p{N}])(' . $alt . ')(?![\p{L}\p{N}])/u', $w) === 1;
+
+        return ($has('sole') && $has('exclusive')) || (($has('sole') || $has('exclusive')) && $has('mandate|agent|agency'));
     }
 
     public static function defaultViewFor(int $agencyId): string { return static::for($agencyId)->defaultView(); }

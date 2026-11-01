@@ -114,13 +114,17 @@ final class MicAdvertFilters
     }
 
     /**
-     * Whole-phrase, case-insensitive match of the agency's mandate words in a text. "SOLE MANDATE...!!!" matches "sole mandate"; "nonsole mandate" does not.
+     * Whole-phrase, case-insensitive match of the agency's mandate words in a text (every phrase carries "sole" or "exclusive"; "open mandate" or "mandate" alone never flags; $advertiser's own name is removed first). "SOLE MANDATE...!!!" matches "sole mandate"; "nonsole mandate" does not.
      *
      * @param  list<string>  $words  lower-case phrases
      */
-    public static function mentionsMandate(?string $text, array $words): bool
+    public static function mentionsMandate(?string $text, array $words, ?string $advertiser = null): bool
     {
         $text = trim((string) $text);
+        // the advertiser's own name never counts (a real agency is called "Mandated"; another could be called "Sole Mandate Realty")
+        if ($advertiser !== null && mb_strlen(trim($advertiser)) >= 3) {
+            $text = trim(str_ireplace(trim($advertiser), ' ', $text));
+        }
         if ($text === '') {
             return false;
         }

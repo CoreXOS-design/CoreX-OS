@@ -110,7 +110,7 @@ final class MicAdvertsDataLayerTest extends TestCase
         $alert = $this->file(); $this->advert($alert, ['description_snippet' => 'Nice home', 'canonical_ref' => 'p24:555']);
         DB::table('p24_listings')->insert(['agency_id' => $this->a->id, 'p24_listing_number' => '555', 'asking_price' => 1, 'first_seen_date' => now()->toDateString(), 'last_seen_date' => now()->toDateString(),
             'canonical_ref' => 'p24:555', 'is_mandated' => 1, 'created_at' => now(), 'updated_at' => now()]);
-        $own = $this->file(); $this->advert($own, ['description' => 'Exclusive to Cape Coast Realty']);
+        $own = $this->file(); $this->advert($own, ['description' => 'Your exclusive Cape Coast agent']);
 
         $this->assertTrue($this->row($shout)['is_sole_mandate']);
         $this->assertSame('wording', $this->row($shout)['sole_mandate_source']);
@@ -120,9 +120,9 @@ final class MicAdvertsDataLayerTest extends TestCase
         $this->assertFalse($this->row($own)['is_sole_mandate']);
 
         // the words are an agency setting: Cape Coast's own wording works for that agency, and does not leak to another
-        MicAgencySetting::saveValues($this->a->id, ['mandate_words' => "exclusive to cape coast realty\nsole mandate"]);
+        MicAgencySetting::saveValues($this->a->id, ['mandate_words' => "exclusive cape coast agent\nopen mandate\nmandate"]);
         $this->assertTrue($this->row($own)['is_sole_mandate']);
-        $other = $this->file([], $this->b); $this->advert($other, ['description' => 'Exclusive to Cape Coast Realty']);
+        $other = $this->file([], $this->b); $this->advert($other, ['description' => 'Your exclusive Cape Coast agent']);
         $this->assertFalse($this->row($other)['is_sole_mandate'], "another agency keeps its own words (the defaults)");
     }
 
@@ -135,6 +135,27 @@ final class MicAdvertsDataLayerTest extends TestCase
         $this->assertFalse(MicAdvertFilters::mentionsMandate('a nonsole mandate house', $w));
         $this->assertFalse(MicAdvertFilters::mentionsMandate('sole mandates are common', $w), 'a longer word is not the phrase');
         $this->assertFalse(MicAdvertFilters::mentionsMandate(null, $w));
+    }
+
+    public function test_open_mandate_mandate_alone_and_an_agency_called_mandated_never_flag(): void
+    {
+        $w = MicAgencySetting::DEFAULTS['mandate_words'];
+        $this->assertContains('sole agency', $w);
+        foreach (['Open mandate, call now', 'OPEN MANDATE', 'Mandate', 'mandate to sell', 'Listed by Mandated Properties', 'a mandated agent'] as $text) {
+            $this->assertFalse(MicAdvertFilters::mentionsMandate($text, $w), $text);
+        }
+        foreach (['Sole mandate', 'sole and exclusive', 'Exclusive mandate!', 'the sole agent', 'SOLE AGENCY'] as $text) {
+            $this->assertTrue(MicAdvertFilters::mentionsMandate($text, $w), $text);
+        }
+        // the advertiser's own name never counts
+        $this->assertFalse(MicAdvertFilters::mentionsMandate('Marketed by Sole Mandate Realty', $w, 'Sole Mandate Realty'));
+        $this->assertTrue(MicAdvertFilters::mentionsMandate('Marketed by Sole Mandate Realty. Sole mandate!', $w, 'Sole Mandate Realty'));
+        // an agency cannot save a phrase that flags without sole / exclusive
+        $this->assertSame(['sole mandate', 'exclusive agent'], MicAgencySetting::cleanMandateWords("open mandate\nmandate\nsole mandate\nexclusive agent\nmandated"));
+        MicAgencySetting::saveValues($this->a->id, ['mandate_words' => "mandate\nopen mandate"]);
+        $this->assertSame($w, MicAgencySetting::for($this->a->id)->mandateWords(), 'only unusable phrases fall back to the defaults');
+        $f = $this->file(); $this->advert($f, ['description' => 'Open mandate, listed by Mandated Properties', 'agency_name' => 'Mandated Properties']);
+        $this->assertFalse($this->row($f)['is_sole_mandate']);
     }
 
     public function test_reduced_is_the_portal_flag_or_a_cut_inside_the_agencys_window_with_the_old_price(): void
@@ -228,7 +249,7 @@ final class MicAdvertsDataLayerTest extends TestCase
         $this->assertSame(1, (int) DB::table('prospecting_listings')->where('id', $none->id)->value('sole_mandate_wording'));
 
         // the agency changes its words: the stored flags are re-matched at once
-        MicAgencySetting::saveValues($this->a->id, ['mandate_words' => 'alleenverkoper']);
+        MicAgencySetting::saveValues($this->a->id, ['mandate_words' => 'exclusive seller agent']);
         $this->assertSame(0, (int) $l->fresh()->sole_mandate_wording);
         $this->assertFalse($this->row($tp)['is_sole_mandate']);
         $other = $this->advert($this->file([], $this->b), ['description_snippet' => 'sole mandate']);
@@ -310,7 +331,7 @@ final class MicAdvertsDataLayerTest extends TestCase
         $this->assertSame(25, $s->rowsPerPage());
         $this->assertSame(90, $s->reducedWindowDays());
         $this->assertSame(7, $s->staleWindowDays());
-        $this->assertSame(['sole mandate', 'sole and exclusive', 'exclusive mandate', 'sole agent'], $s->mandateWords());
+        $this->assertSame(['sole mandate', 'sole and exclusive', 'exclusive mandate', 'sole agent', 'sole agency'], $s->mandateWords());
 
         MicAgencySetting::saveValues($this->a->id, ['default_view' => 'list', 'rows_per_page' => '500', 'reduced_window_days' => 0, 'stale_window_days' => 'abc', 'mandate_words' => " Sole MANDATE \nsole mandate\n, ab ,Open Mandate"]);
         $s = MicAgencySetting::for($this->a->id);
@@ -318,12 +339,12 @@ final class MicAdvertsDataLayerTest extends TestCase
         $this->assertSame(100, $s->rowsPerPage(), 'clamped to 100');
         $this->assertSame(1, $s->reducedWindowDays(), 'clamped to 1');
         $this->assertSame(7, $s->staleWindowDays(), 'not a number: the default stays');
-        $this->assertSame(['sole mandate', 'open mandate'], $s->mandateWords(), 'trimmed, lower case, de-duplicated, too-short dropped');
+        $this->assertSame(['sole mandate'], $s->mandateWords(), 'trimmed, lower case, de-duplicated, too-short and "open mandate" dropped');
 
         MicAgencySetting::saveValues($this->a->id, ['default_view' => 'cards', 'mandate_words' => '  ']);
         $s = MicAgencySetting::for($this->a->id);
         $this->assertSame('list', $s->defaultView(), 'an invalid view is ignored');
-        $this->assertSame(['sole mandate', 'open mandate'], $s->mandateWords(), 'an empty list never switches the flag off');
+        $this->assertSame(['sole mandate'], $s->mandateWords(), 'an empty list never switches the flag off');
         $this->assertSame(25, MicAgencySetting::rowsPerPageFor($this->b->id), 'settings are per agency');
     }
 

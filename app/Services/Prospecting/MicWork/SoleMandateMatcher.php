@@ -27,11 +27,11 @@ final class SoleMandateMatcher
         self::$words = [];
     }
 
-    public static function matches(?string $snippet, ?string $description, int $agencyId): bool
+    public static function matches(?string $snippet, ?string $description, int $agencyId, ?string $advertiser = null): bool
     {
         $w = self::wordsFor($agencyId);
 
-        return MicAdvertFilters::mentionsMandate($snippet, $w) || MicAdvertFilters::mentionsMandate($description, $w);
+        return MicAdvertFilters::mentionsMandate($snippet, $w, $advertiser) || MicAdvertFilters::mentionsMandate($description, $w, $advertiser);
     }
 
     /**
@@ -45,10 +45,10 @@ final class SoleMandateMatcher
         $out = ['checked' => 0, 'matched' => 0, 'was_matched' => 0, 'changed' => 0];
         DB::table('prospecting_listings')->where('agency_id', $agencyId)->whereNull('deleted_at')
             ->where(fn ($q) => $q->whereNotNull('description_snippet')->orWhereNotNull('description'))
-            ->orderBy('id')->select('id', 'description_snippet', 'description', 'sole_mandate_wording')
+            ->orderBy('id')->select('id', 'description_snippet', 'description', 'sole_mandate_wording', 'agency_name')
             ->chunkById(1000, function ($rows) use ($agencyId, $apply, &$out) {
                 foreach ($rows as $r) {
-                    $now = self::matches($r->description_snippet, $r->description, $agencyId);
+                    $now = self::matches($r->description_snippet, $r->description, $agencyId, $r->agency_name);
                     $out['checked']++;
                     $out['matched'] += $now ? 1 : 0;
                     $out['was_matched'] += $r->sole_mandate_wording ? 1 : 0;
