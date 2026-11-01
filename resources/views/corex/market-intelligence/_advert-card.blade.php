@@ -83,7 +83,7 @@
     $firstSale = $cx['nearby_sales'][0] ?? null;
     if ($firstSale && !empty($firstSale['price'])) { $mk[] = 'Sold nearby ' . $money($firstSale['price']); }
     if (!empty($cx['suburb_avg_sold_12m'])) { $mk[] = 'suburb avg ' . $money($cx['suburb_avg_sold_12m']); }
-    if (($cx['asking_vs_avg_sold_pct'] ?? null) !== null && !empty($cx['suburb_avg_sold_12m'])) { $mk[] = 'asking ' . abs($cx['asking_vs_avg_sold_pct']) . '% ' . ($cx['asking_vs_avg_sold_pct'] >= 0 ? 'above' : 'below'); }
+    if (($cx['asking_vs_avg_sold_pct'] ?? null) !== null && !empty($cx['suburb_avg_sold_12m'])) { $mk[] = 'asking ' . round(abs($cx['asking_vs_avg_sold_pct'])) . '% ' . ($cx['asking_vs_avg_sold_pct'] >= 0 ? 'above' : 'below'); }
     $marketLine = $mk ? implode(' · ', $mk) : 'No market figures yet';
 
     // Link contact: the property file's contacts section when we hold a Property, else the file page
@@ -165,7 +165,7 @@
             @if(!empty($adv['floor_size_m2']))<span title="Floor size">Floor {{ number_format((float) $adv['floor_size_m2']) }} m²</span>@endif
         </div>
         <div style="font-size:.8125rem; line-height:1.3; color: var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" data-qa="advert-source">
-            {{ $who }}@if(!empty($adv['agent_name'])){{ $who ? ' · ' : '' }}{{ $adv['agent_name'] }}@endif @if($lead && !empty($lead['ref'])) · <span style="{{ $muted }}">{{ $lead['ref'] }}</span>@endif
+            {{ implode(' · ', array_filter([$who, $adv['agent_name'] ?? null])) }}@if($lead && !empty($lead['ref']))@if($who || !empty($adv['agent_name'])) · @endif<span style="{{ $muted }}">{{ $lead['ref'] }}</span>@endif
         </div>
         <div style="font-size:.8125rem; line-height:1.3; color: var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" data-qa="advert-dates">
             {{ implode(' · ', $dateBits) }}@if(!empty($adv['is_stale']) && $adv['last_seen_days'] !== null)<span style="{{ $muted }}" data-qa="advert-stale"> · not seen since {{ $adv['last_seen_days'] }} d</span>@endif
