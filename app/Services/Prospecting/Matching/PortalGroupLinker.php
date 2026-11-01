@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\DB;
  */
 final class PortalGroupLinker
 {
-    public function __construct(private readonly TrackedPropertyMerger $merger, private readonly ReviewPairs $pairs, private readonly AdvertEvidence $evidence)
+    public function __construct(private readonly TrackedPropertyMerger $merger, private readonly ReviewPairs $pairs, private readonly AdvertEvidence $evidence, private readonly MergeGuard $guard)
     {
     }
 
@@ -40,7 +40,7 @@ final class PortalGroupLinker
             ->join('tracked_properties as t', function ($j) use ($agencyId) {
                 $j->on('t.id', '=', 'l.tracked_property_id')->where('t.agency_id', $agencyId)->whereNull('t.deleted_at')->whereIn('t.status', ['active', 'promoted']);
             })
-            ->get(['m.p24_group_id as gid', 'l.canonical_ref as ref', 'l.address as advert_address', 'l.suburb as advert_suburb', 't.id as fid', 'l.bedrooms as beds', 'l.property_type as ptype', 'l.price',
+            ->get(['m.p24_group_id as gid', 'l.canonical_ref as ref', 'l.address as advert_address', 'l.suburb as advert_suburb', 't.id as fid', 'l.bedrooms as beds', 'l.property_type as ptype', 'l.price', 'l.portal_ref', 'l.property_size_m2 as floor', 'l.erf_size_m2 as erf', 'l.listing_type as ltype',
                 't.street_number', 't.street_name', 't.suburb', 't.unit_number', 't.erf_number', 't.complex_name']);
 
         foreach ($rows->groupBy('gid') as $members) {
@@ -80,6 +80,16 @@ final class PortalGroupLinker
                     if ($bad !== null) {
                         $out['contradictions']++;
                         if ($this->pairs->queue($agencyId, $anchor, $fid, 'portal_group', 'Property24 groups these adverts as one property, but ' . $bad['reason'] . '.', null, $apply)) {
+                            $out['review_pairs']++;
+                        }
+                        continue;
+                    }
+                    // AT-520 4.13 merge guard: the advert must fit EVERY advert already on the anchor file, not only the others in its P24 group
+                    $misfit = $this->guard->conflictWithFile($agencyId, $anchor, [$member]);
+                    if ($misfit !== null) {
+                        $out['contradictions']++;
+                        $out['guard_refused'] = ($out['guard_refused'] ?? 0) + 1;
+                        if ($this->pairs->queue($agencyId, $anchor, $fid, 'portal_group', 'Property24 groups these adverts as one property, but ' . $misfit . '.', null, $apply)) {
                             $out['review_pairs']++;
                         }
                         continue;
@@ -130,7 +140,8 @@ final class PortalGroupLinker
             }
             $ta = mb_strtolower(trim((string) $a->pluck('ptype')->filter()->first()));
             $tb = mb_strtolower(trim((string) $b->pluck('ptype')->filter()->first()));
-            if ($ta !== '' && $tb !== '' && $ta !== $tb) {
+            // AT-520 4.13: apartment / flat / townhouse are one family (MergeGuard::family), a house or land never joins them
+            if ($ta !== '' && $tb !== '' && MergeGuard::family($ta) !== MergeGuard::family($tb)) {
                 return "the property type differs ({$ta} and {$tb})";
             }
         }

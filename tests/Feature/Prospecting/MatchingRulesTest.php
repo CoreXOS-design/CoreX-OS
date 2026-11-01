@@ -130,7 +130,9 @@ final class MatchingRulesTest extends TestCase
         $this->assertSame(1, $this->pending('portal_group'));
 
         AddressMatchSetting::query()->updateOrCreate(['agency_id' => $this->a->id], ['portal_group_price_spread' => 3.0]);
-        $this->assertSame(1, $this->rule('portal-group')['adverts_moved'], 'the agency raised the limit');
+        $this->assertSame(0, $this->rule('portal-group')['adverts_moved'], 'raising the group limit alone is not enough: the merge guard price band (40%) still applies');
+        AddressMatchSetting::query()->updateOrCreate(['agency_id' => $this->a->id], ['merge_price_band_pct' => 100]);
+        $this->assertSame(1, $this->rule('portal-group')['adverts_moved'], 'the agency raised both limits');
 
         AddressMatchSetting::query()->updateOrCreate(['agency_id' => $this->a->id], ['portal_group_link_enabled' => false]);
         $this->assertSame('switched off', $this->rule('portal-group')['skipped']);
@@ -188,6 +190,20 @@ final class MatchingRulesTest extends TestCase
         $this->assertSame(0, $r['linked'], 'review-only by default');
         $this->assertSame(1, $this->pending('twin'));
         $this->assertNotSame($this->fileOf($a), $this->fileOf($b));
+    }
+
+    public function test_a_twin_is_not_offered_a_file_whose_other_adverts_it_does_not_fit(): void
+    {
+        [$a, $b, $shell, $house] = $this->twinPair();
+        $this->advert($house, ['portal_ref' => 'P24-90000001', 'bedrooms' => 6, 'price' => 9_995_000, 'agency_name' => 'Someone Else', 'p24_suburb_id' => 5002]); // a 6-bed on the 3-bed file
+
+        $r = $this->rule('twin');
+
+        $this->assertSame(0, $r['with_twin'], 'the merge guard: the no-address advert must fit EVERY advert on the candidate file');
+        $this->assertSame(0, $this->pending('twin'));
+        $this->assertNotNull($a);
+        $this->assertNotNull($b);
+        $this->assertNotNull($shell);
     }
 
     public function test_twins_from_different_agencies_or_with_different_rooms_or_price_are_not_twins(): void

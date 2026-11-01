@@ -19,7 +19,7 @@ class AddressMatchSetting extends Model
         'agency_id', 'rule_erf_exact', 'rule_scheme_exact', 'rule_street_exact',
         'possible_min_agreeing_columns', 'neighbour_suburb_credit', 'gps_radius_m', 'unit_missing_on_one_side',
         'fuzzy_threshold', 'auto_merge_min_confidence', 'auto_claim_min_confidence', 'same_address_sweep',
-        'portal_group_link_enabled', 'portal_group_price_spread', 'portal_group_auto_link_min_confidence', 'twin_match_enabled', 'twin_price_tolerance_pct', 'twin_min_corroboration', 'twin_auto_link', 'complex_group_enabled', 'auto_tidy', 'complex_min_land_m2', 'map_point_check_enabled', 'map_point_distance_m', 'unit_split_min_adverts', 'unit_split_price_spread', 'unit_split_land_size_gap_pct',
+        'portal_group_link_enabled', 'portal_group_price_spread', 'portal_group_auto_link_min_confidence', 'twin_match_enabled', 'twin_price_tolerance_pct', 'twin_min_corroboration', 'twin_auto_link', 'complex_group_enabled', 'auto_tidy', 'complex_min_land_m2', 'map_point_check_enabled', 'map_point_distance_m', 'unit_split_min_adverts', 'unit_split_price_spread', 'unit_split_land_size_gap_pct', 'merge_price_band_pct', 'merge_size_band_pct', 'merge_beds_gap',
     ];
 
     protected $casts = [
@@ -74,6 +74,10 @@ class AddressMatchSetting extends Model
         'unit_split_min_adverts'        => 5,
         'unit_split_price_spread'       => 2.0,
         'unit_split_land_size_gap_pct'  => 10,
+        // AT-520 4.13 merge guard: an advert may only join a property when it fits EVERY advert already on it
+        'merge_price_band_pct'          => 40,
+        'merge_size_band_pct'           => 40,
+        'merge_beds_gap'                => 1,
     ];
 
     /**
@@ -126,6 +130,9 @@ class AddressMatchSetting extends Model
         $out['unit_split_min_adverts'] = max(3, min(30, (int) $out['unit_split_min_adverts']));
         $out['unit_split_price_spread'] = max(1.2, min(10.0, (float) $out['unit_split_price_spread']));
         $out['unit_split_land_size_gap_pct'] = max(2, min(50, (int) $out['unit_split_land_size_gap_pct']));
+        $out['merge_price_band_pct'] = max(5, min(100, (int) $out['merge_price_band_pct']));
+        $out['merge_size_band_pct'] = max(5, min(100, (int) $out['merge_size_band_pct']));
+        $out['merge_beds_gap'] = max(0, min(3, (int) $out['merge_beds_gap']));
         foreach (['rule_erf_exact', 'rule_scheme_exact', 'rule_street_exact', 'same_address_sweep', 'portal_group_link_enabled', 'twin_match_enabled', 'twin_auto_link', 'complex_group_enabled', 'auto_tidy', 'map_point_check_enabled'] as $flag) {
             $out[$flag] = (bool) $out[$flag];
         }

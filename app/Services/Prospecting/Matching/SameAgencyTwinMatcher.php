@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\DB;
  */
 final class SameAgencyTwinMatcher
 {
-    public function __construct(private readonly TrackedPropertyMerger $merger, private readonly ReviewPairs $pairs)
+    public function __construct(private readonly TrackedPropertyMerger $merger, private readonly ReviewPairs $pairs, private readonly MergeGuard $guard)
     {
     }
 
@@ -39,7 +39,7 @@ final class SameAgencyTwinMatcher
             ->whereNotNull('l.bedrooms')->whereNotNull('l.bathrooms')->whereNotNull('l.p24_suburb_id')
             ->whereRaw("TRIM(COALESCE(l.agency_name,'')) <> ''")->whereRaw("TRIM(COALESCE(l.property_type,'')) <> ''")
             ->get(['l.id', 'l.canonical_ref as ref', 'l.portal_source as portal', 'l.agency_name', 'l.p24_suburb_id as sub', 'l.property_type as ptype', 'l.bedrooms as beds',
-                'l.bathrooms as baths', 'l.garages', 'l.price', 'l.property_size_m2 as floor', 'l.erf_size_m2 as erf', 'l.agent_portal_id as agent', 'l.wording_fingerprint as wording',
+                'l.bathrooms as baths', 'l.garages', 'l.price', 'l.property_size_m2 as floor', 'l.erf_size_m2 as erf', 'l.agent_portal_id as agent', 'l.portal_ref', 'l.listing_type as ltype', 'l.wording_fingerprint as wording',
                 'l.first_photo_fingerprint as photo', 'l.tracked_property_id as fid', 'l.address', 't.street_name']);
 
         $key = fn ($r) => mb_strtolower(trim((string) $r->agency_name)) . '|' . $r->sub . '|' . mb_strtolower(trim((string) $r->ptype)) . '|' . $r->beds . '|' . $r->baths;
@@ -52,7 +52,9 @@ final class SameAgencyTwinMatcher
                 && abs($a->price - $b->price) / $b->price <= $tol
                 && ($a->garages === null || $b->garages === null || $a->garages == $b->garages)
                 && ($a->floor === null || $b->floor === null || (float) $a->floor == (float) $b->floor)
-                && ($a->erf === null || $b->erf === null || (float) $a->erf == (float) $b->erf));
+                && ($a->erf === null || $b->erf === null || (float) $a->erf == (float) $b->erf))
+                // AT-520 4.13 merge guard: it must also fit every OTHER advert already on that property
+                ->filter(fn ($b) => $this->guard->conflictWithFile($agencyId, (int) $b->fid, [$a]) === null);
             if ($cands->isEmpty()) {
                 continue;
             }

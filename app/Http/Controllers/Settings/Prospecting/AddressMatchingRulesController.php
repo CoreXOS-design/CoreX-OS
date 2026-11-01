@@ -60,6 +60,9 @@ class AddressMatchingRulesController extends Controller
             'unit_split_min_adverts'        => ['sometimes', 'integer', 'min:3', 'max:30'],
             'unit_split_price_spread'       => ['sometimes', 'numeric', 'min:1.2', 'max:10'],
             'unit_split_land_size_gap_pct'  => ['sometimes', 'integer', 'min:2', 'max:50'],
+            'merge_price_band_pct'          => ['sometimes', 'integer', 'min:5', 'max:100'],
+            'merge_size_band_pct'           => ['sometimes', 'integer', 'min:5', 'max:100'],
+            'merge_beds_gap'                => ['sometimes', 'integer', 'min:0', 'max:3'],
         ]);
 
         $current = AddressMatchSetting::forAgency($agencyId);
@@ -111,6 +114,9 @@ class AddressMatchingRulesController extends Controller
             'unit_split_min_adverts'     => (int) ($v['unit_split_min_adverts'] ?? $current['unit_split_min_adverts']),
             'unit_split_price_spread'    => (float) ($v['unit_split_price_spread'] ?? $current['unit_split_price_spread']),
             'unit_split_land_size_gap_pct' => (int) ($v['unit_split_land_size_gap_pct'] ?? $current['unit_split_land_size_gap_pct']),
+            'merge_price_band_pct'       => (int) ($v['merge_price_band_pct'] ?? $current['merge_price_band_pct']),
+            'merge_size_band_pct'        => (int) ($v['merge_size_band_pct'] ?? $current['merge_size_band_pct']),
+            'merge_beds_gap'             => (int) ($v['merge_beds_gap'] ?? $current['merge_beds_gap']),
         ];
     }
 }

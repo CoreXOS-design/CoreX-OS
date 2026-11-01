@@ -204,6 +204,25 @@
             <p class="text-xs mt-1" style="color:var(--text-muted);">Several vacant-land adverts under one street address (a road with many stands) are offered for splitting by stand size. Standard: 10.</p>
         </div>
 
+        <div>
+            <label class="block text-sm font-semibold mb-1" style="color:var(--text-secondary);">An advert only joins a property when its price is within this % of every advert already there (5-100)</label>
+            <input type="number" name="merge_price_band_pct" min="5" max="100" step="5" value="{{ old('merge_price_band_pct', $settings['merge_price_band_pct']) }}"
+                   class="w-28 px-3 py-2 text-sm rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+            <p class="text-xs mt-1" style="color:var(--text-muted);">Applies to every automatic joining rule. An advert that does not fit is left separate and goes on the Possible matches list with the reason. Standard: 40.</p>
+        </div>
+        <div>
+            <label class="block text-sm font-semibold mb-1" style="color:var(--text-secondary);">...and its floor or stand size is within this % (when both are shown) (5-100)</label>
+            <input type="number" name="merge_size_band_pct" min="5" max="100" step="5" value="{{ old('merge_size_band_pct', $settings['merge_size_band_pct']) }}"
+                   class="w-28 px-3 py-2 text-sm rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+            <p class="text-xs mt-1" style="color:var(--text-muted);">Standard: 40.</p>
+        </div>
+        <div>
+            <label class="block text-sm font-semibold mb-1" style="color:var(--text-secondary);">...and its bedrooms differ by no more than (0-3)</label>
+            <input type="number" name="merge_beds_gap" min="0" max="3" step="1" value="{{ old('merge_beds_gap', $settings['merge_beds_gap']) }}"
+                   class="w-28 px-3 py-2 text-sm rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+            <p class="text-xs mt-1" style="color:var(--text-muted);">A house never joins a flat, and land never joins a building, whatever these say. Standard: 1.</p>
+        </div>
+
         <div class="flex flex-wrap items-center gap-3">
             <button type="submit" class="text-sm font-semibold px-5 py-2 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Save address matching settings</button>
             <button type="submit" name="reset" value="1" formnovalidate class="text-sm px-4 py-2 rounded-md" style="background:transparent; border:1px solid var(--border); color:var(--text-primary);"

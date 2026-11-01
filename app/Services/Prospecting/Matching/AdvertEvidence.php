@@ -41,7 +41,8 @@ final class AdvertEvidence
             return 'the prices are ' . round($prices->max() / $prices->min(), 1) . ' times apart (R' . number_format((float) $prices->min(), 0, '.', ',') . ' and R' . number_format((float) $prices->max(), 0, '.', ',') . ')';
         }
 
-        return null;
+        // AT-520 4.13 merge guard: every advert of one file against every advert of the other (type family, bedrooms, price band, sizes) - the checks above stay as they were
+        return app(MergeGuard::class)->fileVsFile($agencyId, $fileA, $fileB);
     }
 
     /**

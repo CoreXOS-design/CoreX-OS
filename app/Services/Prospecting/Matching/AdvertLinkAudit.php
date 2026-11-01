@@ -23,6 +23,7 @@ final class AdvertLinkAudit
         private readonly TrackedPropertyMerger $merger,
         private readonly PropertyIdentityApplier $applier,
         private readonly PropertyIdentityResolver $door,
+        private readonly MergeGuard $guard,
     ) {
     }
 
@@ -76,6 +77,13 @@ final class AdvertLinkAudit
             $found = $this->door->find($agencyId, ['address' => $l->address, 'suburb' => $l->suburb]);
             if ($found->trackedProperty !== null && in_array($found->confidence, ['exact', 'high'], true) && (int) $found->trackedProperty->id !== (int) $file->id) {
                 $target = (int) $found->trackedProperty->id;
+            }
+        }
+        // AT-520 4.13 merge guard: it never lands on a file whose other adverts it does not fit (type, bedrooms, price, size) - it gets its own file instead
+        if ($target !== null) {
+            $mine = $this->guard->advertsOf($agencyId, [(int) $file->id])[(int) $file->id]->firstWhere('ref', (string) $l->canonical_ref);
+            if ($mine !== null && $this->guard->conflictWithFile($agencyId, $target, [$mine]) !== null) {
+                $target = null;
             }
         }
         $toExisting = $target !== null;
