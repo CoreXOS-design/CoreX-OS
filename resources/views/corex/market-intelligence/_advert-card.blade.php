@@ -57,7 +57,7 @@
         @if(!empty($adv['portal_url']))</a>@endif
         <div style="position:absolute; top:8px; left:8px; display:flex; flex-direction:column; align-items:flex-start; gap:4px; pointer-events:none;">
             @foreach($ribbons as [$rt, $rc, $rtitle])
-                <span data-qa="ribbon" title="{{ $rtitle ?? $rt }}" style="padding:2px 8px; font-size:.6875rem; font-weight:700; color:#fff; background: {{ $rc }}; border-radius:3px; box-shadow:0 1px 3px rgba(0,0,0,.3);">{{ $rt }}</span>
+                <span data-qa="ribbon" title="{{ $rtitle ?? $rt }}" style="padding:2px 8px; font-size:.6875rem; font-weight:700; color: {{ str_contains($rc, 'amber') ? '#111827' : '#fff' }}; background: {{ $rc }}; border-radius:3px; box-shadow:0 1px 3px rgba(0,0,0,.3);">{{ $rt }}</span>
             @endforeach
         </div>
         @if((int) ($adv['group_member_count'] ?? 0) >= 2)
@@ -111,7 +111,7 @@
         @if($text !== '')
             <div style="font-size:.875rem; line-height:1.4; color: var(--text-primary);" data-qa="advert-description">
                 <div :style="more ? '' : 'display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden;'">{{ $text }}</div>
-                @if(mb_strlen($text) > 160)<button type="button" @click.stop="more = !more" style="background:none; border:none; padding:0; font-size:.8125rem; color: var(--brand-icon); cursor:pointer;"><span x-text="more ? 'less' : 'more'">more</span></button>@endif
+                @if(mb_strlen($text) > 160)<button type="button" @click.stop="more = !more" style="background:none; border:none; padding:0; font-size:.8125rem; color: var(--text-primary); text-decoration: underline; text-decoration-color: var(--brand-icon); cursor:pointer;"><span x-text="more ? 'less' : 'more'">more</span></button>@endif
             </div>
         @endif
         @if($text === '' && ($featBits || $costBits))

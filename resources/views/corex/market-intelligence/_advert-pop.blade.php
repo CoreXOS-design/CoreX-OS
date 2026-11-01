@@ -8,11 +8,11 @@
 @if($kind === 'buyers')
     <div style="{{ $ph }}">Matched buyers · {{ $adv['buyers_strong'] ?? $adv['buyers'] ?? 0 }} strong · {{ $adv['buyers_mid'] ?? 0 }} mid</div>
     @forelse($adv['buyer_names'] ?? [] as $b)
-        <div><a href="{{ route('corex.contacts.show', $b['id']) }}" style="color: var(--brand-icon); text-decoration:none;">{{ $b['name'] }}</a> <span style="color: var(--text-secondary);">· {{ $b['score'] }}% match</span></div>
+        <div><a href="{{ route('corex.contacts.show', $b['id']) }}" style="color: var(--text-primary); text-decoration: underline; text-decoration-color: var(--brand-icon);">{{ $b['name'] }}</a> <span style="color: var(--text-secondary);">· {{ $b['score'] }}% match</span></div>
     @empty
         <div style="color: var(--text-secondary);">No matched buyers.</div>
     @endforelse
-    <div style="margin-top:4px;"><button type="button" @click="openBuyerPanel({{ $listing->id }})" style="background:none; border:none; padding:0; font-size:.75rem; color: var(--brand-icon); cursor:pointer;">All matched buyers for this advert →</button></div>
+    <div style="margin-top:4px;"><button type="button" @click="openBuyerPanel({{ $listing->id }})" style="background:none; border:none; padding:0; font-size:.75rem; color: var(--text-primary); text-decoration: underline; text-decoration-color: var(--brand-icon); cursor:pointer;">All matched buyers for this advert →</button></div>
 @elseif($kind === 'price')
     @php $allChanges = collect($adv['adverts'] ?? [])->flatMap(fn ($a) => collect($a['changes'])->map(fn ($c) => $c + ['ref' => $a['ref'], 'portal' => $a['portal']]))->sortBy('day')->values(); @endphp
     <div style="{{ $ph }}">Price history</div>
@@ -27,7 +27,7 @@
     <div style="{{ $ph }}">Adverts on this property</div>
     @foreach($adv['adverts'] ?? [] as $a)
         <div>
-            {{ $a['portal'] }} · @if($a['url'])<a href="{{ $a['url'] }}" target="_blank" rel="noopener" title="{{ $a['active'] ? 'Open the advert' : 'Not seen since ' . ($a['last_seen'] ?? '-') . ' - the link may no longer work' }}" style="color: {{ $a['active'] ? 'var(--brand-icon)' : 'var(--text-secondary)' }}; text-decoration: {{ $a['active'] ? 'none' : 'underline dotted' }};">{{ $a['ref'] }}</a>@else{{ $a['ref'] }}@endif
+            {{ $a['portal'] }} · @if($a['url'])<a href="{{ $a['url'] }}" target="_blank" rel="noopener" title="{{ $a['active'] ? 'Open the advert' : 'Not seen since ' . ($a['last_seen'] ?? '-') . ' - the link may no longer work' }}" style="color: {{ $a['active'] ? 'var(--text-primary)' : 'var(--text-secondary)' }}; text-decoration: underline {{ $a['active'] ? 'solid' : 'dotted' }}; text-decoration-color: var(--brand-icon);">{{ $a['ref'] }}</a>@else{{ $a['ref'] }}@endif
             · {{ $a['owner'] ? 'Owner (private)' : ($a['agency'] ?: '-') }}@if($a['agent']) · {{ $a['agent'] }}@endif
             · {{ $a['price'] ? $money($a['price']) : '-' }}
             · {{ !$a['active'] ? 'Not seen since ' . ($a['last_seen'] ?? '-') : (($a['status'] && $a['status'] !== 'active') ? ucfirst(str_replace('_', ' ', $a['status'])) : 'Active') }}
@@ -38,7 +38,7 @@
     <div style="{{ $ph }}">Portal alert emails for this property</div>
     @forelse($adv['alerts'] ?? [] as $al)
         <div>
-            {{ $al['portal'] }} alert {{ $al['number'] }} · first {{ $al['first'] ?? '-' }} · last {{ $al['last'] ?? '-' }} · asking {{ $money($al['price']) }}@if($al['original'] && $al['original'] !== $al['price']) (was {{ $money($al['original']) }})@endif @if($al['mandated']) · <span style="color:#7c3aed;">flagged mandated</span>@endif
+            {{ $al['portal'] }} alert {{ $al['number'] }} · first {{ $al['first'] ?? '-' }} · last {{ $al['last'] ?? '-' }} · asking {{ $money($al['price']) }}@if($al['original'] && $al['original'] !== $al['price']) (was {{ $money($al['original']) }})@endif @if($al['mandated']) · <span style="color: var(--text-primary);">flagged mandated</span>@endif
             @foreach($al['changes'] as $c)<div style="color: var(--text-secondary); padding-left:10px;">{{ $c['date'] }}: {{ $money($c['old']) }} → {{ $money($c['new']) }}</div>@endforeach
         </div>
     @empty

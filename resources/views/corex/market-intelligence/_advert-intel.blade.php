@@ -72,8 +72,8 @@
             @else
                 <span style="{{ $muted }}">No score yet</span>
             @endif
-            @if(!empty($adv['pair_ids']))<span style="font-size:.625rem; font-weight:700; padding:0 5px; border:1px solid var(--ds-amber, #f59e0b); border-radius:8px; color: var(--ds-amber, #f59e0b); flex-shrink:0;">Possible match</span>@endif
-            <span data-qa="claim-state" style="margin-left:auto; flex-shrink:0; font-weight:600; {{ $claimedByMe ? 'color: var(--brand-icon);' : $muted }}">{{ $claimState }}</span>
+            @if(!empty($adv['pair_ids']))<span style="font-size:.625rem; font-weight:700; padding:0 5px; border:1px solid var(--ds-amber, #f59e0b); border-radius:8px; color: var(--text-primary); flex-shrink:0;">Possible match</span>@endif
+            <span data-qa="claim-state" style="margin-left:auto; flex-shrink:0; font-weight:600; {{ $claimedByMe ? 'color: var(--text-primary);' : $muted }}">{{ $claimState }}</span>
         </div>
 
         <div data-qa="line-buttons" style="display:grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap:4px; height:26px;">
@@ -84,7 +84,7 @@
             @endif
             @if($isUnclaimed)
                 <form method="POST" action="{{ route('market-intelligence.claim', $listing->id) }}" data-tour="mic-claim" style="margin:0;">@csrf
-                    <button type="submit" style="{{ $btn }} color: var(--brand-icon); border-color: var(--brand-icon);" title="Claim - reserve this listing for yourself. It leaves the canvass list and moves to My Claims.">Claim</button>
+                    <button type="submit" style="{{ $btn }} color: var(--text-primary); border-color: var(--brand-icon);" title="Claim - reserve this listing for yourself. It leaves the canvass list and moves to My Claims.">Claim</button>
                 </form>
             @elseif($claimedByMe)
                 <form method="POST" action="{{ route('market-intelligence.release', $listing->id) }}" style="margin:0;">@csrf
@@ -120,7 +120,7 @@
         @endforeach
 
         @if(!empty($adv['tp_id']))
-            <div data-qa="full-card" style="margin-top:auto; text-align:right;"><button type="button" data-qa="card-toggle" @click.stop="{{ $cardToggle }}" style="background:none; border:none; padding:0; font-size:.75rem; font-weight:600; color: var(--brand-icon); cursor:pointer;"><span x-text="card ? 'Full card ▴' : 'Full card ▾'">Full card ▾</span></button></div>
+            <div data-qa="full-card" style="margin-top:auto; text-align:right;"><button type="button" data-qa="card-toggle" @click.stop="{{ $cardToggle }}" style="background:none; border:none; padding:0; font-size:.75rem; font-weight:600; color: var(--text-primary); text-decoration: underline; text-decoration-color: var(--brand-icon); cursor:pointer;"><span x-text="card ? 'Full card ▴' : 'Full card ▾'">Full card ▾</span></button></div>
         @endif
     </div>
 @once
