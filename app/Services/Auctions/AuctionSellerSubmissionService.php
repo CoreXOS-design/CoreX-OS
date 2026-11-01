@@ -4,17 +4,71 @@ namespace App\Services\Auctions;
 
 use App\Events\Auction\AuctionSellerSubmitted;
 use App\Models\AuctionSellerSubmission;
+use App\Models\Property;
+use App\Models\User;
+use App\Services\Property\ContactPropertyLinker;
 use App\Services\Prospecting\TrackedPropertyMatchOrCreateService;
 use Illuminate\Support\Facades\Log;
 
 /**
  * A "Sell at auction" questionnaire from the public site (.ai/specs/auctions.md §22). Stores it, then connects it to the pillars: the person
- * becomes (or is matched to) a Contact, the property goes through the universal match-or-create (NN #10) into Tracked Properties, and
- * AuctionSellerSubmitted tells the team. A failure to link never loses the submission - it is already stored.
+ * becomes (or is matched to) a Contact assigned to the agency's administrator, the property goes through the universal match-or-create (NN #10)
+ * into Tracked Properties AND becomes a Property with status "Auction enquiry" (owner = that contact, agent = the administrator) that shows
+ * under the Properties page's "Auction enquiries" tile, and AuctionSellerSubmitted tells the team. A failure to link never loses the submission - it is already stored.
  */
 class AuctionSellerSubmissionService
 {
     public function __construct(private AuctionContactResolver $contacts, private TrackedPropertyMatchOrCreateService $properties) {}
+
+    private const TYPE_NAMES = ['house' => 'House', 'townhouse' => 'Townhouse', 'apartment' => 'Apartment / Flat', 'vacant_land' => 'Vacant Land / Plot', 'farm' => 'Farm', 'commercial' => 'Commercial Property', 'industrial' => 'Industrial Property'];
+
+    /**
+     * The Property record behind the questionnaire: status "Auction enquiry" (off-market, never syndicated, its own tile on the Properties page),
+     * agent = the agency's administrator. The same address sent again does not make a second property: it finds the one already made.
+     */
+    private function propertyFor(int $agencyId, AuctionSellerSubmission $submission, array $data, ?string $number, string $street): ?Property
+    {
+        $tracked = $submission->tracked_property_id ? \App\Models\Prospecting\TrackedProperty::withoutGlobalScopes()->find($submission->tracked_property_id) : null;
+        if ($tracked && ! empty($tracked->promoted_to_property_id)) {
+            return Property::withoutGlobalScopes()->where('agency_id', $agencyId)->find($tracked->promoted_to_property_id);
+        }
+        $externalId = $tracked ? 'auction-seller:tp:' . $tracked->id : 'auction-seller:' . $submission->id;
+        $existing = Property::withoutGlobalScopes()->where('agency_id', $agencyId)->where('external_id', $externalId)->first();
+        if ($existing) {
+            return $existing;
+        }
+
+        $admin = app(AuctionActivityRecipients::class)->defaultOwner($agencyId);
+        if (! $admin) {
+            return null;   // an agency with no active administrator has nobody to own it; the submission and tracked property are still kept
+        }
+
+        $beds = (int) ($data['bedrooms'] ?? 0);
+        $typeName = self::TYPE_NAMES[$data['property_type']] ?? 'House';
+        $title = ($beds > 0 ? $beds . '-bedroom ' : '') . strtolower($typeName === 'Apartment / Flat' ? 'apartment' : ($typeName === 'Vacant Land / Plot' ? 'vacant land' : $typeName)) . ' in ' . $data['suburb'];
+
+        return Property::withoutAgencyStamping(fn () => Property::create([
+            'agency_id' => $agencyId,
+            'branch_id' => $admin->branch_id,
+            'agent_id' => $admin->id,
+            'status' => Property::STATUS_AUCTION_ENQUIRY,
+            'external_id' => $externalId,
+            'title' => ucfirst($title),
+            'address' => $data['address'] . ', ' . $data['suburb'],
+            'street_number' => $number,
+            'street_name' => $street,
+            'suburb' => $data['suburb'],
+            'price' => (float) ($data['price_expectation'] ?? 0),
+            'beds' => $beds,
+            'baths' => (int) ($data['bathrooms'] ?? 0),
+            'garages' => in_array('double_garage', (array) ($data['features'] ?? []), true) ? 2 : 0,
+            'size_m2' => $data['floor_size'] ?? null,
+            'erf_size_m2' => $data['erf_size'] ?? null,
+            'property_type' => $typeName,
+            'listing_type' => 'sale',
+            'sale_method' => 'auction',
+        ]));
+    }
 
     /** @param array<string, mixed> $data the validated answers (no honeypot) */
     public function capture(int $agencyId, array $data, ?string $ip): AuctionSellerSubmission
@@ -73,6 +127,18 @@ class AuctionSellerSubmissionService
             $submission->forceFill(['tracked_property_id' => $tracked->id])->saveQuietly();
         } catch (\Throwable $e) {
             Log::warning('Seller submission property not linked: ' . $e->getMessage(), ['submission' => $submission->id]);
+        }
+
+        try {
+            $property = $this->propertyFor($agencyId, $submission, $data, $number, $street);
+            if ($property) {
+                $submission->forceFill(['property_id' => $property->id])->saveQuietly();
+                if ($submission->contact_id) {
+                    ContactPropertyLinker::link((int) $submission->contact_id, (int) $property->id, 'owner');
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Seller submission property record not created: ' . $e->getMessage(), ['submission' => $submission->id]);
         }
 
         AuctionSellerSubmitted::dispatch($submission->fresh());

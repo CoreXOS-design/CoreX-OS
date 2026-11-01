@@ -53,6 +53,7 @@
             <p class="text-xs" style="color:var(--text-muted);">Received {{ $lead->created_at->format('d M Y H:i') }} · {{ $S::PROPERTY_TYPES[$lead->property_type] ?? $lead->property_type }} in {{ $lead->suburb }}</p>
         </div>
         <div class="flex flex-wrap gap-2">
+            @if($lead->property_id)<a href="{{ route('corex.properties.show', $lead->property_id) }}" class="corex-btn-outline text-xs px-3 py-2">Open the property</a>@endif
             @if($lead->contact_id)<a href="{{ route('corex.contacts.show', $lead->contact_id) }}" class="corex-btn-outline text-xs px-3 py-2">Open the contact</a>@endif
         </div>
     </div>

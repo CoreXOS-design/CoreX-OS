@@ -47,6 +47,15 @@ class AuctionActivityRecipients
         return $this->administrators($agencyId);
     }
 
+    /**
+     * The administrator who is given every NEW person the auction site brings in (a buyer's sign-up, an enquiry, a seller's questionnaire):
+     * the agency's first active administrator. Null only for an agency with none, in which case the contact is created unassigned.
+     */
+    public function defaultOwner(int $agencyId): ?User
+    {
+        return $this->administrators($agencyId)->sortBy('id')->first();
+    }
+
     /** @return Collection<int, User> */
     public function administrators(int $agencyId): Collection
     {

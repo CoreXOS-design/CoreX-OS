@@ -28,7 +28,15 @@ class AuctionContactResolver
         if ($email || $phone) {
             $existing = $this->duplicates->findDuplicates(['email' => $email, 'phone' => $phone], $agencyId)->first();
         }
+        // Whoever the caller names (an enquiry goes to the lot's listing agent), else the agency's administrator.
+        $agentId = $agentId ?: app(AuctionActivityRecipients::class)->defaultOwner($agencyId)?->id;
         if ($existing) {
+            // Someone CoreX already knows (an agent captured them, they were a buyer lead, ...): never a second contact. If nobody owns them
+            // yet they go to the admin; if somebody does, that stays.
+            if ($agentId && empty($existing->agent_id)) {
+                $existing->forceFill(['agent_id' => $agentId])->saveQuietly();
+            }
+
             return [$existing, true];
         }
 
@@ -37,7 +45,7 @@ class AuctionContactResolver
         $sourceId = $this->sourceId($agencyId);
         // Always an explicit branch OF THIS AGENCY: otherwise BelongsToBranch would copy the branch of whichever staff member
         // happens to be browsing the public site (possibly another agency's) onto the new contact.
-        $branchId = $this->branchFor($agencyId, $branchId);
+        $branchId = $this->branchFor($agencyId, $branchId ?: ($agentId ? (int) \App\Models\User::withoutGlobalScopes()->whereKey($agentId)->value('branch_id') : null));
 
         $contact = Contact::withoutAgencyStamping(function () use ($agencyId, $first, $last, $email, $phone, $typeId, $sourceId, $agentId, $clientUserId, $branchId, $note) {
             return DB::transaction(function () use ($agencyId, $first, $last, $email, $phone, $typeId, $sourceId, $agentId, $clientUserId, $branchId, $note) {
@@ -49,6 +57,7 @@ class AuctionContactResolver
                     'contact_type_id' => $typeId,
                     'contact_source_id' => $sourceId,
                     'created_by_user_id' => $agentId,
+                    'agent_id' => $agentId,
                     'client_user_id' => $clientUserId,
                     'agency_id' => $agencyId,
                     'branch_id' => $branchId,

@@ -301,6 +301,8 @@
             // is a different idea from Draft's "unfinished" pencil.
             'Awaiting approval' => '<circle cx="12" cy="12" r="9" fill="none"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 7.5V12l3 1.75"/>',
             'Rented Out'  => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>',
+            // Auction enquiries: a gavel (the same mark as the Auctions menu).
+            'Auction enquiries' => '<path stroke-linecap="round" stroke-linejoin="round" d="M14.25 9.75 16.5 12l-6.75 6.75-2.25-2.25M3 21l3-3m12.75-15L21 5.25m-3.75 3.75L21 5.25m-8.303 8.303 2.652 2.652M5.25 5.25l3.879 3.879"/>',
             // AT-453 — Other agency: a building with a door (another agency's stock).
             'Other agency' => '<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15v18M9 7.5h1.5M13.5 7.5H15M9 11.25h1.5M13.5 11.25H15M10.5 21v-4.5h3V21"/>',
         ];
@@ -346,6 +348,11 @@
                 'value'  => $stats['otherAgency'] ?? 0,
                 'filter' => \App\Models\Property::STATUS_OTHER_AGENCY_STOCK,
             ];
+        }
+
+        // Auction enquiries (.ai/specs/auctions.md §23) - owners who described a property through "Sell at auction". Only while Auctions is on.
+        if (($showAuctionEnquiries ?? false)) {
+            $kpiTiles[] = ['label' => 'Auction enquiries', 'value' => $stats['auctionEnquiries'] ?? 0, 'filter' => \App\Models\Property::STATUS_AUCTION_ENQUIRY];
         }
 
         // Layer 3 — "Awaiting approval" (.ai/specs/syndication-approval-gate.md §7.1).
@@ -539,6 +546,9 @@
                 {{-- AT-453 — another agency's imported listing; filters with the existing status param. --}}
                 @if($showOtherAgencyStock ?? false)
                 <option value="{{ \App\Models\Property::STATUS_OTHER_AGENCY_STOCK }}" {{ $status === \App\Models\Property::STATUS_OTHER_AGENCY_STOCK ? 'selected' : '' }}>Other Agency Stock</option>
+                @endif
+                @if($showAuctionEnquiries ?? false)
+                <option value="{{ \App\Models\Property::STATUS_AUCTION_ENQUIRY }}" {{ $status === \App\Models\Property::STATUS_AUCTION_ENQUIRY ? 'selected' : '' }}>Auction enquiries</option>
                 @endif
                 @endif
             </select>

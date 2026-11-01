@@ -69,7 +69,7 @@ class Property extends Model
     public const OFF_MARKET_STATUSES = [
         'sold', 'sold_by_3rd_party', 'transferred', 'withdrawn', 'expired',
         'cancelled', 'let_out', 'draft', 'archived', 'unavailable',
-        'prospecting', 'not_selling',
+        'prospecting', 'not_selling', 'auction_enquiry',
         // Prod-audit 2026-09-16 — the P24 importer writes 'rented'
         // (P24ListingsCsvParser); it is the let-side twin of 'sold' and the
         // AT-419 spec lists it as off-market. Without it, rented imports sat
@@ -210,6 +210,13 @@ class Property extends Model
      * deliberately NOT in OFF_MARKET_STATUSES.
      */
     public const STATUS_ON_AUCTION = 'on_auction';
+
+    /**
+     * AUCTION ENQUIRY (Johan, 2026-11-01 - .ai/specs/auctions.md §23). The property an owner described in the "Sell at auction" questionnaire on the
+     * agency's public auction page: not mandated and not our stock yet, so it is off-market (never syndicated, never counted as On Market) and
+     * lives under its own "Auction enquiries" tile / filter on the Properties page - shown ONLY while the agency has Auctions switched on.
+     */
+    public const STATUS_AUCTION_ENQUIRY = 'auction_enquiry';
 
     /**
      * On-market listings = base status NOT in OFF_MARKET_STATUSES. This is the
@@ -2238,6 +2245,7 @@ class Property extends Model
             // "Not Selling".
             $status === self::STATUS_PROSPECTING => 'Prospecting',
             $status === self::STATUS_NOT_SELLING => 'Not selling',
+            $status === self::STATUS_AUCTION_ENQUIRY => 'Auction enquiry',
             in_array($status, self::INACTIVE_STATUSES, true) => ucwords(str_replace('_', ' ', $status)),
             // AT-432 — checked via isAuction() (sale_method), not the status
             // string: the property's on-market status while catalogued IS

@@ -329,6 +329,12 @@ class PropertyController extends Controller
         } elseif ($status !== '') {
             $query->where('status', $status);
         }
+        // Auction enquiries (§23) have their own tile / filter and never mix into the normal list. They show ONLY on that filter, and only while
+        // the agency has Auctions switched on - with Auctions off they are not reachable from here at all.
+        $showAuctionEnquiries = ! $isRentalEntry && ! $importedStock && app(\App\Services\Features\AgencyFeatureService::class)->enabled('auctions');
+        if (! ($showAuctionEnquiries && $status === Property::STATUS_AUCTION_ENQUIRY)) {
+            $query->where(fn ($q) => $q->whereNull('status')->orWhere('status', '!=', Property::STATUS_AUCTION_ENQUIRY));
+        }
         if ($listingType !== '')   $query->where('listing_type', $listingType);
         if ($saleMethod !== '')   $query->where('sale_method', $saleMethod);
         if ($propertyType !== '') {
@@ -710,6 +716,12 @@ class PropertyController extends Controller
         $showOtherAgencyStock = ! $isRentalEntry && ! $importedStock
             && \App\Services\Properties\OtherAgencyStockVisibility::canSee($user);
 
+        // The "Auction enquiries" tile: the owner descriptions that came in through "Sell at auction". Counted over the viewer's own role scope and
+        // NOT a clone of the filtered list (they are deliberately excluded from it), so it stays true whatever else is filtered.
+        $stats['auctionEnquiries'] = $showAuctionEnquiries
+            ? tap(Property::query(), fn ($q) => $this->applyRoleScope($q, $user, $dataScope, $canPickAgent, $viewScope))->where('status', Property::STATUS_AUCTION_ENQUIRY)->count()
+            : 0;
+
         // Price slider ends: the lowest and highest price across the viewer's live stock.
         // Role scope only (not the other filters), so the ends do not move when a price is picked.
         // Off-market rows are left out: a withdrawn or expired listing with a placeholder price
@@ -723,7 +735,7 @@ class PropertyController extends Controller
         $priceRange = ['min' => (int) ($priceBounds->lo ?? 0), 'max' => (int) ($priceBounds->hi ?? 0)];
 
         return view('corex.properties.index', compact(
-            'showOtherAgencyStock', 'priceRange',
+            'showOtherAgencyStock', 'showAuctionEnquiries', 'priceRange',
             'properties', 'stats', 'scope', 'status', 'search',
             'filterAgentIds', 'agentList', 'selectedAgents', 'canPickAgent',
             'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode',

@@ -422,7 +422,6 @@ class Agency extends Model
         'deal_v2_stage_gate_mode', // AT-158 WS-V2 — 'auto' (default) | 'prompt'
         'maintenance_message',
         'maintenance_started_at',
-        'suspended_at', // Agency suspension — .ai/specs/agency-suspension.md
     ];
 
     /** Website agent ordering modes. */
@@ -1033,6 +1032,7 @@ class Agency extends Model
 
     // ── Agency suspension (.ai/specs/agency-suspension.md) ───────────────
 
+    // suspended_at is deliberately NOT fillable: only suspend()/unsuspend() (owner-only route) may set it.
     public function isSuspended(): bool
     {
         return $this->suspended_at !== null;

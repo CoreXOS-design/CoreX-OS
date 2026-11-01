@@ -24,7 +24,7 @@ class AuctionSellerSubmission extends Model
 
     protected $fillable = [
         'agency_id', 'branch_id', 'status', 'seller_type', 'name', 'email', 'phone', 'preferred_contact', 'property_type', 'address', 'suburb',
-        'price_expectation', 'auction_format', 'marketing_opt_in', 'ip', 'answers', 'contact_id', 'tracked_property_id', 'assigned_user_id', 'contacted_at',
+        'price_expectation', 'auction_format', 'marketing_opt_in', 'ip', 'answers', 'contact_id', 'tracked_property_id', 'property_id', 'assigned_user_id', 'contacted_at',
     ];
 
     protected $casts = ['answers' => 'array', 'marketing_opt_in' => 'boolean', 'price_expectation' => 'integer', 'contacted_at' => 'datetime'];
@@ -37,6 +37,11 @@ class AuctionSellerSubmission extends Model
     public function assignee()
     {
         return $this->belongsTo(User::class, 'assigned_user_id');
+    }
+
+    public function property()
+    {
+        return $this->belongsTo(Property::class, 'property_id');
     }
 
     public function trackedProperty()

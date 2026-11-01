@@ -395,3 +395,20 @@ Johan, 2026-11-01: *"on the live preview add a section where a user can sell on 
 
 ### 22.4 Not built here
 Emailing the seller a copy of their answers; uploading the documents themselves (the questionnaire only records which ones they have); turning a lead into a Property/Deal in one click. Say so and they are separate prompts.
+
+---
+
+## 23. People go to an admin, nobody is duplicated, and a seller's property lands under "Auction enquiries" (added 2026-11-01, Johan)
+Johan, verbatim: *"when there is a new sign up, or someone that submits this form it should create a new contact for the user and assing them to admin and check if they already excist, also if the user already excists within corex but they have never signed up for auctions it shouldn't create a new contact for them. And lastly if a user fills in the seller questionnaire it should create a new property from the details and put it under a new tag/page called Auction enquiries and this should only show if auctions are turned on"*
+
+### 23.1 Contacts
+- Every NEW person the auction site brings in - a buyer's **sign-up**, an **enquiry**, a **seller questionnaire** - becomes a Contact in the agency **assigned to the agency's administrator** (`contacts.agent_id`; the first active administrator, `AuctionActivityRecipients::defaultOwner`). An enquiry about a lot keeps going to that lot's listing agent, as before. The contact's branch follows its owner's.
+- **Match first.** Before creating anything the agency's own duplicate rules are applied (email / phone / ID per the agency's contact settings, archived contacts ignored). Someone CoreX already knows - an agent's buyer lead, an old client, anyone - who has **never signed up for auctions** is **not duplicated**: their sign-up / form is linked to the contact they already are. If that contact has no owner they are given to the administrator; if they already have an agent, that agent stays.
+- The same person signing up and then sending the seller form is one contact, not two.
+
+### 23.2 The property from the seller questionnaire
+- Besides the tracked property (§22.2), the questionnaire now creates a real **Property** from the answers: title ("3-bedroom house in Ramsgate"), address, suburb, type, bedrooms, bathrooms, floor and erf size, price hoped for, sale method **auction**, agent = the administrator, the seller as its **owner**. Status **"Auction enquiry"** (`auction_enquiry`): off-market like Prospecting - never On Market, never syndicated, never counted as our stock.
+- The same address sent again finds the property already made; it does not make a second one.
+- It appears on the **Properties** page under a new **"Auction enquiries" tile and filter** (status dropdown too). It is **not** in the normal list (not in Total, On Market or the default view) and it is **only offered while the agency has Auctions switched on** - with Auctions off the tile, the filter and the rows are unreachable from the Properties page.
+- The Seller lead shows "Open the property" and "Open the contact".
+- Converting it into a live listing is the normal property flow (change its status and add the mandate); nothing here publishes anything.
