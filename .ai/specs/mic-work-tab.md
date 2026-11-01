@@ -189,6 +189,22 @@ cc6 — the screen: new Work tab (greeting removed, 11 tiles + panels, Excel row
 
 **F. Reported, not changed (outside cc3's steps):** on a re-sight `ProspectingApiController` writes `address`, `portal_url` straight from the tile and coerces `suburb`/`property_type`/`agent_name`/`agency_name` to `''` first, so a tile without them blanks the stored value (inventory App. A §3). New keys here do not repeat that pattern.
 
+### 11.2.4 cc3 capture contract for the Adverts view (written 1 Nov 2026 16:50, BEFORE the ingest code; section 13.6; cc4/cc6 read these names)
+**Decision recorded:** Johan's 1 Nov ruling (section 13) overrides the 11.2 principle "no advert text, no image": the advert's wording and photo addresses are now stored, **per agency only** (`prospecting_listings`); none of it goes to the shared pool. Contact numbers are still never read.
+**Columns** (migration `2027_01_13_100000_mic_advert_text_photos_features.php`, written by cc3 so capture could be tested - cc4: do NOT add the same columns, pull this file; all nullable, NULL = not read yet):
+| Column on `prospecting_listings` | Type | Filled from | Key in `listings[]` |
+|---|---|---|---|
+| `card_heading` | string 160 | results card heading as shown (P24 `.p24_title`, PP card title) | `card_heading` |
+| `description_snippet` | string 200 | results card description text as shown, first 200 chars (P24 `.p24_excerpt`) | `description_snippet` |
+| `description` | text | listing page full description | `description` (only with `page_read`) |
+| `photo_urls` | json list of https URLs | listing page gallery, in page order | `photo_urls` (only with `page_read`) |
+| `photo_count` | smallint | listing page `imageCount`, else the number of URLs | `photo_count` |
+| `features` | json object key => value | every "Property Overview" row of the listing page (pets, furnished, pool, garden, security, ...), key as the page labels it | `features` (only with `page_read`) |
+| `parking` | tinyint | listing page "Parking" row | `parking` |
+Already existing, now actually filled by the same listing-page read: `listed_date`, `agent_name`, `rates_amount`, `levies_amount`. Rule as 11.2: an absent key never blanks a stored value; a snippet is only replaced by a non-empty one.
+**Why those fields read 0 on QA1 (found 1 Nov):** every one of the 68 search posts ever stored has `crawl_session_id` NULL, i.e. no copy of extension 3.13+ has ever posted to QA1. The ingest path takes the keys; the data never arrived because nobody runs the new build yet.
+**Photo files (13.6):** 15,798 live HFC adverts have a `thumbnail_path` but no file (the Laravel 11 disk-root move orphaned them, see `RehydrateProspectingThumbnails`); the download job itself works. Fixed by re-fetching (command gets `--agency` and `--active`) and by the ingest re-queueing a re-sighted advert whose file is gone.
+
 ### 11.3 cc4 contracts - crawl record, Gone rule, tile services (written 31 Oct 2026, BEFORE build; AT-520 steps 4.3 and 4.6)
 
 **A. Crawl record (step 4.3).** NO new ingest call and no new key: cc4 derives it from cc3's `prospecting_searches` crawl columns (11.2.B; one search row per `session_id`, so a listing's `last_search_id` identifies its session). A `ProspectingSearch` saved-observer keeps one `mic_crawls` row per (agency, session) up to date on every batch: `agency_id`, `user_id` (the capturing user), `portal` (p24|pp), `search_url`, `started_at` (first batch time minus 5 minutes, so batch 1's own adverts count as seen), `finished_at`, `pages_read` (highest `crawl_page`), `pages_total`, `adverts_seen` (adverts with `last_search_id` = the session), `is_complete` (cc3's `crawl_complete` / legacy `capture_complete`, AND every page 1..total read), `is_filtered` (see C), plus `mic_crawl_suburbs` (crawl_id, portal, `suburb_id` = our `p24_suburbs.id`, `suburb_name`): the suburbs of the adverts the session saw (a PP/P24 area search covers many suburbs; a suburb is covered only because adverts in it were read). A search with no `crawl_*` keys (old extension) is recorded from the legacy fields (`pages_captured`, `capture_complete`) with `session_id` = `legacy-<search id>`.
