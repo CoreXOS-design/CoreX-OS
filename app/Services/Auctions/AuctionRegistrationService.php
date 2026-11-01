@@ -241,6 +241,32 @@ class AuctionRegistrationService
         ]));
     }
 
+    /** Types a bidder may upload (the registration form allows exactly these) - the only ones shown in the browser instead of downloaded. */
+    private const VIEWABLE = ['pdf' => 'application/pdf', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png'];
+
+    /**
+     * Show the document in the browser (a PDF or a picture) so the reviewer can read it without saving it first. Anything that is not one
+     * of the allowed upload types is still handed over as a download, and a nosniff header stops the browser guessing a different type.
+     */
+    public function view(BidderDocument $doc)
+    {
+        abort_unless(Storage::disk('local')->exists($doc->path), 404);
+
+        $ext = strtolower(pathinfo((string) ($doc->original_name ?: $doc->path), PATHINFO_EXTENSION));
+        $type = self::VIEWABLE[$ext] ?? null;
+        if ($type === null) {
+            return $this->download($doc);
+        }
+
+        $safeName = preg_replace('/[^A-Za-z0-9._ -]+/', '_', (string) ($doc->original_name ?: 'document.' . $ext));
+
+        return Storage::disk('local')->response($doc->path, $safeName, [
+            'Content-Type' => $type,
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'private, no-store',
+        ], 'inline');
+    }
+
     public function download(BidderDocument $doc)
     {
         abort_unless(Storage::disk('local')->exists($doc->path), 404);

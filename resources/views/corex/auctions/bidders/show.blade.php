@@ -39,7 +39,7 @@
         @forelse($reg->documents as $d)
         <div class="flex flex-wrap items-center gap-3 text-sm" style="border-top:1px solid var(--border);padding-top:.5rem;">
             <span class="flex-1">{{ $kinds[$d->kind] ?? $d->kind }} <span class="text-xs" style="color:var(--text-muted);">· {{ $d->document?->original_name }}</span></span>
-            <a href="{{ route('corex.auctions.bidders.documents.download', [$reg->id, $d->id]) }}" class="text-xs underline">View</a>
+            <a href="{{ route('corex.auctions.bidders.documents.download', [$reg->id, $d->id]) }}" target="_blank" rel="noopener" class="text-xs underline">View</a>
             <span class="text-xs font-semibold" style="color:{{ $d->status === 'accepted' ? '#10b981' : ($d->status === 'rejected' ? '#ef4444' : 'var(--text-muted)') }};">{{ ucfirst($d->status) }}</span>
             @if($canReview && ! $reg->trashed())
             <form method="POST" action="{{ route('corex.auctions.bidders.documents.review', [$reg->id, $d->id]) }}" class="flex items-center gap-1">@csrf

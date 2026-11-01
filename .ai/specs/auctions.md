@@ -329,3 +329,5 @@ Johan, verbatim: *"I need a page/section/tab inside the bidders page called Sign
 
 ### 19.6 Acceptance
 Signed up lists only this agency's buyers incl. never-registered ones, searches/sorts/filters, and is blocked without `view_all`. Registering / enquiring emails the configured addresses (or admins), nothing when off; settings round-trip incl. the wizard. Sidebar numbers appear, respect scope, and the Bids number clears on opening Bids. An online bid alerts the listing agent (else admins); floor/auto bids do not; an enquiry alerts the assigned agent (else admins).
+
+**Bidder documents open in the browser (2026-11-01, Johan).** On a registration, "View" opens the uploaded PDF or picture in a new tab instead of downloading it (inline, nosniff, only the allowed upload types - anything else still downloads).

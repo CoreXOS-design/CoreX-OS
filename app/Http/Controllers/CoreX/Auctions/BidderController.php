@@ -212,7 +212,7 @@ class BidderController extends Controller
         $reg = $this->find($request, $registration, true);
         $doc = $reg->documents()->whereKey($document)->firstOrFail();
 
-        return $this->service->download($doc->document);
+        return $this->service->view($doc->document);
     }
 
     public function withdraw(Request $request, int $registration)

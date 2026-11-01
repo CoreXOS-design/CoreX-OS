@@ -140,7 +140,10 @@ final class BiddersAndBidsScreensTest extends BiddingTestCase
         Storage::disk('local')->put($doc->document->path, 'PDF-BYTES');
 
         $this->get(route('corex.auctions.bidders.show', $reg->id))->assertOk()->assertSee('ID or passport copy');
-        $this->get(route('corex.auctions.bidders.documents.download', [$reg->id, $doc->id]))->assertOk();
+        $res = $this->get(route('corex.auctions.bidders.documents.download', [$reg->id, $doc->id]))->assertOk();
+        $this->assertStringStartsWith('inline', (string) $res->headers->get('Content-Disposition'), 'View opens the document in the browser; it does not download it');
+        $this->assertSame('nosniff', $res->headers->get('X-Content-Type-Options'));
+        $this->assertContains($res->headers->get('Content-Type'), ['application/pdf', 'image/jpeg', 'image/png']);
 
         $rival = Agency::create(['name' => 'Rival', 'slug' => 'rv-'.uniqid()]);
         $client = ClientUser::create(['email' => 'foreign@example.com']);
