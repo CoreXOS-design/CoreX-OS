@@ -55,8 +55,8 @@ final class AuctionStartEmailTest extends AuctionsV2TestCase
         $this->flushSession();
 
         $html = $this->get('/auctions/' . $this->agency->slug)->assertOk()->getContent();
-        $this->assertMatchesRegularExpression('/data-auction-phase="live">Live now<.*?Running Now/s', $html);
-        $this->assertMatchesRegularExpression('/data-auction-phase="upcoming">Upcoming<.*?Coming Soon/s', $html);
+        $this->assertMatchesRegularExpression('/data-auction-phase="live"><i><\/i>Live now<.*?Running Now/s', $html);
+        $this->assertMatchesRegularExpression('/data-auction-phase="upcoming"><i><\/i>Upcoming<.*?Coming Soon/s', $html);
     }
 
     // ── the email ──────────────────────────────────────────────────────────

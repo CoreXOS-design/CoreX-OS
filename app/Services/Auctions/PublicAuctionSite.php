@@ -71,7 +71,21 @@ class PublicAuctionSite
             ->orderByRaw("FIELD(status, 'open', 'published', 'draft', 'closed', 'completed')")
             ->orderBy('starts_at')
             ->get()
-            ->each(fn (Auction $a) => $this->withEdits($a));
+            ->each(fn (Auction $a) => $this->withEdits($a))
+            ->each(fn (Auction $a) => $a->setAttribute('card_image', $this->cardImage($a)));
+    }
+
+    /** The picture an auction is shown with on the home page: its cover picture, else the first lot's first photo, else none (the page then uses the agency colour). */
+    public function cardImage(Auction $a): ?string
+    {
+        if ($a->cover_image_path) {
+            return asset('storage/' . ltrim((string) $a->cover_image_path, '/'));
+        }
+        $lot = AuctionLot::queryWithoutAgencyScope()->where('agency_id', $a->agency_id)->where('auction_id', $a->id)
+            ->whereIn('status', $this->visibleLotStatuses())->with(['property' => fn ($q) => $q->withoutGlobalScopes()])->orderBy('lot_number')->get()
+            ->first(fn ($l) => $l->property && count($this->photos($l->property, 1)) > 0);
+
+        return $lot ? ($this->photos($lot->property, 1)[0] ?? null) : null;
     }
 
     public function auction(Agency $agency, int $id): Auction

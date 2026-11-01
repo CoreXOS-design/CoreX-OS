@@ -11,7 +11,7 @@
     <style>
         :root { color-scheme: light; --brand: {{ $accent }}; --button: {{ $branding['colors']['button'] }}; --on-button: {{ \App\Support\ColorContrast::textOn($branding['colors']['button']) }}; --on-brand: {{ \App\Support\ColorContrast::textOn($accent) }}; --ink:#151b26; --muted:#5b6576; --line:#e1e6ee; --bg:#f4f6fa; --card:#fff; }
         * { box-sizing: border-box; }
-        body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 Manrope,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+        body { margin:0; min-height:100vh; display:flex; flex-direction:column; background:var(--bg); color:var(--ink); font:16px/1.5 Manrope,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
         a { color: var(--button); }
         header.top { background:#fff; color:var(--ink); border-bottom:1px solid var(--line); }
         .bar { max-width:1080px; margin:0 auto; padding:14px 16px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
@@ -20,7 +20,7 @@
         .bar nav { margin-left:auto; display:flex; gap:16px; align-items:center; flex-wrap:wrap; font-size:.92rem; font-weight:600; }
         .bar nav a, .bar nav button { color:var(--muted); text-decoration:none; background:none; border:0; cursor:pointer; font:inherit; padding:0; }
         .bar nav a.signup { color:var(--brand); border:1.5px solid var(--brand); border-radius:10px; padding:6px 14px; }
-        main { max-width:1080px; margin:0 auto; padding:20px 16px 48px; }
+        main { flex:1 0 auto; width:100%; box-sizing:border-box; max-width:1080px; margin:0 auto; padding:20px 16px 48px; }
         h1 { font-size:1.6rem; margin:.2rem 0 .4rem; } h2 { font-size:1.15rem; margin:1.6rem 0 .6rem; }
         .muted { color:var(--muted); } .small { font-size:.85rem; }
         .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:16px; }
@@ -49,7 +49,10 @@
         .hero::before { content:''; position:absolute; inset:0; background:linear-gradient(90deg, rgba(0,0,0,.55), rgba(0,0,0,.15)); }
         .hero > * { position:relative; } .hero h1 { color:#fff; font-size:2rem; margin-top:0; } .hero p { color:#f3f4f6; max-width:640px; margin-bottom:0; }
         @stack('styles')
-        footer { text-align:center; color:var(--muted); font-size:.8rem; padding:24px 16px 40px; }
+        .pill { display:inline-flex; align-items:center; gap:9px; text-transform:uppercase; background:#fff; color:#344054; font-size:.75rem; font-weight:800; letter-spacing:.12em; padding:7px 14px; border-radius:99px; }
+        .pill i { width:10px; height:10px; border-radius:50%; background:#98a2b3; display:inline-block; }
+        .pill.live { color:#b42318; } .pill.live i { background:#e5372b; box-shadow:0 0 0 5px rgba(229,55,43,.2); }
+        footer { flex:0 0 auto; margin-top:auto; text-align:center; color:var(--muted); font-size:.8rem; padding:24px 16px 40px; }
     </style>
 </head>
 <body>

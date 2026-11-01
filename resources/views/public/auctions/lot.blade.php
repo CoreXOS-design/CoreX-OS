@@ -11,9 +11,6 @@
         .lot-hero h1 { color:#fff; margin:0; font-size:3.4rem; line-height:1.04; letter-spacing:-.03em; font-weight:800; max-width:720px; }
         .lot-hero .addr { margin-top:10px; font-size:1.1rem; font-weight:500; opacity:.92; }
         .lot-hero .meta { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:14px; font-size:.8rem; font-weight:700; letter-spacing:.14em; text-transform:uppercase; }
-        .pill { display:inline-flex; align-items:center; gap:9px; background:#fff; color:#344054; font-size:.75rem; font-weight:800; letter-spacing:.12em; padding:7px 14px; border-radius:99px; }
-        .pill i { width:10px; height:10px; border-radius:50%; background:#98a2b3; display:inline-block; }
-        .pill.live { color:#b42318; } .pill.live i { background:#e5372b; box-shadow:0 0 0 5px rgba(229,55,43,.2); }
         main.lot-main { max-width:1080px; padding-top:0; }
         .lot-cols { display:flex; flex-wrap:wrap; gap:44px; align-items:flex-start; }
         .lot-left { flex:999 1 520px; min-width:0; padding-top:44px; }
