@@ -109,11 +109,13 @@ final class MicAdvertFilters
                 $w->orWhereRaw("prospecting_listings.$col REGEXP ?", ['\\b' . preg_quote($word, '/') . '\\b']);
             }
         };
+        // The P24 alerts flagged mandated are a short list for the agency (hundreds): read them once and match by IN lists, never a correlated lookup per advert.
+        $alerts = DB::table('p24_listings')->where('agency_id', $agencyId)->whereNull('deleted_at')->where('is_mandated', 1)->get(['canonical_ref', 'tracked_property_id']);
+        $refs = $alerts->pluck('canonical_ref')->filter()->unique()->values()->all();
+        $files = $alerts->pluck('tracked_property_id')->filter()->unique()->values()->all();
         $q->where($has('description_snippet'))->orWhere($has('description'))
-            ->orWhereExists(function ($w) use ($agencyId) {
-                $w->select(DB::raw(1))->from('p24_listings as pa')->where('pa.agency_id', $agencyId)->whereNull('pa.deleted_at')->where('pa.is_mandated', 1)
-                    ->where(fn ($m) => $m->whereColumn('pa.canonical_ref', 'prospecting_listings.canonical_ref')
-                        ->orWhere(fn ($t) => $t->whereNotNull('prospecting_listings.tracked_property_id')->whereColumn('pa.tracked_property_id', 'prospecting_listings.tracked_property_id')));
+            ->orWhere(function ($m) use ($refs, $files) {
+                $m->whereIn('prospecting_listings.canonical_ref', $refs ?: ['-'])->orWhereIn('prospecting_listings.tracked_property_id', $files ?: [0]);
             });
     }
 
