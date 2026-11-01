@@ -210,6 +210,8 @@ class BidEngine
             'current_bid' => $high ? (float) $high->amount : null,
             'opening_bid' => $lot->opening_bid !== null ? (float) $lot->opening_bid : null,
             'min_next' => $phase === 'ended' ? null : $this->minimumNext($lot),
+            // the bid step in force right now - the lot page builds its "+ step" buttons from it
+            'increment' => $phase === 'ended' ? null : max((float) $auction->incrementFor($high ? (float) $high->amount : (float) ($lot->opening_bid ?? 0)), 1),
             'reserve' => $reserve,
             'you' => $you,
             'currency' => $auction->currency,

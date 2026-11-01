@@ -86,8 +86,9 @@
                             <div id="you-note" class="small" style="font-weight:700;display:none;"></div>
                             <form id="bid-form" class="stack" style="margin-top:8px;">
                                 <label for="bid-amount">Your bid (R)</label>
-                                <input id="bid-amount" type="text" inputmode="numeric" autocomplete="off">
-                                <p class="small muted" style="margin:4px 0 0;" id="min-note"></p>
+                                <input id="bid-amount" type="text" inputmode="numeric" autocomplete="off" aria-describedby="min-note">
+                                <div id="quick-bids" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;" aria-label="Add to your bid"></div>
+                                <p class="small muted" style="margin:6px 0 0;" id="min-note"></p>
                                 <p style="margin-top:10px;"><button type="submit" class="btn" id="bid-btn">Place bid</button></p>
                             </form>
                             <details style="margin-top:6px;">
@@ -141,7 +142,8 @@
         else t.innerHTML = '<strong>Bidding is open</strong><br>Closes in ' + fmtLeft(left());
         var y = $('you-note');
         if (y) { y.style.display = state.you && state.you !== 'none' ? '' : 'none'; y.textContent = state.you === 'winning' ? 'You are the highest bidder.' : (state.you === 'outbid' ? 'You have been outbid.' : ''); y.style.color = state.you === 'winning' ? '#166534' : '#b91c1c'; }
-        var mn = $('min-note'); if (mn) mn.textContent = state.min_next != null ? 'Minimum bid ' + money(state.min_next) : '';
+        var mn = $('min-note'); if (mn) { mn.textContent = state.min_next != null ? 'Your bid must be at least ' + money(state.min_next) + '.' : ''; }
+        renderBidBox();
         var an = $('auto-note'); if (an) an.textContent = state.your_auto_bid ? 'Your auto-bid maximum is ' + money(state.your_auto_bid) + '.' : '';
         var ac = $('auto-cancel'); if (ac) ac.style.display = state.your_auto_bid ? '' : 'none';
         if (state.phase === 'ended' && $('bidbox')) $('bidbox').style.display = 'none';
@@ -158,9 +160,42 @@
     }
     function num(v) { return parseFloat(String(v).replace(/[^0-9.]/g, '')); }
 
+    // ── the bid box: starts at the lowest allowed bid, "+ step" buttons add to it, anything below the minimum is refused ──
+    var amountEl = $('bid-amount'), touched = false;
+    var group = function (n) { return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' '); };
+    function setAmount(n) { if (amountEl) amountEl.value = group(n); }
+    function checkAmount() {
+        var btn = $('bid-btn'), mn = $('min-note'); if (!amountEl || !btn || state.min_next == null) return;
+        var v = num(amountEl.value), low = !v || v < state.min_next - 0.005;
+        btn.disabled = low;
+        if (mn) { mn.style.color = low && amountEl.value !== '' ? '#b91c1c' : ''; mn.textContent = low && amountEl.value !== '' ? 'That is too low. Your bid must be at least ' + money(state.min_next) + '.' : 'Your bid must be at least ' + money(state.min_next) + '.'; }
+    }
+    function renderBidBox() {
+        if (!amountEl || state.min_next == null) return;
+        // until the bidder types or taps something, the box follows the lowest allowed bid as other people bid
+        if (!touched || !num(amountEl.value)) { setAmount(state.min_next); touched = false; }
+        var q = $('quick-bids'), inc = state.increment;
+        if (q && inc && q.getAttribute('data-inc') !== String(inc)) {
+            q.setAttribute('data-inc', String(inc)); q.innerHTML = '';
+            [1, 2, 5, 10].forEach(function (m) { var b = document.createElement('button'); b.type = 'button'; b.className = 'btn ghost'; b.style.cssText = 'padding:6px 10px;font-size:.85rem;';
+                b.setAttribute('data-add', String(inc * m)); b.textContent = '+ ' + group(inc * m); q.appendChild(b); });
+            var r = document.createElement('button'); r.type = 'button'; r.className = 'btn ghost'; r.style.cssText = 'padding:6px 10px;font-size:.85rem;'; r.setAttribute('data-reset', '1'); r.textContent = 'Minimum'; q.appendChild(r);
+        }
+        checkAmount();
+    }
+    if (amountEl) {
+        amountEl.addEventListener('input', function () { touched = true; var d = amountEl.value.replace(/[^0-9]/g, ''); amountEl.value = d === '' ? '' : group(parseInt(d, 10)); checkAmount(); });
+        var qb = $('quick-bids');
+        if (qb) qb.addEventListener('click', function (e) { var b = e.target.closest ? e.target.closest('button') : null; if (!b) return; touched = true;
+            if (b.hasAttribute('data-reset')) setAmount(state.min_next);
+            else setAmount(Math.max(num(amountEl.value) || 0, state.min_next) + parseFloat(b.getAttribute('data-add')));
+            checkAmount(); });
+    }
+
     var bf = $('bid-form');
     if (bf) bf.addEventListener('submit', function (e) { e.preventDefault(); var v = num($('bid-amount').value); if (!v) return msg('Enter an amount.', true);
-        $('bid-btn').disabled = true; call('POST', urls.bid, { amount: v }).then(function (res) { $('bid-btn').disabled = false; apply(res, 'Your bid was placed.'); if (res.ok) $('bid-amount').value = ''; }); });
+        if (state.min_next != null && v < state.min_next - 0.005) { checkAmount(); return msg('Your bid must be at least ' + money(state.min_next) + '.', true); }
+        $('bid-btn').disabled = true; call('POST', urls.bid, { amount: v }).then(function (res) { $('bid-btn').disabled = false; apply(res, 'Your bid was placed.'); if (res.ok) { touched = false; renderBidBox(); } }); });
     var af = $('auto-form');
     if (af) af.addEventListener('submit', function (e) { e.preventDefault(); var v = num($('auto-max').value); if (!v) return msg('Enter your maximum.', true);
         call('POST', urls.auto, { max: v }).then(function (res) { apply(res, 'Auto-bid set.'); if (res.ok) $('auto-max').value = ''; }); });

@@ -341,3 +341,10 @@ Johan, verbatim: *"issue on the live preview it says upcoming even though its li
 - **Only fresh starts.** An auction whose start time is more than 2 hours old when the job first sees it is marked done without sending (so switching this on, or a job that was down for a day, never mass-mails about an old auction).
 - **Setting.** Settings -> Auctions -> "Email everyone who signed up when an auction starts" (`start_emails_enabled`, default ON), also in the Setup Wizard. Off = nothing is sent (and the auction is still marked done, so turning it on later does not mail about an auction already running).
 - **Runs from** `auctions:run` (every minute). On QA1/QA2/Staging no Laravel scheduler runs (box rule), so QA2 gets a one-line system cron entry running ONLY `auctions:run` (`/etc/cron.d/corex-qa2-auctions`) — without it QA2 lots never open or close.
+
+### 19.8 The bid box: current bid, minimum, quick "+" buttons (added 2026-11-01, Johan)
+Johan, verbatim: *"please add to the bidden it should show the current bid and a user cannot type lower than the current bid, and also add action buttons like +10,000 or something like that"*
+- The lot page's bid panel keeps showing the **current bid** (or the opening bid before the first bid) and now says **"Your bid must be at least R X."**
+- The bid box **starts filled in with the lowest allowed bid** (current bid + the step in force, or the opening bid) and keeps following it as other people bid, until the bidder types or taps something.
+- **Typing a lower amount is refused on the page:** the message turns red ("That is too low…") and **Place bid is switched off** until the amount is at least the minimum. The server still refuses a lower bid regardless (the page is a convenience, not the rule).
+- **Quick buttons** add to the amount in the box: **+1, +2, +5 and +10 times the bid step in force** (e.g. + 10 000 / + 20 000 / + 50 000 / + 100 000 on a R10 000 step), plus **Minimum** to go back. The step comes from the AUCTION'S OWN increment ladder (`state.increment`), so another agency with other steps gets its own buttons; nothing is hard-coded. The amount is shown with thousands spaces as it is typed.

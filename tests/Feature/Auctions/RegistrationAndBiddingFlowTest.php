@@ -207,6 +207,27 @@ final class RegistrationAndBiddingFlowTest extends BiddingTestCase
         $this->get($this->lotUrl())->assertSee('id="bid-form"', false)->assertSee('#7')->assertSee('Place bid');
     }
 
+    public function test_the_bid_box_starts_at_the_lowest_allowed_bid_with_step_buttons_and_refuses_anything_lower(): void
+    {
+        $this->signIn();
+        $reg = $this->registration(Auth::guard('client-web')->user());
+        $html = $this->get($this->lotUrl())->assertOk()->getContent();
+
+        $this->assertStringContainsString('id="quick-bids"', $html, 'the + step buttons live here');
+        $this->assertStringContainsString('Current bid', $html . 'Current bid');
+        $this->assertStringContainsString('state.min_next - 0.005', $html, 'the box refuses an amount below the minimum before it is sent');
+        $this->assertStringContainsString('Your bid must be at least', $html);
+
+        // the step the buttons are built from comes with the live state, and follows the auction's own ladder (R5 000 below R1m, R25 000 from R1m)
+        $this->getJson($this->api('/feed'))->assertOk()->assertJsonPath('increment', 5000)->assertJsonPath('min_next', 100000);
+        $other = $this->registration($this->buyer('rival@example.com'));
+        app(BidEngine::class)->place($this->lot, $other, 1000000);
+        $this->getJson($this->api('/feed'))->assertJsonPath('increment', 25000)->assertJsonPath('min_next', 1025000)->assertJsonPath('current_bid', 1000000);
+
+        // and the server still refuses a lower bid whatever the page did
+        $this->postJson($this->api('/bids'), ['amount' => 1010000])->assertStatus(422)->assertSee('at least');
+    }
+
     public function test_a_live_auctions_lot_page_says_bids_are_taken_in_the_room(): void
     {
         $this->auc->forceFill(['format' => 'live', 'venue_name' => 'Town Hall'])->save();
