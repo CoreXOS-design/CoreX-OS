@@ -634,3 +634,54 @@ Data volume folder `/mnt/HC_Volume_103099143/mic-promo-dryrun-2026-10-31/`: `log
 2. **Migrations (additive, in file order, all `Schema::hasColumn/hasTable`-guarded):** `2027_01_04_100000` same_address_sweep switch; `_120000` mic_crawls; `_130000` matching-rule settings + `property_complexes` + `tracked_properties.complex_id` + `prospecting_listings.map_point_check`; `_140000` / `_150000` unit-split settings; `_160000` `auto_tidy`; `_170000` `mic_tile_summaries`.
 3. **One-time steps on live, after the migrations (everything else is automatic from then on, see property-identity.md 17.10):** (a) the doubled-street back-fill `property-identity:fix-doubled-street-type --apply` (the command refuses outside QA/local/testing today - widen the guard or run the equivalent SQL under Johan's order); (b) cc3's P24-group back-fill, THEN one `property-identity:nightly` run, which performs the first same-address sweep, P24-group joins, link audit and backlog collapse for every agency; (c) `mic:refresh-stats` once, so tiles 10 and 11 have stored numbers (until then they show "Being calculated").
 4. **Rollback:** every row the rules move or close is journalled under `storage/app/reports/` (`same-address-auto-*.jsonl`, `backlog-collapse-*.jsonl`, `matching-rules-*-apply-*.json`); take the usual tag + table dump (`tracked_properties`, `prospecting_listings`, `tracked_property_external_refs`, `property_match_decisions`, `property_complexes`) before step 3(b).
+
+## 13. Adverts view, top filter bar, right-hand intelligence (approved by Johan 1 Nov 2026)
+
+### 13.1 Why
+Agents open P24 to look at adverts: big photo, description, price, ribbons. MIC must show the same advert the same way, with CoreX's intelligence beside it. Nothing MIC shows today is removed.
+
+### 13.2 Layout (top to bottom)
+1. Tiles (section 1) unchanged.
+2. Top filter bar, directly under the tiles, replaces the left panel (buyers / regions move into it):
+   - Row 1, always visible: Search (address, complex, erf, agent, agency, ref — same fields as today) · Suburb (multi-select, the agency's working suburbs first, then all) · Type · Min price · Max price · Beds · "More filters ▾" · Clear.
+   - Row 2, "More filters", collapsed by default: P24 / PP ticks · With address only · Show our stock too · Show under offer / sold (new, default off) · Owner advertised · Sole mandate (new) · Claimed: any / unclaimed / mine / others · Buyer match % slider + tier legend (as today) · Prospect for buyer: My buyers / My branch / Whole company + buyer search (as today) · Region (as today).
+   - Every active filter shows as a chip with × under the bar. Filters live in the URL query string (links shareable) and the last used set is remembered per user.
+   - Right end of row 1: SORT (Opportunity score default · Price · Newest · Days on market · Biggest price cut · Most buyers) and the view toggle.
+3. View toggle: segmented control "Adverts | List". Remembered per user; default = Adverts; agency default in MIC Settings. List = the existing Work list unchanged plus the ribbons in 13.4.
+4. The list area: 25 rows per page (agency setting), standard pagination, real empty state ("No adverts match these filters" + Clear).
+
+### 13.3 Adverts view — one row per property file (same rows, same order as the List view)
+Each row is two blocks side by side, full width of the content area, about 260px tall.
+
+LEFT block (the advert, ~62%): built like a P24 result card.
+- Photo, 4:3, ~300px wide, from the primary live advert's thumbnail_source_url (file on disk when held). Ribbons on the photo, top-left, in this order when true: Reduced · Under offer · Sold · Owner selling · Sole mandate. Bottom-left on the photo: "Listed by N agencies" when the P24 group has 2+ members. Bottom-right: P24 / PP source mark; the envelope when a P24 alert matched. Click on the photo = opens the advert on the portal in a new tab (gallery when we hold more photo URLs).
+- Beside the photo: price large (old price struck through when reduced) · heading (type + beds, e.g. "3 Bedroom House") · suburb · street address when the file knows one (file address shown even if the advert has none, per 31 Oct ruling) · description: first 3 lines, "more" expands in place to the full text when held, snippet only when that is all we hold · icon row: beds / baths / garages / parking · erf m² · floor m² · agency · agent name · portal ref · listed date (else "first seen") · ~days on market (section 0 rule) · "not seen since N d" in grey when older than the agency's stale window.
+
+RIGHT block (our intelligence, ~38%): the same facts the record card holds today, reorganised, reusing the record-card partial. Never a second lookalike.
+- Top line: Score NN + reason chips.
+- Buttons, one row, same size: Pitch now · Claim (Unclaim when mine) · Comment · Link contact · Property intel.
+- Then, one line each, in this order, blank lines omitted: Buyers (N strong · N mid, top 3 names linked) · Price history (last move) · Other adverts on this property (portal · agency · price · status, one line each, max 3 then "+N") · P24 alerts (count, last date) · Deeds owner (when captured; "Not captured yet" otherwise) · Nearby sales (last 2, with R/m²) · This suburb (avg sold, asking vs avg) · Our history (claimed by, last comment, outcome).
+- "Full card ▾" at the bottom opens the complete record card in place (as today's Card).
+- The same right block is what the List view's Card button opens; one partial, two places.
+
+### 13.4 Ribbons and flags (both views; the List row gets them as small badges after the price)
+- Reduced: is_reduced from the portal OR a price cut in the price history inside the agency's "reduced window" (Setting, default 90 days). Show old → new price.
+- Under offer / Sold: portal_status under_offer / sold. These adverts are hidden from the default list today; "Show under offer / sold" (13.2) brings them in and the ribbon marks them.
+- Owner selling: advertiser_type owner.
+- Sole mandate: P24 shows no badge; agents type it into the description. Flag when the description (snippet or full) contains one of the agency's mandate words (Setting, default: "sole mandate", "sole and exclusive", "exclusive mandate", "sole agent") OR the P24 alert is_mandated flag. Chip reads "Sole mandate (from the advert wording)".
+- Listed by N agencies: P24 group member count.
+
+### 13.5 Data contract (cc4 → cc6; cc3 feeds cc4)
+MicWorkList row gains: description_snippet, description (nullable), photo_urls (json, nullable), photo_count, listed_date, agent_name, erf_size_m2, floor_size_m2, parking, is_reduced, old_price, portal_status, is_owner, is_sole_mandate (+ sole_mandate_source: wording | alert), group_member_count, days_on_market (+ dom_is_minimum), last_seen_days, portal_url. Filters server-side: suburbs[], type, price_min, price_max, beds, show_status (active | all), owner_only, sole_mandate_only, claimed (any|unclaimed|mine|others) alongside today's. Sort keys as 13.2. Scoping unchanged (agency; claims per user).
+
+### 13.6 Capture (cc3)
+- Search-results read: store the card's description snippet (≤ 200 chars) and heading with every card, P24 and PP.
+- Listing-page read: store the full description, all photo URLs (count), features (pets, furnished, pool, garden, security, and the rest of the feature rows), listed date, agent name, rates, levies.
+- Photo file: find why thumbnail_path is filled for 12% of live P24 adverts (and 31% PP) when 98% have a source URL; fix the download job; back-fill the live adverts.
+- CoreX-side wherever the raw page is available; extension change only where the page never reaches CoreX, and then in the unpublished 3.15 line, reported to the conductor.
+
+### 13.7 Settings (MIC Settings page)
+Default view (Adverts | List), rows per page, reduced window (days), stale window (days), mandate words list.
+
+### 13.8 First-time-user test
+An agent who has only ever used P24 opens MIC, sees tiles, a P24-style search bar and P24-style adverts with CoreX facts beside each, and knows what to click. One flow, one voice, plain words.
