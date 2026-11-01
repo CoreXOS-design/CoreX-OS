@@ -120,6 +120,8 @@ class SiteController extends Controller
             'footerText' => AgencyAuctionSettings::footerTextFor((int) $agency->id),
             'showPast' => AgencyAuctionSettings::showPastAuctionsFor((int) $agency->id),
             'buyer' => $buyer,
+            'sellerForm' => AgencyAuctionSettings::sellerFormEnabledFor((int) $agency->id),
+            'sellerResponse' => AgencyAuctionSettings::sellerResponseTextFor((int) $agency->id),
         ];
     }
 

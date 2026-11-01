@@ -43,6 +43,13 @@
                     <select name="notify_enquiry_to" class="{{ $field }}" style="{{ $fieldStyle }}">
                         @foreach(\App\Models\AgencyAuctionSettings::NOTIFY_ENQUIRY_TO as $k => $l)<option value="{{ $k }}" @selected(old('notify_enquiry_to', $values['notify_enquiry_to']) === $k)>{{ $l }}</option>@endforeach
                     </select></div>
+                <div class="md:col-span-2" data-seller-form-settings>
+                    <input type="hidden" name="seller_form_enabled" value="0">
+                    <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="seller_form_enabled" value="1" @checked(old('seller_form_enabled', $values['seller_form_enabled']))> Show the "Sell at auction" form on my auction page</label>
+                    <p class="{{ $hint }}" style="color:var(--text-muted);">Lets owners tell you about a property they want to sell at auction. Their answers arrive under Auctions → Seller leads. Switch it off and the form, its button and its link disappear.</p>
+                    <label class="{{ $label }} mt-3" style="color:var(--text-secondary);">How quickly do you reply to sellers?</label>
+                    <input name="seller_response_text" value="{{ old('seller_response_text', $values['seller_response_text']) }}" maxlength="120" class="{{ $field }}" style="{{ $fieldStyle }}">
+                    <p class="{{ $hint }}" style="color:var(--text-muted);">Shown in the thank-you: "An auctioneer will contact you <em>within one business day</em>." Only promise what you will keep.</p></div>
                 <div class="md:col-span-2" data-start-emails>
                     <input type="hidden" name="start_emails_enabled" value="0">
                     <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="start_emails_enabled" value="1" @checked(old('start_emails_enabled', $values['start_emails_enabled']))> Email everyone who signed up when an auction starts</label>

@@ -397,6 +397,7 @@ The initial catalogue. Each row: event name, when it fires, payload, who emits i
 | Event | Fact | Subject | Emitted by | Listeners |
 |---|---|---|---|---|
 | `Auction\AuctionEnquiryReceived` | A buyer or guest sent an enquiry from the public auction site (phase 2) | `AuctionEnquiry` | `AuctionEnquiryService::capture()`, after the enquiry, its Contact and the buyer-pipeline seed are stored | `NotifyOfAuctionEnquiry` (emails the listing agent / branch manager per Settings → Auctions, falling back to the agency's enquiries address) |
+| `Auction\AuctionSellerSubmitted` | A seller completed the "Sell at auction" questionnaire on the public auction site (§22) | `AuctionSellerSubmission` | `AuctionSellerSubmissionService::capture()`, after the submission, its Contact and its Tracked Property are stored | `NotifyOfSellerSubmission` (emails the team per Settings -> Auctions), `NotifyStaffOfAuctionActivity::handleSeller` (alerts the administrators) |
 
 | `Auction\BidderRegistered` | A buyer submitted a bidder registration for an auction (phase 3) | `AuctionRegistration` | `AuctionRegistrationService::submit()` | audit |
 | `Auction\BidderApproved` | Staff approved a bidder; a bidder number was issued | `AuctionRegistration` | `AuctionRegistrationService::approve()` | `NotifyBidder` (email, as the agency) |

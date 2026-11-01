@@ -29,6 +29,7 @@ final class NewScreensHaveTheirMenuPlaceTest extends TestCase
             'corex.auctions.bidders.' => ['group' => 'auctions', 'item' => 'Bidders'],
             'corex.auctions.bids.' => ['group' => 'auctions', 'item' => 'Bids'],
             'corex.auctions.enquiries.' => ['group' => 'auctions', 'item' => 'Enquiries'],
+            'corex.auctions.sellers.' => ['group' => 'auctions', 'item' => 'Seller leads'],
             'corex.auctions.documents.' => ['group' => 'auctions', 'item' => 'Auctions'],
             'corex.auctions.create' => ['group' => 'auctions', 'item' => 'Auctions'],
             'corex.auctions.edit' => ['group' => 'auctions', 'item' => 'Auctions'],

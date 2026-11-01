@@ -5516,6 +5516,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/create',        [\App\Http\Controllers\Admin\AgencyController::class, 'create'])->name('create');
         Route::post('/',             [\App\Http\Controllers\Admin\AgencyController::class, 'store'])->name('store');
         Route::post('/{agency}/toggle-active', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleActive'])->name('toggle-active');
+        // Agency suspension — .ai/specs/agency-suspension.md
+        Route::post('/{agency}/toggle-suspend', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleSuspend'])->name('toggle-suspend');
         // Per-agency maintenance mode (AT-93). Owner-only; owners bypass the
         // gate so they can always lift it. Spec: .ai/specs/maintenance-mode.md
         Route::post('/{agency}/toggle-maintenance', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleMaintenance'])->name('toggle-maintenance');
@@ -6245,6 +6247,16 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::put('/{enquiry}', [$E, 'update'])->whereNumber('enquiry')->middleware('permission:auctions.enquiries.manage')->name('update');
             Route::delete('/{enquiry}', [$E, 'archive'])->whereNumber('enquiry')->middleware('permission:auctions.enquiries.manage')->name('archive');
             Route::post('/{enquiry}/restore', [$E, 'restore'])->whereNumber('enquiry')->middleware('permission:auctions.enquiries.manage')->name('restore');
+        });
+
+        // Seller leads ("Sell at auction" questionnaires, §22) - before the wildcards.
+        Route::prefix('seller-leads')->name('sellers.')->middleware('permission:auctions.sellers.view')->group(function () {
+            $Z = \App\Http\Controllers\CoreX\Auctions\SellerLeadController::class;
+            Route::get('/', [$Z, 'index'])->name('index');
+            Route::get('/{lead}', [$Z, 'show'])->whereNumber('lead')->name('show');
+            Route::put('/{lead}', [$Z, 'update'])->whereNumber('lead')->middleware('permission:auctions.sellers.manage')->name('update');
+            Route::delete('/{lead}', [$Z, 'archive'])->whereNumber('lead')->middleware('permission:auctions.sellers.manage')->name('archive');
+            Route::post('/{lead}/restore', [$Z, 'restore'])->whereNumber('lead')->middleware('permission:auctions.sellers.manage')->name('restore');
         });
 
         // Lots — registered before the /{auction} wildcards so '/lots' is never read as an auction id.
@@ -7653,6 +7665,10 @@ Route::prefix('api/v1/auctions/public/lots/{lot}')->whereNumber('lot')->name('ap
     Route::delete('/auto-bid', [$K, 'cancelAutoBid'])->middleware('throttle:auction-bids')->name('auto-bid.cancel');
     Route::post('/watch', [$K, 'watch'])->middleware('throttle:30,1')->name('watch');
 });
+
+// "Sell at auction" questionnaire (§22): public, JSON, in the Admin -> API catalogue. Its own throttle counter, so browsing never uses it up.
+Route::post('api/v1/auctions/public/sell/{agencySlug}', [\App\Http\Controllers\Public\Auctions\SellerSubmissionController::class, 'store'])
+    ->where('agencySlug', '[A-Za-z0-9\-_]+')->middleware('throttle:6,1,auction-sell')->name('api.v1.auctions.public.sell');
 
 // ===== SALES DOCUMENT RETURN (public, no auth, token-based) =====
 // 2026-08-24 (Johan) — throttle:30,1 lookup/download, throttle:5,1 on

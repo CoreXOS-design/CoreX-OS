@@ -5,6 +5,7 @@ namespace App\Services\Auctions;
 use App\Models\AuctionBid;
 use App\Models\AuctionEnquiry;
 use App\Models\AuctionRegistration;
+use App\Models\AuctionSellerSubmission;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -14,6 +15,7 @@ use Illuminate\Support\Facades\Log;
  * is allowed to see (the same `visibleTo` scopes as the screens). They never throw: a broken count must not break the page around it.
  *
  *  - Enquiries: enquiries still "New".
+ *  - Seller leads: "Sell at auction" submissions still New.
  *  - Bidders: registrations still awaiting approval (what the Bidders screen's "Awaiting approval" tab lists).
  *  - Bids: online bids and auto-bids placed since the person last opened the Bids screen (floor bids are typed in by staff, so not counted).
  */
@@ -31,6 +33,17 @@ class AuctionNavCounts
             }
 
             return AuctionEnquiry::visibleTo($user)->where('status', AuctionEnquiry::STATUS_NEW)->count();
+        });
+    }
+
+    public function sellerLeads(User $user): int
+    {
+        return $this->memo["sell{$user->id}"] ??= $this->safe(function () use ($user) {
+            if (! $user->hasPermission('auctions.sellers.view')) {
+                return 0;
+            }
+
+            return AuctionSellerSubmission::visibleTo($user)->where('status', AuctionSellerSubmission::STATUS_NEW)->count();
         });
     }
 
@@ -65,7 +78,7 @@ class AuctionNavCounts
 
     public function total(User $user): int
     {
-        return $this->enquiries($user) + $this->bids($user) + $this->registrations($user);
+        return $this->enquiries($user) + $this->bids($user) + $this->registrations($user) + $this->sellerLeads($user);
     }
 
     /** Called when the person opens the Bids screen. */

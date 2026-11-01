@@ -55,6 +55,19 @@ class AuthenticatedSessionController extends Controller
     {
         $request->authenticate();
 
+        // Agency suspension (.ai/specs/agency-suspension.md) — refuse the session before anything else
+        // (including the first-login activation claim) happens for a user of a suspended agency.
+        // System Owners have no agency_id and are never affected.
+        $suspendedAgencyId = auth()->user()?->agency_id;
+        if ($suspendedAgencyId && ! auth()->user()->isOwnerRole() && \App\Models\Agency::query()->whereKey($suspendedAgencyId)->whereNotNull('suspended_at')->exists()) {
+            Auth::guard('web')->logout();
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+
+            return back()->withInput($request->only('email'))
+                ->withErrors(['email' => \App\Models\Agency::suspendedMessage()]);
+        }
+
         // AT-268 — belt-and-braces over the unusable invite password: refuse a session for a genuine
         // unredeemed invite, i.e. an account that (a) has never accepted (email_verified_at IS NULL)
         // AND (b) still carries the publicly-known 'INVITE_PENDING' constant as its password. The real

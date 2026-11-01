@@ -367,3 +367,31 @@ Johan asked for the public lot page to look better ("at the moment it looks bad 
 **Top bar (2026-11-01, Johan: "it shows the logo and the agency name it should only show the logo").** When the agency has a logo the top bar shows ONLY the logo (the agency name stays as its alt text for screen readers); with no logo it shows the name as text.
 
 **Home page banner and counts (2026-11-01, Johan).** The banner NEVER uses an auction/property photo (it may be a poor photo, or there may be no running auction): it is the agency's own banner picture (Preview page) when it has one, else a designed background in the agency's colours (soft glow in its button colour + a faint skyline of rooftops, `.brand-bg`); with no picture the banner text takes the colour that reads best on the agency colour. The same background is used on an auction card or lot banner that has no photo. "N auctions open now" and "N lots to bid on" count ONLY auctions that are live now; upcoming ones are shown separately as "N coming up". The "An auction is live now" pill stays.
+
+---
+
+## 22. "Sell at auction" - the seller questionnaire on the public page (added 2026-11-01, Johan)
+Johan, 2026-11-01: *"on the live preview add a section where a user can sell on auction"*, with a full brief for a 7-step "Seller Questionnaire" (written for another auction house, Caprivi Auctions). **What was built from that brief:** the same form, fields, rules, steps, live "Catalogue preview" card and confirmation - **but in the AGENCY'S OWN colours, font and name** (non-negotiable #9: nothing says Caprivi or HFC; the agency name is whoever's site it is). The brief's navy/brass/sand/Fraunces are replaced by the agency's brand colour, button colour and the public site's Manrope; "sand" tints are tints of the agency colour.
+
+### 22.1 On the public page
+- A **"Sell at auction" section** at the bottom of the agency's auction home page (anchor `#questionnaire`), eyebrow "Sell at auction", heading "Seller questionnaire", the intro, and "Takes about 8 minutes · No obligation to sell". The home banner gets a second button **"Sell your property at auction"** that jumps to it, and the top bar gets a "Sell at auction" link.
+- **Seven steps** (About you, The property, Occupancy, Bond & finances, Auction options, Documents, Terms & consent) with the progress header, jump-anywhere tabs, per-step "complete" ticks, Back / Continue / Submit, live Catalogue preview card (sticky on desktop, stacked on mobile), pills with `aria-pressed`, inline errors, number fields stripped to digits, honeypot input `website`. Field names, options, defaults, required-if rules and consent wording exactly as in the brief.
+- **Submitting** posts JSON to `POST /api/v1/auctions/public/sell/{agency-slug}` (named, in the Admin -> API catalogue, throttled **6 per minute per address on its own counter** so browsing never uses it up). Server-side validation mirrors the form; errors come back per field and the form jumps to the first step with a problem. On success the form is replaced by "Questionnaire received - Thank you. An auctioneer will contact you **<agency's response time>**." with a "Submit another property" link. In the **Preview** page the form can be explored but submitting is switched off.
+- **Settings -> Auctions (and the Setup Wizard, NN #10a):** "Show the 'Sell at auction' section" (`seller_form_enabled`, default ON; off = no section, no button, no link, and the endpoint answers 404) and "How quickly do you reply to sellers?" (`seller_response_text`, default "within one business day" - the promise is the agency's to make, not ours).
+
+### 22.2 What happens to a submission (pillars + events, NN #9 / #10)
+1. Stored in `auction_seller_submissions` (key columns + the full answers as JSON, the IP, never the honeypot).
+2. **Contact** (pillar): the person is match-or-created in the agency's contacts (existing duplicate rules), as a Seller-type contact where the agency has that type.
+3. **Tracked property** (pillar, NN #10 universal match-or-create): `TrackedPropertyMatchOrCreateService::matchOrCreate()` with source `auction_seller_form` - the address, suburb, type, bedrooms, bathrooms, erf and floor size, price hoped for as the asking price - so the property is never orphaned and appends to the source chain.
+4. Domain event **`AuctionSellerSubmitted`** (catalogue entry added). Listeners: **email the team** (the "emails about new registrations and enquiries" switch and recipients of §19.2 apply; blank = one mailbox) and an **in-app alert** to the agency's administrators (`auction.seller_submission`).
+
+### 22.3 Staff screen - Auctions -> "Seller leads" (list standard, NN #8)
+- **List:** Name (with email/phone), Property (type, address, suburb), Price hoped for, Format, When, Status, Assigned to.
+- **Search:** name, email, phone, address, suburb, answers' free text (reason for selling / defects). **Sort:** When (default, newest first), Name, Suburb, Price, Status. **Filter:** status (New / Contacted / Closed), property type, auction format, date range, assigned (anyone / me / unassigned), Archived toggle. Pagination 25. Real empty state.
+- **Detail:** every answer grouped by the seven steps, links to the Contact and the Tracked property, **assign to an agent**, **mark contacted / closed**, **archive** (soft delete only) and **restore**.
+- **Scoping (query layer, direct URL by id blocked):** AGENCY tier (`auctions.sellers.view_all`) sees all; otherwise a person sees the leads assigned to them (OWN) or to anyone in their branch (BRANCH); unassigned leads are visible to the agency tier only. Other agencies' leads are unreachable.
+- **Permissions (NN #5):** `auctions.sellers.view`, `auctions.sellers.view_all`, `auctions.sellers.manage` (assign / status / archive / restore). Branch manager: view + manage; agent: none by default; administrators via the admin role.
+- **Sidebar (NN #2):** Auctions -> "Seller leads" with a number = leads still **New** the person may see (also in the Auctions group total).
+
+### 22.4 Not built here
+Emailing the seller a copy of their answers; uploading the documents themselves (the questionnaire only records which ones they have); turning a lead into a Property/Deal in one click. Say so and they are separate prompts.

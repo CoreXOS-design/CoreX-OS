@@ -1515,7 +1515,8 @@
             $auctionBidsCount = $auctionNav->bids($user);
             $auctionEnquiriesCount = $auctionNav->enquiries($user);
             $auctionBiddersCount = $auctionNav->registrations($user);
-            $auctionTotalCount = $auctionBidsCount + $auctionEnquiriesCount + $auctionBiddersCount;
+            $auctionSellersCount = $auctionNav->sellerLeads($user);
+            $auctionTotalCount = $auctionBidsCount + $auctionEnquiriesCount + $auctionBiddersCount + $auctionSellersCount;
         @endphp
         <div>
             <button type="button" @click="push('auctions')"
@@ -1562,6 +1563,12 @@
                 <div style="position:relative;">
                     <a href="{{ route('corex.auctions.enquiries.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.enquiries.*') ? 'active' : '' }}">Enquiries</a>
                     @if($auctionEnquiriesCount > 0)<span style="position:absolute;right:14px;top:50%;transform:translateY(-50%);pointer-events:none;display:inline-block;min-width:18px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;" data-auction-count="auctionenquiries">{{ $auctionEnquiriesCount > 99 ? '99+' : $auctionEnquiriesCount }}</span>@endif
+                </div>
+                @endpermission
+                @permission('auctions.sellers.view')
+                <div style="position:relative;">
+                    <a href="{{ route('corex.auctions.sellers.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.sellers.*') ? 'active' : '' }}">Seller leads</a>
+                    @if($auctionSellersCount > 0)<span style="position:absolute;right:14px;top:50%;transform:translateY(-50%);pointer-events:none;display:inline-block;min-width:18px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;" data-auction-count="auctionsellers">{{ $auctionSellersCount > 99 ? '99+' : $auctionSellersCount }}</span>@endif
                 </div>
                 @endpermission
 

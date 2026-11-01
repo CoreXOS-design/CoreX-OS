@@ -422,6 +422,7 @@ class Agency extends Model
         'deal_v2_stage_gate_mode', // AT-158 WS-V2 — 'auto' (default) | 'prompt'
         'maintenance_message',
         'maintenance_started_at',
+        'suspended_at', // Agency suspension — .ai/specs/agency-suspension.md
     ];
 
     /** Website agent ordering modes. */
@@ -463,6 +464,7 @@ class Agency extends Model
         'deal_v2_bm_approval_enabled' => 'boolean', // AT-158 WS-R3
         'adhoc_document_distribution_enabled' => 'boolean', // Feature 2 — ad-hoc distribution on/off
         'maintenance_started_at' => 'datetime',
+        'suspended_at' => 'datetime',
         'ss_show_complex_section' => 'boolean',
         'privacy_policy_published_at' => 'datetime',
         'require_external_access_authorization' => 'boolean',
@@ -1027,6 +1029,34 @@ class Agency extends Model
     public function staffTakeOnRecords(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
         return $this->hasMany(Leave\StaffTakeOnRecord::class);
+    }
+
+    // ── Agency suspension (.ai/specs/agency-suspension.md) ───────────────
+
+    public function isSuspended(): bool
+    {
+        return $this->suspended_at !== null;
+    }
+
+    /** Pause the agency: its users cannot sign in. Reversible; nothing is deleted. */
+    public function suspend(): void
+    {
+        if (! $this->isSuspended()) {
+            $this->forceFill(['suspended_at' => now()])->save();
+        }
+    }
+
+    public function unsuspend(): void
+    {
+        $this->forceFill(['suspended_at' => null])->save();
+    }
+
+    /** The message a suspended agency's users see. */
+    public static function suspendedMessage(): string
+    {
+        return 'Your agency has been suspended. Please contact '
+            . config('integrations.support_email')
+            . ' to find out more.';
     }
 
     // ── Per-agency maintenance mode (AT-93) ──────────────────────────────

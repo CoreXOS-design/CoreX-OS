@@ -1053,6 +1053,9 @@ return [
         ['key' => 'auctions.reserve.edit',    'label' => 'Set Reserve Prices',         'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 9],
         ['key' => 'auctions.manage_settings', 'label' => 'Manage Auction Settings',    'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 10],
         // Phase 2 — Enquiries (S3). `view_all` lifts the own/branch scope for this one screen.
+        ['key' => 'auctions.sellers.view',       'label' => 'View Seller Leads ("Sell at auction")',     'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 27],
+        ['key' => 'auctions.sellers.view_all',   'label' => "View All Branches' Seller Leads",           'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 28],
+        ['key' => 'auctions.sellers.manage',     'label' => 'Assign / Update / Archive Seller Leads',    'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 29],
         ['key' => 'auctions.enquiries.view',     'label' => 'View Enquiries',                  'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 11],
         ['key' => 'auctions.enquiries.manage',   'label' => 'Assign / Update Enquiries',       'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 12],
         // Phase 3 — Bidders (S5) and Bids (S4). `bidders.view` is who may see registrations; the others are the actions.
@@ -1156,6 +1159,7 @@ return [
                 'access_auctions', 'auctions.view', 'auctions.create', 'auctions.edit', 'auctions.archive', 'auctions.publish',
                 'auctions.lots.manage', 'auctions.reserve.view', 'auctions.reserve.edit',
                 'auctions.enquiries.view', 'auctions.enquiries.manage',
+                'auctions.sellers.view', 'auctions.sellers.manage',
                 'auctions.bidders.view', 'auctions.bidders.approve', 'auctions.bidders.review_documents', 'auctions.bids.view',
                 'auctions.room.operate', 'auctions.hammer', 'auctions.results.view', 'auctions.results.export',
                 'auctions.page.edit',

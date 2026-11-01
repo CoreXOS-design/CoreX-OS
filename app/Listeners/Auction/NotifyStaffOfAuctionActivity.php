@@ -3,6 +3,7 @@
 namespace App\Listeners\Auction;
 
 use App\Events\Auction\AuctionEnquiryReceived;
+use App\Events\Auction\AuctionSellerSubmitted;
 use App\Events\Auction\BidPlaced;
 use App\Models\AuctionLot;
 use App\Services\Auctions\AuctionActivityRecipients;
@@ -42,6 +43,26 @@ class NotifyStaffOfAuctionActivity
             }
         } catch (\Throwable $e) {
             Log::warning('Auction bid alert failed: ' . $e->getMessage(), ['bid' => $bid->id]);
+        }
+    }
+
+    /** A seller filled in "Sell at auction": nobody owns it yet, so the agency's administrators are alerted. */
+    public function handleSeller(AuctionSellerSubmitted $event): void
+    {
+        $s = $event->submission;
+
+        try {
+            foreach (app(AuctionActivityRecipients::class)->alertUsers((int) $s->agency_id, null) as $user) {
+                app(NotificationDispatcher::class)->fire($user, 'auction.seller_submission', $s, [
+                    'threshold_hit_at' => $s->created_at ?? now(),
+                    'title' => 'New seller lead: ' . $s->name,
+                    'body' => $s->name . ' wants to sell a property in ' . $s->suburb . ' at auction.',
+                    'subject_label' => $s->address . ', ' . $s->suburb,
+                    'action_url' => route('corex.auctions.sellers.show', $s->id, false),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Seller submission alert failed: ' . $e->getMessage(), ['submission' => $s->id]);
         }
     }
 

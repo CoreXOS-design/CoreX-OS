@@ -22,7 +22,7 @@ class AuctionContactResolver
     /**
      * @return array{0: Contact, 1: bool} the contact and whether it already existed
      */
-    public function resolve(int $agencyId, string $name, ?string $email, ?string $phone, ?int $agentId = null, ?int $clientUserId = null, ?int $branchId = null): array
+    public function resolve(int $agencyId, string $name, ?string $email, ?string $phone, ?int $agentId = null, ?int $clientUserId = null, ?int $branchId = null, string $typeName = 'Buyer', string $note = 'Auto-created from the public auction site.'): array
     {
         $existing = null;
         if ($email || $phone) {
@@ -33,14 +33,14 @@ class AuctionContactResolver
         }
 
         [$first, $last] = $this->splitName($name);
-        $typeId = ContactType::query()->where('name', 'Buyer')->value('id') ?? ContactType::query()->where('name', 'Lead')->value('id');
+        $typeId = ContactType::query()->where('name', $typeName)->value('id') ?? ContactType::query()->where('name', 'Lead')->value('id');
         $sourceId = $this->sourceId($agencyId);
         // Always an explicit branch OF THIS AGENCY: otherwise BelongsToBranch would copy the branch of whichever staff member
         // happens to be browsing the public site (possibly another agency's) onto the new contact.
         $branchId = $this->branchFor($agencyId, $branchId);
 
-        $contact = Contact::withoutAgencyStamping(function () use ($agencyId, $first, $last, $email, $phone, $typeId, $sourceId, $agentId, $clientUserId, $branchId) {
-            return DB::transaction(function () use ($agencyId, $first, $last, $email, $phone, $typeId, $sourceId, $agentId, $clientUserId, $branchId) {
+        $contact = Contact::withoutAgencyStamping(function () use ($agencyId, $first, $last, $email, $phone, $typeId, $sourceId, $agentId, $clientUserId, $branchId, $note) {
+            return DB::transaction(function () use ($agencyId, $first, $last, $email, $phone, $typeId, $sourceId, $agentId, $clientUserId, $branchId, $note) {
                 $c = new Contact([
                     'first_name' => $first,
                     'last_name' => $last,
@@ -52,7 +52,7 @@ class AuctionContactResolver
                     'client_user_id' => $clientUserId,
                     'agency_id' => $agencyId,
                     'branch_id' => $branchId,
-                    'notes' => 'Auto-created from the public auction site.',
+                    'notes' => $note,
                 ]);
                 $c->agency_id = $agencyId;
                 $c->save();

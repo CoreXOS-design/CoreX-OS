@@ -29,6 +29,8 @@ class AuctionSettingsController extends Controller
                 'reserve_visibility' => AgencyAuctionSettings::reserveVisibilityFor($agencyId),
                 'show_bid_count' => AgencyAuctionSettings::showBidCountFor($agencyId),
                 'show_bid_history' => AgencyAuctionSettings::showBidHistoryFor($agencyId),
+                'seller_form_enabled' => AgencyAuctionSettings::sellerFormEnabledFor($agencyId),
+                'seller_response_text' => AgencyAuctionSettings::sellerResponseTextFor($agencyId),
                 'show_bidder_numbers' => AgencyAuctionSettings::showBidderNumbersFor($agencyId),
                 'registration_closes_hours' => AgencyAuctionSettings::registrationClosesHoursFor($agencyId),
                 'docs_required_individual' => AgencyAuctionSettings::docsRequiredIndividualFor($agencyId),
@@ -62,6 +64,7 @@ class AuctionSettingsController extends Controller
         $write = $this->scalarWrites($data) + [
             'show_bid_count' => $request->boolean('show_bid_count'),
             'show_bid_history' => $request->boolean('show_bid_history'),
+            'seller_form_enabled' => $request->boolean('seller_form_enabled'),
             'show_bidder_numbers' => $request->boolean('show_bidder_numbers'),
             'outbid_emails' => $request->boolean('outbid_emails'),
             'notify_emails_enabled' => $request->boolean('notify_emails_enabled'),
@@ -86,7 +89,7 @@ class AuctionSettingsController extends Controller
         $data = $request->validate($this->rules(wizard: true));
 
         $write = $this->scalarWrites($data, guardWithHas: $request);
-        foreach (['show_bid_count', 'show_bid_history', 'show_bidder_numbers', 'outbid_emails', 'show_past_auctions', 'notify_emails_enabled', 'start_emails_enabled'] as $bool) {
+        foreach (['show_bid_count', 'show_bid_history', 'seller_form_enabled', 'show_bidder_numbers', 'outbid_emails', 'show_past_auctions', 'notify_emails_enabled', 'start_emails_enabled'] as $bool) {
             if ($request->has($bool)) {
                 $write[$bool] = $request->boolean($bool);
             }
@@ -121,6 +124,7 @@ class AuctionSettingsController extends Controller
             'how_it_works' => $p . 'nullable|string|max:5000',
             'footer_text' => $p . 'nullable|string|max:1000',
             'terms_text' => $p . 'nullable|string|max:20000',
+            'seller_response_text' => $p . 'nullable|string|max:120',
             'notify_emails_to' => [$wizard ? 'sometimes' : 'nullable', 'nullable', 'string', 'max:1000', function (string $attribute, mixed $value, \Closure $fail) {
                 foreach (preg_split('/[\s,;]+/', (string) $value, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $address) {
                     if (! filter_var($address, FILTER_VALIDATE_EMAIL)) {
@@ -140,7 +144,7 @@ class AuctionSettingsController extends Controller
     private function scalarWrites(array $data, ?Request $guardWithHas = null): array
     {
         $out = [];
-        foreach (['site_title', 'intro_text', 'contact_email', 'contact_phone', 'notify_emails_to', 'reference_prefix', 'soft_close_minutes', 'reserve_visibility', 'registration_closes_hours', 'confirmation_days', 'buyers_commission_percent', 'buyers_commission_minimum', 'deposit_percent', 'deposit_due_days', 'balance_due_days', 'payment_details', 'how_it_works', 'footer_text', 'terms_text', 'notify_enquiry_to'] as $key) {
+        foreach (['site_title', 'intro_text', 'contact_email', 'contact_phone', 'notify_emails_to', 'seller_response_text', 'reference_prefix', 'soft_close_minutes', 'reserve_visibility', 'registration_closes_hours', 'confirmation_days', 'buyers_commission_percent', 'buyers_commission_minimum', 'deposit_percent', 'deposit_due_days', 'balance_due_days', 'payment_details', 'how_it_works', 'footer_text', 'terms_text', 'notify_enquiry_to'] as $key) {
             if ($guardWithHas && ! $guardWithHas->has($key)) {
                 continue;
             }

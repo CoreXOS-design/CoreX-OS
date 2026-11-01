@@ -107,6 +107,7 @@ class NotificationEventTypeSeeder extends Seeder implements SyncableReferenceSee
 
             // Auctions v2 (.ai/specs/auctions.md §19.4) — in-app only (the agency's registration/enquiry EMAILS are an agency setting, not a per-user channel).
             $this->row('auction.bid_placed', 'property', 'Auctions', 'New bid on your auction lot', 'none', null, null, null, 60, false, null, inApp: true, email: false, push: false),
+            $this->row('auction.seller_submission', 'property', 'Auctions', 'New "Sell at auction" submission', 'none', null, null, null, 62, false, null, inApp: true, email: false, push: false),
             $this->row('auction.enquiry_received', 'property', 'Auctions', 'New auction enquiry', 'none', null, null, null, 61, false, null, inApp: true, email: false, push: false),
 
             // AT-235 S2b (Communications) — both database-only (no toMail/toFcmPayload).

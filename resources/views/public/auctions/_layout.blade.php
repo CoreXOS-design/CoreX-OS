@@ -71,6 +71,7 @@
             @if($branding['logoUrl'])<img src="{{ $branding['logoUrl'] }}" alt="{{ $siteTitle }}" data-brand-logo>@else<span>{{ $siteTitle }}</span>@endif
         </a>
         <nav>
+            @if($sellerForm ?? false)<a href="{{ route('public.auctions.home', $agency->slug) }}#questionnaire" data-sell-link>Sell at auction</a>@endif
             @if($buyer)
                 <a href="{{ route('public.auctions.account', $agency->slug) }}">My account</a>
                 <form method="POST" action="{{ route('public.auctions.logout', $agency->slug) }}" style="margin:0;">@csrf<button type="submit">Log out</button></form>
@@ -106,12 +107,13 @@
             if (h === '' || h.charAt(0) === '#') return;
             e.preventDefault();
             if (h.indexOf(base) === 0) {
-                var path = h.substring(base.length).split('?')[0].replace(/\/$/, '') || '/';
+                var path = h.substring(base.length).split('?')[0].split('#')[0].replace(/\/$/, '') || '/';
                 location.href = frame + '?path=' + encodeURIComponent(path);
             }
         });
-        document.querySelectorAll('form').forEach(function (f) { f.addEventListener('submit', function (e) { e.preventDefault(); }); });
-        document.querySelectorAll('form button, form input[type=submit]').forEach(function (b) { b.style.opacity = '.6'; b.style.cursor = 'not-allowed'; });
+        // forms are inert in the preview - except one that marks itself data-preview-live (the seller questionnaire: it can be explored, and its own script refuses to send)
+        document.querySelectorAll('form:not([data-preview-live])').forEach(function (f) { f.addEventListener('submit', function (e) { e.preventDefault(); }); });
+        document.querySelectorAll('form:not([data-preview-live]) button, form:not([data-preview-live]) input[type=submit]').forEach(function (b) { b.style.opacity = '.6'; b.style.cursor = 'not-allowed'; });
         tell(@json($previewPath ?? '/'));
     })();
 </script>

@@ -73,6 +73,7 @@
                     <a class="btn" href="{{ route('public.auctions.signup', $agency->slug) }}">Sign up to bid</a>
                     <a class="btn ghost" href="{{ route('public.auctions.login', $agency->slug) }}">Log in</a>
                 @endif
+                @if($sellerForm ?? false)<a class="btn ghost" href="#questionnaire" data-sell-button>Sell your property at auction</a>@endif
             </div>
             @if($openCount > 0 || $comingCount > 0)
                 <div class="stats" data-stats>
@@ -113,5 +114,9 @@
     @if($showPast && $past->isNotEmpty())
         <div class="sec-title"><h2>Past auctions</h2></div>
         <div class="agrid">@foreach($past as $a)@include('public.auctions._auction-card', ['a' => $a])@endforeach</div>
+    @endif
+
+    @if($sellerForm ?? false)
+        @include('public.auctions._seller-form')
     @endif
 @endsection

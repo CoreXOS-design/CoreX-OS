@@ -449,6 +449,8 @@ class AppServiceProvider extends ServiceProvider
         // Auctions v2 (.ai/specs/auctions.md §10) — tell the agency about a new public-site enquiry.
         Event::listen(\App\Events\Auction\AuctionEnquiryReceived::class, \App\Listeners\Auction\NotifyOfAuctionEnquiry::class);
         Event::listen(\App\Events\Auction\BidderRegistered::class, \App\Listeners\Auction\NotifyOfBidderRegistration::class);
+        Event::listen(\App\Events\Auction\AuctionSellerSubmitted::class, \App\Listeners\Auction\NotifyOfSellerSubmission::class);
+        Event::listen(\App\Events\Auction\AuctionSellerSubmitted::class, [\App\Listeners\Auction\NotifyStaffOfAuctionActivity::class, 'handleSeller']);
         // In-app alerts (.ai/specs/auctions.md §19.4): a new online bid -> the lot's listing agent; a new enquiry -> its assigned agent; else the admins.
         Event::listen(\App\Events\Auction\BidPlaced::class, [\App\Listeners\Auction\NotifyStaffOfAuctionActivity::class, 'handleBid']);
         Event::listen(\App\Events\Auction\AuctionEnquiryReceived::class, [\App\Listeners\Auction\NotifyStaffOfAuctionActivity::class, 'handleEnquiry']);
