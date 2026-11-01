@@ -199,10 +199,10 @@ final class PublicAuctionSiteTest extends AuctionsV2TestCase
 
     public function test_the_sign_up_code_email_says_auction_sign_up_code_and_comes_from_the_configured_address(): void
     {
-        config(['mail.auction_from_address' => 'info@corexos.co.za']);
+        config(['mail.auction_from_address' => 'mail@corexos.co.za']);
         $mail = new ClientAuthOtpMail('123456', 10, $this->agency, 'signup');
         $this->assertSame('Your Cape Auctions auction sign up code: 123456', $mail->envelope()->subject);
-        $this->assertSame('info@corexos.co.za', $mail->envelope()->from->address);
+        $this->assertSame('mail@corexos.co.za', $mail->envelope()->from->address);
         $this->assertSame('Cape Auctions', $mail->envelope()->from->name, 'the sender name is the agency, never CoreX');
         $html = $mail->render();
         $this->assertStringContainsString('Your sign up code', $html);
@@ -215,11 +215,25 @@ final class PublicAuctionSiteTest extends AuctionsV2TestCase
         // the rental/tenant portal code is untouched: same subject, same sender
         $portal = new ClientAuthOtpMail('111111', 10, $this->agency);
         $this->assertSame('Your Cape Auctions sign-in code: 111111', $portal->envelope()->subject);
-        $this->assertNotSame('info@corexos.co.za', $portal->envelope()->from->address);
+        $this->assertNotSame('mail@corexos.co.za', $portal->envelope()->from->address);
 
-        // with no address configured the auction email falls back to the shared sign-in address
-        config(['mail.auction_from_address' => '']);
-        $this->assertSame(env('MAIL_OTP_FROM_ADDRESS', 'Otp@corexos.co.za'), (new ClientAuthOtpMail('1', 10, $this->agency, 'signup'))->envelope()->from->address);
+        // with no auction address configured it falls back to the general sender, never the portal sign-in address
+        config(['mail.auction_from_address' => '', 'mail.from.address' => 'general@corexos.co.za']);
+        $this->assertSame('general@corexos.co.za', (new ClientAuthOtpMail('1', 10, $this->agency, 'signup'))->envelope()->from->address);
+
+        // and every other auction email comes from that same one address
+        config(['mail.auction_from_address' => 'mail@corexos.co.za']);
+        $reg = \App\Models\AuctionRegistration::withoutAgencyStamping(fn () => \App\Models\AuctionRegistration::create([
+            'agency_id' => $this->agency->id, 'auction_id' => $this->auction->id, 'client_user_id' => ClientUser::create(['email' => 'x@example.com'])->id, 'bidder_type' => 'individual', 'status' => 'pending',
+        ]));
+        $enquiry = AuctionEnquiry::withoutAgencyStamping(fn () => AuctionEnquiry::create(['agency_id' => $this->agency->id, 'name' => 'E', 'status' => 'new']));
+        foreach ([
+            new AuctionEnquiryMail($enquiry, 'https://x.test'),
+            new \App\Mail\Auctions\AuctionRegistrationMail($reg, 'https://x.test'),
+            new \App\Mail\Auctions\AuctionBidderMail('approved', 'Bidder', $this->auction, null, 'https://x.test', ['bidder_number' => 1]),
+        ] as $m) {
+            $this->assertSame('mail@corexos.co.za', $m->envelope()->from->address, get_class($m));
+        }
     }
 
     public function test_the_code_a_new_bidder_is_sent_is_the_auction_sign_up_email(): void

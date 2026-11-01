@@ -178,9 +178,8 @@ return [
     'mailpit_ui_url' => env('MAILPIT_UI_URL', ''),
 
     /*
-    | The address the public AUCTION site's sign-up / password-reset code email is sent from (display name is the agency's own).
-    | Unset = the shared portal sign-in address (MAIL_OTP_FROM_ADDRESS), exactly as before. A different address only delivers if the
-    | 'otp' SMTP account is allowed to send as it, so set MAIL_AUCTION_FROM_ADDRESS per environment once that is arranged.
+    | The address EVERY auction email is sent from - sign-up / reset codes, approval and result emails, invoices, and the new-registration /
+    | enquiry emails to the agency. The display name is the agency's own. Unset = the general sender (MAIL_FROM_ADDRESS).
     */
     'auction_from_address' => env('MAIL_AUCTION_FROM_ADDRESS', ''),
 

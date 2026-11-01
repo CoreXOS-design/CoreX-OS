@@ -219,6 +219,8 @@ class ClientAuthService
         return app(OtpService::class)->issue($purpose, $email, [
             'subject'         => $clientUser,
             'channel'         => 'email',
+            // an auction code is sent from the general CoreX sender, so it goes out through the mailer that logs in as that address
+            'mailer'          => $auctionPurpose ? 'corex' : null,
             'ip'              => $request->ip(),
             'user_agent'      => $request->userAgent(),
             'expires_minutes' => $expiresMin,

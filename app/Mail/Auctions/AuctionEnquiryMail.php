@@ -29,7 +29,7 @@ class AuctionEnquiryMail extends Mailable
             ? [new Address((string) $this->enquiry->email, $this->enquiry->name)] : [];
 
         return new Envelope(
-            from: new Address(config('mail.from.address'), $this->agencyName),
+            from: new Address(config('mail.auction_from_address') ?: config('mail.from.address'), $this->agencyName),
             replyTo: $replyTo,
             subject: 'New auction enquiry from ' . $this->enquiry->name,
         );

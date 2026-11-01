@@ -29,7 +29,7 @@ class AuctionRegistrationMail extends Mailable
         $replyTo = filter_var($email, FILTER_VALIDATE_EMAIL) ? [new Address($email, $this->registration->displayName())] : [];
 
         return new Envelope(
-            from: new Address(config('mail.from.address'), $this->agencyName),
+            from: new Address(config('mail.auction_from_address') ?: config('mail.from.address'), $this->agencyName),
             replyTo: $replyTo,
             subject: 'New bidder registration: ' . $this->registration->displayName(),
         );

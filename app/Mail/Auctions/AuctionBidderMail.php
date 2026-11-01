@@ -57,7 +57,7 @@ class AuctionBidderMail extends Mailable
             default => "The auction has ended — {$this->auction->title}",
         };
 
-        return new Envelope(from: new Address(config('mail.from.address'), $this->agencyName), replyTo: $replyTo, subject: $subject);
+        return new Envelope(from: new Address(config('mail.auction_from_address') ?: config('mail.from.address'), $this->agencyName), replyTo: $replyTo, subject: $subject);
     }
 
     /** The invoice email carries the PDF. */

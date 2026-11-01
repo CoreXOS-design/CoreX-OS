@@ -44,8 +44,8 @@ class ClientAuthOtpMail extends Mailable
             : [];
 
         $from = env('MAIL_OTP_FROM_ADDRESS', 'Otp@corexos.co.za');
-        if ($this->auctionPurpose && filter_var((string) config('mail.auction_from_address'), FILTER_VALIDATE_EMAIL)) {
-            $from = (string) config('mail.auction_from_address');
+        if ($this->auctionPurpose) {
+            $from = filter_var((string) config('mail.auction_from_address'), FILTER_VALIDATE_EMAIL) ? (string) config('mail.auction_from_address') : (string) config('mail.from.address', $from);
         }
 
         return new Envelope(
