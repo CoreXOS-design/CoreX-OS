@@ -156,6 +156,55 @@ final class MicAdvertsDataLayerTest extends TestCase
         $this->assertTrue($this->row($old)['is_reduced'], 'the window is an agency setting');
     }
 
+    public function test_reduced_is_confident_only_the_same_advert_at_two_prices_never_another_advert_on_the_property(): void
+    {
+        // a second advert (another agency, another price) on the same property is NOT a cut
+        $tp = $this->file();
+        $mine = $this->advert($tp, ['price' => 1_500_000, 'agency_name' => 'Rival A']);
+        $this->advert($tp, ['price' => 1_200_000, 'agency_name' => 'Rival B', 'last_seen_at' => now()->subDay()]);
+        $r = $this->row($tp);
+        $this->assertFalse($r['is_reduced'], 'a cheaper advert beside this one is not a price cut');
+        $this->assertNull($r['cut_amount']);
+        $this->assertNull($r['cut_date']);
+
+        // the same advert read at two prices is
+        $this->cut($mine, 12, 1_500_000, 1_450_000);
+        $this->cut($mine, 5, 1_450_000, 1_390_000);
+        DB::table('prospecting_listings')->where('id', $mine->id)->update(['price' => 1_390_000]);
+        $r = $this->row($tp);
+        $this->assertTrue($r['is_reduced']);
+        $this->assertSame(1_450_000, $r['old_price'], 'the price before the latest cut');
+        $this->assertSame(60_000, $r['cut_amount']);
+        $this->assertSame(now()->subDays(5)->toDateString(), $r['cut_date']);
+
+        // the portal's flag on ANOTHER advert of the property does not make this advert reduced
+        $solo = $this->file(); $lead = $this->advert($solo, ['price' => 900_000]);
+        $this->advert($solo, ['price' => 800_000, 'is_reduced' => true, 'last_seen_at' => now()->subDays(2)]);
+        $this->assertFalse($this->row($solo)['is_reduced']);
+        $this->assertTrue($lead->exists);
+    }
+
+    public function test_a_row_carries_both_listed_and_first_seen_dates_and_the_alert_line_fields(): void
+    {
+        $tp = $this->file();
+        $this->advert($tp, ['listed_date' => now()->subDays(60)->toDateString(), 'first_seen_at' => now()->subDays(40), 'canonical_ref' => 'p24:777']);
+        foreach (['p24:777' => ['2026-10-01', '2026-10-20', 1_500_000], 'p24:778' => ['2026-10-05', '2026-10-28', 1_450_000]] as $ref => [$first, $last, $price]) {
+            DB::table('p24_listings')->insert(['agency_id' => $this->a->id, 'p24_listing_number' => substr($ref, 4), 'asking_price' => $price, 'first_seen_date' => $first, 'last_seen_date' => $last,
+                'canonical_ref' => $ref, 'tracked_property_id' => $ref === 'p24:778' ? $tp->id : null, 'created_at' => now(), 'updated_at' => now()]);
+        }
+
+        $r = $this->row($tp);
+
+        $this->assertSame(now()->subDays(60)->toDateString(), $r['listed_date']);
+        $this->assertSame(now()->subDays(40)->toDateString(), $r['first_seen']);
+        $this->assertSame(2, $r['alert_count']);
+        $this->assertSame('2026-10-28', $r['alert_last_date']);
+        $this->assertSame(1_450_000, $r['alert_last_asking'], 'the asking price on the most recent alert');
+        $none = $this->file(); $this->advert($none);
+        $this->assertSame(0, $this->row($none)['alert_count']);
+        $this->assertNull($this->row($none)['alert_last_date']);
+    }
+
     public function test_group_member_count_and_stale_window(): void
     {
         $tp = $this->file(); $this->advert($tp, ['p24_group_id' => 777, 'last_seen_at' => now()->subDays(3)]);

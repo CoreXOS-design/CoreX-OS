@@ -235,7 +235,7 @@ final class MicWorkList
                     }
                     $alertsByKey[$fk][] = [
                         'portal' => $portal === 'p24' ? 'P24' : 'PP', 'number' => (string) $al->{$cfg['number']},
-                        'first' => $al->first_seen_date?->format('j M Y'), 'first_raw' => $al->first_seen_date?->format('Y-m-d'), 'last' => $al->last_seen_date?->format('j M Y'),
+                        'first' => $al->first_seen_date?->format('j M Y'), 'first_raw' => $al->first_seen_date?->format('Y-m-d'), 'last_raw' => $al->last_seen_date?->format('Y-m-d'), 'last' => $al->last_seen_date?->format('j M Y'),
                         'mandated' => (bool) ($al->is_mandated ?? false), 'price' => (int) $al->asking_price, 'original' => $al->original_price !== null ? (int) $al->original_price : null,
                         'changes' => $al->priceChanges->map(fn ($c) => ['date' => $c->change_date->format('j M Y'), 'old' => (int) $c->old_price, 'new' => (int) $c->new_price])->all(),
                     ];
@@ -354,11 +354,16 @@ final class MicWorkList
             if ($live->contains(fn ($a) => $a->portal_status === 'under_offer')) { $flags[] = 'Under offer'; }
             if ($statuses->contains('sold')) { $flags[] = 'Sold'; }
             if ($active->isEmpty()) { $flags[] = 'Gone'; }
-            // Reduced (13.4): the portal's own flag, OR a price cut inside the agency's reduced window; old price = the price before the latest such cut
+            // Reduced (13.4 + Johan's 1 Nov addendum, CONFIDENT only): the portal's Reduced flag on the advert we show, OR that same advert (same portal ref) read at two
+            // different prices inside the agency's reduced window. A different advert on the same property at another price is never a cut. old_price / cut_amount /
+            // cut_date describe the latest such cut (null for the portal flag alone).
             $recentCuts = array_values(array_filter($leadChanges, fn ($c) => $c['new'] < $c['old'] && $c['day'] >= $reducedSince));
-            $isReduced = $live->contains(fn ($a) => $a->is_reduced) || $recentCuts !== [];
-            $oldPrice = $recentCuts ? (int) end($recentCuts)['old'] : null;
+            $isReduced = (bool) $lead->is_reduced || $recentCuts !== [];
+            $lastCut = $recentCuts ? end($recentCuts) : null;
+            $oldPrice = $lastCut ? (int) $lastCut['old'] : null;
             if ($isReduced) { $flags[] = 'Reduced'; }
+            $p24Alerts = array_values(array_filter($alertsByKey[$key] ?? [], fn ($x) => ($x['portal'] ?? '') === 'P24'));
+            $lastAlert = collect($p24Alerts)->filter(fn ($x) => ! empty($x['last_raw']))->sortByDesc('last_raw')->first();
             if ($st && $st->relisted) { $flags[] = 'Re-listed'; }
 
             $srcRows = $list->map(fn ($a) => $sources[(int) $a->id] ?? null)->filter();
@@ -418,6 +423,12 @@ final class MicWorkList
                 'parking' => $live->max('parking'),
                 'is_reduced' => $isReduced,
                 'old_price' => $oldPrice,
+                'cut_amount' => $lastCut ? (int) $lastCut['old'] - (int) $lastCut['new'] : null,
+                'cut_date' => $lastCut['day'] ?? null,
+                'first_seen' => ($list->pluck('first_seen_at')->filter()->min())?->format('Y-m-d'),
+                'alert_count' => count($p24Alerts),
+                'alert_last_date' => $lastAlert['last_raw'] ?? null,
+                'alert_last_asking' => $lastAlert ? (int) $lastAlert['price'] : null,
                 'portal_status' => $lead->portal_status,
                 'is_owner' => $owner,
                 'is_sole_mandate' => $byWording || $byAlert,
