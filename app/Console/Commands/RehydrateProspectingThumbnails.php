@@ -140,7 +140,9 @@ class RehydrateProspectingThumbnails extends Command
                     if ($limit > 0 && $networkRows >= $limit) {
                         continue;
                     }
-                    $this->pause($throttleMs, $networkRows);
+                    if (! $dryRun) {
+                        $this->pause($throttleMs, $networkRows);
+                    }
                     $networkRows++;
 
                     // PATH 2 — derive the source URL from the portal page og:image.
