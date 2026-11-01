@@ -32,6 +32,8 @@ final class MicWorkList
     private const SORTS = [
         'last_seen' => 'MAX(last_seen_at)',
         'time' => 'MIN(COALESCE(listed_date, first_seen_at))', // oldest first when "most first"
+        'dom' => 'MIN(COALESCE(listed_date, first_seen_at))', // 13.2 "Days on market": the same order as `time` (longest on the market first)
+        'newest' => 'MAX(COALESCE(listed_date, first_seen_at))', // 13.2 "Newest"
         'price' => 'MAX(price)',
         'suburb' => 'MIN(suburb)',
         'address' => 'MIN(COALESCE((SELECT street_name FROM tracked_properties tp0 WHERE tp0.id = prospecting_listings.tracked_property_id), address, suburb))',
@@ -89,7 +91,7 @@ final class MicWorkList
     /** @return list<string> */
     public static function sortKeys(): array
     {
-        return array_merge(array_keys(self::SORTS), self::hasFileStats() ? ['buyers'] : [], self::hasScores() ? ['score'] : []);
+        return array_merge(array_keys(self::SORTS), self::hasFileStats() ? ['buyers', 'cut'] : [], self::hasScores() ? ['score'] : []);
     }
 
     /** Opportunity score once cc5's stored stats exist; until then newest activity first. */
@@ -122,6 +124,7 @@ final class MicWorkList
     public function page(Builder $filtered, int $agencyId, string $sort, string $dir, int $page, bool $includeOwnStock = false): LengthAwarePaginator
     {
         $dir = $dir === 'asc' ? 'asc' : 'desc';
+        $perPage = \App\Models\MicAgencySetting::rowsPerPageFor($agencyId);
         if (! $includeOwnStock) {
             // Our own stock is not prospecting: files our agency holds are out unless the manager asks for them (mic-work-tab 6.7).
             $filtered = (clone $filtered)->whereNotExists(function ($w) use ($agencyId) {
@@ -136,19 +139,19 @@ final class MicWorkList
 
         // one flat DISTINCT count over the same filtered set - cheaper than counting the grouped subquery. Total and the page's keys are cached for a
         // few minutes per exact query (the SQL + its bindings carry the agency and the viewer's own/branch scope), never in tests.
-        $remember = function (string $part, int $ttl, \Closure $fn) use ($filtered, $sort, $dir, $page) {
+        $remember = function (string $part, int $ttl, \Closure $fn) use ($filtered, $sort, $dir, $page, $perPage) {
             if (app()->runningUnitTests()) {
                 return $fn();
             }
             $q = (clone $filtered)->toBase();
 
-            return \Illuminate\Support\Facades\Cache::remember('mic-work:' . $part . ':' . md5($q->toSql() . json_encode($q->getBindings()) . "|$sort|$dir|$page"), $ttl, $fn);
+            return \Illuminate\Support\Facades\Cache::remember('mic-work:' . $part . ':' . md5($q->toSql() . json_encode($q->getBindings()) . "|$sort|$dir|$page|$perPage"), $ttl, $fn);
         };
         $total = (int) $remember('total', 300, fn () => (clone $filtered)->toBase()->reorder()->selectRaw('COUNT(DISTINCT COALESCE(prospecting_listings.tracked_property_id, -prospecting_listings.id)) AS c')->value('c'));
 
         $q = clone $base;
-        if (in_array($sort, ['score', 'buyers'], true) && self::hasFileStats()) {
-            $col = $sort === 'score' ? 'score' : 'buyers_strong';
+        if (in_array($sort, ['score', 'buyers', 'cut'], true) && self::hasFileStats()) {
+            $col = ['score' => 'score', 'buyers' => 'buyers_strong', 'cut' => 'cut_amount'][$sort];
             $q->selectRaw("MAX((SELECT s.$col FROM mic_file_stats s WHERE s.agency_id = prospecting_listings.agency_id AND s.tracked_property_id = prospecting_listings.tracked_property_id)) AS ord")
                 ->orderBy('ord', $dir);
         } else {
@@ -157,11 +160,11 @@ final class MicWorkList
             // "time" most-first = the longest on the market = the OLDEST date first.
             $q->orderBy('ord', $sort === 'time' ? ($dir === 'desc' ? 'asc' : 'desc') : $dir);
         }
-        $keys = $remember('keys', 120, fn () => $q->orderBy('fkey')->forPage($page, self::PER_PAGE)->pluck('fkey')->map(fn ($k) => (int) $k)->all());
+        $keys = $remember('keys', 120, fn () => $q->orderBy('fkey')->forPage($page, $perPage)->pluck('fkey')->map(fn ($k) => (int) $k)->all());
 
         $rows = $keys ? $this->forFiles($keys, $agencyId) : [];
 
-        return new Paginator($rows, $total, self::PER_PAGE, $page, ['path' => request()->url(), 'query' => request()->query()]);
+        return new Paginator($rows, $total, $perPage, $page, ['path' => request()->url(), 'query' => request()->query()]);
     }
 
     /**
@@ -181,7 +184,8 @@ final class MicWorkList
             ->orderByDesc('is_active')->orderByDesc('last_seen_at')
             ->get(['id', 'tracked_property_id', 'portal_source', 'portal_ref', 'portal_url', 'address', 'suburb', 'price', 'bedrooms', 'bathrooms', 'garages',
                 'property_size_m2', 'erf_size_m2', 'property_type', 'agent_name', 'agency_name', 'first_seen_at', 'last_seen_at', 'listed_date', 'is_active',
-                'portal_status', 'advertiser_type', 'is_reduced', 'canonical_ref', 'p24_suburb_id'])
+                'portal_status', 'advertiser_type', 'is_reduced', 'canonical_ref', 'p24_suburb_id', 'p24_group_id', 'thumbnail_source_url', 'thumbnail_path',
+                'card_heading', 'description_snippet', 'description', 'photo_urls', 'photo_count', 'features', 'parking'])
             ->groupBy(fn ($l) => $l->tracked_property_id ?: -$l->id);
         $advertIds = $adverts->flatten()->pluck('id')->all();
 
@@ -232,7 +236,7 @@ final class MicWorkList
                     $alertsByKey[$fk][] = [
                         'portal' => $portal === 'p24' ? 'P24' : 'PP', 'number' => (string) $al->{$cfg['number']},
                         'first' => $al->first_seen_date?->format('j M Y'), 'first_raw' => $al->first_seen_date?->format('Y-m-d'), 'last' => $al->last_seen_date?->format('j M Y'),
-                        'price' => (int) $al->asking_price, 'original' => $al->original_price !== null ? (int) $al->original_price : null,
+                        'mandated' => (bool) ($al->is_mandated ?? false), 'price' => (int) $al->asking_price, 'original' => $al->original_price !== null ? (int) $al->original_price : null,
                         'changes' => $al->priceChanges->map(fn ($c) => ['date' => $c->change_date->format('j M Y'), 'old' => (int) $c->old_price, 'new' => (int) $c->new_price])->all(),
                     ];
                 });
@@ -281,6 +285,15 @@ final class MicWorkList
                 \Illuminate\Support\Facades\Log::warning('MIC Work list: MarketContext failed', ['error' => $e->getMessage()]);
             }
         }
+
+        // AT-528: P24 group member counts for the page's adverts ("Listed by N agencies"), and the agency's Adverts-view settings (read once)
+        $groupIds = $adverts->flatten()->pluck('p24_group_id')->filter()->unique()->values()->all();
+        $groupCounts = ($groupIds && Schema::hasTable('p24_group_members')) ? DB::table('p24_group_members')->whereIn('p24_group_id', $groupIds)->groupBy('p24_group_id')
+            ->selectRaw('p24_group_id, COUNT(*) as c')->pluck('c', 'p24_group_id') : collect();
+        $mic = \App\Models\MicAgencySetting::for($agencyId);
+        $reducedSince = now()->subDays($mic->reducedWindowDays())->toDateString();
+        $staleDays = $mic->staleWindowDays();
+        $mandateWords = $mic->mandateWords();
 
         $out = [];
         foreach ($keys as $key) {
@@ -341,11 +354,24 @@ final class MicWorkList
             if ($live->contains(fn ($a) => $a->portal_status === 'under_offer')) { $flags[] = 'Under offer'; }
             if ($statuses->contains('sold')) { $flags[] = 'Sold'; }
             if ($active->isEmpty()) { $flags[] = 'Gone'; }
-            if ($cuts > 0 || $live->contains(fn ($a) => $a->is_reduced)) { $flags[] = 'Reduced'; }
+            // Reduced (13.4): the portal's own flag, OR a price cut inside the agency's reduced window; old price = the price before the latest such cut
+            $recentCuts = array_values(array_filter($leadChanges, fn ($c) => $c['new'] < $c['old'] && $c['day'] >= $reducedSince));
+            $isReduced = $live->contains(fn ($a) => $a->is_reduced) || $recentCuts !== [];
+            $oldPrice = $recentCuts ? (int) end($recentCuts)['old'] : null;
+            if ($isReduced) { $flags[] = 'Reduced'; }
             if ($st && $st->relisted) { $flags[] = 'Re-listed'; }
 
             $srcRows = $list->map(fn ($a) => $sources[(int) $a->id] ?? null)->filter();
             $w = $work->get($key);
+
+            // 13.4 sole mandate: the agency's mandate words in the advert's own wording (snippet or full text, whole phrase), else a P24 alert flagged mandated
+            $byWording = $live->contains(fn ($a) => MicAdvertFilters::mentionsMandate($a->description_snippet, $mandateWords) || MicAdvertFilters::mentionsMandate($a->description, $mandateWords));
+            $byAlert = collect($alertsByKey[$key] ?? [])->contains(fn ($x) => ! empty($x['mandated']));
+            $firstOf = fn (string $col) => $live->pluck($col)->first(fn ($v) => $v !== null && trim((string) $v) !== '');
+            $photos = $live->pluck('photo_urls')->map(fn ($v) => is_array($v) ? $v : (is_string($v) ? json_decode($v, true) : null))->first(fn ($v) => is_array($v) && $v !== []);
+            $lastSeen = $list->pluck('last_seen_at')->filter()->max();
+            $lastSeenDays = $lastSeen ? (int) $lastSeen->diffInDays(now()) : null;
+            $thumbAdvert = $live->first(fn ($a) => $a->thumbnail_path || $a->thumbnail_source_url) ?? $lead;
             $out[] = [
                 'key' => $key,
                 'tp_id' => $key > 0 ? $key : null,
@@ -378,6 +404,32 @@ final class MicWorkList
                 'agencies' => $agencies->all(),
                 'dom' => $dom,
                 'last_seen' => $list->pluck('last_seen_at')->filter()->max(),
+                // ---- 13.5 contract (AT-528) ----
+                'card_heading' => $firstOf('card_heading'),
+                'description_snippet' => $firstOf('description_snippet'),
+                'description' => $firstOf('description'),
+                'photo_urls' => $photos,
+                'photo_count' => $lead->photo_count ?? ($photos ? count($photos) : null),
+                'features' => $live->pluck('features')->map(fn ($v) => is_array($v) ? $v : (is_string($v) ? json_decode($v, true) : null))->first(fn ($v) => is_array($v) && $v !== []),
+                'listed_date' => $listed?->format('Y-m-d'),
+                'agent_name' => $firstOf('agent_name'),
+                'erf_size_m2' => $erf ?: null,
+                'floor_size_m2' => $floor ?: null,
+                'parking' => $live->max('parking'),
+                'is_reduced' => $isReduced,
+                'old_price' => $oldPrice,
+                'portal_status' => $lead->portal_status,
+                'is_owner' => $owner,
+                'is_sole_mandate' => $byWording || $byAlert,
+                'sole_mandate_source' => $byWording ? 'wording' : ($byAlert ? 'alert' : null),
+                'group_member_count' => (int) $live->map(fn ($a) => (int) ($groupCounts[$a->p24_group_id] ?? 0))->max(),
+                'days_on_market' => $dom['days'],
+                'dom_is_minimum' => str_ends_with((string) $dom['label'], '+'),
+                'last_seen_days' => $lastSeenDays,
+                'is_stale' => $lastSeenDays !== null && $lastSeenDays > $staleDays,
+                'portal_url' => $lead->portal_url,
+                'thumbnail_source_url' => $thumbAdvert->thumbnail_source_url,
+                'thumbnail_path' => $thumbAdvert->thumbnail_path,
                 'flags' => $flags,
                 'buyers' => (int) $list->sum(fn ($a) => (int) ($buyers[$a->id] ?? 0)),
                 'buyers_strong' => $st->buyers_strong ?? null,
@@ -424,7 +476,7 @@ final class MicWorkList
      * (first old price -> last new price) - and vanishes when the day ends where it began (990k -> 1.05m -> 990k is not a change).
      *
      * @param  \Illuminate\Support\Collection<int, object>  $rows  prospecting_price_history rows, oldest first
-     * @return list<array{date:string, old:int, new:int}>
+     * @return list<array{date:string, day:string, old:int, new:int}>
      */
     private function netChanges($rows): array
     {
@@ -443,7 +495,7 @@ final class MicWorkList
         $out = [];
         foreach ($days as $d) {
             if ($d['old'] !== $d['new']) {
-                $out[] = ['date' => \Carbon\Carbon::parse($d['day'])->format('j M Y'), 'old' => $d['old'], 'new' => $d['new']];
+                $out[] = ['date' => \Carbon\Carbon::parse($d['day'])->format('j M Y'), 'day' => $d['day'], 'old' => $d['old'], 'new' => $d['new']];
             }
         }
 

@@ -98,6 +98,13 @@ class MarketIntelligenceController extends Controller
         // listing per page — is eliminated.
         $query = ProspectingListing::where('agency_id', $agencyId);
 
+        // AT-528 (mic-work-tab.md 13.2): the Adverts view's filters. The URL is the source of truth; a bare request falls back to this user's last set.
+        $micPrefs = app(\App\Services\Prospecting\MicWork\MicUserPreferences::class);
+        $micFilters = $micPrefs->filters($request->query(), $user, (int) $agencyId);
+        $micPrefs->remember($request->query(), $user, (int) $agencyId);
+        $micViewChoice = $micPrefs->view($request->query(), $user, (int) $agencyId);
+        view()->share(['micFilters' => $micFilters, 'micViewChoice' => $micViewChoice]);
+
         // AT-380 — canvassing-pool visibility scope (own/branch/all), configured
         // per role in Role Manager (market_intelligence.view). Was previously
         // unrestricted for every role — every agent saw the entire agency pool.
@@ -270,6 +277,7 @@ class MarketIntelligenceController extends Controller
         // honour every OTHER active filter while still listing the sibling options
         // within the facet the user is currently narrowing by. List results are
         // unchanged — AND-composed WHEREs are order-independent.
+        app(\App\Services\Prospecting\MicWork\MicAdvertFilters::class)->apply($query, $micFilters, (int) $agencyId, $user);
         if ($request->filled('price_min')) {
             $query->where('price', '>=', (int) $request->price_min);
         }
@@ -306,6 +314,9 @@ class MarketIntelligenceController extends Controller
             if ($request->is_active !== 'all') {
                 $query->where('is_active', $request->is_active === '1');
             }
+        } elseif (($micFilters['show_status'] ?? 'active') === 'all') {
+            // 13.2 "Show under offer / sold": the live adverts PLUS the under offer / sold ones (withdrawn adverts stay out)
+            app(\App\Services\Prospecting\MicWork\MicAdvertFilters::class)->liftOnMarketDefault($query);
         } elseif (! $presetSuspendsCanvassFilter) {
             $query->where('is_active', true);
         }

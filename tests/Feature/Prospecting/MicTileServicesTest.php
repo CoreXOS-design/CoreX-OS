@@ -30,6 +30,12 @@ final class MicTileServicesTest extends TestCase
     private User $u;
     private int $n = 118000000;
 
+    protected function tearDown(): void
+    {
+        \Carbon\Carbon::setTestNow();
+        parent::tearDown();
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -85,6 +91,7 @@ final class MicTileServicesTest extends TestCase
 
     public function test_tile_10_lists_triggers_newest_first_inside_the_time_filter(): void
     {
+        \Carbon\Carbon::setTestNow('2026-10-20 12:00:00');   // "this month" must hold fixtures a few days old whatever day the suite runs on
         $this->file(['street_number' => '5', 'deeds_registered_date' => now()->subDays(2)->toDateString(), 'last_known_sold_price' => 2_100_000, 'capture_kind' => 'deeds_capture']);
         $this->advert($this->file(['street_number' => '7']), 'sold', 40);
         $this->advert($this->file(['street_number' => '9']), 'under_offer', 5);
@@ -253,6 +260,7 @@ final class MicTileServicesTest extends TestCase
     }
     public function test_tile_10_labels_dates_honestly_and_gives_the_face_numbers(): void
     {
+        \Carbon\Carbon::setTestNow('2026-10-20 12:00:00');   // "this month" must hold fixtures a few days old whatever day the suite runs on
         $trigger = $this->file(['street_number' => '20', 'deeds_registered_date' => now()->toDateString(), 'capture_kind' => 'deeds_capture']);
         $open = $this->file(['street_number' => '22']);
         $claimed = $this->file(['street_number' => '24']);

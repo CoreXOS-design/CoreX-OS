@@ -44,6 +44,12 @@ class MicAgencySetting extends Model
         'approx_read_min_share_pct'  => 50,
         'approx_read_min_adverts'    => 3,
         'working_suburb_min_count'   => 3,
+        // Adverts view (AT-528, spec 13.7)
+        'default_view'               => 'adverts',
+        'rows_per_page'              => 25,
+        'reduced_window_days'        => 90,
+        'stale_window_days'          => 7,
+        'mandate_words'              => ['sole mandate', 'sole and exclusive', 'exclusive mandate', 'sole agent'],
     ];
 
     /** The agency's settings; an unsaved defaults object when none stored. Never writes on read. */
@@ -168,6 +174,72 @@ class MicAgencySetting extends Model
      */
     public function workingSuburbMinCount(): int { return $this->positiveInt('working_suburb_min_count'); }
 
+    /** Adverts view (spec 13.7): which view a user sees first when they have no remembered choice: `adverts` (default) or `list`. */
+    public function defaultView(): string
+    {
+        $v = (string) $this->value('default_view');
+
+        return in_array($v, ['adverts', 'list'], true) ? $v : self::DEFAULTS['default_view'];
+    }
+
+    /** Rows per page on the Work screen (default 25; 10-100). */
+    public function rowsPerPage(): int
+    {
+        return max(10, min(100, $this->positiveInt('rows_per_page')));
+    }
+
+    /** A price cut inside this many days makes an advert "Reduced" (default 90; 1-730). */
+    public function reducedWindowDays(): int
+    {
+        return min(730, $this->positiveInt('reduced_window_days'));
+    }
+
+    /** An advert not seen for more than this many days shows "not seen since N d" (default 7; 1-365). */
+    public function staleWindowDays(): int
+    {
+        return min(365, $this->positiveInt('stale_window_days'));
+    }
+
+    /**
+     * Wording that marks an advert as a sole mandate when it appears in the description (lower case, trimmed, no duplicates, 3-60 characters each, at most 20).
+     * An empty or unusable list falls back to the defaults, so the flag never silently switches off.
+     *
+     * @return list<string>
+     */
+    public function mandateWords(): array
+    {
+        return self::cleanMandateWords($this->value('mandate_words')) ?: self::DEFAULTS['mandate_words'];
+    }
+
+    /**
+     * @param  mixed  $raw  a list, or the text of a textarea (one phrase per line or comma separated)
+     * @return list<string>
+     */
+    public static function cleanMandateWords(mixed $raw): array
+    {
+        $items = is_string($raw) ? preg_split('/[\r\n,]+/', $raw) : (is_array($raw) ? $raw : []);
+        $out = [];
+        foreach ($items as $w) {
+            $w = mb_strtolower(trim(preg_replace('/\s+/u', ' ', (string) $w)));
+            if (mb_strlen($w) >= 3 && mb_strlen($w) <= 60 && ! in_array($w, $out, true)) {
+                $out[] = $w;
+            }
+        }
+
+        return array_slice($out, 0, 20);
+    }
+
+    public static function defaultViewFor(int $agencyId): string { return static::for($agencyId)->defaultView(); }
+
+    public static function rowsPerPageFor(int $agencyId): int { return static::for($agencyId)->rowsPerPage(); }
+
+    public static function reducedWindowDaysFor(int $agencyId): int { return static::for($agencyId)->reducedWindowDays(); }
+
+    public static function staleWindowDaysFor(int $agencyId): int { return static::for($agencyId)->staleWindowDays(); }
+
+    /** @return list<string> */
+    public static function mandateWordsFor(int $agencyId): array { return static::for($agencyId)->mandateWords(); }
+
     public function goneTileDaysValue(): int { return $this->positiveInt('gone_tile_days'); }
 
     public function neighbourMonthsValue(): int { return min(6, $this->positiveInt('neighbour_months')); }
@@ -198,9 +270,42 @@ class MicAgencySetting extends Model
     public static function saveValues(int $agencyId, array $patch): self
     {
         $row = static::query()->firstOrNew(['agency_id' => $agencyId]);
+        $patch = self::validateAdvertSettings($patch);
         $row->values = array_merge($row->values ?? [], $patch);
         $row->save();
 
         return $row;
+    }
+
+    /**
+     * Normalise the Adverts-view keys on the way in (the Settings page may post strings): an unusable value is dropped, so the default applies.
+     *
+     * @param  array<string,mixed>  $patch
+     * @return array<string,mixed>
+     */
+    public static function validateAdvertSettings(array $patch): array
+    {
+        if (array_key_exists('default_view', $patch) && ! in_array($patch['default_view'], ['adverts', 'list'], true)) {
+            unset($patch['default_view']);
+        }
+        foreach (['rows_per_page' => [10, 100], 'reduced_window_days' => [1, 730], 'stale_window_days' => [1, 365]] as $key => [$lo, $hi]) {
+            if (array_key_exists($key, $patch)) {
+                if (is_numeric($patch[$key])) {
+                    $patch[$key] = max($lo, min($hi, (int) $patch[$key]));
+                } else {
+                    unset($patch[$key]);
+                }
+            }
+        }
+        if (array_key_exists('mandate_words', $patch)) {
+            $clean = self::cleanMandateWords($patch['mandate_words']);
+            if ($clean === []) {
+                unset($patch['mandate_words']);
+            } else {
+                $patch['mandate_words'] = $clean;
+            }
+        }
+
+        return $patch;
     }
 }
