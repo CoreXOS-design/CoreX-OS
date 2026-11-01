@@ -8,7 +8,12 @@
 <tr><td style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:32px;">
 <p style="margin:0 0 14px;font-size:1rem;color:#111827;">Hi {{ $toName }},</p>
 
-@if($kind === 'approved')
+@if($kind === 'started')
+<h1 style="margin:0 0 10px;font-size:1.25rem;color:#111827;">{{ $auction->title }} is now live</h1>
+<p style="margin:0 0 14px;color:#374151;">{{ $auction->format === 'timed' ? 'Online bidding is open' : 'The auction has started' }}@if(!empty($facts['closes'])) and runs until <strong>{{ $facts['closes'] }}</strong>@endif.@if(!empty($facts['lots'])) There {{ (int) $facts['lots'] === 1 ? 'is' : 'are' }} <strong>{{ $facts['lots'] }}</strong> {{ (int) $facts['lots'] === 1 ? 'lot' : 'lots' }} to look at.@endif</p>
+<p style="margin:0 0 14px;color:#374151;">To bid you need to be registered and approved for this auction. If you have not registered yet, you can do it from the auction page.</p>
+<p style="margin:0 0 14px;color:#6b7280;font-size:.8125rem;">You are receiving this because you signed up on {{ $agencyName }}'s auction page.</p>
+@elseif($kind === 'approved')
 <h1 style="margin:0 0 10px;font-size:1.25rem;color:#111827;">You are approved to bid</h1>
 <p style="margin:0 0 14px;color:#374151;">Your registration for <strong>{{ $auction->title }}</strong> was approved.@if(!empty($facts['bidder_number'])) Your bidder number is <strong>{{ $facts['bidder_number'] }}</strong>.@endif</p>
 @elseif($kind === 'declined')

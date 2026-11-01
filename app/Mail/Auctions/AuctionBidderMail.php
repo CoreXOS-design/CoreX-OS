@@ -20,7 +20,7 @@ class AuctionBidderMail extends Mailable
 {
     use Queueable, SerializesModels;
 
-    public const KINDS = ['approved', 'declined', 'outbid', 'won', 'subject_to_confirmation', 'not_accepted', 'ended', 'invoice'];
+    public const KINDS = ['approved', 'declined', 'outbid', 'won', 'subject_to_confirmation', 'not_accepted', 'ended', 'invoice', 'started'];
 
     public string $agencyName;
     public ?string $logoUrl;
@@ -47,6 +47,7 @@ class AuctionBidderMail extends Mailable
         $replyTo = $agency && filter_var((string) $agency->email, FILTER_VALIDATE_EMAIL) ? [new Address((string) $agency->email, $this->agencyName)] : [];
 
         $subject = match ($this->kind) {
+            'started' => "{$this->auction->title} is now live",
             'approved' => "You are approved to bid — {$this->auction->title}",
             'declined' => "About your registration — {$this->auction->title}",
             'outbid' => 'You have been outbid' . ($this->lot ? " on Lot {$this->lot->lot_number}" : ''),

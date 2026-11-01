@@ -43,6 +43,10 @@
                     <select name="notify_enquiry_to" class="{{ $field }}" style="{{ $fieldStyle }}">
                         @foreach(\App\Models\AgencyAuctionSettings::NOTIFY_ENQUIRY_TO as $k => $l)<option value="{{ $k }}" @selected(old('notify_enquiry_to', $values['notify_enquiry_to']) === $k)>{{ $l }}</option>@endforeach
                     </select></div>
+                <div class="md:col-span-2" data-start-emails>
+                    <input type="hidden" name="start_emails_enabled" value="0">
+                    <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="start_emails_enabled" value="1" @checked(old('start_emails_enabled', $values['start_emails_enabled']))> Email everyone who signed up when an auction starts</label>
+                    <p class="{{ $hint }}" style="color:var(--text-muted);">When an auction's start time arrives, everyone who has signed up on your auction page is emailed that it is now live, once.</p></div>
                 <div class="md:col-span-2" data-notify-emails>
                     <input type="hidden" name="notify_emails_enabled" value="0">
                     <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="notify_emails_enabled" value="1" @checked(old('notify_emails_enabled', $values['notify_emails_enabled']))> Email us when someone registers to bid or sends an enquiry</label>

@@ -46,6 +46,7 @@ class Auction extends Model
         'published_at' => 'datetime',
         'cancelled_at' => 'datetime',
         'completed_at' => 'datetime',
+        'start_notified_at' => 'datetime',
         'is_single_property' => 'boolean',
         'soft_close_minutes' => 'integer',
         'buyers_commission_percent' => 'float',
@@ -82,6 +83,27 @@ class Auction extends Model
     public function isEditable(): bool
     {
         return ! in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true);
+    }
+
+    /**
+     * What a visitor should be told about the auction RIGHT NOW: upcoming | live | finished | cancelled | draft. From the clock, not the stored
+     * status - a timed auction's status only becomes 'open' when the every-minute job runs, so it can lag behind the start time.
+     */
+    public function publicPhase(): string
+    {
+        return match (true) {
+            $this->status === self::STATUS_DRAFT => 'draft',
+            $this->status === self::STATUS_CANCELLED => 'cancelled',
+            in_array($this->status, [self::STATUS_CLOSED, self::STATUS_COMPLETED], true) => 'finished',
+            $this->starts_at && $this->starts_at->isFuture() => 'upcoming',
+            $this->format === 'timed' && $this->ends_at && $this->ends_at->isPast() => 'finished',
+            default => 'live',
+        };
+    }
+
+    public function publicPhaseLabel(): string
+    {
+        return ['draft' => 'Draft — not public yet', 'cancelled' => 'Cancelled', 'finished' => 'Finished', 'upcoming' => 'Upcoming', 'live' => 'Live now'][$this->publicPhase()];
     }
 
     public function statusLabel(): string

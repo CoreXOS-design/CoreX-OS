@@ -37,6 +37,7 @@ class AuctionSettingsController extends Controller
                 'outbid_emails' => AgencyAuctionSettings::outbidEmailsFor($agencyId),
                 'notify_emails_enabled' => AgencyAuctionSettings::notifyEmailsEnabledFor($agencyId),
                 'notify_emails_to' => AgencyAuctionSettings::notifyEmailsToFor($agencyId),
+                'start_emails_enabled' => AgencyAuctionSettings::startEmailsEnabledFor($agencyId),
                 'confirmation_days' => AgencyAuctionSettings::confirmationDaysFor($agencyId),
                 'buyers_commission_percent' => AgencyAuctionSettings::buyersCommissionPercentFor($agencyId),
                 'buyers_commission_minimum' => AgencyAuctionSettings::buyersCommissionMinimumFor($agencyId),
@@ -62,6 +63,7 @@ class AuctionSettingsController extends Controller
             'show_bidder_numbers' => $request->boolean('show_bidder_numbers'),
             'outbid_emails' => $request->boolean('outbid_emails'),
             'notify_emails_enabled' => $request->boolean('notify_emails_enabled'),
+            'start_emails_enabled' => $request->boolean('start_emails_enabled'),
             'show_past_auctions' => $request->has('show_past_auctions') ? $request->boolean('show_past_auctions') : AgencyAuctionSettings::showPastAuctionsFor($agencyId),
             'docs_required_individual' => array_values($data['docs_required_individual'] ?? []),
             'docs_required_company' => array_values($data['docs_required_company'] ?? []),
@@ -82,7 +84,7 @@ class AuctionSettingsController extends Controller
         $data = $request->validate($this->rules(wizard: true));
 
         $write = $this->scalarWrites($data, guardWithHas: $request);
-        foreach (['show_bid_count', 'show_bidder_numbers', 'outbid_emails', 'show_past_auctions', 'notify_emails_enabled'] as $bool) {
+        foreach (['show_bid_count', 'show_bidder_numbers', 'outbid_emails', 'show_past_auctions', 'notify_emails_enabled', 'start_emails_enabled'] as $bool) {
             if ($request->has($bool)) {
                 $write[$bool] = $request->boolean($bool);
             }

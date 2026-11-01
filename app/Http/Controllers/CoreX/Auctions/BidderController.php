@@ -113,8 +113,7 @@ class BidderController extends Controller
         $sort = in_array($request->query('sort'), self::SIGNED_UP_SORTABLE, true) ? $request->query('sort') : 'signed_up_at';
         $dir = $request->query('dir', 'desc') === 'asc' ? 'asc' : 'desc';
 
-        $first = DB::table('client_access_logs')->where('agency_id', $agencyId)->whereIn('event', ['auction_signup', 'auction_login'])
-            ->whereNull('deleted_at')->groupBy('client_user_id')->selectRaw('client_user_id, MIN(created_at) as signed_up_at');
+        $first = \App\Services\Auctions\SignedUpBuyers::firstSeen($agencyId);
         $contact = fn (string $expr) => Contact::withoutGlobalScopes()->whereNull('deleted_at')->where('agency_id', $agencyId)
             ->whereColumn('contacts.client_user_id', 'client_users.id')->orderBy('contacts.id')->limit(1)->selectRaw($expr);
 
