@@ -103,6 +103,7 @@ class ProspectingListing extends Model
         'price'            => 'integer',
         'is_active'        => 'boolean',
         'first_seen_at'    => 'datetime',
+        'sole_mandate_first_seen_at' => 'datetime',
         'last_seen_at'     => 'datetime',
         'price_changed_at'      => 'datetime',
         'first_seen_email_date' => 'datetime',

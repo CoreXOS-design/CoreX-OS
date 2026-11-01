@@ -59,6 +59,17 @@ final class SoleMandateMatcher
         return $dates === [] ? null : collect($dates)->sort()->first();
     }
 
+    /**
+     * The mandate start (Johan, 1 Nov 21:42): a sole mandate is signed when the property is listed, so it starts at the advert's portal listed date, else the date we first saw
+     * the advert. The wording-capture date (kept once set; else the page-details read; else now) only ever moves it EARLIER, never later.
+     */
+    public static function mandateStart(?string $existing, ?string $detailsReadAt, ?string $listedDate, ?string $firstSeenAt): string
+    {
+        $dates = array_filter([$existing ?? $detailsReadAt ?? now()->toDateTimeString(), $listedDate ?: $firstSeenAt], fn ($d) => ! empty($d));
+
+        return collect($dates)->map(fn ($d) => Carbon::parse($d))->sort()->first()->toDateTimeString();
+    }
+
     /** whole days from the date we first saw it as sole mandate to today */
     public static function daysSince(?Carbon $since, ?Carbon $now = null): ?int
     {
@@ -90,16 +101,16 @@ final class SoleMandateMatcher
         $out = ['checked' => 0, 'matched' => 0, 'was_matched' => 0, 'changed' => 0];
         DB::table('prospecting_listings')->where('agency_id', $agencyId)->whereNull('deleted_at')
             ->where(fn ($q) => $q->whereNotNull('description_snippet')->orWhereNotNull('description'))
-            ->orderBy('id')->select('id', 'description_snippet', 'description', 'sole_mandate_wording', 'agency_name', 'sole_mandate_first_seen_at', 'details_read_at')
+            ->orderBy('id')->select('id', 'description_snippet', 'description', 'sole_mandate_wording', 'agency_name', 'sole_mandate_first_seen_at', 'details_read_at', 'listed_date', 'first_seen_at')
             ->chunkById(1000, function ($rows) use ($agencyId, $apply, &$out) {
                 foreach ($rows as $r) {
                     $now = self::matches($r->description_snippet, $r->description, $agencyId, $r->agency_name);
                     $out['checked']++;
                     $out['matched'] += $now ? 1 : 0;
                     $out['was_matched'] += $r->sole_mandate_wording ? 1 : 0;
-                    // the date we first saw it as sole mandate: kept once set; else when the page details were read; else today (no dated capture of the text is held)
-                    $since = $now ? ($r->sole_mandate_first_seen_at ?? $r->details_read_at ?? now()->toDateTimeString()) : null;
-                    if ((int) $r->sole_mandate_wording !== (int) $now || $r->sole_mandate_wording === null || (($r->sole_mandate_first_seen_at === null) !== ($since === null))) {
+                    // the mandate start: the advert's listed date, else first seen; the wording-capture date only moves it earlier (mandateStart)
+                    $since = $now ? self::mandateStart($r->sole_mandate_first_seen_at, $r->details_read_at, $r->listed_date, $r->first_seen_at) : null;
+                    if ((int) $r->sole_mandate_wording !== (int) $now || $r->sole_mandate_wording === null || (string) $r->sole_mandate_first_seen_at !== (string) $since) {
                         $out['changed']++;
                         if ($apply) {
                             DB::table('prospecting_listings')->where('id', $r->id)->update(['sole_mandate_wording' => $now ? 1 : 0, 'sole_mandate_first_seen_at' => $since]);

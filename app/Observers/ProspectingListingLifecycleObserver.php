@@ -21,8 +21,10 @@ final class ProspectingListingLifecycleObserver
             return;
         }
         $l->sole_mandate_wording = \App\Services\Prospecting\MicWork\SoleMandateMatcher::matches($l->description_snippet, $l->description, (int) $l->agency_id, $l->agency_name);
-        // the capture date of the first snippet / description that matched; cleared when the wording goes, started again if it returns
-        $l->sole_mandate_first_seen_at = $l->sole_mandate_wording ? ($l->sole_mandate_first_seen_at ?? now()) : null;
+        // the mandate start (listed date, else first seen; the capture date only moves it earlier); cleared when the wording goes, started again if it returns
+        $l->sole_mandate_first_seen_at = $l->sole_mandate_wording
+            ? \App\Services\Prospecting\MicWork\SoleMandateMatcher::mandateStart($l->sole_mandate_first_seen_at?->toDateTimeString(), null, $l->listed_date?->toDateTimeString(), $l->first_seen_at?->toDateTimeString())
+            : null;
     }
 
     public function updating(ProspectingListing $l): void

@@ -192,6 +192,25 @@ final class MicAdvertsDataLayerTest extends TestCase
         $this->assertSame('2026-07-01 09:00:00', (string) DB::table('prospecting_listings')->where('id', $kept->id)->value('sole_mandate_first_seen_at'));
     }
 
+    public function test_the_mandate_starts_at_the_listed_date_else_first_seen_and_a_later_capture_never_moves_it_later(): void
+    {
+        $listed = $this->advert($this->file(), ['description_snippet' => 'Sole mandate', 'listed_date' => now()->subDays(100)->toDateString(), 'first_seen_at' => now()->subDays(40)]);
+        $this->assertSame(now()->subDays(100)->format('Y-m-d'), $listed->sole_mandate_first_seen_at->format('Y-m-d'), 'the portal listed date wins over first seen and over today');
+
+        $seen = $this->advert($this->file(), ['description_snippet' => 'Sole mandate', 'first_seen_at' => now()->subDays(40)]);
+        $this->assertSame(now()->subDays(40)->format('Y-m-d'), $seen->sole_mandate_first_seen_at->format('Y-m-d'), 'no listed date: first seen');
+
+        // an earlier wording capture moves it earlier, never later
+        $early = $this->advert($this->file(), ['first_seen_at' => now()->subDays(40)]);
+        DB::table('prospecting_listings')->where('id', $early->id)->update(['description' => 'Exclusive mandate', 'details_read_at' => now()->subDays(60)->toDateTimeString()]);
+        // back-fill re-dates the rows the first run dated "today"
+        $today = $this->advert($this->file(), ['description_snippet' => 'Sole agent', 'first_seen_at' => now()->subDays(95)]);
+        DB::table('prospecting_listings')->where('id', $today->id)->update(['sole_mandate_first_seen_at' => now()->toDateTimeString()]);
+        app(\App\Services\Prospecting\MicWork\SoleMandateMatcher::class)->rematchAgency($this->a->id, true);
+        $this->assertSame(now()->subDays(60)->format('Y-m-d'), substr((string) DB::table('prospecting_listings')->where('id', $early->id)->value('sole_mandate_first_seen_at'), 0, 10));
+        $this->assertSame(now()->subDays(95)->format('Y-m-d'), substr((string) DB::table('prospecting_listings')->where('id', $today->id)->value('sole_mandate_first_seen_at'), 0, 10), 'the "today" date from the first back-fill moves back to first seen');
+    }
+
     public function test_the_row_says_how_long_it_has_been_sole_mandate_and_when_it_may_be_ending(): void
     {
         $tp = $this->file();
