@@ -107,6 +107,75 @@
         .sec > h3 { font-size:15px; font-weight:700; margin:0 0 8px; }
         .done-card { text-align:center; }
         .done-card .tick { width:44px; height:44px; border-radius:50%; background:var(--ok); color:#fff; font-size:26px; line-height:44px; margin:0 auto 8px; }
+
+        /* ═══ §32 Sidebar layout (Johan, 1 Nov 2026: "lets do 1") — .ai/specs/rental-portal-access.md §32 ═══
+           Wide screens: the page fills the window, the sections are a left navigation panel and the content sits beside it.
+           Phones and narrow windows: exactly today's single column with the tab row on top (see the max-width:900px block). */
+        :root { --accent:#0b7f99; }
+        .wrap { max-width:none; padding:26px 30px 60px; }
+        .wrap > .card, .wrap > p { max-width:480px; margin-left:auto; margin-right:auto; }   /* sign-in, "someone else signed in", wrong-link cards stay narrow and centred */
+        header.top { padding:12px 30px; min-height:64px; }
+        .whoami { padding:8px 30px; }
+        .roleswitch { max-width:360px; }
+        .rp-role { display:grid; grid-template-columns:252px minmax(0,1fr); gap:28px; align-items:start; }
+        .rp-content { min-width:0; }
+        .rp-role > .tabs { flex-direction:column; gap:2px; margin:0; padding:12px; background:var(--brand); border-radius:16px; position:sticky; top:16px; overflow:visible; }
+        .rp-role > .tabs button { flex:none; display:flex; align-items:center; gap:12px; width:100%; text-align:left; background:transparent; border:0; border-radius:10px; padding:11px 12px; font-size:14px; color:rgba(255,255,255,.72); }
+        .rp-role > .tabs button:hover { background:rgba(255,255,255,.09); color:#fff; }
+        .rp-role > .tabs button.active { background:rgba(255,255,255,.15); color:#fff; box-shadow:inset 3px 0 0 var(--accent); }
+        .rp-role > .tabs button::before { content:""; width:20px; height:20px; flex:0 0 20px; background:currentColor; -webkit-mask:var(--ico) center/contain no-repeat; mask:var(--ico) center/contain no-repeat; }
+        .rp-role > .tabs .count { margin-left:auto; }
+        .rp-role > .tabs button:nth-child(1) { --ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10'/%3E%3C/svg%3E"); }
+        .rp-role > .tabs button:nth-child(2) { --ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 3h8l4 4v14H7zM15 3v4h4M10 12h6M10 16h6'/%3E%3C/svg%3E"); }
+        .rp-role > .tabs button:nth-child(3) { --ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l10 18H2zM12 10v5M12 18v.01'/%3E%3C/svg%3E"); }
+        .rp-role > .tabs button:nth-child(4) { --ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 4h6v3H9zM7 5H5v16h14V5h-2M9 12h6M9 16h4'/%3E%3C/svg%3E"); }
+        .rp-role > .tabs button:nth-child(5) { --ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 16v-5a6 6 0 0112 0v5l2 2H4zM10 21h4'/%3E%3C/svg%3E"); }
+        .rp-role > .tabs button:nth-child(6) { --ico:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6h6l2 2h10v11H3z'/%3E%3C/svg%3E"); }
+        /* Home: the property is the page heading; lease | agent, inspections | questions */
+        .rp-prop { margin-bottom:30px; }
+        .rp-prop-head { margin:0 0 4px; font-size:clamp(22px,2.2vw,30px); font-weight:800; letter-spacing:-.01em; line-height:1.15; color:var(--brand); }
+        .rp-prop-sub { margin:0 0 18px; }
+        .rp-grid { display:grid; grid-template-columns:minmax(0,3fr) minmax(0,2fr); gap:18px; align-items:start; margin-top:18px; }
+        .rp-grid > .card { margin:0; padding:20px; }
+        .rp-label { margin:0 0 12px; font-size:12px; font-weight:800; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); }
+        .rp-kv { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:9px 0; border-top:1px solid var(--border); font-size:14px; }
+        .rp-kv:first-of-type { border-top:0; }
+        .rp-lease-head { font-size:19px; font-weight:800; line-height:1.25; color:var(--brand); }
+        .rp-bar { height:8px; border-radius:99px; background:var(--surface-2); overflow:hidden; margin:14px 0 2px; }
+        .rp-bar > span { display:block; height:100%; background:var(--accent); border-radius:99px; }
+        .rp-links { display:flex; flex-wrap:wrap; gap:4px 16px; margin-top:6px; }
+        .rp-banner { background:#fff4e5; border:1px solid #e8a33d; border-radius:12px; padding:13px 18px; margin-bottom:6px; }
+        .rp-banner .link { color:#6b3d00; text-decoration:underline; font-size:15px; font-weight:700; }
+        [data-fault-wizard] { max-width:760px; }
+        @media (min-width:901px) {
+            /* The navy bar runs the full height of the page, flush with the left edge, whatever the page length (a fixed strip behind everything).
+               The header and the "Signed in as" line start to its right; the agency logo (or name) sits on a white tile in the bar's top corner so
+               any logo, dark or light, stays readable. Only while the navigation exists, so sign-in and error screens look as before. */
+            body:has(.rp-role)::before { content:""; position:fixed; z-index:-1; left:0; top:0; bottom:0; width:282px; background:var(--brand); }
+            body:has(.rp-role) header.top { position:relative; justify-content:flex-end; padding-left:298px; background:linear-gradient(to right, transparent 282px, #fff 282px); }
+            body:has(.rp-role) header.top .logo,
+            body:has(.rp-role) header.top h1 { position:absolute; left:18px; top:9px; width:246px; height:46px; max-width:none; max-height:none; margin:0; padding:6px 14px; box-sizing:border-box; object-fit:contain; background:#fff; border-radius:12px; display:flex; align-items:center; }
+            body:has(.rp-role) .whoami { padding-left:298px; background:linear-gradient(to right, transparent 282px, #fff 282px); border-bottom:0; }
+            .wrap:has(.rp-role) { padding-left:18px; }
+            .wrap:has(.rp-role) .roleswitch { margin-left:280px; }
+            body:has(.rp-role) .rp-role > .tabs { background:transparent; border-radius:0; padding:0; top:24px; }
+            /* a lone button or field in a card is not stretched across a 1,100px card */
+            .rp-content .card > .btn { width:auto; min-width:220px; padding-left:28px; padding-right:28px; }
+            .rp-content .card > input, .rp-content .card > select, .rp-content .card > textarea { max-width:640px; }
+        }
+        @media (max-width:900px) {
+            .wrap { padding:16px 16px 48px; }
+            header.top { padding:10px 16px; }
+            .whoami { padding:6px 16px; }
+            .rp-role { display:block; }
+            .rp-role > .tabs { flex-direction:row; gap:6px; margin-bottom:14px; padding:0; background:transparent; border-radius:0; position:static; overflow-x:auto; }
+            .rp-role > .tabs button { flex:1 1 auto; width:auto; justify-content:center; white-space:nowrap; padding:10px 8px; font-size:13px; background:var(--surface); border:1px solid var(--border); color:var(--text); box-shadow:none; }
+            .rp-role > .tabs button:hover { background:var(--surface); color:var(--text); }
+            .rp-role > .tabs button.active { background:var(--brand); color:#fff; border-color:var(--brand); box-shadow:none; }
+            .rp-role > .tabs button::before { display:none; }
+            .rp-role > .tabs .count { margin-left:4px; }
+            .rp-grid { grid-template-columns:minmax(0,1fr); margin-top:12px; }
+        }
     </style>
 </head>
 <body>
@@ -206,7 +275,7 @@
 
                 {{-- TENANT --}}
                 <template x-if="activeRole === 'tenant'">
-                    <div>
+                    <div class="rp-role">
                         <div class="tabs">
                             <button :class="{active: tenantTab==='home'}" @click="tenantTab='home'; loadOverview()">Home</button>
                             <button :class="{active: tenantTab==='lease'}" @click="tenantTab='lease'; loadTenantLeases()">Lease</button>
@@ -216,6 +285,7 @@
                             <button :class="{active: tenantTab==='documents'}" @click="tenantTab='documents'; loadDocuments()">Documents</button>
                         </div>
 
+                        <div class="rp-content">
                         <template x-if="tenantTab === 'home'">
                             @include('rentals.portal._home')
                         </template>
@@ -431,12 +501,13 @@
                         <template x-if="tenantTab === 'documents'">
                             @include('rentals.portal._documents')
                         </template>
+                        </div>{{-- /rp-content --}}
                     </div>
                 </template>
 
                 {{-- LANDLORD --}}
                 <template x-if="activeRole === 'landlord'">
-                    <div>
+                    <div class="rp-role">
                         <div class="tabs">
                             <button :class="{active: landlordTab==='home'}" @click="landlordTab='home'; loadOverview()">Home</button>
                             <button :class="{active: landlordTab==='properties'}" @click="landlordTab='properties'; loadLandlordProperties()">Properties</button>
@@ -446,6 +517,7 @@
                             <button :class="{active: landlordTab==='documents'}" @click="landlordTab='documents'; loadDocuments()">Documents</button>
                         </div>
 
+                        <div class="rp-content">
                         <template x-if="landlordTab === 'home'">
                             @include('rentals.portal._home')
                         </template>
@@ -768,6 +840,7 @@
                                 </div>
                             </div>
                         </template>
+                        </div>{{-- /rp-content --}}
                     </div>
                 </template>
             </div>
@@ -1327,6 +1400,14 @@ function rentalsPortal() {
             this.overview.homes = r.data.homes;
             this.overview.decisions_waiting = r.data.decisions_waiting || 0;
             this.overview.loaded = true;
+        },
+        // §32 - how far through the lease we are, 0-100 (null when the lease has no fixed end, so the bar is not drawn). Pure: reads its argument and the clock only.
+        leasePct(t) {
+            if (!t || !t.start_date || !t.end_date) return null;
+            const a = new Date(String(t.start_date).substring(0, 10) + 'T00:00:00').getTime();
+            const b = new Date(String(t.end_date).substring(0, 10) + 'T00:00:00').getTime();
+            if (!(b > a)) return null;
+            return Math.max(0, Math.min(100, Math.round(((Date.now() - a) / (b - a)) * 100)));
         },
         // South African format everywhere a person reads a date: "13 Oct 2026" / "13 Oct 2026 05:37" (24-hour) - one pair of helpers (server twin: App\Support\AppDate)
         fmtDay(d) {
