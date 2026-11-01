@@ -51,6 +51,8 @@ class RehydrateProspectingThumbnails extends Command
         {--dry-run : Report what would be re-fetched without any network call or dispatch}
         {--derive-from-portal : For rows with no source_url, resolve the image from portal_url (og:image). Outbound; throttled.}
         {--portal= : Only process rows from this portal_source (e.g. pp, p24). Lets a blocked/rate-limited portal be deferred and retried later.}
+        {--agency= : Only process this agency\'s adverts (agency id)}
+        {--active : Only adverts that are still on the market (is_active = 1)}
         {--sync : Run downloads synchronously in-process instead of queueing (no worker needed)}
         {--throttle-ms=1500 : Milliseconds to pause before each row that touches the network}
         {--limit=0 : Cap the number of network-touching rows processed this run (0 = no cap)}
@@ -67,6 +69,8 @@ class RehydrateProspectingThumbnails extends Command
         $limit      = max(0, (int) $this->option('limit'));
         $chunkSize  = max(1, (int) $this->option('chunk'));
         $portal     = trim((string) ($this->option('portal') ?? ''));
+        $agencyOnly = (int) ($this->option('agency') ?? 0);
+        $activeOnly = (bool) $this->option('active');
 
         $resolver = new PortalImageUrlResolver();
 
@@ -101,6 +105,8 @@ class RehydrateProspectingThumbnails extends Command
                 });
             })
             ->when($portal !== '', fn ($q) => $q->where('portal_source', $portal))
+            ->when($agencyOnly > 0, fn ($q) => $q->where('agency_id', $agencyOnly))
+            ->when($activeOnly, fn ($q) => $q->where('is_active', true))
             ->orderBy('id')
             ->chunkById($chunkSize, function ($listings) use (
                 $resolver, $dryRun, $derive, $sync, $throttleMs, $limit,

@@ -118,6 +118,8 @@ class ProspectingListing extends Model
         'is_reduced'               => 'boolean',
         'is_exclusive'             => 'boolean',
         'badges'                   => 'array',
+        'photo_urls'               => 'array',
+        'features'                 => 'array',
         'details_read_at'          => 'datetime',
         'portal_latitude'          => 'float',
         'portal_longitude'         => 'float',

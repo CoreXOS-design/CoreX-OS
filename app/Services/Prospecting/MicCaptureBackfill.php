@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Storage;
  *   erf-floor-pool  the same wrong erf on the shared pool's public advert facts (our own tile-parser bug, not a portal fact)
  *   file-floor-size the floor size of the files whose wrong erf erf-floor cleared, from their live advert (--from-journal)
  *   sale-agency  P24 owner adverts stored with the owner icon's alt text "Sale" as the agency -> owner, agency blank
+ *   card-text    the results card's heading and description snippet (13.6), read from the stored P24 search pages and the saved fixtures
  *   erf-floor    the old extension stored a tile's single size (a FLOOR size on flats) as the erf: clear that erf on the advert
  *                (and on the property file that inherited it) once the advert has its real floor size, unless another source gives the erf
  *
@@ -24,7 +25,7 @@ use Illuminate\Support\Facades\Storage;
  */
 final class MicCaptureBackfill
 {
-    public const STEPS = ['p24-groups', 'floor-sizes', 'sale-agency', 'erf-floor', 'erf-floor-pool', 'file-floor-size'];
+    public const STEPS = ['p24-groups', 'floor-sizes', 'sale-agency', 'erf-floor', 'erf-floor-pool', 'file-floor-size', 'card-text'];
 
     /** @var resource|null */
     private $journal = null;
@@ -203,6 +204,116 @@ final class MicCaptureBackfill
         }
 
         return null;
+    }
+
+    // ── card-text (spec 13.6 / 11.2.4) ────────────────────────────────────────────
+
+    /**
+     * Every result card on a P24 search page that shows a heading and/or a description snippet: [listing number => [heading, snippet]].
+     * Same selectors as the extension (mic-lib.js p24Tile): .p24_title and .p24_excerpt inside the tile that carries data-listing-number.
+     *
+     * @return array<string, array{heading: ?string, snippet: ?string}>
+     */
+    public static function parseCardText(string $html): array
+    {
+        $out = [];
+        $prev = libxml_use_internal_errors(true);
+        $dom = new \DOMDocument();
+        $dom->loadHTML('<?xml encoding="UTF-8">' . $html);
+        libxml_clear_errors();
+        libxml_use_internal_errors($prev);
+        $xp = new \DOMXPath($dom);
+        $cls = fn (string $c) => ".//*[contains(concat(' ', normalize-space(@class), ' '), ' {$c} ')]";
+        foreach ($xp->query("//*[@data-listing-number][contains(concat(' ', normalize-space(@class), ' '), ' js_resultTile ')]") as $tile) {
+            $num = preg_replace('/\D/', '', (string) $tile->getAttribute('data-listing-number'));
+            if (! preg_match('/^\d{6,12}$/', $num)) {
+                continue;
+            }
+            $t = $xp->query($cls('p24_title'), $tile)->item(0);
+            $e = $xp->query($cls('p24_excerpt'), $tile)->item(0);
+            $heading = $t ? MicAdvertFacts::cleanText($t->textContent, 160) : null;
+            $snippet = $e ? MicAdvertFacts::cleanText($e->textContent, 200) : null;
+            if ($heading !== null || $snippet !== null) {
+                $out[$num] = ['heading' => $heading, 'snippet' => $snippet];
+            }
+        }
+
+        return $out;
+    }
+
+    /** @param list<int> $exclude agencies left out (test / demo) */
+    public function cardText(bool $apply, array $exclude = [20]): array
+    {
+        $stats = ['pages_read' => 0, 'pages_unreadable' => 0, 'fixtures_read' => 0, 'cards_with_text' => 0, 'listing_numbers' => 0,
+            'with_sole_mandate_wording' => 0, 'adverts_matched' => 0, 'adverts_getting_snippet' => 0, 'adverts_getting_heading' => 0,
+            'adverts_already_have_snippet' => 0, 'live_adverts_getting_snippet' => 0, 'live_adverts_total' => 0, 'live_adverts_with_snippet_after' => 0];
+
+        /** @var array<string, array{heading: ?string, snippet: ?string}> $all newest page wins */
+        $all = [];
+        $take = function (array $found) use (&$all, &$stats) {
+            foreach ($found as $n => $c) {
+                $stats['cards_with_text']++;
+                $all[$n] = ['heading' => $c['heading'] ?? ($all[$n]['heading'] ?? null), 'snippet' => $c['snippet'] ?? ($all[$n]['snippet'] ?? null)];
+            }
+        };
+        DB::table('portal_captures')->where('source_site', 'like', '%property24%')->whereNotNull('raw_html_path')->where('page_type', 'search')
+            ->orderBy('id')->select('id', 'raw_html_path')->chunkById(50, function ($rows) use (&$stats, $take) {
+                foreach ($rows as $r) {
+                    $html = $this->readCapture((string) $r->raw_html_path);
+                    if ($html === null) {
+                        $stats['pages_unreadable']++;
+
+                        continue;
+                    }
+                    $stats['pages_read']++;
+                    $take(self::parseCardText($html));
+                }
+            });
+        // the saved real pages shipped with the extension are the newest read of all
+        foreach (glob(base_path('public/chrome-extension/portal-capture/tests/fixtures/p24-search/*.html')) ?: [] as $file) {
+            $stats['fixtures_read']++;
+            $take(self::parseCardText((string) file_get_contents($file)));
+        }
+        $stats['listing_numbers'] = count($all);
+        $stats['with_sole_mandate_wording'] = count(array_filter($all, fn ($c) => preg_match('/sole\s+mandate|sole\s+and\s+exclusive|exclusive\s+mandate|sole\s+agent/i', (string) $c['snippet']) === 1));
+
+        foreach (array_chunk(array_keys($all), 1000) as $chunk) {
+            DB::table('prospecting_listings')->whereIn('portal_ref', array_map(fn ($n) => 'P24-' . $n, $chunk))->where('portal_source', 'p24')
+                ->when($exclude !== [], fn ($q) => $q->whereNotIn('agency_id', $exclude))
+                ->select('id', 'portal_ref', 'is_active', 'description_snippet', 'card_heading')->get()
+                ->each(function ($r) use ($all, $apply, &$stats) {
+                    $c = $all[substr($r->portal_ref, 4)] ?? null;
+                    if ($c === null) {
+                        return;
+                    }
+                    $stats['adverts_matched']++;
+                    $set = [];
+                    if ($c['snippet'] !== null && ($r->description_snippet === null || $r->description_snippet === '')) {
+                        $set['description_snippet'] = $c['snippet'];
+                        $stats['adverts_getting_snippet']++;
+                        $r->is_active ? $stats['live_adverts_getting_snippet']++ : null;
+                    } elseif ($r->description_snippet !== null && $r->description_snippet !== '') {
+                        $stats['adverts_already_have_snippet']++;
+                    }
+                    if ($c['heading'] !== null && ($r->card_heading === null || $r->card_heading === '')) {
+                        $set['card_heading'] = $c['heading'];
+                        $stats['adverts_getting_heading']++;
+                    }
+                    if ($set !== [] && $apply) {
+                        DB::table('prospecting_listings')->where('id', $r->id)->update($set);
+                        foreach ($set as $col => $val) {
+                            $this->log('prospecting_listings', (string) $r->id, $col, null, $val);
+                        }
+                    }
+                });
+        }
+        $live = fn () => DB::table('prospecting_listings')->where('portal_source', 'p24')->where('is_active', 1)->whereNull('deleted_at')
+            ->when($exclude !== [], fn ($q) => $q->whereNotIn('agency_id', $exclude));
+        $stats['live_adverts_total'] = $live()->count();
+        $stats['live_adverts_with_snippet_after'] = $live()->whereNotNull('description_snippet')->where('description_snippet', '!=', '')->count()
+            + ($apply ? 0 : $stats['live_adverts_getting_snippet']);
+
+        return $stats;
     }
 
     // ── floor-sizes ──────────────────────────────────────────────────────────────────────────────

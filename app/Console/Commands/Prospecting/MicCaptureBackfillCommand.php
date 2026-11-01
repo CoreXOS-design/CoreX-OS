@@ -20,7 +20,7 @@ use Illuminate\Support\Facades\File;
 final class MicCaptureBackfillCommand extends Command
 {
     protected $signature = 'mic:capture-backfill
-        {step : p24-groups | floor-sizes | sale-agency | erf-floor | erf-floor-pool | file-floor-size}
+        {step : p24-groups | floor-sizes | sale-agency | erf-floor | erf-floor-pool | file-floor-size | card-text}
         {--dry-run : Count what would change, write nothing (the default)}
         {--apply : Write the change and journal every row}
         {--exclude-agency=20 : Comma-separated agency ids to leave out (test / demo agencies)}
@@ -67,6 +67,7 @@ final class MicCaptureBackfillCommand extends Command
             'erf-floor'   => $backfill->erfFloor($apply, $exclude),
             'erf-floor-pool'  => $backfill->erfFloorPool($apply, $exclude),
             'file-floor-size' => $backfill->fileFloorSize($apply, $exclude, $this->option('from-journal') ?: null),
+            'card-text'       => $backfill->cardText($apply, $exclude),
         };
         $backfill->journalTo(null);
 

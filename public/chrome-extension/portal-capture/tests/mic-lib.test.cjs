@@ -188,7 +188,7 @@ t('PP listing page: details rows + serverVariables subset, no phone', () => {
   assert.deepStrictEqual([f.advertiser_type, f.agency_name, f.agency_portal_id, f.agent_name, f.agent_portal_id], ['agency', 'Seeff Margate', '77', 'Jane Smith', '9']);
   assert.strictEqual(f.portal_latitude, -30.86);
   assert.match(f.wording_fingerprint, /^[0-9a-f]{40}$/);
-  assert.ok(!('description' in f));
+  assert.match(f.description, /^A very well presented family home/);
 });
 
 t('PP listing page for a private seller (no agencyInfo): owner', () => {
@@ -219,6 +219,65 @@ t('real search page: owner, groups with members, mandate ids, reduced, badges, f
   groups.forEach((g) => { assert.ok(g.p24_group_listing_numbers.length >= 2); assert.ok(g.p24_group_listing_numbers.includes(g.portal_ref.replace('P24-', ''))); });
   assert.ok(n((l) => l.property_size_m2) >= 10 && n((l) => l.erf_size_m2) >= 5, 'floor and erf are separated');
   assert.ok(n((l) => l.badges && l.badges.length) >= 1);
+});
+
+console.log('Advert wording and photos (spec 13.6; REAL pages fetched 1 Nov 2026)');
+const FX = path.join(__dirname, 'fixtures');
+t('P24 results page 7 (Johan\'s proof): the "Sole mandate" cards carry their wording and heading', () => {
+  const html = fs.readFileSync(path.join(FX, 'p24-search', 'hibiscus-coast-p7-sole-mandate-cards.html'), 'utf8');
+  const dom = new JSDOM(html, { url: 'https://www.property24.com/for-sale/alias/hibiscus-coast/102/kwazulu-natal/2/p7', runScripts: 'outside-only' });
+  const w = dom.window; let handler = null;
+  w.chrome = { runtime: { onMessage: { addListener: (fn) => { handler = fn; } } } };
+  w.eval(fs.readFileSync(path.join(EXT, 'mic-lib.js'), 'utf8'));
+  w.eval(fs.readFileSync(path.join(EXT, 'content-p24-detail.js'), 'utf8'));
+  let out; handler({ action: 'getListings' }, null, (r) => { out = r.listings; });
+  const by = Object.fromEntries(out.map((l) => [l.portal_ref, l]));
+  assert.strictEqual(by['P24-117752073'].price, 1495000);
+  assert.strictEqual(by['P24-117752073'].card_heading, '3 Bedroom House');
+  assert.match(by['P24-117752073'].description_snippet, /^Sole mandate - top quality/);
+  assert.strictEqual(by['P24-117061095'].price, 1395000);
+  assert.match(by['P24-117061095'].description_snippet, /^Sole Mandate\.\.\./);
+  assert.ok(out.filter((l) => l.description_snippet).length >= 14, 'every normal card has its wording');
+  out.forEach((l) => { if (l.description_snippet) assert.ok(l.description_snippet.length <= 200); if (l.card_heading) assert.ok(l.card_heading.length <= 160); });
+});
+
+t('P24 listing page (live sole-mandate advert): full wording, 30 photos, feature rows, parking, dates, rates, levies', () => {
+  const url = 'https://www.property24.com/for-sale/palm-beach/port-edward/kwazulu-natal/6365/117752073';
+  const f = MIC.p24ListingPage(doc(fs.readFileSync(path.join(FX, 'p24', 'house-ramsgate-sole-mandate-117752073.html'), 'utf8'), url), url);
+  assert.ok(f.description && f.description.length > 200, 'the full wording');
+  assert.strictEqual(f.photo_count, 30);
+  assert.strictEqual(f.photo_urls.length, 30);
+  f.photo_urls.forEach((u) => assert.match(u, /^https:\/\/images\.prop24\.com\/\d+\/Ensure960x540$/));
+  assert.strictEqual(f.features['Pets Allowed'], 'Yes');
+  assert.strictEqual(f.features['Street Address'], '75 David Livingstone street, Palm Beach');
+  assert.strictEqual(f.parking, 2);
+  assert.strictEqual(f.listed_date, '2026-10-24');
+  assert.strictEqual(f.rates_amount, 1490);
+  assert.strictEqual(f.levies_amount, 2495);
+  assert.ok(f.agent_name, 'the agent named on the page');
+});
+
+t('PP results page (live): heading, wording snippet and agent name on every card', () => {
+  const d = doc(fs.readFileSync(path.join(FX, 'pp-search', 'amanzimtoti-search.html'), 'utf8'), 'https://www.privateproperty.co.za/for-sale/advanced-search');
+  const cards = Array.from(d.querySelectorAll('a.listing-result'));
+  assert.strictEqual(cards.length, 20);
+  const l = MIC.ppTile(cards[1], {});
+  assert.strictEqual(l.card_heading, '2 Bedroom Apartment');
+  assert.match(l.description_snippet, /^While some people must get used to living in a flat/);
+  assert.strictEqual(l.agent_name, 'Irene Morley');
+  assert.ok(cards.map((c) => MIC.ppTile(c, {})).filter((x) => x.description_snippet && x.card_heading).length >= 18);
+});
+
+t('PP listing page (live): wording, photos, detail rows, listing date, rates, levies', () => {
+  const url = 'https://www.privateproperty.co.za/for-sale/kwazulu-natal/durban/amanzimtoti/amanzimtoti/32-riverview-court/11-farewell-road/T5610412';
+  const f = MIC.ppListingPage(doc(fs.readFileSync(path.join(FX, 'pp', 'apartment-amanzimtoti-T5610412.html'), 'utf8'), url), url, {});
+  assert.match(f.description, /^While some people must get used to living in a flat/);
+  assert.strictEqual(f.photo_urls.length, 9);
+  f.photo_urls.forEach((u) => assert.match(u, /^https:\/\/images\.pp\.co\.za\/listing\/\d+\/[A-Za-z0-9]+\/1600\/1066\/contain\/jpegorpng$/));
+  assert.strictEqual(f.features['Floor size'], '80 m²');
+  assert.strictEqual(f.listed_date, '2026-09-03');
+  assert.strictEqual(f.rates_amount, 611);
+  assert.strictEqual(f.levies_amount, 1977);
 });
 
 console.log('P24 area pages (REAL saved pages, 31 Oct 2026)');

@@ -97,6 +97,18 @@
     return y + '-' + ('0' + mo).slice(-2) + '-' + ('0' + d).slice(-2);
   };
 
+  // "2", "2.5", "Yes" -> a whole count (2, 2, null)
+  MIC.parseCount = function (text) {
+    const m = String(text === null || text === undefined ? '' : text).match(/\d+/);
+    return m ? parseInt(m[0], 10) : null;
+  };
+
+  // Advert text exactly as the portal shows it: whitespace collapsed, cut to `max`; null when nothing is left (spec 13.6)
+  MIC.cleanText = function (t, max) {
+    const v = String(t === null || t === undefined ? '' : t).replace(/\s+/g, ' ').trim();
+    return v ? v.slice(0, max) : null;
+  };
+
   // The icon next to a size on a P24 tile says which size it is: alt "Erf Size" / "Floor Size".
   MIC.sizeKind = function (alt) {
     const a = String(alt || '').toLowerCase();
@@ -213,6 +225,16 @@
       }
     } catch (e) { /* */ }
 
+    // the card's heading and description text as shown (spec 13.6): "Sole mandate - ..." lives here, P24 has no badge for it
+    try {
+      const h = card.querySelector('.p24_title');
+      const hv = h ? MIC.cleanText(h.textContent, 160) : null;
+      if (hv) l.card_heading = hv;
+      const ex = card.querySelector('.p24_excerpt');
+      const ev = ex ? MIC.cleanText(ex.textContent, 200) : null;
+      if (ev) l.description_snippet = ev;
+    } catch (e) { /* */ }
+
     return l;
   };
 
@@ -250,6 +272,30 @@
       if (key && val) rows[(key.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase()] = (val.textContent || '').replace(/\s+/g, ' ').trim();
     });
     return rows;
+  }
+
+  // every Property Overview row with the label as the page writes it (feature rows: pets, furnished, pool, garden, security, ...)
+  function overviewPairs(doc) {
+    const out = {};
+    doc.querySelectorAll('.p24_propertyOverviewRow').forEach((row) => {
+      const key = row.querySelector('.p24_propertyOverviewKey');
+      const val = row.querySelector('.p24_propertyOverviewResult .p24_info') || row.querySelector('.p24_propertyOverviewResult');
+      const k = key ? MIC.cleanText(key.textContent, 60) : null;
+      const v = val ? MIC.cleanText(val.textContent, 200) : null;
+      if (k && v && !(k in out)) out[k] = v;
+    });
+    return out;
+  }
+
+  // every gallery photo of the listing, in page order, as a large version (P24 serves any size of the same id)
+  function p24GalleryUrls(doc) {
+    const urls = [];
+    doc.querySelectorAll('img.js_galleryThumbnail, .js_galleryThumbnail').forEach((el) => {
+      const u = el.getAttribute('lazy-src') || el.getAttribute('data-original') || el.getAttribute('src') || '';
+      const m = u.match(/^https:\/\/images\.prop24\.com\/(\d+)\//);
+      if (m) { const big = 'https://images.prop24.com/' + m[1] + '/Ensure960x540'; if (urls.indexOf(big) === -1) urls.push(big); }
+    });
+    return urls;
   }
 
   function coord(a, b) {
@@ -340,6 +386,20 @@
     const wf = descEl ? MIC.wordingFingerprint(descEl.textContent) : null;
     if (wf) f.wording_fingerprint = wf;
 
+    // the advert as the portal shows it (spec 13.6): full wording, every photo, every feature row
+    try {
+      if (descEl) { const dt = MIC.cleanText(descEl.textContent, 20000); if (dt) f.description = String(descEl.textContent).trim().slice(0, 30000); }
+      const photos = p24GalleryUrls(doc);
+      if (photos.length) f.photo_urls = photos;
+      const ic = scriptText.match(/"imageCount"\s*:\s*(\d{1,3})/);
+      if (ic) f.photo_count = parseInt(ic[1], 10); else if (photos.length) f.photo_count = photos.length;
+      const feats = overviewPairs(doc);
+      if (Object.keys(feats).length) f.features = feats;
+      const park = MIC.parseCount(rows['parking']);
+      if (park !== null) f.parking = park;
+      const agentTxt = !f.agent_name && lead && lead.agentDetails && lead.agentDetails[0] && lead.agentDetails[0].name;
+      if (agentTxt) f.agent_name = String(agentTxt).trim();
+    } catch (e) { /* the page read never fails on text */ }
     f.badges = MIC.badgesFrom(doc.querySelector('.p24_listingDetail, .p24_listingHeader, header') || doc.body || doc);
     const photo = firstPhotoUrl(doc, ld);
     if (photo) f._photo_url = photo;
@@ -381,6 +441,23 @@
     } catch (e) { /* */ }
 
     try { l.badges = MIC.badgesFrom(link); } catch (e) { /* */ }
+
+    // heading, description text and the agent as the card shows them (spec 13.6; markup checked on a live PP results page, 1 Nov)
+    try {
+      const t = link.querySelector('.listing-result__title');
+      if (t) {
+        const c = t.cloneNode(true);
+        c.querySelectorAll('span').forEach((x) => x.remove());      // the suburb sits in a span inside the title
+        const hv = MIC.cleanText(c.textContent, 160);
+        if (hv) l.card_heading = hv;
+      }
+      const d = link.querySelector('.listing-result__description');
+      const dv = d ? MIC.cleanText(d.textContent, 200) : null;
+      if (dv) l.description_snippet = dv;
+      const ag = link.querySelector('.listing-result__agent-name');
+      const av = ag ? MIC.cleanText(ag.textContent, 100) : null;
+      if (av) l.agent_name = av;
+    } catch (e) { /* */ }
     return l;
   };
 
@@ -412,7 +489,12 @@
     doc.querySelectorAll('.property-details__list-item').forEach((row) => {
       const label = row.querySelector('.property-details__name-value');
       const value = row.querySelector('.property-details__value');
-      if (label && value) rows[(label.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase()] = (value.textContent || '').replace(/\s+/g, ' ').trim();
+      if (label && value) {
+        // on the live page the value span sits INSIDE the label span: take the label without it
+        const lc = label.cloneNode(true);
+        lc.querySelectorAll('.property-details__value').forEach((x) => x.remove());
+        rows[(lc.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase()] = (value.textContent || '').replace(/\s+/g, ' ').trim();
+      }
     });
     const pick = (re) => { const k = Object.keys(rows).find((x) => re.test(x)); return k ? rows[k] : null; };
 
@@ -434,8 +516,33 @@
     }
     if (pt) { f.portal_latitude = pt.lat; f.portal_longitude = pt.lng; }
 
-    const wf = MIC.wordingFingerprint(sv.description || '');
+    const descPage = doc.querySelector('.listing-description__text');
+    const descText = (descPage && descPage.textContent) || sv.description || '';
+    const wf = MIC.wordingFingerprint(descText);
     if (wf) f.wording_fingerprint = wf;
+
+    // the advert as the portal shows it (spec 13.6): full wording, every gallery photo, every detail row
+    try {
+      const dt = MIC.cleanText(descText, 30000);
+      if (dt) f.description = String(descText).trim().slice(0, 30000);
+      const photos = [];
+      const seen = {};
+      doc.querySelectorAll('img').forEach((im) => {
+        const u = im.getAttribute('src') || im.getAttribute('data-src') || '';
+        const m = u.match(/^(https:\/\/images\.pp\.co\.za\/listing\/\d+\/[A-Za-z0-9]+)\//);
+        if (m && !seen[m[1]]) { seen[m[1]] = 1; photos.push(m[1] + '/1600/1066/contain/jpegorpng'); }
+      });
+      if (photos.length) { f.photo_urls = photos; f.photo_count = photos.length; }
+      const feats = {};
+      Object.keys(rows).forEach((k) => {
+        const label = MIC.cleanText(k.charAt(0).toUpperCase() + k.slice(1), 60);
+        const val = MIC.cleanText(rows[k], 200);
+        if (label && val) feats[label] = val;
+      });
+      if (Object.keys(feats).length) f.features = feats;
+      const park = MIC.parseCount(pick(/parking/));
+      if (park !== null) f.parking = park;
+    } catch (e) { /* the page read never fails on text */ }
     f.badges = MIC.badgesFrom(doc.body || doc);
     if (sv.photoUrl) f._photo_url = String(sv.photoUrl);
     f._ref = (String(href || '').match(/\/(T\d{5,})\/?(?:[?#]|$)/) || [])[1] || null;

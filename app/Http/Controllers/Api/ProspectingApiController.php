@@ -87,6 +87,14 @@ class ProspectingApiController extends Controller
             'listings.*.wording_fingerprint'       => 'nullable',
             'listings.*.first_photo_fingerprint'   => 'nullable',
             'listings.*.page_read'                 => 'nullable',
+            // 13.6 / 11.2.4 - the advert as the portal shows it (cleaned and capped in MicAdvertFacts)
+            'listings.*.card_heading'              => 'nullable|string',
+            'listings.*.description_snippet'       => 'nullable|string',
+            'listings.*.description'               => 'nullable|string',
+            'listings.*.photo_urls'                => 'nullable|array|max:300',
+            'listings.*.photo_count'               => 'nullable',
+            'listings.*.features'                  => 'nullable|array|max:200',
+            'listings.*.parking'                   => 'nullable',
         ]);
 
         // AT-253 (STANDARDS Rule 17) — prospecting_searches.agency_id is NOT NULL and this is a
@@ -164,6 +172,7 @@ class ProspectingApiController extends Controller
         // MIC capture lane — adverts the extension should open the listing page of (new, or price moved), the
         // P24 group recorder, and how many incoming values were malformed and dropped.
         $needsDetail = [];
+        $thumbRepairs = 0;
         $groupRecorder = app(P24GroupRecorder::class);
         $groupsRecorded = 0;
         $droppedFields = 0;
@@ -313,7 +322,14 @@ class ProspectingApiController extends Controller
                 // source URL AND no thumbnail is cached yet. Guarding on
                 // empty(thumbnail_path) keeps us from re-downloading on every
                 // capture of an already-thumbnailed row.
-                if (!empty($data['thumbnail_url']) && empty($existing->thumbnail_path)) {
+                // 1 Nov 2026 (spec 13.6): ALSO when the path is set but the file is gone - 15.8K live HFC adverts were in that state after the
+                // disk-root move and a re-sight never repaired them. At most 200 repairs per request so one big crawl cannot flood the lane.
+                if (!empty($data['thumbnail_url']) && (empty($existing->thumbnail_path)
+                    || ($thumbRepairs < 200 && $existing->thumbnail_blocked_reason === null
+                        && ! \Illuminate\Support\Facades\Storage::disk('local')->exists($existing->thumbnail_path)))) {
+                    if (! empty($existing->thumbnail_path)) {
+                        $thumbRepairs++;
+                    }
                     // thumbnail_source_url is fillable; set + save explicitly
                     // here so the source URL persists for future rehydration.
                     $existing->thumbnail_source_url = $data['thumbnail_url'];

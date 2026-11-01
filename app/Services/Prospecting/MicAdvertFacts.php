@@ -23,6 +23,8 @@ final class MicAdvertFacts
         'advertiser_type', 'agent_portal_id', 'agency_portal_id', 'listed_date', 'rates_amount', 'levies_amount',
         'portal_latitude', 'portal_longitude', 'is_reduced', 'is_exclusive', 'badges', 'p24_group_id', 'p24_group_size',
         'p24_group_listing_numbers', 'p24_mandate_id', 'wording_fingerprint', 'first_photo_fingerprint', 'page_read',
+        // 13.6 / 11.2.4: the advert as the portal shows it
+        'card_heading', 'description_snippet', 'description', 'photo_urls', 'photo_count', 'features', 'parking',
     ];
 
     /** South Africa, with margin — a map point outside it is a misparse, not a property. */
@@ -111,6 +113,55 @@ final class MicAdvertFacts
             }
         }
 
+        // The advert as the portal shows it (spec 13.6 / 11.2.4). Text exactly as shown, tags stripped, whitespace collapsed.
+        foreach (['card_heading' => 160, 'description_snippet' => 200] as $k => $max) {
+            if (self::present($data, $k)) {
+                $t = self::cleanText($data[$k], $max);
+                $t !== null ? $cols[$k] = $t : null;
+            }
+        }
+        // the full text, photo list and feature rows only come from a listing-page read
+        $pageRead = filter_var($data['page_read'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        if ($pageRead && self::present($data, 'description')) {
+            $t = self::cleanText($data['description'], 20000, true);
+            $t !== null ? $cols['description'] = $t : null;
+        }
+        if ($pageRead && is_array($data['photo_urls'] ?? null)) {
+            $urls = [];
+            foreach ($data['photo_urls'] as $u) {
+                $u = is_string($u) ? trim($u) : '';
+                if ($u !== '' && strlen($u) <= 500 && preg_match('#^https://[^\s"<>]+$#i', $u) === 1 && ! in_array($u, $urls, true)) {
+                    $urls[] = $u;
+                }
+            }
+            if ($urls !== []) {
+                $cols['photo_urls'] = array_slice($urls, 0, 200);
+            } elseif ($data['photo_urls'] !== []) {
+                $drop();
+            }
+        }
+        if ($pageRead && (isset($cols['photo_urls']) || self::present($data, 'photo_count'))) {
+            $n = self::present($data, 'photo_count') && is_numeric($data['photo_count']) ? (int) $data['photo_count'] : count($cols['photo_urls'] ?? []);
+            ($n >= 0 && $n <= 500) ? $cols['photo_count'] = $n : $drop();
+        }
+        if ($pageRead && is_array($data['features'] ?? null)) {
+            $feat = [];
+            foreach ($data['features'] as $k => $v) {
+                $key = is_string($k) ? self::cleanText($k, 60) : null;
+                $val = (is_string($v) || is_numeric($v)) ? self::cleanText((string) $v, 200) : null;
+                if ($key !== null && $val !== null) {
+                    $feat[$key] = $val;
+                }
+                if (count($feat) >= 80) {
+                    break;
+                }
+            }
+            $feat !== [] ? $cols['features'] = $feat : null;
+        }
+        if ($pageRead && self::present($data, 'parking')) {
+            (is_numeric($data['parking']) && $data['parking'] >= 0 && $data['parking'] <= 50) ? $cols['parking'] = (int) $data['parking'] : $drop();
+        }
+
         // P24 group: needs the group id AND at least one listing number
         $group = null;
         if (isset($cols['p24_group_id']) && is_array($data['p24_group_listing_numbers'] ?? null)) {
@@ -196,6 +247,21 @@ final class MicAdvertFacts
         }
 
         return $d->toDateString();
+    }
+
+    /** Advert text as shown: no tags, runs of whitespace collapsed (line breaks kept when asked), cut to $max characters; null when nothing is left. */
+    public static function cleanText(mixed $raw, int $max, bool $keepBreaks = false): ?string
+    {
+        if (! is_string($raw)) {
+            return null;
+        }
+        $t = html_entity_decode(strip_tags($raw), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $t = $keepBreaks
+            ? preg_replace(["/[ \t\x{00A0}]+/u", "/\s*\R\s*\R+\s*/u"], [' ', "\n\n"], str_replace("\r", '', $t))
+            : preg_replace('/\s+/u', ' ', $t);
+        $t = trim((string) $t);
+
+        return $t === '' ? null : mb_substr($t, 0, $max);
     }
 
     private static function present(array $data, string $key): bool
