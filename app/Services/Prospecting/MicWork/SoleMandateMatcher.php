@@ -35,6 +35,20 @@ final class SoleMandateMatcher
     }
 
     /**
+     * The ONE rule for "does this text say sole mandate", for the alert-email parsers (P24, PrivateProperty) as well as the advert wording: the text (tags stripped,
+     * the advertiser's own name removed first) must hold one of the mandate phrases - "sole" or "exclusive" next to mandate / agent / agency. "Mandated", "mandate",
+     * "open mandate" never flag. With no agency the shipped phrases are used.
+     */
+    public static function textSaysSoleMandate(?string $html, ?string $advertiser = null, ?int $agencyId = null): bool
+    {
+        $text = preg_replace('~https?://[^\s"\'<>]+~i', ' ', (string) $html) ?? '';
+        $text = html_entity_decode(strip_tags((string) preg_replace('/<(br|\/p|\/div|\/tr|\/td)[^>]*>/i', "\n", $text)));
+        $text = trim((string) preg_replace('/\s+/u', ' ', $text));
+
+        return MicAdvertFilters::mentionsMandate($text, $agencyId ? self::wordsFor($agencyId) : MicAgencySetting::DEFAULTS['mandate_words'], $advertiser);
+    }
+
+    /**
      * Match every advert of the agency that has text. Returns the counts; writes only when $apply.
      *
      * @return array{checked:int, matched:int, was_matched:int, changed:int}

@@ -87,7 +87,7 @@ class PpEmailParserService
         if (preg_match('/(\d+)\s*(?:Garages?|Parking)\b/i', $text, $g)) {
             $row['garages'] = (int) $g[1];
         }
-        $row['is_mandated'] = (bool) preg_match('/\b(Sole\s+Mandate|Mandated)\b/i', $text);
+        $row['is_mandated'] = \App\Services\Prospecting\MicWork\SoleMandateMatcher::textSaysSoleMandate($text);   // AT-520: the one shared sole-mandate rule
 
         // suburb: "... for sale in Uvongo" in the subject/text, else the town/suburb segments of the advert link
         if (preg_match('/for\s+sale\s+in\s+([A-Za-z][A-Za-z\s\'-]{2,40}?)(?:\s+(?:[A-Za-z]{1,3}\d{5,10})|,|\.|\s*$|\s{2,}|\s+R\s*\d)/i', $subject . '  ', $s)) {
