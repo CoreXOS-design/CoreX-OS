@@ -103,17 +103,11 @@ final class MicAdvertFilters
     /** SQL: the advert's description (snippet or full) holds one of the agency's mandate phrases as a whole phrase, or a P24 alert for it was flagged mandated. */
     private function soleMandateSql($q, int $agencyId): void
     {
-        $words = \App\Models\MicAgencySetting::mandateWordsFor($agencyId);
-        $has = fn ($col) => function ($w) use ($words, $col) {
-            foreach ($words as $word) {
-                $w->orWhereRaw("prospecting_listings.$col REGEXP ?", ['\\b' . preg_quote($word, '/') . '\\b']);
-            }
-        };
         // The P24 alerts flagged mandated are a short list for the agency (hundreds): read them once and match by IN lists, never a correlated lookup per advert.
         $alerts = DB::table('p24_listings')->where('agency_id', $agencyId)->whereNull('deleted_at')->where('is_mandated', 1)->get(['canonical_ref', 'tracked_property_id']);
         $refs = $alerts->pluck('canonical_ref')->filter()->unique()->values()->all();
         $files = $alerts->pluck('tracked_property_id')->filter()->unique()->values()->all();
-        $q->where($has('description_snippet'))->orWhere($has('description'))
+        $q->where('prospecting_listings.sole_mandate_wording', 1)
             ->orWhere(function ($m) use ($refs, $files) {
                 $m->whereIn('prospecting_listings.canonical_ref', $refs ?: ['-'])->orWhereIn('prospecting_listings.tracked_property_id', $files ?: [0]);
             });

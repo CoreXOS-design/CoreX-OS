@@ -14,6 +14,15 @@ use App\Models\ProspectingListing;
  */
 final class ProspectingListingLifecycleObserver
 {
+    /** AT-528: a snippet or description arriving (extension ingest, capture, back-fill through the model) is matched against the agency's mandate words at once. */
+    public function saving(ProspectingListing $l): void
+    {
+        if (! $l->isDirty(['description_snippet', 'description'])) {
+            return;
+        }
+        $l->sole_mandate_wording = \App\Services\Prospecting\MicWork\SoleMandateMatcher::matches($l->description_snippet, $l->description, (int) $l->agency_id);
+    }
+
     public function updating(ProspectingListing $l): void
     {
         if ($l->isDirty('portal_status') || ! $l->isDirty('last_seen_at') || $l->is_active !== true && (int) $l->is_active !== 1) {

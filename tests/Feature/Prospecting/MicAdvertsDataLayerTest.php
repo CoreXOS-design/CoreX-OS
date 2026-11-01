@@ -205,6 +205,36 @@ final class MicAdvertsDataLayerTest extends TestCase
         $this->assertNull($this->row($none)['alert_last_date']);
     }
 
+    public function test_the_wording_flag_is_stored_on_arrival_and_follows_the_agencys_words(): void
+    {
+        $tp = $this->file();
+        $l = $this->advert($tp, ['description_snippet' => 'Lovely home']);
+        $this->assertSame(0, (int) $l->sole_mandate_wording, 'text arrived, no mandate wording');
+
+        $l->description_snippet = 'Lovely home - SOLE MANDATE!!!';
+        $l->save();
+        $this->assertSame(1, (int) $l->fresh()->sole_mandate_wording, 'matched when the snippet arrived');
+        $this->assertSame('wording', $this->row($tp)['sole_mandate_source']);
+
+        $none = $this->advert($this->file(), ['agency_name' => 'x']);
+        $this->assertNull($none->sole_mandate_wording, 'no text read yet = not matched, not "no"');
+
+        // back-fill / re-match: a row written without the model (the capture back-fill uses plain updates) is picked up
+        DB::table('prospecting_listings')->where('id', $none->id)->update(['description' => 'Exclusive mandate - call us']);
+        $dry = app(\App\Services\Prospecting\MicWork\SoleMandateMatcher::class)->rematchAgency($this->a->id, false);
+        $this->assertSame(['checked' => 2, 'matched' => 2, 'was_matched' => 1, 'changed' => 1], $dry);
+        $this->assertNull(DB::table('prospecting_listings')->where('id', $none->id)->value('sole_mandate_wording'), 'a dry run writes nothing');
+        app(\App\Services\Prospecting\MicWork\SoleMandateMatcher::class)->rematchAgency($this->a->id, true);
+        $this->assertSame(1, (int) DB::table('prospecting_listings')->where('id', $none->id)->value('sole_mandate_wording'));
+
+        // the agency changes its words: the stored flags are re-matched at once
+        MicAgencySetting::saveValues($this->a->id, ['mandate_words' => 'alleenverkoper']);
+        $this->assertSame(0, (int) $l->fresh()->sole_mandate_wording);
+        $this->assertFalse($this->row($tp)['is_sole_mandate']);
+        $other = $this->advert($this->file([], $this->b), ['description_snippet' => 'sole mandate']);
+        $this->assertSame(1, (int) $other->sole_mandate_wording, "another agency keeps the default words");
+    }
+
     public function test_group_member_count_and_stale_window(): void
     {
         $tp = $this->file(); $this->advert($tp, ['p24_group_id' => 777, 'last_seen_at' => now()->subDays(3)]);

@@ -271,8 +271,17 @@ class MicAgencySetting extends Model
     {
         $row = static::query()->firstOrNew(['agency_id' => $agencyId]);
         $patch = self::validateAdvertSettings($patch);
+        $words = $row->values['mandate_words'] ?? null;
         $row->values = array_merge($row->values ?? [], $patch);
         $row->save();
+        if (array_key_exists('mandate_words', $patch) && $patch['mandate_words'] !== $words) {
+            // the agency changed its mandate words: every advert's stored wording flag is re-matched (only adverts with text are touched)
+            try {
+                app(\App\Services\Prospecting\MicWork\SoleMandateMatcher::class)->rematchAgency($agencyId, true);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('sole mandate re-match failed', ['agency_id' => $agencyId, 'message' => $e->getMessage()]);
+            }
+        }
 
         return $row;
     }

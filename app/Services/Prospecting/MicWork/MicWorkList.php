@@ -185,7 +185,7 @@ final class MicWorkList
             ->get(['id', 'tracked_property_id', 'portal_source', 'portal_ref', 'portal_url', 'address', 'suburb', 'price', 'bedrooms', 'bathrooms', 'garages',
                 'property_size_m2', 'erf_size_m2', 'property_type', 'agent_name', 'agency_name', 'first_seen_at', 'last_seen_at', 'listed_date', 'is_active',
                 'portal_status', 'advertiser_type', 'is_reduced', 'canonical_ref', 'p24_suburb_id', 'p24_group_id', 'thumbnail_source_url', 'thumbnail_path',
-                'card_heading', 'description_snippet', 'description', 'photo_urls', 'photo_count', 'features', 'parking'])
+                'card_heading', 'description_snippet', 'description', 'photo_urls', 'photo_count', 'features', 'parking', 'sole_mandate_wording'])
             ->groupBy(fn ($l) => $l->tracked_property_id ?: -$l->id);
         $advertIds = $adverts->flatten()->pluck('id')->all();
 
@@ -370,7 +370,8 @@ final class MicWorkList
             $w = $work->get($key);
 
             // 13.4 sole mandate: the agency's mandate words in the advert's own wording (snippet or full text, whole phrase), else a P24 alert flagged mandated
-            $byWording = $live->contains(fn ($a) => MicAdvertFilters::mentionsMandate($a->description_snippet, $mandateWords) || MicAdvertFilters::mentionsMandate($a->description, $mandateWords));
+            $byWording = $live->contains(fn ($a) => $a->sole_mandate_wording !== null ? (bool) $a->sole_mandate_wording
+                : (MicAdvertFilters::mentionsMandate($a->description_snippet, $mandateWords) || MicAdvertFilters::mentionsMandate($a->description, $mandateWords)));
             $byAlert = collect($alertsByKey[$key] ?? [])->contains(fn ($x) => ! empty($x['mandated']));
             $firstOf = fn (string $col) => $live->pluck($col)->first(fn ($v) => $v !== null && trim((string) $v) !== '');
             $photos = $live->pluck('photo_urls')->map(fn ($v) => is_array($v) ? $v : (is_string($v) ? json_decode($v, true) : null))->first(fn ($v) => is_array($v) && $v !== []);
