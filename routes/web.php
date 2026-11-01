@@ -7602,13 +7602,15 @@ Route::prefix('rental-inventory-report')->group(function () {
 
 // ===== AUCTIONS v2 — PUBLIC AUCTION SITE + BUYER ACCOUNTS (.ai/specs/auctions.md §8, no staff login) =====
 // One branded site per agency at /auctions/{agency-slug}. Reads only published material (PublicAuctionSite); buyers sign up
-// and log in with the existing client login on the `client-web` session guard. Every write is throttled.
+// and log in with the existing client login on the `client-web` session guard. Every write is throttled. Each limit has its OWN counter
+// name (3rd throttle argument): the stock `throttle:N,1` shares ONE per-address counter across every route, so browsing pages used up the
+// sign-up allowance and a real sign-up got "Too many tries".
 Route::prefix('auctions/{agencySlug}')->where(['agencySlug' => '[A-Za-z0-9\-_]+'])->name('public.auctions.')->group(function () {
     $S = \App\Http\Controllers\Public\Auctions\SiteController::class;
     $A = \App\Http\Controllers\Public\Auctions\BuyerAuthController::class;
     $E = \App\Http\Controllers\Public\Auctions\EnquiryController::class;
 
-    Route::middleware('throttle:120,1')->group(function () use ($S, $A) {
+    Route::middleware('throttle:120,1,auction-site-pages')->group(function () use ($S, $A) {
         Route::get('/', [$S, 'home'])->name('home');
         Route::get('/a/{auction}', [$S, 'auction'])->whereNumber('auction')->name('auction');
         Route::get('/a/{auction}/documents/{document}', [$S, 'auctionDocument'])->whereNumber(['auction', 'document'])->name('auction.document');
@@ -7625,15 +7627,15 @@ Route::prefix('auctions/{agencySlug}')->where(['agencySlug' => '[A-Za-z0-9\-_]+'
         Route::get('/account/invoices/{invoice}/pdf', [$A, 'invoicePdf'])->whereNumber('invoice')->name('account.invoice');
     });
 
-    Route::post('/signup', [$A, 'signupSend'])->middleware('throttle:6,1')->name('signup.send');
-    Route::post('/signup/verify', [$A, 'signupComplete'])->middleware('throttle:10,1')->name('signup.complete');
-    Route::post('/login', [$A, 'login'])->middleware('throttle:10,1')->name('login.submit');
+    Route::post('/signup', [$A, 'signupSend'])->middleware('throttle:6,1,auction-signup-send')->name('signup.send');
+    Route::post('/signup/verify', [$A, 'signupComplete'])->middleware('throttle:10,1,auction-signup-verify')->name('signup.complete');
+    Route::post('/login', [$A, 'login'])->middleware('throttle:10,1,auction-login')->name('login.submit');
     Route::post('/logout', [$A, 'logout'])->name('logout');
-    Route::post('/forgot', [$A, 'forgotSend'])->middleware('throttle:6,1')->name('forgot.send');
-    Route::post('/forgot/reset', [$A, 'resetComplete'])->middleware('throttle:10,1')->name('forgot.complete');
-    Route::put('/account', [$A, 'accountUpdate'])->middleware('throttle:20,1')->name('account.update');
+    Route::post('/forgot', [$A, 'forgotSend'])->middleware('throttle:6,1,auction-forgot-send')->name('forgot.send');
+    Route::post('/forgot/reset', [$A, 'resetComplete'])->middleware('throttle:10,1,auction-forgot-reset')->name('forgot.complete');
+    Route::put('/account', [$A, 'accountUpdate'])->middleware('throttle:20,1,auction-account-update')->name('account.update');
 
-    Route::post('/a/{auction}/register', [\App\Http\Controllers\Public\Auctions\RegistrationController::class, 'submit'])->whereNumber('auction')->middleware('throttle:10,1')->name('register.submit');
+    Route::post('/a/{auction}/register', [\App\Http\Controllers\Public\Auctions\RegistrationController::class, 'submit'])->whereNumber('auction')->middleware('throttle:10,1,auction-register')->name('register.submit');
 
     // Enquiries: guests may send one. The limit has its own counter name so browsing lots never uses it up.
     Route::post('/a/{auction}/enquire', [$E, 'store'])->whereNumber('auction')->middleware('throttle:10,1,auction-enquiry')->name('enquire');

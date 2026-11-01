@@ -5,9 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>@yield('title', $siteTitle) — {{ $siteTitle }}</title>
     <meta name="robots" content="index,follow">
+    @if($isPreview ?? false)<meta name="color-scheme" content="light">@endif
     <style>
         :root { --brand: {{ $accent }}; --button: {{ $branding['colors']['button'] }}; --ink:#1f2937; --muted:#6b7280; --line:#e5e7eb; --bg:#f6f7f9; --card:#fff; }
+        @unless($isPreview ?? false)
         @media (prefers-color-scheme: dark) { :root { --ink:#e5e7eb; --muted:#9ca3af; --line:#374151; --bg:#111827; --card:#1f2937; } }
+        @endunless
         * { box-sizing: border-box; }
         body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
         a { color: var(--button); }

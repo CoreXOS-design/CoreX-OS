@@ -227,6 +227,17 @@ final class PublicAuctionSiteTest extends AuctionsV2TestCase
         $this->get("{$this->base()}/account")->assertOk()->assertSee('thandi@example.com');
     }
 
+    public function test_browsing_the_auction_site_never_uses_up_the_sign_up_allowance(): void
+    {
+        // Regression: every plain `throttle:N,1` route shared one per-address counter, so a person who had looked at a handful of pages
+        // was told "Too many tries" on their first sign-up. Each limit now has its own counter.
+        for ($i = 0; $i < 15; $i++) {
+            $this->get($this->base())->assertOk();
+        }
+        Mail::fake();
+        $this->post("{$this->base()}/signup", ['email' => 'browsed-first@example.com'])->assertRedirect("{$this->base()}/signup/verify");
+    }
+
     public function test_login_is_rate_limited(): void
     {
         $this->signUpBuyer();
