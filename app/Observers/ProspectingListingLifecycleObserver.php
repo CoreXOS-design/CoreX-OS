@@ -29,6 +29,10 @@ final class ProspectingListingLifecycleObserver
 
     public function updating(ProspectingListing $l): void
     {
+        if ($l->isDirty('last_seen_at')) {
+            $l->missed_crawls = 0;      // a sighting wipes the crawl-miss count (GoneRule)
+            $l->missed_crawl_id = null;
+        }
         if ($l->isDirty('portal_status') || ! $l->isDirty('last_seen_at') || $l->is_active !== true && (int) $l->is_active !== 1) {
             return;
         }

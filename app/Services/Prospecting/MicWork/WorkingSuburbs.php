@@ -128,35 +128,51 @@ final class WorkingSuburbs
             if ($r->portal_source !== 'p24' || ! $r->search_url) {
                 continue;
             }
-            $u = parse_url((string) $r->search_url);
-            $segments = array_values(array_filter(explode('/', (string) ($u['path'] ?? '')), fn ($x) => $x !== ''));
-            if (! str_contains((string) ($u['path'] ?? ''), '/alias/') && preg_match('~^[a-z-]*for-sale$~', $segments[0] ?? '')) {
-                $names = [];
-                foreach (array_slice($segments, 1) as $seg) {
-                    if (ctype_digit($seg) || preg_match('~^p\d+$~', $seg) || in_array($seg, ['kwazulu-natal', 'gauteng', 'western-cape', 'eastern-cape', 'free-state', 'limpopo', 'mpumalanga', 'north-west', 'northern-cape'], true)) {
-                        break;
-                    }
-                    $names[] = $seg;
-                }
-                $last = array_values(array_filter($segments, 'ctype_digit'));
-                if (count($names) >= 2 && $last !== []) {
-                    $count((int) end($last));
-                }
-            }
-            parse_str((string) ($u['query'] ?? ''), $q);
-            $sp = [];
-            if (isset($q['sp'])) {
-                parse_str((string) $q['sp'], $sp);
-            }
-            $list = $sp['s'] ?? ($q['s'] ?? null);
-            foreach (is_string($list) && $list !== '' ? explode(',', $list) : [] as $x) {
-                if (ctype_digit(trim($x))) {
-                    $count((int) trim($x));
-                }
+            foreach (self::p24IdsNamedByUrl((string) $r->search_url) as $p24Id) {
+                $count($p24Id);
             }
         }
 
         return $found;
+    }
+
+    /**
+     * The P24 suburb ids (p24_suburbs.p24_id) a P24 results URL names: the suburb in its path (`/for-sale/<suburb>/<town>/<province>/<id>` - two names before the province)
+     * or the `s=` list of an advanced search. A town (one name), a region (`/alias/`) or `cid=` towns name none. Used for "which suburbs did this search READ completely".
+     *
+     * @return list<int>
+     */
+    public static function p24IdsNamedByUrl(string $url): array
+    {
+        $out = [];
+        $u = parse_url($url);
+        $segments = array_values(array_filter(explode('/', (string) ($u['path'] ?? '')), fn ($x) => $x !== ''));
+        if (! str_contains((string) ($u['path'] ?? ''), '/alias/') && preg_match('~^[a-z-]*for-sale$~', $segments[0] ?? '')) {
+            $names = [];
+            foreach (array_slice($segments, 1) as $seg) {
+                if (ctype_digit($seg) || preg_match('~^p\d+$~', $seg) || in_array($seg, ['kwazulu-natal', 'gauteng', 'western-cape', 'eastern-cape', 'free-state', 'limpopo', 'mpumalanga', 'north-west', 'northern-cape'], true)) {
+                    break;
+                }
+                $names[] = $seg;
+            }
+            $last = array_values(array_filter($segments, 'ctype_digit'));
+            if (count($names) >= 2 && $last !== []) {
+                $out[] = (int) end($last);
+            }
+        }
+        parse_str((string) ($u['query'] ?? ''), $q);
+        $sp = [];
+        if (isset($q['sp'])) {
+            parse_str((string) $q['sp'], $sp);
+        }
+        $list = $sp['s'] ?? ($q['s'] ?? null);
+        foreach (is_string($list) && $list !== '' ? explode(',', $list) : [] as $x) {
+            if (ctype_digit(trim($x))) {
+                $out[] = (int) trim($x);
+            }
+        }
+
+        return $out;
     }
 
     /** @return list<int> the Areas ticked in the MIC Settings (our p24_suburbs.id) */

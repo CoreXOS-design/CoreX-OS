@@ -358,7 +358,9 @@ final class MicWorkList
             // Reduced (13.4 + Johan's 1 Nov addendum, CONFIDENT only): the portal's Reduced flag on the advert we show, OR that same advert (same portal ref) read at two
             // different prices inside the agency's reduced window. A different advert on the same property at another price is never a cut. old_price / cut_amount /
             // cut_date describe the latest such cut (null for the portal flag alone).
-            $recentCuts = array_values(array_filter($leadChanges, fn ($c) => $c['new'] < $c['old'] && $c['day'] >= $reducedSince));
+            // A cut only stands while the price is still BELOW what it was before that cut (a later rise back to or past it undoes it: 1,399,000 -> 1,350,000 -> 1,420,000
+            // is an increase, not a cut). old_price = the advert's own price before its last standing cut; cut_amount = old_price - the price now.
+            $recentCuts = array_values(array_filter($leadChanges, fn ($c) => $c['new'] < $c['old'] && $c['day'] >= $reducedSince && $priceNow > 0 && $priceNow < $c['old']));
             $isReduced = (bool) $lead->is_reduced || $recentCuts !== [];
             $lastCut = $recentCuts ? end($recentCuts) : null;
             $oldPrice = $lastCut ? (int) $lastCut['old'] : null;
@@ -428,7 +430,7 @@ final class MicWorkList
                 'parking' => $live->max('parking'),
                 'is_reduced' => $isReduced,
                 'old_price' => $oldPrice,
-                'cut_amount' => $lastCut ? (int) $lastCut['old'] - (int) $lastCut['new'] : null,
+                'cut_amount' => $lastCut ? (int) $lastCut['old'] - $priceNow : null,
                 'cut_date' => $lastCut['day'] ?? null,
                 'first_seen' => ($list->pluck('first_seen_at')->filter()->min())?->format('Y-m-d'),
                 'alert_count' => count($p24Alerts),

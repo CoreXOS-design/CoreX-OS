@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Prospecting;
 
+use App\Models\MicAgencySetting;
 use App\Models\MicCrawl;
 use App\Models\ProspectingListing;
 use Illuminate\Support\Facades\DB;
@@ -20,11 +21,11 @@ use Illuminate\Support\Facades\Log;
 final class GoneRule
 {
     /**
-     * @return array{gone:int, probably_sold:int, ids:list<int>, skipped_reason:?string}
+     * @return array{gone:int, probably_sold:int, waiting:int, ids:list<int>, skipped_reason:?string}
      */
     public function apply(MicCrawl $crawl, bool $dryRun = false): array
     {
-        $none = ['gone' => 0, 'probably_sold' => 0, 'ids' => []];
+        $none = ['gone' => 0, 'probably_sold' => 0, 'waiting' => 0, 'ids' => []];
         if (! $crawl->is_complete) {
             return $none + ['skipped_reason' => 'the crawl is not complete'];
         }
@@ -36,9 +37,19 @@ final class GoneRule
         }
         $subs = $crawl->relationLoaded('suburbs') ? $crawl->suburbs : $crawl->suburbs()->get();
         $ids = $subs->pluck('suburb_id')->filter()->map(fn ($i) => (int) $i)->unique()->values()->all();
-        $names = $subs->pluck('suburb_name')->filter()->map(fn ($n) => mb_strtolower(trim((string) $n)))->unique()->values()->all();
+        // a suburb is only COVERED when the search itself is that suburb (a Uvongo search that shows a few Margate adverts has not read Margate). A town- or region-level
+        // search names no suburb: then every suburb it recorded counts, as before.
+        $named = array_values(array_unique(array_map('intval', array_filter(array_map(
+            fn ($p24) => DB::table('p24_suburbs')->where('p24_id', $p24)->value('id'),
+            $crawl->portal === 'p24' ? \App\Services\Prospecting\MicWork\WorkingSuburbs::p24IdsNamedByUrl((string) $crawl->search_url) : []
+        )))));
+        $searchNamesSuburb = $named !== [];
+        if ($searchNamesSuburb) {
+            $ids = array_values(array_intersect($ids, $named));
+        }
+        $names = $searchNamesSuburb ? [] : $subs->pluck('suburb_name')->filter()->map(fn ($n) => mb_strtolower(trim((string) $n)))->unique()->values()->all();
         if (! $ids && ! $names) {
-            return $none + ['skipped_reason' => 'no suburb recognised on the adverts seen'];
+            return $none + ['skipped_reason' => $searchNamesSuburb ? 'the adverts seen are not in the suburb the search names' : 'no suburb recognised on the adverts seen'];
         }
 
         $q = ProspectingListing::withoutGlobalScopes()
@@ -56,15 +67,24 @@ final class GoneRule
                 }
             });
 
-        $rows = $q->get(['id', 'portal_status']);
+        // one complete crawl can miss a live advert (P24 re-orders pages while they are read): it is only set gone after the agency's number of consecutive complete
+        // crawls of its own suburb all missed it (default 2); every sighting resets the count
+        $confirm = MicAgencySetting::for((int) $crawl->agency_id)->goneConfirmCrawls();
+        $missed = $q->get(['id', 'portal_status', 'missed_crawls', 'missed_crawl_id']);
+        $rows = $missed->filter(fn ($r) => (int) $r->missed_crawl_id === (int) $crawl->id ? (int) $r->missed_crawls >= $confirm : (int) $r->missed_crawls + 1 >= $confirm)->values();
+        $waiting = $missed->reject(fn ($r) => $rows->contains('id', $r->id))->pluck('id')->all();
         $probablySold = $rows->where('portal_status', ProspectingListing::PORTAL_STATUS_UNDER_OFFER)->pluck('id')->all();
         $gone = $rows->pluck('id')->diff($probablySold)->values()->all();
-        $out = ['gone' => count($gone), 'probably_sold' => count($probablySold), 'ids' => $rows->pluck('id')->map(fn ($i) => (int) $i)->all(), 'skipped_reason' => null];
-        if ($dryRun || $rows->isEmpty()) {
+        $out = ['gone' => count($gone), 'probably_sold' => count($probablySold), 'waiting' => count($waiting), 'ids' => $rows->pluck('id')->map(fn ($i) => (int) $i)->all(), 'skipped_reason' => null];
+        if ($dryRun || ($rows->isEmpty() && $waiting === [])) {
             return $out;
         }
 
-        DB::transaction(function () use ($gone, $probablySold, $crawl) {
+        DB::transaction(function () use ($gone, $probablySold, $waiting, $crawl) {
+            if ($waiting) {
+                ProspectingListing::withoutGlobalScopes()->whereIn('id', $waiting)->where(fn ($w) => $w->whereNull('missed_crawl_id')->orWhere('missed_crawl_id', '<>', $crawl->id))
+                    ->update(['missed_crawls' => DB::raw('missed_crawls + 1'), 'missed_crawl_id' => $crawl->id]);
+            }
             $now = now();
             foreach ([[$gone, ProspectingListing::PORTAL_STATUS_GONE], [$probablySold, ProspectingListing::PORTAL_STATUS_PROBABLY_SOLD]] as [$set, $status]) {
                 if (! $set) {
@@ -77,7 +97,7 @@ final class GoneRule
             }
             $crawl->forceFill(['gone_count' => count($gone), 'probably_sold_count' => count($probablySold), 'gone_applied_at' => $now])->save();
         });
-        Log::info('MIC Gone rule applied', ['agency_id' => $crawl->agency_id, 'crawl_id' => $crawl->id, 'portal' => $crawl->portal, 'gone' => $out['gone'], 'probably_sold' => $out['probably_sold']]);
+        Log::info('MIC Gone rule applied', ['agency_id' => $crawl->agency_id, 'crawl_id' => $crawl->id, 'portal' => $crawl->portal, 'gone' => $out['gone'], 'probably_sold' => $out['probably_sold'], 'waiting_for_a_second_crawl' => $out['waiting']]);
 
         return $out;
     }

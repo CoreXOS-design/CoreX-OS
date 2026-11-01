@@ -35,6 +35,7 @@ class MicAgencySetting extends Model
         'areas'                      => [],
         'refresh_interval_days'      => 7,
         'gone_tile_days'             => 30,
+        'gone_confirm_crawls'        => 2,
         'neighbour_months'           => 6,
         'neighbour_each_side'        => 5,
         'area_agency_pages_per_run'  => 10,
@@ -256,6 +257,9 @@ class MicAgencySetting extends Model
     /** @return list<string> */
     public static function mandateWordsFor(int $agencyId): array { return static::for($agencyId)->mandateWords(); }
 
+    /** how many consecutive COMPLETE crawls of an advert's own suburb must miss it before it is set gone (1 = the first miss) */
+    public function goneConfirmCrawls(): int { return max(1, min(5, $this->positiveInt('gone_confirm_crawls'))); }
+
     public function goneTileDaysValue(): int { return $this->positiveInt('gone_tile_days'); }
 
     public function neighbourMonthsValue(): int { return min(6, $this->positiveInt('neighbour_months')); }
@@ -313,7 +317,7 @@ class MicAgencySetting extends Model
         if (array_key_exists('default_view', $patch) && ! in_array($patch['default_view'], ['adverts', 'list'], true)) {
             unset($patch['default_view']);
         }
-        foreach (['rows_per_page' => [10, 100], 'reduced_window_days' => [1, 730], 'stale_window_days' => [1, 365], 'mandate_length_days' => [1, 730]] as $key => [$lo, $hi]) {
+        foreach (['rows_per_page' => [10, 100], 'reduced_window_days' => [1, 730], 'stale_window_days' => [1, 365], 'mandate_length_days' => [1, 730], 'gone_confirm_crawls' => [1, 5]] as $key => [$lo, $hi]) {
             if (array_key_exists($key, $patch)) {
                 if (is_numeric($patch[$key])) {
                     $patch[$key] = max($lo, min($hi, (int) $patch[$key]));

@@ -41,6 +41,8 @@ final class CrawlRecordAndGoneRuleTest extends TestCase
         $this->u = User::factory()->create(['agency_id' => $this->a->id, 'branch_id' => $br->id, 'role' => 'agent']);
         $this->suburbUvongo = 9001;
         $this->suburbMargate = 9002;
+        // these tests are about the rule itself (what one complete crawl labels); the "missed twice" confirmation has its own test file
+        \App\Models\MicAgencySetting::saveValues($this->a->id, ['gone_confirm_crawls' => 1]);
     }
 
     private function search(array $attrs = [], ?Agency $agency = null): ProspectingSearch
