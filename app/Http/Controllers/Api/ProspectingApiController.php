@@ -173,7 +173,6 @@ class ProspectingApiController extends Controller
 
         // MIC capture lane — adverts the extension should open the listing page of (new, or price moved), the
         // P24 group recorder, and how many incoming values were malformed and dropped.
-        $needsDetail = [];
         $thumbRepairs = 0;
         $groupRecorder = app(P24GroupRecorder::class);
         $groupsRecorded = 0;
@@ -297,7 +296,6 @@ class ProspectingApiController extends Controller
 
                         $existing->price = $newPrice;
                         $existing->price_changed_at = $now;
-                        $needsDetail[$data['portal_ref']] = true;
                     }
                 }
 
@@ -388,7 +386,6 @@ class ProspectingApiController extends Controller
                 if ($listing->isDirty()) {
                     $listing->save();
                 }
-                $needsDetail[$data['portal_ref']] = true;
 
                 $this->assignPropertyGroup($listing, $agencyId);
                 $tpId = $this->linkToTrackedProperty($listing, $agencyId, $user->id);
@@ -494,8 +491,6 @@ class ProspectingApiController extends Controller
             'total'    => $imported + $updated,
             // MIC capture lane (spec 11.2): the adverts whose listing page the extension should read (new, or price
             // moved), capped by the agency's per-session limit; plus what was dropped as malformed.
-            'needs_detail'     => $detailOnly ? [] : array_slice(array_keys($needsDetail), 0, 500),
-            'limits'           => ['detail_pages_per_session' => $this->detailPageCap($agencyId)],
             'groups_recorded'  => $groupsRecorded,
             'dropped_fields'   => $droppedFields,
             'detail_unknown'   => $detailUnknown,
@@ -782,24 +777,6 @@ class ProspectingApiController extends Controller
         }
 
         return $written;
-    }
-
-    /** The agency's cap on listing-page reads per extension session (spec 11.2; MicAgencySetting is cc5's, default 40). */
-    private function detailPageCap(int $agencyId): int
-    {
-        $default = 40;
-        try {
-            if (class_exists(\App\Models\MicAgencySetting::class) && method_exists(\App\Models\MicAgencySetting::class, 'for')) {
-                $setting = \App\Models\MicAgencySetting::for($agencyId);
-                if (method_exists($setting, 'detailPagesPerSession')) {
-                    return max(0, (int) $setting->detailPagesPerSession());
-                }
-            }
-        } catch (\Throwable $e) {
-            Log::warning('MIC detail-page cap unreadable, using default (swallowed)', ['error' => $e->getMessage()]);
-        }
-
-        return $default;
     }
 
     /**

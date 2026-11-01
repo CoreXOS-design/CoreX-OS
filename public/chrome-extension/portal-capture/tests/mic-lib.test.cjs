@@ -453,17 +453,4 @@ t('3.15.2: a real P24 and a real PP advert page report their price and heading; 
   }
 });
 
-t('3.15.2: the advert-page step is off unless ticked, paced 8-12 s, and ends on the first page that does not read', () => {
-  const bg = fs.readFileSync(path.join(EXT, 'background.js'), 'utf8');
-  assert.match(bg, /readAdverts:\s+false/, 'default off');
-  assert.match(bg, /capture\.readAdverts = msg\.readAdverts === true/);
-  assert.match(bg, /if \(capture\.readAdverts && !capture\.cancelled && capture\.needsDetail\.length > 0/);
-  assert.match(bg, /sleep\(8000 \+ Math\.floor\(Math\.random\(\) \* 4000\)\)/);
-  assert.match(bg, /if \(!facts \|\| facts\.page_read !== true\) \{\s+stopped = true;\s+break;/);
-  assert.match(bg, /paused us - /);
-  const html = fs.readFileSync(path.join(EXT, 'popup.html'), 'utf8');
-  assert.match(html, /<input type="checkbox" id="readAdverts"(?![^>]*checked)[^>]*>/, 'the tick box is not pre-ticked');
-  assert.match(html, /Also read new advert pages \(slower\)/);
-});
-
 setTimeout(() => console.log('\n' + passed + ' passed' + (process.exitCode ? ' (with failures)' : '')), 50);

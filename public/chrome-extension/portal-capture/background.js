@@ -79,17 +79,6 @@ function defaultCaptureState() {
     sessionId:        null,
     startedAtIso:     null,
     suburb:           null,
-    // listing-page reads (new adverts / changed price only, capped per session by the agency setting)
-    needsDetail:      [],    // refs the server asked for
-    urlByRef:         {},    // ref -> listing url (from the tiles we sent)
-    detailCap:        40,
-    detailDone:       0,
-    detailTotal:      0,
-    detailPhase:      false,
-    readAdverts:      false, // 3.15.2: reading the advert pages is OFF unless the agent ticked the box in the popup
-    detailStopped:    false, // the portal stopped answering properly: the step was ended early
-    detailLeft:       0,     // adverts of this run that were not read (they stay queued for the next run)
-    detailMessage:    null,
     reloadPage1:      false, // PP: the user's page had the "exclude sold / under offer" filter - read page 1 again without it
   };
 }
@@ -278,12 +267,6 @@ function getCaptureStatus() {
     parseWarnings:    capture.parseWarnings,
     rateLimitPauses:  capture.rateLimitPauses,
     batchesSent:      capture.batchesSent,
-    detailPhase:      capture.detailPhase,
-    detailDone:       capture.detailDone,
-    detailTotal:      capture.detailTotal,
-    detailStopped:    capture.detailStopped,
-    detailLeft:       capture.detailLeft,
-    detailMessage:    capture.detailMessage,
   };
 }
 
@@ -636,19 +619,10 @@ async function sendBatchToApi(listings, context) {
     search_context: { ...context, crawl: crawlBlock(!!context.capture_complete) },
     listings: listings,
   };
-  listings.forEach(l => { if (l && l.portal_ref && l.portal_url) capture.urlByRef[l.portal_ref] = l.portal_url; });
-
   try {
     const result = await handleSendToCorex(capture.apiUrl, capture.apiToken, payload);
 
     if (result && !result.error) {
-      // MIC capture (3.13.0): remember which adverts the server wants the listing page of, and the agency's cap.
-      if (Array.isArray(result.needs_detail)) {
-        result.needs_detail.forEach(r => { if (capture.needsDetail.indexOf(r) === -1) capture.needsDetail.push(r); });
-      }
-      if (result.limits && Number.isFinite(result.limits.detail_pages_per_session)) {
-        capture.detailCap = result.limits.detail_pages_per_session;
-      }
       capture.sentListings += listings.length;
       capture.importedCount += (result.imported || 0);
       capture.updatedCount += (result.updated || 0);
@@ -833,123 +807,6 @@ function navigateTab(tabId, url) {
   });
 }
 
-// Private Property keeps its parsed page data in window.serverVariables (MAIN world). Read ONLY the public fields we
-// need: agency, the listed contact's NAME and id, the map point, the description (hashed later, never sent).
-function ppServerVariablesFn() {
-  var sv = (window.serverVariables || {});
-  var bp = sv.bundleParams || {};
-  var agency = bp.agencyInfo || null;
-  var contacts = bp.contactDetails || [];
-  var contact = contacts.filter(function (c) { return c.contactType === 'Agent'; })[0] || contacts[0] || null;
-  var photos = bp.galleryPhotos || [];
-  var first = photos[0] || null;
-  return {
-    hasAgency: !!agency,
-    agencyName: agency ? (agency.agencyName || null) : null,
-    agencyId: agency ? (agency.agencyId || agency.id || null) : null,
-    contactName: contact ? (contact.name || null) : null,
-    agentId: contact ? (contact.agentId || contact.id || null) : null,
-    lat: bp.mapCoOrdinates ? bp.mapCoOrdinates.lat : null,
-    lng: bp.mapCoOrdinates ? bp.mapCoOrdinates.lng : null,
-    description: bp.description || '',
-    photoUrl: first ? (first.mediumUrl || (first.srcSet && first.srcSet[0]) || null) : null,
-  };
-}
-
-async function readPpServerVariables(tabId) {
-  try {
-    const res = await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: ppServerVariablesFn });
-    return (res && res[0] && res[0].result) || {};
-  } catch (e) { return {}; }
-}
-
-// Difference hash of a photo (16 hex chars): the bytes are fetched, shrunk to 9x8 grey, compared pixel to pixel, and
-// thrown away. Same photo on P24 and on PP gives (nearly) the same hash. Needs the image host to allow a cross-origin
-// read; when it does not, the answer is null - never a made-up value.
-async function photoFingerprint(url) {
-  try {
-    if (!url || typeof createImageBitmap !== 'function' || typeof OffscreenCanvas === 'undefined') return null;
-    const resp = await fetch(url, { mode: 'cors', credentials: 'omit' });
-    if (!resp.ok) return null;
-    const bmp = await createImageBitmap(await resp.blob(), { resizeWidth: 9, resizeHeight: 8, resizeQuality: 'high' });
-    const cv = new OffscreenCanvas(9, 8);
-    const ctx = cv.getContext('2d');
-    ctx.drawImage(bmp, 0, 0, 9, 8);
-    const px = ctx.getImageData(0, 0, 9, 8).data;
-    const g = (x, y) => { const i = (y * 9 + x) * 4; return 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]; };
-    let bits = '';
-    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) bits += g(x, y) > g(x + 1, y) ? '1' : '0';
-    let hex = '';
-    for (let i = 0; i < 64; i += 4) hex += parseInt(bits.slice(i, i + 4), 2).toString(16);
-    return hex;
-  } catch (e) { return null; }
-}
-
-async function postDetailBatch(listings, context) {
-  const payload = {
-    source: capture.portal,
-    search_context: { ...context, detail_only: true, capture_complete: false, crawl: crawlBlock(false) },
-    listings,
-  };
-  try {
-    await handleSendToCorex(capture.apiUrl, capture.apiToken, payload);
-  } catch (err) {
-    // keep it for the durable queue; the next send replays it
-    try { await queueLocally(payload); } catch (e) { /* storage full: the tile data is already safe */ }
-  }
-}
-
-async function runDetailPhase(context) {
-  const refs = capture.needsDetail.filter(r => capture.urlByRef[r]).slice(0, capture.detailCap);
-  capture.detailTotal = refs.length;
-  capture.detailPhase = true;
-  const out = [];
-  let stopped = false;
-  try {
-    for (let i = 0; i < refs.length; i++) {
-      const ref = refs[i];
-      if (capture.cancelled) break;
-      let facts = null;
-      try {
-        await navigateTab(capture.tabId, capture.urlByRef[ref]);
-        await sleep(600);
-        const msg = { action: 'getListingFacts' };
-        if (capture.portal === 'pp') msg.sv = await readPpServerVariables(capture.tabId);
-        const res = await sendTabMessage(capture.tabId, msg);
-        facts = res && res.facts;
-      } catch (e) { facts = null; }
-      // 3.15.2: the first page that did not read (error / "server unavailable" / no price or heading, or the tab would not load)
-      // ENDS the step. Nothing is sent for it, so it stays unread and is asked for again on the next run.
-      if (!facts || facts.page_read !== true) {
-        stopped = true;
-        break;
-      }
-      const photoUrl = facts._photo_url;
-      delete facts._photo_url;
-      delete facts._ref;
-      const fp = await photoFingerprint(photoUrl);
-      if (fp) facts.first_photo_fingerprint = fp;
-      out.push(Object.assign({ portal_ref: ref, portal_url: capture.urlByRef[ref] }, facts));
-      capture.detailDone++;
-      if (out.length >= 5) await postDetailBatch(out.splice(0, out.length), context);
-      // one advert page every 8-12 s: slower than the search pages, so the portal is never hit hard
-      if (i < refs.length - 1) await sleep(8000 + Math.floor(Math.random() * 4000));
-    }
-    if (out.length > 0) await postDetailBatch(out.splice(0, out.length), context);
-  } finally {
-    capture.detailPhase = false;
-    capture.detailLeft = Math.max(0, refs.length - capture.detailDone);
-    if (stopped) {
-      capture.detailStopped = true;
-      capture.detailMessage = (capture.portal === 'pp' ? 'Private Property' : 'P24') + ' paused us - ' + capture.detailDone + ' read, ' + capture.detailLeft + ' left for next run';
-    } else if (!capture.cancelled && refs.length > 0) {
-      capture.detailMessage = capture.detailDone + ' advert pages read';
-    }
-    // leave the agent's tab where the search was
-    try { await chrome.tabs.update(capture.tabId, { url: buildPageUrl(capture.baseUrl, 1, capture.portal) }); } catch (e) { /* tab closed */ }
-  }
-}
-
 // ── Main capture loop ──────────────────────────────────────
 async function startCapture(msg) {
   capture = defaultCaptureState();
@@ -962,7 +819,6 @@ async function startCapture(msg) {
   capture.apiUrl      = msg.apiUrl;
   capture.apiToken    = msg.apiToken;
   capture.tabId       = msg.tabId;
-  capture.readAdverts = msg.readAdverts === true;
   capture.startTime   = Date.now();
   capture.sessionId   = (self.crypto && self.crypto.randomUUID) ? self.crypto.randomUUID() : null;
   capture.startedAtIso = new Date().toISOString();
@@ -1138,16 +994,7 @@ async function runCaptureLoop(startPage) {
       await sendBatchToApi(batch, context);
     }
 
-    // MIC capture (3.13.0): AFTER the complete-suburb batch (so the reconcile is untouched), read the listing page of
-    // each new / re-priced advert the server asked for, up to the agency's cap, and send what the pages show.
-    if (capture.readAdverts && !capture.cancelled && capture.needsDetail.length > 0 && capture.detailCap > 0) {
-      try {
-        await runDetailPhase(context);
-      } catch (e) {
-        // listing pages are a bonus: a failure here never turns a good tile capture into an error
-        capture.error = null;
-      }
-    }
+    // 3.15.2: a search run ends here. It reads the search-results pages only; no advert page is ever opened.
 
     // Mark complete
     capture.active = false;
@@ -1167,8 +1014,7 @@ async function runCaptureLoop(startPage) {
           type: 'basic',
           iconUrl: 'icons/icon-128.png',
           title: 'CoreX: Capture Complete',
-          message: count.toLocaleString() + ' listings captured from ' + portalName
-            + (capture.detailDone ? ' (' + capture.detailDone + ' listing pages read)' : ''),
+          message: count.toLocaleString() + ' listings captured from ' + portalName,
           priority: 2,
         });
       } catch (e) { /* notifications may not be available */ }

@@ -61,7 +61,7 @@ final class MicCaptureIngestTest extends TestCase
         return ProspectingListing::withoutGlobalScopes()->where('agency_id', $this->agency->id)->where('portal_ref', $ref)->firstOrFail();
     }
 
-    public function test_tile_facts_are_stored_and_the_advert_is_offered_for_a_listing_page_read(): void
+    public function test_tile_facts_are_stored_and_no_listing_page_read_is_asked_for(): void
     {
         Sanctum::actingAs($this->user);
         $res = $this->postJson(self::URL, $this->body([$this->tile([
@@ -71,8 +71,7 @@ final class MicCaptureIngestTest extends TestCase
             'wording_fingerprint' => str_repeat('ab', 20), 'first_photo_fingerprint' => str_repeat('0f', 20),
         ])]))->assertOk();
 
-        $res->assertJsonPath('imported', 1)->assertJsonPath('needs_detail.0', 'P24-116922912')
-            ->assertJsonPath('limits.detail_pages_per_session', 40)->assertJsonPath('dropped_fields', 0);
+        $res->assertJsonPath('imported', 1)->assertJsonPath('dropped_fields', 0)->assertJsonMissingPath('needs_detail')->assertJsonMissingPath('limits');
 
         $l = $this->listing();
         $this->assertSame('agency', $l->advertiser_type);
@@ -157,10 +156,10 @@ final class MicCaptureIngestTest extends TestCase
         $this->postJson(self::URL, $this->body([$this->tile([
             'agent_name' => 'Jane Smith', 'agent_portal_id' => '55', 'listed_date' => '2026-09-01', 'rates_amount' => 1450,
             'levies_amount' => 2100, 'portal_latitude' => -30.8588, 'portal_longitude' => 30.3711, 'page_read' => true, 'page_price' => 1495000, 'page_heading' => 'A house for sale',
-        ])], ['detail_only' => true]))->assertOk()->assertJsonPath('needs_detail', []);
+        ])], ['detail_only' => true]))->assertOk();
 
         // an ordinary tile re-sight, same price, none of the new keys, no agent
-        $this->postJson(self::URL, $this->body([$this->tile()]))->assertOk()->assertJsonPath('needs_detail', []);
+        $this->postJson(self::URL, $this->body([$this->tile()]))->assertOk();
 
         $l = $this->listing();
         $this->assertSame('Jane Smith', $l->agent_name);
@@ -261,12 +260,13 @@ final class MicCaptureIngestTest extends TestCase
         $this->assertSame('2026-08-15', $this->listing()->listed_date->toDateString());
     }
 
-    public function test_a_changed_price_asks_for_a_listing_page_read_an_unchanged_one_does_not(): void
+    public function test_neither_a_new_advert_nor_a_changed_price_asks_for_a_listing_page_read(): void
     {
         Sanctum::actingAs($this->user);
         $this->postJson(self::URL, $this->body([$this->tile()]))->assertOk();
-        $this->postJson(self::URL, $this->body([$this->tile()]))->assertOk()->assertJsonPath('needs_detail', []);
-        $this->postJson(self::URL, $this->body([$this->tile(['price' => 1450000])]))->assertOk()->assertJsonPath('needs_detail.0', 'P24-116922912');
+        $this->postJson(self::URL, $this->body([$this->tile()]))->assertOk()->assertJsonMissingPath('needs_detail');
+        $this->postJson(self::URL, $this->body([$this->tile(['price' => 1450000])]))->assertOk()->assertJsonMissingPath('needs_detail');
+        $this->assertSame(1450000, (int) $this->listing()->price, 'the price change itself is still recorded');
     }
 
     public function test_each_crawl_session_gets_its_own_search_row_and_complete_never_goes_back(): void
