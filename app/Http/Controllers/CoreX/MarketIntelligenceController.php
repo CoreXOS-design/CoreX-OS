@@ -165,7 +165,9 @@ class MarketIntelligenceController extends Controller
         ) || $claimFilter === 'my_claims'
             // the tiles that describe the offer / sold / gone adverts and OUR OWN stock show those adverts: the canvass defaults (active only, own stock and
             // pitch-locked hidden) would empty exactly the list the tile counted
-            || in_array((string) $request->query('tile'), \App\Services\Prospecting\MicWork\MicWorkTiles::SHOW_EVERYTHING, true);
+            || in_array((string) $request->query('tile'), \App\Services\Prospecting\MicWork\MicWorkTiles::SHOW_EVERYTHING, true)
+            // "Claimed: mine / others" is about claimed adverts, which the canvass list otherwise hides
+            || in_array((string) ($micFilters['claimed'] ?? ''), ['mine', 'others'], true);
 
         // F.1: default to canvassing pool only (exclude already-mandated stock).
         // Manager toggle ?include_in_stock=1 bypasses for audit purposes.
@@ -644,9 +646,9 @@ class MarketIntelligenceController extends Controller
         $sortBy = $request->get('sort', $hasScores ? 'score' : 'last_seen_at');
         $sortDir = $request->get('dir', 'desc');
         $allowedSorts = ['last_seen_at', 'first_seen_at', 'price', 'suburb'];
-        if ($sortBy === 'score' && $hasScores) {
-            $query->orderByRaw('(SELECT s.score FROM mic_file_stats s WHERE s.agency_id = prospecting_listings.agency_id AND s.tracked_property_id = prospecting_listings.tracked_property_id) IS NULL')
-                ->orderByRaw('(SELECT s.score FROM mic_file_stats s WHERE s.agency_id = prospecting_listings.agency_id AND s.tracked_property_id = prospecting_listings.tracked_property_id) ' . ($sortDir === 'asc' ? 'asc' : 'desc'))
+        $exprSort = \App\Services\Prospecting\ProspectingListingPageResolver::EXPR_SORTS;
+        if (isset($exprSort[$sortBy]) && ($sortBy !== 'score' || $hasScores) && \App\Services\Prospecting\MicWork\MicWorkList::hasFileStats()) {
+            $query->orderByRaw($exprSort[$sortBy][1] . ' ' . ($sortDir === 'asc' ? 'asc' : 'desc'))
                 ->orderBy('last_seen_at', 'desc');
         } elseif (in_array($sortBy, $allowedSorts)) {
             $query->orderBy($sortBy, $sortDir === 'asc' ? 'asc' : 'desc');
@@ -676,7 +678,7 @@ class MarketIntelligenceController extends Controller
         $injectedStockCountBySuburb = [];
 
         if ($useFastPath) {
-            $effectiveSortBy = ($sortBy === 'score' && $hasScores) || in_array($sortBy, $allowedSorts) ? $sortBy : 'last_seen_at';
+            $effectiveSortBy = (isset($exprSort[$sortBy]) && ($sortBy !== 'score' || $hasScores)) || in_array($sortBy, $allowedSorts) ? $sortBy : 'last_seen_at';
             $effectiveSortDir = $sortDir === 'asc' ? 'asc' : 'desc';
 
             $resolved = $pageResolver->resolvePage(clone $query, $effectiveSortBy, $effectiveSortDir, $page, $perPage, (int) $agencyId);
@@ -1150,6 +1152,7 @@ class MarketIntelligenceController extends Controller
         $sourceByListingId = app(\App\Services\Prospecting\PropertySourceFacts::class)->forListings((int) $agencyId, $listings->items());
         $rowExtras = $this->classicRowExtras($listings->items(), (int) $agencyId);
         $tileNote = $this->tileNote($request, $listings->total(), (int) $agencyId, $user);
+        $suburbOptions = app(\App\Services\Prospecting\MicWork\MicAdvertFilters::class)->suburbOptions((int) $agencyId);
 
         $listingIdsForTiers = collect($listings->items())->pluck('id')->all();
         $buyerTiers = app(\App\Services\Prospecting\BuyerMatchTierService::class)
@@ -1252,6 +1255,8 @@ class MarketIntelligenceController extends Controller
                 'listings'                       => $listings,
                 'listingStates'                  => $listingStates,
                 'sourceByListingId'              => $sourceByListingId,
+                'micViewChoice'                  => $micViewChoice,
+                'suburbOptions'                  => $suburbOptions,
                 'rowExtras'                      => $rowExtras,
                 'buyerTiers'                     => $buyerTiers,
                 'tierConfig'                     => $tierConfig,
@@ -1280,7 +1285,7 @@ class MarketIntelligenceController extends Controller
             return response()->json([
                 'listings'      => view('corex.market-intelligence._listings', $fragmentData)->render(),
                 'statsStrip'    => view('corex.market-intelligence._stats-strip', $fragmentData)->render(),
-                'filterRail'    => view('corex.market-intelligence._filter-rail', $fragmentData)->render(),
+                'filterRail'    => view('corex.market-intelligence._filter-bar', $fragmentData)->render(),
                 'headerActions' => view('corex.market-intelligence.partials._header-actions', $fragmentData + ['showTicks' => false])->render(),
                 'buyerLegend'   => view('corex.market-intelligence._buyer-match-legend', $fragmentData)->render(),
                 'url'           => $canonicalUrl,
@@ -1332,7 +1337,7 @@ class MarketIntelligenceController extends Controller
             // never touches $listing itself.
             'displayAddressByListingId',
             'sourceByListingId',
-            'rowExtras', 'tilesDeferred', 'tileNote',
+            'rowExtras', 'tilesDeferred', 'tileNote', 'suburbOptions',
         ));
     }
 

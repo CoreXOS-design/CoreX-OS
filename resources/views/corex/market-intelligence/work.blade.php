@@ -60,6 +60,12 @@
 @include('corex.market-intelligence.partials._work-property-list')
 </div>
 @else
+{{-- Top filter bar (mic-work-tab.md 13.2), directly under the tiles. It replaces the left column: the quick filters, the chips, the sort and the
+     Adverts | List switch, and under "More filters" every old group, the buyer-match legend and the ticks. The swap target for a tick refresh. --}}
+<div id="mic-slot-filter-rail" data-tour="mic-filters">
+@include('corex.market-intelligence._filter-bar')
+</div>
+
 {{-- Sticky offset is the main area's own top padding (p-4 / lg:p-6), set in the
      <style> block below, so the strip pins flush to the top edge of the scroll
      area — at top:0 a padding-high band above it showed the list scrolling
@@ -72,21 +78,7 @@
 {{-- F.8 — one-time dismissable intro banner. localStorage-gated. --}}
 @include('corex.market-intelligence._intro-banner')
 
-{{-- Buyer-tier legend + filter ticks (Johan 2026-08-19) — sits here, in the
-     empty band between the banner and the list, in normal flow. NOT inside
-     the scrolling list column (was overlaying the first property row when
-     it lived there) and NOT sticky. AJAX swap target like the other four
-     fragments below. --}}
-<div id="mic-slot-buyer-legend">
-@include('corex.market-intelligence._buyer-match-legend')
-</div>
-
-<div class="mi-split" data-tour="mic-list" style="display: grid; grid-template-columns: 200px 1fr; align-items: start;">
-    {{-- display:contents keeps the rail as grid column 1 while giving the swap a
-         stable target — a tick refresh replaces its contents in place. --}}
-    <div id="mic-slot-filter-rail" style="display:contents;">
-    @include('corex.market-intelligence._filter-rail')
-    </div>
+<div class="mi-split" data-tour="mic-list" style="display: grid; grid-template-columns: 1fr; align-items: start;">
 
     <main class="mi-main" id="mic-slot-listings" data-tour="mic-listings" style="min-width: 0; overflow-x: hidden; padding: 12px 16px;">
         @include('corex.market-intelligence._listings')
@@ -270,6 +262,12 @@
     /* Buyer rows in the rail: layout lives here, not inline, because Alpine's
        x-show removes the inline display property when it re-shows an element. */
     .mi-rail-row { display: flex; justify-content: space-between; align-items: center; }
+    /* the old left-column groups, now laid out in a grid inside the top bar's "More filters" */
+    .mi-filter-bar-more .mi-filter-rail {
+        width: auto; border-right: 0; position: static; max-height: none; overflow: visible; background: transparent;
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 0 14px; align-items: start;
+    }
+    .mi-filter-bar-more .mi-filter-rail > div { border: 1px solid var(--border); border-radius: 4px; margin-bottom: 8px; max-height: 300px; overflow-y: auto; }
     .mi-filter-rail {
         width: 200px;
         flex-shrink: 0;

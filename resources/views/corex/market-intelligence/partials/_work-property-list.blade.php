@@ -41,7 +41,7 @@
         {!! $chipLink('Show our stock too', ['include_in_stock' => request()->boolean('include_in_stock') ? null : '1'], request()->boolean('include_in_stock')) !!}
     @endif
     @if(request()->hasAny(['search', 'source', 'tile', 'is_active', 'suburb', 'address_filter', 'include_in_stock']))
-        <a href="{{ route('market-intelligence.work') }}" style="font-size:.75rem; color: var(--brand-icon); text-decoration:none;">Clear</a>
+        <a href="{{ route('market-intelligence.work', ['clear' => 1]) }}" style="font-size:.75rem; color: var(--brand-icon); text-decoration:none;">Clear</a>
     @endif
     <span data-qa="work-count" style="margin-left:auto; font-size:.75rem; color: var(--text-muted);">
         {{ $listings->total() ? number_format($listings->firstItem()) . '-' . number_format($listings->lastItem()) . ' of ' . number_format($listings->total()) : '0' }} properties
@@ -111,7 +111,7 @@
             </div>
         @empty
             <div data-qa="work-empty" style="padding: 28px 12px; text-align: center; font-size: .875rem; color: var(--text-muted);">
-                Nothing matches. <a href="{{ route('market-intelligence.work') }}" style="color: var(--brand-icon); text-decoration:none;">Clear the filters</a>.
+                Nothing matches. <a href="{{ route('market-intelligence.work', ['clear' => 1]) }}" style="color: var(--brand-icon); text-decoration:none;">Clear the filters</a>.
             </div>
         @endforelse
     </div>

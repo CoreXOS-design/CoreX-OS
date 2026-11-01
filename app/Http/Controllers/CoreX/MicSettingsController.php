@@ -64,6 +64,11 @@ final class MicSettingsController extends Controller
                 'area_street_pages_per_run' => $s->areaStreetPagesPerRunValue(),
                 'opt_out_registry_check' => $s->optOutRegistryCheck(),
                 'working_suburb_min_count' => $s->workingSuburbMinCount(),
+                'default_view' => $s->defaultView(),
+                'rows_per_page' => $s->rowsPerPage(),
+                'reduced_window_days' => $s->reducedWindowDays(),
+                'stale_window_days' => $s->staleWindowDays(),
+                'mandate_words' => implode("\n", $s->mandateWords()),
             ],
             'suburbs' => $suburbsSorted,
             'tiles' => MicWorkTiles::TILES,
@@ -80,6 +85,11 @@ final class MicSettingsController extends Controller
             'add_areas' => ['nullable', 'string', 'max:500'],
             'refresh_interval_days' => ['required', 'integer', 'min:1', 'max:60'],
             'working_suburb_min_count' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'default_view' => ['nullable', 'in:adverts,list'],
+            'rows_per_page' => ['nullable', 'integer', 'min:10', 'max:100'],
+            'reduced_window_days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            'stale_window_days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            'mandate_words' => ['nullable', 'string', 'max:2000'],
             'tiles_shown' => ['nullable', 'array'],
             'tiles_shown.*' => ['integer', 'between:1,11'],
             'weights' => ['required', 'array'],
@@ -115,6 +125,13 @@ final class MicSettingsController extends Controller
         MicAgencySetting::saveValues($agencyId, array_filter([
             // only when the form posted it (non-negotiable 10a: an older form without the field must not reset it)
             'working_suburb_min_count' => $request->filled('working_suburb_min_count') ? (int) $data['working_suburb_min_count'] : null,
+            // the Adverts view group (13.7): saved only when the form that posted it carried the group
+            'default_view' => $request->has('adverts_present') && $request->filled('default_view') ? $data['default_view'] : null,
+            'rows_per_page' => $request->has('adverts_present') && $request->filled('rows_per_page') ? (int) $data['rows_per_page'] : null,
+            'reduced_window_days' => $request->has('adverts_present') && $request->filled('reduced_window_days') ? (int) $data['reduced_window_days'] : null,
+            'stale_window_days' => $request->has('adverts_present') && $request->filled('stale_window_days') ? (int) $data['stale_window_days'] : null,
+            'mandate_words' => $request->has('adverts_present') && $request->filled('mandate_words')
+                ? array_values(array_unique(array_filter(array_map(fn ($w) => mb_strtolower(trim($w)), preg_split('/\R+/', (string) $data['mandate_words']) ?: []), fn ($w) => $w !== ''))) : null,
         ], fn ($v) => $v !== null) + [
             'areas' => array_values(array_unique($areas)),
             'refresh_interval_days' => (int) $data['refresh_interval_days'],

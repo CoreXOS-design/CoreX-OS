@@ -48,6 +48,17 @@ class ProspectingListingPageResolver
     /** Opportunity score (mic-work-tab.md 3): the file's stored score, files without one last. A correlated read of mic_file_stats - no join, so grouping is unchanged. */
     public const SCORE_EXPR = 'COALESCE((SELECT s.score FROM mic_file_stats s WHERE s.agency_id = prospecting_listings.agency_id AND s.tracked_property_id = prospecting_listings.tracked_property_id), -1)';
 
+
+    /**
+     * Sorts that come from the file's stored figures (cc5's mic_file_stats) rather than a column of the advert: key => [expression over the derived join `fs`,
+     * the same read as a correlated sub-select]. Biggest price cut = the rand cut so far; most buyers = strong-tier buyers.
+     */
+    public const EXPR_SORTS = [
+        'score' => ['COALESCE(fs.fs_score, -1)', self::SCORE_EXPR],
+        'cut' => ['COALESCE(fs.fs_cut, 0)', 'COALESCE((SELECT s.cut_amount FROM mic_file_stats s WHERE s.agency_id = prospecting_listings.agency_id AND s.tracked_property_id = prospecting_listings.tracked_property_id), 0)'],
+        'buyers' => ['COALESCE(fs.fs_buyers, 0)', 'COALESCE((SELECT s.buyers_strong FROM mic_file_stats s WHERE s.agency_id = prospecting_listings.agency_id AND s.tracked_property_id = prospecting_listings.tracked_property_id), 0)'],
+    ];
+
     /**
      * Whether the fast (SQL-paginated) path is safe to use for this request.
      * See class docblock for exactly what's excluded and why.
@@ -113,10 +124,10 @@ class ProspectingListingPageResolver
      */
     public function resolvePage(Builder $filteredQuery, string $sortBy, string $sortDir, int $page, int $perPage, ?int $agencyId = null): array
     {
-        $sortBy = in_array($sortBy, [...self::ALLOWED_SORTS, 'score'], true) ? $sortBy : 'last_seen_at';
+        $sortBy = in_array($sortBy, [...self::ALLOWED_SORTS, ...array_keys(self::EXPR_SORTS)], true) ? $sortBy : 'last_seen_at';
         $sortDir = $sortDir === 'asc' ? 'asc' : 'desc';
-        $isScore = $sortBy === 'score';
-        $sortExpr = $isScore ? self::SCORE_EXPR : $sortBy;   // what the window orders by
+        $isScore = isset(self::EXPR_SORTS[$sortBy]);
+        $sortExpr = $isScore ? self::EXPR_SORTS[$sortBy][1] : $sortBy;   // what the window orders by
         $sortCol = $isScore ? 'score_sort' : $sortBy;        // the column the outer query orders by
         $groupKeyExpr = "COALESCE(property_group_id, CONCAT('single_', id))";
 
@@ -149,13 +160,13 @@ class ProspectingListingPageResolver
         if ($joinScore) {
             // the file's score through a derived-table join with fs_* names (no clash with the filters' unqualified columns): about 40% faster than a
             // correlated read per row, same ordering
-            $sortExpr = 'COALESCE(fs.fs_score, -1)';
-            $ranked->leftJoinSub(DB::table('mic_file_stats')->where('agency_id', $agencyId)->select(['tracked_property_id as fs_tp', 'score as fs_score']), 'fs', 'fs.fs_tp', '=', 'prospecting_listings.tracked_property_id');
+            $sortExpr = self::EXPR_SORTS[$sortBy][0];
+            $ranked->leftJoinSub(DB::table('mic_file_stats')->where('agency_id', $agencyId)->select(['tracked_property_id as fs_tp', 'score as fs_score', 'cut_amount as fs_cut', 'buyers_strong as fs_buyers']), 'fs', 'fs.fs_tp', '=', 'prospecting_listings.tracked_property_id');
         }
         $ranked = $ranked
             ->select([
                 $idCol,
-                $isScore ? DB::raw(($joinScore ? $sortExpr : self::SCORE_EXPR) . ' as score_sort') : $sortBy,
+                $isScore ? DB::raw(($joinScore ? $sortExpr : self::EXPR_SORTS[$sortBy][1]) . ' as score_sort') : $sortBy,
                 DB::raw("{$groupKeyExpr} as group_key"),
                 DB::raw(
                     "ROW_NUMBER() OVER (PARTITION BY {$groupKeyExpr} ORDER BY {$sortExpr} {$sortDir}, {$idCol} ASC) as rn"
@@ -203,7 +214,7 @@ class ProspectingListingPageResolver
         if (empty($representativeIds)) {
             return collect();
         }
-        $sortBy = in_array($sortBy, [...self::ALLOWED_SORTS, 'score'], true) ? $sortBy : 'last_seen_at';
+        $sortBy = in_array($sortBy, [...self::ALLOWED_SORTS, ...array_keys(self::EXPR_SORTS)], true) ? $sortBy : 'last_seen_at';
         $sortDir = $sortDir === 'asc' ? 'asc' : 'desc';
 
         $representatives = (clone $unfilteredAgencyScopeQuery)
@@ -222,7 +233,7 @@ class ProspectingListingPageResolver
                     $q->orWhereIn('id', $singleIds);
                 }
             })
-            ->when($sortBy === 'score', fn ($q) => $q->orderByRaw(self::SCORE_EXPR . ' ' . $sortDir), fn ($q) => $q->orderBy($sortBy, $sortDir))
+            ->when(isset(self::EXPR_SORTS[$sortBy]), fn ($q) => $q->orderByRaw(self::EXPR_SORTS[$sortBy][1] . ' ' . $sortDir), fn ($q) => $q->orderBy($sortBy, $sortDir))
             ->orderBy('id', 'asc')
             ->get();
     }

@@ -102,6 +102,24 @@
             <label style="font-size:.8125rem; margin-left: 18px;">Street pages per run <input type="number" name="area_street_pages_per_run" min="1" max="1000" value="{{ old('area_street_pages_per_run', $values['area_street_pages_per_run']) }}" style="{{ $in }} width: 70px;"></label>
         </div>
 
+        <div style="{{ $box }}" data-qa="adverts-settings">
+            <input type="hidden" name="adverts_present" value="1">
+            <div style="{{ $lbl }}">Adverts view</div>
+            <p style="{{ $help }}">How the Work tab opens, how many adverts a page shows, and how a sole mandate or a price cut is recognised.</p>
+            <label style="font-size:.8125rem;">Opens in
+                <select name="default_view" style="{{ $in }}">
+                    <option value="adverts" @selected(old('default_view', $values['default_view']) === 'adverts')>Adverts</option>
+                    <option value="list" @selected(old('default_view', $values['default_view']) === 'list')>List</option>
+                </select></label>
+            <label style="font-size:.8125rem; margin-left: 18px;">Adverts per page <input type="number" name="rows_per_page" min="10" max="100" value="{{ old('rows_per_page', $values['rows_per_page']) }}" style="{{ $in }} width: 70px;"></label>
+            <label style="font-size:.8125rem; margin-left: 18px;">"Reduced" looks back <input type="number" name="reduced_window_days" min="1" max="365" value="{{ old('reduced_window_days', $values['reduced_window_days']) }}" style="{{ $in }} width: 70px;"> days</label>
+            <label style="font-size:.8125rem; margin-left: 18px;">Not seen for <input type="number" name="stale_window_days" min="1" max="365" value="{{ old('stale_window_days', $values['stale_window_days']) }}" style="{{ $in }} width: 70px;"> days is greyed</label>
+            <div style="margin-top: 8px;">
+                <label style="font-size:.8125rem; display: block; margin-bottom: 2px;">Words that mark a sole mandate (one per line)</label>
+                <textarea name="mandate_words" rows="4" style="{{ $in }} width: 320px; height: auto; padding: 6px 8px;">{{ old('mandate_words', $values['mandate_words']) }}</textarea>
+            </div>
+        </div>
+
         <div style="{{ $box }}">
             <label style="{{ $lbl }}"><input type="checkbox" name="opt_out_registry_check" value="1" @checked(old('opt_out_registry_check', $values['opt_out_registry_check']))> Check the do-not-contact registry before contacting an owner</label>
             <p style="{{ $help }}">Off for now, until the regulator's guidance is clear. When on, a call or message to an owner is checked against the registry first.</p>

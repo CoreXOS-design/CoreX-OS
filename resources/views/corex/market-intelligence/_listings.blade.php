@@ -131,31 +131,7 @@
                 </div>
             @endif
         </div>
-        <div style="display: flex; align-items: center; gap: 8px; font-size: 0.75rem; color: var(--text-muted);">
-            <label for="mi-sort-select" style="font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.625rem;">Sort</label>
-            <select id="mi-sort-select"
-                    onchange="(function(s){
-                        var url = new URL(window.location.href);
-                        var [k, d] = s.value.split('|');
-                        url.searchParams.set('sort', k);
-                        if (d) url.searchParams.set('dir', d); else url.searchParams.delete('dir');
-                        url.searchParams.delete('page');
-                        window.location.href = url.toString();
-                    })(this)"
-                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; cursor: pointer;">
-                @foreach($sortOptions as $key => $label)
-                    @php
-                        $dirOptions = $key === 'price' ? [['desc','↓'], ['asc','↑']] : [[$sortDir === 'asc' ? 'asc' : 'desc', '']];
-                    @endphp
-                    @foreach($dirOptions as [$dir, $marker])
-                    @php $selected = ($sortBy === $key) && ($sortDir === $dir || $marker === ''); @endphp
-                    <option value="{{ $key }}|{{ $dir }}" {{ $selected ? 'selected' : '' }}>
-                        {{ $label }}{{ $marker ? ' ' . $marker : '' }}
-                    </option>
-                    @endforeach
-                @endforeach
-            </select>
-        </div>
+        {{-- The SORT control moved to the top filter bar (mic-work-tab.md 13.2); this header keeps the row count. --}}
     </div>
 
     {{-- MIC property row comments — .ai/specs/mic-property-row-comments.md.
