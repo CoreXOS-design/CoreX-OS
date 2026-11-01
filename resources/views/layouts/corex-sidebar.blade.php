@@ -1514,7 +1514,8 @@
             $auctionNav = app(\App\Services\Auctions\AuctionNavCounts::class);
             $auctionBidsCount = $auctionNav->bids($user);
             $auctionEnquiriesCount = $auctionNav->enquiries($user);
-            $auctionTotalCount = $auctionBidsCount + $auctionEnquiriesCount;
+            $auctionBiddersCount = $auctionNav->registrations($user);
+            $auctionTotalCount = $auctionBidsCount + $auctionEnquiriesCount + $auctionBiddersCount;
         @endphp
         <div>
             <button type="button" @click="push('auctions')"
@@ -1546,7 +1547,10 @@
                 </div>
                 @endpermission
                 @permission('auctions.bidders.view')
-                <a href="{{ route('corex.auctions.bidders.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.bidders.*') ? 'active' : '' }}">Bidders</a>
+                <div style="position:relative;">
+                    <a href="{{ route('corex.auctions.bidders.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.bidders.*') ? 'active' : '' }}">Bidders</a>
+                    @if($auctionBiddersCount > 0)<span style="position:absolute;right:14px;top:50%;transform:translateY(-50%);pointer-events:none;display:inline-block;min-width:18px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;" data-auction-count="auctionbidders">{{ $auctionBiddersCount > 99 ? '99+' : $auctionBiddersCount }}</span>@endif
+                </div>
                 @endpermission
                 @permission('auctions.invoices.view')
                 <a href="{{ route('corex.auctions.invoices.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.invoices.*') ? 'active' : '' }}">Invoices</a>

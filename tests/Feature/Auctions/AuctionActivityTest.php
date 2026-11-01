@@ -158,6 +158,22 @@ final class AuctionActivityTest extends BiddingTestCase
         $this->assertSame(1, (new AuctionNavCounts)->enquiries($this->admin));
     }
 
+    public function test_the_bidders_number_counts_registrations_awaiting_approval_and_goes_down_when_one_is_dealt_with(): void
+    {
+        $this->assertSame(0, (new AuctionNavCounts)->registrations($this->admin));
+        $a = $this->registration($this->buyer('a@example.com'), 'pending');
+        $this->registration($this->buyer('b@example.com'), 'pending');
+        $this->registration($this->buyer('c@example.com'), 'approved');
+
+        $this->assertSame(2, (new AuctionNavCounts)->registrations($this->admin), 'only those still waiting');
+        $html = $this->get(route('corex.auctions.index'))->assertOk()->getContent();
+        $this->assertStringContainsString('data-auction-count="auctionbidders"', $html);
+
+        $a->forceFill(['status' => 'declined'])->save();
+        $this->assertSame(1, (new AuctionNavCounts)->registrations($this->admin));
+        $this->assertSame(1 + 0 + 0, (new AuctionNavCounts)->total($this->admin) - (new AuctionNavCounts)->bids($this->admin) - (new AuctionNavCounts)->enquiries($this->admin));
+    }
+
     public function test_the_bids_number_counts_new_online_bids_and_clears_when_the_bids_screen_is_opened(): void
     {
         $nav = fn () => (new AuctionNavCounts)->bids($this->admin);

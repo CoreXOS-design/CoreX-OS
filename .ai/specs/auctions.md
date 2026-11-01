@@ -314,6 +314,7 @@ Johan, verbatim: *"I need a page/section/tab inside the bidders page called Sign
 ### 19.3 Numbers on the sidebar links
 - **Enquiries** shows the number of enquiries still **New** that the person is allowed to see (counts what the screen is for; it goes down as enquiries are marked contacted/closed or archived).
 - **Bids** shows the number of **new bids since the person last opened the Bids screen** that they are allowed to see (online bids and auto-bids; floor bids typed in by staff are not counted). Opening the Bids screen clears it. First time ever: starts from zero.
+- **Bidders** shows the number of registrations still **awaiting approval** that the person is allowed to see (what the "Awaiting approval" tab lists; added 2026-11-01 after Johan noticed registering to bid gave no number). It goes down as each is approved or declined.
 - Hidden at 0, "99+" above 99. Same OWN / BRANCH / AGENCY visibility as the screens (`visibleTo`).
 
 ### 19.4 Alerts (in-app notifications)
