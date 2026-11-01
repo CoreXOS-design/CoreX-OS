@@ -96,14 +96,14 @@ final class PreviewPageTest extends AuctionsV2TestCase
         $this->assertStringContainsString('preview\\/frame', $html, 'links move around the preview (the JSON-escaped frame URL is in the page script), not the live site');
     }
 
-    public function test_the_preview_is_always_light_and_the_public_site_is_untouched(): void
+    public function test_the_preview_and_the_public_site_are_always_light(): void
     {
         $preview = $this->frame('/')->assertOk()->getContent();
         $this->assertStringNotContainsString('prefers-color-scheme: dark', $preview, 'the preview never switches to a dark look');
         $this->assertStringContainsString('name="color-scheme" content="light"', $preview);
 
         $this->asGuest();
-        $this->get($this->publicUrl())->assertOk()->assertSee('prefers-color-scheme: dark', false);
+        $this->get($this->publicUrl())->assertOk()->assertDontSee('prefers-color-scheme: dark', false)->assertSee('name="color-scheme" content="light"', false);
     }
 
     public function test_a_page_that_is_not_part_of_the_preview_is_explained_not_broken(): void

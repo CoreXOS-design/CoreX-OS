@@ -286,4 +286,4 @@ Dates can be changed but are limited to the auction's own dates. Rentals cannot 
 
 **Rules unchanged.** One live lot per property; a finished/cancelled auction takes no lots; a lot's window must sit inside its auction; permission `auctions.lots.manage`.
 
-**Preview is always light (2026-11-01, Johan).** Inside the Preview frame the public layout drops its dark-device colour scheme and declares `color-scheme: light`, so the preview shows the agency's own header/button colours on a light page whatever the staff member's device is set to. The live public site still follows the visitor's device.
+**The public auction site and the Preview are always light (2026-11-01, Johan).** The public layout has no dark-device colour scheme and declares `color-scheme: light`, so every visitor — and the Preview frame — sees the agency's own header/button colours on a light page whatever their device is set to. Test: `test_the_preview_and_the_public_site_are_always_light`.
