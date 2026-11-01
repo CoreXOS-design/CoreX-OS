@@ -716,7 +716,13 @@
 
         {{-- Existing keys --}}
         <div class="ds-status-card p-4 space-y-4" data-tour="smk-web-keys">
-            <h3 class="ds-section-header">Websites / API keys <span class="text-xs font-normal" style="color:var(--text-muted);" data-api-key-count>· {{ $agency->apiKeys->count() }} {{ $agency->apiKeys->count() === 1 ? 'website' : 'websites' }} connected</span></h3>
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+                <h3 class="ds-section-header" style="margin:0;">Websites / API keys <span class="text-xs font-normal" style="color:var(--text-muted);" data-api-key-count>· {{ $agency->apiKeys->count() }} {{ $agency->apiKeys->count() === 1 ? 'website' : 'websites' }} connected</span></h3>
+                @if(auth()->user()?->hasPermission('agency_api.manage'))
+                <a href="#new-website-key" class="corex-btn-primary text-sm" data-add-website
+                   onclick="var c=document.getElementById('new-website-key'); if(c){ c.scrollIntoView({behavior:'smooth',block:'start'}); var i=c.querySelector('input[name=name]'); if(i){ setTimeout(function(){ i.focus(); }, 400); } } return false;">+ Add another website</a>
+                @endif
+            </div>
             <p class="text-xs" style="color:var(--text-muted);">One agency can have as many websites as you like. Each website gets its <strong>own key</strong> with its own permissions, webhook and limit, and you can switch one off without touching the others. The key's name is the label shown as its Syndication Portal on every property.</p>
 
             @forelse($agency->apiKeys as $key)
@@ -863,7 +869,7 @@
 
         {{-- Generate a new key --}}
         @if(auth()->user()?->hasPermission('agency_api.manage'))
-        <div class="ds-status-card p-4 space-y-4" data-tour="smk-web-newkey">
+        <div class="ds-status-card p-4 space-y-4" id="new-website-key" data-tour="smk-web-newkey">
             <h3 class="ds-section-header">{{ $agency->apiKeys->count() > 0 ? 'Connect another website' : 'Connect a website' }}</h3>
             <p class="text-xs" style="color:var(--text-muted);">Make a separate key for every website. Pick what kind of website it is to tick the right permissions, then adjust if you need to.</p>
             <form method="POST" action="{{ route('agencies.api-keys.store', $agency) }}" class="space-y-4">
