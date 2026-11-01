@@ -110,6 +110,35 @@ final class AuctionLotPageTest extends BiddingTestCase
         $this->assertArrayNotHasKey('recent_bids', $this->getJson("/api/v1/auctions/public/lots/{$this->lot->id}/feed")->json());
     }
 
+    public function test_the_photos_open_in_a_gallery_a_visitor_can_click_through(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        foreach (['a', 'b', 'c'] as $n) {
+            \Illuminate\Support\Facades\Storage::disk('public')->put("properties/9/{$n}.jpg", 'x');
+        }
+        $this->lot->property->forceFill(['gallery_images_json' => ['/storage/properties/9/a.jpg', '/storage/properties/9/b.jpg', '/storage/properties/9/c.jpg']])->save();
+        $this->asGuest();
+
+        $html = $this->get($this->lotUrl())->assertOk()->getContent();
+        $this->assertStringContainsString('data-gallery', $html);
+        $this->assertStringContainsString('role="dialog"', $html);
+        $this->assertStringContainsString('View all 3 photos', $html);
+        $this->assertSame(3, substr_count($html, 'class="th"'), 'every photo, the first included, is a thumbnail that opens the gallery');
+        $this->assertStringContainsString('id="lb-prev"', $html);
+        $this->assertStringContainsString('id="lb-next"', $html);
+        $this->assertStringContainsString('properties\/9\/c.jpg', $html, 'the gallery script is given every photo');
+        $this->assertStringNotContainsString('target="_blank"', substr($html, strpos($html, 'data-photo-grid')), 'photos no longer open in a new tab');
+    }
+
+    public function test_a_lot_with_no_photos_has_no_gallery(): void
+    {
+        $this->asGuest();
+
+        $html = $this->get($this->lotUrl())->assertOk()->getContent();
+        $this->assertStringNotContainsString('data-gallery', $html);
+        $this->assertStringNotContainsString('View all', $html);
+    }
+
     public function test_an_empty_activity_list_invites_the_first_bid(): void
     {
         $this->asGuest();

@@ -47,6 +47,25 @@
         #bidbox { margin-top:18px; }
         #bidpanel > a.btn { display:block; text-align:center; margin-top:16px; padding:14px 18px; }
         .lot-main .btn.ghost { background:transparent; color:var(--brand) !important; border:2px solid var(--brand); }
+        .lot-hero img.ph.zoom { cursor:zoom-in; }
+        .hero-photos { position:absolute; right:16px; bottom:16px; z-index:2; display:inline-flex; align-items:center; gap:8px; background:#fff; color:var(--ink); border:0; border-radius:12px; padding:10px 16px; min-height:44px; font:inherit; font-weight:800; font-size:.9rem; cursor:pointer; box-shadow:0 6px 20px rgba(0,0,0,.25); }
+        .photos button.th { padding:0; border:0; background:none; cursor:zoom-in; border-radius:12px; overflow:hidden; display:block; }
+        .photos button.th:focus-visible, .hero-photos:focus-visible { outline:3px solid var(--button); outline-offset:2px; }
+        .lb { position:fixed; inset:0; z-index:1000; background:rgba(6,10,18,.97); display:flex; flex-direction:column; align-items:center; justify-content:center; padding:16px; box-sizing:border-box; }
+        .lb[hidden] { display:none; }
+        .lb figure { margin:0; flex:1 1 auto; min-height:0; width:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+        .lb figure img { max-width:100%; max-height:calc(100vh - 190px); object-fit:contain; border-radius:10px; display:block; user-select:none; }
+        .lb figcaption { margin-top:12px; color:#fff; font-weight:700; font-size:.9rem; letter-spacing:.04em; }
+        .lb .nav { position:absolute; top:50%; transform:translateY(-50%); width:52px; height:52px; border-radius:50%; border:0; background:rgba(255,255,255,.16); color:#fff; font-size:1.9rem; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+        .lb .nav:hover, .lb .x:hover { background:rgba(255,255,255,.3); }
+        .lb .prev { left:14px; } .lb .next { right:14px; }
+        .lb .x { position:absolute; top:14px; right:14px; width:48px; height:48px; border-radius:50%; border:0; background:rgba(255,255,255,.16); color:#fff; font-size:1.7rem; line-height:1; cursor:pointer; }
+        .lb button:focus-visible { outline:3px solid #fff; outline-offset:2px; }
+        .lb .thumbs { flex:0 0 auto; display:flex; gap:8px; overflow-x:auto; max-width:100%; padding:10px 4px 2px; }
+        .lb .thumbs button { flex:0 0 auto; width:76px; height:54px; padding:0; border:2px solid transparent; border-radius:8px; overflow:hidden; background:#222; cursor:pointer; opacity:.6; }
+        .lb .thumbs button[aria-current="true"] { border-color:#fff; opacity:1; }
+        .lb .thumbs img { width:100%; height:100%; object-fit:cover; display:block; }
+        @media (max-width:640px) { .lb .nav { width:44px; height:44px; } .lb .prev { left:6px; } .lb .next { right:6px; } .lb figure img { max-height:calc(100vh - 170px); } }
         @media (max-width:640px) { .lot-hero { height:380px; } .lot-hero h1 { font-size:2.2rem; } .facts > div { padding-left:14px; } }
 @endpush
 
@@ -57,7 +76,8 @@
         $closedLabel = $lot->status === 'sold' ? 'Sold' : ($lot->status === 'passed_in' ? 'Passed in' : ($lot->status === 'sold_subject_to_confirmation' ? 'Sold subject to confirmation' : 'Bidding ended'));
     @endphp
     <div class="lot-hero" data-lot-hero>
-        @if(count($photos))<img class="ph" src="{{ $photos[0] }}" alt="">@endif
+        @if(count($photos))<img class="ph zoom" src="{{ $photos[0] }}" alt="" data-open-gallery="0">@endif
+        @if(count($photos))<button type="button" class="hero-photos" data-open-gallery="0" aria-haspopup="dialog">&#9638; View {{ count($photos) > 1 ? 'all ' . count($photos) . ' photos' : 'photo' }}</button>@endif
         <div class="in">
             <div class="meta">
                 <span class="pill {{ $phase === 'open' ? 'live' : '' }}" id="phase-pill"><i></i><span id="phase-text">{{ $phase === 'open' ? 'Live · bidding open' : ($phase === 'upcoming' ? 'Upcoming' : $closedLabel) }}</span></span>
@@ -157,9 +177,9 @@
             @endif
 
             @if(count($photos) > 1)
-            <div style="margin-top:34px;">
-                <div class="eyebrow">More photos</div>
-                <div class="photos">@foreach(array_slice($photos, 1, 11) as $ph)<a href="{{ $ph }}" target="_blank" rel="noopener"><img src="{{ $ph }}" alt=""></a>@endforeach</div>
+            <div style="margin-top:34px;" data-photo-grid>
+                <div class="eyebrow">Photos ({{ count($photos) }})</div>
+                <div class="photos">@foreach($photos as $i => $ph)<button type="button" class="th" data-open-gallery="{{ $i }}" aria-label="Open photo {{ $i + 1 }} of {{ count($photos) }}"><img src="{{ $ph }}" alt="" loading="lazy"></button>@endforeach</div>
             </div>
             @endif
 
@@ -242,6 +262,44 @@
             </div>
         </aside>
     </div>
+@if(count($photos))
+<div class="lb" id="lb" role="dialog" aria-modal="true" aria-label="Photo gallery" hidden data-gallery>
+    <button type="button" class="x" id="lb-close" aria-label="Close the gallery">&times;</button>
+    @if(count($photos) > 1)<button type="button" class="nav prev" id="lb-prev" aria-label="Previous photo">&#8249;</button>@endif
+    <figure><img id="lb-img" alt=""><figcaption id="lb-count" aria-live="polite"></figcaption></figure>
+    @if(count($photos) > 1)<button type="button" class="nav next" id="lb-next" aria-label="Next photo">&#8250;</button>@endif
+    <div class="thumbs" id="lb-thumbs"></div>
+</div>
+<script>
+(function () {
+    // The photo gallery (.ai/specs/auctions.md §20): click a photo, arrow through them, Esc closes, swipe on a phone.
+    var photos = @json($photos), box = document.getElementById('lb'), img = document.getElementById('lb-img'), cnt = document.getElementById('lb-count'), thumbs = document.getElementById('lb-thumbs');
+    var cur = 0, opener = null, startX = null;
+    photos.forEach(function (u, i) { var b = document.createElement('button'); b.type = 'button'; b.setAttribute('aria-label', 'Show photo ' + (i + 1)); var t = document.createElement('img'); t.src = u; t.alt = ''; t.loading = 'lazy'; b.appendChild(t); b.addEventListener('click', function () { show(i); }); thumbs.appendChild(b); });
+    if (photos.length < 2) thumbs.style.display = 'none';
+    function show(i) {
+        cur = (i + photos.length) % photos.length; img.src = photos[cur]; img.alt = 'Photo ' + (cur + 1) + ' of ' + photos.length; cnt.textContent = (cur + 1) + ' / ' + photos.length;
+        Array.prototype.forEach.call(thumbs.children, function (b, k) { b.setAttribute('aria-current', k === cur ? 'true' : 'false'); if (k === cur && b.scrollIntoView) b.scrollIntoView({ block: 'nearest', inline: 'center' }); });
+        [cur + 1, cur - 1].forEach(function (k) { var p = new Image(); p.src = photos[(k + photos.length) % photos.length]; });
+    }
+    function open(i, from) { opener = from || null; box.hidden = false; document.body.style.overflow = 'hidden'; show(i); document.getElementById('lb-close').focus(); }
+    function close() { box.hidden = true; document.body.style.overflow = ''; if (opener && opener.focus) opener.focus(); }
+    document.addEventListener('click', function (e) { var t = e.target.closest ? e.target.closest('[data-open-gallery]') : null; if (t) { e.preventDefault(); open(parseInt(t.getAttribute('data-open-gallery'), 10) || 0, t); } });
+    document.getElementById('lb-close').addEventListener('click', close);
+    var p = document.getElementById('lb-prev'), n = document.getElementById('lb-next');
+    if (p) p.addEventListener('click', function () { show(cur - 1); }); if (n) n.addEventListener('click', function () { show(cur + 1); });
+    box.addEventListener('click', function (e) { if (e.target === box || e.target.tagName === 'FIGURE') close(); });
+    document.addEventListener('keydown', function (e) {
+        if (box.hidden) return;
+        if (e.key === 'Escape') close(); else if (e.key === 'ArrowLeft') show(cur - 1); else if (e.key === 'ArrowRight') show(cur + 1);
+        else if (e.key === 'Tab') { var f = Array.prototype.slice.call(box.querySelectorAll('button')).filter(function (b) { return b.offsetParent !== null; }); if (!f.length) return;
+            var first = f[0], last = f[f.length - 1]; if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); } }
+    });
+    box.addEventListener('touchstart', function (e) { startX = e.touches.length === 1 ? e.touches[0].clientX : null; }, { passive: true });
+    box.addEventListener('touchend', function (e) { if (startX === null) return; var dx = e.changedTouches[0].clientX - startX; startX = null; if (Math.abs(dx) > 50) show(cur + (dx < 0 ? 1 : -1)); }, { passive: true });
+})();
+</script>
+@endif
 <script>
 (function () {
     var feedUrl = @json(route('api.v1.auctions.public.feed', $lot->id));
