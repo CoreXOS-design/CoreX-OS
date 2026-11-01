@@ -192,7 +192,15 @@
             </div>
         @endif
         <div class="mi-row-stack" style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;">
+            @php $_seenFiles = []; @endphp
             @foreach($listings as $listing)
+                @php
+                    // Adverts view: one card per property file (13.3). Two classic rows that are the same file show once.
+                    $_fileKey = ($micViewChoice ?? 'list') === 'adverts' ? (($fileRows ?? [])[$listing->id]['key'] ?? null) : null;
+                    $_dupFile = $_fileKey !== null && isset($_seenFiles[$_fileKey]);
+                    if ($_fileKey !== null) { $_seenFiles[$_fileKey] = true; }
+                @endphp
+                @continue($_dupFile)
                 @php
                     // Build the per-listing state slice. The enricher returns
                     // its result keyed by category at the top level (pitches /

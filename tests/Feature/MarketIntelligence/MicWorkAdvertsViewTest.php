@@ -29,17 +29,21 @@ final class MicWorkAdvertsViewTest extends TestCase
 
     private function advert(string $ref, int $price, array $extra = [], array $raw = []): ProspectingListing
     {
-        $tp = app(TrackedPropertyMatchOrCreateService::class)->matchOrCreate($this->agency->id, ['street_number' => '7', 'street_name' => 'Card Road', 'suburb' => 'Margate'], ['type' => 'p24', 'ref' => $ref]);
         $l = ProspectingListing::withoutGlobalScopes()->create(array_merge([
             'agency_id' => $this->agency->id, 'portal_source' => 'p24', 'portal_ref' => $ref, 'portal_url' => 'https://p.test/' . $ref, 'address' => '7 Card Road', 'suburb' => 'Margate',
             'property_type' => 'House', 'price' => $price, 'bedrooms' => 3, 'bathrooms' => 2, 'garages' => 1, 'agency_name' => 'Sea Realty', 'captured_by_user_id' => $this->admin->id,
-            'first_seen_at' => now()->subDays(80), 'last_seen_at' => now(), 'is_active' => true, 'tracked_property_id' => $tp->id,
+            'first_seen_at' => now()->subDays(80), 'last_seen_at' => now(), 'is_active' => true,
         ], $extra));
         if ($raw) {
             DB::table('prospecting_listings')->where('id', $l->id)->update($raw);
         }
 
         return $l;
+    }
+
+    private function file(string $ref): int
+    {
+        return (int) app(TrackedPropertyMatchOrCreateService::class)->matchOrCreate($this->agency->id, ['street_number' => '7', 'street_name' => 'Card Road', 'suburb' => 'Margate'], ['type' => 'p24', 'ref' => $ref])->id;
     }
 
     private function page(array $q = []): string
@@ -49,7 +53,7 @@ final class MicWorkAdvertsViewTest extends TestCase
 
     public function test_the_adverts_view_shows_a_p24_style_card_with_the_real_snippet_ribbons_and_dates(): void
     {
-        $l = $this->advert('P24-150100001', 1_400_000, [], [
+        $l = $this->advert('P24-150100001', 1_400_000, ['tracked_property_id' => $this->file('P24-150100001')], [
             'card_heading' => '3 Bedroom House in Margate', 'description_snippet' => 'Sole mandate - sunny family home two minutes from the beach.',
             'listed_date' => now()->subDays(75)->toDateString(), 'is_reduced' => 1, 'portal_status' => 'under_offer', 'advertiser_type' => 'owner', 'parking' => 2,
         ]);
@@ -95,12 +99,20 @@ final class MicWorkAdvertsViewTest extends TestCase
 
     public function test_a_different_advert_on_the_same_property_at_another_price_is_not_a_cut(): void
     {
-        $this->advert('P24-150100003', 1_200_000);
-        $tp = (int) DB::table('prospecting_listings')->where('portal_ref', 'P24-150100003')->value('tracked_property_id');
+        $tp = $this->file('P24-150100003');
+        $this->advert('P24-150100003', 1_200_000, ['tracked_property_id' => $tp]);
         $other = $this->advert('PP-150100004', 1_000_000, ['portal_source' => 'pp', 'agency_name' => 'Other Agents', 'tracked_property_id' => $tp]);
         $h = $this->page(['view' => 'adverts']);
         $this->assertStringNotContainsString('line-through', $h);
         $this->assertStringContainsString('data-qa="line-other-adverts"', $h);
         $this->assertStringNotContainsString('>Reduced</span>', $h);
+    }
+
+    public function test_two_adverts_of_one_property_file_show_as_one_card(): void
+    {
+        $tp = $this->file('P24-150100005');
+        $a = $this->advert('P24-150100005', 1_100_000, ['agency_name' => 'Alpha', 'tracked_property_id' => $tp]);
+        $this->advert('P24-150100006', 1_100_000, ['agency_name' => 'Beta', 'tracked_property_id' => $tp]);
+        $this->assertSame(1, substr_count($this->page(['view' => 'adverts']), 'data-qa="advert-card"'));
     }
 }

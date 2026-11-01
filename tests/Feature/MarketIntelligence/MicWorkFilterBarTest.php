@@ -70,7 +70,7 @@ final class MicWorkFilterBarTest extends TestCase
         $this->advert('P24-150000011', ['suburb' => 'Margate']);
         $this->advert('P24-150000012', ['advertiser_type' => 'owner']);
         $this->advert('P24-150000013');
-        DB::table('prospecting_listings')->where('portal_ref', 'P24-150000013')->update(['description_snippet' => 'Sole mandate - lovely sea view home']);
+        DB::table('prospecting_listings')->where('portal_ref', 'P24-150000013')->update(['description_snippet' => 'Sole mandate - lovely sea view home', 'sole_mandate_wording' => 1]);
         $this->advert('P24-150000014', ['is_active' => false, 'portal_status' => 'sold']);
         $tpFor = fn (string $ref, string $no) => app(TrackedPropertyMatchOrCreateService::class)->matchOrCreate($this->agency->id, ['street_number' => $no, 'street_name' => 'Claim Road', 'suburb' => 'Margate'], ['type' => 'p24', 'ref' => $ref]);
         $a = $tpFor('P24-150000015', '1');
