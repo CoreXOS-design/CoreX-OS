@@ -98,7 +98,7 @@ final class MicStatsBuilder
     {
         $now = $ctx['now'];
         $adverts = DB::table('prospecting_listings')->where('agency_id', $agencyId)->whereIn('tracked_property_id', $ids)->whereNull('deleted_at')
-            ->get(['id', 'tracked_property_id', 'portal_source', 'portal_ref', 'is_active', 'price', 'first_seen_at', 'listed_date', 'p24_suburb_id', 'property_type', 'bedrooms', 'advertiser_type'])
+            ->get(['id', 'tracked_property_id', 'portal_source', 'portal_ref', 'is_active', 'price', 'first_seen_at', 'listed_date', 'p24_suburb_id', 'property_type', 'bedrooms', 'advertiser_type', 'sole_mandate_wording', 'sole_mandate_first_seen_at'])
             ->groupBy('tracked_property_id');
 
         $tps = DB::table('tracked_properties')->where('agency_id', $agencyId)->whereIn('id', $ids)
@@ -131,6 +131,10 @@ final class MicStatsBuilder
         foreach ($adverts as $tpId => $set) {
             $cutsAny[$tpId] = $set->where('is_active', 1)->filter(fn ($a) => ($moves[(int) $a->id]['cuts'] ?? 0) > 0)->count();
         }
+        // AT-528: files whose sole mandate has run as long as the agency's mandate length (wording first seen on a live advert, or a mandated alert's received date)
+        $mandateDays = \App\Models\MicAgencySetting::mandateLengthDaysFor($agencyId);
+        $mandateAlerts = DB::table('p24_listings')->where('agency_id', $agencyId)->whereNull('deleted_at')->where('is_mandated', 1)->whereIn('tracked_property_id', $ids)
+            ->get(['tracked_property_id', 'first_seen_date'])->groupBy('tracked_property_id');
         $claimed = DB::table('prospecting_claims as c')->join('prospecting_listings as pl', 'pl.id', '=', 'c.prospecting_listing_id')
             ->where('c.agency_id', $agencyId)->where('c.is_active', 1)->whereNull('c.released_at')->whereNull('c.deleted_at')
             ->where('pl.is_active', 1)->whereIn('pl.tracked_property_id', $ids)->distinct()->pluck('pl.tracked_property_id')->flip();
@@ -215,6 +219,12 @@ final class MicStatsBuilder
                 'owner_advert' => $active->contains(fn ($a) => $a->advertiser_type === 'owner') ? 1 : 0,
                 'claimed' => isset($claimed[$id]) ? 1 : 0,
                 'relisted' => $relisted ? 1 : 0,
+                'sole_mandate_ending' => (function () use ($active, $mandateAlerts, $id, $now, $mandateDays) {
+                    $days = \App\Services\Prospecting\MicWork\SoleMandateMatcher::daysSince(
+                        \App\Services\Prospecting\MicWork\SoleMandateMatcher::since($active, ($mandateAlerts[$id] ?? collect())->pluck('first_seen_date')), $now);
+
+                    return $days !== null && $days >= $mandateDays ? 1 : 0;
+                })(),
                 'dom_days' => $dom->days !== null ? min(65535, $dom->days) : null, 'dom_mode' => $dom->mode,
                 'computed_at' => $now,
             ];

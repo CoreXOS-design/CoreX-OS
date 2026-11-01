@@ -49,6 +49,7 @@ class MicAgencySetting extends Model
         'rows_per_page'              => 25,
         'reduced_window_days'        => 90,
         'stale_window_days'          => 7,
+        'mandate_length_days'        => 90,
         'mandate_words'              => ['sole mandate', 'sole and exclusive', 'exclusive mandate', 'sole agent', 'sole agency'],
     ];
 
@@ -245,6 +246,13 @@ class MicAgencySetting extends Model
 
     public static function staleWindowDaysFor(int $agencyId): int { return static::for($agencyId)->staleWindowDays(); }
 
+    public function mandateLengthDays(): int
+    {
+        return min(730, $this->positiveInt('mandate_length_days'));
+    }
+
+    public static function mandateLengthDaysFor(int $agencyId): int { return static::for($agencyId)->mandateLengthDays(); }
+
     /** @return list<string> */
     public static function mandateWordsFor(int $agencyId): array { return static::for($agencyId)->mandateWords(); }
 
@@ -305,7 +313,7 @@ class MicAgencySetting extends Model
         if (array_key_exists('default_view', $patch) && ! in_array($patch['default_view'], ['adverts', 'list'], true)) {
             unset($patch['default_view']);
         }
-        foreach (['rows_per_page' => [10, 100], 'reduced_window_days' => [1, 730], 'stale_window_days' => [1, 365]] as $key => [$lo, $hi]) {
+        foreach (['rows_per_page' => [10, 100], 'reduced_window_days' => [1, 730], 'stale_window_days' => [1, 365], 'mandate_length_days' => [1, 730]] as $key => [$lo, $hi]) {
             if (array_key_exists($key, $patch)) {
                 if (is_numeric($patch[$key])) {
                     $patch[$key] = max($lo, min($hi, (int) $patch[$key]));

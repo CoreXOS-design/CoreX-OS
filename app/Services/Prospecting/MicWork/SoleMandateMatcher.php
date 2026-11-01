@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Prospecting\MicWork;
 
 use App\Models\MicAgencySetting;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -35,6 +36,36 @@ final class SoleMandateMatcher
     }
 
     /**
+     * The earliest date a property was seen as sole mandate: the first time the wording matched on any of its LIVE adverts (`sole_mandate_first_seen_at`, the capture date of
+     * the first snippet / description that matched), or the received date of a mandated alert - whichever is earlier. Null when nothing flags it.
+     *
+     * @param iterable<object> $liveAdverts rows with sole_mandate_wording and sole_mandate_first_seen_at
+     * @param iterable<?string> $alertDates received dates of the file's sole-mandate alerts
+     */
+    public static function since(iterable $liveAdverts, iterable $alertDates = []): ?Carbon
+    {
+        $dates = [];
+        foreach ($liveAdverts as $a) {
+            if (! empty($a->sole_mandate_wording) && ! empty($a->sole_mandate_first_seen_at)) {
+                $dates[] = Carbon::parse($a->sole_mandate_first_seen_at);
+            }
+        }
+        foreach ($alertDates as $d) {
+            if (! empty($d)) {
+                $dates[] = Carbon::parse($d);
+            }
+        }
+
+        return $dates === [] ? null : collect($dates)->sort()->first();
+    }
+
+    /** whole days from the date we first saw it as sole mandate to today */
+    public static function daysSince(?Carbon $since, ?Carbon $now = null): ?int
+    {
+        return $since === null ? null : (int) abs($since->copy()->startOfDay()->diffInDays(($now ?? now())->copy()->startOfDay()));
+    }
+
+    /**
      * The ONE rule for "does this text say sole mandate", for the alert-email parsers (P24, PrivateProperty) as well as the advert wording: the text (tags stripped,
      * the advertiser's own name removed first) must hold one of the mandate phrases - "sole" or "exclusive" next to mandate / agent / agency. "Mandated", "mandate",
      * "open mandate" never flag. With no agency the shipped phrases are used.
@@ -59,17 +90,19 @@ final class SoleMandateMatcher
         $out = ['checked' => 0, 'matched' => 0, 'was_matched' => 0, 'changed' => 0];
         DB::table('prospecting_listings')->where('agency_id', $agencyId)->whereNull('deleted_at')
             ->where(fn ($q) => $q->whereNotNull('description_snippet')->orWhereNotNull('description'))
-            ->orderBy('id')->select('id', 'description_snippet', 'description', 'sole_mandate_wording', 'agency_name')
+            ->orderBy('id')->select('id', 'description_snippet', 'description', 'sole_mandate_wording', 'agency_name', 'sole_mandate_first_seen_at', 'details_read_at')
             ->chunkById(1000, function ($rows) use ($agencyId, $apply, &$out) {
                 foreach ($rows as $r) {
                     $now = self::matches($r->description_snippet, $r->description, $agencyId, $r->agency_name);
                     $out['checked']++;
                     $out['matched'] += $now ? 1 : 0;
                     $out['was_matched'] += $r->sole_mandate_wording ? 1 : 0;
-                    if ((int) $r->sole_mandate_wording !== (int) $now || $r->sole_mandate_wording === null) {
+                    // the date we first saw it as sole mandate: kept once set; else when the page details were read; else today (no dated capture of the text is held)
+                    $since = $now ? ($r->sole_mandate_first_seen_at ?? $r->details_read_at ?? now()->toDateTimeString()) : null;
+                    if ((int) $r->sole_mandate_wording !== (int) $now || $r->sole_mandate_wording === null || (($r->sole_mandate_first_seen_at === null) !== ($since === null))) {
                         $out['changed']++;
                         if ($apply) {
-                            DB::table('prospecting_listings')->where('id', $r->id)->update(['sole_mandate_wording' => $now ? 1 : 0]);
+                            DB::table('prospecting_listings')->where('id', $r->id)->update(['sole_mandate_wording' => $now ? 1 : 0, 'sole_mandate_first_seen_at' => $since]);
                         }
                     }
                 }

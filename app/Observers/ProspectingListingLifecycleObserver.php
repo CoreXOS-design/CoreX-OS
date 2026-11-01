@@ -21,6 +21,8 @@ final class ProspectingListingLifecycleObserver
             return;
         }
         $l->sole_mandate_wording = \App\Services\Prospecting\MicWork\SoleMandateMatcher::matches($l->description_snippet, $l->description, (int) $l->agency_id, $l->agency_name);
+        // the capture date of the first snippet / description that matched; cleared when the wording goes, started again if it returns
+        $l->sole_mandate_first_seen_at = $l->sole_mandate_wording ? ($l->sole_mandate_first_seen_at ?? now()) : null;
     }
 
     public function updating(ProspectingListing $l): void

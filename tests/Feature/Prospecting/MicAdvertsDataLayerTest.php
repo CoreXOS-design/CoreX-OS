@@ -158,6 +158,92 @@ final class MicAdvertsDataLayerTest extends TestCase
         $this->assertFalse($this->row($f)['is_sole_mandate']);
     }
 
+    public function test_the_date_we_first_saw_it_as_sole_mandate_is_kept_cleared_and_back_filled(): void
+    {
+        $tp = $this->file();
+        $l = $this->advert($tp, ['description_snippet' => 'Nice home']);
+        $this->assertNull($l->sole_mandate_first_seen_at, 'no wording, no date');
+
+        $this->travelTo(now()->subDays(30));
+        $l->description_snippet = 'Sole mandate - call now';
+        $l->save();
+        $first = $l->fresh()->sole_mandate_first_seen_at;
+        $this->assertNotNull($first, 'the capture date of the first snippet that matched');
+        $this->travelBack();
+
+        $l = $l->fresh();
+        $l->description = 'Still the SOLE MANDATE of this agency';
+        $l->save();
+        $this->assertEquals($first, $l->fresh()->sole_mandate_first_seen_at, 'a later capture of the same wording keeps the first date');
+
+        $l = $l->fresh();
+        $l->description_snippet = 'Open mandate';
+        $l->description = 'Open mandate';
+        $l->save();
+        $this->assertNull($l->fresh()->sole_mandate_first_seen_at, 'the wording went: the date goes with it');
+
+        // back-fill: a row written without the model has the wording but no date -> dated from the page-details read, else today; an existing date is never moved
+        $w = $this->advert($this->file(), []);
+        DB::table('prospecting_listings')->where('id', $w->id)->update(['description' => 'Exclusive mandate', 'details_read_at' => '2026-08-12 10:00:00']);
+        $kept = $this->advert($this->file(), ['description_snippet' => 'Sole agent here']);
+        DB::table('prospecting_listings')->where('id', $kept->id)->update(['sole_mandate_first_seen_at' => '2026-07-01 09:00:00']);
+        app(\App\Services\Prospecting\MicWork\SoleMandateMatcher::class)->rematchAgency($this->a->id, true);
+        $this->assertSame('2026-08-12 10:00:00', (string) DB::table('prospecting_listings')->where('id', $w->id)->value('sole_mandate_first_seen_at'));
+        $this->assertSame('2026-07-01 09:00:00', (string) DB::table('prospecting_listings')->where('id', $kept->id)->value('sole_mandate_first_seen_at'));
+    }
+
+    public function test_the_row_says_how_long_it_has_been_sole_mandate_and_when_it_may_be_ending(): void
+    {
+        $tp = $this->file();
+        $l = $this->advert($tp, ['description_snippet' => 'Sole mandate']);
+        DB::table('prospecting_listings')->where('id', $l->id)->update(['sole_mandate_first_seen_at' => now()->subDays(81)->startOfDay()]);
+
+        $r = $this->row($tp);
+        $this->assertTrue($r['is_sole_mandate']);
+        $this->assertSame(now()->subDays(81)->format('Y-m-d'), $r['sole_mandate_first_seen_at']);
+        $this->assertSame(81, $r['sole_mandate_days']);
+        $this->assertFalse($r['sole_mandate_ending'], '81 days is under the default mandate length of 90');
+
+        DB::table('prospecting_listings')->where('id', $l->id)->update(['sole_mandate_first_seen_at' => now()->subDays(95)->startOfDay()]);
+        $r = $this->row($tp);
+        $this->assertSame(95, $r['sole_mandate_days']);
+        $this->assertTrue($r['sole_mandate_ending'], '95 days is past 90');
+
+        MicAgencySetting::saveValues($this->a->id, ['mandate_length_days' => 120]);
+        $this->assertFalse($this->row($tp)['sole_mandate_ending'], 'the agency raised the mandate length');
+        MicAgencySetting::saveValues($this->a->id, ['mandate_length_days' => 5000]);
+        $this->assertSame(730, MicAgencySetting::mandateLengthDaysFor($this->a->id), 'clamped');
+        $this->assertSame(90, MicAgencySetting::mandateLengthDaysFor($this->b->id), 'per agency, default 90');
+
+        $plain = $this->file();
+        $this->advert($plain, ['description_snippet' => 'Nice home']);
+        $p = $this->row($plain);
+        $this->assertNull($p['sole_mandate_first_seen_at']);
+        $this->assertNull($p['sole_mandate_days']);
+        $this->assertFalse($p['sole_mandate_ending']);
+    }
+
+    public function test_an_alerts_received_date_counts_and_the_stuck_tile_counts_a_mandate_that_may_be_ending(): void
+    {
+        $tp = $this->file();
+        $this->advert($tp, ['description_snippet' => 'Nice home', 'canonical_ref' => 'p24:777']);
+        DB::table('p24_listings')->insert(['agency_id' => $this->a->id, 'p24_listing_number' => '777', 'asking_price' => 1, 'first_seen_date' => now()->subDays(100)->toDateString(),
+            'last_seen_date' => now()->toDateString(), 'canonical_ref' => 'p24:777', 'is_mandated' => 1, 'tracked_property_id' => $tp->id, 'created_at' => now(), 'updated_at' => now()]);
+        $r = $this->row($tp);
+        $this->assertSame('alert', $r['sole_mandate_source']);
+        $this->assertSame(100, $r['sole_mandate_days'], 'the alert received date is the start');
+        $this->assertTrue($r['sole_mandate_ending']);
+
+        app(\App\Services\MarketIntelligence\Pockets\MicStatsBuilder::class)->refreshFile($this->a->id, $tp->id);
+        $this->assertSame(1, (int) DB::table('mic_file_stats')->where('tracked_property_id', $tp->id)->value('sole_mandate_ending'));
+        $ids = app(\App\Services\MarketIntelligence\Pockets\TileService::class)->fileIds('stuck', $this->u)->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all();
+        $this->assertContains((int) $tp->id, $ids, 'the Stuck tile counts it');
+
+        MicAgencySetting::saveValues($this->a->id, ['mandate_length_days' => 365]);
+        app(\App\Services\MarketIntelligence\Pockets\MicStatsBuilder::class)->refreshFile($this->a->id, $tp->id);
+        $this->assertSame(0, (int) DB::table('mic_file_stats')->where('tracked_property_id', $tp->id)->value('sole_mandate_ending'));
+    }
+
     public function test_reduced_is_the_portal_flag_or_a_cut_inside_the_agencys_window_with_the_old_price(): void
     {
         $recent = $this->file(); $a = $this->advert($recent, ['price' => 1_400_000]); $this->cut($a, 30, 1_500_000, 1_400_000);

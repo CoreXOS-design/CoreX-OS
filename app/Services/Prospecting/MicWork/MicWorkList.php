@@ -185,7 +185,7 @@ final class MicWorkList
             ->get(['id', 'tracked_property_id', 'portal_source', 'portal_ref', 'portal_url', 'address', 'suburb', 'price', 'bedrooms', 'bathrooms', 'garages',
                 'property_size_m2', 'erf_size_m2', 'property_type', 'agent_name', 'agency_name', 'first_seen_at', 'last_seen_at', 'listed_date', 'is_active',
                 'portal_status', 'advertiser_type', 'is_reduced', 'canonical_ref', 'p24_suburb_id', 'p24_group_id', 'thumbnail_source_url', 'thumbnail_path',
-                'card_heading', 'description_snippet', 'description', 'photo_urls', 'photo_count', 'features', 'parking', 'sole_mandate_wording', 'rates_amount', 'levies_amount'])
+                'card_heading', 'description_snippet', 'description', 'photo_urls', 'photo_count', 'features', 'parking', 'sole_mandate_wording', 'sole_mandate_first_seen_at', 'rates_amount', 'levies_amount'])
             ->groupBy(fn ($l) => $l->tracked_property_id ?: -$l->id);
         $advertIds = $adverts->flatten()->pluck('id')->all();
 
@@ -294,6 +294,7 @@ final class MicWorkList
         $reducedSince = now()->subDays($mic->reducedWindowDays())->toDateString();
         $staleDays = $mic->staleWindowDays();
         $mandateWords = $mic->mandateWords();
+        $mandateLength = \App\Models\MicAgencySetting::mandateLengthDaysFor($agencyId);
 
         $out = [];
         foreach ($keys as $key) {
@@ -373,6 +374,9 @@ final class MicWorkList
             $byWording = $live->contains(fn ($a) => $a->sole_mandate_wording !== null ? (bool) $a->sole_mandate_wording
                 : (MicAdvertFilters::mentionsMandate($a->description_snippet, $mandateWords, $a->agency_name ?? null) || MicAdvertFilters::mentionsMandate($a->description, $mandateWords, $a->agency_name ?? null)));
             $byAlert = collect($alertsByKey[$key] ?? [])->contains(fn ($x) => ! empty($x['mandated']));
+            // when we first saw it as sole mandate (the earliest matching capture, or a mandated alert's received date), how long ago, and whether the agency's mandate length is reached
+            $mandateSince = ($byWording || $byAlert) ? SoleMandateMatcher::since($live, collect($alertsByKey[$key] ?? [])->filter(fn ($x) => ! empty($x['mandated']))->pluck('first_raw')) : null;
+            $mandateDays = SoleMandateMatcher::daysSince($mandateSince);
             $firstOf = fn (string $col) => $live->pluck($col)->first(fn ($v) => $v !== null && trim((string) $v) !== '');
             $photos = $live->pluck('photo_urls')->map(fn ($v) => is_array($v) ? $v : (is_string($v) ? json_decode($v, true) : null))->first(fn ($v) => is_array($v) && $v !== []);
             $lastSeen = $list->pluck('last_seen_at')->filter()->max();
@@ -435,6 +439,9 @@ final class MicWorkList
                 'portal_status' => $lead->portal_status,
                 'is_owner' => $owner,
                 'is_sole_mandate' => $byWording || $byAlert,
+                'sole_mandate_first_seen_at' => $mandateSince?->format('Y-m-d'),
+                'sole_mandate_days' => $mandateDays,
+                'sole_mandate_ending' => $mandateDays !== null && $mandateDays >= $mandateLength,
                 'sole_mandate_source' => $byWording ? 'wording' : ($byAlert ? 'alert' : null),
                 'group_member_count' => (int) $live->map(fn ($a) => (int) ($groupCounts[$a->p24_group_id] ?? 0))->max(),
                 'days_on_market' => $dom['days'],
