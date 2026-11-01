@@ -1349,7 +1349,7 @@ return [
              'affects' => 'What this changes: whether your team gets an email the moment a buyer registers to bid or enquires. Switch it off and no email is sent.'],
             ['key' => 'notify_emails_to', 'source' => 'auction', 'type' => 'textarea', 'default' => '',
              'label' => 'Send those emails to',
-             'explain' => 'The email addresses that should receive them, separated by commas. Leave it blank and every administrator of your agency receives them.',
+             'explain' => 'The email addresses that should receive them, separated by commas. Leave it blank and they go to your auction enquiries email, or your agency\'s main email if you have not set one.',
              'affects' => 'What this changes: who receives the new-registration and new-enquiry emails.'],
             ['key' => 'reserve_visibility', 'source' => 'auction', 'type' => 'select', 'default' => 'met_not_met',
              'options' => ['met_not_met' => 'Show "Reserve met" / "Reserve not met"', 'hidden' => 'Do not show anything about the reserve'],

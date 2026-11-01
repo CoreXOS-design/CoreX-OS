@@ -9,7 +9,9 @@ use Illuminate\Support\Collection;
 /**
  * Who hears about new auction activity (.ai/specs/auctions.md §19). One place, so the emails, the alerts and the tests agree.
  *
- * EMAILS go to the addresses the agency typed into Settings -> Auctions, or - when it typed none - to every administrator of the agency.
+ * EMAILS go to the addresses the agency typed into Settings -> Auctions. When it typed none, to ONE mailbox: its auction enquiries email, else
+ * the agency's main email; only an agency with neither gets every administrator (so a new enquiry is never silently lost, and a busy agency
+ * is not sent one copy per administrator).
  * ALERTS (in-app) go to the person the item belongs to (the listing agent / assigned agent), or every administrator when nobody owns it.
  */
 class AuctionActivityRecipients
@@ -18,8 +20,17 @@ class AuctionActivityRecipients
     public function emails(int $agencyId): array
     {
         $typed = AgencyAuctionSettings::notifyEmailAddressesFor($agencyId);
+        if ($typed !== []) {
+            return $typed;
+        }
 
-        return $typed !== [] ? $typed : $this->administrators($agencyId)->pluck('email')
+        foreach ([AgencyAuctionSettings::contactEmailFor($agencyId), (string) \App\Models\Agency::withoutGlobalScopes()->whereKey($agencyId)->value('email')] as $mailbox) {
+            if (filter_var(trim($mailbox), FILTER_VALIDATE_EMAIL)) {
+                return [strtolower(trim($mailbox))];
+            }
+        }
+
+        return $this->administrators($agencyId)->pluck('email')
             ->map(fn ($e) => strtolower(trim((string) $e)))->filter(fn ($e) => filter_var($e, FILTER_VALIDATE_EMAIL))->unique()->values()->all();
     }
 

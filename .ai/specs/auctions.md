@@ -306,7 +306,7 @@ Johan, verbatim: *"I need a page/section/tab inside the bidders page called Sign
 - **No archive/restore here:** the tab is a read view of buyer accounts, which are not owned by this screen (Contacts own that).
 
 ### 19.2 Emails to the agency when someone registers to bid or enquires
-- Settings → Auctions gets **"Emails about new registrations and enquiries"**: a switch (default ON) and **"Send them to"** — email addresses, separated by commas or new lines. **Blank = every administrator of the agency.** The switch OFF stops these two emails entirely.
+- Settings → Auctions gets **"Emails about new registrations and enquiries"**: a switch (default ON) and **"Send them to"** — email addresses, separated by commas or new lines. **Blank = ONE mailbox: the agency's auction enquiries email, else its main email; only if it has neither, every administrator** (2026-11-01: a test enquiry sent eight copies to eight administrators). The switch OFF stops these two emails entirely.
 - Triggers (domain events, §10): `BidderRegistered` → "New bidder registration" email; `AuctionEnquiryReceived` → the existing "New auction enquiry" email. Both go to the addresses above. The older "Who is told about a new enquiry" (listing agent / branch manager) is kept and its people are ALSO emailed, de-duplicated against the list; the switch OFF silences it too.
 - Sent as the agency, never as CoreX (14 Oct rule). A failed send is logged and never blocks the registration or the enquiry.
 - **Setup Wizard (NN #10a):** both controls are in the Auctions step; the saver is `has()`-guarded.

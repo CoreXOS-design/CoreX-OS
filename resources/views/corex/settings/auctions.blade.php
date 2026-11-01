@@ -48,7 +48,7 @@
                     <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" name="notify_emails_enabled" value="1" @checked(old('notify_emails_enabled', $values['notify_emails_enabled']))> Email us when someone registers to bid or sends an enquiry</label>
                     <p class="{{ $hint }}" style="color:var(--text-muted);">Switch this off and these two emails are not sent at all. People still see the new items on their Bidders and Enquiries screens.</p>
                     <label class="{{ $label }} mt-3" style="color:var(--text-secondary);">Send them to</label>
-                    <textarea name="notify_emails_to" rows="2" placeholder="Leave blank to email every administrator of your agency" class="{{ $field }}" style="{{ $fieldStyle }}">{{ old('notify_emails_to', $values['notify_emails_to']) }}</textarea>
+                    <textarea name="notify_emails_to" rows="2" placeholder="Leave blank to use your enquiries email above, or your agency's main email" class="{{ $field }}" style="{{ $fieldStyle }}">{{ old('notify_emails_to', $values['notify_emails_to']) }}</textarea>
                     <p class="{{ $hint }}" style="color:var(--text-muted);">Email addresses, separated by commas or new lines. Anyone named under "Who is told about a new enquiry" above is emailed about enquiries as well.</p></div>
             </div>
         </section>

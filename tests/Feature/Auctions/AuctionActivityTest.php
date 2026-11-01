@@ -53,15 +53,30 @@ final class AuctionActivityTest extends BiddingTestCase
 
     // ── emails ─────────────────────────────────────────────────────────────
 
-    public function test_a_registration_emails_every_administrator_unless_the_agency_chose_addresses(): void
+    public function test_a_registration_emails_one_mailbox_unless_the_agency_chose_addresses(): void
     {
-        $second = User::factory()->create(['agency_id' => $this->agency->id, 'role' => 'admin', 'email' => 'second-admin@example.com']);
+        User::factory()->create(['agency_id' => $this->agency->id, 'role' => 'admin', 'email' => 'second-admin@example.com']);
         $reg = $this->registration($this->buyer('reg@example.com'), 'pending');
 
+        // nothing set anywhere: every administrator (so nothing is lost)
         Mail::fake();
         BidderRegistered::dispatch($reg);
-        Mail::assertSent(AuctionRegistrationMail::class, fn ($m) => $m->hasTo($this->admin->email));
-        Mail::assertSent(AuctionRegistrationMail::class, fn ($m) => $m->hasTo('second-admin@example.com'));
+        Mail::assertSent(AuctionRegistrationMail::class, 2);
+
+        // the agency has a main email: ONE email, not one per administrator
+        $this->agency->forceFill(['email' => 'office-main@example.com'])->save();
+        Mail::fake();
+        BidderRegistered::dispatch($reg);
+        Mail::assertSent(AuctionRegistrationMail::class, 1);
+        Mail::assertSent(AuctionRegistrationMail::class, fn ($m) => $m->hasTo('office-main@example.com'));
+
+        // an auction enquiries email beats the main email
+        AgencyAuctionSettings::create(['agency_id' => $this->agency->id, 'contact_email' => 'auctions@example.com']);
+        Mail::fake();
+        BidderRegistered::dispatch($reg);
+        Mail::assertSent(AuctionRegistrationMail::class, 1);
+        Mail::assertSent(AuctionRegistrationMail::class, fn ($m) => $m->hasTo('auctions@example.com'));
+        AgencyAuctionSettings::query()->where('agency_id', $this->agency->id)->forceDelete();
 
         AgencyAuctionSettings::create(['agency_id' => $this->agency->id, 'notify_emails_to' => "office@example.com,\nBOSS@example.com"]);
         Mail::fake();
