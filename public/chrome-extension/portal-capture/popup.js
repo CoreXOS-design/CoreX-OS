@@ -112,6 +112,7 @@
     progressEta:       document.getElementById('progressEta'),
     progressBatch:     document.getElementById('progressBatch'),
     cancelBtn:         document.getElementById('cancelBtn'),
+    readAdverts:       document.getElementById('readAdverts'),
     // Complete
     completeTotal:     document.getElementById('completeTotal'),
     completeBreakdown: document.getElementById('completeBreakdown'),
@@ -476,6 +477,7 @@
       apiUrl:       settings.apiUrl,
       apiToken:     settings.apiToken,
       tabId:        tabId,
+      readAdverts:  !!(els.readAdverts && els.readAdverts.checked),
     });
   }
 
@@ -521,6 +523,9 @@
     els.progressText.textContent =
       'Capturing page ' + status.currentPage + ' of ' + status.totalPages +
       '... (' + status.capturedListings.toLocaleString() + ' listings)';
+    if (status.detailPhase) {
+      els.progressText.textContent = 'Reading advert pages: ' + (status.detailDone || 0) + ' of ' + (status.detailTotal || 0) + ' (one every 8-12 seconds)';
+    }
 
     if (status.currentPage > 0 && status.totalPages > 1) {
       const rem = status.totalPages - status.currentPage;
@@ -559,6 +564,9 @@
     if (status.parseWarnings > 0) {
       els.completeBreakdown.textContent +=
         ' | ' + status.parseWarnings + ' pages had parsing issues';
+    }
+    if (status.detailMessage) {
+      els.completeBreakdown.textContent += ' | ' + status.detailMessage;
     }
 
     els.viewInCorex.href = settings.apiUrl + '/prospecting';
@@ -1786,6 +1794,16 @@
   els.duplicateCancel.addEventListener('click', () => {
     els.duplicateWarning.style.display = 'none';
   });
+
+  // 3.15.2: reading the advert pages is a choice, off unless ticked (remembered for next time)
+  if (els.readAdverts) {
+    try {
+      chrome.storage.local.get(['readAdvertPages'], (v) => { els.readAdverts.checked = !!(v && v.readAdvertPages === true); });
+    } catch (e) { /* stays off */ }
+    els.readAdverts.addEventListener('change', () => {
+      try { chrome.storage.local.set({ readAdvertPages: els.readAdverts.checked }); } catch (e) { /* */ }
+    });
+  }
 
   els.cancelBtn.addEventListener('click', () => {
     chrome.runtime.sendMessage({ action: 'cancelCapture' });

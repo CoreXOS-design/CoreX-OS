@@ -22,7 +22,7 @@ final class MicAdvertFacts
     public const KEYS = [
         'advertiser_type', 'agent_portal_id', 'agency_portal_id', 'listed_date', 'rates_amount', 'levies_amount',
         'portal_latitude', 'portal_longitude', 'is_reduced', 'is_exclusive', 'badges', 'p24_group_id', 'p24_group_size',
-        'p24_group_listing_numbers', 'p24_mandate_id', 'wording_fingerprint', 'first_photo_fingerprint', 'page_read',
+        'p24_group_listing_numbers', 'p24_mandate_id', 'wording_fingerprint', 'first_photo_fingerprint', 'page_read', 'page_price', 'page_heading',
         // 13.6 / 11.2.4: the advert as the portal shows it
         'card_heading', 'description_snippet', 'description', 'photo_urls', 'photo_count', 'features', 'parking',
     ];
@@ -121,7 +121,7 @@ final class MicAdvertFacts
             }
         }
         // the full text, photo list and feature rows only come from a listing-page read
-        $pageRead = filter_var($data['page_read'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $pageRead = self::pageParsed($data);
         if ($pageRead && self::present($data, 'description')) {
             $t = self::cleanText($data['description'], 20000, true);
             $t !== null ? $cols['description'] = $t : null;
@@ -178,7 +178,7 @@ final class MicAdvertFacts
 
         // A search tile carries no listed date (AT-454, Johan 13 Oct): it is honoured only on a listing-page read.
         $listed = null;
-        if (self::present($data, 'listed_date') && filter_var($data['page_read'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+        if (self::present($data, 'listed_date') && $pageRead) {
             $listed = self::validDate($data['listed_date']);
             $listed === null ? $drop() : null;
         }
@@ -187,7 +187,7 @@ final class MicAdvertFacts
             'columns'     => $cols,
             'group'       => $group,
             'listed_date' => $listed,
-            'page_read'   => filter_var($data['page_read'] ?? false, FILTER_VALIDATE_BOOLEAN),
+            'page_read'   => $pageRead,
             'dropped'     => $dropped,
         ];
     }
@@ -247,6 +247,28 @@ final class MicAdvertFacts
         }
 
         return $d->toDateString();
+    }
+
+    /**
+     * A listing-page read only counts when the page really parsed: a price and a heading came back (page_price,
+     * page_heading), or - for builds that do not send those - the page's own wording or photos did. An error page
+     * ("server unavailable"), a login wall or a half-loaded page carries none of these, so it never stamps
+     * details_read_at and the advert is asked for again on the next run.
+     *
+     * @param array<string,mixed> $data
+     */
+    public static function pageParsed(array $data): bool
+    {
+        if (! filter_var($data['page_read'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+            return false;
+        }
+        $price = $data['page_price'] ?? null;
+        if (is_numeric($price) && (float) $price > 0 && self::cleanText($data['page_heading'] ?? null, 160) !== null) {
+            return true;
+        }
+
+        return self::cleanText($data['description'] ?? null, 20000) !== null
+            || (is_array($data['photo_urls'] ?? null) && $data['photo_urls'] !== []);
     }
 
     /** Advert text as shown: no tags, runs of whitespace collapsed (line breaks kept when asked), cut to $max characters; null when nothing is left. */

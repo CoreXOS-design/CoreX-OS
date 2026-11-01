@@ -138,7 +138,7 @@ fs.readdirSync(FIX).filter((f) => f.endsWith('.html')).forEach((f) => {
 });
 
 t('a listing page for a PRIVATE seller: owner, no agency', () => {
-  const html = '<html><body><script>window.listingLeadFormContext = {"isPrivateListing":true,"listingNumber":{"number":116922912,"isValid":true}};</script>'
+  const html = '<html><body><h1>An advert</h1><span class="p24_price">R 1 500 000</span><script>window.listingLeadFormContext = {"isPrivateListing":true,"listingNumber":{"number":116922912,"isValid":true}};</script>'
     + '<button>Contact Seller</button></body></html>';
   const f = MIC.p24ListingPage(doc(html), 'https://www.property24.com/for-sale/margate/x/1/116922912');
   assert.strictEqual(f.advertiser_type, 'owner');
@@ -147,7 +147,7 @@ t('a listing page for a PRIVATE seller: owner, no agency', () => {
 });
 
 t('JSON-LD map point is read when present', () => {
-  const html = '<html><body><script type="application/ld+json">{"@graph":[{"@type":"RealEstateListing","datePosted":"2026-09-01","about":{"@type":"House","geo":{"latitude":-30.8588,"longitude":30.3711}}}]}</script></body></html>';
+  const html = '<html><body><h1>An advert</h1><span class="p24_price">R 1 500 000</span><script type="application/ld+json">{"@graph":[{"@type":"RealEstateListing","datePosted":"2026-09-01","about":{"@type":"House","geo":{"latitude":-30.8588,"longitude":30.3711}}}]}</script></body></html>';
   const f = MIC.p24ListingPage(doc(html), 'https://www.property24.com/x/116922912');
   assert.strictEqual(f.portal_latitude, -30.8588);
   assert.strictEqual(f.portal_longitude, 30.3711);
@@ -174,7 +174,7 @@ t('PP tile: Under Offer banner, exclusive flag, floor and land sizes', () => {
 });
 
 t('PP listing page: details rows + serverVariables subset, no phone', () => {
-  const html = '<html><body><ul>'
+  const html = '<html><body><h1>An advert</h1><span class="listing-price-display__price">R 1 500 000</span><ul>'
     + '<li class="property-details__list-item"><span class="property-details__name-value">Listing date</span><span class="property-details__value">17 July 2026</span></li>'
     + '<li class="property-details__list-item"><span class="property-details__name-value">Floor size</span><span class="property-details__value">96 m²</span></li>'
     + '<li class="property-details__list-item"><span class="property-details__name-value">Land size</span><span class="property-details__value">1 200 m²</span></li>'
@@ -192,7 +192,7 @@ t('PP listing page: details rows + serverVariables subset, no phone', () => {
 });
 
 t('PP listing page for a private seller (no agencyInfo): owner', () => {
-  const f = MIC.ppListingPage(doc('<html><body><a>Contact Seller</a></body></html>'), 'https://www.privateproperty.co.za/for-sale/x/T7654321', { hasAgency: false });
+  const f = MIC.ppListingPage(doc('<html><body><h1>An advert</h1><span class="listing-price-display__price">R 1 500 000</span><a>Contact Seller</a></body></html>'), 'https://www.privateproperty.co.za/for-sale/x/T7654321', { hasAgency: false });
   assert.strictEqual(f.advertiser_type, 'owner');
   assert.strictEqual(f.agency_name, null);
 });
@@ -399,7 +399,7 @@ t('PP content script sends status/owner/exclusive on getListings and getListingF
   const link = (ref, inner) => '<a href="/for-sale/kwazulu-natal/margate/margate/' + ref + '">' + inner + ' 3 Bedroom House R 1 500 000</a>';
   const send = loadContent('content-pp.js', '<html><body>'
     + link('T1000001', '<span class="listing-result__listed-privately">LISTED PRIVATELY</span>')
-    + link('T1000002', '<div class="listing-banner--offer-pending">Under Offer</div>') + '</body></html>', 'https://www.privateproperty.co.za/for-sale/kwazulu-natal/margate');
+    + link('T1000002', '<div class="listing-banner--offer-pending">Under Offer</div>') + '<h1>An advert</h1><span class="listing-price-display__price">R 1 500 000</span></body></html>', 'https://www.privateproperty.co.za/for-sale/kwazulu-natal/margate');
   return send({ action: 'getListings' }).then((res) => {
     const by = Object.fromEntries(res.listings.map((l) => [l.portal_ref, l]));
     assert.strictEqual(by['PP-T1000001'].advertiser_type, 'owner');
@@ -427,6 +427,43 @@ t('area trigger: #corex-area on a trends page sends it to the background worker;
     assert.strictEqual(plain.sent.length, 0, 'ordinary browsing sends nothing');
     assert.strictEqual(plain.banner, undefined);
   });
+});
+
+t('3.15.2: a real P24 and a real PP advert page report their price and heading; an error page is "not read"', () => {
+  const p24 = fs.readFileSync(path.join(EXT, 'tests/fixtures/p24/house-ramsgate-sole-mandate-117752073.html'), 'utf8');
+  const f = MIC.p24ListingPage(doc(p24, 'https://www.property24.com/for-sale/palm-beach/port-edward/kwazulu-natal/6365/117752073'), 'https://www.property24.com/for-sale/palm-beach/port-edward/kwazulu-natal/6365/117752073');
+  assert.strictEqual(f.page_read, true);
+  assert.strictEqual(f.page_price, 1495000);
+  assert.strictEqual(f.page_heading, '3 Bedroom House for Sale in Palm Beach');
+  const pp = fs.readFileSync(path.join(EXT, 'tests/fixtures/pp/apartment-amanzimtoti-T5610412.html'), 'utf8');
+  const g = MIC.ppListingPage(doc(pp, 'https://www.privateproperty.co.za/for-sale/x/T5610412'), 'https://www.privateproperty.co.za/for-sale/x/T5610412', {});
+  assert.strictEqual(g.page_read, true);
+  assert.strictEqual(g.page_price, 775000);
+  assert.ok(g.page_heading);
+  for (const errorPage of [
+    '<html><head><title>Service Unavailable</title></head><body><p>Server unavailable. Please try again later.</p></body></html>',
+    '<html><body><h1>Access denied</h1><p>Reference #18.abc</p></body></html>',
+    '<html><body></body></html>',
+  ]) {
+    const e = MIC.p24ListingPage(doc(errorPage), 'https://www.property24.com/for-sale/x/y/kwazulu-natal/1/117752073');
+    assert.strictEqual(e.page_read, false, 'an error page is not a read');
+    assert.strictEqual(e.unreadable, true);
+    assert.strictEqual(Object.keys(e).filter((k) => !['page_read', 'unreadable'].includes(k)).length, 0, 'and it carries no facts at all');
+    assert.strictEqual(MIC.ppListingPage(doc(errorPage), 'https://www.privateproperty.co.za/for-sale/x/T1', {}).page_read, false);
+  }
+});
+
+t('3.15.2: the advert-page step is off unless ticked, paced 8-12 s, and ends on the first page that does not read', () => {
+  const bg = fs.readFileSync(path.join(EXT, 'background.js'), 'utf8');
+  assert.match(bg, /readAdverts:\s+false/, 'default off');
+  assert.match(bg, /capture\.readAdverts = msg\.readAdverts === true/);
+  assert.match(bg, /if \(capture\.readAdverts && !capture\.cancelled && capture\.needsDetail\.length > 0/);
+  assert.match(bg, /sleep\(8000 \+ Math\.floor\(Math\.random\(\) \* 4000\)\)/);
+  assert.match(bg, /if \(!facts \|\| facts\.page_read !== true\) \{\s+stopped = true;\s+break;/);
+  assert.match(bg, /paused us - /);
+  const html = fs.readFileSync(path.join(EXT, 'popup.html'), 'utf8');
+  assert.match(html, /<input type="checkbox" id="readAdverts"(?![^>]*checked)[^>]*>/, 'the tick box is not pre-ticked');
+  assert.match(html, /Also read new advert pages \(slower\)/);
 });
 
 setTimeout(() => console.log('\n' + passed + ' passed' + (process.exitCode ? ' (with failures)' : '')), 50);

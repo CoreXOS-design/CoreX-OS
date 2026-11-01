@@ -138,7 +138,7 @@ final class MicCaptureIngestTest extends TestCase
         Sanctum::actingAs($this->user);
         $res = $this->postJson(self::URL, $this->body([
             $this->tile(['advertiser_type' => 'martian', 'wording_fingerprint' => 'nothex', 'portal_latitude' => 48.1, 'portal_longitude' => 2.3,
-                'rates_amount' => -5, 'listed_date' => '2031-01-01', 'page_read' => true, 'p24_mandate_id' => 'abc']),
+                'rates_amount' => -5, 'listed_date' => '2031-01-01', 'page_read' => true, 'page_price' => 1495000, 'page_heading' => 'A house for sale', 'p24_mandate_id' => 'abc']),
             $this->tile(['portal_ref' => 'P24-116922913', 'advertiser_type' => 'owner']),
         ]))->assertOk();
 
@@ -156,7 +156,7 @@ final class MicCaptureIngestTest extends TestCase
         $this->postJson(self::URL, $this->body([$this->tile()]))->assertOk();
         $this->postJson(self::URL, $this->body([$this->tile([
             'agent_name' => 'Jane Smith', 'agent_portal_id' => '55', 'listed_date' => '2026-09-01', 'rates_amount' => 1450,
-            'levies_amount' => 2100, 'portal_latitude' => -30.8588, 'portal_longitude' => 30.3711, 'page_read' => true,
+            'levies_amount' => 2100, 'portal_latitude' => -30.8588, 'portal_longitude' => 30.3711, 'page_read' => true, 'page_price' => 1495000, 'page_heading' => 'A house for sale',
         ])], ['detail_only' => true]))->assertOk()->assertJsonPath('needs_detail', []);
 
         // an ordinary tile re-sight, same price, none of the new keys, no agent
@@ -205,7 +205,7 @@ final class MicCaptureIngestTest extends TestCase
         $this->postJson(self::URL, $this->body([$this->tile()]))->assertOk();
         $before = ProspectingSearch::count();
 
-        $this->postJson(self::URL, $this->body([$this->tile(['agent_name' => 'Jane Smith', 'page_read' => true])], [
+        $this->postJson(self::URL, $this->body([$this->tile(['agent_name' => 'Jane Smith', 'page_read' => true, 'page_price' => 1495000, 'page_heading' => 'A house for sale'])], [
             'detail_only' => true,
             'crawl' => ['session_id' => '44444444-4444-4444-8444-444444444444', 'complete' => true],
         ]))->assertOk()->assertJsonPath('updated', 1);
@@ -257,7 +257,7 @@ final class MicCaptureIngestTest extends TestCase
         $l = $this->listing();
         $l->forceFill(['listed_date' => '2026-08-15', 'listed_date_source' => 'agent'])->save();
 
-        $this->postJson(self::URL, $this->body([$this->tile(['listed_date' => '2026-09-01', 'page_read' => true])], ['detail_only' => true]))->assertOk();
+        $this->postJson(self::URL, $this->body([$this->tile(['listed_date' => '2026-09-01', 'page_read' => true, 'page_price' => 1495000, 'page_heading' => 'A house for sale'])], ['detail_only' => true]))->assertOk();
         $this->assertSame('2026-08-15', $this->listing()->listed_date->toDateString());
     }
 

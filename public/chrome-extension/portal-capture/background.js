@@ -86,6 +86,10 @@ function defaultCaptureState() {
     detailDone:       0,
     detailTotal:      0,
     detailPhase:      false,
+    readAdverts:      false, // 3.15.2: reading the advert pages is OFF unless the agent ticked the box in the popup
+    detailStopped:    false, // the portal stopped answering properly: the step was ended early
+    detailLeft:       0,     // adverts of this run that were not read (they stay queued for the next run)
+    detailMessage:    null,
     reloadPage1:      false, // PP: the user's page had the "exclude sold / under offer" filter - read page 1 again without it
   };
 }
@@ -274,6 +278,12 @@ function getCaptureStatus() {
     parseWarnings:    capture.parseWarnings,
     rateLimitPauses:  capture.rateLimitPauses,
     batchesSent:      capture.batchesSent,
+    detailPhase:      capture.detailPhase,
+    detailDone:       capture.detailDone,
+    detailTotal:      capture.detailTotal,
+    detailStopped:    capture.detailStopped,
+    detailLeft:       capture.detailLeft,
+    detailMessage:    capture.detailMessage,
   };
 }
 
@@ -894,33 +904,47 @@ async function runDetailPhase(context) {
   capture.detailTotal = refs.length;
   capture.detailPhase = true;
   const out = [];
+  let stopped = false;
   try {
-    for (const ref of refs) {
+    for (let i = 0; i < refs.length; i++) {
+      const ref = refs[i];
       if (capture.cancelled) break;
+      let facts = null;
       try {
         await navigateTab(capture.tabId, capture.urlByRef[ref]);
         await sleep(600);
         const msg = { action: 'getListingFacts' };
         if (capture.portal === 'pp') msg.sv = await readPpServerVariables(capture.tabId);
         const res = await sendTabMessage(capture.tabId, msg);
-        const facts = res && res.facts;
-        if (facts) {
-          const photoUrl = facts._photo_url;
-          delete facts._photo_url;
-          delete facts._ref;
-          const fp = await photoFingerprint(photoUrl);
-          if (fp) facts.first_photo_fingerprint = fp;
-          out.push(Object.assign({ portal_ref: ref, portal_url: capture.urlByRef[ref] }, facts));
-          capture.detailDone++;
-        }
-      } catch (e) { /* one unreadable page never stops the rest */ }
+        facts = res && res.facts;
+      } catch (e) { facts = null; }
+      // 3.15.2: the first page that did not read (error / "server unavailable" / no price or heading, or the tab would not load)
+      // ENDS the step. Nothing is sent for it, so it stays unread and is asked for again on the next run.
+      if (!facts || facts.page_read !== true) {
+        stopped = true;
+        break;
+      }
+      const photoUrl = facts._photo_url;
+      delete facts._photo_url;
+      delete facts._ref;
+      const fp = await photoFingerprint(photoUrl);
+      if (fp) facts.first_photo_fingerprint = fp;
+      out.push(Object.assign({ portal_ref: ref, portal_url: capture.urlByRef[ref] }, facts));
+      capture.detailDone++;
       if (out.length >= 5) await postDetailBatch(out.splice(0, out.length), context);
-      // human pace, like the search pages
-      await sleep(2500 + Math.floor(Math.random() * 1500));
+      // one advert page every 8-12 s: slower than the search pages, so the portal is never hit hard
+      if (i < refs.length - 1) await sleep(8000 + Math.floor(Math.random() * 4000));
     }
     if (out.length > 0) await postDetailBatch(out.splice(0, out.length), context);
   } finally {
     capture.detailPhase = false;
+    capture.detailLeft = Math.max(0, refs.length - capture.detailDone);
+    if (stopped) {
+      capture.detailStopped = true;
+      capture.detailMessage = (capture.portal === 'pp' ? 'Private Property' : 'P24') + ' paused us - ' + capture.detailDone + ' read, ' + capture.detailLeft + ' left for next run';
+    } else if (!capture.cancelled && refs.length > 0) {
+      capture.detailMessage = capture.detailDone + ' advert pages read';
+    }
     // leave the agent's tab where the search was
     try { await chrome.tabs.update(capture.tabId, { url: buildPageUrl(capture.baseUrl, 1, capture.portal) }); } catch (e) { /* tab closed */ }
   }
@@ -938,6 +962,7 @@ async function startCapture(msg) {
   capture.apiUrl      = msg.apiUrl;
   capture.apiToken    = msg.apiToken;
   capture.tabId       = msg.tabId;
+  capture.readAdverts = msg.readAdverts === true;
   capture.startTime   = Date.now();
   capture.sessionId   = (self.crypto && self.crypto.randomUUID) ? self.crypto.randomUUID() : null;
   capture.startedAtIso = new Date().toISOString();
@@ -1115,7 +1140,7 @@ async function runCaptureLoop(startPage) {
 
     // MIC capture (3.13.0): AFTER the complete-suburb batch (so the reconcile is untouched), read the listing page of
     // each new / re-priced advert the server asked for, up to the agency's cap, and send what the pages show.
-    if (!capture.cancelled && capture.needsDetail.length > 0 && capture.detailCap > 0) {
+    if (capture.readAdverts && !capture.cancelled && capture.needsDetail.length > 0 && capture.detailCap > 0) {
       try {
         await runDetailPhase(context);
       } catch (e) {

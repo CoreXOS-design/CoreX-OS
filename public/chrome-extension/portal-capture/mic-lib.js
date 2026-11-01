@@ -252,6 +252,26 @@
   // ── Property24 listing page ─────────────────────────────────────────────────────────────────────
   function lastNumber(url) { const m = String(url || '').match(/\/(\d+)\/?(?:[?#].*)?$/); return m ? m[1] : null; }
 
+  // The two things every real advert page has: a heading and a price. An error page ("server unavailable"), a login wall or a
+  // half-loaded page has neither - the caller treats that as "this page was not read" and sends nothing from it (3.15.2).
+  function headingAndPrice(doc, ld) {
+    const h1 = doc.querySelector('h1');
+    const heading = MIC.cleanText(h1 ? h1.textContent : '', 160) || null;
+    let price = null;
+    try {
+      if (ld && ld.offers && ld.offers.price) {
+        const n = Math.round(parseFloat(String(ld.offers.price).replace(/[^\d.]/g, '')));
+        if (n > 0) price = n;
+      }
+    } catch (e) { /* */ }
+    if (!price) {
+      const pe = doc.querySelector('.p24_price, .listing-price-display__price');
+      const n = pe ? parseInt(String(pe.textContent).replace(/[^\d]/g, ''), 10) : NaN;
+      if (n > 0) price = n;
+    }
+    return { heading: heading, price: price };
+  }
+
   function jsonLdListings(doc) {
     const out = [];
     doc.querySelectorAll('script[type="application/ld+json"]').forEach((s) => {
@@ -322,6 +342,10 @@
     const f = { page_read: true };
     const ldAll = jsonLdListings(doc);
     const ld = ldAll[0] || null;
+    const hp = headingAndPrice(doc, ld);
+    if (!hp.heading || !hp.price) return { page_read: false, unreadable: true };
+    f.page_heading = hp.heading;
+    f.page_price = hp.price;
     const rows = overviewRows(doc);
     const scriptText = Array.prototype.map.call(doc.querySelectorAll('script:not([src])'), (s) => s.textContent || '').join('\n');
 
@@ -467,6 +491,10 @@
     const f = { page_read: true };
     sv = sv || {};
     const ld = jsonLdListings(doc)[0] || null;
+    const hp = headingAndPrice(doc, ld);
+    if (!hp.heading || !hp.price) return { page_read: false, unreadable: true };
+    f.page_heading = hp.heading;
+    f.page_price = hp.price;
 
     const bodyText = (doc.body ? doc.body.textContent : '') || '';
     const contactSeller = /Contact\s+Seller/i.test(bodyText);

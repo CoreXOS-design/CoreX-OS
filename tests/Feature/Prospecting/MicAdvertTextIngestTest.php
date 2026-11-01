@@ -170,6 +170,54 @@ final class MicAdvertTextIngestTest extends TestCase
         Bus::assertDispatchedTimes(DownloadListingThumbnail::class, 2);
     }
 
+    public function test_an_empty_or_error_page_read_never_stamps_and_a_parsed_page_does(): void
+    {
+        Queue::fake();
+        Sanctum::actingAs($this->user);
+        $this->postJson(self::URL, $this->body([$this->tile()]))->assertOk();
+        $this->assertNull($this->listing()->details_read_at);
+
+        // an error page ("server unavailable"): the extension sent page_read with nothing parsed
+        $this->postJson(self::URL, $this->body([$this->tile(['page_read' => true, 'advertiser_type' => 'agency', 'badges' => ['Sole mandate']])], ['detail_only' => true]))
+            ->assertOk()->assertJsonPath('detail_unparsed', 1);
+        $l = $this->listing();
+        $this->assertNull($l->details_read_at, 'an unparsed page never stamps');
+        $this->assertNull($l->details_read_price);
+        $this->assertNull($l->advertiser_type, 'and writes nothing at all');
+
+        // no page_read flag at all
+        $this->postJson(self::URL, $this->body([$this->tile(['page_price' => 1495000, 'page_heading' => '3 Bedroom House'])], ['detail_only' => true]))->assertOk()->assertJsonPath('detail_unparsed', 1);
+        $this->assertNull($this->listing()->details_read_at);
+
+        // price without a heading, heading without a price: still not a page
+        foreach ([['page_price' => 1495000], ['page_heading' => '3 Bedroom House'], ['page_price' => 0, 'page_heading' => 'x']] as $half) {
+            $this->postJson(self::URL, $this->body([$this->tile(['page_read' => true] + $half)], ['detail_only' => true]))->assertOk()->assertJsonPath('detail_unparsed', 1);
+            $this->assertNull($this->listing()->details_read_at);
+        }
+
+        // a parsed page (price + heading): stamped, with the price it was read at
+        $this->postJson(self::URL, $this->body([$this->tile(['page_read' => true, 'page_price' => 1495000, 'page_heading' => '3 Bedroom House for Sale in Palm Beach', 'agent_name' => 'Nadia Beattie'])], ['detail_only' => true]))
+            ->assertOk()->assertJsonPath('detail_unparsed', 0);
+        $l = $this->listing();
+        $this->assertNotNull($l->details_read_at);
+        $this->assertSame(1495000, (int) $l->details_read_price);
+        $this->assertSame('Nadia Beattie', $l->agent_name);
+    }
+
+    public function test_a_page_read_by_an_older_build_counts_only_when_it_brought_wording_or_photos(): void
+    {
+        Queue::fake();
+        Sanctum::actingAs($this->user);
+        $this->postJson(self::URL, $this->body([$this->tile()]))->assertOk();
+        $this->assertTrue(MicAdvertFacts::pageParsed(['page_read' => true, 'description' => 'A lovely home']));
+        $this->assertTrue(MicAdvertFacts::pageParsed(['page_read' => true, 'photo_urls' => ['https://images.prop24.com/1/a']]));
+        $this->assertFalse(MicAdvertFacts::pageParsed(['page_read' => true]));
+        $this->assertFalse(MicAdvertFacts::pageParsed(['page_read' => true, 'description' => '   ', 'photo_urls' => []]));
+        $this->assertFalse(MicAdvertFacts::pageParsed(['description' => 'A lovely home']));
+        $this->postJson(self::URL, $this->body([$this->tile(['page_read' => true, 'description' => 'A lovely home near the beach'])], ['detail_only' => true]))->assertOk();
+        $this->assertNotNull($this->listing()->details_read_at);
+    }
+
     public function test_clean_text_strips_tags_collapses_space_and_cuts_to_length(): void
     {
         $this->assertSame('Sole mandate &amp; more', MicAdvertFacts::cleanText('<p>Sole   mandate &amp;amp; more</p>', 200));

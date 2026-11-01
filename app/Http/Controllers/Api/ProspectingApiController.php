@@ -87,6 +87,8 @@ class ProspectingApiController extends Controller
             'listings.*.wording_fingerprint'       => 'nullable',
             'listings.*.first_photo_fingerprint'   => 'nullable',
             'listings.*.page_read'                 => 'nullable',
+            'listings.*.page_price'                => 'nullable|numeric',
+            'listings.*.page_heading'              => 'nullable|string',
             // 13.6 / 11.2.4 - the advert as the portal shows it (cleaned and capped in MicAdvertFacts)
             'listings.*.card_heading'              => 'nullable|string',
             'listings.*.description_snippet'       => 'nullable|string',
@@ -177,6 +179,7 @@ class ProspectingApiController extends Controller
         $groupsRecorded = 0;
         $droppedFields = 0;
         $detailUnknown = 0;
+        $detailUnparsed = 0;
 
         foreach ($validated['listings'] as $data) {
             if (empty($data['portal_ref'])) {
@@ -226,7 +229,11 @@ class ProspectingApiController extends Controller
                     $detailUnknown++;
                     continue;
                 }
-                $mic['page_read'] = true;
+                // a page that did not parse (error page, no price or heading) writes nothing and never stamps details_read_at
+                if (! $mic['page_read']) {
+                    $detailUnparsed++;
+                    continue;
+                }
                 if ($data['agent_name'] !== '') {
                     $existing->agent_name = $data['agent_name'];
                 }
@@ -492,6 +499,7 @@ class ProspectingApiController extends Controller
             'groups_recorded'  => $groupsRecorded,
             'dropped_fields'   => $droppedFields,
             'detail_unknown'   => $detailUnknown,
+            'detail_unparsed'  => $detailUnparsed,
             // Non-null only on the final batch of a complete suburb capture.
             'reconcile' => $reconcile ? [
                 'suburbs' => $reconcile['suburbs'],
