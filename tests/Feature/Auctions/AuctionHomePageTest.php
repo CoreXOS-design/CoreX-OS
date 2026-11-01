@@ -95,6 +95,22 @@ final class AuctionHomePageTest extends AuctionsV2TestCase
         $this->assertStringContainsString('hero-x.jpg', $hero);
     }
 
+    public function test_the_top_bar_shows_only_the_logo_when_there_is_one_else_the_name(): void
+    {
+        $this->asGuest();
+        $bar = fn () => (function ($h) { return substr($h, strpos($h, '<header class="top">'), strpos($h, '</header>') - strpos($h, '<header class="top">')); })($this->get($this->home())->assertOk()->getContent());
+
+        $noLogo = $bar();
+        $this->assertStringNotContainsString('data-brand-logo', $noLogo);
+        $this->assertStringContainsString('Cape Auctions', strip_tags($noLogo), 'no logo: the name is shown as text');
+
+        $this->agency->forceFill(['logo_path' => 'agencies/1/logo.png'])->save();
+        $withLogo = $bar();
+        $this->assertStringContainsString('data-brand-logo', $withLogo);
+        $this->assertStringContainsString('agencies/1/logo.png', $withLogo);
+        $this->assertStringNotContainsString('Cape Auctions', preg_replace('/alt="[^"]*"/', '', strip_tags($withLogo, '<img>')), 'with a logo the name is NOT repeated next to it');
+    }
+
     public function test_a_signed_in_buyer_gets_my_account_instead_of_sign_up(): void
     {
         $this->published();

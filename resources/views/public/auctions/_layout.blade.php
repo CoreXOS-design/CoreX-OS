@@ -16,7 +16,7 @@
         header.top { background:#fff; color:var(--ink); border-bottom:1px solid var(--line); }
         .bar { max-width:1080px; margin:0 auto; padding:14px 16px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
         .bar .brand { display:flex; align-items:center; gap:12px; color:var(--brand); text-decoration:none; font-weight:800; font-size:1.2rem; letter-spacing:-.01em; }
-        .bar img { height:40px; width:auto; border-radius:4px; }
+        .bar img { height:46px; width:auto; max-width:240px; object-fit:contain; border-radius:4px; display:block; }
         .bar nav { margin-left:auto; display:flex; gap:16px; align-items:center; flex-wrap:wrap; font-size:.92rem; font-weight:600; }
         .bar nav a, .bar nav button { color:var(--muted); text-decoration:none; background:none; border:0; cursor:pointer; font:inherit; padding:0; }
         .bar nav a.signup { color:var(--brand); border:1.5px solid var(--brand); border-radius:10px; padding:6px 14px; }
@@ -68,8 +68,7 @@
 <header class="top">
     <div class="bar">
         <a class="brand" href="{{ route('public.auctions.home', $agency->slug) }}">
-            @if($branding['logoUrl'])<img src="{{ $branding['logoUrl'] }}" alt="{{ $branding['name'] }}">@endif
-            <span>{{ $siteTitle }}</span>
+            @if($branding['logoUrl'])<img src="{{ $branding['logoUrl'] }}" alt="{{ $siteTitle }}" data-brand-logo>@else<span>{{ $siteTitle }}</span>@endif
         </a>
         <nav>
             @if($buyer)
