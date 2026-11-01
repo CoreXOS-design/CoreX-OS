@@ -30,7 +30,9 @@
         return route('market-intelligence.work', request()->except(array_merge($keys2, ['page'])));
     };
     $view = $micViewChoice ?? 'adverts';
-    $layout = $view;
+    // The Adverts cards (mic-work-tab.md 13.3) are switched on here the moment they render: until then List stays selected and Adverts is disabled.
+    $advertsReady = false;
+    $layout = $advertsReady ? $view : 'list';
 
     // ── active filter chips: one per filter, each with its own × ──────────────────────────────────────
     $chips = [];
@@ -139,6 +141,10 @@
             </select>
             <span data-qa="layout-toggle" role="group" aria-label="View" style="display: inline-flex; border: 1px solid var(--border); border-radius: 4px; overflow: hidden;">
                 @foreach(['adverts' => 'Adverts', 'list' => 'List'] as $lv => $ll)
+                    @if($lv === 'adverts' && !$advertsReady)
+                        <span data-qa="layout-adverts" aria-disabled="true" aria-pressed="false" style="padding: 0 12px; line-height: 28px; font-size: .8125rem; background: var(--surface); color: var(--text-muted); opacity: .5; cursor: not-allowed;">{{ $ll }}</span>
+                        @continue
+                    @endif
                     <a href="{{ $urlWith(['view' => $lv]) }}" data-qa="layout-{{ $lv }}" aria-pressed="{{ $layout === $lv ? 'true' : 'false' }}"
                        style="padding: 0 12px; line-height: 28px; font-size: .8125rem; text-decoration: none; {{ $layout === $lv ? 'background: var(--brand-button, #0ea5e9); color: #fff; font-weight: 600;' : 'background: var(--surface-2); color: var(--text-secondary);' }}">{{ $ll }}</a>
                 @endforeach
