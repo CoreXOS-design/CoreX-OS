@@ -16,7 +16,9 @@ use Illuminate\Support\Facades\DB;
  *     among them; vacant land; commercial / industrial; farm / smallholding), and adverts that BOTH carry the file's own street address are never split on type at all,
  *   - the bedrooms are within the agency's gap (default 1),
  *   - the asking prices (same sale / rent kind) are within the agency's price band (default 40%: the dearer is at most 40% above the cheaper),
- *   - the floor sizes - and, separately, the stand sizes - are within the size band (default 40%) when BOTH adverts show one.
+ *   - the floor sizes - and, separately, the stand sizes - are within the size band (default 40%) when BOTH adverts show one. Floor against floor, stand against
+ *     stand, never mixed; a stand size is NEVER compared when either advert is a unit (apartment / flat / townhouse / duplex / simplex / cluster / penthouse: one portal
+ *     gives the complex's stand, another the unit's size); adverts that both carry the file's own street address are never split on size at all.
  * Something missing on either side is no contradiction (nothing to compare). A failure means no move: the caller writes a review item with the reason.
  */
 final class MergeGuard
@@ -49,6 +51,12 @@ final class MergeGuard
         return 'other:' . $t;
     }
 
+    /** a flat-style unit (its stand size is the complex's, not the unit's) */
+    public static function isUnitType(?string $type): bool
+    {
+        return preg_match('/apartment|flat|townhouse|duplex|simplex|cluster|penthouse|studio|maisonette|sectional/i', (string) $type) === 1;
+    }
+
     /** @return array<string,mixed> */
     public function settings(int $agencyId): array
     {
@@ -77,7 +85,14 @@ final class MergeGuard
         if ($pa > 0 && $pb > 0 && ! (($a->ltype ?? '') !== '' && ($b->ltype ?? '') !== '' && $a->ltype !== $b->ltype) && max($pa, $pb) > min($pa, $pb) * (1 + (int) $s['merge_price_band_pct'] / 100)) {
             return 'the prices are too far apart (R' . number_format(min($pa, $pb), 0, '.', ',') . ' and R' . number_format(max($pa, $pb), 0, '.', ',') . ')';
         }
+        if ($sameAddress) {
+            return null;
+        }
+        $unit = self::isUnitType($a->ptype ?? null) || self::isUnitType($b->ptype ?? null);
         foreach ([['floor', 'floor sizes'], ['erf', 'stand sizes']] as [$k, $label]) {
+            if ($k === 'erf' && $unit) {
+                continue;
+            }
             $sa = (float) ($a->{$k} ?? 0);
             $sb = (float) ($b->{$k} ?? 0);
             if ($sa > 0 && $sb > 0 && max($sa, $sb) > min($sa, $sb) * (1 + (int) $s['merge_size_band_pct'] / 100)) {
@@ -210,6 +225,15 @@ final class MergeGuard
         }
 
         return $out;
+    }
+
+    /** sets ->at_file on each advert: the file's "number street" key when the advert's own address carries it (see saysAddress) */
+    public function markAtFile(int $agencyId, int $fileId, iterable $adverts): void
+    {
+        $key = $this->fileAddressKeys($agencyId, [$fileId])[$fileId] ?? null;
+        foreach ($adverts as $a) {
+            $a->at_file = $key !== null && self::saysAddress((string) ($a->address ?? ''), $key) ? $key : null;
+        }
     }
 
     /** does the advert's own address line carry the file's street number and street name as whole words? ("14 Emtunzi Drive" is not "4 Emtunzi Drive") */

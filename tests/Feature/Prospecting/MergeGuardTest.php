@@ -121,6 +121,72 @@ final class MergeGuardTest extends TestCase
         $this->assertNull($this->conflict(['floor' => 187], ['floor' => null]));
     }
 
+    public function test_a_stand_size_is_never_compared_for_units_and_adverts_at_the_files_address_never_split_on_size(): void
+    {
+        // 7 Surf Edge: one portal gives the complex's stand (2,384), another the unit (56)
+        $this->assertNull($this->conflict(['ptype' => 'Apartment', 'erf' => 2384, 'floor' => 56], ['ptype' => 'Apartment', 'erf' => 56, 'floor' => 56]));
+        $this->assertNull($this->conflict(['ptype' => 'Townhouse', 'erf' => 2384], ['ptype' => 'House', 'erf' => 400]), 'a unit on either side: no stand comparison');
+        $this->assertStringContainsString('floor sizes differ', (string) $this->conflict(['ptype' => 'Apartment', 'floor' => 56], ['ptype' => 'Apartment', 'floor' => 187]));
+        $this->assertStringContainsString('stand sizes differ', (string) $this->conflict(['ptype' => 'House', 'erf' => 800], ['ptype' => 'House', 'erf' => 2604]), 'houses still compare stands');
+        $this->assertNull($this->conflict(['ptype' => 'House', 'erf' => 800, 'at_file' => '7 surf edge'], ['ptype' => 'House', 'erf' => 2604, 'at_file' => '7 surf edge']), 'both at the file address: never split on size');
+        $this->assertStringContainsString('stand sizes differ', (string) $this->conflict(['ptype' => 'House', 'erf' => 800, 'at_file' => '7 surf edge'], ['ptype' => 'House', 'erf' => 2604, 'at_file' => null]));
+        $this->assertNull($this->conflict(['ptype' => 'House', 'floor' => 120], ['ptype' => 'House', 'erf' => 2604]), 'floor is never set against stand');
+    }
+
+    public function test_the_size_review_puts_back_a_size_move_that_no_longer_clashes_and_keeps_one_that_still_does(): void
+    {
+        $surf = TrackedProperty::queryWithoutAgencyScope()->create(['agency_id' => $this->a->id, 'status' => 'active', 'first_seen_at' => now(), 'street_number' => '218', 'street_name' => 'Marine Drive', 'suburb' => 'Uvongo']);
+        $keep = $this->advert($surf, 'Apartment', 2, 840_000, ['address' => '7 Surf Edge, 218 Marine Drive', 'erf_size_m2' => 56, 'property_size_m2' => 56]);
+        $newFile = TrackedProperty::queryWithoutAgencyScope()->create(['agency_id' => $this->a->id, 'status' => 'active', 'first_seen_at' => now(), 'suburb' => 'Uvongo']);
+        $moved = $this->advert($newFile, 'Apartment', 2, 750_000, ['address' => '7 Surf Edge, 218 Marine Drive', 'erf_size_m2' => 2384, 'property_size_m2' => 56]);
+        $house = $this->file('9', 'Sea Road');
+        $this->advert($house, 'House', 3, 1_000_000, ['erf_size_m2' => 800]);
+        $houseFile = TrackedProperty::queryWithoutAgencyScope()->create(['agency_id' => $this->a->id, 'status' => 'active', 'first_seen_at' => now(), 'suburb' => 'Uvongo']);
+        $bigStand = $this->advert($houseFile, 'House', 3, 1_100_000, ['erf_size_m2' => 2604]);
+        $dir = sys_get_temp_dir();
+        $journal = $dir . '/size-review-' . uniqid() . '.jsonl';
+        file_put_contents($journal, json_encode(['step' => 'split-over-merged', 'table' => 'tracked_properties', 'id' => $newFile->id, 'column' => 'created_from', 'old' => null, 'new' => $surf->id]) . "\n"
+            . json_encode(['step' => 'unwind', 'table' => 'prospecting_listings', 'id' => $moved->id, 'column' => 'tracked_property_id', 'old' => $surf->id, 'new' => $newFile->id]) . "\n"
+            . json_encode(['step' => 'unwind', 'table' => 'prospecting_listings', 'id' => $bigStand->id, 'column' => 'tracked_property_id', 'old' => $house->id, 'new' => $houseFile->id]) . "\n");
+        $report = $dir . '/size-review-' . uniqid() . '.json';
+        file_put_contents($report, json_encode(['rows' => [
+            ['file' => $surf->id, 'kept' => [$keep->portal_ref], 'moved' => [['adverts' => [$moved->portal_ref], 'to' => 'new file #' . $newFile->id, 'reason_kind' => 'size', 'reason' => 'the stand sizes differ']]],
+            ['file' => $house->id, 'kept' => ['x'], 'moved' => [['adverts' => [$bigStand->portal_ref], 'to' => 'new file #' . $houseFile->id, 'reason_kind' => 'size', 'reason' => 'the stand sizes differ']]],
+        ]]));
+        DB::table('prospecting_listings')->where('id', $moved->id)->update(['tracked_property_id' => $newFile->id]);
+
+        $svc = app(\App\Services\Prospecting\Matching\UnwindSizeReview::class);
+        $dry = $svc->run($this->a->id, $report, $journal, false);
+        $this->assertSame(['size_moves' => 2, 'kept' => 1, 'reversed' => 1], array_intersect_key($dry, array_flip(['size_moves', 'kept', 'reversed'])));
+        $this->assertSame((int) $newFile->id, (int) DB::table('prospecting_listings')->where('id', $moved->id)->value('tracked_property_id'), 'a dry run changes nothing');
+
+        $out = $dir . '/size-review-out-' . uniqid() . '.jsonl';
+        $done = $svc->run($this->a->id, $report, $journal, true, $out);
+
+        $this->assertSame(1, $done['reversed']);
+        $this->assertSame((int) $surf->id, (int) DB::table('prospecting_listings')->where('id', $moved->id)->value('tracked_property_id'), '7 Surf Edge comes back together');
+        $this->assertSame((int) $houseFile->id, (int) DB::table('prospecting_listings')->where('id', $bigStand->id)->value('tracked_property_id'), 'two houses with stands 800 and 2,604 stay apart');
+        $this->assertStringContainsString('unwind-reverse', (string) file_get_contents($out), 'the reversal is journalled');
+        $this->assertSame('duplicate', DB::table('tracked_properties')->where('id', $newFile->id)->value('status'), 'the emptied new file is flagged, never deleted');
+        $this->assertNotNull(TrackedProperty::queryWithoutAgencyScope()->find($newFile->id));
+    }
+
+    public function test_every_move_of_an_advert_re_counts_both_files_stored_figures(): void
+    {
+        \Illuminate\Support\Facades\Bus::fake();
+        config(['mic.refresh_on_change' => true]);
+        $from = $this->file('4');
+        $to = $this->file('5', 'Other Road');
+        $l = $this->advert($from, 'Apartment', 2, 970_000);
+
+        app(\App\Services\Prospecting\TrackedPropertyMerger::class)->moveAdvert($this->a->id, (string) $l->canonical_ref, (int) $from->id, (int) $to->id, false);
+        \Illuminate\Support\Facades\Bus::assertNotDispatched(\App\Jobs\MarketIntelligence\RefreshMicFileStatsJob::class);
+
+        app(\App\Services\Prospecting\TrackedPropertyMerger::class)->moveAdvert($this->a->id, (string) $l->canonical_ref, (int) $from->id, (int) $to->id, true);
+        \Illuminate\Support\Facades\Bus::assertDispatched(\App\Jobs\MarketIntelligence\RefreshMicFileStatsJob::class, fn ($j) => $j->trackedPropertyId === (int) $from->id);
+        \Illuminate\Support\Facades\Bus::assertDispatched(\App\Jobs\MarketIntelligence\RefreshMicFileStatsJob::class, fn ($j) => $j->trackedPropertyId === (int) $to->id);
+    }
+
     public function test_an_advert_is_tested_against_every_advert_already_on_the_file(): void
     {
         $tp = $this->file();

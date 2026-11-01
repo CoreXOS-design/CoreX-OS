@@ -87,8 +87,32 @@ final class TrackedPropertyMerger
                 }
             }
         }
+        if ($apply && $moved !== []) {
+            $this->refreshStats($agencyId, [$from, $to]);
+        }
 
         return $moved;
+    }
+
+    /**
+     * AT-520 4.13d: the stored per-file figures (score, advert counts, price cut, buyers, market context) belong to the file an advert sits on, so both sides of every
+     * move or merge are re-counted (queued, delayed and unique per file: a burst collapses into one refresh each; off in the test environment). `search_text` is a
+     * generated column and follows the data by itself.
+     *
+     * @param  list<int> $fileIds
+     */
+    public function refreshStats(int $agencyId, array $fileIds): void
+    {
+        if (! \App\Jobs\MarketIntelligence\RefreshMicFileStatsJob::enabled()) {
+            return;
+        }
+        foreach (array_unique(array_filter(array_map('intval', $fileIds))) as $id) {
+            try {
+                \App\Jobs\MarketIntelligence\RefreshMicFileStatsJob::dispatch($agencyId, $id)->delay(now()->addSeconds(45))->afterCommit();
+            } catch (\Throwable $e) {
+                // a bookkeeping job never breaks a merge; the nightly mic:refresh-stats is the safety net
+            }
+        }
     }
 
     /** Which of two files should survive a merge: promoted > deeds-captured > has a street > more adverts > older. */
@@ -198,6 +222,10 @@ final class TrackedPropertyMerger
                 'status' => TrackedProperty::STATUS_DUPLICATE, 'duplicate_of_tracked_property_id' => $winner->id, 'updated_at' => now(),
             ]);
             $this->log($step, 'tracked_properties', (int) $loser->id, 'status', (string) $loser->status, TrackedProperty::STATUS_DUPLICATE);
+        }
+
+        if ($apply) {
+            $this->refreshStats($agencyId, [(int) $winner->id, (int) $loser->id]);
         }
 
         return ['merged' => true, 'reason' => null, 'moved' => $moved, 'combined' => $combined['folded']];

@@ -183,7 +183,10 @@ class MarketIntelligenceController extends Controller
         // manager-only in-stock (stock) toggle above. Suspended for the
         // claim-centric action presets (my_claims / expiring / log_outcomes),
         // which exist precisely to surface claimed rows.
-        if (! $request->boolean('show_pitched') && ! $presetSuspendsCanvassFilter) {
+        // AT-520 (conductor walk 1 Nov, "Emtunzi" search): the Adverts view shows a property whatever its claim state - the row carries "Unclaimed / Mine / name" (13.9) and
+        // "Claimed: any" means any. Only "Claimed: unclaimed" keeps the claimed properties out. (The List view keeps the canvass-pool rule.)
+        $advertsShowClaimed = (($micViewChoice ?? 'list') === 'adverts' || $request->query('view') === 'properties') && ($micFilters['claimed'] ?? 'any') !== 'unclaimed';
+        if (! $request->boolean('show_pitched') && ! $presetSuspendsCanvassFilter && ! $advertsShowClaimed) {
             // INSTANT LOCK (Johan 2026-08-13, MIC funnel phase 1) — the moment an agent clicks
             // "Pitch now", a temp lock is written (EntryPointController::fromProspecting →
             // ProspectingClaimService::createTempLock) BEFORE the composer opens. Hide any listing
