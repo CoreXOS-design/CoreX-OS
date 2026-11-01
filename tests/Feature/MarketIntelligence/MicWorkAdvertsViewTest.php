@@ -60,7 +60,7 @@ final class MicWorkAdvertsViewTest extends TestCase
         DB::table('prospecting_price_history')->insert(['prospecting_listing_id' => $l->id, 'old_price' => 1_500_000, 'new_price' => 1_400_000, 'changed_at' => now()->subDays(10), 'created_at' => now(), 'updated_at' => now()]);
         $h = $this->page(['view' => 'adverts', 'show_status' => 'all']);
 
-        foreach (['advert-card', 'advert-left', 'advert-right', 'advert-price', 'advert-heading', 'advert-description', 'advert-icons', 'advert-dates', 'advert-buttons', 'advert-lines'] as $qa) {
+        foreach (['advert-card', 'advert-photo', 'advert-left', 'advert-right', 'advert-price', 'advert-heading', 'advert-description', 'advert-icons', 'advert-dates', 'line-buttons', 'line-buyers', 'line-price', 'line-adverts', 'line-alerts', 'line-market'] as $qa) {
             $this->assertStringContainsString('data-qa="' . $qa . '"', $h, $qa);
         }
         $this->assertStringContainsString('3 Bedroom House in Margate', $h);
@@ -104,7 +104,7 @@ final class MicWorkAdvertsViewTest extends TestCase
         $other = $this->advert('PP-150100004', 1_000_000, ['portal_source' => 'pp', 'agency_name' => 'Other Agents', 'tracked_property_id' => $tp]);
         $h = $this->page(['view' => 'adverts']);
         $this->assertStringNotContainsString('line-through', $h);
-        $this->assertStringContainsString('data-qa="line-other-adverts"', $h);
+        $this->assertMatchesRegularExpression('/line-adverts.*2 adverts · 2 agencies/s', $h);
         $this->assertStringNotContainsString('>Reduced</span>', $h);
     }
 
@@ -114,5 +114,38 @@ final class MicWorkAdvertsViewTest extends TestCase
         $a = $this->advert('P24-150100005', 1_100_000, ['agency_name' => 'Alpha', 'tracked_property_id' => $tp]);
         $this->advert('P24-150100006', 1_100_000, ['agency_name' => 'Beta', 'tracked_property_id' => $tp]);
         $this->assertSame(1, substr_count($this->page(['view' => 'adverts']), 'data-qa="advert-card"'));
+    }
+
+    public function test_the_right_block_is_seven_single_lines_with_no_wrapping_and_the_marks_are_links(): void
+    {
+        $tp = $this->file('P24-150100010');
+        $a = $this->advert('P24-150100010', 1_400_000, ['tracked_property_id' => $tp, 'agency_name' => 'Sea Realty'], [
+            'card_heading' => '3 Bedroom House in Margate', 'description_snippet' => 'Lovely home.', 'is_reduced' => 1, 'portal_status' => 'under_offer', 'parking' => 2,
+        ]);
+        $this->advert('PP-150100011', 1_350_000, ['portal_source' => 'pp', 'portal_url' => 'https://pp.test/150100011', 'agency_name' => 'Other Agents', 'tracked_property_id' => $tp]);
+        $this->advert('P24-150100012', 1_300_000, ['agency_name' => 'Third Agents', 'tracked_property_id' => $tp]);
+        DB::table('prospecting_price_history')->insert(['prospecting_listing_id' => $a->id, 'old_price' => 1_500_000, 'new_price' => 1_400_000, 'changed_at' => now()->subDays(10), 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('mic_file_stats')->insert(['agency_id' => $this->agency->id, 'tracked_property_id' => $tp, 'score' => 76, 'reason_1' => 'price_cuts', 'reason_2' => 'long_dom', 'buyers_strong' => 18, 'buyers_mid' => 1, 'cut_amount' => 100000, 'computed_at' => now()]);
+        $h = $this->page(['view' => 'adverts', 'show_status' => 'all']);
+
+        $this->assertSame(1, preg_match('/<div class="mi-advert-right" data-qa="advert-right">(.*?)<\/article>/s', $h, $m));
+        $right = $m[1];
+        $lines = preg_match_all('/data-qa="line-[a-z]+"/', $right);
+        $this->assertSame(7, $lines, 'score, buttons, buyers, price, adverts, alerts, market - and nothing else');
+        foreach (['flex-wrap', 'break-words', 'whitespace-normal', 'white-space:normal'] as $wrap) {
+            $this->assertStringNotContainsString($wrap, $right, "no wrapping: {$wrap}");
+        }
+        $this->assertStringContainsString('Score 76', $right);
+        $this->assertMatchesRegularExpression('/line-buyers.*18 strong · 1 mid/s', $right);
+        $this->assertMatchesRegularExpression('/line-price.*cut R 100,000/s', $right);
+        $this->assertMatchesRegularExpression('/line-adverts.*3 adverts · 3 agencies · P24, PP/s', $right);
+        $this->assertMatchesRegularExpression('/line-alerts.*No alerts/s', $right);
+        $this->assertStringContainsString('Intel', $right);
+        $this->assertStringNotContainsString('Property intel</button>', $right, 'one short label, no second line');
+        $this->assertStringContainsString('Full card', $right);
+        // the photo's marks are links to the adverts themselves
+        $this->assertStringContainsString('data-qa="mark-p24"', $h);
+        $this->assertMatchesRegularExpression('/<a href="https:\/\/p\.test\/P24-1501000[^"]*"[^>]*data-qa="mark-p24"/', $h);
+        $this->assertMatchesRegularExpression('/<a href="https:\/\/pp\.test\/150100011"[^>]*data-qa="mark-pp"/', $h);
     }
 }

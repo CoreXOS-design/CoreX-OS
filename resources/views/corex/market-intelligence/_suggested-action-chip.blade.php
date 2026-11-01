@@ -78,6 +78,14 @@
         // the other.
         $baseChipStyle = 'display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 6px 12px; font-size: 0.75rem; font-weight: 600; border-radius: 6px; text-decoration: none; cursor: pointer; white-space: nowrap; min-width: 150px; box-sizing: border-box;';
 
+        // Compact form (the Adverts card's one-line button row, mic-work-tab.md 13.3): same chip, same action, sized to the row - the label keeps its first part
+        // (the full text stays in the tooltip) and the small status badge is left to the tooltip too.
+        $compact = $compact ?? false;
+        if ($compact) {
+            $baseChipStyle = 'display:flex; align-items:center; justify-content:center; width:100%; height:26px; padding:0 4px; font-size:.75rem; font-weight:600; line-height:1; border-radius:5px; text-decoration:none; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; box-sizing:border-box;';
+            $chipLabel = trim(explode(' · ', $chipLabel)[0]);
+        }
+
         // Small, non-interactive secondary badge — text-only (no chip
         // background/border) so it reads as a status indicator rather than
         // a second competing button next to the primary CTA.
@@ -128,7 +136,7 @@
         </button>
     @endif
 
-    @if($s->statusBadgeLabel)
+    @if($s->statusBadgeLabel && !$compact)
         <span data-rank="{{ $s->rank }}-status"
               style="display: inline-flex; align-items: center; margin-left: 6px; font-size: 0.5625rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.02em; color: {{ $badgeColor }}; white-space: nowrap;"
               title="{{ $tooltipText }}">
