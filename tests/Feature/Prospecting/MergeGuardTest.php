@@ -240,6 +240,32 @@ final class MergeGuardTest extends TestCase
         $this->assertSame(0, app(UnwindContradictingFiles::class)->run($this->a->id, false)['files_touched'], 'a second run finds nothing left to split');
     }
 
+    public function test_the_journal_of_an_applied_unwind_puts_everything_back(): void
+    {
+        [$flat, $shell, $mine, $stray, $sibling] = $this->emtunzi();
+        DB::table('prospecting_listings')->where('id', $sibling->id)->update(['tracked_property_id' => $flat->id]);
+        DB::table('tracked_properties')->where('id', $shell->id)->update(['status' => 'duplicate', 'duplicate_of_tracked_property_id' => $flat->id, 'created_at' => $sibling->created_at]);
+        $journal = sys_get_temp_dir() . '/unwind-test-' . uniqid() . '.jsonl';
+        $merger = app(\App\Services\Prospecting\TrackedPropertyMerger::class);
+        $merger->journalTo($journal);
+        app(UnwindContradictingFiles::class)->run($this->a->id, true);
+        $merger->journalTo(null);
+        $this->assertSame((int) $shell->id, (int) DB::table('prospecting_listings')->where('id', $stray->id)->value('tracked_property_id'));
+
+        $dry = app(\App\Services\Prospecting\Matching\UnwindReverser::class)->reverse($journal, false);
+        $this->assertGreaterThan(0, $dry['adverts_returned']);
+        $this->assertSame((int) $shell->id, (int) DB::table('prospecting_listings')->where('id', $stray->id)->value('tracked_property_id'), 'a dry run of the reversal changes nothing');
+
+        $done = app(\App\Services\Prospecting\Matching\UnwindReverser::class)->reverse($journal, true);
+
+        $this->assertSame(0, $done['left_alone']);
+        $this->assertSame((int) $flat->id, (int) DB::table('prospecting_listings')->where('id', $stray->id)->value('tracked_property_id'));
+        $this->assertSame((int) $flat->id, (int) DB::table('prospecting_listings')->where('id', $sibling->id)->value('tracked_property_id'));
+        $this->assertSame('duplicate', DB::table('tracked_properties')->where('id', $shell->id)->value('status'));
+        $this->assertSame((int) $flat->id, (int) DB::table('tracked_properties')->where('id', $shell->id)->value('duplicate_of_tracked_property_id'));
+        @unlink($journal);
+    }
+
     public function test_the_unwind_leaves_a_file_whose_adverts_all_fit_alone(): void
     {
         $tp = $this->file();

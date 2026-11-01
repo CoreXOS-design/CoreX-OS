@@ -67,6 +67,7 @@ final class UnwindContradictingFiles
                         if ($restore !== null) {
                             DB::table('tracked_properties')->where('id', $restore)->update(['status' => TrackedProperty::STATUS_ACTIVE, 'duplicate_of_tracked_property_id' => null, 'updated_at' => now()]);
                             $this->merger->log('unwind', 'tracked_properties', $restore, 'status', TrackedProperty::STATUS_DUPLICATE, TrackedProperty::STATUS_ACTIVE);
+                            $this->merger->log('unwind', 'tracked_properties', $restore, 'duplicate_of_tracked_property_id', $fid, null);
                         }
                         foreach ($g as $a) {
                             $this->merger->moveAdvert($agencyId, (string) ($a->canonical_ref ?: $a->ref), $fid, (int) $newId, true, 'unwind');

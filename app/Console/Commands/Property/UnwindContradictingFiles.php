@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\File;
  */
 final class UnwindContradictingFiles extends Command
 {
-    protected $signature = 'property-identity:unwind {--agency= : Agency id (required)} {--apply : Really move the adverts (default is a dry run)} {--report-dir= : Where the report and journal go}';
+    protected $signature = 'property-identity:unwind {--agency= : Agency id (required)} {--apply : Really move the adverts (default is a dry run)} {--report-dir= : Where the report and journal go} {--reverse= : Path of an unwind journal to put back (dry run unless --apply)}';
 
     protected $description = 'Split adverts that contradict their property file back onto their own files (dry run unless --apply)';
 
@@ -25,6 +25,12 @@ final class UnwindContradictingFiles extends Command
             $this->error('This only runs on QA / local / testing (APP_ENV is "' . app()->environment() . '").');
 
             return self::FAILURE;
+        }
+        if ($this->option('reverse')) {
+            $r = app(\App\Services\Prospecting\Matching\UnwindReverser::class)->reverse((string) $this->option('reverse'), (bool) $this->option('apply'));
+            $this->line(($this->option('apply') ? 'REVERSED ' : 'DRY RUN of the reversal ') . json_encode($r));
+
+            return self::SUCCESS;
         }
         $agencyId = (int) $this->option('agency');
         if ($agencyId <= 0) {
