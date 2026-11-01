@@ -49,6 +49,12 @@
         .hero::before { content:''; position:absolute; inset:0; background:linear-gradient(90deg, rgba(0,0,0,.55), rgba(0,0,0,.15)); }
         .hero > * { position:relative; } .hero h1 { color:#fff; font-size:2rem; margin-top:0; } .hero p { color:#f3f4f6; max-width:640px; margin-bottom:0; }
         @stack('styles')
+        /* The agency-coloured background used wherever there is no photo (home hero, an auction card or lot banner without a picture): the agency's colours,
+           a soft glow in its button colour and a faint skyline of rooftops. Nothing here depends on any property or auction. */
+        .brand-bg { position:relative; overflow:hidden; background-color:var(--brand);
+            background-image: radial-gradient(900px 440px at 88% -12%, color-mix(in srgb, var(--button) 62%, transparent), transparent 62%), radial-gradient(760px 420px at 4% 115%, color-mix(in srgb, var(--button) 34%, transparent), transparent 62%), linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 68%, #000)); }
+        .brand-bg::before { content:''; position:absolute; left:0; right:0; bottom:0; height:34%; pointer-events:none; opacity:.12;
+            background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 220'%3E%3Cg fill='white'%3E%3Cpath d='M0 220V150l40-34 40 34v70z'/%3E%3Cpath d='M100 220V120l50-44 50 44v100z'/%3E%3Cpath d='M220 220V160l34-28 34 28v60z'/%3E%3Cpath d='M310 220V100l60-52 60 52v120z'/%3E%3Cpath d='M450 220V140l44-38 44 38v80z'/%3E%3Cpath d='M560 220V165l30-26 30 26v55z'/%3E%3C/g%3E%3C/svg%3E") repeat-x left bottom / auto 100%; }
         .pill { display:inline-flex; align-items:center; gap:9px; text-transform:uppercase; background:#fff; color:#344054; font-size:.75rem; font-weight:800; letter-spacing:.12em; padding:7px 14px; border-radius:99px; }
         .pill i { width:10px; height:10px; border-radius:50%; background:#98a2b3; display:inline-block; }
         .pill.live { color:#b42318; } .pill.live i { background:#e5372b; box-shadow:0 0 0 5px rgba(229,55,43,.2); }

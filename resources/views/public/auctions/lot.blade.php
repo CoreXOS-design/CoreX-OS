@@ -4,7 +4,7 @@
 
 @push('styles')
         /* The lot page (.ai/specs/auctions.md §20): a full-width hero, then two columns with the bid card overlapping the hero. Every colour is the agency's. */
-        .lot-hero { position:relative; height:540px; overflow:hidden; background:linear-gradient(135deg, var(--brand), color-mix(in srgb, var(--brand) 55%, var(--button))); }
+        .lot-hero { position:relative; height:540px; overflow:hidden; }
         .lot-hero img.ph { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block; }
         .lot-hero::after { content:''; position:absolute; inset:0; background:linear-gradient(180deg, rgba(8,20,36,0) 35%, rgba(8,20,36,.78) 100%); }
         .lot-hero .in { position:absolute; left:0; right:0; bottom:0; z-index:1; max-width:1080px; margin:0 auto; padding:0 16px 56px; color:#fff; }
@@ -75,7 +75,7 @@
         $phase = $state['phase'] ?? 'open';
         $closedLabel = $lot->status === 'sold' ? 'Sold' : ($lot->status === 'passed_in' ? 'Passed in' : ($lot->status === 'sold_subject_to_confirmation' ? 'Sold subject to confirmation' : 'Bidding ended'));
     @endphp
-    <div class="lot-hero" data-lot-hero>
+    <div class="lot-hero brand-bg" data-lot-hero>
         @if(count($photos))<img class="ph zoom" src="{{ $photos[0] }}" alt="" data-open-gallery="0">@endif
         @if(count($photos))<button type="button" class="hero-photos" data-open-gallery="0" aria-haspopup="dialog">&#9638; View {{ count($photos) > 1 ? 'all ' . count($photos) . ' photos' : 'photo' }}</button>@endif
         <div class="in">

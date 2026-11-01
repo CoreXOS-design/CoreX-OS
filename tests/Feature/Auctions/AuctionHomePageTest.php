@@ -49,11 +49,50 @@ final class AuctionHomePageTest extends AuctionsV2TestCase
         $this->assertStringContainsString('data-hero', $html);
         $this->assertStringContainsString('An auction is live now', $html);
         $this->assertStringContainsString('Sign up to bid', $html);
-        $this->assertStringContainsString('2 auctions open', $html);
+        $this->assertStringContainsString('1 auction open now', $html, 'only what is open for bidding NOW counts as open');
+        $this->assertStringContainsString('1 coming up', $html, 'an upcoming auction is counted separately, never as open');
+        $this->assertStringNotContainsString('2 auctions open', $html);
         $this->assertStringContainsString('data-live-auctions', $html);
         $this->assertStringContainsString('data-coming-auctions', $html);
         $this->assertStringNotContainsString('Want to bid?', $html, 'the old grey sign-up box is gone');
         $this->assertMatchesRegularExpression('/Live now.*Running Now.*Coming up.*Coming Soon/s', $html);
+    }
+
+    public function test_the_open_count_and_lot_count_only_count_the_auction_that_is_live_now(): void
+    {
+        $live = $this->published(['title' => 'Running Now']);
+        $later = $this->published(['title' => 'Coming Soon', 'starts_at' => now()->addDay(), 'ends_at' => now()->addDays(2)]);
+        foreach ([[$live, 'One'], [$later, 'Two'], [$later, 'Three']] as [$a, $t]) {
+            app(AuctionLotService::class)->saveForProperty($this->property($t), ['auction_id' => $a->id, 'opening_bid' => 100000], $this->admin)->forceFill(['status' => 'published'])->save();
+        }
+        $this->asGuest();
+
+        $html = $this->get($this->home())->assertOk()->getContent();
+        $stats = substr($html, strpos($html, 'data-stats'), 700);
+        $this->assertStringContainsString('1 auction open now', $stats);
+        $this->assertStringContainsString('1 lot to bid on', $stats, 'the 2 lots of the auction that has not started are not "to bid on" yet');
+        $this->assertStringContainsString('1 coming up', $stats);
+    }
+
+    public function test_the_banner_never_uses_a_property_photo_only_the_agencys_own_picture_or_the_designed_background(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        \Illuminate\Support\Facades\Storage::disk('public')->put('properties/1/photo-a.jpg', 'x');
+        $a = $this->published();
+        $property = $this->property('Photo House', ['gallery_images_json' => ['/storage/properties/1/photo-a.jpg']]);
+        app(AuctionLotService::class)->saveForProperty($property, ['auction_id' => $a->id, 'opening_bid' => 100000], $this->admin)->forceFill(['status' => 'published'])->save();
+        $this->asGuest();
+
+        $html = $this->get($this->home())->assertOk()->getContent();
+        $hero = substr($html, strpos($html, 'data-hero') - 80, 600);
+        $this->assertStringContainsString('brand-bg no-img', $hero);
+        $this->assertStringNotContainsString('class="ph"', $hero, 'no property photo in the banner');
+        $this->assertStringContainsString('storage/properties/1/photo-a.jpg', $html, 'the photo still shows on the auction card, where it belongs');
+
+        AgencyAuctionSettings::create(['agency_id' => $this->agency->id, 'hero_image_path' => 'auction-pages/1/hero-x.jpg']);
+        $hero = substr($this->get($this->home())->getContent(), strpos($this->get($this->home())->getContent(), 'data-hero') - 80, 600);
+        $this->assertStringContainsString('has-img', $hero);
+        $this->assertStringContainsString('hero-x.jpg', $hero);
     }
 
     public function test_a_signed_in_buyer_gets_my_account_instead_of_sign_up(): void

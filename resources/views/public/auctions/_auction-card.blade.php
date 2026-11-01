@@ -5,7 +5,7 @@
     $ends = $a->ends_at && $a->format === 'timed' ? $a->ends_at->format('j M Y, H:i') : null;
 @endphp
 <a href="{{ route('public.auctions.auction', [$agency->slug, $a->id]) }}" class="acard {{ $phase === 'finished' ? 'is-past' : '' }}" data-auction-card>
-    <div class="ph">
+    <div class="ph brand-bg">
         @if($a->card_image ?? null)<img src="{{ $a->card_image }}" alt="" loading="lazy">@endif
         <span class="pill {{ $phase === 'live' ? 'live' : '' }}" data-auction-phase="{{ $phase }}"><i></i>{{ $phase === 'live' ? 'Live now' : $a->publicPhaseLabel() }}</span>
     </div>
