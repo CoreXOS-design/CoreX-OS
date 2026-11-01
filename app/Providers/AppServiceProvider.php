@@ -1168,6 +1168,15 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        // Auction website API (§24): the write endpoints (sign-up, log-in, enquiries, the seller form...) are limited per website key AND visitor
+        // (the visitor address the website passes in X-Visitor-IP), so one noisy visitor never locks the whole site out.
+        \Illuminate\Support\Facades\RateLimiter::for('auction-website-write', function (\Illuminate\Http\Request $request) {
+            $key = \Illuminate\Support\Facades\Auth::guard('agency-api')->user();
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinute(30)->by('awk:' . ($key instanceof \App\Models\AgencyApiKey ? $key->getKey() : 'x') . ':' . $request->ip())
+                ->response(fn () => response()->json(['message' => 'Too many attempts. Please wait a minute and try again.', 'code' => 'rate_limited'], 429));
+        });
+
         \Illuminate\Support\Facades\RateLimiter::for('website-api', function (\Illuminate\Http\Request $request) {
             $key = $request->user();
             $perMinute = ($key instanceof \App\Models\AgencyApiKey) ? max(1, (int) $key->rate_limit_per_min) : 120;

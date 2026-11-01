@@ -28,6 +28,20 @@ class SellerSubmissionController extends Controller
             return response()->json(['message' => 'This submission could not be accepted.'], 422);
         }
 
+        $data = self::validated($request);
+
+        $this->service->capture((int) $agency->id, $data, $request->ip());
+
+        return response()->json(['ok' => true, 'message' => 'Questionnaire received.'], 201);
+    }
+
+    /**
+     * The questionnaire's rules, exactly as the form promises them - shared with the auction website API so a website cannot send what the page would refuse.
+     *
+     * @return array<string, mixed> the validated answers (booleans normalised, honeypot excluded)
+     */
+    public static function validated(Request $request): array
+    {
         $int = 'nullable|integer|min:0|max:9999999999';
         $data = $request->validate([
             'seller_type' => ['required', Rule::in(array_keys(S::SELLER_TYPES))],
@@ -80,8 +94,6 @@ class SellerSubmissionController extends Controller
         $data['has_bond'] = $request->boolean('has_bond');
         $data['bond_arrears'] = $request->boolean('bond_arrears');
 
-        $this->service->capture((int) $agency->id, $data, $request->ip());
-
-        return response()->json(['ok' => true, 'message' => 'Questionnaire received.'], 201);
+        return $data;
     }
 }

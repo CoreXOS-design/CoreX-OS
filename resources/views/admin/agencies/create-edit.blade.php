@@ -716,8 +716,8 @@
 
         {{-- Existing keys --}}
         <div class="ds-status-card p-4 space-y-4" data-tour="smk-web-keys">
-            <h3 class="ds-section-header">Websites / API keys</h3>
-            <p class="text-xs" style="color:var(--text-muted);">Each website gets its own key. The key's name is the label shown as its Syndication Portal on every property.</p>
+            <h3 class="ds-section-header">Websites / API keys <span class="text-xs font-normal" style="color:var(--text-muted);" data-api-key-count>· {{ $agency->apiKeys->count() }} {{ $agency->apiKeys->count() === 1 ? 'website' : 'websites' }} connected</span></h3>
+            <p class="text-xs" style="color:var(--text-muted);">One agency can have as many websites as you like. Each website gets its <strong>own key</strong> with its own permissions, webhook and limit, and you can switch one off without touching the others. The key's name is the label shown as its Syndication Portal on every property.</p>
 
             @forelse($agency->apiKeys as $key)
                 <div class="rounded-md p-3 space-y-2" style="background: var(--surface-2); border:1px solid var(--border);" x-data="{ editing: false, showSecret: false, showDeliveries: false, ...websiteConnectionTest('{{ route('agencies.api-keys.test', [$agency, $key]) }}', '{{ csrf_token() }}') }">
@@ -864,7 +864,8 @@
         {{-- Generate a new key --}}
         @if(auth()->user()?->hasPermission('agency_api.manage'))
         <div class="ds-status-card p-4 space-y-4" data-tour="smk-web-newkey">
-            <h3 class="ds-section-header">Generate API key</h3>
+            <h3 class="ds-section-header">{{ $agency->apiKeys->count() > 0 ? 'Connect another website' : 'Connect a website' }}</h3>
+            <p class="text-xs" style="color:var(--text-muted);">Make a separate key for every website. Pick what kind of website it is to tick the right permissions, then adjust if you need to.</p>
             <form method="POST" action="{{ route('agencies.api-keys.store', $agency) }}" class="space-y-4">
                 @csrf
                 <div data-tour="smk-web-name">
@@ -877,6 +878,11 @@
                 </div>
                 <div data-tour="smk-web-scopes">
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Scopes</label>
+                    <div class="flex flex-wrap gap-2 mb-2" data-scope-presets>
+                        <button type="button" class="corex-btn-outline text-xs px-3 py-1.5" data-preset="listings" onclick="corexScopePreset(this.closest('form'), @js(['listings:read','agents:read','agency:read','branches:read','testimonials:read','articles:read','leads:write','stats:write']))">Property website</button>
+                        <button type="button" class="corex-btn-outline text-xs px-3 py-1.5" data-preset="auction" onclick="corexScopePreset(this.closest('form'), @js(\App\Models\AgencyApiKey::AUCTION_WEBSITE_PRESET))">Auction website</button>
+                        <button type="button" class="corex-btn-outline text-xs px-3 py-1.5" data-preset="none" onclick="corexScopePreset(this.closest('form'), [])">Clear</button>
+                    </div>
                     <div class="flex flex-col gap-1">
                         @foreach(\App\Models\AgencyApiKey::SCOPES as $scopeKey => $scopeLabel)
                             <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);">
@@ -899,8 +905,26 @@
                 </div>
                 <button type="submit" class="corex-btn-primary text-sm" data-tour="smk-web-generate">Generate API Key</button>
             </form>
+            <script>
+                function corexScopePreset(form, scopes) {
+                    form.querySelectorAll('input[name="scopes[]"]').forEach(function (c) { c.checked = scopes.indexOf(c.value) > -1; });
+                }
+            </script>
         </div>
         @endif
+
+        {{-- Auction website API (.ai/specs/auctions-website-api.md) --}}
+        <div class="ds-status-card p-4 space-y-2" data-auction-api-card>
+            <h3 class="ds-section-header">Auction website API</h3>
+            <p class="text-xs" style="color:var(--text-muted);">For a website that shows this agency's auctions and lets buyers sign up, register and bid, the same as your CoreX auction page. Make a key with the <strong>Auction website</strong> preset above, then the website's server calls:</p>
+            <div class="font-mono text-xs rounded-md p-2" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                COREX_AUCTIONS_API={{ rtrim(config('app.url'), '/') }}/api/v1/website/auctions<br>
+                Authorization: Bearer &lt;the key&gt;<br>
+                X-Buyer-Token: &lt;the buyer's token, once they have signed in&gt;<br>
+                X-Visitor-IP: &lt;the visitor's address, optional&gt;
+            </div>
+            <p class="text-xs" style="color:var(--text-muted);">Buyers who sign up or log in on that website are the same buyers as on your CoreX auction page (same email and password), and show up under Auctions → Bidders → Signed up. Every endpoint is listed under Admin → API. The full guide is in <span class="font-mono">.ai/specs/auctions-website-api.md</span>. The agency's auctions must be switched on, and the master switch above must be live.</p>
+        </div>
 
         {{-- Connecting a website — setup & operations note --}}
         <div class="ds-status-card p-4 space-y-3" x-data="{ open: false }" data-tour="smk-web-setup">

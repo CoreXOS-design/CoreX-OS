@@ -63,7 +63,7 @@ class BuyerAccountService
     /**
      * Finish sign-up: code + profile + password. Null when the code is wrong or expired.
      */
-    public function register(Agency $agency, string $email, string $code, string $name, ?string $phone, string $password, Request $request): ?ClientUser
+    public function register(Agency $agency, string $email, string $code, string $name, ?string $phone, string $password, Request $request, bool $signIn = true): ?ClientUser
     {
         $email = $this->email($email);
         if (! $this->client->verifyOtp($email, $code, self::PURPOSE_SIGNUP, $request)) {
@@ -83,13 +83,15 @@ class BuyerAccountService
         $contact = $this->contactFor($user, $agency, $name, $phone);
         $this->client->log($user, (int) $agency->id, (int) $contact->id, 'auction_signup', $request, ['consent_popia' => true]);
 
-        $this->signIn($request, $user);
+        if ($signIn) {
+            $this->signIn($request, $user);   // the website API has no session: it is given a buyer token instead
+        }
 
         return $user;
     }
 
     /** Reset the password with a recovery code. Null when the code is wrong or expired. */
-    public function resetPassword(Agency $agency, string $email, string $code, string $password, Request $request): ?ClientUser
+    public function resetPassword(Agency $agency, string $email, string $code, string $password, Request $request, bool $signIn = true): ?ClientUser
     {
         $email = $this->email($email);
         if (! $this->client->verifyOtp($email, $code, self::PURPOSE_RESET, $request)) {
@@ -106,7 +108,9 @@ class BuyerAccountService
         $this->client->log($user, (int) $agency->id, null, 'password_reset', $request);
 
         $this->contactFor($user, $agency);
-        $this->signIn($request, $user);
+        if ($signIn) {
+            $this->signIn($request, $user);
+        }
 
         return $user;
     }
@@ -114,7 +118,7 @@ class BuyerAccountService
     /**
      * @return ClientUser|string the signed-in buyer, or the message to show
      */
-    public function attempt(Agency $agency, string $email, string $password, Request $request): ClientUser|string
+    public function attempt(Agency $agency, string $email, string $password, Request $request, bool $signIn = true): ClientUser|string
     {
         $email = $this->email($email);
         $key = 'auction-buyer-login:' . $request->ip() . ':' . $email;
@@ -136,7 +140,9 @@ class BuyerAccountService
         $this->contactFor($user, $agency);
         $user->forceFill(['current_agency_id' => $agency->id, 'last_login_at' => now(), 'last_ip' => $request->ip(), 'first_login_at' => $user->first_login_at ?? now()])->save();
         $this->client->log($user, (int) $agency->id, null, 'auction_login', $request);
-        $this->signIn($request, $user);
+        if ($signIn) {
+            $this->signIn($request, $user);
+        }
 
         return $user;
     }
