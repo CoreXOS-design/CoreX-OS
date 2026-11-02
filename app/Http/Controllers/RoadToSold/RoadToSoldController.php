@@ -205,6 +205,8 @@ class RoadToSoldController extends Controller
             ] + Track::params($track)),
             'track'          => $track,
             'outcomeChoices' => $outcomes,
+            // v4 (23.7a): per property, the outcomes that fit the record's station and owner (the pop-up shows only these)
+            'outcomeFit'     => $viewingOwn && $agentUser ? $this->outcomeFit($agentUser, collect($data['rows']->items())->pluck('tracked_property_id')->all(), $track) : [],
             // v4 (23.6 / 23.7): which rows are still waiting for the owner to be found (property id => what is missing), and the channel this agent used last
             'ownerBlocked'   => $viewingOwn && $agentUser ? app(\App\Services\RoadToSold\OwnerStationService::class)->blockedMany($agentUser, collect($data['rows']->items())->pluck('tracked_property_id')->all()) : [],
             'lastChannel'    => ($agentUser && \App\Models\RoadToSold\RtsContactOutcome::hasChannelColumn())
@@ -457,6 +459,31 @@ class RoadToSoldController extends Controller
 
         return $back->with('rts_build', ['agent' => $agentId, 'failed' => false])
             ->with($n > 0 ? ['status' => "Built {$who} list for today: {$n} " . ($n === 1 ? 'property.' : 'properties.')] : []);
+    }
+
+    /**
+     * Outcome ids that fit each listed property for this agent: the record's station (their open belt record, else none) and whether the owner is found.
+     *
+     * @param  int[]  $trackedIds
+     * @return array<int,int[]> tracked property id => outcome definition ids
+     */
+    private function outcomeFit(\App\Models\User $agent, array $trackedIds, string $track): array
+    {
+        $agencyId = (int) ($agent->effectiveAgencyId() ?: 0);
+        $ids = array_values(array_unique(array_filter(array_map('intval', $trackedIds))));
+        if ($agencyId <= 0 || $ids === []) {
+            return [];
+        }
+        $stages = \App\Models\RoadToSold\RtsProspect::withoutGlobalScopes()->where('agency_id', $agencyId)->where('track', $track)->whereIn('tracked_property_id', $ids)
+            ->where('user_id', (int) $agent->ownershipUserId())->whereNull('closed_at')->whereNull('released_at')->whereNull('deleted_at')->pluck('stage', 'tracked_property_id');
+        $blocked = app(\App\Services\RoadToSold\OwnerStationService::class)->blockedMany($agent, $ids);
+        $out = [];
+        foreach ($ids as $tp) {
+            $ownerFound = ! isset($blocked[$tp]);
+            $out[$tp] = $this->definitions->fitting($agencyId, $track, $stages[$tp] ?? null, $ownerFound)->pluck('id')->map(fn ($v) => (int) $v)->all();
+        }
+
+        return $out;
     }
 
     public function recordOutcome(Request $request): RedirectResponse|\Illuminate\Http\JsonResponse

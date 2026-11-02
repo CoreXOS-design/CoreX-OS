@@ -93,8 +93,9 @@ final class ResultServiceTest extends TestCase
 
         $this->assertTrue($r['ok']);
         $p->refresh();
-        $this->assertSame(ProspectStages::MANDATE_SIGNED, $p->stage);
-        $this->assertSame('Take the mandate / get it signed', $p->next_action_label);
+        // Won -> Mandate signed ("take the mandate"), and the property becoming a Draft takes the record on to Draft (A7, station 9)
+        $this->assertSame(ProspectStages::DRAFT, $p->stage);
+        $this->assertSame(1, DB::table('rts_prospect_events')->where('prospect_id', $p->id)->where('to_stage', ProspectStages::MANDATE_SIGNED)->where('kind', 'stage')->count());
         $this->assertSame('draft', $property->fresh()->status);
         $this->assertSame(ProspectingClaim::STATUS_LISTING, $claim->fresh()->status, 'the claim is a mirror of the station');
         $this->assertTrue((bool) $claim->fresh()->is_active);

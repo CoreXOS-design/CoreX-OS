@@ -58,7 +58,11 @@ final class PitchContactService
         foreach ($titles as $key => $title) {
             $groups[$key] = ['key' => $key, 'title' => $title, 'items' => []];
         }
-        foreach ($this->definitions->list($agencyId, 'sales') as $d) {
+        // v4 (23.7a): only the outcomes that fit the record's station and owner (the same rule as Log contact)
+        $stage = $tp ? \App\Models\RoadToSold\RtsProspect::withoutGlobalScopes()->where('agency_id', $agencyId)->where('track', 'sales')->where('tracked_property_id', $tp)
+            ->where('user_id', (int) $actor->ownershipUserId())->whereNull('closed_at')->whereNull('released_at')->whereNull('deleted_at')->value('stage') : null;
+        $ownerFound = $tp ? $this->owner->ownerFound($agencyId, $tp) : null;
+        foreach ($this->definitions->fitting($agencyId, 'sales', $stage, $ownerFound) as $d) {
             if (in_array($d->key, OutcomeDefinitionService::AFTER_EVALUATION_KEYS, true)) {
                 continue;
             }

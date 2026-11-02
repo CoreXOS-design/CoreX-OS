@@ -555,6 +555,9 @@ class AppServiceProvider extends ServiceProvider
         // Road to Sold v4 (23.5): a MIC claim IS station 2 of the prospect; ending the claim ends the belt record with it.
         Event::listen(\App\Events\Prospecting\ClaimCreated::class, [\App\Listeners\RoadToSold\BeltFollowsClaim::class, 'handleCreated']);
         Event::listen(\App\Events\Prospecting\ClaimReleased::class, [\App\Listeners\RoadToSold\BeltFollowsClaim::class, 'handleReleased']);
+        // Road to Sold v4 (23.4): stations 9-11 follow the property - Draft when it becomes one, Active once compliance has passed AND it is published.
+        Event::listen(\App\Events\Property\PropertyCompliancePassed::class, [\App\Listeners\RoadToSold\MoveBeltWithProperty::class, 'handleCompliancePassed']);
+        Event::listen(\App\Events\Property\PropertyPublished::class, [\App\Listeners\RoadToSold\MoveBeltWithProperty::class, 'handlePublished']);
         // Road to Sold v4 (23.8): a presentation generated for the property -> the belt record moves to Presentation prepared.
         Event::listen(\App\Events\PresentationGenerated::class, \App\Listeners\RoadToSold\MoveToPresentationPrepared::class);
         // Road to Sold v4 (23.6): the owner is linked / the deed arrives -> the belt record moves to Owner found.
@@ -565,6 +568,7 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(\App\Events\Prospecting\OwnerLinkedToTrackedProperty::class, [\App\Listeners\RoadToSold\CreditBeltPoints::class, 'handleOwnerLinked']);
         Event::listen(\App\Events\Prospecting\TrackedPropertyEnriched::class, [\App\Listeners\RoadToSold\CreditBeltPoints::class, 'handleEnriched']);
         Event::listen(\App\Events\RoadToSold\RoadToSoldOutcomeRecorded::class, [\App\Listeners\RoadToSold\CreditBeltPoints::class, 'handleOutcome']);
+        Event::listen(\App\Events\RoadToSold\ProspectResultRecorded::class, [\App\Listeners\RoadToSold\CreditBeltPoints::class, 'handleResult']);
         \App\Models\RoadToSold\RtsContactOutcome::deleted(function (\App\Models\RoadToSold\RtsContactOutcome $o) {
             foreach (array_merge(['rts.offramp_logged'], array_filter([\App\Services\RoadToSold\BeltPoints::channelSlug($o->channel)])) as $slug) {
                 app(\App\Services\RoadToSold\BeltPoints::class)->revoke($slug, $o, 'The outcome was removed');

@@ -4,6 +4,7 @@ namespace App\Services\RoadToSold;
 
 use App\Models\CommandCenter\CalendarEvent;
 use App\Models\Presentation;
+use App\Models\Property;
 use App\Models\Prospecting\TrackedProperty;
 use App\Models\RoadToSold\RtsProspect;
 use Illuminate\Support\Facades\DB;
@@ -165,6 +166,51 @@ class BeltLinks
             app(ResultService::class)->record($p, $key, $revisit, $kd['seller_notes'] ?? null, $actor, 'evaluation_feedback', ['feedback' => $fb]);
         } catch (\Throwable $e) {
             Log::warning('Belt: the evaluation result could not be recorded on the belt record (the feedback stands)', ['feedback_id' => $fb->id ?? null, 'message' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Stations 9-11 (road-to-sold.md 23.4): the property's own state moves the agent's belt record. Draft = the property is a Draft (the won result, or the property page's
+     * "Moved to Draft"); Active = compliance has passed AND the listing is published (the two events PropertyCompliancePassed and PropertyPublished, in either order, read
+     * from the property so the second one to arrive is the one that moves it). Forward only; a record is never CREATED here (a property nobody works on the belt is not a
+     * belt record); a closed or released record is left alone. Returns how many moved. Never throws.
+     */
+    public function syncPropertyStage(Property $property): int
+    {
+        try {
+            $agencyId = (int) $property->agency_id;
+            $target = null;
+            if ($property->compliance_snapshot_at !== null && $property->published_at !== null) {
+                $target = ProspectStages::ACTIVE;
+            } elseif ((string) $property->status === 'draft') {
+                $target = ProspectStages::DRAFT;
+            }
+            if (! $target || $agencyId <= 0) {
+                return 0;
+            }
+            $q = RtsProspect::withoutGlobalScopes()->where('agency_id', $agencyId)->where('track', 'sales')->whereNull('closed_at')->whereNull('released_at')->whereNull('deleted_at')
+                ->where(function ($w) use ($property) {
+                    $w->where('property_id', $property->id);
+                    $tracked = $property->tracked_property_id ?? null;
+                    if ($tracked && $property->agent_id) {
+                        $w->orWhere(fn ($x) => $x->where('tracked_property_id', $tracked)->where('user_id', $property->agent_id));
+                    }
+                });
+            $moved = 0;
+            foreach ($q->get() as $p) {
+                $agent = \App\Models\User::query()->withoutGlobalScopes()->find((int) $p->user_id);
+                if (app(ProspectService::class)->advance($p, $target, $agent, [
+                    'event_class' => 'PropertyStage', 'subject_type' => 'property', 'subject_id' => (int) $property->id, 'note' => $target === ProspectStages::ACTIVE ? 'Compliance passed and published' : 'The property is a Draft',
+                ])) {
+                    $moved++;
+                }
+            }
+
+            return $moved;
+        } catch (\Throwable $e) {
+            Log::warning('Belt: the property could not move its belt record (the property stands)', ['property_id' => $property->id ?? null, 'message' => $e->getMessage()]);
+
+            return 0;
         }
     }
 

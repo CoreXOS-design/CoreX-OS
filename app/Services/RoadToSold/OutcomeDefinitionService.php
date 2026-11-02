@@ -135,6 +135,29 @@ class OutcomeDefinitionService
     }
 
     /**
+     * The outcomes that FIT this record - what "Log contact" and the Phone call step offer (road-to-sold.md 23.7a, the 2 Nov audit): only what can have happened at the
+     * station the record is at. A record whose owner is not found yet can only report that problem (find-owner outcomes, do not contact), because anything else is
+     * refused until the owner is linked; once the owner is linked, "No owner found" and "Wrong number" are not on the list; the after-the-evaluation answers appear only
+     * once an appointment is set. $ownerFound = null means "not known" (nothing is hidden on that account).
+     *
+     * @return Collection<int, Def>
+     */
+    public function fitting(int $agencyId, string $track = 'sales', ?string $stage = null, ?bool $ownerFound = null): Collection
+    {
+        $gate = (bool) config('road-to-sold-belt.enforce_owner_gate', true);
+        $exempt = fn (Def $d) => $d->records_do_not_contact || $d->next_action === Def::ACTION_FIND_OWNER;
+        $list = $this->availableFor($agencyId, $track, $stage);
+        if ($ownerFound === true) {
+            return $list->reject(fn (Def $d) => $d->next_action === Def::ACTION_FIND_OWNER)->values();
+        }
+        if ($ownerFound === false && $gate) {
+            return $list->filter($exempt)->values();
+        }
+
+        return $list;
+    }
+
+    /**
      * Seed the outcomes the first time an agency+track is used. Idempotent; a trashed or
      * switched-off row counts as "already seeded" (an agency that archived them keeps its choice).
      * agency_id <= 0 never writes (STANDARDS Rule 17).

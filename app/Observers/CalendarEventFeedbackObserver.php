@@ -204,6 +204,10 @@ class CalendarEventFeedbackObserver
             }
             // the answer given on the form IS the result (23.10): the one result service sets the record, the claim and the property (idempotent per day)
             app(\App\Services\RoadToSold\BeltLinks::class)->resultFromFeedback($feedback, $event);
+            // v4 (23.16): feedback saved on an evaluation that was held pays the agent who held it, once per feedback
+            if ($event->user_id) {
+                app(\App\Services\RoadToSold\BeltPoints::class)->credit('rts.evaluation_feedback', \App\Models\User::query()->withoutGlobalScopes()->find((int) $event->user_id), $feedback, ['date' => $feedback->captured_at]);
+            }
             $earlier = CalendarEventFeedback::withoutGlobalScopes()
                 ->where('calendar_event_id', $feedback->calendar_event_id)
                 ->where('id', '!=', $feedback->id)

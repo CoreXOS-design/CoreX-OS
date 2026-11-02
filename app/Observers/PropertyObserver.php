@@ -651,6 +651,10 @@ class PropertyObserver
                 }
                 if (isset($changes['status']) && array_key_exists('status', $pre)) {
                     $auditSvc->logStatusChange($property, $pre['status'], $changes['status']);
+                    // Road to Sold v4 (23.4, station 9): the property became a Draft (the won result, or "Moved to Draft") - the agent's belt record follows. Never breaks the save.
+                    if ($changes['status'] === 'draft') {
+                        app(\App\Services\RoadToSold\BeltLinks::class)->syncPropertyStage($property);
+                    }
                 }
                 if (isset($changes['agent_id']) && array_key_exists('agent_id', $pre)) {
                     $newAgent = User::find($changes['agent_id']);
