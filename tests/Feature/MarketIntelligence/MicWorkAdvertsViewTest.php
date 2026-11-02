@@ -227,6 +227,7 @@ final class MicWorkAdvertsViewTest extends TestCase
                 ['key' => 'suburb', 'label' => 'Suburb', 'wants' => 'Margate', 'has' => 'Margate', 'state' => 'ok'],
                 ['key' => 'beds', 'label' => 'Bedrooms', 'wants' => '3+', 'has' => '3', 'state' => 'ok'],
                 ['key' => 'baths', 'label' => 'Bathrooms', 'wants' => '2+', 'has' => null, 'state' => 'unknown'],
+                ['key' => 'garages', 'label' => 'Garages', 'wants' => '1+', 'has' => '2', 'state' => 'ok'],
                 ['key' => 'parking', 'label' => 'Parking', 'wants' => null, 'has' => null, 'state' => 'na'],
                 ['key' => 'erf', 'label' => 'Erf', 'wants' => null, 'has' => null, 'state' => 'na'],
                 ['key' => 'floor', 'label' => 'Floor', 'wants' => '150+', 'has' => '120 m²', 'state' => 'miss'],
@@ -240,7 +241,7 @@ final class MicWorkAdvertsViewTest extends TestCase
     {
         $B = \App\Services\Prospecting\MicWork\BuyerFitLabel::class;
         $sum = $B::summary($this->fit());
-        $this->assertSame('Fits Alex · 4 of 9 · misses type, floor +1 · check bathrooms, pet friendly', $sum['text'], 'na fields are not counted');
+        $this->assertSame('Fits Alex · 5 of 10 · misses type, floor +1 · check bathrooms, pet friendly', $sum['text'], 'na fields are not counted');
         $this->assertSame('miss', $sum['tone']);
         $allOk = $this->fit(['fields' => [['key' => 'price', 'label' => 'Price', 'wants' => '≤ R1.0m', 'has' => 'R 1', 'state' => 'ok']], 'must_haves' => [['label' => 'Pool', 'state' => 'ok']]]);
         $this->assertSame(['text' => 'Fits Alex · 2 of 2', 'tone' => 'ok', 'ok' => 2, 'total' => 2], $B::summary($allOk));
@@ -264,6 +265,8 @@ final class MicWorkAdvertsViewTest extends TestCase
         $this->assertSame(1, preg_match('/data-qa="fit-parking"[^>]*color: var\(--text-secondary\)[^>]*>.*?–/s', $line), 'na is grey with a dash');
         $this->assertLessThan(strpos($line, 'data-qa="fit-baths"'), strpos($line, 'data-qa="fit-beds"'), 'same order as the facts line');
         $this->assertLessThan(strpos($line, 'data-qa="fit-floor"'), strpos($line, 'data-qa="fit-erf"'));
+        $this->assertSame(1, preg_match('/data-qa="fit-garages"[^>]*color: #166534/', $line), 'garages has its own place after baths');
+        $this->assertLessThan(strpos($line, 'data-qa="fit-garages"'), strpos($line, 'data-qa="fit-baths"'));
 
         $chips = view('corex.market-intelligence._buyer-fit-chips', ['fit' => $fit])->render();
         $this->assertStringContainsString('>Pool ✓</span>', $chips);
@@ -274,9 +277,9 @@ final class MicWorkAdvertsViewTest extends TestCase
         $this->assertSame('', trim(view('corex.market-intelligence._buyer-fit-chips', ['fit' => $this->fit(['must_haves' => [], 'deal_breakers' => []])])->render()), 'nothing set, nothing shown');
 
         $pop = view('corex.market-intelligence._advert-pop', ['kind' => 'fit', 'adv' => ['buyer_fit' => $fit], 'listing' => (object) ['id' => 1], 'money' => fn ($v) => 'R ' . number_format($v)])->render();
-        $this->assertStringContainsString('Alex · 4 of 9 fit · 88% match', preg_replace('/\s+/', ' ', strip_tags($pop)));
-        $this->assertSame(11, substr_count($pop, 'data-qa="pop-entry"'), 'eight fields, three must-haves, one line each');
-        $this->assertSame(10, substr_count($pop, 'border-top: 1px solid var(--border)'), 'a hairline between lines');
+        $this->assertStringContainsString('Alex · 5 of 10 fit · 88% match', preg_replace('/\s+/', ' ', strip_tags($pop)));
+        $this->assertSame(12, substr_count($pop, 'data-qa="pop-entry"'), 'nine fields, three must-haves, one line each');
+        $this->assertSame(11, substr_count($pop, 'border-top: 1px solid var(--border)'), 'a hairline between lines');
         $this->assertStringContainsString('wants ≤ R1.0m · has R 950,000', $pop);
     }
 
