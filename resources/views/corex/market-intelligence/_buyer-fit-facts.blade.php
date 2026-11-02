@@ -12,29 +12,29 @@
     };
     $cols = array_values(array_filter($factKeys, fn ($k) => $has($k) || isset($row['figures'][$k])));
     $tint = 'background: color-mix(in srgb, var(--brand-icon) 13%, transparent);';
-    $cell = 'min-height: 1.5rem; padding: 0 3px; display:flex; align-items:center; white-space:nowrap;';
+    $cell = 'min-height: 1.5rem; display:flex; align-items:center; white-space:nowrap;';
 @endphp
-<div data-qa="advert-icons" class="mi-fit-grid" style="display:flex; flex-wrap:wrap; align-items:stretch; margin-top:{{ $factsMt }}; font-size:.875rem; color: var(--text-primary);">
+<div data-qa="advert-icons" class="mi-fit-grid" style="display:flex; flex-wrap:wrap; align-items:stretch; margin-top:{{ $factsMt }}; color: var(--text-primary);">
     <div style="display:flex; flex-direction:column;">
-        <div style="{{ $cell }} padding-left: 0;" aria-hidden="true"></div>
-        <div style="{{ $cell }} {{ $tint }} border-radius: 4px 0 0 4px; padding-left: 3px;"><span data-qa="fit-pill" title="{{ $first }} wants" style="font-size:.6875rem; font-weight:700; line-height:1.5; padding:0 6px; border-radius:9px; color:#fff; background: color-mix(in srgb, var(--brand-icon) 65%, black);">{{ $first }}<span class="mi-wants-word"> wants</span></span></div>
+        <div class="mi-fc" style="{{ $cell }} padding-left: 0 !important;" aria-hidden="true"></div>
+        <div class="mi-fc" style="{{ $cell }} {{ $tint }} border-radius: 4px 0 0 4px; padding-left: 3px !important;"><span data-qa="fit-pill" title="{{ $first }} wants" style="font-size:.6875rem; font-weight:700; line-height:1.5; padding:0 6px; border-radius:9px; color:#fff; background: color-mix(in srgb, var(--brand-icon) 65%, black);">{{ $first }}<span class="mi-wants-word"> wants</span></span></div>
     </div>
     @foreach($cols as $k)
         @php $g = $row['figures'][$k] ?? null; @endphp
         <div style="display:flex; flex-direction:column; align-items:stretch;" data-col="{{ $k }}">
-            <div style="{{ $cell }}">@include('corex.market-intelligence._advert-fact', ['k' => $k, 'compact' => true])</div>
-            <div style="{{ $cell }} {{ $tint }}" data-qa="fit-fig-{{ $k }}">
+            <div class="mi-fc" style="{{ $cell }}">@include('corex.market-intelligence._advert-fact', ['k' => $k, 'compact' => true])</div>
+            <div class="mi-fc" style="{{ $cell }} {{ $tint }}" data-qa="fit-fig-{{ $k }}">
                 @if($g)<span data-state="{{ $g['state'] }}" title="{{ $g['title'] }}" style="font-weight:700; color: {{ $g['color'] }};">{{ $g['text'] }}</span>@else<span style="color: var(--text-secondary);">–</span>@endif
             </div>
         </div>
     @endforeach
     @if($row['chips'])
-        <div style="{{ $cell }} {{ $tint }} border-radius: 0 4px 4px 0; align-self:flex-end; flex: 1 1 auto; flex-wrap: wrap; gap: 3px 6px; white-space: normal;" data-qa="fit-chips">
+        <div class="mi-fc" style="{{ $cell }} {{ $tint }} border-radius: 0 4px 4px 0; align-self:flex-end; flex: 1 1 auto; flex-wrap: wrap; gap: 3px 6px; white-space: normal;" data-qa="fit-chips">
             @foreach($row['chips'] as $c)
                 <span data-qa="fit-chip" data-state="{{ $c['state'] }}" title="{{ $c['title'] }}" style="font-size:.6875rem; font-weight:700; line-height:1.4; padding:0 6px; border:1px solid currentColor; border-radius:8px; white-space:nowrap; color: {{ $c['color'] }};">{{ $c['text'] }}</span>
             @endforeach
         </div>
     @else
-        <div style="{{ $cell }} {{ $tint }} border-radius: 0 4px 4px 0; align-self:flex-end; flex: 1 1 0; min-width: 0;" data-qa="fit-chips" aria-hidden="true"></div>
+        <div class="mi-fc" style="{{ $cell }} {{ $tint }} border-radius: 0 4px 4px 0; align-self:flex-end; flex: 1 1 0; min-width: 0;" data-qa="fit-chips" aria-hidden="true"></div>
     @endif
 </div>
