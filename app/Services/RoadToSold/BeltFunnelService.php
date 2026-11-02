@@ -219,6 +219,80 @@ class BeltFunnelService
         ];
     }
 
+    /**
+     * The properties behind one figure (road-to-sold.md 23.12 "one drill-down per figure"): kind "reached" = the properties that reached $station in the period, kind "lost" =
+     * the ones off-ramped there (optionally one $reason). $scope = me | branch | agency picks whose work. Rows are only ever the viewer's own and, for a manager, the
+     * agents they may see (VisibleAgents) - a colleague's properties are never listed to an agent, who gets the figure only ($allowed = false).
+     *
+     * @return array{allowed:bool,title:string,rows:list<array<string,mixed>>}
+     */
+    public function drill(User $viewer, Period $period, string $station, string $kind, ?string $reason, string $scope, string $track = 'sales'): array
+    {
+        $agencyId = (int) ($viewer->effectiveAgencyId() ?: 0);
+        $label = self::STATIONS[$station][0] ?? $station;
+        $title = ($kind === 'lost' ? 'Lost at ' . $label . ($reason ? ': ' . $reason : '') : 'Reached ' . $label);
+        $me = (int) $viewer->ownershipUserId();
+        $users = User::query()->withoutGlobalScopes()->where('agency_id', $agencyId)->get(['id', 'name', 'branch_id'])->keyBy('id');
+        $myBranch = (int) ($users[$me]->branch_id ?? $viewer->effectiveBranchId() ?? 0);
+        $scoped = match ($scope) {
+            'branch' => $users->filter(fn ($u) => $myBranch > 0 && (int) $u->branch_id === $myBranch)->keys()->all(),
+            'agency' => $users->keys()->all(),
+            default  => [$me],
+        };
+        $visible = VisibleAgents::for($viewer)->keys()->map(fn ($v) => (int) $v)->all();
+        $visible[] = $me;
+        $ids = array_values(array_intersect($scoped, array_unique($visible)));
+        $allowed = $scope === 'me' || count(array_diff($scoped, $ids)) === 0;
+        if (! isset(self::STATIONS[$station]) || $ids === []) {
+            return ['allowed' => $allowed, 'title' => $title, 'rows' => []];
+        }
+        $from = $period->start->toDateTimeString();
+        $to = $period->end->toDateTimeString();
+        $found = [];   // prospect id => [when, reason, user]
+        if ($kind === 'lost') {
+            $q = DB::table('rts_prospect_events')->where('agency_id', $agencyId)->where('track', $track)->whereIn('kind', ['park', 'release', 'close'])
+                ->whereIn('user_id', $ids)->whereBetween('occurred_at', [$from, $to])->orderBy('occurred_at');
+            foreach ($q->get(['prospect_id', 'user_id', 'to_stage', 'note', 'occurred_at', 'kind']) as $e) {
+                if (self::stationOfStage($e->to_stage) !== $station) {
+                    continue;
+                }
+                $why = trim((string) $e->note) !== '' ? trim((string) $e->note) : ($e->kind === 'close' ? 'Closed' : ($e->kind === 'release' ? 'Given back' : 'No reason given'));
+                if ($reason !== null && $reason !== '' && $why !== $reason) {
+                    continue;
+                }
+                if (($reason === null || $reason === '') && in_array($why, self::TEMPORARY, true)) {
+                    continue;   // the loss figure leaves "Not now" out; the same list does
+                }
+                $found[(int) $e->prospect_id] = ['when' => $e->occurred_at, 'reason' => $why, 'user' => (int) $e->user_id];
+            }
+        } else {
+            $q = DB::table('rts_prospect_events')->where('agency_id', $agencyId)->where('track', $track)->whereIn('kind', ['placed', 'stage'])
+                ->whereIn('user_id', $ids)->whereBetween('occurred_at', [$from, $to])->orderBy('occurred_at');
+            foreach ($q->get(['prospect_id', 'user_id', 'kind', 'from_stage', 'to_stage', 'occurred_at']) as $e) {
+                if (in_array($station, $this->stationsReached($e->kind, $e->from_stage, $e->to_stage), true) && ! isset($found[(int) $e->prospect_id])) {
+                    $found[(int) $e->prospect_id] = ['when' => $e->occurred_at, 'reason' => null, 'user' => (int) $e->user_id];
+                }
+            }
+        }
+        if ($found === []) {
+            return ['allowed' => $allowed, 'title' => $title, 'rows' => []];
+        }
+        $props = \App\Models\RoadToSold\RtsProspect::withoutGlobalScopes()->withTrashed()->whereIn('id', array_keys($found))
+            ->with(['trackedProperty' => fn ($t) => $t->withoutGlobalScopes()])->get()->keyBy('id');
+        $rows = [];
+        foreach ($found as $pid => $f) {
+            $p = $props[$pid] ?? null;
+            $rows[] = [
+                'prospect_id' => $pid, 'address' => $p?->trackedProperty ? ($p->trackedProperty->displayAddress() ?: 'Property #' . $p->tracked_property_id) : 'Property #' . $pid,
+                'agent' => (string) ($users[$f['user']]->name ?? ''), 'when' => $f['when'], 'reason' => $f['reason'],
+                'now' => $p ? ($p->released_at ? 'Given back' : ($p->closed_at ? 'Closed' : ($p->parked_at ? 'Set aside' : ProspectStages::label((string) $p->stage)))) : '-',
+            ];
+        }
+        usort($rows, fn ($a, $b) => strcmp((string) $b['when'], (string) $a['when']));
+
+        return ['allowed' => $allowed, 'title' => $title, 'rows' => $rows];
+    }
+
     /** The derived Draft / Active blockers as they stand now, for the viewer's breadth (own / branch / agency): station => reason label => count. @return array<string,array<string,int>> */
     public function blockerCounts(User $viewer, ?string $level = null): array
     {

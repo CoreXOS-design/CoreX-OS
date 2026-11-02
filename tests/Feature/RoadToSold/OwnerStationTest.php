@@ -178,7 +178,7 @@ final class OwnerStationTest extends TestCase
             ->assertSessionHas('error', 'Find the owner first, then contact them.');
         $this->assertSame(ProspectingClaim::STATUS_CLAIMED, $claim->fresh()->status);
 
-        $this->actingAs($this->agent)->post(route('market-intelligence.feedback', $listing), ['status' => 'lost', 'notes' => 'wrong contact'])
+        $this->actingAs($this->agent)->post(route('market-intelligence.feedback', $listing), ['status' => 'lost', 'notes' => 'wrong contact', 'reason' => 'other'])
             ->assertSessionHas('success');
         $this->assertFalse((bool) $claim->fresh()->is_active);
     }

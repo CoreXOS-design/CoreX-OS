@@ -4183,6 +4183,7 @@ class MarketIntelligenceController extends Controller
         $request->validate([
             'status' => 'required|in:' . implode(',', ProspectingClaim::FEEDBACK_STATUSES),
             'notes'  => 'nullable|string|max:1000',
+            'reason' => 'nullable|string|max:40',
         ]);
 
         $newStatus = $request->status;
@@ -4202,6 +4203,34 @@ class MarketIntelligenceController extends Controller
             if ($refusal !== null) {
                 return back()->with('error', $refusal);
             }
+        }
+
+        // v4 (road-to-sold.md 23.11): there is no reason-less loss. A "lost" closes the claim and gives the property back, so it asks WHY first, from the agency's own
+        // reasons for the station the record is at (Contacted when it is not on the belt). On the belt the one result service does the closing; off it the claim closes
+        // as before and the reason is written into its notes.
+        if ($newStatus === ProspectingClaim::STATUS_LOST) {
+            $belt = $claim->rts_prospect_id ? \App\Models\RoadToSold\RtsProspect::withoutGlobalScopes()->find($claim->rts_prospect_id) : null;
+            $station = $belt ? \App\Services\RoadToSold\ParkReasonService::stationOfStage((string) $belt->stage) : 'contacted';
+            $reasons = app(\App\Services\RoadToSold\ParkReasonService::class)->choices((int) $claim->agency_id, 'sales', $station);
+            $picked = $reasons->firstWhere('key', (string) $request->input('reason'));
+            if (! $picked) {
+                return back()->with('error', 'Say why you are closing this property: pick a reason (' . $reasons->pluck('label')->take(4)->implode(', ') . ' ...).')
+                    ->with('mic_lost_reasons', $reasons->map(fn ($r) => ['key' => $r->key, 'label' => $r->label])->values()->all());
+            }
+            if ($belt && $belt->closed_at === null && $belt->released_at === null) {
+                $r = app(\App\Services\RoadToSold\ResultService::class)->offRamp($belt, $picked->key, $request->notes, $user, 'mic_feedback');
+                if (! $r['ok']) {
+                    return back()->with('error', $r['message']);
+                }
+                $firstFeedback = $claim->feedback_at === null;
+                $claim->refresh()->forceFill(['notes' => $request->notes ?? $claim->notes, 'feedback_at' => $claim->feedback_at ?? now(), 'last_updated_at' => now()])->saveQuietly();
+                if ($firstFeedback) {
+                    event(new \App\Events\Prospecting\ClaimFeedbackRecorded($claim->fresh(), $newStatus, $request->notes));
+                }
+
+                return back()->with('success', $r['message']);
+            }
+            $request->merge(['notes' => trim('[' . $picked->label . '] ' . (string) $request->notes)]);
         }
 
         // v4 (road-to-sold.md 23.7.3): MIC feedback is the station-4 outcome. On a claim that is on the belt it is written through the one outcome

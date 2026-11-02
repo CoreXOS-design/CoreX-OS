@@ -756,6 +756,19 @@
                     </select>
                 </div>
 
+                {{-- v4 (road-to-sold.md 23.11): a loss always says why - the agency's own reasons --}}
+                <div class="mb-4" x-show="status === 'lost'" data-qa="lost-reason">
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Why is it lost?</label>
+                    <select name="reason" :required="status === 'lost'" :disabled="status !== 'lost'"
+                            class="w-full rounded-md px-3 py-2 text-sm"
+                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        <option value="">Pick a reason</option>
+                        @foreach(app(\App\Services\RoadToSold\ParkReasonService::class)->choices((int) (auth()->user()->effectiveAgencyId() ?: 0), 'sales', 'contacted') as $lr)
+                            <option value="{{ $lr->key }}">{{ $lr->label }}</option>
+                        @endforeach
+                    </select>
+                </div>
+
                 <div class="mb-4">
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Notes (optional)</label>
                     <textarea name="notes" rows="3"

@@ -616,15 +616,39 @@ class RoadToSoldController extends Controller
     /** "Swap" on a loaded property (23.14): it leaves the list with the reason, the property is released, and the next candidate takes its place. Own list only. */
     public function swap(Request $request, int $item): RedirectResponse
     {
-        $data = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:200']], [
-            'reason.required' => 'Say why you are swapping it (a few words).',
-            'reason.min'      => 'Say why you are swapping it (a few words).',
-            'reason.max'      => 'Keep the reason under 200 characters.',
+        // v4 (road-to-sold.md 23.11): a swap is the Stock loaded off-ramp - the agency's own reason for that station (wrong area, no address, I already know it, other),
+        // plus a few words when it is "other". The old free-text box still works (the words become an "other" with that note), so an old tab or the API is not broken.
+        $data = $request->validate(['reason_key' => ['nullable', 'string', 'max:40'], 'reason' => ['nullable', 'string', 'max:200'], 'note' => ['nullable', 'string', 'max:200']], [
+            'reason.max' => 'Keep the reason under 200 characters.',
+            'note.max'   => 'Keep the note under 200 characters.',
         ]);
+        $agencyId = (int) ($request->user()->effectiveAgencyId() ?: 0);
+        $stockReasons = app(\App\Services\RoadToSold\ParkReasonService::class)->choices($agencyId, 'sales', 'found')->filter(fn ($r) => $r->station === 'found' || $r->station === null);
+        $key = (string) ($data['reason_key'] ?? '');
+        $note = trim((string) ($data['note'] ?? ''));
+        if ($key !== '') {
+            $picked = $stockReasons->firstWhere('key', $key);
+            if (! $picked) {
+                return back()->with('rts_error', 'Pick one of the reasons shown for swapping it.');
+            }
+            if ($key === 'not_for_me_other' && mb_strlen($note) < 3) {
+                return back()->with('rts_error', 'Say in a few words why you are swapping it.');
+            }
+            $label = (string) $picked->label;
+        } else {
+            $text = trim(preg_replace('/\s+/u', ' ', (string) ($data['reason'] ?? '')) ?? '');
+            if (mb_strlen($text) < 3) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['reason' => 'Say why you are swapping it (a few words).']);
+            }
+            $key = 'not_for_me_other';
+            $label = (string) ($stockReasons->firstWhere('key', $key)->label ?? 'Not for me - other');
+            $note = $text;
+        }
+        $reasonText = $label . ($note !== '' ? ': ' . $note : '');
         $row = RtsListItem::query()->visibleTo($request->user())->findOrFail($item);
 
         try {
-            $r = app(ListBuilderService::class)->swap($request->user(), (int) $row->id, $data['reason']);
+            $r = app(ListBuilderService::class)->swap($request->user(), (int) $row->id, $reasonText, $key, $label, $note !== '' ? $note : null);
         } catch (\InvalidArgumentException $e) {
             return back()->with('rts_error', $e->getMessage());
         } catch (Throwable $e) {

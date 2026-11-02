@@ -7016,6 +7016,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 ->whereNumber('prospect')->name('prospects.pitch-path');
             // v4 (23.12): the belt funnel and where properties are lost - own vs branch vs agency; agents' rows only for the managers who may see them
             Route::get('/belt-funnel', [\App\Http\Controllers\RoadToSold\BeltFunnelController::class, 'index'])->name('belt-funnel');
+            Route::get('/belt-funnel/list', [\App\Http\Controllers\RoadToSold\BeltFunnelController::class, 'list'])->name('belt-funnel.list');
 
             // v4 (23.9): the result of the evaluation / presentation, from the belt card (the one result service)
             Route::post('/prospects/{prospect}/result', [\App\Http\Controllers\RoadToSold\ProspectController::class, 'result'])

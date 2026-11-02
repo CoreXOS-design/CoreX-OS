@@ -274,7 +274,7 @@ class ListBuilderService
      * @return array{swapped:RtsListItem, replacement:?RtsListItem}
      * @throws InvalidArgumentException with a plain-English message
      */
-    public function swap(User $user, int $itemId, string $reason): array
+    public function swap(User $user, int $itemId, string $reason, ?string $reasonKey = null, ?string $reasonLabel = null, ?string $note = null): array
     {
         $user = $this->listOwner($user);
         $reason = trim(preg_replace('/\s+/u', ' ', $reason) ?? '');
@@ -299,13 +299,25 @@ class ListBuilderService
             throw new InvalidArgumentException('You have already started on that property, so it cannot be swapped.');
         }
 
-        DB::transaction(function () use ($item, $prospect, $user, $reason) {
+        // v4 (23.11): a swap is the Stock loaded off-ramp. Its history line carries the agency's reason (the same wording on every swap, so the funnel's bar is one
+        // bar per reason); the few words an "other" needs ride on the list row. A swapped row that had no belt record yet gets one first, so the funnel counts it as loaded
+        // AND as lost here.
+        if (! $prospect && $item->tracked_property_id) {
+            $prospect = app(ProspectService::class)->place($user, (int) $item->tracked_property_id, (string) $item->track, [
+                'prospecting_listing_id' => $item->prospecting_listing_id, 'property_id' => $item->property_id, 'selection' => $item->selection, 'stage' => ProspectStages::FOUND, 'reason' => $item->reason, 'actor' => $user,
+            ]);
+        }
+        DB::transaction(function () use ($item, $prospect, $user, $reason, $reasonKey, $reasonLabel, $note) {
             $item->forceFill([
                 'status' => RtsListItem::STATUS_SWAPPED, 'status_changed_at' => now(),
-                'reason_facts' => array_merge($item->reason_facts ?? [], ['swap' => ['reason' => mb_substr($reason, 0, 200), 'at' => now()->toDateTimeString(), 'by_user_id' => (int) $user->id]]),
+                'prospect_id' => $item->prospect_id ?: $prospect?->id,
+                'reason_facts' => array_merge($item->reason_facts ?? [], ['swap' => array_filter([
+                    'reason' => mb_substr($reason, 0, 200), 'reason_key' => $reasonKey, 'label' => $reasonLabel, 'note' => $note !== null ? mb_substr($note, 0, 200) : null,
+                    'at' => now()->toDateTimeString(), 'by_user_id' => (int) $user->id,
+                ], fn ($v) => $v !== null)]),
             ])->save();
             if ($prospect) {
-                app(ProspectService::class)->release($prospect, $user, 'Swapped on the list: ' . mb_substr($reason, 0, 200));
+                app(ProspectService::class)->release($prospect, $user, $reasonLabel ?: ('Swapped on the list: ' . mb_substr($reason, 0, 200)));
             }
         });
 

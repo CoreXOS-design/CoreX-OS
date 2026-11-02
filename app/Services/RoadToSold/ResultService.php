@@ -52,7 +52,7 @@ class ResultService
     {
         $agencyId = (int) $p->agency_id;
         $track = (string) ($p->track ?: 'sales');
-        $opt = $this->options->byKey($agencyId, $resultKey, $track);
+        $opt = $context['option'] ?? $this->options->byKey($agencyId, $resultKey, $track);
         if (! $opt) {
             return $this->no('That result is not on this agency\'s list any more. Pick another one.');
         }
@@ -79,8 +79,10 @@ class ResultService
                 $this->prospects->logResult($p, $resultKey, $actor, $note ?? (string) $opt['label'], ['source' => $source, 'class' => $class]);
 
                 // 2. the other screens' stores: the presentation outcome and the evaluation's feedback carry the same answer
-                $this->writePresentation($p, $opt, $resultKey, $revisit, $note, $actor, $context);
-                $this->writeFeedback($p, $opt, $resultKey, $context);
+                if (empty($context['skip_stores'])) {
+                    $this->writePresentation($p, $opt, $resultKey, $revisit, $note, $actor, $context);
+                    $this->writeFeedback($p, $opt, $resultKey, $context);
+                }
 
                 // 3. the record, the claim and the property
                 $this->applyToRecord($p, $opt, $class, $revisit, $note, $actor);
@@ -99,6 +101,31 @@ class ResultService
         return ['ok' => true, 'message' => $this->doneMessage($class, (string) $opt['label'], $revisit), 'class' => $class, 'already' => false];
     }
 
+    /**
+     * A dead end at ANY station with the agency's own reason (road-to-sold.md 23.11): the Market Intelligence "lost" feedback goes through here, so there is no
+     * reason-less loss. Same effects as a "lost" result: the record is set aside with the reason and its revisit (a "never" reason closes it), the claim is closed as
+     * lost and given back, one history line per reason per day, one `ProspectResultRecorded`. It writes no presentation outcome and no evaluation feedback.
+     *
+     * @return array{ok:bool,message:string,class:?string,already:bool}
+     */
+    public function offRamp(RtsProspect $p, string $reasonKey, ?string $note, User $actor, string $source): array
+    {
+        $agencyId = (int) $p->agency_id;
+        $track = (string) ($p->track ?: 'sales');
+        $station = ParkReasonService::stationOfStage((string) $p->stage);
+        $reason = $this->reasons->choices($agencyId, $track, $station)->firstWhere('key', $reasonKey);
+        if (! $reason) {
+            return $this->no('Pick one of the reasons shown for why this property stops here.');
+        }
+        $days = (int) $reason->default_revisit_days;
+        $opt = [
+            'key' => 'offramp_' . $reasonKey, 'label' => (string) $reason->label, 'class' => 'lost', 'park_reason_key' => $reasonKey,
+            'needs_date' => false, 'revisit_days' => $days > 0 ? $days : null, 'never' => $days === 0,
+        ];
+
+        return $this->record($p, 'offramp_' . $reasonKey, null, $note, $actor, $source, ['option' => $opt, 'skip_stores' => true]);
+    }
+
     // ── the pieces ───────────────────────────────────────────────────────
 
     private function applyToRecord(RtsProspect $p, array $opt, string $class, Carbon $revisit, ?string $note, User $actor): void
@@ -112,6 +139,11 @@ class ResultService
             $this->prospects->advance($p, ProspectStages::MANDATE_SIGNED, $actor, [
                 'event_class' => 'ResultService', 'subject_type' => 'result', 'subject_id' => (int) $p->id, 'next_label' => 'Take the mandate / get it signed', 'note' => $opt['label'],
             ]);
+
+            return;
+        }
+        if (! empty($opt['never'])) {   // a reason that is "never" (do not contact) ends the story instead of setting it aside
+            $this->prospects->close($p, 'do_not_contact', $actor);
 
             return;
         }

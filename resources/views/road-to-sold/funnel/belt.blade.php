@@ -9,6 +9,12 @@
     $params = \App\Services\RoadToSold\Track::params($track);
     $cmp = $compare !== null;
     $cellOf = fn (array $f, string $k) => collect($f['stations'])->firstWhere('key', $k);
+    // a number or a bar opens the properties behind it - same period; "me" always, the branch for a manager, the agency for an admin (a colleague's properties are never listed to an agent)
+    $canList = ['me' => true, 'branch' => in_array($level, ['branch', 'all'], true), 'agency' => $level === 'all'];
+    $drill = fn (string $scope, string $station, string $kind, ?string $reason = null) => $canList[$scope]
+        ? route('road-to-sold.belt-funnel.list', array_filter($params + ['station' => $station, 'kind' => $kind, 'reason' => $reason, 'scope' => $scope, 'period' => $preset, 'start' => $start, 'end' => $end]))
+        : null;
+    $link = fn (?string $url, $text) => $url ? '<a href="' . e($url) . '" class="underline" data-qa="drill">' . e((string) $text) . '</a>' : e((string) $text);
     $pct = fn ($v) => $v === null ? '-' : rtrim(rtrim(number_format($v, 1), '0'), '.') . '%';
     $arrow = function ($now, $then, $lowerIsBetter = false) {
         if ($then === null || $now === null) return '';
@@ -57,15 +63,15 @@
                      $cm = $cmp ? $cellOf($compare_me, $s['key']) : null; $cb = $cmp ? $cellOf($compare_branch, $s['key']) : null; $ca = $cmp ? $cellOf($compare_agency, $s['key']) : null; @endphp
                 <tr style="border-top: 1px solid var(--border);" data-station="{{ $s['key'] }}">
                     <td class="px-3 py-2 font-semibold" style="color: var(--text-primary);">{{ $s['label'] }}</td>
-                    <td class="px-3 py-2 text-right" style="color: var(--text-primary);"><strong>{{ $m['reached'] }}</strong>@if($cm) <span class="ml-1">{!! $arrow($m['reached'], $cm['reached']) !!}</span>@endif</td>
+                    <td class="px-3 py-2 text-right" style="color: var(--text-primary);"><strong>{!! $link($drill('me', $s['key'], 'reached'), $m['reached']) !!}</strong>@if($cm) <span class="ml-1">{!! $arrow($m['reached'], $cm['reached']) !!}</span>@endif</td>
                     <td class="px-3 py-2 text-right" style="color: var(--text-primary);">{{ $pct($m['to_next_pct']) }}@if($cm) <span class="ml-1">{!! $arrow($m['to_next_pct'], $cm['to_next_pct']) !!}</span>@endif</td>
-                    <td class="px-3 py-2 text-right" style="color: var(--text-primary);">{{ $m['lost'] }}@if($m['lost_pct'] !== null) <span style="color: var(--text-muted);">({{ $pct($m['lost_pct']) }})</span>@endif</td>
-                    <td class="px-3 py-2 text-right" style="color: var(--text-primary);">{{ $b['reached'] }}@if($cb) <span class="ml-1">{!! $arrow($b['reached'], $cb['reached']) !!}</span>@endif</td>
+                    <td class="px-3 py-2 text-right" style="color: var(--text-primary);">{!! $link($drill('me', $s['key'], 'lost'), $m['lost']) !!}@if($m['lost_pct'] !== null) <span style="color: var(--text-muted);">({{ $pct($m['lost_pct']) }})</span>@endif</td>
+                    <td class="px-3 py-2 text-right" style="color: var(--text-primary);">{!! $link($drill('branch', $s['key'], 'reached'), $b['reached']) !!}@if($cb) <span class="ml-1">{!! $arrow($b['reached'], $cb['reached']) !!}</span>@endif</td>
                     <td class="px-3 py-2 text-right" style="color: var(--text-primary);">{{ $pct($b['to_next_pct']) }}</td>
-                    <td class="px-3 py-2 text-right" style="color: var(--text-primary);">{{ $b['lost'] }}@if($b['lost_pct'] !== null) <span style="color: var(--text-muted);">({{ $pct($b['lost_pct']) }})</span>@endif</td>
-                    <td class="px-3 py-2 text-right" style="color: var(--text-primary);">{{ $a['reached'] }}@if($ca) <span class="ml-1">{!! $arrow($a['reached'], $ca['reached']) !!}</span>@endif</td>
+                    <td class="px-3 py-2 text-right" style="color: var(--text-primary);">{!! $link($drill('branch', $s['key'], 'lost'), $b['lost']) !!}@if($b['lost_pct'] !== null) <span style="color: var(--text-muted);">({{ $pct($b['lost_pct']) }})</span>@endif</td>
+                    <td class="px-3 py-2 text-right" style="color: var(--text-primary);">{!! $link($drill('agency', $s['key'], 'reached'), $a['reached']) !!}@if($ca) <span class="ml-1">{!! $arrow($a['reached'], $ca['reached']) !!}</span>@endif</td>
                     <td class="px-3 py-2 text-right" style="color: var(--text-primary);">{{ $pct($a['to_next_pct']) }}</td>
-                    <td class="px-3 py-2 text-right" style="color: var(--text-primary);">{{ $a['lost'] }}@if($a['lost_pct'] !== null) <span style="color: var(--text-muted);">({{ $pct($a['lost_pct']) }})</span>@endif</td>
+                    <td class="px-3 py-2 text-right" style="color: var(--text-primary);">{!! $link($drill('agency', $s['key'], 'lost'), $a['lost']) !!}@if($a['lost_pct'] !== null) <span style="color: var(--text-muted);">({{ $pct($a['lost_pct']) }})</span>@endif</td>
                 </tr>
             @endforeach
             </tbody>
@@ -83,7 +89,7 @@
                         <div class="mb-2"><div class="text-xs font-semibold" style="color: var(--text-primary);">{{ $row['label'] }}</div>
                             @foreach($row['reasons'] as $reason => $n)
                                 <div class="flex items-center gap-2 text-xs" style="color: var(--text-primary);">
-                                    <div style="width: 38%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ $reason }}">{{ $reason }}</div>
+                                    <div style="width: 38%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ $reason }}">{!! $link($drill($scopeKey, $row['key'], 'lost', $reason), $reason) !!}</div>
                                     <div class="grow" style="background: var(--border); border-radius: 3px; height: 8px;"><div style="width: {{ max(4, (int) round($n / max(1, $max) * 100)) }}%; height: 8px; border-radius: 3px; background: var(--brand-icon, #0ea5e9);"></div></div>
                                     <div style="width: 2rem; text-align: right;">{{ $n }}</div>
                                 </div>

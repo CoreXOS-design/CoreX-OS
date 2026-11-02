@@ -5,6 +5,7 @@
 @section('corex-content')
 @php
     $rowsPage = $rows;
+    $swapReasons = app(\App\Services\RoadToSold\ParkReasonService::class)->choices((int) (auth()->user()->effectiveAgencyId() ?: 0), $track ?? 'sales', 'found')->filter(fn ($r) => $r->station === 'found');
     $addresses = [];
     foreach ($rowsPage as $r) { $addresses[$r['tracked_property_id']] = $r['address']; }
     $pageConfig = [
@@ -392,10 +393,16 @@
                                 <span x-data="{ open: false }" class="relative" data-qa="intake-swap">
                                     <button type="button" class="corex-btn-outline corex-btn-xs" @click="open = !open" title="Swap this property for the next one">Swap</button>
                                     <form x-show="open" x-cloak method="POST" action="{{ route('road-to-sold.swap', $r['list_item_id']) }}" @click.outside="open = false" @keydown.escape="open = false"
-                                          class="absolute right-0 z-20 flex items-center gap-2 p-2 rounded-md" style="background: var(--surface); border: 1px solid var(--border); top: 100%; white-space: nowrap;">
+                                          x-data="{ key: '' }" class="absolute right-0 z-20 flex items-center gap-2 p-2 rounded-md" style="background: var(--surface); border: 1px solid var(--border); top: 100%; white-space: nowrap;">
                                         @csrf
-                                        <input type="text" name="reason" required minlength="3" maxlength="200" placeholder="Why swap it?" autocomplete="off" class="px-2 py-1 text-xs rounded-md"
-                                               style="background: var(--surface-2, var(--surface)); border: 1px solid var(--border); color: var(--text-primary); width: 14rem;">
+                                        {{-- v4 (23.11): the Stock loaded off-ramp - the agency's own reasons for it; "other" asks for a few words --}}
+                                        <select name="reason_key" required x-model="key" aria-label="Why swap it?" class="px-2 py-1 text-xs rounded-md"
+                                                style="background: var(--surface-2, var(--surface)); border: 1px solid var(--border); color: var(--text-primary); width: 13rem;">
+                                            <option value="">Why swap it?</option>
+                                            @foreach($swapReasons as $sr)<option value="{{ $sr->key }}">{{ $sr->label }}</option>@endforeach
+                                        </select>
+                                        <input type="text" name="note" x-show="key === 'not_for_me_other'" :required="key === 'not_for_me_other'" minlength="3" maxlength="200" placeholder="A few words" autocomplete="off" class="px-2 py-1 text-xs rounded-md"
+                                               style="background: var(--surface-2, var(--surface)); border: 1px solid var(--border); color: var(--text-primary); width: 11rem;">
                                         <button type="submit" class="corex-btn-primary corex-btn-xs">Swap</button>
                                     </form>
                                 </span>

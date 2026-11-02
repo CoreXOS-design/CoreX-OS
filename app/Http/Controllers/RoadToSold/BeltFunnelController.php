@@ -56,4 +56,36 @@ class BeltFunnelController extends Controller
             'start' => $request->query('start'), 'end' => $request->query('end'), 'cStart' => $request->query('c_start'), 'cEnd' => $request->query('c_end'),
         ]);
     }
+
+    /** The properties behind one number or one bar of the funnel (23.12). Same periods as the funnel; a colleague's properties are never listed to an agent. */
+    public function list(Request $request): View
+    {
+        $viewer = $request->user();
+        abort_if((int) ($viewer->effectiveAgencyId() ?: 0) <= 0, 403, 'Switch into an agency first.');
+        $track = Track::fromRequest($request);
+        $station = (string) $request->query('station', '');
+        abort_unless(isset(BeltFunnelService::STATIONS[$station]), 404);
+        $kind = $request->query('kind') === 'lost' ? 'lost' : 'reached';
+        $scope = in_array($request->query('scope'), ['me', 'branch', 'agency'], true) ? $request->query('scope') : 'me';
+        $preset = array_key_exists($request->query('period'), self::PERIODS) ? $request->query('period') : 'last_30_days';
+        try {
+            $period = $this->periods->resolve($preset, $request->query('start'), $request->query('end'));
+        } catch (\InvalidArgumentException) {
+            $preset = 'last_30_days';
+            $period = $this->periods->resolve($preset);
+        }
+        $d = $this->funnel->drill($viewer, $period, $station, $kind, $request->query('reason') ?: null, $scope, $track);
+        $q = mb_strtolower(trim((string) $request->query('q', '')));
+        $rows = collect($d['rows'])->when($q !== '', fn ($c) => $c->filter(fn ($r) => str_contains(mb_strtolower($r['address'] . ' ' . $r['agent']), $q)));
+        $sort = in_array($request->query('sort'), ['when', 'address', 'agent'], true) ? $request->query('sort') : 'when';
+        $dir = $request->query('dir') === 'asc' ? 'asc' : 'desc';
+        $rows = $rows->sortBy(fn ($r) => $sort === 'when' ? (string) $r['when'] : mb_strtolower((string) $r[$sort]), SORT_REGULAR, $dir === 'desc')->values();
+        $page = max(1, (int) $request->query('page', 1));
+        $paged = new \Illuminate\Pagination\LengthAwarePaginator($rows->forPage($page, 25)->values(), $rows->count(), 25, $page, ['path' => $request->url(), 'query' => $request->query()]);
+
+        return view('road-to-sold.funnel.belt-list', [
+            'rows' => $paged, 'allowed' => $d['allowed'], 'title' => $d['title'], 'period' => $period, 'track' => $track, 'preset' => $preset, 'scope' => $scope, 'station' => $station, 'kind' => $kind,
+            'reason' => $request->query('reason'), 'q' => $request->query('q', ''), 'sort' => $sort, 'dir' => $dir, 'start' => $request->query('start'), 'end' => $request->query('end'),
+        ]);
+    }
 }
