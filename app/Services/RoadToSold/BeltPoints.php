@@ -268,7 +268,7 @@ class BeltPoints
 
     /**
      * "Why did I get these points": the agent's own credits, newest first - date, property, what happened, points and the running total after that line.
-     * Every credit an event wrote is a "+" line on the day it was earned; one that was TAKEN BACK also has a "-" line on the day it was taken back, so
+     * Every credit an event wrote is a "+" line on the day it was earned; one that was TAKEN BACK also has a "-" line on the day it was taken back (never before the day it was credited, e.g. a future-dated appointment cancelled today), so
      * the running total always adds up (+20, then -20 = 0). A credit still waiting to be confirmed shows its points but is not in the total yet.
      * The total is the agent's whole history up to that line, whatever filter is on.
      *
@@ -300,7 +300,7 @@ class BeltPoints
 
         $credit = $base()->select($cols('e.activity_date', 'credit', 0, $pts, "(CASE WHEN {$counting} THEN {$pts} ELSE 0 END)"));
         $reversal = $base()->where('e.point_state', DailyActivityEntry::STATE_REVOKED)
-            ->select($cols('DATE(COALESCE(e.revoked_at, e.updated_at))', 'reversal', 1, "-({$pts})", "-({$pts})"));
+            ->select($cols('GREATEST(DATE(COALESCE(e.revoked_at, e.updated_at)), DATE(e.activity_date))', 'reversal', 1, "-({$pts})", "-({$pts})"));
         $lines = DB::query()->fromSub($credit->unionAll($reversal), 'u')
             ->select('u.*', DB::raw('SUM(u.delta) OVER (ORDER BY u.line_date, u.entry_id, u.line_rank ROWS UNBOUNDED PRECEDING) as running'));
 

@@ -268,6 +268,18 @@ final class BeltPointsTest extends TestCase
         $page->assertSee('-20', false)->assertSee('taken back', false)->assertSee('data-qa="points-running"', false);
     }
 
+    public function test_a_future_dated_credit_taken_back_today_never_makes_the_total_dip_below_zero(): void
+    {
+        Carbon::setTestNow('2026-11-02 09:00:00');
+        [, $p] = $this->claimed();
+        $this->points()->credit('rts.advertised', $this->agent, $p, ['date' => '2026-11-12']);   // an appointment-style credit dated ahead
+        $this->points()->revoke('rts.advertised', $p, 'Cancelled');
+
+        $log = $this->points()->log($this->agent);
+        $this->assertSame([-50.0, 50.0], $log->getCollection()->map(fn ($r) => (float) $r->points)->all());
+        $this->assertSame([0.0, 50.0], $log->getCollection()->map(fn ($r) => (float) $r->running)->all(), 'the minus line sits on the credit\'s day, after it');
+    }
+
     public function test_the_points_screens_render_and_the_settings_save_is_audited(): void
     {
         [$tp] = $this->claimed();
