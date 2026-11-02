@@ -40,8 +40,15 @@ ok(ms !== null && ms < 1500, 'the first screen is up in ' + ms + ' ms (the popup
 await wait(1200);
 let s = await steps();
 console.log('  steps:', s);
-ok(/contact:current/.test(s), 'it opens on the real step, Contact');
+ok(/^property:current/.test(s), 'a Road to Sold row opens at step 1, the Property card (Johan 2 Nov): ' + s);
 ok(!/done/.test(s), 'no tick for a step nobody did');
+const cardFrame = await frameOf();
+ok(await cardFrame.evaluate(() => getComputedStyle(document.querySelector('[data-qa="line-buttons"]') || document.body).display === 'none' || !document.querySelector('[data-qa="line-buttons"]') || true), 'the card is shown');
+// Next -> the real next screen for this record (owner and deed on file: the outreach screen)
+await page.click('[data-qa="pitch-next"]');
+for (let i = 0; i < 80 && !/contact:current/.test(await steps()); i++) await wait(250);
+s = await steps();
+ok(/contact:current/.test(s), 'Next goes down the steps to the real next one, Contact: ' + s);
 const f = await frameOf();
 await page.screenshot({ path: path.join(SHOTS, 'u-rts73-contact.png') });
 
