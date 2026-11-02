@@ -11,14 +11,30 @@
     $bb = $buyerBanner ?? null;
     $total = $listings->total();
     $btn = 'corex-btn-outline text-xs no-underline inline-flex items-center flex-shrink-0';
+    // 13.14 addendum: a buyer with several wishlists gets one small tab per wishlist after the name (primary first, label + count as the data gives them); one wishlist = no tabs
+    $wls = array_values($bb['wishlists'] ?? []);
+    $tabs = count($wls) > 1;
+    $wantedWl = (int) request()->query('wishlist_id', 0);
+    $activeWl = collect($wls)->first(fn ($w) => !empty($w['active'])) ?? collect($wls)->first(fn ($w) => (int) $w['id'] === $wantedWl) ?? ($wls[0] ?? null);
 @endphp
 @if($bb)
 <div x-data="micBuyerPop()" @keydown.escape.window="close()" @message.window="onMessage($event)" data-qa="buyer-banner"
      style="padding: 8px 12px; margin-bottom: 8px; border-radius: 6px; background: color-mix(in srgb, var(--brand-icon) 10%, var(--surface)); border: 1px solid color-mix(in srgb, var(--brand-icon) 30%, var(--border));">
     <div style="display: flex; align-items: center; gap: 8px;" data-qa="buyer-banner-line1">
         <span aria-hidden="true" style="font-size: 1rem;">🎯</span>
-        <div style="flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 8px; white-space: nowrap; overflow: hidden;">
+        <div style="flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 4px 8px; white-space: nowrap; {{ $tabs ? 'flex-wrap: wrap;' : 'overflow: hidden;' }}">
             <span style="font-size: .8125rem; font-weight: 700; color: var(--text-primary); flex-shrink: 0;">Prospecting for <a href="{{ $bb['buyer']['url'] }}" data-qa="buyer-banner-name" style="color: inherit; text-decoration: underline; text-decoration-color: var(--border);">{{ $bb['buyer']['name'] }}</a></span>
+            @if($tabs)
+                <span role="tablist" data-qa="buyer-wishlist-tabs" aria-label="{{ $bb['buyer']['name'] }}'s wishlists" style="display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center;">
+                    @foreach($wls as $w)
+                        @php $isActive = $activeWl && (int) $activeWl['id'] === (int) $w['id']; @endphp
+                        <a role="tab" aria-selected="{{ $isActive ? 'true' : 'false' }}" data-qa="buyer-wishlist-tab" data-active="{{ $isActive ? '1' : '0' }}" data-wishlist-id="{{ (int) $w['id'] }}"
+                           href="{{ route('market-intelligence.work', array_merge(request()->except(['page']), ['wishlist_id' => (int) $w['id']])) }}"
+                           title="{{ $isActive ? 'The list below is this wishlist' : 'Show the properties for this wishlist' }}"
+                           style="font-size: .6875rem; line-height: 18px; padding: 0 8px; border-radius: 10px; text-decoration: none; white-space: nowrap; color: var(--text-primary); font-weight: {{ $isActive ? '700' : '500' }}; border: 1px solid {{ $isActive ? 'var(--brand-icon)' : 'var(--border)' }}; background: {{ $isActive ? 'color-mix(in srgb, var(--brand-icon) 22%, var(--surface))' : 'var(--surface)' }};">{{ $w['label'] }} ({{ number_format((int) ($w['count'] ?? 0)) }})</a>
+                    @endforeach
+                </span>
+            @endif
             @if(!empty($buyerUpdating))
             @include('corex.market-intelligence._buyer-updating')
             @else
@@ -44,7 +60,7 @@
         @if($bb['wishlist'])
             <span data-qa="buyer-banner-meta" style="font-size: .6875rem; color: var(--text-muted);">
                 {{ $bb['wishlist']['primary'] ? 'Primary wishlist' : 'Wishlist' }}@if($bb['wishlist']['saved']) · saved {{ $bb['wishlist']['saved'] }}@endif @if($bb['wishlist']['by'])by {{ $bb['wishlist']['by'] }}@endif
-                @if($bb['wishlist_count'] > 1)
+                @if($bb['wishlist_count'] > 1 && !$tabs)
                     · <a href="{{ $bb['wishlists_url'] }}" data-qa="buyer-banner-wishlists" title="MIC scores every active wishlist and keeps the best score for each advert" style="color: var(--brand-icon);">{{ $bb['wishlist_count'] }} wishlists</a> (best score of all counts)
                 @endif
             </span>

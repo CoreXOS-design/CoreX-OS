@@ -317,6 +317,52 @@ final class MicWorkAdvertsViewTest extends TestCase
         $this->assertStringContainsString('class="mi-clamp" style="--mi-lines: 4;"', $h, 'the description keeps its four lines, as plain CSS (no Alpine needed)');
     }
 
+    private function banner(array $over = []): array
+    {
+        return array_replace([
+            'buyer' => ['id' => 1, 'name' => 'Jan Breedt', 'url' => '/corex/contacts/1'],
+            'chips' => [['FOR SALE', 'success', null], ['UP TO R 1,200,000', 'info', null]],
+            'wishlist' => ['id' => 11, 'primary' => true, 'saved' => '17 Oct 2026', 'by' => 'Angelique Venter'],
+            'wishlist_count' => 3, 'wishlists_url' => '/corex/contacts/1?tab=matches', 'results_url' => null, 'edit_url' => null, 'nudge' => false,
+            'wishlists' => [
+                ['id' => 11, 'label' => 'Flat · 3 suburbs', 'count' => 657, 'primary' => true],
+                ['id' => 12, 'label' => 'House ≤ R1.0m', 'count' => 1051],
+                ['id' => 13, 'label' => 'House ≤ R1.2m · 11 suburbs', 'count' => 64],
+            ],
+        ], $over);
+    }
+
+    private function bannerHtml(array $banner, array $query = []): string
+    {
+        $this->app['request']->query->replace(['buyer_id' => 1] + $query);
+
+        return view('corex.market-intelligence._buyer-banner', ['buyerBanner' => $banner, 'listings' => new \Illuminate\Pagination\LengthAwarePaginator([], 657, 25)])->render();
+    }
+
+    public function test_a_buyer_with_several_wishlists_gets_one_tab_each_and_one_wishlist_gets_none(): void
+    {
+        $h = $this->bannerHtml($this->banner());
+        $tabs = substr($h, strpos($h, 'data-qa="buyer-wishlist-tabs"'));
+        $tabs = substr($tabs, 0, strpos($tabs, 'data-qa="buyer-banner-count"') ?: 4000);
+        $this->assertSame(3, substr_count($tabs, 'data-qa="buyer-wishlist-tab"'));
+        preg_match_all('/data-qa="buyer-wishlist-tab"[^>]*>([^<]*)<\/a>/', $h, $m);
+        $this->assertSame(['Flat · 3 suburbs (657)', 'House ≤ R1.0m (1,051)', 'House ≤ R1.2m · 11 suburbs (64)'], array_map('html_entity_decode', $m[1]), 'primary first, label and count as the data gives them');
+        $this->assertSame(1, preg_match('/data-wishlist-id="11"[^>]*data-active="1"|data-active="1"[^>]*data-wishlist-id="11"/', $h), 'with no wishlist chosen the primary (first) one is the active one');
+        $this->assertSame(1, substr_count($h, 'data-active="1"'));
+        $this->assertStringContainsString('wishlist_id=12', $h, 'a tab sets wishlist_id and keeps the buyer');
+        $this->assertStringContainsString('buyer_id=1', $h);
+        $this->assertStringNotContainsString('data-qa="buyer-banner-wishlists"', $h, 'the old "3 wishlists (best score)" link is replaced by the tabs');
+        $this->assertStringContainsString('UP TO R 1,200,000', $h, 'line 2 shows the chips it is given (the active wishlist)');
+
+        $h2 = $this->bannerHtml($this->banner(), ['wishlist_id' => 13]);
+        $this->assertSame(1, preg_match('/data-wishlist-id="13"[^>]*data-active="1"|data-active="1"[^>]*data-wishlist-id="13"/', $h2), 'wishlist_id picks the active tab');
+
+        $h3 = $this->bannerHtml($this->banner(['wishlists' => [['id' => 11, 'label' => 'Flat · 3 suburbs', 'count' => 657]], 'wishlist_count' => 1]));
+        $this->assertStringNotContainsString('data-qa="buyer-wishlist-tabs"', $h3, 'one wishlist = no tabs, as now');
+        $h4 = $this->bannerHtml($this->banner(['wishlists' => null, 'wishlist_count' => 3]));
+        $this->assertStringContainsString('data-qa="buyer-banner-wishlists"', $h4, 'without per-wishlist data the banner is as before');
+    }
+
     public function test_the_list_view_is_still_the_classic_list(): void
     {
         $this->advert('P24-150100002', 900_000);
@@ -359,9 +405,10 @@ final class MicWorkAdvertsViewTest extends TestCase
         $tp = $this->file('P24-150100010');
         $a = $this->advert('P24-150100010', 1_400_000, ['tracked_property_id' => $tp, 'agency_name' => 'Sea Realty'], [
             'card_heading' => '3 Bedroom House in Margate', 'description_snippet' => 'Lovely home.', 'is_reduced' => 1, 'portal_status' => 'under_offer', 'parking' => 2,
+            'listed_date' => now()->subDays(2)->toDateString(),   // the newest listed leads the card - distinct dates, so the order never depends on a tie
         ]);
-        $this->advert('PP-150100011', 1_350_000, ['portal_source' => 'pp', 'portal_url' => 'https://pp.test/150100011', 'agency_name' => 'Other Agents', 'tracked_property_id' => $tp]);
-        $this->advert('P24-150100012', 1_300_000, ['agency_name' => 'Third Agents', 'tracked_property_id' => $tp]);
+        $this->advert('PP-150100011', 1_350_000, ['portal_source' => 'pp', 'portal_url' => 'https://pp.test/150100011', 'agency_name' => 'Other Agents', 'tracked_property_id' => $tp], ['listed_date' => now()->subDays(20)->toDateString()]);
+        $this->advert('P24-150100012', 1_300_000, ['agency_name' => 'Third Agents', 'tracked_property_id' => $tp], ['listed_date' => now()->subDays(40)->toDateString()]);
         DB::table('prospecting_price_history')->insert(['prospecting_listing_id' => $a->id, 'old_price' => 1_500_000, 'new_price' => 1_400_000, 'changed_at' => now()->subDays(10), 'created_at' => now(), 'updated_at' => now()]);
         DB::table('mic_file_stats')->insert(['agency_id' => $this->agency->id, 'tracked_property_id' => $tp, 'score' => 76, 'reason_1' => 'price_cuts', 'reason_2' => 'long_dom', 'buyers_strong' => 18, 'buyers_mid' => 1, 'cut_amount' => 100000, 'computed_at' => now()]);
         $h = $this->page(['view' => 'adverts', 'show_status' => 'all']);
