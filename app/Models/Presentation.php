@@ -20,6 +20,8 @@ class Presentation extends Model
         'property_id',
         'tracked_property_id',
         'seller_contact_id',
+        'rts_prospect_id',     // v4 A4 (road-to-sold.md 23.8)
+        'calendar_event_id',
         'deal_id',
         'title',
         'property_address',

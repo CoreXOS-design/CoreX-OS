@@ -112,7 +112,8 @@ final class PitchContactStepTest extends TestCase
         $this->assertStringNotContainsString('Tracking', $in);
         $this->assertStringNotContainsString('Compose Seller Pitch', $in, 'the popup has its own title');
         $this->assertStringContainsString('Open WhatsApp &amp; record send', $in);
-        $this->assertStringNotContainsString('data-tour="oc-template"', $in, 'one default template: nothing to choose');
+        $this->assertStringNotContainsString('data-tour="oc-template"', $in, 'the popup uses the default template: nothing to choose');
+        $this->assertStringContainsString('data-tour="oc-template"', $page, 'the page still lets the agent pick one');
         $this->assertSame(1, substr_count($in, '12 Pitch Road'), 'the address is shown once');
     }
 

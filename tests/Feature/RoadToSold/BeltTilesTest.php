@@ -152,17 +152,18 @@ final class BeltTilesTest extends TestCase
         $this->assertStringNotContainsString('8 Mates Lane', $d);
     }
 
-    public function test_a_presentation_with_no_answer_is_on_the_prepared_tile_and_one_with_an_answer_is_not(): void
+    public function test_the_prepared_tile_counts_the_records_at_presentation_prepared(): void
     {
-        $mk = fn (string $addr) => DB::table('presentations')->insertGetId(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id, 'title' => 'Pres', 'property_address' => $addr, 'status' => 'draft', 'created_at' => now(), 'updated_at' => now()]);
-        $mk('11 Waiting Road');
-        $answered = $mk('12 Answered Road');
-        DB::table('presentation_outcomes')->insert(['presentation_id' => $answered, 'agency_id' => $this->agency->id, 'outcome' => 'won_mandate', 'recorded_by_user_id' => $this->agent->id, 'recorded_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+        // v4 A4: a presentation generated for the property moves the record, and the tile reads the stage (the list behind it lists only those)
+        $p = app(ProspectService::class)->place($this->agent, $this->tp(['street_number' => '11', 'street_name' => 'Waiting Road'])->id);
+        $other = app(ProspectService::class)->place($this->agent, $this->tp(['street_number' => '12', 'street_name' => 'Found Road'])->id);
+        app(ProspectService::class)->advance($p, S::PRESENTATION_PREPARED, $this->agent, ['event_class' => 'test']);
+
         $html = $this->page($this->agent)->getContent();
         $this->assertMatchesRegularExpression('/data-qa="belt-tile-prepared".*?data-qa="belt-figure">1</s', $html);
         $l = $this->page($this->agent, ['block' => 'station', 'station' => 'prepared'])->getContent();
-        $this->assertStringContainsString('11 Waiting Road', $l);
-        $this->assertStringNotContainsString('12 Answered Road', $l);
+        $this->assertStringContainsString('Waiting Road', $l);
+        $this->assertStringNotContainsString('Found Road', $l);
     }
 
     public function test_evaluations_that_took_place_with_no_feedback_are_owed_and_show_on_the_held_tile(): void

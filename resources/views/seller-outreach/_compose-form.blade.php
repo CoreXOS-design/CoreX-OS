@@ -125,10 +125,10 @@
         @include('seller-outreach._phone-call-form', ['phoneCall' => $phoneCall, 'contact' => $contact, 'property' => $property])
     @endif
 
-    {{-- Template selector (the pitch popup uses the one default; the choice is shown only when there is one to make) --}}
+    {{-- Template selector (the pitch popup always uses the agency's default template for the channel; choosing another is a job for the page) --}}
     @if($channel === 'phone')
     @elseif($availableTemplates->isNotEmpty())
-    @if(! ($inPopup && $availableTemplates->count() === 1))
+    @if(! $inPopup)
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="oc-template">
         <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">
             Template

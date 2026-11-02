@@ -67,17 +67,22 @@ final class ProductionLineAutoAdvanceTest extends TestCase
         ]);
     }
 
-    public function test_a_presentation_given_to_the_seller_moves_the_prospect_to_presentation_given(): void
+    public function test_a_presentation_prepared_for_the_property_moves_the_prospect_to_presentation_prepared_and_giving_it_moves_nothing(): void
     {
         [$pid, $p] = $this->prospectOnProperty();
         $presentation = $this->presentation($pid);
 
+        // v4 (23.4): "presented" is no longer a station - the presentation is given at the evaluation - so the event moves nothing ...
         event(new PresentationPresented(presentationId: $presentation, deliveryId: 1, agencyId: $this->agency->id, userId: $this->agent->id, channel: 'email', propertyId: $pid));
+        $this->assertSame(S::FOUND, $p->refresh()->stage);
+
+        // ... and generating it is the move
+        event(new \App\Events\PresentationGenerated(\App\Models\Presentation::query()->withoutGlobalScopes()->findOrFail($presentation), new \App\Models\PresentationVersion()));
 
         $p->refresh();
-        $this->assertSame(S::PRESENTATION_GIVEN, $p->stage);
-        $this->assertSame('Get the presentation feedback', $p->next_action_label);
-        $this->assertSame('PresentationPresented', class_basename((string) DB::table('rts_prospect_events')->where('prospect_id', $p->id)->where('to_stage', S::PRESENTATION_GIVEN)->value('event_class')));
+        $this->assertSame(S::PRESENTATION_PREPARED, $p->stage);
+        $this->assertSame('Do the evaluation', $p->next_action_label);
+        $this->assertSame('PresentationGenerated', class_basename((string) DB::table('rts_prospect_events')->where('prospect_id', $p->id)->where('to_stage', S::PRESENTATION_PREPARED)->value('event_class')));
     }
 
     public function test_the_sellers_answer_moves_it_to_presentation_feedback_and_pending_does_not(): void
@@ -139,16 +144,16 @@ final class ProductionLineAutoAdvanceTest extends TestCase
         [$pid, $p] = $this->prospectOnProperty();
         $presentation = $this->presentation($pid);
         Carbon::setTestNow('2026-10-16 15:30:00');
-        event(new PresentationPresented(presentationId: $presentation, deliveryId: 1, agencyId: $this->agency->id, userId: $this->agent->id, channel: 'email', propertyId: $pid));
+        event(new \App\Events\PresentationGenerated(\App\Models\Presentation::query()->withoutGlobalScopes()->findOrFail($presentation), new \App\Models\PresentationVersion()));
         Carbon::setTestNow('2026-10-21 08:00:00');
 
         $rows = DB::table('rts_prospect_events')->where('prospect_id', $p->id)->whereIn('kind', ['placed', 'stage'])->orderBy('id')->get(['kind', 'from_stage', 'to_stage', 'occurred_at']);
-        $this->assertSame(['placed:found', 'stage:presentation_given'], $rows->map(fn ($r) => $r->kind . ':' . $r->to_stage)->all());
+        $this->assertSame(['placed:found', 'stage:presentation_prepared'], $rows->map(fn ($r) => $r->kind . ':' . $r->to_stage)->all());
         $this->assertSame(S::FOUND, $rows[1]->from_stage);
         $this->assertSame('2026-10-16 15:30:00', (string) $rows[1]->occurred_at);
 
         $journey = app(\App\Services\RoadToSold\PipelineLineService::class)->journeys([$p->id]);
-        $this->assertSame([$p->id => ['found' => '2026-10-14', 'presentation_given' => '2026-10-16']], $journey);
+        $this->assertSame([$p->id => ['found' => '2026-10-14', 'presentation_prepared' => '2026-10-16']], $journey);
 
         $row = app(\App\Services\RoadToSold\ProspectListService::class)->line($this->agent, $this->agent->id, [], 'sales')['rows'][0];
         $this->assertSame(5, $row['days_in_stage'], 'in at the station on the 16th, today is the 21st');
@@ -159,13 +164,13 @@ final class ProductionLineAutoAdvanceTest extends TestCase
         // Found is placement, Contacted is the call outcome (ProspectService::applyOutcome); every other station is entered by a CoreX event.
         $source = file_get_contents(app_path('Listeners/RoadToSold/AdvanceProspectsFromDomainEvent.php'));
         $constants = [
-            S::APPOINTMENT_SET => 'APPOINTMENT_SET', S::EVALUATION_DONE => 'EVALUATION_DONE', S::PRESENTATION_GIVEN => 'PRESENTATION_GIVEN',
+            S::APPOINTMENT_SET => 'APPOINTMENT_SET', S::EVALUATION_DONE => 'EVALUATION_DONE',
             S::PRESENTATION_FEEDBACK => 'PRESENTATION_FEEDBACK', S::MANDATE_SIGNED => 'MANDATE_SIGNED', S::LISTING_LIVE => 'LISTING_LIVE',
             S::ADVERTISING => 'ADVERTISING', S::LEAD => 'LEAD', S::LEAD_CONTACTED => 'LEAD_CONTACTED', S::CORE_MATCH => 'CORE_MATCH',
             S::VIEWING_SCHEDULED => 'VIEWING_SCHEDULED', S::VIEWING_PACK => 'VIEWING_PACK', S::VIEWING_FEEDBACK => 'VIEWING_FEEDBACK',
             S::OFFER => 'OFFER', S::DEAL => 'DEAL', S::REGISTERED => 'REGISTERED',
         ];
-        $this->assertCount(16, $constants);
+        $this->assertCount(15, $constants);   // the legacy Presentation given station has no way in any more (23.4)
         foreach ($constants as $key => $name) {
             $this->assertStringContainsString('S::' . $name, $source, "no way into the {$key} station");
         }
@@ -186,10 +191,11 @@ final class ProductionLineAutoAdvanceTest extends TestCase
         $mine = $this->prospects->place($this->agent, $this->tp()->id);
         $theirs = $this->prospects->place($this->mate, $tp->id, 'sales', ['property_id' => $propertyId]);
         $presentation = $this->presentation($propertyId);
+        DB::table('presentations')->where('id', $presentation)->update(['created_by_user_id' => $this->mate->id]);
 
-        event(new PresentationPresented(presentationId: $presentation, deliveryId: 1, agencyId: $this->agency->id, userId: $this->mate->id, channel: 'email', propertyId: $propertyId));
+        event(new \App\Events\PresentationGenerated(\App\Models\Presentation::query()->withoutGlobalScopes()->findOrFail($presentation), new \App\Models\PresentationVersion()));
 
         $this->assertSame(S::FOUND, $mine->refresh()->stage);
-        $this->assertSame(S::PRESENTATION_GIVEN, $theirs->refresh()->stage);
+        $this->assertSame(S::PRESENTATION_PREPARED, $theirs->refresh()->stage);
     }
 }

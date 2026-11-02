@@ -68,7 +68,7 @@ class CalendarEventClassSetting extends Model
      * red-overdue (viewings + listing presentations). Everything else is a
      * marker/reminder and is informational.
      */
-    public const ACTIONABLE_CATEGORIES = ['viewing', 'viewings', 'buyer_viewing', 'listing_presentation'];
+    public const ACTIONABLE_CATEGORIES = ['viewing', 'viewings', 'buyer_viewing', 'listing_presentation', 'property_evaluation'];   // v4 A4 (23.8): the seeder already marks an evaluation actionable; the constant now agrees
 
     /**
      * Canonical category -> event nature. THE single source of truth for
