@@ -50,7 +50,7 @@ ok(!!f, 'the popup went straight to the Owner screen (no Property step first)');
 await page.screenshot({ path: path.join(SHOTS, 'b-mic-opens-at-owner.png') });
 let s = await steps();
 console.log('  steps:', s);
-ok(s === 'property:done,owner:current,pitch:todo,contact:todo', 'step bar: Property ticked, Owner current');
+ok(s === 'property:done,owner:current,pitch:todo,contact:todo,evaluation:todo', 'step bar: Property ticked, Owner current');
 ok(await page.$eval('[data-step="property"]', (b) => b.dataset.click === '1'), 'Property is still clickable');
 ok(!(await f.$('a[href*="url-previous"]')) && !(await f.evaluate(() => /← Back/.test(document.body.innerText))), 'no "← Back" button inside the popup');
 
@@ -75,11 +75,11 @@ if (hdr) {
 // ---- 3. Property step can be re-opened, Next comes back to Owner --------------------------------------------------------------------------------------
 await page.click('[data-step="property"]');
 f = await waitFrame(/_pitch_card/);
-ok(!!f && (await steps()) === 'property:current,owner:done,pitch:todo,contact:todo', 'Property re-opens the card; Owner (visited) stays ticked');
+ok(!!f && (await steps()) === 'property:current,owner:done,pitch:todo,contact:todo,evaluation:todo', 'Property re-opens the card; Owner (visited) stays ticked');
 await page.screenshot({ path: path.join(SHOTS, 'e-property-reopened.png') });
 await page.click('[data-qa="pitch-next"]');
 f = await waitFrame(/outreach\/compose/);
-ok(!!f && (await steps()) === 'property:done,owner:current,pitch:todo,contact:todo', 'Next goes back to Owner');
+ok(!!f && (await steps()) === 'property:done,owner:current,pitch:todo,contact:todo,evaluation:todo', 'Next goes back to Owner');
 
 if (WALK) {
     // ---- 4. Owner -> next steps (writes test data) ----------------------------------------------------------------------------------------------------
@@ -174,12 +174,53 @@ if (WALK) {
     ok(pr.channel === 'phone' && /Spoke - call back/.test(pr.outcome_label) && /weekend/.test(pr.note), 'the call is on the record: channel phone, "' + pr.outcome_label + '"');
     ok(pr.occurred_at.slice(0, 16) === hourAgo.replace('T', ' '), 'it carries the time the agent gave: ' + pr.occurred_at);
 
+    // ---- 7b. Book evaluation: step 5, the calendar's own form inside the popup --------------------------------------------------------------------
+    const canBook = await cur.evaluate(() => { const b = document.querySelector('[data-qa="phone-book-next"]'); return !!b && getComputedStyle(b).display !== 'none'; });
+    ok(canBook, 'after a conversation the done panel offers "Book evaluation →"');
+    await cur.evaluate(() => [...document.querySelectorAll('button')].find((b) => /Log another call/.test(b.innerText)).click());
+    await cur.evaluate(() => { const r = [...document.querySelectorAll('[data-qa="phone-outcomes"] label')].find((l) => /Spoke - evaluation booked/.test(l.innerText)); r.querySelector('input').click(); });
+    await wait(500);
+    const hint = await cur.evaluate(() => ({ hint: !!document.querySelector('[data-qa="phone-book-hint"]') && getComputedStyle(document.querySelector('[data-qa="phone-book-hint"]')).display !== 'none', btn: document.querySelector('[data-qa="phone-save"]').innerText.trim(), appt: !!document.getElementById('pc-appt') && getComputedStyle(document.getElementById('pc-appt').parentElement).display !== 'none' }));
+    ok(hint.hint && /book the evaluation/.test(hint.btn) && !hint.appt, 'an evaluation outcome says the date is picked next: "' + hint.btn + '"');
+    await cur.type('#pc-note', 'Walk check: evaluation booked in the calendar form');
+    const pill = await page.$eval('[data-step="evaluation"]', (b) => b.dataset.click);
+    ok(pill === '1', 'the step 5 pill is a control before the evaluation is booked');
+    await cur.evaluate(() => document.querySelector('[data-qa="phone-save"]').click());
+    cur = await waitFrame(/command-center\/calendar.*pitch_book/, 90000);
+    await cur.waitForSelector('#createEventFormV2', { visible: true, timeout: 60000 });
+    await wait(1500);
+    s = await steps();
+    ok(/evaluation:current/.test(s), 'the step bar moves to 5 Evaluation: ' + s);
+    const form = await cur.evaluate(() => ({ title: document.querySelector('#createEventFormV2 input[name="title"]').value, type: document.querySelector('#createEventFormV2 select[name="category"]')?.selectedOptions?.[0]?.innerText?.trim(), chips: document.querySelector('#createEventFormV2').innerText, cancel: [...document.querySelectorAll('aside[data-tour="cal-event-form"] .corex-btn-outline')].some((b) => getComputedStyle(b).display !== 'none') }));
+    console.log('  form:', JSON.stringify({ title: form.title, type: form.type, cancel: form.cancel }));
+    ok(/Evaluation: .*Salmon Drive/.test(form.title), 'the title is prefilled: ' + form.title);
+    ok(/Property evaluation/.test(form.type || ''), 'the type is Property evaluation');
+    ok(/ZZ Popup Test/.test(form.chips) && /Salmon Drive/.test(form.chips), 'the property and the owner (as the seller) are on the form');
+    ok(!form.cancel, 'no Cancel / close into an empty calendar');
+    await page.screenshot({ path: path.join(SHOTS, 'r-book-form.png') });
+    const evDate = await cur.evaluate(() => { const root = document.querySelector('[x-data*="calendarPage"]'); const d = Alpine.$data(root); const dt = new Date(Date.now() + 10 * 864e5); const iso = dt.toISOString().slice(0, 10); d.form.startDate = iso; d.form.endDate = iso; d.form.startTime = '10:00'; d.form.endTime = '11:00'; return iso; });
+    await wait(400);
+    await cur.evaluate(() => document.querySelector('[data-tour="cal-event-save"]').click());
+    cur = await waitFrame(/outreach\/evaluation-booked/, 90000);
+    ok(!!cur, 'saving went to the Evaluation booked page inside the popup');
+    await wait(1500);
+    await page.screenshot({ path: path.join(SHOTS, 's-evaluation-booked.png') });
+    const bookedText = await cur.evaluate(() => document.querySelector('[data-qa="evaluation-booked"]').innerText.replace(/\s+/g, ' '));
+    console.log('  booked page:', bookedText);
+    const evRow = tinker(`$e = \\DB::table('calendar_events')->where('user_id', ${USER_ID})->where('category','property_evaluation')->orderByDesc('id')->first(['id','event_date','tracked_property_id','rts_prospect_id','property_id']); $o = \\DB::table('rts_contact_outcomes')->where('user_id', ${USER_ID})->orderByDesc('id')->first(['outcome_label','calendar_event_id','channel']); $n = \\DB::table('calendar_events')->where('user_id', ${USER_ID})->where('category','property_evaluation')->whereNull('deleted_at')->where('created_at','>=',now()->subMinutes(30))->count(); $st = \\DB::table('rts_prospects')->where('user_id', ${USER_ID})->where('tracked_property_id', $e->tracked_property_id ?? 0)->orderByDesc('id')->value('stage'); echo json_encode(['event'=>$e,'outcome'=>$o,'events_in_30min'=>$n,'stage'=>$st]);`);
+    console.log('  rows:', evRow);
+    const er = JSON.parse(evRow);
+    ok(er.events_in_30min === 1, 'ONE appointment was made (the call used it, no second)');
+    ok(er.outcome.calendar_event_id === er.event.id && er.outcome.channel === 'phone' && /Spoke - evaluation booked/.test(er.outcome.outcome_label), 'the call is logged against that appointment: ' + er.outcome.outcome_label);
+    ok(er.event.tracked_property_id && er.event.rts_prospect_id, 'the appointment carries the property file and the record (cc4 keys)');
+    ok(er.stage === 'appointment_set', 'the record is at Evaluation booked: ' + er.stage);
+
     // ---- 8. Done says what happened and the list is refreshed ---------------------------------------------------------------------------------------
     await cur.evaluate(() => document.querySelector('[data-embed-done]').click());
     await wait(1500);
     const toast = await page.evaluate(() => (document.querySelector('[data-qa="pitch-toast"]') || {}).innerText || null);
     console.log('  notice:', toast);
-    ok(!!toast && /^Pitched \u00B7 .*Salmon/.test(toast), 'Done shows a notice: "' + toast + '"');
+    ok(!!toast && /^Evaluation booked \u00B7 \d+ \w+ \d\d:\d\d \u00B7 .*Salmon/.test(toast), 'Done shows a notice: "' + toast + '"');
     await page.screenshot({ path: path.join(SHOTS, 'q-done-notice.png') });
     await wait(4000);
     ok(!(await page.$('[data-qa="pitch-popup"]')), 'the popup is closed and the agent is on the list');
@@ -196,7 +237,7 @@ if (WALK) {
     ok(!/current/.test(early.steps) && !/done/.test(early.steps), 'and no step is claimed before the screen is known: ' + early.steps);
     await waitFrame(/\/contacts\/\d+\/outreach\/compose/);
     const late = await steps();
-    ok(late === 'property:todo,owner:todo,pitch:todo,contact:current', 'it opens on the real step, Contact, with no ticks for steps never done: ' + late);
+    ok(late === 'property:todo,owner:todo,pitch:todo,contact:current,evaluation:todo', 'it opens on the real step, Contact, with no ticks for steps never done: ' + late);
     ok(!(await page.evaluate(() => getComputedStyle(document.querySelector('[data-qa="pitch-loading"]')).display !== 'none')), 'the loading line is gone');
     await page.click('[data-step="contact"]');
     await wait(800);
