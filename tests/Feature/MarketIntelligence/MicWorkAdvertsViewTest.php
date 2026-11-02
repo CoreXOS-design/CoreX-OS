@@ -147,7 +147,7 @@ final class MicWorkAdvertsViewTest extends TestCase
         $this->assertStringContainsString('data-qa="split-undo"', $pop);
         $this->assertStringNotContainsString('confirm(', $pop, 'no browser confirm dialog');
         $this->assertDoesNotMatchRegularExpression('/<a [^>]*>[^<]*<button/', $pop, 'the button is never inside an advert link');
-        $this->assertStringContainsString('Confirm — not the same property', $h, 'the armed wording is in the page script');
+        $this->assertStringContainsString('Confirm - not the same property', $h, 'the armed wording is in the page script');
         // the Adverts line popover shows the same entries but no split button
         $line = substr($h, strpos($h, 'data-qa="line-adverts"'));
         $this->assertStringContainsString('data-qa="pop-advert"', $line);

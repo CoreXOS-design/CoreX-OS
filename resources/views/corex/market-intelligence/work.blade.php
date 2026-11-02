@@ -377,7 +377,7 @@
                 },
                 label: function (id) {
                     var s = this.st[id];
-                    return s.msg !== '' ? s.msg : (s.armed ? 'Confirm — not the same property' : 'Not the same property');
+                    return s.msg !== '' ? s.msg : (s.armed ? 'Confirm - not the same property' : 'Not the same property');
                 },
                 disarm: function () { var self = this; Object.keys(this.st).forEach(function (id) { self.st[id].armed = false; clearTimeout(self.timers[id]); }); },
                 press: function (id, ev) {
@@ -393,13 +393,13 @@
                     var me = this;
                     post(base + '/' + id + '/split').then(function (d) {
                         s.busy = false;
-                        if (!d || !d.ok) { s.msg = (d && d.message) || 'Couldn’t split — try again'; return; }
+                        if (!d || !d.ok) { s.msg = (d && d.message) || "Couldn't split - try again"; return; }
                         s.gone = true;
                         me.n = (typeof d.adverts_left_on_file === 'number') ? d.adverts_left_on_file : me.n - 1;
                         me.note = d.split_id; me.noteAdvert = id;
                         clearTimeout(me.noteTimer);
                         me.noteTimer = setTimeout(function () { me.note = null; }, 10000);
-                    }).catch(function () { s.busy = false; s.msg = 'Couldn’t split — try again'; });
+                    }).catch(function () { s.busy = false; s.msg = "Couldn't split - try again"; });
                 },
                 undo: function () {
                     var me = this, id = this.noteAdvert, splitId = this.note;

@@ -42,16 +42,24 @@
         @endphp
         <div data-qa="pop-advert" data-advert-id="{{ $aid }}" style="padding: 7px 8px; {{ $i > 0 ? 'border-top: 1px solid var(--border);' : '' }}"
              @if($split && $aid) x-show="!st[{{ $aid }}].gone" :style="{ borderTop: rule({{ $aid }}) ? '1px solid var(--border)' : '0', opacity: st[{{ $aid }}].busy ? .45 : 1 }" @endif>
+            @php
+                $who = $a['owner'] ? 'Owner (private)' : ($a['agency'] ?: null);
+                $head = collect([$who ? '<strong>' . e($who) . '</strong>' : null, !empty($a['agent']) ? e($a['agent']) : null])->filter()->implode(' · ');
+                $head .= $head !== '' ? ' · ' : '';
+                $sole = $a['sole_mandate'] ?? null;
+                $line2 = array_values(array_filter([
+                    $a['price'] ? $money($a['price']) : null,
+                    $a['listed'] ? 'listed ' . $a['listed'] : ($a['seen'] ? 'first seen ' . $a['seen'] : null),
+                    $state,
+                    $sole ? (is_string($sole) ? $sole : 'Sole mandate') : null,
+                ]));
+            @endphp
             <div>
-                <strong>{{ $a['owner'] ? 'Owner (private)' : ($a['agency'] ?: 'Agency not shown') }}</strong>@if($a['agent']) · {{ $a['agent'] }}@endif
-                · @if($a['url'])<a href="{{ $a['url'] }}" target="_blank" rel="noopener" data-qa="pop-mark" title="{{ $a['active'] ? 'Open the advert' : 'Not seen since ' . ($a['last_seen'] ?? '-') . ' - the link may no longer work' }}" style="{{ $mark }}{{ $a['active'] ? '' : ' background: rgba(100,116,139,.85); text-decoration: line-through;' }}">{{ $a['portal'] }}</a>@else<span style="{{ $mark }}">{{ $a['portal'] }}</span>@endif
+                {!! $head !!}
+                @if($a['url'])<a href="{{ $a['url'] }}" target="_blank" rel="noopener" data-qa="pop-mark" title="{{ $a['active'] ? 'Open the advert' : 'Not seen since ' . ($a['last_seen'] ?? '-') . ' - the link may no longer work' }}" style="{{ $mark }}{{ $a['active'] ? '' : ' background: rgba(100,116,139,.85); text-decoration: line-through;' }}">{{ $a['portal'] }}</a>@else<span style="{{ $mark }}">{{ $a['portal'] }}</span>@endif
             </div>
-            <div style="color: var(--text-secondary);">
-                {{ $a['price'] ? $money($a['price']) : '-' }}
-                · {{ $a['listed'] ? 'listed ' . $a['listed'] : 'first seen ' . ($a['seen'] ?? '-') }}
-                · {{ $state }}@if(!empty($a['sole_mandate'])) · Sole mandate @endif
-            </div>
-            @if($split && $aid)
+            <div style="color: var(--text-secondary);">{{ implode(' · ', $line2) }}</div>
+            @if($split && $aid && ($a['can_split'] ?? true))
                 <div style="text-align: right; margin-top: 3px;">
                     <button type="button" data-qa="not-same" @click="press({{ $aid }}, $event)" :disabled="st[{{ $aid }}].busy"
                             :style="{ background: st[{{ $aid }}].armed ? 'var(--ds-amber, #f59e0b)' : 'none', color: st[{{ $aid }}].armed ? '#111827' : 'var(--text-primary)', padding: st[{{ $aid }}].armed ? '1px 6px' : '0', borderRadius: '3px' }"
