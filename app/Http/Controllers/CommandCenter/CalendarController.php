@@ -296,7 +296,10 @@ class CalendarController extends Controller
         // AT-164 Gate 5 — the per-month block (grid + species split + spanning bars) is
         // now built by one reusable method so the continuous-scroll endpoint renders
         // through the identical pipeline.
-        $block = $this->monthBlockData($user, $year, $month, $typeFilter, $categoryFilter, $scope);
+        $slim  = (bool) $request->attributes->get('pitch_book_slim');   // the pitch popup's Book evaluation step: only the form is shown (see index())
+        $block = $slim
+            ? ['grid' => [], 'byDate' => [], 'deadlineGroups' => [], 'spanningBars' => [], 'filteredEvents' => collect()]
+            : $this->monthBlockData($user, $year, $month, $typeFilter, $categoryFilter, $scope);
         $grid                 = $block['grid'];
         $appointmentByDate    = $block['byDate'];
         $deadlineGroupsByDate = $block['deadlineGroups'];
@@ -328,8 +331,7 @@ class CalendarController extends Controller
         // lazy-load top threshold (so init never trips loadPrev and drifts), plus enough
         // BELOW to overflow the frame and engage scrolling immediately.
         $preloadStart   = $anchorMonday->copy()->subWeeks(6);
-        $slim           = (bool) $request->attributes->get('pitch_book_slim');
-        $weekRows       = $this->weekRowsData($user, $preloadStart, $slim ? 1 : 20, $typeFilter, $categoryFilter, $scope);
+        $weekRows       = $slim ? [] : $this->weekRowsData($user, $preloadStart, 20, $typeFilter, $categoryFilter, $scope);
         $anchorWeek     = $anchorMonday->toDateString();
 
         // AT-164 — PAGED shell data: exactly the weeks of the anchor MONTH (Monday of the
@@ -337,7 +339,7 @@ class CalendarController extends Controller
         // renderer as the continuous stream (one rendering truth, two navigation shells).
         $monthLastMonday = Carbon::create($year, $month, 1)->endOfMonth()->startOfWeek(Carbon::MONDAY);
         $pagedWeekCount  = (int) round($monthFirstMonday->diffInWeeks($monthLastMonday)) + 1;
-        $pagedWeekRows   = $this->weekRowsData($user, $monthFirstMonday->copy(), $slim ? 1 : max(4, min(6, $pagedWeekCount)), $typeFilter, $categoryFilter, $scope);
+        $pagedWeekRows   = $slim ? [] : $this->weekRowsData($user, $monthFirstMonday->copy(), max(4, min(6, $pagedWeekCount)), $typeFilter, $categoryFilter, $scope);
 
         // Agenda range logic
         $rangeGroups = [
@@ -373,7 +375,7 @@ class CalendarController extends Controller
             default: $range = 'month'; $rangeStart = $base->copy()->startOfMonth(); $rangeEnd = $base->copy()->endOfMonth(); break;
         }
 
-        $agendaEvents = $this->applyFilters(
+        $agendaEvents = $slim ? collect() : $this->applyFilters(
             $this->service->getEventsForRange($user, $rangeStart->toDateString(), $rangeEnd->toDateString(), [], $scope),
             $user, $typeFilter, $categoryFilter, $scope
         );
@@ -390,7 +392,7 @@ class CalendarController extends Controller
 
         // Build labels for legend
         $classLabels = [];
-        foreach ($this->sharedViewData($user, $view, $typeFilter, $categoryFilter, $scope)['availableCategories'] as $cat) {
+        foreach (($slim ? $shared : $this->sharedViewData($user, $view, $typeFilter, $categoryFilter, $scope))['availableCategories'] as $cat) {
             $classLabels[$cat->event_class] = $cat->label;
         }
         $branchLabels = \App\Models\Branch::withoutGlobalScopes()
