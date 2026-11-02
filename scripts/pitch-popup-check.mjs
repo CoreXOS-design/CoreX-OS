@@ -20,6 +20,7 @@ fs.mkdirSync(SHOTS, { recursive: true });
 let fails = 0;
 const ok = (c, m) => { console.log((c ? '  ok   ' : '  FAIL ') + m); if (!c) fails++; };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const retry = async (fn) => { for (let i = 0; i < 8; i++) { try { return await fn(); } catch (e) { if (!/context was destroyed|detached/i.test(String(e))) throw e; await wait(1000); } } return fn(); };
 const tinker = (php) => { fs.writeFileSync('/tmp/mic-cc2/walk-q.php', '<?php\n' + php); return execFileSync('sudo', ['-u', 'www-data', 'env', 'HOME=/tmp/mic-cc2', 'php8.2', 'artisan', 'tinker', "--execute=include '/tmp/mic-cc2/walk-q.php';"], { cwd: '/corex-qa1', encoding: 'utf8' }).trim(); };
 const out = execFileSync('php8.2', [path.join(__dirname, 'mint-session-cookie.php'), '--app-root=/corex-qa1', `--user-id=${USER_ID}`], { encoding: 'utf8' });
 const cookie = { name: out.match(/COOKIE_NAME=(.+)/)[1].trim(), value: out.match(/COOKIE_VALUE=(.+)/)[1].trim() };
@@ -92,7 +93,7 @@ if (WALK) {
     // ---- 4. Owner -> next steps (writes test data) ----------------------------------------------------------------------------------------------------
     const hasAddress = await f.evaluate(() => !/\(no address\)/.test(document.querySelector('[data-qa="listing-header"]').innerText));
     console.log('  listing has an address:', hasAddress);
-    const snap = () => JSON.parse(tinker(`$l = \\DB::table('prospecting_listings')->where('id', ${LISTING})->first(['tracked_property_id']); echo json_encode(['tp' => \\DB::table('tracked_properties')->where('agency_id', 1)->count(), 'props' => \\DB::table('properties')->where('agency_id', 1)->count(), 'tasks' => \\DB::table('command_tasks')->where('agency_id', 1)->count(), 'sends' => \\DB::table('seller_outreach_sends')->where('agency_id', 1)->count(), 'owner' => \\DB::table('tracked_properties')->where('id', $l->tracked_property_id)->value('owner_contact_id'), 'claim' => \\DB::table('prospecting_claims')->where('user_id', ${USER_ID})->where('prospecting_listing_id', ${LISTING})->where('is_active', 1)->value('status'), 'pitched' => \\DB::table('prospecting_listings')->where('id', ${LISTING})->value('pitched_at')]);`));
+    const snap = () => JSON.parse(tinker(`$l = \\DB::table('prospecting_listings')->where('id', ${LISTING})->first(['tracked_property_id']); echo json_encode(['tp' => \\DB::table('tracked_properties')->where('agency_id', 1)->count(), 'props' => \\DB::table('properties')->where('agency_id', 1)->count(), 'tasks' => \\DB::table('command_tasks')->where('agency_id', 1)->count(), 'sends' => \\DB::table('seller_outreach_sends')->where('agency_id', 1)->count(), 'owner' => \\DB::table('tracked_properties')->where('id', $l->tracked_property_id)->value('owner_contact_id'), 'claim' => \\DB::table('prospecting_claims')->where('user_id', ${USER_ID})->where('prospecting_listing_id', ${LISTING})->where('is_active', 1)->value('status'), 'pitched' => \\DB::table('prospecting_listings')->where('id', ${LISTING})->value('pitched_at'), 'credits' => \\DB::table('daily_activity_entries as e')->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')->where('e.user_id', ${USER_ID})->whereNull('e.revoked_at')->selectRaw('d.name as n, count(*) as c')->groupBy('d.name')->pluck('c', 'n')]);`));
     const before = snap();
     await f.evaluate(() => { const b = [...document.querySelectorAll('button')].find((x) => /Create new/.test(x.innerText)); if (b) b.click(); });
     await f.type('input[name="first_name"]', 'ZZ');
@@ -109,6 +110,9 @@ if (WALK) {
     console.log('  before:', JSON.stringify(before), ' after:', JSON.stringify(after));
     ok(after.tp === before.tp && after.props === before.props, 'no second tracked property, no property made (' + before.tp + '/' + before.props + ' -> ' + after.tp + '/' + after.props + ')');
     ok(after.tasks === before.tasks, 'no "Upload signed mandate / owner ID / proof of ownership" tasks');
+    const gained = Object.keys(after.credits).filter((k) => (after.credits[k] || 0) > (before.credits[k] || 0));
+    console.log('  credits gained by the Owner step:', JSON.stringify(gained));
+    ok(!gained.some((k) => /claim_taken|property\.captured|pitch_sent/.test(k)), 'no claim credit, no property credit, no "pitch sent" credit from the Owner step (gained: ' + gained.join(', ') + ')');
     ok(after.sends === before.sends && !/sent|contacted/i.test(String(after.claim)) && after.pitched === null, 'nothing "sent", the claim is not "contacted" (' + after.claim + '), not stamped pitched');
     ok(!!after.owner && after.owner !== before.owner, 'the owner is on the record\'s own file (contact ' + after.owner + ')');
     s = await steps();
@@ -145,7 +149,7 @@ if (WALK) {
     ok(!c1.token, 'no raw {token} in the message the agent sees');
     ok(c1.sendBottom !== null && c1.sendBottom <= c1.vh - 56, 'the send button is visible without scrolling (' + c1.sendBottom + ' of ' + c1.vh + ')');
     const pillState = await page.evaluate(() => [...document.querySelectorAll('[data-qa="pitch-steps"] .cxp-step')].map((b) => b.dataset.step + ':' + b.dataset.click).join());
-    ok(pillState === 'property:1,owner:1,pitch:1,contact:1,evaluation:1', 'every pill opens a screen: ' + pillState);
+    ok(/^property:1,owner:1,pitch:[01],contact:1,evaluation:1$/.test(pillState), 'every pill with a screen opens it, the rest are plain labels: ' + pillState);
     ok(c1.tabs.join('|') === 'WhatsApp|Email|Phone call', 'three tabs: ' + c1.tabs.join(' | '));
     console.log('  contact flags:', JSON.stringify({ queue: c1.queue, cancel: c1.cancel, side: c1.side, templatePicker: c1.templatePicker }));
     ok(!c1.queue && !c1.cancel && !c1.side && !c1.templatePicker, 'no Add to queue, no Cancel, no demand/tracking panels, no template picker');
@@ -199,7 +203,7 @@ if (WALK) {
     await page.screenshot({ path: path.join(SHOTS, 'n-phone-tab.png') });
     const p1 = await cur.evaluate(() => ({ groups: [...document.querySelectorAll('[data-qa="phone-outcomes"] .uppercase')].map((e) => e.innerText), when: document.getElementById('pc-when-date').value + ' ' + document.getElementById('pc-when-time').value, dmy: /^\d\d\/\d\d\/\d{4}$/.test(document.getElementById('pc-when-date').value), required: !!document.querySelector('[data-qa="call-when"]').previousElementSibling.querySelector('[title="Required"]'), usDate: !!document.querySelector('input[type="datetime-local"]'), saveDisabled: document.querySelector('[data-qa="phone-save"]').disabled }));
     console.log('  phone form:', JSON.stringify(p1));
-    ok(p1.groups.map((g) => g.toLowerCase()).join('|') === 'moves it forward|try again later|off-ramps - why it stops here', 'outcomes grouped: ' + p1.groups.join(' | '));
+    ok(p1.groups.map((g) => g.toLowerCase()).join('|') === 'moves it forward|try again later|stops here (say why)', 'outcomes grouped: ' + p1.groups.join(' | '));
     ok(p1.saveDisabled, 'Log this call is off until an outcome is picked');
     ok(p1.dmy && p1.required && !p1.usDate, 'the call date is dd/mm/yyyy (' + p1.when + '), marked required, no bare US date box');
     await cur.evaluate(() => { const r = [...document.querySelectorAll('[data-qa="phone-outcomes"] label')].find((l) => /Spoke - call back/.test(l.innerText)); r.querySelector('input').click(); });
@@ -226,7 +230,7 @@ if (WALK) {
     await cur.evaluate(() => [...document.querySelectorAll('button')].find((b) => /Log another call/.test(b.innerText)).click());
     await cur.evaluate(() => { const r = [...document.querySelectorAll('[data-qa="phone-outcomes"] label')].find((l) => /Spoke - evaluation booked/.test(l.innerText)); r.querySelector('input').click(); });
     await wait(500);
-    const hint = await cur.evaluate(() => ({ hint: !!document.querySelector('[data-qa="phone-book-hint"]') && getComputedStyle(document.querySelector('[data-qa="phone-book-hint"]')).display !== 'none', btn: document.querySelector('[data-qa="phone-save"]').innerText.trim(), appt: !!document.getElementById('pc-appt') && getComputedStyle(document.getElementById('pc-appt').parentElement).display !== 'none' }));
+    const hint = await cur.evaluate(() => ({ hint: !!document.querySelector('[data-qa="phone-book-hint"]') && getComputedStyle(document.querySelector('[data-qa="phone-book-hint"]')).display !== 'none', btn: document.querySelector('[data-qa="phone-save"]').innerText.trim(), appt: !!document.getElementById('pc-appt') && getComputedStyle(document.getElementById('pc-appt').closest('div.rounded-md')).display !== 'none' }));
     ok(hint.hint && /book the evaluation/.test(hint.btn) && !hint.appt, 'an evaluation outcome says the date is picked next: "' + hint.btn + '"');
     await cur.type('#pc-note', 'Walk check: evaluation booked in the calendar form');
     const pill = await page.$eval('[data-step="evaluation"]', (b) => b.dataset.click);
@@ -272,8 +276,8 @@ if (WALK) {
     ok(!!toast && /^Evaluation booked \u00B7 \d+ \w+ \d\d:\d\d \u00B7 .*Salmon/.test(toast), 'Done shows a notice: "' + toast + '"');
     await page.screenshot({ path: path.join(SHOTS, 'q-done-notice.png') });
     await wait(4000);
-    ok(!(await page.$('[data-qa="pitch-popup"]')), 'the popup is closed and the agent is on the list');
-    let claimed = false; for (let i = 0; i < 30 && !claimed; i++) { claimed = await page.evaluate(() => /Mine · \d+ days left/.test(document.body.innerText) && !!document.querySelector('[data-qa="advert-card"]')); if (!claimed) await wait(500); }
+    ok(!(await retry(() => page.$('[data-qa="pitch-popup"]'))), 'the popup is closed and the agent is on the list');
+    let claimed = false; for (let i = 0; i < 30 && !claimed; i++) { claimed = await retry(() => page.evaluate(() => /Mine · \d+ days left/.test(document.body.innerText) && !!document.querySelector('[data-qa="advert-card"]'))); if (!claimed) await wait(500); }
     ok(claimed, 'the card on the list shows the claim ("Mine") without a reload');
     console.log('  ids for cleanup:', JSON.stringify({ propertyId, contactId }));
 

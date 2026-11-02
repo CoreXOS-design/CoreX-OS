@@ -79,6 +79,33 @@ if ((await steps()).includes('property:todo*')) {
     for (let i = 0; i < 60; i++) { const u = (await frameOf()).url(); if (/_pitch_card/.test(u)) break; await wait(300); }
     ok(/_pitch_card/.test((await frameOf()).url()), 'the Property pill opens the MIC card');
 }
+// ---- the belt row's Book evaluation: the prefilled form only, fast (cc6 round 3: it opened the whole company calendar in 6.6 s) -------------------------
+await page.click('[data-qa="pitch-close"]');
+await wait(1500);
+// an agent has the page's scripts and styles cached after the first time: open it once to warm them, close it, and time the second open
+await page.setCacheEnabled(true);
+await page.evaluate((id) => window.dispatchEvent(new CustomEvent('rts-step', { detail: { stepUrl: `/corex/road-to-sold/prospects/${id}/step/evaluation`, stepLabel: 'Book evaluation - 73 Marine Drive' } })), PROSPECT);
+await page.waitForSelector('[data-qa="pitch-popup"]');
+await wait(5000);
+await page.click('[data-qa="pitch-close"]');
+await wait(1500);
+const t1 = Date.now();
+await page.evaluate((id) => window.dispatchEvent(new CustomEvent('rts-step', { detail: { stepUrl: `/corex/road-to-sold/prospects/${id}/step/evaluation`, stepLabel: 'Book evaluation - 73 Marine Drive' } })), PROSPECT);
+await page.waitForSelector('[data-qa="pitch-popup"]');
+let formMs = null, fr = null;
+for (let i = 0; i < 200; i++) {
+    fr = await (await page.$('[data-qa="pitch-frame"]')).contentFrame();
+    const visible = fr ? await fr.evaluate(() => { const f = document.querySelector('#createEventFormV2'); return !!f && f.offsetHeight > 0 && getComputedStyle(f).visibility !== 'hidden'; }).catch(() => false) : false;
+    if (visible) { formMs = Date.now() - t1; break; }
+    await wait(50);
+}
+console.log('  Book evaluation: the prefilled form was on screen after ' + formMs + ' ms');
+ok(formMs !== null && formMs < 1500, 'the belt row lands on the prefilled form in ' + formMs + ' ms (the whole calendar took 6.6 s)');
+await wait(800);
+const cal = await fr.evaluate(() => ({ title: document.querySelector('#createEventFormV2 input[name="title"]').value, grid: !!document.querySelector('[data-tour="cal-layers"]') && getComputedStyle(document.querySelector('[data-tour="cal-layers"]')).display !== 'none' && document.querySelector('[data-tour="cal-layers"]').getBoundingClientRect().width > 0 && !document.querySelector('aside[data-tour="cal-event-form"]').contains(document.querySelector('[data-tour="cal-layers"]')), heading: (document.querySelector('aside[data-tour="cal-event-form"] [data-qa="step-heading"]') || {}).innerText, fixed: getComputedStyle(document.querySelector('aside[data-tour="cal-event-form"]')).position }));
+console.log('  calendar frame:', JSON.stringify(cal));
+ok(/^Evaluation: /.test(cal.title) && cal.heading === 'Evaluation' && cal.fixed === 'fixed', 'the form is prefilled and headed "Evaluation": "' + cal.title + '"');
+await page.screenshot({ path: path.join(SHOTS, 'y-rts-book-form.png') });
 await browser.close();
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);
