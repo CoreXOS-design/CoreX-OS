@@ -63,6 +63,8 @@
                             {{ $e->to_value ? 'Status set to ' . ($statuses[$e->to_value] ?? $e->to_value) : 'Status cleared' }}@if($e->reason): {{ $e->reason }}@endif
                         @elseif($e->kind === 'own_stock')
                             {{ $e->to_value ? 'Marked as our stock' : 'No longer our stock' }}
+                        @elseif($e->kind === 'details_read')
+                            Full details read from {{ $e->to_value }}
                         @else
                             {{ $e->to_value ? 'Claimed' : 'Claim released' }}@if($e->reason): {{ $e->reason }}@endif
                         @endif

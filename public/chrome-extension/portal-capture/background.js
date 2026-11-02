@@ -244,6 +244,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // MIC "Get full details" (3.16.0, spec mic-work-tab.md 13.16): a CoreX page asks, through content-corex-bridge.js, for ONE advert page to be read.
+  if (msg.action === 'micReadAdvert') {
+    micReadAdvert(msg, sender)
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ ok: false, reason: 'extension_error', message: String(err && err.message || err) }));
+    return true;
+  }
+
   return false;
 });
 
@@ -1658,4 +1666,134 @@ async function handleCaptureTvaCompanyDirectors(payload) {
   } catch (e) { /* ignore */ }
 
   return result;
+}
+
+
+// ── MIC "Get full details" - ONE advert page per click (3.16.0; spec .ai/specs/mic-work-tab.md 13.16) ──
+// The search crawl never opens an advert page (Johan, 1 Nov 22:40). This is the one place an advert page is read, and only because an
+// agent pressed the button on that advert's card in CoreX. One page at a time, with a pause between pages; a page that did not parse
+// (portal error, no price or heading) writes nothing on the server and is reported back as "unreadable".
+const READ_ADVERT_HOSTS = { p24: 'www.property24.com', pp: 'www.privateproperty.co.za' };
+var READ_ADVERT_LOAD_MS = 25000;   // var: the test lowers these
+var READ_ADVERT_GAP_MS = 4000;
+let readAdvertChain = Promise.resolve();
+let readAdvertLastEnd = 0;
+
+function readAdvertUrlOk(portal, url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && u.hostname === READ_ADVERT_HOSTS[portal] && u.pathname.length > 1;
+  } catch (e) { return false; }
+}
+
+function readAdvertSameOrigin(a, b) {
+  try { return new URL(a).origin === new URL(b).origin; } catch (e) { return false; }
+}
+
+// resolves when the tab reports 'complete' (the set is filled by a listener that was attached BEFORE the tab was created, so a fast load is never missed)
+async function waitTabLoaded(loaded, tabId, ms) {
+  const until = Date.now() + ms;
+  while (!loaded.has(tabId)) {
+    if (Date.now() > until) throw new Error('Page load timeout');
+    await sleep(100);
+  }
+}
+
+// requests queue behind each other: one advert page at a time per browser
+function micReadAdvert(msg, sender) {
+  const job = readAdvertChain.then(() => runReadAdvert(msg, sender));
+  readAdvertChain = job.catch(() => {});
+  return job;
+}
+
+async function runReadAdvert(msg, sender) {
+  const portal = msg.portal === 'pp' ? 'pp' : 'p24';
+  if (!msg.ref || !readAdvertUrlOk(portal, msg.url)) return { ok: false, reason: 'bad_request' };
+  const settings = await new Promise(r => chrome.storage.local.get(['apiUrl', 'apiToken'], r));
+  if (!settings.apiUrl || !settings.apiToken) return { ok: false, reason: 'not_set_up' };
+  // only the CoreX site this extension is signed in to may ask (not any other page that happens to carry the bridge)
+  if (!readAdvertSameOrigin((sender && (sender.url || (sender.tab && sender.tab.url))) || '', settings.apiUrl)) return { ok: false, reason: 'wrong_site' };
+
+  const wait = readAdvertLastEnd + READ_ADVERT_GAP_MS - Date.now();
+  if (wait > 0) await sleep(wait);
+
+  let tabId = null;
+  const loaded = new Set();
+  const onUpdated = (id, info) => { if (info && info.status === 'complete') loaded.add(id); };
+  chrome.tabs.onUpdated.addListener(onUpdated);
+  try {
+    // a background tab (active: false): the agent's screen does not move
+    const tab = await new Promise((resolve) => { chrome.tabs.create({ url: msg.url, active: false }, resolve); });
+    if (!tab || !tab.id) return { ok: false, reason: 'tab_failed' };
+    tabId = tab.id;
+    await waitTabLoaded(loaded, tabId, READ_ADVERT_LOAD_MS);
+    await sleep(900);
+
+    let facts = null;
+    for (let attempt = 0; attempt < 3 && !facts; attempt++) {
+      try {
+        const ask = { action: 'getListingFacts' };
+        if (portal === 'pp') ask.sv = await readPpServerVariables(tabId);
+        const res = await sendTabMessage(tabId, ask);
+        facts = res && res.facts;
+      } catch (e) { facts = null; }
+      if (!facts) await sleep(700);
+    }
+    if (!facts || facts.page_read !== true) return { ok: false, reason: 'unreadable' };
+    delete facts._photo_url;
+    delete facts._ref;
+
+    const payload = {
+      source: portal,
+      search_context: { url: msg.url, search_term: 'advert', total_results: 1, pages_captured: 1, detail_only: true, capture_complete: false },
+      listings: [Object.assign({ portal_ref: msg.ref, portal_url: msg.url }, facts)],
+    };
+    let result;
+    try {
+      result = await handleSendToCorex(settings.apiUrl, settings.apiToken, payload);
+    } catch (err) {
+      if (err && err.status === 403) return { ok: false, reason: 'no_permission' };
+      if (err && err.kind === 'auth') return { ok: false, reason: 'not_set_up' };
+      return { ok: false, reason: 'server', message: String(err && err.message || err) };
+    }
+    if (result && result.detail_unknown > 0) return { ok: false, reason: 'not_found' };
+    if (!result || !(result.updated > 0)) return { ok: false, reason: 'unreadable' };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: 'unreadable', message: String(e && e.message || e) };
+  } finally {
+    chrome.tabs.onUpdated.removeListener(onUpdated);
+    if (tabId !== null) { try { chrome.tabs.remove(tabId); } catch (e) { /* already closed */ } }
+    readAdvertLastEnd = Date.now();
+  }
+}
+
+// Private Property keeps its parsed page data in window.serverVariables (MAIN world). Read ONLY the public fields we need:
+// agency, the listed contact's NAME and id, the map point, the description, the first photo.
+function ppServerVariablesFn() {
+  var sv = (window.serverVariables || {});
+  var bp = sv.bundleParams || {};
+  var agency = bp.agencyInfo || null;
+  var contacts = bp.contactDetails || [];
+  var contact = contacts.filter(function (c) { return c.contactType === 'Agent'; })[0] || contacts[0] || null;
+  var photos = bp.galleryPhotos || [];
+  var first = photos[0] || null;
+  return {
+    hasAgency: !!agency,
+    agencyName: agency ? (agency.agencyName || null) : null,
+    agencyId: agency ? (agency.agencyId || agency.id || null) : null,
+    contactName: contact ? (contact.name || null) : null,
+    agentId: contact ? (contact.agentId || contact.id || null) : null,
+    lat: bp.mapCoOrdinates ? bp.mapCoOrdinates.lat : null,
+    lng: bp.mapCoOrdinates ? bp.mapCoOrdinates.lng : null,
+    description: bp.description || '',
+    photoUrl: first ? (first.mediumUrl || (first.srcSet && first.srcSet[0]) || null) : null,
+  };
+}
+
+async function readPpServerVariables(tabId) {
+  try {
+    const res = await chrome.scripting.executeScript({ target: { tabId }, world: 'MAIN', func: ppServerVariablesFn });
+    return (res && res[0] && res[0].result) || {};
+  } catch (e) { return {}; }
 }

@@ -55,6 +55,7 @@
         @if(!empty($adv['portal_url']))<a href="{{ $adv['portal_url'] }}" target="_blank" rel="noopener" data-qa="advert-photo-link" title="Open this advert on the portal" style="display:block; width:100%; height:100%;">@endif
             <img src="{{ $thumbSrc ?: $placeholder }}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='{{ $placeholder }}';" style="width:100%; height:100%; object-fit:cover; display:block; border-radius:6px; background: var(--surface-2);">
         @if(!empty($adv['portal_url']))</a>@endif
+        @include('corex.market-intelligence._advert-gallery')
         <div style="position:absolute; top:8px; left:8px; display:flex; flex-direction:column; align-items:flex-start; gap:4px; pointer-events:none;">
             @foreach($ribbons as [$rt, $rc, $rtitle])
                 <span data-qa="ribbon" title="{{ $rtitle ?? $rt }}" style="padding:2px 8px; font-size:.6875rem; font-weight:700; color: {{ str_contains($rc, 'amber') ? '#111827' : '#fff' }}; background: {{ $rc }}; border-radius:3px; box-shadow:0 1px 3px rgba(0,0,0,.3);">{{ $rt }}</span>
@@ -111,7 +112,13 @@
         @if($text !== '')
             <div style="font-size:.875rem; line-height:1.4; color: var(--text-primary);" data-qa="advert-description">
                 <div :style="more ? '' : 'display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden;'">{{ $text }}</div>
-                @if(mb_strlen($text) > 160)<button type="button" @click.stop="more = !more" style="background:none; border:none; padding:0; font-size:.8125rem; color: var(--text-primary); text-decoration: underline; text-decoration-color: var(--brand-icon); cursor:pointer;"><span x-text="more ? 'less' : 'more'">more</span></button>@endif
+                @if(mb_strlen($text) > 160)
+                    @if(($adv['details']['level'] ?? 'search') === 'full')
+                    <button type="button" data-advert-open data-qa="read-more" style="background:none; border:none; padding:0; font-size:.8125rem; color: var(--text-primary); text-decoration: underline; text-decoration-color: var(--brand-icon); cursor:pointer;">Read more</button>
+                    @else
+                    <button type="button" @click.stop="more = !more" style="background:none; border:none; padding:0; font-size:.8125rem; color: var(--text-primary); text-decoration: underline; text-decoration-color: var(--brand-icon); cursor:pointer;"><span x-text="more ? 'less' : 'more'">more</span></button>
+                    @endif
+                @endif
             </div>
         @endif
         @if($text === '' && ($featBits || $costBits))
@@ -129,8 +136,9 @@
             @if(!empty($adv['erf_size_m2']))<span title="Erf size">Erf {{ number_format((float) $adv['erf_size_m2']) }} m²</span>@endif
             @if(!empty($adv['floor_size_m2']))<span title="Floor size">Floor {{ number_format((float) $adv['floor_size_m2']) }} m²</span>@endif
         </div>
-        <div style="font-size:.8125rem; line-height:1.3; color: var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" data-qa="advert-source">
-            {{ implode(' · ', array_filter([$who, $adv['agent_name'] ?? null])) }}@if($lead && !empty($lead['ref']))@if($who || !empty($adv['agent_name'])) · @endif<span style="{{ $muted }}">{{ $lead['ref'] }}</span>@endif
+        <div style="font-size:.8125rem; line-height:1.3; color: var(--text-primary); display:flex; align-items:baseline; gap:6px; min-width:0;" data-qa="advert-source">
+            <span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ implode(' · ', array_filter([$who, $adv['agent_name'] ?? null])) }}@if($lead && !empty($lead['ref']))@if($who || !empty($adv['agent_name'])) · @endif<span style="{{ $muted }}">{{ $lead['ref'] }}</span>@endif</span>
+            @include('corex.market-intelligence._advert-fetch')
         </div>
         <div style="font-size:.8125rem; line-height:1.3; color: var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" data-qa="advert-dates">
             {{ implode(' · ', $dateBits) }}@if(!empty($adv['is_stale']) && $adv['last_seen_days'] !== null)<span style="{{ $muted }}" data-qa="advert-stale"> · not seen since {{ $adv['last_seen_days'] }} d</span>@endif

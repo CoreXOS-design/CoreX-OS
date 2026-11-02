@@ -19,6 +19,7 @@ final class TrackedPropertyAgencyWorkEvent extends Model
     public const KIND_STATUS = 'status';
     public const KIND_OWN_STOCK = 'own_stock';
     public const KIND_CLAIM = 'claim';
+    public const KIND_DETAILS_READ = 'details_read';   // "Full details read from P24" (mic-work-tab.md 13.16); to_value = the portal
 
     protected $fillable = ['agency_id', 'tracked_property_id', 'kind', 'from_value', 'to_value', 'reason', 'user_id', 'occurred_at'];
 

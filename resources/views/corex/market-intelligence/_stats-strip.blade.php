@@ -91,6 +91,7 @@
         @endif
     @endforeach
     @if($rowsTotal !== null)<span style="{{ $nm }}">·</span><span data-qa="rows-total" title="Rows in the list below: the actual list, grouped by matched development"><span style="{{ $nb }}">{{ number_format($rowsTotal) }}</span> <span style="{{ $nm }}">rows</span></span>@endif
+    @if(($micFullDetailsCount ?? null) !== null)<span style="{{ $nm }}">·</span><span data-qa="full-details-count" title="Adverts in this list whose own page was read with Get full details"><span style="{{ $nb }}">{{ number_format($micFullDetailsCount) }}</span> <span style="{{ $nm }}">with full details</span></span>@endif
 </div>
 @else
 <div class="mi-stats-strip"

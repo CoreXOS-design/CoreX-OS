@@ -4,6 +4,9 @@
     $money = $money ?? fn ($v) => 'R ' . number_format((float) $v, 0, '.', ',');
 @endphp
 <div data-qa="record-card-body" style="padding: 6px 10px 10px 14px; background: var(--surface-2); font-size: .75rem; color: var(--text-secondary);">
+@if(!empty($showAd))
+    @include('corex.market-intelligence.partials._full-ad', ['r' => $r])
+@endif
                     <div style="font-weight: 700; margin: 2px 0;">Adverts</div>
 @foreach($r['adverts'] as $a)
     <div style="display:grid; grid-template-columns: 40px 140px 1fr 110px 100px 100px 90px; gap: 8px; padding: 1px 0; {{ $a['active'] ? '' : 'opacity:.6;' }}">

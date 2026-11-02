@@ -607,6 +607,8 @@ class MarketIntelligenceController extends Controller
             $query->where('bedrooms', '=', (int) $request->bedrooms_exact);
         }
         $kpiCountBase = clone $query;
+        // 13.16b: "N with full details" on the stats line - the files in the current (fully filtered) list that have an advert whose own page was read
+        view()->share('micFullDetailsCount', (clone $kpiCountBase)->whereNotNull('prospecting_listings.details_read_at')->distinct()->count(\DB::raw('COALESCE(prospecting_listings.tracked_property_id, -prospecting_listings.id)')));
 
         // The classic per-advert list (grouped by property group) is THE Work screen. The property-per-row view (mic-work-tab.md 2.1 D) stays reachable
         // at ?view=properties, unlinked, until Johan decides what to do with it. The new parts are additive on the classic list.
@@ -619,7 +621,7 @@ class MarketIntelligenceController extends Controller
             abort_unless($fid > 0 && (clone $query)->where('tracked_property_id', $fid)->exists(), 404);
             $rec = app(\App\Services\Prospecting\MicWork\MicWorkList::class)->forFiles([$fid], (int) $agencyId)[0] ?? abort(404);
 
-            return response(view('corex.market-intelligence.partials._work-record-card', ['r' => $rec])->render());
+            return response(view('corex.market-intelligence.partials._work-record-card', ['r' => $rec, 'showAd' => $request->boolean('_ad')])->render());
         }
 
         // The tile row is the slow part when it is not cached (cc5/cc4 queries): the page does not wait for it. A cold page gets placeholders and the

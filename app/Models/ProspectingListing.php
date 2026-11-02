@@ -97,6 +97,8 @@ class ProspectingListing extends Model
         'first_photo_fingerprint',
         'details_read_at',
         'details_read_price',
+        'details_read_by',
+        'details_read_card_hash',
     ];
 
     protected $casts = [

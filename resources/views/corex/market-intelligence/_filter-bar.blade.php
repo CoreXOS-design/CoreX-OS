@@ -48,6 +48,7 @@
     if (($F['show_status'] ?? '') === 'all') { $chips[] = ['Under offer / sold shown', $fLink(['show_status' => null])]; }
     if (!empty($F['owner_only'])) { $chips[] = ['Owner advertised', $fLink(['owner_only' => null])]; }
     if (!empty($F['sole_mandate_only'])) { $chips[] = ['Sole mandate', $fLink(['sole_mandate_only' => null])]; }
+    if (!empty($F['full_details_only'])) { $chips[] = ['Full details only', $fLink(['full_details_only' => null])]; }
     if (in_array($F['claimed'] ?? '', ['unclaimed', 'mine', 'others'], true)) { $chips[] = ['Claimed · ' . $F['claimed'], $fLink(['claimed' => null])]; }
     if (request('property_type')) { $chips[] = ['Type · ' . request('property_type'), $urlWithout('property_type')]; }
     if (request('suburb')) { $chips[] = ['Suburb · ' . request('suburb'), $urlWithout('suburb')]; }
@@ -72,13 +73,13 @@
 
     // "More filters" opens by itself when one of its filters is on
     $moreKeys = ['address_filter', 'include_in_stock', 'region', 'buyer_id', 'buyer_scope', 'source', 'captured_by', 'date_from', 'agency_name', 'is_active', 'score_min', 'score_max', 'action_preset'];
-    $moreNew = collect(['show_status', 'owner_only', 'sole_mandate_only', 'claimed'])->filter(fn ($k) => !empty($F[$k]) && !($k === 'claimed' && $F[$k] === 'any'))->count();
+    $moreNew = collect(['show_status', 'owner_only', 'sole_mandate_only', 'full_details_only', 'claimed'])->filter(fn ($k) => !empty($F[$k]) && !($k === 'claimed' && $F[$k] === 'any'))->count();
     // a chosen buyer does not open the panel by itself: the buyer banner under the bar already says who, and the panel would push the first advert down (13.14)
     $moreOn = $moreNew > 0 || collect(array_diff($moreKeys, ['buyer_id', 'buyer_scope']))->contains(fn ($k) => request()->filled($k)) || !request()->boolean('p24', true) || !request()->boolean('pp', true);
     $moreCount = $moreNew + collect($moreKeys)->filter(fn ($k) => request()->filled($k))->count() + (!request()->boolean('p24', true) ? 1 : 0) + (!request()->boolean('pp', true) ? 1 : 0);
 
     $hidden = collect(request()->except(array_merge($keys, ['search', 'page', 'view', 'clear', 'reset', '_fragments'])))->filter(fn ($v) => !is_array($v));
-    $carry = collect(array_intersect_key($F, array_flip(['show_status', 'owner_only', 'sole_mandate_only', 'claimed'])));
+    $carry = collect(array_intersect_key($F, array_flip(['show_status', 'owner_only', 'sole_mandate_only', 'full_details_only', 'claimed'])));
     $box = 'height: 30px; padding: 0 8px; font-size: 0.8125rem; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); color: var(--text-primary);';
     $sortNow = request('sort', \App\Services\Prospecting\MicWork\MicWorkList::hasScores() ? 'score' : 'last_seen_at') . '|' . (request('dir') === 'asc' ? 'asc' : 'desc');
     $sortOptions = [
@@ -93,7 +94,7 @@
     {{-- Row 1 --}}
     <div class="mi-bar-row" style="display: flex; flex-wrap: nowrap; align-items: center; gap: 6px;">
         <form method="GET" action="{{ route('market-intelligence.work') }}" data-qa="filter-form" style="display: contents;"
-              onsubmit="(function(f){ var has = ['suburbs[]','type[]','price_min','price_max','beds','show_status','owner_only','sole_mandate_only','claimed'].some(function(n){ return Array.prototype.some.call(f.elements, function(e){ return e.name === n && ((e.type === 'checkbox' && e.checked) || (e.type !== 'checkbox' && e.value !== '')); }); }); if (!has) { var c = document.createElement('input'); c.type = 'hidden'; c.name = 'clear'; c.value = '1'; f.appendChild(c); } })(this)">
+              onsubmit="(function(f){ var has = ['suburbs[]','type[]','price_min','price_max','beds','show_status','owner_only','sole_mandate_only','full_details_only','claimed'].some(function(n){ return Array.prototype.some.call(f.elements, function(e){ return e.name === n && ((e.type === 'checkbox' && e.checked) || (e.type !== 'checkbox' && e.value !== '')); }); }); if (!has) { var c = document.createElement('input'); c.type = 'hidden'; c.name = 'clear'; c.value = '1'; f.appendChild(c); } })(this)">
             @foreach($hidden as $k => $v)<input type="hidden" name="{{ $k }}" value="{{ $v }}">@endforeach
             @foreach($carry as $k => $v)<input type="hidden" name="{{ $k }}" value="{{ $v }}">@endforeach
             @if($view)<input type="hidden" name="view" value="{{ $view }}">@endif
@@ -187,7 +188,7 @@
     <div x-data="{ open: {{ $moreOn ? 'true' : 'false' }} }" @mic-more-toggle.window="open = !open" x-show="open" x-cloak data-qa="more-filters" class="mi-filter-bar-more"
          style="margin-top: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface);">
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-bottom: 6px;">
-            @foreach([['show_status', 'all', 'Show under offer / sold', ($F['show_status'] ?? '') === 'all'], ['owner_only', '1', 'Owner advertised', !empty($F['owner_only'])], ['sole_mandate_only', '1', 'Sole mandate', !empty($F['sole_mandate_only'])]] as [$k, $val, $lbl, $on])
+            @foreach([['show_status', 'all', 'Show under offer / sold', ($F['show_status'] ?? '') === 'all'], ['owner_only', '1', 'Owner advertised', !empty($F['owner_only'])], ['sole_mandate_only', '1', 'Sole mandate', !empty($F['sole_mandate_only'])], ['full_details_only', '1', 'Full details only', !empty($F['full_details_only'])]] as [$k, $val, $lbl, $on])
                 <a href="{{ $fLink([$k => $on ? null : $val]) }}" data-qa="more-{{ $k }}" style="font-size: .8125rem; text-decoration: none; color: {{ $on ? 'var(--brand-icon)' : 'var(--text-secondary)' }};">
                     <span style="display: inline-block; width: 14px; height: 14px; line-height: 12px; text-align: center; border: 1px solid {{ $on ? 'var(--brand-icon)' : 'var(--border)' }}; border-radius: 3px; margin-right: 4px; font-size: .625rem;">{{ $on ? '✓' : '' }}</span>{{ $lbl }}
                 </a>

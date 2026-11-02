@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CoreX",
-  "version": "3.15.2",
+  "version": "3.16.0",
   "description": "Pull properties and capture listings from portals into CoreX OS",
   "homepage_url": "https://www.corexos.co.za/extension/privacy",
   "permissions": ["activeTab", "storage", "unlimitedStorage", "notifications", "alarms", "scripting"],
@@ -29,6 +29,11 @@
     {
       "matches": ["https://www.privateproperty.co.za/*"],
       "js": ["mic-lib.js", "content-pp.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://corexos.co.za/*", "https://*.corexos.co.za/*"],
+      "js": ["content-corex-bridge.js"],
       "run_at": "document_idle"
     },
     {

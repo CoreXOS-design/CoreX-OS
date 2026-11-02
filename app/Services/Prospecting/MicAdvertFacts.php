@@ -196,7 +196,7 @@ final class MicAdvertFacts
      * Write the sanitised facts onto a listing (not saved here). An owner advert never carries an agency name; an
      * agent-corrected listed date is never overwritten; a listing-page read stamps when and at what price.
      */
-    public static function apply(ProspectingListing $l, array $facts, \Carbon\CarbonInterface $now): void
+    public static function apply(ProspectingListing $l, array $facts, \Carbon\CarbonInterface $now, ?int $readBy = null): void
     {
         foreach ($facts['columns'] as $col => $val) {
             $l->{$col} = $val;
@@ -211,7 +211,36 @@ final class MicAdvertFacts
         if ($facts['page_read']) {
             $l->details_read_at = $now;
             $l->details_read_price = $l->price !== null ? (int) $l->price : null;
+            // 13.16b: who pressed the button, and the card wording as it was at the read (so a later change of wording is told from "nothing changed")
+            $l->details_read_by = $readBy;
+            $l->details_read_card_hash = self::cardHash($l->card_heading, $l->description_snippet);
         }
+    }
+
+    /** Fingerprint of the search card's wording (heading + snippet), or null when the card held no wording at all (nothing to compare against later). */
+    public static function cardHash(?string $heading, ?string $snippet): ?string
+    {
+        $norm = fn (?string $v) => mb_strtolower(trim((string) preg_replace('/\s+/u', ' ', (string) $v)));
+        $h = $norm($heading);
+        $s = $norm($snippet);
+
+        return ($h === '' && $s === '') ? null : sha1($h . '|' . $s);
+    }
+
+    /**
+     * 13.16b - did the advert change since its page was read? Its price is not the price at the read, or the card wording is not the wording at the read.
+     * A read that predates the wording fingerprint (hash null) is judged on price alone; an advert never read is never "changed".
+     */
+    public static function changedSinceRead(ProspectingListing $l): bool
+    {
+        if ($l->details_read_at === null) {
+            return false;
+        }
+        if ($l->details_read_price !== null && $l->price !== null && (int) $l->price !== (int) $l->details_read_price) {
+            return true;
+        }
+
+        return $l->details_read_card_hash !== null && self::cardHash($l->card_heading, $l->description_snippet) !== $l->details_read_card_hash;
     }
 
     /** The public facts to hand the shared pool (allow-listed there again). */

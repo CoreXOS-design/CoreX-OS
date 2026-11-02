@@ -158,6 +158,13 @@ final class AgencyWorkService
         return $work;
     }
 
+    /** 13.16: a line on the file's history - who pressed "Get full details", from which portal. The advert must belong to a file of this agency. */
+    public function logDetailsRead(int $agencyId, int $trackedPropertyId, int $userId, string $portalLabel): void
+    {
+        $this->assertOwn($agencyId, $trackedPropertyId);
+        $this->log($agencyId, $trackedPropertyId, Event::KIND_DETAILS_READ, null, $portalLabel, null, $userId);
+    }
+
     /** Dated history, newest first. */
     public function history(int $agencyId, int $trackedPropertyId, int $limit = 50)
     {

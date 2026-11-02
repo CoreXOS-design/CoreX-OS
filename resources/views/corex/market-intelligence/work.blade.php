@@ -92,6 +92,7 @@
 @include('corex.market-intelligence._slideover')
 @endif
 @include('corex.market-intelligence._buyer-banner-script')
+@include('corex.market-intelligence._advert-fetch-script')
 
 {{-- ─────────────────────────────────────────────────────────────────────────
      Tick refresh (cc6) — AJAX partial swap, no full-page reload.

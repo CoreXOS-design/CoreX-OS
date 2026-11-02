@@ -185,7 +185,8 @@ final class MicWorkList
             ->get(['id', 'tracked_property_id', 'portal_source', 'portal_ref', 'portal_url', 'address', 'suburb', 'price', 'bedrooms', 'bathrooms', 'garages',
                 'property_size_m2', 'erf_size_m2', 'property_type', 'agent_name', 'agency_name', 'first_seen_at', 'last_seen_at', 'listed_date', 'is_active',
                 'portal_status', 'advertiser_type', 'is_reduced', 'canonical_ref', 'p24_suburb_id', 'p24_group_id', 'thumbnail_source_url', 'thumbnail_path',
-                'card_heading', 'description_snippet', 'description', 'photo_urls', 'photo_count', 'features', 'parking', 'sole_mandate_wording', 'sole_mandate_first_seen_at', 'rates_amount', 'levies_amount'])
+                'card_heading', 'description_snippet', 'description', 'photo_urls', 'photo_count', 'features', 'parking', 'sole_mandate_wording', 'sole_mandate_first_seen_at', 'rates_amount', 'levies_amount',
+                'details_read_at', 'details_read_price', 'details_read_by', 'details_read_card_hash'])
             ->groupBy(fn ($l) => $l->tracked_property_id ?: -$l->id);
         $advertIds = $adverts->flatten()->pluck('id')->all();
 
@@ -458,6 +459,7 @@ final class MicWorkList
                 'last_seen_days' => $lastSeenDays,
                 'is_stale' => $lastSeenDays !== null && $lastSeenDays > $staleDays,
                 'portal_url' => $lead->portal_url,
+                'details' => $this->detailsOf($live),
                 'thumbnail_source_url' => $thumbAdvert->thumbnail_source_url,
                 'thumbnail_path' => $thumbAdvert->thumbnail_path,
                 'thumbnail_advert_id' => (int) $thumbAdvert->id,
@@ -580,5 +582,31 @@ final class MicWorkList
         }
 
         return $pairs;
+    }
+
+    /**
+     * 13.16 / 13.16b - what we know of this file's adverts at the "search view" or "full details" level, for the card, the filter and the stats line. The advert
+     * that was read (the newest read) carries the level; otherwise the advert a click would read (P24 first, then PP, one with a live address).
+     *
+     * @param  \Illuminate\Support\Collection<int,\App\Models\ProspectingListing>  $live
+     * @return array{level:string, read_at:?string, read_on:?string, read_by:?string, stale:bool, target:?array{id:int,portal:string,ref:string,url:string}, photo_count:int}
+     */
+    private function detailsOf($live): array
+    {
+        $read = $live->filter(fn ($a) => $a->details_read_at !== null)->sortByDesc(fn ($a) => $a->details_read_at->getTimestamp())->first();
+        $pick = $read ?? $live->filter(fn ($a) => ! empty($a->portal_url))->sortBy(fn ($a) => $a->portal_source === 'p24' ? 0 : 1)->first();
+        $by = $read && $read->details_read_by ? (string) (\App\Models\User::withoutGlobalScopes()->whereKey($read->details_read_by)->value('name') ?? '') : '';
+        $photos = $read && is_array($read->photo_urls) ? count($read->photo_urls) : 0;
+
+        return [
+            'level' => $read ? 'full' : 'search',
+            'read_at' => $read?->details_read_at?->toIso8601String(),
+            'read_on' => $read?->details_read_at?->format('j M'),
+            'read_by' => $by !== '' ? trim(explode(' ', trim($by))[0]) : null,
+            'stale' => $read ? \App\Services\Prospecting\MicAdvertFacts::changedSinceRead($read) : false,
+            'target' => ($pick && ! empty($pick->portal_url) && ! empty($pick->portal_ref))
+                ? ['id' => (int) $pick->id, 'portal' => $pick->portal_source === 'pp' ? 'pp' : 'p24', 'ref' => (string) $pick->portal_ref, 'url' => (string) $pick->portal_url] : null,
+            'photo_count' => $photos,
+        ];
     }
 }

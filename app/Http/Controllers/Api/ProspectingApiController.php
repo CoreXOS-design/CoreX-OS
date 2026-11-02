@@ -114,6 +114,10 @@ class ProspectingApiController extends Controller
         $now = Carbon::now();
 
         $detailOnly = ! empty($context['detail_only']);
+        // 13.16: reading one advert page is the agent's own act on a MIC advert - the same right as claiming it (the MIC routes' access_prospecting)
+        if ($detailOnly && ! ($user->hasPermission('access_prospecting'))) {
+            return response()->json(['message' => 'You do not have permission to read advert details.'], 403);
+        }
         $crawl = is_array($context['crawl'] ?? null) ? $context['crawl'] : [];
         $sessionId = $crawl['session_id'] ?? null;
         $crawlColumns = $this->crawlColumns($crawl);
@@ -239,9 +243,18 @@ class ProspectingApiController extends Controller
                 if ($data['agency_name'] !== '') {
                     $existing->agency_name = $data['agency_name'];
                 }
-                MicAdvertFacts::apply($existing, $mic, $now);
+                MicAdvertFacts::apply($existing, $mic, $now, $user?->id);
                 $existing->save();
                 $groupsRecorded += $this->recordMicFacts($existing, $mic, $agencyId, $groupRecorder);
+                // 13.16: the file's history says who read the advert and when (a lone advert with no file has no history to write to)
+                if ($existing->tracked_property_id) {
+                    try {
+                        app(\App\Services\Prospecting\AgencyWorkService::class)->logDetailsRead(
+                            (int) $agencyId, (int) $existing->tracked_property_id, (int) $user->id, $portalSource === 'pp' ? 'Private Property' : 'P24');
+                    } catch (\Throwable $e) {
+                        report($e);   // the read itself is already saved; a missing history line must not fail it
+                    }
+                }
                 $updated++;
                 continue;
             }

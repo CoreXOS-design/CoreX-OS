@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\DB;
  *  suburbs[]  our p24_suburbs.id (or a suburb name)        type[]/type  property type            price_min / price_max     beds (minimum bedrooms)
  *  show_status  active (default) | all  - all adds the UNDER OFFER and SOLD adverts to the on-market ones (withdrawn adverts stay out)
  *  owner_only  1  - advertised by the owner                sole_mandate_only  1  - sole-mandate wording (agency words) or a P24 alert flagged mandated
+ *  full_details_only  1  - only adverts whose own page was read ("Get full details", 13.16b)
  *  claimed     any | unclaimed | mine | others  - on the property file's claim
  *
  * Every window, word list and default comes from the agency's MIC settings; nothing here is a constant of one agency.
@@ -22,7 +23,7 @@ use Illuminate\Support\Facades\DB;
 final class MicAdvertFilters
 {
     /** the query-string keys this class owns (the per-user memory stores exactly these) */
-    public const KEYS = ['suburbs', 'type', 'price_min', 'price_max', 'beds', 'show_status', 'owner_only', 'sole_mandate_only', 'claimed'];
+    public const KEYS = ['suburbs', 'type', 'price_min', 'price_max', 'beds', 'show_status', 'owner_only', 'sole_mandate_only', 'full_details_only', 'claimed'];
 
     /** True when the request carries any filter this class owns. */
     public static function present(array $input): bool
@@ -74,6 +75,9 @@ final class MicAdvertFilters
         }
         if (! empty($in['sole_mandate_only']) && $in['sole_mandate_only'] !== '0') {
             $query->where(fn ($q) => $this->soleMandateSql($q, $agencyId));
+        }
+        if (! empty($in['full_details_only']) && $in['full_details_only'] !== '0') {
+            $query->whereNotNull('prospecting_listings.details_read_at');
         }
         $claimed = (string) ($in['claimed'] ?? 'any');
         if (in_array($claimed, ['unclaimed', 'mine', 'others'], true)) {

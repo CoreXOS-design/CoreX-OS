@@ -1,5 +1,5 @@
 /**
- * CoreX - MIC capture run, background worker (3.15.2): a search run reads the search-results pages and then STOPS.
+ * CoreX - MIC capture run, background worker (3.15.2 / 3.16.0): a search run reads the search-results pages and then STOPS.
  * background.js is run in a vm with a stubbed chrome.* API; every tab navigation and every message to a page is recorded.
  * No jsdom, no network:  node tests/background-run.test.cjs
  */
@@ -30,7 +30,7 @@ function runSearch(opts) {
       onInstalled: { addListener: () => {} },
       onStartup: { addListener: () => {} },
       sendMessage: () => {},
-      getManifest: () => ({ version: '3.15.2' }),
+      getManifest: () => ({ version: '3.16.0' }),
     },
     tabs: {
       onUpdated: { addListener: (fn) => updatedListeners.push(fn), removeListener: (fn) => { const i = updatedListeners.indexOf(fn); if (i >= 0) updatedListeners.splice(i, 1); } },
@@ -109,9 +109,13 @@ function runSearch(opts) {
 
   await t('the extension has no advert-page step left: no detail phase, no tick box, no needs_detail handling', async () => {
     const bg = fs.readFileSync(path.join(EXT, 'background.js'), 'utf8');
-    for (const gone of ['runDetailPhase', 'postDetailBatch', 'needsDetail', 'needs_detail', 'detailCap', 'readAdverts', 'getListingFacts', 'photoFingerprint']) {
+    for (const gone of ['runDetailPhase', 'postDetailBatch', 'needsDetail', 'needs_detail', 'detailCap', 'readAdverts', 'photoFingerprint']) {
       assert.ok(!bg.includes(gone), gone + ' is gone from background.js');
     }
+    // 3.16.0: the single-advert reader is reachable ONLY from the agent's own click (micReadAdvert), never from the search run
+    const body = bg.slice(bg.indexOf('async function runReadAdvert'), bg.indexOf('function ppServerVariablesFn'));
+    assert.strictEqual(bg.split('getListingFacts').length - 1, 1, 'getListingFacts is asked for in exactly one place');
+    assert.ok(body.includes('getListingFacts'), '...and that place is the button flow');
     const html = fs.readFileSync(path.join(EXT, 'popup.html'), 'utf8');
     assert.ok(!/readAdverts|Also read new advert pages/.test(html), 'no tick box in the popup');
     assert.ok(!/readAdverts|detailMessage|detailPhase/.test(fs.readFileSync(path.join(EXT, 'popup.js'), 'utf8')));
