@@ -243,6 +243,11 @@
 
     window.addEventListener('message', function (e) {
         if (e.origin !== window.location.origin || !e.data || !pop || e.source !== pop.frame.contentWindow) return;
+        if (e.data.pitch === 'go') {
+            var u = pop.urls[e.data.step];
+            if (u) { var x = new URL(u, window.location.href); if (e.data.need) x.searchParams.set('need', String(e.data.need)); pop.frame.src = x.toString(); }
+            return;
+        }
         if (e.data.pitch === 'book') { if (e.data.url && sameSite(e.data.url) && !pop.urls.evaluation) { pop.urls.evaluation = e.data.url; if (pop.repaint) pop.repaint(); } return; }
         if (e.data.pitch === 'result') { pop.results.push({ kind: ['logged', 'booked'].indexOf(e.data.kind) >= 0 ? e.data.kind : 'pitched', address: String(e.data.address || ''), detail: String(e.data.detail || '') }); return; }
         if (e.data.rts === 'done') close(true);

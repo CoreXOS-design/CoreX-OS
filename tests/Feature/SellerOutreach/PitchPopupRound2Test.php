@@ -120,6 +120,17 @@ final class PitchPopupRound2Test extends TestCase
         $this->assertSame('pitch', $ready['step'], 'owner and deed on record: the pitch');
     }
 
+    public function test_the_phone_tab_names_the_deed_and_leads_back_to_the_owner_step(): void
+    {
+        $this->tp->update(['deeds_captured_at' => null]);
+        $h = $this->composer(['channel' => 'phone', 'rts_prospect' => $this->prospect->id])->assertOk()->getContent();
+
+        $this->assertStringContainsString('data-qa="phone-gate"', $h);
+        $this->assertStringContainsString('Still missing: the deed record.', $h);
+        $this->assertStringContainsString('data-qa="phone-gate-go"', $h);
+        $this->assertStringContainsString("corexPitchGo('owner', 'deed')", $h);
+    }
+
     public function test_the_popup_asks_which_screens_exist_and_unavailable_ones_come_back_null(): void
     {
         $r = $this->actingAs($this->agent)->getJson(route('seller-outreach.entry.pitch-steps', ['prospect' => $this->prospect->id]))->assertOk()->json('steps');

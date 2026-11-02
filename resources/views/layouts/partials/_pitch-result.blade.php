@@ -4,6 +4,9 @@
 window.corexPitchResult = function (kind, address, detail) {
     try { if (window.parent && window.parent !== window) { window.parent.postMessage({ pitch: 'result', kind: kind, address: address || '', detail: detail || '' }, window.location.origin); } } catch (e) { /* not framed */ }
 };
+window.corexPitchGo = function (step, need) {
+    try { if (window.parent && window.parent !== window) { window.parent.postMessage({ pitch: 'go', step: step, need: need || '' }, window.location.origin); } } catch (e) { /* not framed */ }
+};
 window.corexPitchBook = function (url) {
     try { if (window.parent && window.parent !== window) { window.parent.postMessage({ pitch: 'book', url: url || '' }, window.location.origin); } } catch (e) { /* not framed */ }
 };

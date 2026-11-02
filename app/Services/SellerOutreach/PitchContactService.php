@@ -47,7 +47,7 @@ final class PitchContactService
     /**
      * What the Phone call form shows for this property. `trackedPropertyId` null = nothing on the belt to log against (address-only pitch).
      *
-     * @return array{tracked_property_id:?int, refusal:?string, groups:list<array{key:string,title:string,items:list<array<string,mixed>>}>, phone:?string, now:string, book_url:?string}
+     * @return array{tracked_property_id:?int, refusal:?string, groups:list<array{key:string,title:string,items:list<array<string,mixed>>}>, phone:?string, now:string, book_url:?string, missing:list<string>}
      */
     public function phoneForm(User $actor, Contact $contact, ?Property $property, array $carry = []): array
     {
@@ -75,6 +75,7 @@ final class PitchContactService
         return [
             'tracked_property_id' => $tp,
             'refusal' => $tp ? $this->owner->refusal($actor, $tp) : null,
+            'missing' => $tp ? $this->owner->missing($agencyId, $tp) : [],
             'groups' => array_values(array_filter($groups, fn ($g) => $g['items'] !== [])),
             'phone' => $phone !== '' ? $phone : null,
             'now' => now()->format('Y-m-d\TH:i'),

@@ -23,6 +23,12 @@
     @elseif($phoneCall['refusal'])
         <div class="rounded-md p-4 text-sm" data-qa="phone-gate" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 40%, var(--border)); color: var(--text-primary);">
             {{ $phoneCall['refusal'] }}
+            @if(!empty($phoneCall['missing']))
+                <div class="mt-1">Still missing: {{ implode(' and ', $phoneCall['missing']) }}.</div>
+            @endif
+            @if(\App\Support\Embed::on())
+                <button type="button" class="corex-btn-outline text-sm mt-3" data-qa="phone-gate-go" onclick="window.corexPitchGo && corexPitchGo('owner', {{ in_array('the deed record', $phoneCall['missing'] ?? [], true) ? "'deed'" : 'null' }})">Go to the Owner step</button>
+            @endif
         </div>
     @else
 
