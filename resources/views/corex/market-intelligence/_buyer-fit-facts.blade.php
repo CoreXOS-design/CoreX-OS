@@ -35,6 +35,6 @@
             @endforeach
         </div>
     @else
-        <div class="mi-fc" style="{{ $cell }} {{ $tint }} border-radius: 0 4px 4px 0; align-self:flex-end; flex: 1 1 0; min-width: 0;" data-qa="fit-chips" aria-hidden="true"></div>
+        <div class="mi-fc" style="{{ $cell }} {{ $tint }} border-radius: 0 4px 4px 0; align-self:flex-end; flex: 1 1 0; min-width: 0; padding: 0 !important;" data-qa="fit-chips" aria-hidden="true"></div>
     @endif
 </div>

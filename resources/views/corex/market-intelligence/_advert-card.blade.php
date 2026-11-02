@@ -175,9 +175,10 @@
     /* the middle column at 1366 wide is 236px: shorter pill, smaller figures and icons, 2px cells so beds .. floor stay on one pair of rows */
     @container (max-width: 300px) {
         .mi-fit-grid > div { font-size: .8125rem; }
-        .mi-fit-grid [data-qa="fit-pill"] { padding: 0 4px !important; }
+        .mi-fit-grid [data-qa="fit-pill"] { padding: 0 3px !important; }
         .mi-fit-grid .mi-wants-word { display: none; }
-        .mi-fit-grid .mi-fc { padding: 0 2px; }
+        .mi-fit-grid .mi-fc { padding: 0 1px; }
+        .mi-fit-grid span[title="Erf size"], .mi-fit-grid span[title="Floor size"] { gap: 2px !important; }
         .mi-fit-grid svg { width: 13px !important; height: 13px !important; }
     }
     .mi-advert-body.mi-advert-body-fit { height: auto; min-height: calc(14.0625rem + 1.5rem); overflow: visible; } /* one line more than the photo; never clips when the column is narrow */
