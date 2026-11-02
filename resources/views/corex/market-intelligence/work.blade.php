@@ -395,7 +395,7 @@
                         s.busy = false;
                         if (!d || !d.ok) { s.msg = (d && d.message) || "Couldn't split - try again"; return; }
                         s.gone = true;
-                        me.n = (typeof d.adverts_left_on_file === 'number') ? d.adverts_left_on_file : me.n - 1;
+                        me.n = me.n - 1;
                         me.note = d.split_id; me.noteAdvert = id;
                         clearTimeout(me.noteTimer);
                         me.noteTimer = setTimeout(function () { me.note = null; }, 10000);
