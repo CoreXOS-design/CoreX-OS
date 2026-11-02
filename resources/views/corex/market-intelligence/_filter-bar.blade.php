@@ -97,7 +97,7 @@
             @foreach($hidden as $k => $v)<input type="hidden" name="{{ $k }}" value="{{ $v }}">@endforeach
             @foreach($carry as $k => $v)<input type="hidden" name="{{ $k }}" value="{{ $v }}">@endforeach
             @if($view)<input type="hidden" name="view" value="{{ $view }}">@endif
-            <input type="search" name="search" value="{{ request('search') }}" placeholder="Search address, complex, erf, agent, agency, ref" data-qa="filter-search" onkeydown="if (event.key === 'Enter') { event.preventDefault(); this.form.requestSubmit(); }" style="{{ $box }} flex: 1 1 9rem; min-width: 7rem; max-width: 16.25rem;">
+            <input type="search" name="search" value="{{ request('search') }}" placeholder="Search…" title="Search address, complex, erf, agent, agency or reference" data-qa="filter-search" onkeydown="if (event.key === 'Enter') { event.preventDefault(); this.form.requestSubmit(); }" style="{{ $box }} flex: 1 1 9rem; min-width: 7rem; max-width: 16.25rem;">
 
             {{-- Suburb (13.13): several at once; ticked pinned on top, then the agency's working suburbs, then the rest, each A-Z (ordered in MicAdvertFilters, never by count) --}}
             @php

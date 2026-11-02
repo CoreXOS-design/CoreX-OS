@@ -67,7 +67,7 @@
             @else
                 <div style="font-size: .8125rem; line-height: 1.5; color: var(--text-muted);">Coming</div>
             @endif
-            <div style="font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $t['short'] }}</div>
+            <div data-qa="tile-label" title="{{ $t['short'] }}" style="font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere;">{{ $t['short'] }}</div>
         @if($clickable)</a>@else</div>@endif
     @endforeach
 </div>

@@ -73,9 +73,13 @@
     $nm = 'color: var(--text-muted, #9ca3af);';
     $nb = 'font-weight: 700; color: var(--text-primary, #111827); font-variant-numeric: tabular-nums;';
     $bandNow = $micBandActive ? 'color: var(--brand-icon);' : '';
+    // With a buyer selected the list IS that buyer's wishlist, and its count is the banner's ("N properties matching", the same figure as the active wishlist tab).
+    // The all-buyers "Properties matched" figure and a second "rows" count would be two more numbers for the same screen, so they are not shown (mic-work-tab.md 13.14).
+    $buyerMode = request()->filled('buyer_id') && is_numeric(request('buyer_id'));
+    $lineTiles = $buyerMode ? array_values(array_filter($tiles, fn ($t) => ($t['type'] ?? '') !== 'buyer_matched')) : $tiles;
 @endphp
 <div class="mi-stats-line" data-qa="stats-line" style="padding: 4px 0; background: var(--surface, #ffffff); border-bottom: 1px solid var(--border, rgba(0,0,0,0.07)); font-size: .8125rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px;">
-    @foreach($tiles as $tile)
+    @foreach($lineTiles as $tile)
         @php
             $isActive = ($tile['type'] ?? '') === 'preset' && $activeActionPreset === ($tile['key'] ?? null);
             $href = match ($tile['type']) { 'buyer_matched' => $tile['href'], 'preset' => ($isActive ? $urlClearPreset : $urlWithPreset($tile['key'])), default => null };
@@ -85,12 +89,12 @@
         @if($tile['type'] === 'buyer_matched')
             <a href="{{ $href }}" title="{{ $tipText }}" style="text-decoration: none; {{ $bandNow }}"><span style="{{ $nm }} {{ $bandNow }}">{{ $tile['label'] }}</span> <span style="{{ $nb }}">{{ number_format($tile['properties']) }}</span> <span style="{{ $nm }}">· {{ number_format($tile['buyers']) }} {{ \Illuminate\Support\Str::plural('buyer', $tile['buyers']) }}</span></a>
         @elseif($href)
-            <a href="{{ $href }}" title="{{ $tipText }}" style="text-decoration: none;"><span style="{{ $nm }} {{ $isActive ? 'color: var(--brand-icon);' : '' }}" title="{{ $tile['label'] }}">{{ str_replace(' · high', '', $tile['label']) }}</span> <span style="{{ $nb }}">{{ number_format($tile['value']) }}</span></a>
+            <a href="{{ $href }}" title="{{ $tipText }}" style="text-decoration: none;"><span style="{{ $nm }} {{ $isActive ? 'color: var(--brand-icon);' : '' }}" title="{{ $tile['label'] }}">{{ ($tile['key'] ?? '') === 'pitch_now_high' ? 'To pitch' : str_replace(' · high', '', $tile['label']) }}</span> <span style="{{ $nb }}">{{ number_format($tile['value']) }}</span></a>
         @else
             <span title="{{ $tipText }}"><span style="{{ $nm }}">{{ $tile['label'] }}</span> <span style="{{ $nb }}">{{ number_format($tile['value']) }}</span></span>
         @endif
     @endforeach
-    @if($rowsTotal !== null)<span style="{{ $nm }}">·</span><span data-qa="rows-total" title="Rows in the list below: the actual list, grouped by matched development"><span style="{{ $nb }}">{{ number_format($rowsTotal) }}</span> <span style="{{ $nm }}">rows</span></span>@endif
+    @if($rowsTotal !== null && ! $buyerMode)<span style="{{ $nm }}">·</span><span data-qa="rows-total" title="Rows in the list below: the actual list, grouped by matched development"><span style="{{ $nb }}">{{ number_format($rowsTotal) }}</span> <span style="{{ $nm }}">rows</span></span>@endif
     @if(($micFullDetailsCount ?? null) !== null)<span style="{{ $nm }}">·</span><span data-qa="full-details-count" title="Adverts in this list whose own page was read with Get full details"><span style="{{ $nb }}">{{ number_format($micFullDetailsCount) }}</span> <span style="{{ $nm }}">with full details</span></span>@endif
 </div>
 @else

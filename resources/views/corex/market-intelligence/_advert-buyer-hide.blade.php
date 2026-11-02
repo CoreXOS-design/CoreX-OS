@@ -34,6 +34,8 @@
             bump(delta, hiddenCount) {
                 var el = document.querySelector('[data-qa="buyer-banner-count"]');
                 if (el) { el.innerHTML = el.innerHTML.replace(/^\s*[0-9,]+/, function (n) { return Math.max(0, parseInt(n.replace(/[^0-9]/g, ''), 10) + delta).toLocaleString('en-US'); }); }
+                var tab = document.querySelector('[data-qa="buyer-wishlist-tab"][data-active="1"]');
+                if (tab) { tab.textContent = tab.textContent.replace(/\(([0-9,]+)\)\s*$/, function (m, n) { return '(' + Math.max(0, parseInt(n.replace(/[^0-9]/g, ''), 10) + delta).toLocaleString('en-US') + ')'; }); }
                 var link = document.querySelector('[data-qa="buyer-hidden-link"]');
                 if (link && hiddenCount !== undefined) {
                     var n = link.querySelector('[data-n]'); if (n) { n.textContent = hiddenCount; }

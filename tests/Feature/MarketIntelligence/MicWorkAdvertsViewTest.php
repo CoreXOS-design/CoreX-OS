@@ -335,8 +335,9 @@ final class MicWorkAdvertsViewTest extends TestCase
     {
         $this->advert('P24-150100060', 1_100_000, ['tracked_property_id' => $this->file('P24-150100060')], ['description_snippet' => 'A lovely family home close to the beach with a big garden.']);
         $h = $this->page(['view' => 'adverts']);
+        $markup = preg_replace('/<style\b.*?<\/style>/s', '', $h);   // the card's stylesheet names the grid's parts; the MARKUP must not
         foreach (['fit-line', 'fit-chips', 'fit-badge', 'line-fit', 'fit-tick-price', 'fit-tick-type', 'fit-tick-suburb', 'fit-pill', 'mi-advert-body mi-advert-body-fit', 'mi-advert-right mi-advert-right-fit'] as $k) {
-            $this->assertStringNotContainsString($k, $h, $k);
+            $this->assertStringNotContainsString($k, $markup, $k);
         }
         $this->assertStringContainsString('class="mi-clamp" style="--mi-lines: 4;"', $h, 'the description keeps its four lines, as plain CSS (no Alpine needed)');
     }
