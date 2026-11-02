@@ -74,6 +74,7 @@ function defaultCaptureState() {
     apiUrl:           null,
     apiToken:         null,
     tabId:            null,
+    runId:            null,  // 3.16.1: made by the popup that started the run; the popup only believes a status that carries its own id (run-status.js)
     authError:        false, // set when CoreX rejected our token — capture paused, not "offline"
     // MIC capture (3.13.0) — one id per run, so the server can tell which adverts one crawl saw.
     sessionId:        null,
@@ -136,7 +137,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.action === 'resumeCapture') {
-    resumeCapture(msg.apiUrl, msg.apiToken)
+    resumeCapture(msg.apiUrl, msg.apiToken, msg.runId || null)
       .then(() => sendResponse({ ok: true }))
       .catch(err => sendResponse({ error: err.message }));
     return true;
@@ -261,6 +262,9 @@ function getCaptureStatus() {
     active:           capture.active,
     cancelled:        capture.cancelled,
     complete:         capture.complete,
+    runId:            capture.runId,
+    tabId:            capture.tabId,
+    portal:           capture.portal,
     currentPage:      capture.currentPage,
     totalPages:       capture.totalPages,
     capturedListings: capture.capturedListings,
@@ -827,6 +831,7 @@ async function startCapture(msg) {
   capture.apiUrl      = msg.apiUrl;
   capture.apiToken    = msg.apiToken;
   capture.tabId       = msg.tabId;
+  capture.runId       = msg.runId || null;
   capture.startTime   = Date.now();
   capture.sessionId   = (self.crypto && self.crypto.randomUUID) ? self.crypto.randomUUID() : null;
   capture.startedAtIso = new Date().toISOString();
@@ -845,7 +850,7 @@ async function startCapture(msg) {
   await runCaptureLoop(1);
 }
 
-async function resumeCapture(apiUrl, apiToken) {
+async function resumeCapture(apiUrl, apiToken, runId) {
   const saved = await getIncompleteCapture();
   if (!saved) throw new Error('No incomplete capture found');
 
@@ -865,6 +870,7 @@ async function resumeCapture(apiUrl, apiToken) {
   capture.parseWarnings    = saved.parseWarnings;
   capture.apiUrl           = apiUrl;
   capture.apiToken         = apiToken;
+  capture.runId            = runId || null;
   capture.startTime        = Date.now();
   capture.sessionId        = saved.sessionId || ((self.crypto && self.crypto.randomUUID) ? self.crypto.randomUUID() : null);
   capture.startedAtIso     = saved.startedAtIso || new Date().toISOString();

@@ -26,7 +26,7 @@ function boot(o) {
   const updated = [];
   let nextTab = 100;
   const chrome = {
-    runtime: { lastError: undefined, onMessage: { addListener: (fn) => { onMessage = fn; } }, onInstalled: { addListener() {} }, onStartup: { addListener() {} }, sendMessage() {}, getManifest: () => ({ version: '3.16.0' }) },
+    runtime: { lastError: undefined, onMessage: { addListener: (fn) => { onMessage = fn; } }, onInstalled: { addListener() {} }, onStartup: { addListener() {} }, sendMessage() {}, getManifest: () => ({ version: '3.16.1' }) },
     tabs: {
       onUpdated: { addListener: (fn) => updated.push(fn), removeListener: (fn) => { const i = updated.indexOf(fn); if (i >= 0) updated.splice(i, 1); } },
       onRemoved: { addListener() {} },
@@ -119,7 +119,7 @@ function boot(o) {
     const src = fs.readFileSync(path.join(EXT, 'content-corex-bridge.js'), 'utf8');
     assert.ok(/ev\.source !== window \|\| ev\.origin !== window\.location\.origin/.test(src));
     const m = JSON.parse(fs.readFileSync(path.join(EXT, 'manifest.json'), 'utf8'));
-    assert.strictEqual(m.version, '3.16.0');
+    assert.strictEqual(m.version, '3.16.1');
     const cs = m.content_scripts.find((c) => c.js.includes('content-corex-bridge.js'));
     assert.ok(cs && cs.matches.every((x) => /corexos\.co\.za\/\*$/.test(x)));
   });
