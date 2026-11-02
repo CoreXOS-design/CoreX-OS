@@ -72,6 +72,22 @@ if ! grep -q "corex_qa1\|qatesting1" .env 2>/dev/null; then
     echo "ABORT: .env does not look like qa1 (no corex_qa1/qatesting1) — refusing."; exit 1
 fi
 
+# ── Back up .env before anything else (2026-11-02) ───────────────────────────
+# On 2 Nov 05:47 a lane's setup script overwrote /corex-qa1/.env with the blank template and the only backup on the box
+# was seven weeks old. Copy it now, mode 600, and keep the last 20 deploy copies (hand-made qa1-env-* files in the folder
+# are never touched). Only a .env that really names the QA1 database is copied, so a bad file can never rotate good copies out.
+ENV_BACKUP_DIR="/root/credential-backups"
+ENV_BACKUP="$ENV_BACKUP_DIR/qa1-env-deploy-$(date +%Y%m%d-%H%M%S).env"
+if grep -q "^DB_DATABASE=corex_qa1" .env; then
+    if ! { mkdir -p "$ENV_BACKUP_DIR" && install -m 600 .env "$ENV_BACKUP"; }; then
+        echo "ABORT: could not back up .env to $ENV_BACKUP — refusing to deploy without a copy." >&2; exit 1
+    fi
+    ls -1t "$ENV_BACKUP_DIR"/qa1-env-deploy-*.env 2>/dev/null | tail -n +21 | xargs -r rm -f --
+    echo "-- .env backed up → $ENV_BACKUP --"
+else
+    echo "WARNING: .env does not set DB_DATABASE=corex_qa1 — NOT backed up (so it cannot replace a good copy). Check it." >&2
+fi
+
 echo "== qa-deploy: $(pwd) → origin/$BRANCH =="
 OLDHEAD="$(git rev-parse HEAD)"
 
