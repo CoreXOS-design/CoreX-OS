@@ -125,4 +125,36 @@ final class PitchPopupCardTest extends TestCase
             $this->assertMatchesRegularExpression('/data-pitch-popup data-start="owner" data-listing="' . $a->id . '"/', $h, 'MIC Pitch now opens the popup at Owner');
         }
     }
+
+    public function test_full_card_inside_the_popup_unfolds_the_ad_itself_not_a_second_compact_card(): void
+    {
+        $a = $this->advert('P24-170000009', 9, [
+            'description' => "A sunny family home two streets from the beach.\n\nThe kitchen opens onto a covered patio.",
+            'photo_urls' => ['https://img.example/1.jpg', 'https://img.example/2.jpg', 'https://img.example/3.jpg'],
+        ]);
+
+        // the card page has exactly one "Full card" toggle
+        $page = $this->card(['_pitch_card' => $a->id, 'embed' => 1])->assertOk()->getContent();
+        $this->assertSame(1, substr_count($page, 'data-qa="card-toggle"'));
+
+        // what the toggle fetches: the popup's own URL plus _card=<file>, as an XHR
+        $url = route('market-intelligence.work', ['_pitch_card' => $a->id, 'embed' => 1, '_card' => $a->tracked_property_id]);
+        $h = $this->actingAs($this->admin)->get($url, ['X-Requested-With' => 'XMLHttpRequest'])->assertOk()->getContent();
+        $this->assertStringContainsString('data-qa="full-ad"', $h, 'the full advert');
+        $this->assertStringContainsString('A sunny family home two streets from the beach.', $h);
+        $this->assertStringContainsString('The kitchen opens onto a covered patio.', $h);
+        $this->assertStringContainsString('data-qa="full-ad-gallery"', $h);
+        $this->assertStringContainsString('1 of 3', $h, 'every photo');
+        $this->assertSame(0, substr_count($h, 'data-qa="card-toggle"'), 'no second Full card toggle');
+        $this->assertSame(0, substr_count($h, 'data-qa="advert-card"'), 'not a second compact card');
+
+        // the Show full ad window, opened from the same popup, still gets its two halves
+        $j = $this->actingAs($this->admin)->get($url . '&_ad=1', ['X-Requested-With' => 'XMLHttpRequest', 'Accept' => 'application/json'])->assertOk()->json();
+        $this->assertStringContainsString('data-qa="full-ad"', $j['left']);
+        $this->assertNotSame('', $j['right']);
+
+        // outside the popup the list's Full card is unchanged: the record card
+        $list = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'adverts', 'clear' => 1, '_card' => $a->tracked_property_id]), ['X-Requested-With' => 'XMLHttpRequest'])->assertOk()->getContent();
+        $this->assertStringNotContainsString('data-qa="full-ad"', $list);
+    }
 }

@@ -95,10 +95,15 @@ class MarketIntelligenceController extends Controller
         // list's own pipeline for that one advert, so the card is the card MIC shows, but with the saved filters, the canvass-pool rules and the pitch
         // lock out of the way (the property is the one the agent is working) and with nothing remembered about the viewer's filters.
         $pitchCardId = null;
+        $pitchFullAd = false;
         if ($request->hasAny(['_pitch_card', '_pitch_property', '_pitch_tracked'])) {
             $pitchCardId = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->listingId($request, (int) $agencyId);
             abort_if($pitchCardId === null, 404);
-            $request->query->replace(['view' => 'adverts', 'clear' => '1', 'is_active' => 'all', '_fragments' => '1', 'embed' => '1'] + ($request->boolean('peek') ? ['peek' => '1'] : []));
+            // The card's own helper fetches (Full card, Show full ad) are sent from the popup's URL, so they carry _pitch_card too: they keep their _card / _ad
+            // (the list's query would otherwise be rebuilt without them and they would get the compact card back instead of the full advert)
+            $pitchHelper = $request->ajax() && $request->filled('_card') ? array_filter(['_card' => $request->query('_card'), '_ad' => $request->query('_ad')], fn ($v) => $v !== null) : [];
+            $request->query->replace(['view' => 'adverts', 'clear' => '1', 'is_active' => 'all', '_fragments' => '1', 'embed' => '1'] + ($request->boolean('peek') ? ['peek' => '1'] : []) + $pitchHelper);
+            $pitchFullAd = $pitchHelper !== [] && ! isset($pitchHelper['_ad']);
         }
 
         // Tick refresh (cc6): an AJAX filter toggle requests ?_fragments=1 and is
@@ -705,6 +710,11 @@ class MarketIntelligenceController extends Controller
                     'left' => view('corex.market-intelligence.partials._full-ad', ['r' => $rec])->render(),
                     'right' => view('corex.market-intelligence.partials._full-ad-ours', ['r' => $rec])->render(),
                 ]);
+            }
+
+            // inside the pitch popup "Full card" unfolds the ad itself (description, features, every photo), the same partial as MIC's Show full ad
+            if ($pitchFullAd) {
+                return response('<div data-qa="pitch-full-ad" style="padding: 12px 14px;">' . view('corex.market-intelligence.partials._full-ad', ['r' => $rec])->render() . '</div>');
             }
 
             return response(view('corex.market-intelligence.partials._work-record-card', ['r' => $rec])->render());
