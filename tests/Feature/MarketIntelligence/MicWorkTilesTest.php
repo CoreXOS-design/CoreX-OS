@@ -50,11 +50,14 @@ final class MicWorkTilesTest extends TestCase
         $tile = collect(MicWorkTiles::fromContainer()->row($this->agency->id, $this->admin))->firstWhere('number', 1);
         $this->assertSame('stuck', $tile['key'], 'the internal key (tile=stuck in URLs) stays');
         $this->assertSame('Long on market', $tile['short']);
-        $this->assertSame('90+ days', $tile['threshold']);
-        $this->assertSame('Long on market (90+ days)', $tile['title']);
-        $this->assertSame('Long on market (90+ days)', MicWorkTiles::titleFor(1, $this->agency->id));
+        $this->assertSame('+90 DOM', $tile['threshold']);
+        $this->assertSame('Long on market (+90 DOM)', $tile['title']);
+        $this->assertSame('Long on market (+90 DOM)', MicWorkTiles::titleFor(1, $this->agency->id));
+        \App\Models\MicAgencySetting::saveValues($this->agency->id, ['stuck_dom_days' => 30]);
+        $this->assertSame('+30 DOM', MicWorkTiles::longOnMarketLabel($this->agency->id), 'the agency\'s own days setting');
+        \App\Models\MicAgencySetting::saveValues($this->agency->id, ['stuck_dom_days' => 90]);
         $this->assertSame('Owner selling privately', MicWorkTiles::titleFor(2, $this->agency->id), 'only tile 1 carries a window');
-        $this->actingAs($this->admin)->get(route('market-intelligence.work', ['tile' => 'stuck']))->assertOk()->assertSee('Tile · Long on market', false)->assertDontSee('Tile · Stuck', false);
+        $this->actingAs($this->admin)->get(route('market-intelligence.work', ['tile' => 'stuck']))->assertOk()->assertSee('Tile · +90 DOM', false)->assertDontSee('Tile · Stuck', false);
         $this->assertStringContainsString('data-qa="tile-threshold"', file_get_contents(resource_path('views/corex/market-intelligence/partials/_work-tiles.blade.php')));
     }
 

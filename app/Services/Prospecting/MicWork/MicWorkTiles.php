@@ -99,13 +99,21 @@ final class MicWorkTiles
         return null;
     }
 
-    /** "90+ days": the agency's long-on-market window (MIC Settings, default 90). */
+    /** "+90 DOM": the agency's long-on-market window in days on market (MIC Settings, default 90; 30 reads "+30 DOM"). */
     public static function longOnMarketLabel(int $agencyId): string
     {
-        return class_exists(self::CC5_SETTINGS) ? app(self::CC5_SETTINGS)::for($agencyId)->stuckDomDays() . '+ days' : '';
+        return class_exists(self::CC5_SETTINGS) ? '+' . app(self::CC5_SETTINGS)::for($agencyId)->stuckDomDays() . ' DOM' : '';
     }
 
-    /** The tile's full name for a heading: "Long on market (90+ days)" for tile 1, the plain title otherwise. */
+    /** What the filter chip says for a tile ("Tile · +90 DOM" for tile 1; the short label for the rest). */
+    public static function chipLabel(string $key, int $agencyId): string
+    {
+        $n = self::numberForKey($key);
+
+        return $n === null ? $key : ($n === 1 && ($l = self::longOnMarketLabel($agencyId)) !== '' ? $l : self::TILES[$n][3]);
+    }
+
+    /** The tile's full name for a heading: "Long on market (+90 DOM)" for tile 1, the plain title otherwise. */
     public static function titleFor(int $number, int $agencyId): string
     {
         $title = self::TILES[$number][1];
@@ -184,7 +192,7 @@ final class MicWorkTiles
 
         foreach ($out as &$t) {
             if ($t['key'] === 'stuck') {
-                // the agency's own long-on-market window ("90+ days"): under the name on the tile, and in the title everywhere the tile is named
+                // the agency's own long-on-market window ("+90 DOM"): under the name on the tile, and in the title everywhere the tile is named
                 $t['threshold'] = self::longOnMarketLabel($agencyId);
                 $t['title'] .= ' (' . $t['threshold'] . ')';
             }
