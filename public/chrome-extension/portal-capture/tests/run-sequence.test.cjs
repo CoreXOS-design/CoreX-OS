@@ -36,7 +36,7 @@ function boot() {
   let pageCounter = 0;
   const TAB = 7;
   const chrome = {
-    runtime: { lastError: undefined, onMessage: { addListener: (fn) => { onMessage = fn; } }, onInstalled: { addListener() {} }, onStartup: { addListener() {} }, sendMessage() {}, getManifest: () => ({ version: '3.16.1' }) },
+    runtime: { lastError: undefined, onMessage: { addListener: (fn) => { onMessage = fn; } }, onInstalled: { addListener() {} }, onStartup: { addListener() {} }, sendMessage() {}, getManifest: () => ({ version: '3.16.2' }) },
     tabs: {
       onUpdated: { addListener: (fn) => updated.push(fn), removeListener: (fn) => { const i = updated.indexOf(fn); if (i >= 0) updated.splice(i, 1); } },
       onRemoved: { addListener() {} },

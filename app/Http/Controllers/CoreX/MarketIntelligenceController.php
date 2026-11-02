@@ -1148,6 +1148,13 @@ class MarketIntelligenceController extends Controller
         if ($buyerBanner !== null) {
             $buyerBanner['wishlists'] = $this->buyerWishlistsOut; // 13.20: [{id, label, primary, selected, count}] for the selector
         }
+        // 13.14 addendum look check: until cc1 supplies $buyerBanner['wishlists'], ?wl_stub=1 builds the tabs from the buyer's real wishlists with made-up counts (not production); removed when the real data lands
+        if ($buyerBanner && empty($buyerBanner['wishlists']) && $request->boolean('wl_stub') && ! app()->environment('production')) {
+            $banner = app(\App\Services\Prospecting\MicWork\MicBuyerBanner::class);
+            $buyerBanner['wishlists'] = \App\Models\ContactMatch::withoutGlobalScopes()->where('agency_id', $agencyId)->where('contact_id', $selectedBuyer->id)->whereNull('deleted_at')
+                ->where('status', \App\Models\ContactMatch::STATUS_ACTIVE)->get()->filter(fn ($m) => $m->isCountable())->sortByDesc(fn ($m) => ($m->is_primary ? 10_000_000_000 : 0) + ($m->created_at?->timestamp ?? 0))->values()
+                ->map(fn ($m, $i) => ['id' => (int) $m->id, 'label' => implode(' · ', array_slice(array_map(fn ($c) => ucfirst(mb_strtolower($c[0])), $banner->chips($m)), 0, 3)), 'count' => [657, 1051, 64, 12][$i % 4], 'primary' => (bool) $m->is_primary])->all();
+        }
 
         // AT-239 region model (Johan-final) — the filter's value is the canonical
         // MDB municipality (towns.region); its LABEL is the agency alias where set
