@@ -193,7 +193,8 @@ final class MicWorkFilterBarTest extends TestCase
         $label = substr($tiles, (int) strpos($tiles, 'data-qa="tile-label"'), 420);
         $this->assertStringNotContainsString('white-space: nowrap', $label, 'a tile label may take two lines');
         $this->assertStringContainsString("'hubCompact' => true", file_get_contents(resource_path('views/corex/market-intelligence/partials/tabs.blade.php')));
-        $this->assertStringContainsString("(\$hubCompact ?? false) ? '10px 10px' : '10px 16px'", file_get_contents(resource_path('views/corex/partials/_hub-tabs.blade.php')), 'other hubs keep their spacing');
+        $this->assertStringContainsString("(\$hubCompact ?? false) ? '10px 8px' : '10px 16px'", file_get_contents(resource_path('views/corex/partials/_hub-tabs.blade.php')), 'other hubs keep their spacing');
+        $this->assertStringContainsString("flex-wrap: wrap;' : 'overflow-x: auto;", file_get_contents(resource_path('views/corex/partials/_hub-tabs.blade.php')), 'compact tabs wrap instead of hiding behind a scroll; other hubs still scroll');
         $this->assertStringContainsString('placeholder="Search…"', file_get_contents(resource_path('views/corex/market-intelligence/_filter-bar.blade.php')));
     }
 

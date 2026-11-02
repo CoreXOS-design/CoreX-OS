@@ -12,14 +12,14 @@
     $hubTabs = $hub::forUser(auth()->user());
     $hubActive = $hubActiveTab ?? $hub::activeKey();
     $hubAlpine = $hubAlpineTabs ?? [];
-    // $hubCompact: a hub with many tabs (Market intelligence has 14) tightens the padding and type so the whole bar fits a 1366 screen; every other hub keeps its spacing.
-    $hubPad = ($hubCompact ?? false) ? '10px 10px' : '10px 16px';
-    $hubFs = ($hubCompact ?? false) ? '0.8125rem' : '0.875rem';
+    // $hubCompact: a hub with many tabs (Market intelligence has 14) tightens the padding and type so the whole bar fits a 1366 screen on one row, and wraps onto a second row (never scrolls out of sight) when a user has more tabs than fit; every other hub keeps its spacing.
+    $hubPad = ($hubCompact ?? false) ? '10px 8px' : '10px 16px';
+    $hubFs = ($hubCompact ?? false) ? '0.8rem' : '0.875rem';
 @endphp
 @if($hubActive !== null && count($hubTabs) > 0)
 <nav class="corex-hub-tabs" data-hub-tabs aria-label="{{ $hub::label() }}"
      style="display: flex; align-items: center; border-bottom: 1px solid var(--border, rgba(0,0,0,0.07)); margin-bottom: {{ ($hubFlush ?? false) ? '0' : '16px' }}; padding: 0 4px; flex-shrink: 0;">
-    <div style="display: flex; gap: 2px; overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; scrollbar-width: thin;">
+    <div style="display: flex; gap: 2px; max-width: 100%; {{ ($hubCompact ?? false) ? 'flex-wrap: wrap;' : 'overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: thin;' }}">
         @foreach($hubTabs as $hubKey => $hubTab)
             @php
                 $hubBase = 'padding: ' . $hubPad . '; text-decoration: none; font-size: ' . $hubFs . '; font-weight: 500; white-space: nowrap; border-bottom: 2px solid transparent; color: var(--text-muted, #9ca3af); border-top-left-radius: 4px; border-top-right-radius: 4px; display: inline-flex; align-items: center; gap: 6px;';
