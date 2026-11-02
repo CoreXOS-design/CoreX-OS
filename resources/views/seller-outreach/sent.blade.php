@@ -109,11 +109,14 @@
         </div>
 
         <div class="mt-6 flex items-center justify-center gap-3 flex-wrap">
+            {{-- in the pitch popup (road-to-sold.md 23.23) the page's own Done bar is the way out --}}
+            @unless(\App\Support\Embed::on())
             <a href="{{ route('corex.contacts.show', $contact) }}"
                class="px-4 py-2 text-sm font-semibold rounded"
                style="background: #00d4aa; color: #003a2f;">
                 Back to contact
             </a>
+            @endunless
             <a href="{{ route('seller-outreach.composer.show', $contact) }}"
                class="px-4 py-2 text-sm rounded"
                style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);">

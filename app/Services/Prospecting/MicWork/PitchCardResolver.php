@@ -59,7 +59,7 @@ final class PitchCardResolver
         $agencyId = (int) (auth()->user()?->effectiveAgencyId() ?: 0);
         $id = $agencyId > 0 ? $this->forIds($agencyId, $listingId, $propertyId, $trackedId) : null;
 
-        return $id ? 'data-pitch-peek data-listing="' . $id . '" role="button" tabindex="0" style="cursor:pointer;" title="Show me this property"' : '';
+        return $id ? 'data-pitch-peek data-listing="' . $id . '" role="button" tabindex="0" aria-expanded="false" style="cursor:pointer;" title="Show me this property"' : '';
     }
 
     /** @param iterable<int|string> $trackedIds @return array<int,true> the tracked properties (of this agency) that have an advert to show, by id; one query */

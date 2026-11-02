@@ -4,9 +4,10 @@
  *
  *   <a href="..." data-pitch-popup data-listing="123">Pitch now</a>       opens at the property card, Next goes to href
  *   <a href="..." data-pitch-popup data-start="owner">Find the owner</a>   opens straight at the href (no advert to show)
- *   <a href="#" data-pitch-peek data-listing="123|data-property=|data-tracked=">  the header: shows the card in a window over the screen
+ *   <div data-pitch-peek data-listing="123">  the header: unfolds the card under itself, in place
  *
  * The step is always read from the screen being shown (never stored). Done / Close return to the page, which is refreshed in place.
+ * The header block ([data-pitch-peek]) is not a popup: it unfolds the card under itself (an expander) and folds again on a second click.
  */
 (function () {
     'use strict';
@@ -50,8 +51,7 @@
         '.cxp-step[data-click="1"]:hover{border-color:var(--brand-button,#0ea5e9)}' +
         '.cxp-frame{flex:1;width:100%;border:0;background:var(--bg,#f8fafc)}' +
         '.cxp-btn{padding:5px 14px;border-radius:6px;font-size:.8125rem;font-weight:700;cursor:pointer;border:1px solid var(--border,#cbd5e1);background:var(--surface,#fff);color:var(--text-primary,#0f172a)}' +
-        '.cxp-btn.cxp-primary{background:var(--brand-button,#0ea5e9);border-color:var(--brand-button,#0ea5e9);color:#fff}' +
-        '.cxp-peek{max-width:72rem;height:90vh}';
+        '.cxp-btn.cxp-primary{background:var(--brand-button,#0ea5e9);border-color:var(--brand-button,#0ea5e9);color:#fff}';
     document.head.appendChild(css);
 
     function el(tag, attrs, kids) {
@@ -135,21 +135,30 @@
         window.dispatchEvent(new CustomEvent('corex-pitch-closed', { detail: { listing: p.o.listing || null, touched: p.touched || done === true } }));
     }
 
-    // ---- "What is this property?" ------------------------------------------------------------------------------------------------------------------
-    function peek(p) {
-        var url = cardUrl(p, true);
-        var closeBtn = el('button', { type: 'button', 'class': 'cxp-btn', text: 'Close', 'data-qa': 'peek-close' });
-        var frame = el('iframe', { 'class': 'cxp-frame', title: 'The property', src: url, 'data-qa': 'peek-frame' });
-        var win = el('div', { 'class': 'cxp-win cxp-peek' }, [el('div', { 'class': 'cxp-bar' }, [el('div', { 'class': 'cxp-title', text: 'What is this property?' }), closeBtn]), frame]);
-        var back = el('div', { 'class': 'cxp-back', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'The property', 'data-qa': 'peek-window', style: 'z-index:1100' }, [win]);
-        document.body.appendChild(back);
-        var opener = document.activeElement;
-        function shut() { document.removeEventListener('keydown', onKey, true); back.remove(); if (opener && opener.focus) { try { opener.focus(); } catch (e) { /* gone */ } } }
-        function onKey(e) { if (e.key === 'Escape') { e.stopPropagation(); shut(); } }
-        document.addEventListener('keydown', onKey, true);
-        closeBtn.addEventListener('click', shut);
-        back.addEventListener('click', function (e) { if (e.target === back) shut(); });
-        closeBtn.focus();
+    // ---- "What is this property?": the card unfolds under the header, in place; a second click folds it ---------------------------------------------------
+    function toggleCard(head) {
+        var open = head.nextElementSibling && head.nextElementSibling.hasAttribute('data-pitch-expander');
+        var hint = head.querySelector('[data-peek-hint]');
+        if (open) {
+            head.nextElementSibling.remove();
+            head.setAttribute('aria-expanded', 'false');
+            if (hint) hint.textContent = 'What is this property? \u25BE';
+            return;
+        }
+        var url = cardUrl({ listing: head.getAttribute('data-listing') }, true);
+        var frame = el('iframe', { title: 'The property', src: url, 'data-qa': 'peek-frame', style: 'display:block;width:100%;height:480px;border:0;background:transparent' });
+        var box = el('div', { 'data-pitch-expander': '', 'data-qa': 'peek-expander', style: 'margin-top:8px;border:1px solid var(--border,#cbd5e1);border-radius:6px;overflow:hidden;background:var(--bg,#f8fafc)' }, [frame]);
+        head.parentNode.insertBefore(box, head.nextSibling);
+        head.setAttribute('aria-expanded', 'true');
+        if (hint) hint.textContent = 'What is this property? \u25B4';
+        frame.addEventListener('load', function () {
+            try {
+                var d = frame.contentDocument, card = d.querySelector('[data-qa="pitch-card"]');
+                var fit = function () { frame.style.height = Math.max(480, Math.ceil((card ? card.getBoundingClientRect().height : 0) + 40)) + 'px'; };
+                fit();
+                if (window.ResizeObserver && card) new ResizeObserver(fit).observe(card);
+            } catch (e) { /* not same origin: keep the default height */ }
+        });
     }
 
     // ---- wiring ------------------------------------------------------------------------------------------------------------------------------------
@@ -160,7 +169,7 @@
         var pk = t.closest('[data-pitch-peek]');
         if (pk) {
             e.preventDefault();
-            peek({ listing: pk.getAttribute('data-listing'), property: pk.getAttribute('data-property'), tracked: pk.getAttribute('data-tracked') });
+            toggleCard(pk);
             return;
         }
         var a = t.closest('a[data-pitch-popup]');
@@ -198,5 +207,5 @@
             .catch(function () { window.location.reload(); });
     });
 
-    window.CorexPitch = { open: open, close: close, peek: peek, stepOf: stepOf, _state: function () { return pop ? { current: pop.current, touched: pop.touched } : null; } };
+    window.CorexPitch = { open: open, close: close, toggleCard: toggleCard, stepOf: stepOf, _state: function () { return pop ? { current: pop.current, touched: pop.touched } : null; } };
 })();

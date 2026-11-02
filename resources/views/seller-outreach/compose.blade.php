@@ -32,9 +32,11 @@
             <div class="flex flex-wrap items-center gap-2">
                 {{-- AT-121 — guided-tour "?" launcher (flat neutral header → surface variant). --}}
                 @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                @unless(\App\Support\Embed::on())
                 <a href="{{ route('corex.contacts.show', $contact) }}" class="corex-btn-outline text-xs no-underline">
                     ← Back to {{ trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')) ?: 'contact' }}
                 </a>
+                @endunless
             </div>
         </div>
     </div>
@@ -85,7 +87,7 @@
             <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-qa="listing-header" {!! $__peek !!}>
                 <div class="text-[10px] uppercase tracking-wider font-semibold mb-1 flex items-center justify-between" style="color: var(--text-muted);">
                     <span>Pitching about</span>
-                    @if($__peek !== '')<span style="color: var(--brand-icon, #0ea5e9); text-transform: none; letter-spacing: 0; font-size: .75rem;">What is this property? ›</span>@endif
+                    @if($__peek !== '')<span data-peek-hint style="color: var(--brand-icon, #0ea5e9); text-transform: none; letter-spacing: 0; font-size: .75rem;">What is this property? ▾</span>@endif
                 </div>
                 <div class="font-semibold text-sm" style="color: var(--text-primary);">
                     {{ $property->address ?: $property->title ?: ('Property #' . $property->id) }}{{ !empty($property->suburb) ? ', ' . $property->suburb : '' }}
