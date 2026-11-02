@@ -232,7 +232,11 @@
                 Filing to: <span class="font-medium">{{ $rentalApplicationContact->full_name }}</span>
             </div>
             <p class="text-xs mt-1" style="color: var(--text-muted);">
+                @if($rentalApplicationCoApplicant)
+                    Co-applicant on this application: <span class="font-medium">{{ $rentalApplicationCoApplicant->full_name }}</span>. Choose, page by page, whose contact record each page files to &mdash; by document type, no property involved.
+                @else
                 Every page below files to this applicant's contact record, by document type — no property involved.
+                @endif
             </p>
         </div>
     @else
@@ -523,8 +527,17 @@
                                     {{-- Contact assignment (many-to-many across roles) --}}
                                     <td data-tour="spr-assign-cell">
                                         @if($rentalApplicationContact)
+                                            @if($rentalApplicationCoApplicant)
+                                                {{-- AT-517 — a Co-applicant is linked: each page files to the Main applicant (default), the Co-applicant, or both. --}}
+                                                <select class="prop-input text-xs" :name="`applicant[${file.manifestId}][${pg.page}]`" data-qa="splitter-applicant-select">
+                                                    <option value="main">{{ $rentalApplicationContact->full_name }} (Main applicant)</option>
+                                                    <option value="co">{{ $rentalApplicationCoApplicant->full_name }} (Co-applicant)</option>
+                                                    <option value="both">Both applicants</option>
+                                                </select>
+                                            @else
                                             {{-- AT-392 — single fixed applicant, nothing to pick per page. --}}
                                             <span class="text-xs" style="color: var(--text-muted);">Files to {{ $rentalApplicationContact->full_name }}.</span>
+                                            @endif
                                         @else
                                         <template x-if="!property">
                                             <span class="text-xs" style="color: var(--text-muted);">Pick a property above to assign contacts.</span>

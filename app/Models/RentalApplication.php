@@ -218,6 +218,7 @@ class RentalApplication extends Model
      */
     public const SUBMISSION_FIELD_GROUP_EMPLOYED = [
         'employer_name', 'employer_position', 'employer_address', 'employer_tel', 'occupation_date',
+        'years_employed', 'pay_date',
     ];
 
     public const SUBMISSION_FIELD_GROUP_RENTING = [
@@ -225,7 +226,134 @@ class RentalApplication extends Model
         'current_rental_from', 'current_rental_to', 'current_rental_due_day',
     ];
 
-    public const SUBMISSION_FIELD_GROUP_MARRIED = ['spouse_name', 'spouse_id'];
+    public const SUBMISSION_FIELD_GROUP_MARRIED = ['spouse_name', 'spouse_id', 'marriage_regime'];
+
+    /**
+     * Fuller application (26 Oct 2026) - the four repeating blocks. Each is ONE JSON column on the row and ONE entry in
+     * the field registry (so an agency can hide, relabel, order or make it compulsory like any other field); normalised by
+     * normaliseBlocks() on every write path (public submit + autosave, agent edit) so a form's blank rows never reach storage.
+     */
+    public const BLOCK_KEYS = ['co_applicant', 'co_occupants', 'pets', 'affordability'];
+
+    public const JUDGMENT_ANSWERS = ['yes', 'no'];
+
+    /** Plain wording for "how married" - the list is the common South African choices; stored as the label. */
+    public const MARRIAGE_REGIMES = [
+        'In community of property',
+        'Out of community of property, with accrual',
+        'Out of community of property, without accrual',
+        'Customary marriage',
+        'Civil union',
+        'Not applicable',
+    ];
+
+    /**
+     * AT-517 - the Co-applicant block asks what the Main applicant is asked: key => [default label, kind]. The keys are the
+     * Main applicant's own field keys (the one exception, 'address', is the Main applicant's 'current_residential_address' -
+     * see CO_APPLICANT_MAIN_KEY), in the order of the Main applicant's own form sections. Everything that is a RULE - the
+     * label an agency gave it, whether it is shown, whether it is compulsory, its validation - is read from the Main
+     * applicant's definition of that same field (coApplicantFieldDefs(), coApplicantValidationRules()); this list only says
+     * which fields a Co-applicant has and how a value is cleaned and shown. The ORDER is the order the Main applicant's applicant form
+     * shows them in (personal, emergency contact, living situation, employment, "more about you", banking and vehicle).
+     *
+     * kinds: text, email, money, date, int, bool, long (multi-line text), yesno, regime (how married), marital (agency list),
+     * living (current living situation), employment (employment type).
+     */
+    public const CO_APPLICANT_FIELDS = [
+        // Personal details
+        'full_name' => ['Full name and surname', 'text'],
+        'id_number' => ['ID number', 'text'],
+        'marital_status' => ['Marital status', 'marital'],
+        'spouse_name' => ['Spouse full name', 'text'],
+        'spouse_id' => ['Spouse ID number', 'text'],
+        'citizenship' => ['Citizenship', 'text'],
+        'email' => ['Email address', 'email'],
+        'cell' => ['Cell number', 'text'],
+        'work_number' => ['Work number', 'text'],
+        'address' => ['Current residential address', 'long'],
+        // Emergency contact
+        'emergency_contact_name' => ['Emergency contact name', 'text'],
+        'emergency_contact_cell' => ['Emergency contact cell', 'text'],
+        'emergency_contact_work' => ['Emergency contact work number', 'text'],
+        // Current living situation
+        'current_living_situation' => ['Current living situation', 'living'],
+        'current_landlord_name' => ['Current landlord name', 'text'],
+        'current_landlord_tel' => ['Current landlord telephone', 'text'],
+        'current_rental_amount' => ['Current rental amount', 'money'],
+        'current_rental_due_day' => ['Rent due day of the month', 'int'],
+        'current_rental_from' => ['From', 'date'],
+        'current_rental_to' => ['To', 'date'],
+        'current_rental_still_living' => ['Still living here', 'bool'],
+        'current_living_situation_notes' => ['Current living situation notes', 'long'],
+        // Employment
+        'employment_type' => ['Employment type', 'employment'],
+        'employer_name' => ['Employer name', 'text'],
+        'employer_position' => ['Employer position', 'text'],
+        'employer_tel' => ['Employer telephone', 'text'],
+        'monthly_salary' => ['Gross monthly income, before deductions', 'money'],
+        'employer_address' => ['Employer address', 'long'],
+        // More about you (the Main applicant's form shows these five, then the previous landlord)
+        'income_tax_no' => ['Income tax number', 'text'],
+        'marriage_regime' => ['How married', 'regime'],
+        'years_employed' => ['Years employed', 'text'],
+        'pay_date' => ['Pay day', 'text'],
+        'previous_landlord_name' => ['Previous landlord name', 'text'],
+        'previous_landlord_tel' => ['Previous landlord telephone', 'text'],
+        // Banking, judgments and vehicle
+        'bank_name' => ['Bank', 'text'],
+        'bank_account_no' => ['Bank account number', 'text'],
+        'judgments' => ['Any judgments against you?', 'yesno'],
+        'judgments_details' => ['If yes, please specify', 'long'],
+        'car_make' => ['Car make', 'text'],
+        'car_colour' => ['Car colour', 'text'],
+        'car_year' => ['Car year', 'text'],
+        'car_reg' => ['Car registration', 'text'],
+    ];
+
+    /** AT-517 - the Co-applicant key whose Main applicant field has a different key. Every other Co-applicant key IS the Main applicant's key. */
+    public const CO_APPLICANT_MAIN_KEY = ['address' => 'current_residential_address'];
+
+    /** AT-517 - the Co-applicant's own signatures, stored beside the Main applicant's (same table, same generation). */
+    public const CO_SIGNATURE_KINDS = ['co_declaration', 'co_tpn_consent'];
+
+    /** The wording of each employment type, as the applicant form prints it. */
+    public const EMPLOYMENT_TYPE_LABELS = [
+        'permanently_employed' => 'Permanently employed',
+        'business_owner_personal_account' => 'Business owner — personal account',
+        'business_owner_business_account' => 'Business owner — business account',
+    ];
+
+    /** AT-517 - one Co-applicant cell as people read it (screens and the printed application): codes become their wording, money and dates are dressed. */
+    public static function coApplicantDisplayValue(string $coKey, mixed $value): string
+    {
+        $value = is_scalar($value) ? trim((string) $value) : '';
+        if ($value === '') {
+            return '';
+        }
+
+        return match (self::CO_APPLICANT_FIELDS[$coKey][1] ?? 'text') {
+            'money' => 'R ' . number_format((float) $value, 2, '.', ' '),
+            'date' => ($d = \DateTime::createFromFormat('Y-m-d', $value)) ? $d->format('d/m/Y') : $value,
+            'bool' => 'Yes',
+            'yesno' => $value === 'yes' ? 'Yes' : ($value === 'no' ? 'No' : $value),
+            'living' => self::CURRENT_LIVING_SITUATION_LABELS[$value] ?? $value,
+            'employment' => self::EMPLOYMENT_TYPE_LABELS[$value] ?? $value,
+            default => $value,
+        };
+    }
+
+    public static function coMainKey(string $coKey): string
+    {
+        return self::CO_APPLICANT_MAIN_KEY[$coKey] ?? $coKey;
+    }
+
+    /** The tenant's own schedule: what comes in and what goes out each month (the review screen totals the same two groups). */
+    public const AFFORDABILITY_INCOME_LINES = ['Salary (after tax)', 'Other income'];
+
+    public const AFFORDABILITY_EXPENSE_LINES = [
+        'Bond / current rent', 'Groceries', 'Transport / fuel', 'Insurance', 'Cell phone / internet', 'School / childcare',
+        'Loans / credit cards', 'Other',
+    ];
 
     public const CURRENT_LIVING_SITUATION_LABELS = [
         'renting' => 'Currently renting',
@@ -427,7 +555,175 @@ class RentalApplication extends Model
             'special_conditions' => ['nullable', 'string', 'max:2000'],
             'adults' => ['nullable', 'integer', 'min:0', 'max:50'],
             'children' => ['nullable', 'integer', 'min:0', 'max:50'],
+            // Fuller application (26 Oct 2026).
+            'income_tax_no' => ['nullable', 'string', 'max:50'],
+            'marriage_regime' => ['nullable', 'string', 'max:80'],
+            'years_employed' => ['nullable', 'string', 'max:30'],
+            'pay_date' => ['nullable', 'string', 'max:40'],
+            'previous_landlord_name' => ['nullable', 'string', 'max:255'],
+            'previous_landlord_tel' => ['nullable', 'string', 'max:50'],
+            'bank_name' => ['nullable', 'string', 'max:100'],
+            'bank_account_no' => ['nullable', 'string', 'max:50'],
+            'judgments' => ['nullable', 'string', 'in:' . implode(',', self::JUDGMENT_ANSWERS)],
+            'judgments_details' => ['nullable', 'string', 'max:2000'],
+            'car_make' => ['nullable', 'string', 'max:100'],
+            'car_colour' => ['nullable', 'string', 'max:50'],
+            'car_year' => ['nullable', 'string', 'max:10'],
+            'car_reg' => ['nullable', 'string', 'max:30'],
+            // The four repeating blocks - top-level array rules only (no wildcard keys: the autosave path reads
+            // `$request->only(array_keys($rules))`); the SHAPE is checked by blockShapeRule() and cleaned by normaliseBlocks().
+            'co_applicant' => ['nullable', 'array', self::blockShapeRule('co_applicant')],
+            'co_occupants' => ['nullable', 'array', 'max:20', self::blockShapeRule('co_occupants')],
+            'pets' => ['nullable', 'array', 'max:20', self::blockShapeRule('pets')],
+            'affordability' => ['nullable', 'array', self::blockShapeRule('affordability')],
         ];
+    }
+
+    /**
+     * What a cleaned block looks like, and the one place a block's shape is judged - a value that is not a plain
+     * string (or a plain number for an affordability amount) is a malformed post, rejected rather than stored.
+     */
+    private static function blockShapeRule(string $block): \Closure
+    {
+        return function (string $attribute, mixed $value, \Closure $fail) use ($block): void {
+            if (! is_array($value)) {
+                return;
+            }
+            $cells = match ($block) {
+                'co_applicant' => [$value],
+                'co_occupants', 'pets' => $value,
+                default => array_merge((array) ($value['income'] ?? []), (array) ($value['expenses'] ?? [])),
+            };
+            foreach ($cells as $row) {
+                if (! is_array($row)) {
+                    $fail('That part of the form was not understood.');
+
+                    return;
+                }
+                foreach ($row as $cell) {
+                    if (! is_scalar($cell) && $cell !== null) {
+                        $fail('That part of the form was not understood.');
+
+                        return;
+                    }
+                }
+            }
+        };
+    }
+
+    /**
+     * Clean the four blocks in a payload that CARRIES them (an absent key is left alone - a partial autosave must not
+     * wipe anything): trim every cell, drop rows with nothing in them, cap lengths, keep only known keys, and turn a
+     * block with nothing left into null. Amounts accept "R 1 200,50" the way sanitizeNumericInput() does.
+     *
+     * @param array<string,mixed> $fields
+     * @return array<string,mixed>
+     */
+    public static function normaliseBlocks(array $fields): array
+    {
+        $clean = static fn ($v, int $max = 255): ?string => ! is_scalar($v) || ($t = trim((string) $v)) === '' ? null : mb_substr($t, 0, $max); // a nested/malformed cell is dropped, never stringified
+        $money = static function ($v): ?string {
+            if (! is_scalar($v)) {
+                return null;
+            }
+            $t = preg_replace('/[^0-9.,\-]/', '', (string) $v);
+            $t = str_replace(',', '.', (string) $t);
+            if ($t === '' || ! is_numeric($t)) {
+                return null;
+            }
+
+            return number_format(max(0.0, (float) $t), 2, '.', '');
+        };
+
+        if (array_key_exists('co_applicant', $fields)) {
+            $value = (array) $fields['co_applicant'];
+            $date = static function ($v) use ($clean): ?string {
+                $t = $clean($v, 10);
+
+                return $t !== null && preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $t, $m) && checkdate((int) $m[2], (int) $m[3], (int) $m[1]) ? $t : null;
+            };
+            $row = [];
+            foreach (self::CO_APPLICANT_FIELDS as $key => [, $kind]) {
+                $raw = $value[$key] ?? null;
+                $cell = match ($kind) {
+                    'money' => $money($raw),
+                    'date' => $date($raw),
+                    'int' => ($t = $clean($raw, 3)) !== null && ctype_digit($t) ? (string) (int) $t : null,
+                    'bool' => is_scalar($raw) && in_array(strtolower(trim((string) $raw)), ['1', 'yes', 'on', 'true'], true) ? '1' : null,
+                    'yesno' => in_array($t = $clean($raw), self::JUDGMENT_ANSWERS, true) ? $t : null,
+                    'living' => in_array($t = $clean($raw), self::CURRENT_LIVING_SITUATIONS, true) ? $t : null,
+                    'employment' => in_array($t = $clean($raw), self::EMPLOYMENT_TYPES, true) ? $t : null,
+                    'long' => $clean($raw, 2000),
+                    default => $clean($raw, 255),
+                };
+                if ($cell !== null) {
+                    $row[$key] = $cell;
+                }
+            }
+            // The same two rules the Main applicant's answers go through: landlord / rent answers only mean something while
+            // renting, and "still living here" has no end date.
+            if (isset($row['current_living_situation']) && $row['current_living_situation'] !== 'renting') {
+                foreach (self::SUBMISSION_FIELD_GROUP_RENTING as $rentKey) {
+                    unset($row[$rentKey]);
+                }
+                unset($row['current_rental_still_living']);
+            }
+            if (! empty($row['current_rental_still_living'])) {
+                unset($row['current_rental_to']);
+            }
+            $fields['co_applicant'] = $row === [] ? null : $row;
+        }
+
+        if (array_key_exists('co_occupants', $fields)) {
+            $rows = [];
+            foreach (array_values((array) $fields['co_occupants']) as $r) {
+                $r = (array) $r;
+                $row = array_filter(['name' => $clean($r['name'] ?? null), 'relationship' => $clean($r['relationship'] ?? null, 100), 'age' => $clean($r['age'] ?? null, 10)], fn ($v) => $v !== null);
+                if ($row !== []) {
+                    $rows[] = $row;
+                }
+            }
+            $fields['co_occupants'] = $rows === [] ? null : array_slice($rows, 0, 20);
+        }
+
+        if (array_key_exists('pets', $fields)) {
+            $rows = [];
+            foreach (array_values((array) $fields['pets']) as $r) {
+                $r = (array) $r;
+                $row = array_filter(['type' => $clean($r['type'] ?? null, 100), 'breed' => $clean($r['breed'] ?? null, 100), 'size' => $clean($r['size'] ?? null, 50)], fn ($v) => $v !== null);
+                if ($row !== []) {
+                    $rows[] = $row;
+                }
+            }
+            $fields['pets'] = $rows === [] ? null : array_slice($rows, 0, 20);
+        }
+
+        if (array_key_exists('affordability', $fields)) {
+            $out = [];
+            foreach (['income', 'expenses'] as $group) {
+                $lines = [];
+                foreach (array_values((array) (((array) $fields['affordability'])[$group] ?? [])) as $r) {
+                    $r = (array) $r;
+                    $label = $clean($r['label'] ?? null, 120);
+                    $amount = $money($r['amount'] ?? null);
+                    if ($label !== null && $amount !== null) {
+                        $lines[] = ['label' => $label, 'amount' => $amount];
+                    }
+                }
+                if ($lines !== []) {
+                    $out[$group] = array_slice($lines, 0, 30);
+                }
+            }
+            $fields['affordability'] = $out === [] ? null : $out;
+        }
+
+        return $fields;
+    }
+
+    /** Sum of one affordability group, as a float (0.0 when empty). */
+    public function affordabilityTotal(string $group): float
+    {
+        return (float) collect(($this->affordability ?? [])[$group] ?? [])->sum(fn ($l) => (float) ($l['amount'] ?? 0));
     }
 
     /**
@@ -530,6 +826,25 @@ class RentalApplication extends Model
             'special_conditions' => 'Special conditions',
             'adults' => 'Number of adults',
             'children' => 'Number of children',
+            // Fuller application (26 Oct 2026) - every label below is the wording printed on the form.
+            'income_tax_no' => 'Income tax number',
+            'marriage_regime' => 'How married',
+            'years_employed' => 'Years employed',
+            'pay_date' => 'Pay day',
+            'previous_landlord_name' => 'Previous landlord name',
+            'previous_landlord_tel' => 'Previous landlord telephone',
+            'bank_name' => 'Bank',
+            'bank_account_no' => 'Bank account number',
+            'judgments' => 'Any judgments against you?',
+            'judgments_details' => 'Judgments - please specify',
+            'car_make' => 'Car make',
+            'car_colour' => 'Car colour',
+            'car_year' => 'Car year',
+            'car_reg' => 'Car registration',
+            'co_applicant' => 'Co-applicant',
+            'co_occupants' => 'Other people who will live in the property',
+            'pets' => 'Pets',
+            'affordability' => 'Monthly income and expenses',
             'declaration_signature' => 'Declaration signature',
             'tpn_consent_signature' => self::creditBureauConsentLabel(
                 \App\Models\RentalApplicationQualifyingSetting::creditBureauNameFor($agencyId)
@@ -595,8 +910,13 @@ class RentalApplication extends Model
         ],
         'Employment' => [
             'employment_type', 'employer_name', 'employer_position', 'employer_tel',
-            'monthly_salary', 'employer_address',
+            'monthly_salary', 'employer_address', 'years_employed', 'pay_date',
         ],
+        'Rental history, banking and vehicle' => [
+            'previous_landlord_name', 'previous_landlord_tel', 'income_tax_no', 'marriage_regime', 'bank_name', 'bank_account_no',
+            'judgments', 'judgments_details', 'car_make', 'car_colour', 'car_year', 'car_reg',
+        ],
+        'Co-applicant, household and finances' => ['co_applicant', 'co_occupants', 'pets', 'affordability'],
         'Lease Requirement' => [
             'occupation_date', 'rental_term_months', 'adults', 'children', 'special_conditions',
         ],
@@ -769,7 +1089,7 @@ class RentalApplication extends Model
      * names so a failure reads "The Full name field is required." not "The
      * full_name field is required."
      */
-    public static function submissionValidationRules(array $requiredKeys, array $data, ?int $agencyId, ?int $applicationId = null): array
+    public static function submissionValidationRules(array $requiredKeys, array $data, ?int $agencyId, ?int $applicationId = null, bool $coApplicantLinked = false): array
     {
         $rules = self::fieldValidationRules();
         $attributes = [];
@@ -824,6 +1144,29 @@ class RentalApplication extends Model
             in_array('tpn_consent_signature', $requiredKeys, true) ? ['required', 'string'] : ['nullable', 'string'],
             [self::signatureWellFormedRule()],
         );
+
+        // AT-517 - a Co-applicant is captured (typed into the form, or chosen by the agent): their fields follow the Main
+        // applicant's own rules (coApplicantValidationRules), and the Co-applicant signs the SAME form - their own declaration
+        // and their own credit-check consent. The application cannot be submitted until BOTH have signed every signature the
+        // form shows, so the Main applicant's signatures become compulsory too while a Co-applicant is captured.
+        $coCaptured = $coApplicantLinked || ! empty($data['co_applicant']);
+        [$coRules, $coAttributes] = self::coApplicantValidationRules((array) ($data['co_applicant'] ?? []), $requiredKeys, $agencyId, $coCaptured);
+        $rules = array_merge($rules, $coRules);
+        $attributes = array_merge($attributes, $coAttributes);
+
+        $hiddenKeys = \App\Models\RentalApplicationQualifyingSetting::hiddenFieldKeysFor($agencyId);
+        foreach (['declaration_signature' => 'co_declaration_signature', 'tpn_consent_signature' => 'co_tpn_consent_signature'] as $mainSig => $coSig) {
+            $shown = ! in_array($mainSig, $hiddenKeys, true);
+            if ($coCaptured && $shown) {
+                $rules[$mainSig] = array_merge(['required', 'string'], [self::signatureWellFormedRule()]);
+            }
+            $rules[$coSig] = array_merge(
+                $coCaptured && $shown ? ['required', 'string'] : ['nullable', 'string'],
+                [self::signatureWellFormedRule()],
+            );
+        }
+        $attributes['co_declaration_signature'] = 'Co-applicant ' . mb_strtolower($attributes['declaration_signature'] ?? 'declaration signature');
+        $attributes['co_tpn_consent_signature'] = 'Co-applicant ' . mb_strtolower($attributes['tpn_consent_signature'] ?? 'credit check consent signature');
 
         // .ai/specs/rental-application-field-config.md §7, piece (c)(2) —
         // custom fields validate through this SAME method, never a second
@@ -975,6 +1318,97 @@ class RentalApplication extends Model
         return $hasInk;
     }
 
+    /**
+     * AT-517 - is a Co-applicant on this application: details typed into the form, or a contact chosen/linked by the agent.
+     */
+    public function hasCoApplicant(): bool
+    {
+        return ! empty($this->co_applicant) || ! empty($this->co_applicant_contact_id);
+    }
+
+    /**
+     * AT-517 - the Co-applicant's fields as the Main applicant's definitions describe them, for the screens that show them:
+     * coKey => [main (the Main applicant's key), label (the agency's own wording for that field), kind, shown, required,
+     * order, group]. ONE reading of the agency's settings (resolvedFieldConfigFor / the snapshot passed in) - a field the
+     * agency hid, renamed or made compulsory for the Main applicant is hidden, renamed or compulsory here too.
+     *
+     * @param array<string,array<string,mixed>> $fieldConfig  displayFieldConfig() / resolvedFieldConfigFor()
+     * @param array<int,string> $requiredKeys                 effective compulsory keys (empty where nothing is enforced)
+     * @return array<string,array<string,mixed>>
+     */
+    public static function coApplicantFieldDefs(array $fieldConfig, array $requiredKeys = []): array
+    {
+        $defs = [];
+        $i = 0;
+        foreach (self::CO_APPLICANT_FIELDS as $coKey => [$defaultLabel, $kind]) {
+            $main = self::coMainKey($coKey);
+            $cfg = $fieldConfig[$main] ?? null;
+            $defs[$coKey] = [
+                'main' => $main,
+                'label' => (string) ($cfg['label'] ?? $defaultLabel),
+                'kind' => $kind,
+                'shown' => (bool) ($cfg['shown'] ?? true),
+                'required' => in_array($main, $requiredKeys, true),
+                'order' => $cfg['order'] ?? $i,
+                'help_text' => $cfg['help_text'] ?? null,
+                'group' => self::submissionFieldGroupOf($main),
+            ];
+            $i++;
+        }
+
+        return $defs;
+    }
+
+    /**
+     * AT-517 - validation of the Co-applicant block on submit, built FROM the Main applicant's rules for the same field
+     * (fieldValidationRules) and compulsory settings - no second copy. Every Co-applicant cell always gets a format rule (so
+     * nothing is dropped from the validated data); a cell becomes compulsory only when a Co-applicant is captured, the agency
+     * made the Main applicant's field compulsory and visible, and the field's conditional group applies to THEIR answers
+     * (employer details only if permanently employed, landlord details only while renting, the end date only while not
+     * still living there).
+     *
+     * @param array<string,mixed> $co the posted Co-applicant block (already cleaned)
+     * @return array{0: array<string,array>, 1: array<string,string>} [rules keyed co_applicant.<key>, attribute names]
+     */
+    public static function coApplicantValidationRules(array $co, array $requiredKeys, ?int $agencyId, bool $captured): array
+    {
+        $mainRules = self::fieldValidationRules();
+        $hidden = \App\Models\RentalApplicationQualifyingSetting::hiddenFieldKeysFor($agencyId);
+        $config = self::resolvedFieldConfigFor($agencyId);
+        $rules = [];
+        $attributes = [];
+
+        foreach (self::CO_APPLICANT_FIELDS as $coKey => [$defaultLabel, $kind]) {
+            $main = self::coMainKey($coKey);
+            $path = 'co_applicant.' . $coKey;
+            $base = $mainRules[$main] ?? ['nullable', 'string', 'max:255'];
+            // A rule that points at a sibling field (the end date after the start date) points at the sibling in THIS block.
+            $base = array_map(
+                fn ($rule) => is_string($rule) && str_starts_with($rule, 'after_or_equal:') ? 'after_or_equal:co_applicant.' . substr($rule, 15) : $rule,
+                $base
+            );
+            $attributes[$path] = 'Co-applicant - ' . ($config[$main]['label'] ?? $defaultLabel);
+
+            if ($captured && in_array($main, $requiredKeys, true) && ! in_array($main, $hidden, true)) {
+                $applies = self::submissionGroupApplies(self::submissionFieldGroupOf($main), $co, $agencyId);
+                if ($main === 'current_rental_to' && ! empty($co['current_rental_still_living'])) {
+                    $applies = false;
+                }
+                $base = self::withRequiredIf($base, $applies);
+            }
+            $rules[$path] = $base;
+        }
+
+        // 'Email or cell number (at least one)' applies to the Co-applicant as it does to the Main applicant.
+        if ($captured && in_array('contact_method', $requiredKeys, true)) {
+            $anyContact = ! empty($co['email'] ?? null) || ! empty($co['cell'] ?? null);
+            $rules['co_applicant.email'] = self::withRequiredIf($rules['co_applicant.email'], ! $anyContact);
+            $rules['co_applicant.cell'] = self::withRequiredIf($rules['co_applicant.cell'], ! $anyContact);
+        }
+
+        return [$rules, $attributes];
+    }
+
     /** Swaps a base rule set's 'nullable' for a conditional 'required', preserving every other (format) rule unchanged. */
     private static function withRequiredIf(array $baseRules, bool $required): array
     {
@@ -985,7 +1419,7 @@ class RentalApplication extends Model
     }
 
     protected $fillable = [
-        'agency_id', 'branch_id', 'contact_id', 'property_id', 'created_by_user_id',
+        'agency_id', 'branch_id', 'contact_id', 'co_applicant_contact_id', 'property_id', 'created_by_user_id',
         'status', 'delivery_mode', 'token', 'token_expires_at', 'submitted_at', 'draft_saved_at', 'submitted_for_approval_at', 'approved_rental_amount',
         // Johan, 2026-09-22 (property 4283) — same shape as
         // approved_rental_amount, captured optionally alongside it in
@@ -993,7 +1427,7 @@ class RentalApplication extends Model
         // the tenant-link precedence chain (view-readonly.blade.php) falls
         // back to the property's own deposit_amount when this is absent.
         'approved_deposit_amount',
-        'current_generation', 'reopened_at', 'reopened_by_user_id', 'reopened_note',
+        'current_generation', 'reopened_at', 'reopened_by_user_id', 'reopened_note', 'correction_fields',
         // Submission identity gate, 2026-09-13 — safe to mass-assign despite
         // being internal-tracking columns: the public form's own fill($fields)
         // call sites (submit()/autosave()) only ever pass keys drawn from
@@ -1012,6 +1446,9 @@ class RentalApplication extends Model
         'employer_name', 'employer_position', 'employer_address', 'employer_tel',
         'monthly_salary', 'employment_type',
         'occupation_date', 'rental_terms', 'rental_term_months', 'special_conditions', 'adults', 'children',
+        'income_tax_no', 'marriage_regime', 'years_employed', 'pay_date', 'previous_landlord_name', 'previous_landlord_tel',
+        'bank_name', 'bank_account_no', 'judgments', 'judgments_details', 'car_make', 'car_colour', 'car_year', 'car_reg',
+        'co_applicant', 'co_occupants', 'pets', 'affordability',
         'field_config_snapshot', 'custom_field_values',
     ];
 
@@ -1041,6 +1478,11 @@ class RentalApplication extends Model
         'children' => 'integer',
         'field_config_snapshot' => 'array',
         'custom_field_values' => 'array',
+        'correction_fields' => 'array',
+        'co_applicant' => 'array',
+        'co_occupants' => 'array',
+        'pets' => 'array',
+        'affordability' => 'array',
     ];
 
     /**
@@ -1067,6 +1509,35 @@ class RentalApplication extends Model
     public function contact(): BelongsTo
     {
         return $this->belongsTo(Contact::class)->withTrashed()->withoutGlobalScope(\App\Models\Scopes\ContactScope::class);
+    }
+
+    /** AT-517 - the Co-applicant's contact (null when there is none or the applicant's own typed details are not yet linked). Same reasoning as contact(). */
+    public function coApplicantContact(): BelongsTo
+    {
+        return $this->belongsTo(Contact::class, 'co_applicant_contact_id')->withTrashed()->withoutGlobalScope(\App\Models\Scopes\ContactScope::class);
+    }
+
+    /**
+     * AT-517 - every contact this application is for: the Main applicant, then the Co-applicant when one is linked.
+     * Approve / decline / withdraw act on all of them together, never one at a time.
+     *
+     * @return array<int,int>
+     */
+    public function applicantContactIds(): array
+    {
+        return array_values(array_unique(array_filter([
+            (int) $this->contact_id,
+            (int) $this->co_applicant_contact_id,
+        ])));
+    }
+
+    /** AT-517 - applications where this contact is the Main applicant OR the Co-applicant. */
+    public function scopeForApplicantContact($query, int $contactId)
+    {
+        return $query->where(function ($q) use ($contactId) {
+            $q->where('rental_applications.contact_id', $contactId)
+                ->orWhere('rental_applications.co_applicant_contact_id', $contactId);
+        });
     }
 
     /** Same reasoning as contact() above. */
@@ -1173,6 +1644,27 @@ class RentalApplication extends Model
             ->withTimestamps();
     }
 
+    /** AT-516 - what an agent corrected on the live values after the applicant submitted, newest first. */
+    public function fieldChanges(): HasMany
+    {
+        return $this->hasMany(RentalApplicationFieldChange::class)->orderByDesc('created_at')->orderByDesc('id');
+    }
+
+    /** AT-516 - the human labels of the fields the agent asked the applicant to correct (empty when it was not a "Correct details" send-back). */
+    public function correctionFieldLabels(): array
+    {
+        $keys = (array) ($this->correction_fields ?? []);
+        if ($keys === []) {
+            return [];
+        }
+        $config = $this->displayFieldConfig();
+
+        return array_values(array_map(
+            fn ($key) => $config[$key]['label'] ?? \Illuminate\Support\Str::headline(str_replace('_', ' ', (string) $key)),
+            $keys,
+        ));
+    }
+
     /** AT-392 — the status change trail, newest first. */
     public function statusHistory(): HasMany
     {
@@ -1202,9 +1694,23 @@ class RentalApplication extends Model
         return $this->currentSignatures()->get()->firstWhere('kind', 'tpn_consent');
     }
 
+    /** AT-517 - the Co-applicant's own declaration / credit-check consent signatures (current generation only, like the Main applicant's). */
+    public function coDeclarationSignature(): ?RentalApplicationSignature
+    {
+        return $this->currentSignatures()->get()->firstWhere('kind', 'co_declaration');
+    }
+
+    public function coTpnConsentSignature(): ?RentalApplicationSignature
+    {
+        return $this->currentSignatures()->get()->firstWhere('kind', 'co_tpn_consent');
+    }
+
+    /** Both of the Main applicant's signatures, and - while a Co-applicant is on the application - both of theirs too. */
     public function isFullySigned(): bool
     {
-        return $this->currentSignatures()->whereIn('kind', ['declaration', 'tpn_consent'])->count() === 2;
+        $kinds = $this->hasCoApplicant() ? array_merge(['declaration', 'tpn_consent'], self::CO_SIGNATURE_KINDS) : ['declaration', 'tpn_consent'];
+
+        return $this->currentSignatures()->whereIn('kind', $kinds)->count() === count($kinds);
     }
 
     /**

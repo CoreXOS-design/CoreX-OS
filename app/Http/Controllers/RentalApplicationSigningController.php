@@ -548,6 +548,8 @@ class RentalApplicationSigningController extends Controller
         $application->submitted_for_approval_at = null;
         $application->applicant_notified_at = null;
         $application->submitted_at = now();
+        // AT-516 - the fields the agent asked to have corrected have now been answered; the "sent back to correct" marker ends.
+        $application->correction_fields = null;
         if ($isResubmit) {
             $application->current_generation = $application->current_generation + 1;
         }
@@ -866,6 +868,7 @@ class RentalApplicationSigningController extends Controller
         $rules = RentalApplication::fieldValidationRules();
         $input = $request->only(array_keys($rules));
         $input = array_merge($input, RentalApplication::sanitizeNumericInput($request->only(RentalApplication::NUMERIC_FIELDS)));
+        $input = RentalApplication::normaliseBlocks($input); // co-applicant / co-occupants / pets / affordability: blank rows never stored
 
         // .ai/specs/rental-application-field-config.md §7, piece (c)(2) —
         // custom fields autosave through this SAME endpoint, never a
@@ -959,6 +962,7 @@ class RentalApplicationSigningController extends Controller
         // number'." Strip thousand separators/spaces/R-prefix on every
         // numeric field before validation, same as the agent-side fix.
         $request->merge(RentalApplication::sanitizeNumericInput($request->only(RentalApplication::NUMERIC_FIELDS)));
+        $request->merge(RentalApplication::normaliseBlocks($request->only(RentalApplication::BLOCK_KEYS))); // blank rows out, so a ticked-compulsory block means real content
 
         // Same RA-02 fix, custom number-type fields — sanitizeNumericInput()
         // works on a flat array, so this runs against custom_field_values'
@@ -991,10 +995,14 @@ class RentalApplicationSigningController extends Controller
         // the server, invisible on the form, no way for the applicant to
         // ever pass it.
         $requiredKeys = \App\Models\RentalApplicationQualifyingSetting::effectiveRequiredFieldKeysFor($application->agency_id);
-        [$rules, $attributes] = RentalApplication::submissionValidationRules($requiredKeys, $request->all(), $application->agency_id, $application->id);
+        [$rules, $attributes] = RentalApplication::submissionValidationRules($requiredKeys, $request->all(), $application->agency_id, $application->id, ! empty($application->co_applicant_contact_id));
         $validated = $request->validate($rules, [], $attributes);
 
-        $fields = collect($validated)->except(['declaration_signature', 'tpn_consent_signature'])->all();
+        $fields = collect($validated)->except(['declaration_signature', 'tpn_consent_signature', 'co_declaration_signature', 'co_tpn_consent_signature'])->all();
+        // AT-517 - the Co-applicant block is cleaned once more after validation, so no null or empty cell is ever stored.
+        if (array_key_exists('co_applicant', $fields)) {
+            $fields['co_applicant'] = RentalApplication::normaliseBlocks(['co_applicant' => $fields['co_applicant']])['co_applicant'];
+        }
         // Optional-and-empty must never error (BUILD_STANDARD §2) — a blank
         // string is stored as NULL, never coerced into breaking a date/decimal cast.
         $fields = array_map(fn ($v) => $v === '' ? null : $v, $fields);
@@ -1070,6 +1078,12 @@ class RentalApplicationSigningController extends Controller
 
             $this->storeSignature($application, 'declaration', $validated['declaration_signature'] ?? null, $request);
             $this->storeSignature($application, 'tpn_consent', $validated['tpn_consent_signature'] ?? null, $request);
+            // AT-517 - the Co-applicant's own signatures, same generation, same table. A resubmit with no Co-applicant left
+            // stores none (the earlier generation's rows stay as the record of that round).
+            if ($application->hasCoApplicant()) {
+                $this->storeSignature($application, 'co_declaration', $validated['co_declaration_signature'] ?? null, $request);
+                $this->storeSignature($application, 'co_tpn_consent', $validated['co_tpn_consent_signature'] ?? null, $request);
+            }
 
             \App\Models\RentalApplicationGeneration::seal($application, $request);
 

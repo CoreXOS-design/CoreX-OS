@@ -352,6 +352,9 @@
                         @endif
                     @endif
                 </div>
+
+                {{-- AT-517 - Main applicant + Co-applicant: the linked Co-applicant, or the one the applicant typed (create + link). --}}
+                @include('corex.rental-applications.partials.co-applicant-strip', ['rentalApplication' => $rentalApplication, 'viewerRole' => $viewerRole, 'reviewLocked' => $reviewLocked ?? false])
             </div>
 
             <div class="flex items-center gap-2 flex-wrap md:justify-end flex-shrink-0" data-tour="rops-rv-actions">
@@ -850,6 +853,13 @@
                             ];
                         };
 
+                        // Fuller application (26 Oct 2026) - the new single facts; the blocks follow below the list.
+                        foreach (['income_tax_no', 'marriage_regime', 'years_employed', 'pay_date', 'previous_landlord_name', 'previous_landlord_tel',
+                                  'bank_name', 'bank_account_no', 'car_make', 'car_colour', 'car_year', 'car_reg'] as $extKey) {
+                            $addSummaryField($extKey, $rentalApplication->{$extKey}, null, true);
+                        }
+                        $addSummaryField('judgments', $rentalApplication->judgments, $rentalApplication->judgments ? ucfirst($rentalApplication->judgments) : null, true);
+                        $addSummaryField('judgments_details', $rentalApplication->judgments_details, null, true);
                         $addSummaryField('employer_name', $rentalApplication->employer_name);
                         $addSummaryField('employer_position', $rentalApplication->employer_position);
                         $addSummaryField('monthly_salary', $rentalApplication->monthly_salary,
@@ -905,6 +915,8 @@
                             <dt style="color: var(--text-muted);">{{ $row['label'] }}</dt><dd>{{ $row['display'] }}</dd>
                         @endforeach
                     </dl>
+                    @include('rental-applications.partials.extended-readout', ['application' => $rentalApplication])
+                    @include('rental-applications.partials.terms-panels', ['application' => $rentalApplication, 'mode' => 'agent'])
                     @php
                         // .ai/specs/rental-application-field-config.md §7,
                         // piece (c)(3) — custom field ANSWERS, sourced from
@@ -961,6 +973,8 @@
                     @endif
                 </div>
             </div>
+
+            @include('corex.rental-applications.partials.field-changes')
 
             {{-- Supporting Documents — shared markup for both roles now
                  (unified screen, 2026-09-09). Route names differ by role
@@ -1644,6 +1658,13 @@
                  for prose, and these are outcomes the agent needs to see
                  the moment the strip is visible, not buried behind a click. --}}
             @if($viewerRole === 'agent')
+                {{-- AT-516 - a "Correct details" send-back names the fields until the applicant resubmits. --}}
+                @if($rentalApplication->status === 'reopened' && ! empty($rentalApplication->correction_fields))
+                    <div class="rounded-md px-3 py-1.5 text-xs mb-2" style="background: var(--surface-2); color: var(--ds-amber); border: 1px solid var(--ds-amber);" data-qa="sent-back-to-correct">
+                        <strong>Sent back to correct:</strong>
+                        <span style="color: var(--text-primary);"> {{ implode(', ', $rentalApplication->correctionFieldLabels()) }}</span>
+                    </div>
+                @endif
                 @if($moreInfoRequestedNote)
                     <div class="rounded-md px-3 py-1.5 text-xs mb-2" style="background: var(--surface-2); color: var(--ds-amber); border: 1px solid var(--ds-amber);">
                         <strong>The authoriser sent this back for more information:</strong>
@@ -2202,6 +2223,37 @@
                                 </template>
                             </div>
                         </div>
+                    </template>
+                    {{-- AT-516 - reason "Correct details": tick the fields the applicant must correct. Their link reopens pre-filled with
+                         these highlighted and your note at the top. Only on a real reopen (the applicant's link is live again). --}}
+                    @php
+                        $correctionConfig = $rentalApplication->displayFieldConfig();
+                        $correctionGroups = collect(array_keys(\App\Models\RentalApplication::fieldValidationRules()))
+                            ->merge(collect($correctionConfig)->filter(fn ($c) => ($c['is_custom'] ?? false) && ($c['field_type'] ?? null) !== 'file')->keys())
+                            ->filter(fn ($key) => isset($correctionConfig[$key]))
+                            ->sortBy(fn ($key) => $correctionConfig[$key]['order'] ?? 999)
+                            ->groupBy(fn ($key) => $correctionConfig[$key]['section'] ?? 'Other');
+                    @endphp
+                    <template x-if="canReopenNow">
+                        <details class="mb-3" data-qa="correction-fields">
+                            <summary class="text-xs font-medium cursor-pointer" style="color: var(--text-secondary);">
+                                Ask them to correct specific details
+                                <span x-show="correctionFields.length" x-text="'(' + correctionFields.length + ' ticked)'"></span>
+                            </summary>
+                            <div class="mt-2 space-y-2 overflow-y-auto" style="max-height: 14rem;">
+                                @foreach($correctionGroups as $section => $keys)
+                                    <div>
+                                        <p class="text-[11px] font-semibold uppercase tracking-wide" style="color: var(--text-muted);">{{ $section }}</p>
+                                        @foreach($keys as $key)
+                                            <label class="flex items-center gap-2 text-xs cursor-pointer" style="color: var(--text-secondary);">
+                                                <input type="checkbox" value="{{ $key }}" x-model="correctionFields">
+                                                <span>{{ $correctionConfig[$key]['label'] }}</span>
+                                            </label>
+                                        @endforeach
+                                    </div>
+                                @endforeach
+                            </div>
+                        </details>
                     </template>
                     <textarea x-model="sendBackNote" rows="4" class="corex-input text-xs w-full mb-3" style="resize: none;"
                               placeholder="What do they need to fix or provide? e.g. ID number was typed incorrectly"></textarea>
@@ -3391,6 +3443,7 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
         // thing but didn't.
         sendBackModalOpen: false,
         sendBackNote: '',
+        correctionFields: [],
         sendBackSending: false,
         documentChecklist: (documentChecklist || []).map(d => ({ ...d, checked: false })),
         // AT-410 — "File as…" / "Change type" picker source, agency-
@@ -3440,7 +3493,7 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
                         'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
                         'Accept': 'application/json',
                     },
-                    body: JSON.stringify({ note }),
+                    body: JSON.stringify({ note, correction_fields: this.canReopenNow ? this.correctionFields : [] }),
                 });
                 const data = await res.json().catch(() => ({}));
                 if (res.ok && data.ok) {
@@ -3451,6 +3504,7 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
                     this.sendBackModalOpen = false;
                     this.sendBackNote = '';
                     this.documentChecklist.forEach(d => d.checked = false);
+                    this.correctionFields = [];
                     // AT-488 - everything is saved by now; the browser's "leave site?" prompt must not fire on this reload.
                     if (this.canReopenNow) { window.__raSuppressUnloadGuard = true; setTimeout(() => window.location.reload(), 900); }
                 } else {

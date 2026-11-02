@@ -22,7 +22,11 @@ use Tests\TestCase;
  * (a flat tick can't express "required unless the box is checked"),
  * property_address_override (read-only, disabled, never applicant-
  * editable), and rental_terms (legacy column, not rendered on the
- * current public form at all).
+ * current public form at all), and (AT-517) co_declaration_signature /
+ * co_tpn_consent_signature - the Co-applicant's own signatures, governed by
+ * the Main applicant's declaration / credit-check signature settings
+ * (shown, wording) and by the rule that both people sign while a
+ * Co-applicant is captured; they have no setting of their own to tick.
  */
 final class RentalApplicationFieldRegistryCoverageTest extends TestCase
 {
@@ -30,6 +34,8 @@ final class RentalApplicationFieldRegistryCoverageTest extends TestCase
         'current_rental_still_living',
         'property_address_override',
         'rental_terms',
+        'co_declaration_signature',
+        'co_tpn_consent_signature',
     ];
 
     public function test_every_applicant_field_input_on_the_public_form_has_a_registry_entry(): void

@@ -465,12 +465,12 @@ return [
         ['key' => 'impersonate_users',       'label' => 'Impersonate Users',               'section' => 'franchise-admin',  'type' => 'access',  'module' => 'franchise_admin',  'sort_order' => 5],
         // ── CoreX Desk (.ai/specs/corex-desk.md section 6) ──
         // desk.request_help: "Get help" - share this CoreX window with support. Every role by default.
-        // desk.support: run the Desk console - see an agent's CoreX window live. Owner roles via '*'; excluded from the admin
-        // all-minus-exclude default so an agency chooses, in Role Manager, who may run Desk for its own agents (own-agency sessions only).
+        // desk.support: run the Desk console - see a colleague's CoreX window live, own agency only (owner roles: every agency). Owner roles via '*'; admin (all-minus-exclude),
+        // branch_manager, agent and office_admin by default since 30 Oct 2026 (Johan); the viewer has no default. An agency changes this in Role Manager.
         ['key' => 'desk.request_help',       'label' => 'Get help (share my CoreX window with support)', 'section' => 'franchise-admin', 'type' => 'action', 'module' => 'desk', 'sort_order' => 1],
         ['key' => 'desk.support',            'label' => 'Run CoreX Desk (view agents\' CoreX windows)',   'section' => 'franchise-admin', 'type' => 'action', 'module' => 'desk', 'sort_order' => 2],
         // desk.control: ask an agent to let you TAKE CONTROL of their CoreX page / a shared tab (phase 2). The agent still has to Allow each time.
-        // Owner roles via '*'; excluded from the admin all-minus-exclude default exactly like desk.support.
+        // Same default holders as desk.support.
         ['key' => 'desk.control',            'label' => 'Take control of an agent\'s window (with their OK)', 'section' => 'franchise-admin', 'type' => 'action', 'module' => 'desk', 'sort_order' => 3],
         ['key' => 'users.view',              'label' => 'View',                            'section' => 'franchise-admin',  'type' => 'action',  'module' => 'users',            'sort_order' => 10],
         ['key' => 'users.create',            'label' => 'Create',                          'section' => 'franchise-admin',  'type' => 'action',  'module' => 'users',            'sort_order' => 11],
@@ -1114,8 +1114,9 @@ return [
             // board — owner-only, so admin is excluded from the all-minus rule.
             // manage_reference_sources is likewise platform-owner-only: it's a
             // global, not per-agency, allowlist (ellie-reference-sources spec).
-            // desk.support (CoreX Desk console): granted to the owner role; an agency grants it to its own admin/role in Role Manager.
-            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track', 'manage_reference_sources', 'templates.transfer', 'templates.release', 'desk.support', 'desk.control'],
+            // desk.support / desk.control (CoreX Desk console + take-over): admin gets them through this all-minus-exclude default; branch_manager, agent and
+            // office_admin through their include lists (Johan, 30 Oct 2026: any colleague may offer support; the viewer may not). Editable per agency in Role Manager.
+            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track', 'manage_reference_sources', 'templates.transfer', 'templates.release'],
             // Payroll: admin gets full payroll management
             'include' => [
                 'manage_payroll', 'run_payroll', 'view_payroll_reports', 'view_own_payslips',
@@ -1161,6 +1162,7 @@ return [
         'branch_manager' => [
             'include' => [
                 'desk.request_help', // CoreX Desk - Get help (every role by default)
+                'desk.support', 'desk.control', // CoreX Desk - offer support to colleagues in the same agency (Johan, 30 Oct 2026); not the viewer
                 // Edinburgh erf 364 remediation — deeds_capture.promote (same reasoning
                 // as admin's include above), PLUS .access itself: found while wiring
                 // this that branch_manager had no deeds_capture.access grant on this
@@ -1393,6 +1395,7 @@ return [
         'agent' => [
             'include' => [
                 'desk.request_help', // CoreX Desk - Get help (every role by default)
+                'desk.support', 'desk.control', // CoreX Desk - offer support to colleagues in the same agency (Johan, 30 Oct 2026); not the viewer
                 // AT-432 (.ai/specs/auctions.md §20) — Agent's stated subset.
                 'access_auctions', 'auctions.view', 'auctions.create', 'auctions.edit',
                 'auctions.bidders.view', 'auctions.results.view',
@@ -1712,6 +1715,7 @@ return [
             // _v2 / settle_deals grants as over-grants.
             'include' => [
                 'desk.request_help', // CoreX Desk - Get help (every role by default)
+                'desk.support', 'desk.control', // CoreX Desk - offer support to colleagues in the same agency (Johan, 30 Oct 2026); not the viewer
                 'communications.view',
                 'communication_mailboxes.view', // AT-395 — not in scope_defaults, falls to 'own'
                 // 2026-09-22, Johan's ruling: "it should be a role setting but all

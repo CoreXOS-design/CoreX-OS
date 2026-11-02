@@ -340,6 +340,12 @@
                                 {{ $application->submitted_for_approval_at ? '→ with authoriser' : '→ with agent' }}
                             </div>
                         @endif
+                        {{-- AT-516 - a "Correct details" send-back names the fields until the applicant resubmits. --}}
+                        @if($application->status === 'reopened' && ! empty($application->correction_fields))
+                            <div class="text-[10px] mt-0.5" style="color: var(--ds-amber, #f59e0b); font-weight:600;" data-qa="sent-back-to-correct">
+                                Sent back to correct: {{ implode(', ', $application->correctionFieldLabels()) }}
+                            </div>
+                        @endif
                         {{-- AT-410d, 2026-09-16 — one clear marker, reusing cc5's
                              exact review-screen phrase ("subject to FICA
                              verification") rather than inventing a second

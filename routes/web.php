@@ -2432,7 +2432,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/sessions/{id}/control/end', [\App\Http\Controllers\CoreX\DeskConsoleController::class, 'controlEnd'])->whereNumber('id')->middleware('throttle:desk-state')->name('control.end');
     });
 
-    // CoreX Desk sessions log - the permanent audit (Admin > Desk > Desk sessions; moved out of Compliance, Johan 27 Oct 2026).
+    // CoreX Desk sessions log - the permanent audit (Tools > Desk > Desk sessions; moved out of Compliance, Johan 27 Oct 2026).
     // desk.support holders, or an agency admin (manage_users) for their own agency. Own agency only; owner roles see all.
     // Spec .ai/specs/corex-desk.md sections 5, 9 and 12. No agency.required: an owner reads every agency's sessions without switching into one.
     Route::prefix('desk-log')->name('corex.desk.log.')->middleware('permission:desk.support,manage_users')->group(function () {
@@ -4079,6 +4079,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.link-tenant-property');
         Route::delete('/{rentalApplication}/link-tenant-property', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'unlinkTenantProperty'])
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.unlink-tenant-property');
+        // AT-517 - review screen: "Co-applicant captured: <name> - Create contact and link" (duplicate check first).
+        Route::post('/{rentalApplication}/co-applicant/link', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'linkCoApplicant'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.co-applicant.link');
     });
 
     // .ai/specs/rental-command-centre.md — AT-441. Read-only cross-entity
@@ -5229,6 +5232,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Reopen/resubmit, 2026-09-08 — send a returned/under-assessment
         // application back to the applicant to fix an answer and re-sign.
         Route::post('/{rentalApplication}/review/reopen', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'reopen'])->name('corex.rental-applications.review.reopen');
+        // AT-516 - the agent corrects what the applicant typed (returned / under assessment only; locked while with the authoriser).
+        Route::get('/{rentalApplication}/review/details', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'editDetails'])->name('corex.rental-applications.review.details.edit');
+        Route::post('/{rentalApplication}/review/details', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'updateDetails'])->name('corex.rental-applications.review.details.update');
         // AT-392 — the agent's wishlist step on the approval leg, reusing
         // the Core Matches form/drawer. Not under /contacts/{contact}/matches
         // because the redirect target and guard are review-screen-specific.
@@ -5813,6 +5819,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/create',        [\App\Http\Controllers\Admin\AgencyController::class, 'create'])->name('create');
         Route::post('/',             [\App\Http\Controllers\Admin\AgencyController::class, 'store'])->name('store');
         Route::post('/{agency}/toggle-active', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleActive'])->name('toggle-active');
+        // Agency suspension — .ai/specs/agency-suspension.md
+        Route::post('/{agency}/toggle-suspend', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleSuspend'])->name('toggle-suspend');
         // Per-agency maintenance mode (AT-93). Owner-only; owners bypass the
         // gate so they can always lift it. Spec: .ai/specs/maintenance-mode.md
         Route::post('/{agency}/toggle-maintenance', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleMaintenance'])->name('toggle-maintenance');

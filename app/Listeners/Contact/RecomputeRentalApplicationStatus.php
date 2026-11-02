@@ -41,22 +41,20 @@ final class RecomputeRentalApplicationStatus
         }
 
         try {
-            $contactId = $event->application->contact_id;
-            if (! $contactId) {
-                return;
-            }
+            // AT-517 - the Main applicant and the Co-applicant (when linked) always move together.
+            foreach ($event->application->applicantContactIds() as $contactId) {
+                $contact = Contact::withoutGlobalScopes()->find($contactId);
+                if (! $contact) {
+                    continue;
+                }
 
-            $contact = Contact::withoutGlobalScopes()->find($contactId);
-            if (! $contact) {
-                return;
-            }
+                $status = $this->deriveStatus($contactId);
 
-            $status = $this->deriveStatus($contactId);
-
-            if ($contact->rental_application_status !== $status) {
-                $contact->rental_application_status = $status;
-                $contact->rental_application_status_updated_at = now();
-                $contact->saveQuietly();
+                if ($contact->rental_application_status !== $status) {
+                    $contact->rental_application_status = $status;
+                    $contact->rental_application_status_updated_at = now();
+                    $contact->saveQuietly();
+                }
             }
         } catch (\Throwable $e) {
             Log::warning('AT-392 RecomputeRentalApplicationStatus failed', [
@@ -76,7 +74,7 @@ final class RecomputeRentalApplicationStatus
     private function deriveStatus(int $contactId): string
     {
         $latest = RentalApplication::withoutGlobalScopes()
-            ->where('contact_id', $contactId)
+            ->forApplicantContact($contactId)
             ->orderByDesc('updated_at')
             ->first();
 

@@ -48,11 +48,15 @@ class DeskSessionService
         return $agency ? (bool) ($agency->desk_enabled ?? true) : true;
     }
 
-    /** May this user run support for this session? Owner roles: any agency. Everyone else: their own agency only. */
+    /** May this user run support for this session? Owner roles: any agency. Everyone else: their own agency only. Nobody supports their own session. */
     public function canSupport(User $user, DeskSession $session): bool
     {
         if (! $user->hasPermission('desk.support')) {
             return false;
+        }
+
+        if (! $user->isOwnerRole() && (int) $session->user_id === (int) $user->id) {
+            return false;   // agents hold desk.support too (30 Oct 2026): asking for help and answering it must be two different people (an owner may test both sides)
         }
 
         return $user->isOwnerRole() || ((int) $user->effectiveAgencyId() === (int) $session->agency_id && $session->agency_id !== null);

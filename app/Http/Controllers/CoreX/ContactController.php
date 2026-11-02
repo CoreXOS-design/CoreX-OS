@@ -1136,7 +1136,7 @@ class ContactController extends Controller
                 'date_to' => $request->filled('date_to') ? $request->string('date_to')->toString() : null,
                 'per_page' => $request->filled('per_page') ? $request->integer('per_page') : null,
             ]));
-        $hasAnyRentalApplications = $contact->rentalApplications()->exists();
+        $hasAnyRentalApplications = \App\Models\RentalApplication::forApplicantContact((int) $contact->id)->exists();
 
         // AT-267 — may the current user EDIT this contact? An assistant may VIEW a colleague's
         // contact but only EDIT the agent's own — OR an unowned contact (no linked agent). The view

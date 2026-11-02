@@ -71,8 +71,10 @@ final class DeskHttpAndChannelTest extends DeskTestCase
 
     public function test_the_console_is_for_desk_support_only(): void
     {
-        $this->actingAs($this->agentIn($this->agencyA))->get('/corex/desk')->assertForbidden();
-        $this->actingAs($this->agentIn($this->agencyA, 'admin'))->get('/corex/desk')->assertForbidden();
+        $this->actingAs($this->agentIn($this->agencyA, 'viewer'))->get('/corex/desk')->assertForbidden();   // the viewer holds no support by default
+        $this->actingAs($this->agentIn($this->agencyA))->get('/corex/desk')->assertOk();                  // agent, branch manager, admin do (30 Oct 2026)
+        $this->actingAs($this->agentIn($this->agencyA, 'branch_manager'))->get('/corex/desk')->assertOk();
+        $this->actingAs($this->agentIn($this->agencyA, 'admin'))->get('/corex/desk')->assertOk();
         $this->actingAs($this->owner())->get('/corex/desk')->assertOk()->assertSee('Agent', false);
         $this->actingAs($this->adminWithSupport($this->agencyA))->get('/corex/desk')->assertOk();
     }
@@ -140,9 +142,31 @@ final class DeskHttpAndChannelTest extends DeskTestCase
         $this->actingAs($agent)->getJson('/api/v1/desk/sessions/current')->assertOk()->assertJsonPath('session.support_name', \App\Support\Desk\DeskSupporterLabel::for($owner));
     }
 
-    public function test_an_agent_cannot_open_the_audit(): void
+    public function test_a_viewer_cannot_open_the_audit(): void
     {
-        $this->actingAs($this->agentIn($this->agencyA))->get('/corex/desk-log')->assertForbidden();
+        $this->actingAs($this->agentIn($this->agencyA, 'viewer'))->get('/corex/desk-log')->assertForbidden();
+    }
+
+    public function test_an_agent_can_take_a_session_from_a_colleague_end_to_end_but_not_from_another_agency(): void
+    {
+        $asker = $this->agentIn($this->agencyA);
+        $helper = $this->agentIn($this->agencyA);                      // an ordinary agent offering support
+        $otherAgency = $this->agentIn($this->agencyB);
+        [$session, $code] = $this->desk->start($asker);
+
+        // support the colleague: join by the code, point, highlight, ask for control, end
+        $this->actingAs($helper)->postJson('/corex/desk/join', ['code' => $code])->assertOk()->assertJsonPath('session.status', 'live')->assertJsonPath('session.agent_name', $asker->name);
+        $this->assertSame($helper->id, (int) $session->fresh()->support_user_id);
+        $this->actingAs($helper)->postJson("/corex/desk/sessions/{$session->id}/highlight", ['selector' => '#save', 'note' => 'Here'])->assertOk();
+        $this->actingAs($helper)->postJson("/corex/desk/sessions/{$session->id}/control/request", ['tab' => 'main'])->assertOk();
+        $this->actingAs($helper)->postJson("/corex/desk/sessions/{$session->id}/control/end")->assertOk();
+        $this->actingAs($helper)->postJson("/corex/desk/sessions/{$session->id}/end")->assertOk();
+        $this->assertSame('support', $session->fresh()->ended_by);
+
+        // another agency's agent holds the same permissions but never reaches this agency's session
+        [$s2, $code2] = $this->desk->start($asker);
+        $this->actingAs($otherAgency)->postJson('/corex/desk/join', ['code' => $code2])->assertStatus(422);
+        $this->assertNull($s2->fresh()->support_user_id);
     }
 
     // ── Agency switch ───────────────────────────────────────────────────────────────

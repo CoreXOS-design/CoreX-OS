@@ -390,7 +390,8 @@ class Contact extends Model
      */
     public function visibleRentalApplicationsFor(\App\Models\User $viewer): \Illuminate\Database\Eloquent\Builder
     {
-        return \App\Models\RentalApplication::where('contact_id', $this->id)
+        // AT-517 - a Co-applicant's history shows the application too, not only the Main applicant's.
+        return \App\Models\RentalApplication::forApplicantContact((int) $this->id)
             ->visibleForContactHistory($viewer);
     }
 

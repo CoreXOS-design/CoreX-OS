@@ -90,6 +90,15 @@
             @else
                 <p>Please review and update the details below, then submit again.</p>
             @endif
+            {{-- AT-516 - a "Correct details" send-back: the fields to fix are listed here and highlighted below. --}}
+            @if(! empty($application->correction_fields))
+                <p class="mt-2 font-semibold">Please correct:</p>
+                <ul class="list-disc list-inside" data-qa="correction-labels">
+                    @foreach($application->correctionFieldLabels() as $correctionLabel)
+                        <li>{{ $correctionLabel }}</li>
+                    @endforeach
+                </ul>
+            @endif
         </div>
     @elseif($application->status === 'in_progress')
         {{--
@@ -136,6 +145,8 @@
         </div>
     @endif
 
+    @include('rental-applications.partials.terms-panels', ['application' => $application, 'mode' => 'public'])
+
     <form id="rentalApplicationSubmitForm" method="POST" action="{{ route('rental-applications.public.submit', $application->token) }}"
           @submit="beforeSubmit">
         @csrf
@@ -155,68 +166,11 @@
                     @if($fieldConfig['id_number']['shown'])
                     <x-rental-application-field name="id_number" :label="$fieldConfig['id_number']['label']" :hint="$fieldConfig['id_number']['help_text']" :order="$fieldConfig['id_number']['order']" :value="$application->id_number" :required="in_array('id_number', $requiredFieldKeys, true)" />
                     @endif
-                    {{--
-                        Ruling 1, AT-392 round 5, 2026-09-13 — marital_status
-                        converts from free text to a real select (agency-
-                        configurable option list, RentalApplicationQualifying
-                        Setting::maritalStatusOptionsFor()) so the spouse-
-                        fields condition below can actually fire. A stored
-                        value that predates this select (or that doesn't
-                        match the agency's current option list) is SHOWN, not
-                        blanked — Johan: existing values "must not be
-                        destroyed."
-
-                        .ai/specs/rental-application-field-config.md — the
-                        outer x-data scope stays UNCONDITIONAL (it's what the
-                        nested spouse x-show depends on) even when
-                        marital_status itself is hidden — only the marital_status
-                        FIELD's own div, and each spouse field independently,
-                        are gated on their own shown state.
-                    --}}
-                    <div x-data="{
-                            maritalStatus: {{ Js::from(old('marital_status', $application->marital_status)) }},
-                            spouseImplyingLabels: {{ Js::from(collect($maritalStatusOptions)->where('implies_spouse', true)->pluck('label')->values()) }}
-                         }" class="contents">
-                        @if($fieldConfig['marital_status']['shown'])
-                        <div style="order: {{ $fieldConfig['marital_status']['order'] }}">
-                            <label class="block text-xs text-slate-500 mb-1">{{ $fieldConfig['marital_status']['label'] }} @if(in_array('marital_status', $requiredFieldKeys, true)) *@endif</label>
-                            <select name="marital_status" x-model="maritalStatus"
-                                    @if(in_array('marital_status', $requiredFieldKeys, true)) required aria-required="true" @endif
-                                    class="w-full rounded-lg border px-3 py-2 text-sm {{ $errors->has('marital_status') ? 'border-red-400' : 'border-slate-300' }}">
-                                <option value="">— Select —</option>
-                                @foreach($maritalStatusOptions as $option)
-                                    <option value="{{ $option['label'] }}">{{ $option['label'] }}</option>
-                                @endforeach
-                                @php $knownLabels = collect($maritalStatusOptions)->pluck('label'); @endphp
-                                @if($application->marital_status && ! $knownLabels->contains($application->marital_status))
-                                    <option value="{{ $application->marital_status }}" selected>{{ $application->marital_status }} (previously recorded)</option>
-                                @endif
-                            </select>
-                            @if($fieldConfig['marital_status']['help_text'])
-                                <p class="text-[11px] text-slate-400 mt-1">{{ $fieldConfig['marital_status']['help_text'] }}</p>
-                            @endif
-                            @error('marital_status') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
-                        </div>
-                        @endif
-                        @if($fieldConfig['citizenship']['shown'])
+                    {{-- Marital status + spouse fields: ONE shared block for the Main applicant and the Co-applicant (partials/marital-fields). --}}
+                    @include('rental-applications.partials.marital-fields', ['prefix' => '', 'values' => ['marital_status' => $application->marital_status, 'spouse_name' => $application->spouse_name, 'spouse_id' => $application->spouse_id]])
+                    @if($fieldConfig['citizenship']['shown'])
                         <x-rental-application-field name="citizenship" :label="$fieldConfig['citizenship']['label']" :hint="$fieldConfig['citizenship']['help_text']" :order="$fieldConfig['citizenship']['order']" :value="$application->citizenship" :required="in_array('citizenship', $requiredFieldKeys, true)" />
                         @endif
-                        {{--
-                            x-show (not x-if), same reasoning as the landlord
-                            section below — never destroys data the applicant
-                            already typed just because they're mid-selecting.
-                        --}}
-                        <div x-show="spouseImplyingLabels.includes(maritalStatus)" x-cloak class="contents">
-                            @if($fieldConfig['spouse_name']['shown'])
-                            <x-rental-application-field name="spouse_name" :label="$fieldConfig['spouse_name']['label']" :hint="$fieldConfig['spouse_name']['help_text']" :order="$fieldConfig['spouse_name']['order']" :value="$application->spouse_name"
-                                required-expr="spouseImplyingLabels.includes(maritalStatus) && {{ in_array('spouse_name', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
-                            @endif
-                            @if($fieldConfig['spouse_id']['shown'])
-                            <x-rental-application-field name="spouse_id" :label="$fieldConfig['spouse_id']['label']" :hint="$fieldConfig['spouse_id']['help_text']" :order="$fieldConfig['spouse_id']['order']" :value="$application->spouse_id"
-                                required-expr="spouseImplyingLabels.includes(maritalStatus) && {{ in_array('spouse_id', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
-                            @endif
-                        </div>
-                    </div>
                     @if($fieldConfig['contact_method']['shown'] ?? true)
                     @if($fieldConfig['email']['shown'])
                     <x-rental-application-field name="email" :label="$fieldConfig['email']['label']" :hint="$fieldConfig['email']['help_text']" :order="$fieldConfig['email']['order']" type="email" :value="$application->email" :required="in_array('email', $requiredFieldKeys, true)" />
@@ -431,6 +385,8 @@
                 </div>
             </section>
 
+            @include('rental-applications.partials.extended-sections', ['application' => $application, 'fieldConfig' => $fieldConfig, 'requiredFieldKeys' => $requiredFieldKeys, 'mode' => 'public'])
+
             <section data-progress-section="Lease Requirement">
                 <h2 class="font-semibold text-slate-700 mb-3">Lease Requirement</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -639,8 +595,31 @@
             </section>
             @endif
 
+            {{-- AT-517 - the Co-applicant signs the SAME form (the two are usually together): their own declaration and their own
+                 credit-check consent, shown only while a Co-applicant is captured (typed into the form above, or chosen by the agent). --}}
+            <div x-data="{ co: {{ ($application->hasCoApplicant() || ! empty(old('co_applicant'))) ? 'true' : 'false' }} }" @co-applicant-changed.window="co = $event.detail" x-show="co" x-cloak class="space-y-6" data-qa="co-applicant-signatures">
+                @if($fieldConfig['declaration_signature']['shown'])
+                <section data-progress-section="Co-applicant declaration">
+                    <h2 class="font-semibold text-slate-700 mb-2">Co-applicant — {{ $fieldConfig['declaration_signature']['label'] }} *</h2>
+                    <p class="text-xs text-slate-500 mb-2">{{ $fieldConfig['declaration_signature']['help_text'] ?? 'I hereby declare that all the above information given is true and accurate.' }}</p>
+                    @include('rental-applications.public._signature-pad', ['field' => 'co_declaration_signature', 'label' => 'co-applicant declaration'])
+                    @error('co_declaration_signature') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                </section>
+                @endif
+                @if($fieldConfig['tpn_consent_signature']['shown'])
+                <section data-progress-section="Co-applicant {{ $fieldConfig['tpn_consent_signature']['label'] }}">
+                    <h2 class="font-semibold text-slate-700 mb-2">Co-applicant — {{ $fieldConfig['tpn_consent_signature']['label'] }} *</h2>
+                    <p class="text-xs text-slate-500 mb-2">{{ $fieldConfig['tpn_consent_signature']['help_text'] ?? 'The tenant hereby consents that, and authorises the Landlord or agent to, at all times contact, request and obtain information from any credit provider or registered credit bureau relevant to an assessment of the tenant\'s creditworthiness.' }}</p>
+                    @include('rental-applications.public._signature-pad', ['field' => 'co_tpn_consent_signature', 'label' => 'co-applicant ' . $fieldConfig['tpn_consent_signature']['label']])
+                    @error('co_tpn_consent_signature') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                </section>
+                @endif
+            </div>
+
             <input type="hidden" name="declaration_signature" value="{{ old('declaration_signature') }}" x-ref="declaration_signature_input">
             <input type="hidden" name="tpn_consent_signature" value="{{ old('tpn_consent_signature') }}" x-ref="tpn_consent_signature_input">
+            <input type="hidden" name="co_declaration_signature" value="{{ old('co_declaration_signature') }}" x-ref="co_declaration_signature_input">
+            <input type="hidden" name="co_tpn_consent_signature" value="{{ old('co_tpn_consent_signature') }}" x-ref="co_tpn_consent_signature_input">
         </div>
     </form>
 
@@ -883,7 +862,7 @@ function rentalApplicationForm() {
         },
 
         isSignatureField(name) {
-            return name === 'declaration_signature' || name === 'tpn_consent_signature';
+            return ['declaration_signature', 'tpn_consent_signature', 'co_declaration_signature', 'co_tpn_consent_signature'].includes(name);
         },
 
         scheduleAutosave() {
@@ -913,6 +892,8 @@ function rentalApplicationForm() {
             delete data._token;
             delete data.declaration_signature;
             delete data.tpn_consent_signature;
+            delete data.co_declaration_signature;
+            delete data.co_tpn_consent_signature;
             return data;
         },
 
@@ -1127,8 +1108,17 @@ function rentalApplicationForm() {
             const decl = this.$refs.declaration_signature_input.value;
             const tpn = this.$refs.tpn_consent_signature_input.value;
             const missingSignatures = [];
-            if (declRequired && !decl) missingSignatures.push(declLabel);
-            if (tpnRequired && !tpn) missingSignatures.push(tpnLabel);
+            // AT-517 - while a Co-applicant is captured (any Co-applicant answer filled in, or chosen by the agent) BOTH people sign
+            // every signature the form shows; the server enforces the same rule.
+            const coCaptured = !!document.querySelector('[data-qa="co-applicant-signatures"]') && Alpine.$data(document.querySelector('[data-qa="co-applicant-signatures"]')).co;
+            const declShown = {{ $fieldConfig['declaration_signature']['shown'] ? 'true' : 'false' }};
+            const tpnShown = {{ $fieldConfig['tpn_consent_signature']['shown'] ? 'true' : 'false' }};
+            if ((declRequired || (coCaptured && declShown)) && !decl) missingSignatures.push(declLabel);
+            if ((tpnRequired || (coCaptured && tpnShown)) && !tpn) missingSignatures.push(tpnLabel);
+            if (coCaptured) {
+                if (declShown && !this.$refs.co_declaration_signature_input.value) missingSignatures.push('Co-applicant ' + declLabel);
+                if (tpnShown && !this.$refs.co_tpn_consent_signature_input.value) missingSignatures.push('Co-applicant ' + tpnLabel);
+            }
             if (missingSignatures.length) {
                 this.error = 'Please sign the following before submitting: ' + missingSignatures.join(', ') + '.';
                 return;
@@ -1170,6 +1160,27 @@ function rentalApplicationForm() {
                     target.focus({ preventScroll: true });
                 }
             }
+        });
+    </script>
+@endif
+@if($isFreshReopen && ! empty($application->correction_fields))
+    {{-- AT-516 - highlight the fields the agent asked to have corrected (and scroll to the first one). --}}
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var keys = @json(array_values($application->correction_fields));
+            var first = null;
+            keys.forEach(function (k) {
+                var sel = ['[name="' + k + '"]', '[name="' + k + '[]"]', '[name^="' + k + '["]', '[name="custom_field_values[' + k + ']"]'].join(',');
+                document.querySelectorAll(sel).forEach(function (el) {
+                    if (el.type === 'hidden') { return; }
+                    el.style.outline = '2px solid #f59e0b';
+                    el.style.outlineOffset = '1px';
+                    var wrap = el.closest('div');
+                    if (wrap) { wrap.style.background = '#fffbeb'; wrap.style.borderRadius = '8px'; }
+                    first = first || el;
+                });
+            });
+            if (first) { first.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
         });
     </script>
 @endif

@@ -4,6 +4,7 @@ namespace App\Services\RentalApplications;
 
 use App\Mail\RentalApplicationApprovedMail;
 use App\Mail\RentalApplicationDeclineMail;
+use App\Mail\RentalApplicationDetailsUpdatedMail;
 use App\Mail\RentalApplicationInviteMail;
 use App\Mail\RentalApplicationMoreInfoRequestMail;
 use App\Mail\RentalApplicationReopenedMail;
@@ -107,6 +108,36 @@ class RentalApplicationMailer
             return true;
         } catch (\Throwable $e) {
             Log::warning('AT-392 rental application reopened mail failed', [
+                'rental_application_id' => $application->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
+    /**
+     * AT-516 - tell the applicant an agent corrected details they typed. Needs no applicant link (it is a notice, not a form);
+     * best-effort like every sibling. $lines are the corrected fields in plain words.
+     *
+     * @param array<int, array{label: string, old: string, new: string}> $lines
+     */
+    public function sendDetailsUpdated(RentalApplication $application, array $lines, ?\App\Models\User $agent): bool
+    {
+        $recipientEmail = $application->recipientEmail();
+
+        if (! $recipientEmail || $lines === []) {
+            return false;
+        }
+
+        try {
+            Mail::to($recipientEmail)->send(
+                (new RentalApplicationDetailsUpdatedMail($application, $lines, $agent))->fromAgent($agent ?? $application->createdBy)
+            );
+
+            return true;
+        } catch (\Throwable $e) {
+            Log::warning('AT-516 rental application details-updated mail failed', [
                 'rental_application_id' => $application->id,
                 'error' => $e->getMessage(),
             ]);

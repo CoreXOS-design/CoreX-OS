@@ -524,6 +524,12 @@ class LeaseController extends Controller
     /** Audit A16 - the partner named on the application, as an existing contact of the application's agency (by ID number), or null. */
     private function existingCoApplicantContact(RentalApplication $application): ?Contact
     {
+        // AT-517 - a Co-applicant chosen on the application (or linked from the review screen) is the tenant; the ID-number
+        // match below only runs when none is linked.
+        if ($application->co_applicant_contact_id) {
+            return $application->coApplicantContact;
+        }
+
         $idNumber = preg_replace('/\s+/', '', (string) $application->spouse_id);
         if ($idNumber === '') {
             return null;

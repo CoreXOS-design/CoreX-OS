@@ -105,10 +105,18 @@ final class DeskSessionLifecycleTest extends DeskTestCase
     public function test_a_user_without_desk_support_cannot_join(): void
     {
         $agent = $this->agentIn($this->agencyA);
-        $plainAdmin = $this->agentIn($this->agencyA, 'admin'); // admin does not get desk.support by default
+        $viewer = $this->agentIn($this->agencyA, 'viewer'); // the viewer does not get desk.support by default
         [, $code] = $this->desk->start($agent);
 
-        $this->assertNull($this->desk->join($plainAdmin, $code));
+        $this->assertNull($this->desk->join($viewer, $code));
+    }
+
+    public function test_nobody_can_join_their_own_session(): void
+    {
+        $agent = $this->agentIn($this->agencyA);   // an agent holds desk.support by default
+        [, $code] = $this->desk->start($agent);
+
+        $this->assertNull($this->desk->join($agent, $code));
     }
 
     public function test_either_side_can_end_it_and_the_trail_says_who(): void

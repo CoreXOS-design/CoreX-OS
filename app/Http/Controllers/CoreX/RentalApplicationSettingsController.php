@@ -287,11 +287,16 @@ class RentalApplicationSettingsController extends Controller
             'invite_policy_sentence' => RentalApplicationQualifyingSetting::invitePolicySentenceFor($agencyId),
         ];
         $recentFrontHalfChanges = \App\Models\RentalSettingAuditEntry::where('agency_id', $agencyId)
-            ->whereIn('setting_key', array_keys($frontHalf))->with('user')->latest('id')->limit(5)->get();
+            ->whereIn('setting_key', array_merge(array_keys($frontHalf), ['application_fee', 'tenant_info_summary', 'documents_to_accompany']))->with('user')->latest('id')->limit(5)->get();
+        $applicationTerms = [
+            'application_fee' => RentalApplicationQualifyingSetting::applicationFeeFor($agencyId),
+            'tenant_info_summary' => RentalApplicationQualifyingSetting::tenantInfoSummaryFor($agencyId),
+            'documents_to_accompany' => RentalApplicationQualifyingSetting::documentsToAccompanyFor($agencyId),
+        ];
 
         return view('corex.settings.rental-applications', compact(
             'frontHalf', 'recentFrontHalfChanges', 'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'approvalMode', 'rentAboveApprovedMode', 'requireChecklistComplete', 'fieldRegistry', 'requiredFieldKeys', 'hiddenFieldKeys', 'fieldLabelOverrides', 'fieldHelpTextOverrides', 'fieldOrder', 'fieldSections', 'maritalStatusOptions', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'identityGateEnabled', 'identityGateOtpLength', 'identityGateOtpExpiryMinutes', 'identityGateAttemptMax', 'identityGateAttemptWindowMinutes', 'identityGateResendCooldownSeconds', 'identityGateUnreachableByDesign', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'activeCustomFields', 'retiredCustomFields', 'validityDefaults', 'validityOverrides', 'creditBureauName', 'tenantedLabel', 'noAuthoriser'
-        ));
+        ))->with('applicationTerms', $applicationTerms);
     }
 
     /**
@@ -1071,7 +1076,13 @@ class RentalApplicationSettingsController extends Controller
         // The Setup Wizard calls this method directly, so the permission is checked here as well as on the route.
         abort_unless($request->user()?->hasPermission('rental_applications.manage_settings'), 403);
 
-        $request->validate(['invite_policy_sentence' => ['nullable', 'string', 'max:' . RentalApplicationQualifyingSetting::INVITE_POLICY_SENTENCE_MAX]]);
+        $request->validate([
+            'invite_policy_sentence' => ['nullable', 'string', 'max:' . RentalApplicationQualifyingSetting::INVITE_POLICY_SENTENCE_MAX],
+            // Application terms (rental-applications.md): fee per applicant, the tenant information summary and the documents-to-accompany list.
+            'application_fee' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
+            'tenant_info_summary' => ['nullable', 'string', 'max:4000'],
+            'documents_to_accompany' => ['nullable', 'string', 'max:2000'],
+        ]);
 
         $agencyId = (int) $request->user()->effectiveAgencyId();
         $bools = [
@@ -1093,10 +1104,31 @@ class RentalApplicationSettingsController extends Controller
             $data['invite_policy_sentence'] = trim((string) $request->input('invite_policy_sentence', ''));
         }
 
+        // Application terms - has()-guarded like everything above; blank = not set (nothing printed).
+        $termsOld = [
+            'application_fee' => RentalApplicationQualifyingSetting::applicationFeeFor($agencyId),
+            'tenant_info_summary' => RentalApplicationQualifyingSetting::tenantInfoSummaryFor($agencyId) ?: null,
+            'documents_to_accompany' => RentalApplicationQualifyingSetting::documentsToAccompanyFor($agencyId) ?: null,
+        ];
+        if ($request->has('application_fee')) {
+            $fee = $request->input('application_fee');
+            $data['application_fee'] = $fee === null || $fee === '' ? null : round((float) $fee, 2);
+        }
+        foreach (['tenant_info_summary', 'documents_to_accompany'] as $field) {
+            if ($request->has($field)) {
+                $data[$field] = trim(str_replace("\r\n", "\n", (string) $request->input($field, ''))) ?: null;
+            }
+        }
+
         if ($data !== []) {
             RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $agencyId], $data);
 
             $source = str_contains((string) $request->route()?->getName(), 'agency-setup') ? 'wizard' : 'settings';
+            foreach ($termsOld as $key => $old) {
+                if (array_key_exists($key, $data)) {
+                    \App\Models\RentalSettingAuditEntry::record($agencyId, $request->user(), $key, $old, $data[$key], $source);
+                }
+            }
             foreach ($bools as $key => $old) {
                 if (array_key_exists($key, $data)) {
                     \App\Models\RentalSettingAuditEntry::record($agencyId, $request->user(), $key, $old, $data[$key], $source);
