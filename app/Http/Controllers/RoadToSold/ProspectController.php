@@ -75,6 +75,32 @@ class ProspectController extends Controller
         return back()->with('status', 'Set aside. It comes back on ' . $p->fresh()->parked_until->format('j M Y') . '.');
     }
 
+    /**
+     * Road to Sold v4 (road-to-sold.md 23.9): the belt card's "Result" - what happened at the evaluation / presentation. The ONE result service sets the
+     * record, the claim, the property and the other screens' stores together; a refusal comes back in plain words.
+     */
+    public function result(Request $request, int $prospect): RedirectResponse
+    {
+        $p = $this->find($request, $prospect, true);
+        $options = app(\App\Services\RoadToSold\ResultOptionService::class);
+        $keys = array_column($options->list((int) $p->agency_id, (string) $p->track), 'key');
+        $data = $request->validate([
+            'result_key' => ['required', 'string', 'in:' . implode(',', $keys ?: ['none'])],
+            'revisit_on' => ['nullable', 'date', 'after:today'],
+            'note'       => ['nullable', 'string', 'max:255'],
+        ], [
+            'result_key.required' => 'Pick the result.',
+            'result_key.in'       => 'Pick one of the results shown.',
+            'revisit_on.after'    => 'Pick a day after today for it to come back.',
+            'revisit_on.date'     => 'We could not read that date. Pick it again.',
+        ]);
+        $r = app(\App\Services\RoadToSold\ResultService::class)->record(
+            $p, $data['result_key'], ! empty($data['revisit_on']) ? Carbon::parse($data['revisit_on']) : null, $data['note'] ?? null, $request->user(), 'belt_card'
+        );
+
+        return back()->with($r['ok'] ? 'status' : 'rts_error', $r['message']);
+    }
+
     /** Bring a parked prospect back now: a follow-up due today. */
     public function unpark(Request $request, int $prospect): RedirectResponse
     {

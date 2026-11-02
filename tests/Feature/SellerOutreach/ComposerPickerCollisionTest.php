@@ -55,7 +55,7 @@ final class ComposerPickerCollisionTest extends TestCase
 
         $contact = $this->seedContact($agencyId);
 
-        // Property 1: held — shows "On HFC books" badge.
+        // Property 1: held — shows "On our books" badge.
         $heldId = $this->seedProperty($agencyId, $userId, status: 'active',
             address: '18 Golf Course Road', lat: -30.84, lng: 30.39);
         $this->seedTrackedProperty($agencyId, promotedTo: $heldId,
@@ -74,7 +74,7 @@ final class ComposerPickerCollisionTest extends TestCase
 
         $resp->assertOk();
         // Both options labelled with badge suffix in the dropdown.
-        $resp->assertSee('On HFC books', false);
+        $resp->assertSee('On our books', false);
         $resp->assertSee('Previously sold', false);
         // The selected (held) property surfaces the inline badge container
         // with its data attribute for JS hooks / e2e tests.

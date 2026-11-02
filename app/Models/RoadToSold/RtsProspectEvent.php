@@ -25,6 +25,8 @@ class RtsProspectEvent extends Model
     public const CLOSE = 'close';
     /** v4 23.5: a claim hold was started, extended or ended (the note says which). Never a stage move. */
     public const HOLD = 'hold';
+    /** v4 23.9: a result (won / undecided / lost / not selling) was recorded; written first so the same result on the same day is idempotent. */
+    public const RESULT = 'result';
 
     protected $fillable = [
         'agency_id', 'track', 'prospect_id', 'user_id', 'actor_user_id', 'occurred_at', 'kind', 'from_stage', 'to_stage',

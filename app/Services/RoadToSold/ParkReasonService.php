@@ -26,6 +26,7 @@ class ParkReasonService
             ['key' => 'cannot_be_reached',   'label' => 'Cannot be reached',           'days' => 60],
             ['key' => 'price_unrealistic',   'label' => 'Price unrealistic',           'days' => 60],
             ['key' => 'other',               'label' => 'Other',                       'days' => 90],
+            ['key' => 'not_now',             'label' => 'Not now',                     'days' => 7],
         ];
     }
 
@@ -46,6 +47,22 @@ class ParkReasonService
             });
         }
         self::$seeded[$agencyId . '|' . $track] = true;
+    }
+
+    /**
+     * A reason by key, created if the agency does not have it yet (a list seeded before the key existed). Used by the result service for "Not now" (23.9);
+     * an agency that archived it keeps it archived - byKey() then falls back to "other".
+     */
+    public function ensureKey(int $agencyId, string $track, string $key, string $label, int $days): void
+    {
+        $this->ensureDefaults($agencyId, $track);
+        if (RtsParkReason::withoutGlobalScopes()->withTrashed()->where('agency_id', $agencyId)->where('track', $track)->where('key', $key)->exists()) {
+            return;
+        }
+        RtsParkReason::withoutAgencyStamping(fn () => RtsParkReason::create([
+            'agency_id' => $agencyId, 'track' => $track, 'key' => $key, 'label' => $label, 'default_revisit_days' => $days, 'is_system' => true, 'is_active' => true,
+            'sort_order' => (int) RtsParkReason::withoutGlobalScopes()->where('agency_id', $agencyId)->where('track', $track)->max('sort_order') + 10,
+        ]));
     }
 
     public static function forgetMemo(): void

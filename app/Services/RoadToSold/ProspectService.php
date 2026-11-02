@@ -283,7 +283,7 @@ class ProspectService
      * Set a prospect aside with a reason (a stable key from the agency's list, or a reason row) and a revisit date
      * (default: the reason's own interval). It returns on that date as a follow-up (dueFollowUps).
      */
-    public function park(RtsProspect $p, string|RtsParkReason $reason, ?CarbonInterface $until = null, ?string $note = null, ?User $actor = null): RtsProspect
+    public function park(RtsProspect $p, string|RtsParkReason $reason, ?CarbonInterface $until = null, ?string $note = null, ?User $actor = null, array $meta = []): RtsProspect
     {
         $r = $reason instanceof RtsParkReason ? $reason : $this->reasons->byKey((int) $p->agency_id, (string) $p->track, $reason);
         $days = (int) ($r?->default_revisit_days ?: 90);
@@ -298,7 +298,7 @@ class ProspectService
             'parked_from_stage' => $p->parked_from_stage ?: $p->stage,
             'next_action_key' => null, 'next_action_label' => null, 'next_action_at' => null,
         ])->save();
-        $this->log($p, RtsProspectEvent::PARK, $p->stage, $p->stage, $actor, ['note' => $p->park_reason_label, 'meta' => ['until' => $date->toDateString()]]);
+        $this->log($p, RtsProspectEvent::PARK, $p->stage, $p->stage, $actor, ['note' => $p->park_reason_label, 'meta' => ['until' => $date->toDateString()] + $meta]);
 
         return $p;
     }
@@ -309,6 +309,7 @@ class ProspectService
         if ($p->parked_at === null) {
             return $p;
         }
+        $this->restoreNotSellingProperty($p);
         $p->forceFill([
             'parked_at' => null, 'parked_until' => null, 'park_reason_id' => null, 'park_reason_label' => null, 'park_note' => null,
             'parked_from_stage' => null,
@@ -318,6 +319,25 @@ class ProspectService
         $this->belt()->prospectWorked($p);
 
         return $p;
+    }
+
+    /** v4 (23.9): a record set aside as "Not selling" took its property to Not selling; bringing it back returns the property to Prospecting. Never throws. */
+    private function restoreNotSellingProperty(RtsProspect $p): void
+    {
+        try {
+            $meta = RtsProspectEvent::withoutGlobalScopes()->where('prospect_id', $p->id)->where('kind', RtsProspectEvent::PARK)->orderByDesc('id')->value('meta');
+            $meta = is_string($meta) ? json_decode($meta, true) : (array) $meta;
+            if (($meta['class'] ?? null) !== 'not_selling' || ! $p->property_id) {
+                return;
+            }
+            $property = \App\Models\Property::query()->withoutGlobalScopes()->whereNull('deleted_at')->find($p->property_id);
+            if ($property && $property->status === \App\Models\Property::STATUS_NOT_SELLING) {
+                $property->status = 'prospecting';
+                $property->save();
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Belt: the property could not return to Prospecting on un-park (the record is back)', ['prospect_id' => $p->id, 'message' => $e->getMessage()]);
+        }
     }
 
     /** End the allocation so the property can be offered again (a manager, or an agent who has gone). */
@@ -412,6 +432,17 @@ class ProspectService
     }
 
     // ── history ──────────────────────────────────────────────────────────
+
+    /**
+     * The result history line (23.9). One per (record, result, day): a second identical call throws UniqueConstraintViolationException, which is how the
+     * result service stays idempotent when the same answer arrives from two screens.
+     */
+    public function logResult(RtsProspect $p, string $resultKey, ?User $actor, ?string $note = null, array $meta = []): void
+    {
+        $this->log($p, RtsProspectEvent::RESULT, $p->stage, $p->stage, $actor, [
+            'subject_type' => 'result:' . $resultKey, 'subject_id' => (int) now()->format('Ymd'), 'note' => $note, 'meta' => $meta ?: null,
+        ]);
+    }
 
     /** A history line that is not a move (a claim hold started, extended or ended, 23.5). */
     public function logHold(RtsProspect $p, string $note, ?User $actor = null, array $meta = []): void

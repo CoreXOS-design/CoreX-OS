@@ -57,14 +57,6 @@ class AdvanceProspectsFromDomainEvent
         \App\Events\Deal\DealClosed::class,
     ];
 
-    /** presentation outcome => park reason key (a lost presentation is dead stock) */
-    private const LOST_REASONS = [
-        'lost_to_competitor'    => 'chose_other_agency',
-        'lost_to_price_dispute' => 'price_unrealistic',
-        'lost_to_no_decision'   => 'not_selling_now',
-        'lost_to_no_response'   => 'cannot_be_reached',
-    ];
-
     public function __construct(private readonly ProspectService $prospects)
     {
     }
@@ -125,19 +117,9 @@ class AdvanceProspectsFromDomainEvent
                 // v4 (23.4): the presentation is given AT the evaluation, so "presented" is no longer a station: the event is still raised and logged, it moves nothing
                 break;
             case \App\Events\Presentation\PresentationOutcomeRecorded::class:
-                $p = DB::table('presentations')->where('id', $event->presentationId)->first(['created_by_user_id', 'property_id', 'tracked_property_id']);
-                if (! $p || ! $p->created_by_user_id) {
-                    break;
-                }
-                $outcome = (string) $event->outcome;
-                if (in_array($outcome, ['still_pending', 'other'], true)) {
-                    break;   // neither active nor dead (22.2)
-                }
-                $this->move($agencyId, [(int) $p->created_by_user_id], $base + [
-                    'stage' => S::PRESENTATION_FEEDBACK, 'property_id' => $p->property_id, 'tracked_id' => $p->tracked_property_id,
-                    'next_label' => str_starts_with($outcome, 'lost') ? null : 'Get the mandate signed',
-                    'park' => self::LOST_REASONS[$outcome] ?? (str_starts_with($outcome, 'lost') ? 'other' : null),
-                ]);
+                // v4 (23.9 / 23.10): a presentation outcome IS a result. Whoever recorded it, the one result service sets the record, the claim and the property
+                // (idempotent: when the result service itself wrote this outcome, it has already logged the result and this does nothing). "Other" names no result.
+                $this->resultFromPresentationOutcome($agencyId, $event);
                 break;
             case \App\Events\Document\DocumentFiledToProperty::class:
                 $stage = ['mandate' => S::MANDATE_SIGNED, 'otp' => S::OFFER][strtolower((string) $event->documentTypeSlug)] ?? null;
@@ -199,6 +181,33 @@ class AdvanceProspectsFromDomainEvent
                 }
                 break;
         }
+    }
+
+    private function resultFromPresentationOutcome(int $agencyId, $event): void
+    {
+        $key = \App\Services\RoadToSold\ResultOptionService::keyForEnum((string) $event->outcome);
+        if ($key === null || (string) $event->outcome === 'other') {
+            return;
+        }
+        $pres = \App\Models\Presentation::query()->withoutGlobalScopes()->where('agency_id', $agencyId)->find($event->presentationId);
+        if (! $pres || ! $pres->created_by_user_id) {
+            return;
+        }
+        $agent = $this->validAgent((int) $pres->created_by_user_id, $agencyId);
+        if (! $agent) {
+            return;
+        }
+        $links = app(\App\Services\RoadToSold\BeltLinks::class);
+        $prospect = (\App\Services\RoadToSold\BeltLinks::presentationColumns() && ! empty($pres->rts_prospect_id)) ? RtsProspect::withoutGlobalScopes()->find((int) $pres->rts_prospect_id) : null;
+        if (! $prospect) {
+            $tracked = $links->trackedOf($pres->property_id ? (int) $pres->property_id : null, $agencyId);
+            $prospect = $tracked ? $links->openProspect($agencyId, (int) $agent->ownershipUserId(), $tracked) : null;
+        }
+        if (! $prospect || $prospect->closed_at !== null || $prospect->released_at !== null) {
+            return;
+        }
+        $actor = ! empty($event->actorUserId) ? (User::query()->withoutGlobalScopes()->find((int) $event->actorUserId) ?: $agent) : $agent;
+        app(\App\Services\RoadToSold\ResultService::class)->record($prospect, $key, null, null, $actor, 'presentation_outcome', ['presentation' => $pres]);
     }
 
     /** @return int[] every agent on the deal (listing and selling side) */

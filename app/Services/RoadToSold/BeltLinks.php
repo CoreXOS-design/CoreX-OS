@@ -131,6 +131,43 @@ class BeltLinks
         }
     }
 
+    /**
+     * A held evaluation's feedback names a result (its own key, or the label picked from the shared list, or the old wording): hand it to the one result service.
+     * The record is the appointment's own, else the creating agent's single open record for the property. Never throws.
+     */
+    public function resultFromFeedback(\App\Models\CommandCenter\CalendarEventFeedback $fb, CalendarEvent $event): void
+    {
+        try {
+            $kd = is_array($fb->kind_specific_data) ? $fb->kind_specific_data : [];
+            $agencyId = (int) ($event->agency_id ?? 0);
+            if ($agencyId <= 0) {
+                return;
+            }
+            $options = app(ResultOptionService::class);
+            $key = ! empty($kd['result_key']) ? (string) $kd['result_key'] : $options->keyForLabel($agencyId, $kd['outcome'] ?? null);
+            if (! $key || ! $options->byKey($agencyId, $key)) {
+                return;
+            }
+            $prospectId = ! empty($event->rts_prospect_id) ? (int) $event->rts_prospect_id : null;
+            $p = $prospectId ? RtsProspect::withoutGlobalScopes()->find($prospectId) : null;
+            if (! $p && $event->user_id) {
+                $tracked = ! empty($event->tracked_property_id) ? (int) $event->tracked_property_id : $this->trackedOf($event->property_id ? (int) $event->property_id : ($fb->property_id ? (int) $fb->property_id : null), $agencyId);
+                $p = $tracked ? $this->openProspect($agencyId, (int) $event->user_id, $tracked) : null;
+            }
+            if (! $p || $p->closed_at !== null || $p->released_at !== null) {
+                return;
+            }
+            $actor = \App\Models\User::query()->withoutGlobalScopes()->find($fb->captured_by_user_id ?: $event->user_id);
+            if (! $actor) {
+                return;
+            }
+            $revisit = ! empty($kd['revisit_on']) ? \Illuminate\Support\Carbon::parse($kd['revisit_on']) : null;
+            app(ResultService::class)->record($p, $key, $revisit, $kd['seller_notes'] ?? null, $actor, 'evaluation_feedback', ['feedback' => $fb]);
+        } catch (\Throwable $e) {
+            Log::warning('Belt: the evaluation result could not be recorded on the belt record (the feedback stands)', ['feedback_id' => $fb->id ?? null, 'message' => $e->getMessage()]);
+        }
+    }
+
     /** A presentation generated for a property: write the tracked property, the owner as seller, the belt record and its appointment. Never throws. */
     public function linkPresentation(Presentation $presentation, ?int $agentId): void
     {
