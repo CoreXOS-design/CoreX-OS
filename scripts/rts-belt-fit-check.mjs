@@ -48,7 +48,7 @@ for (const [w, h] of VIEWPORTS) {
   page.on('pageerror', (e) => errors.push(e.message));
 
   // 1. the agent's tiles (a manager's read-only view of the agent)
-  await page.goto(`${BASE}/road-to-sold?agent=${AGENT}`, { waitUntil: 'networkidle2', timeout: 90000 });
+  await page.goto(`${BASE}/corex/road-to-sold?agent=${AGENT}`, { waitUntil: 'networkidle2', timeout: 90000 });
   await page.waitForSelector('[data-qa="belt"]', { timeout: 20000 });
   const tiles = await page.$$eval('[data-qa^="belt-tile-"]', (els) => els.map((e) => { const r = e.getBoundingClientRect(); return { k: e.dataset.qa.replace('belt-tile-', ''), l: r.left, r: r.right, t: r.top, b: r.bottom, w: r.width, h: r.height, fig: (e.querySelector('[data-qa="belt-figure"]') || {}).innerText }; }));
   check(tiles.length === 11, `11 tiles drawn (${tiles.length}): ${tiles.map((t) => t.k + '=' + t.fig).join(' ')}`);
@@ -77,7 +77,7 @@ for (const [w, h] of VIEWPORTS) {
   check(!/block=station/.test(page.url()), 'Stock loaded opens today\'s intake');
 
   // 3. the manager's panel opens and closes
-  await page.goto(`${BASE}/road-to-sold?agent=${AGENT}`, { waitUntil: 'networkidle2', timeout: 90000 });
+  await page.goto(`${BASE}/corex/road-to-sold?agent=${AGENT}`, { waitUntil: 'networkidle2', timeout: 90000 });
   if (await page.$('[data-qa="belt-roster-open"]')) {
     await page.click('[data-qa="belt-roster-open"]'); await wait(300);
     const open = await page.$eval('[data-qa="belt-roster"]', (e) => getComputedStyle(e).display !== 'none');
@@ -93,7 +93,7 @@ for (const [w, h] of VIEWPORTS) {
   }
 
   // 4. the test user's OWN page: the Start card (this user has never started) and nothing to scroll
-  await page.goto(`${BASE}/road-to-sold`, { waitUntil: 'networkidle2', timeout: 90000 });
+  await page.goto(`${BASE}/corex/road-to-sold`, { waitUntil: 'networkidle2', timeout: 90000 });
   const startCard = await page.$('[data-qa="belt-start-card"]') !== null;
   const ownTiles = (await page.$$('[data-qa^="belt-tile-"]')).length;
   check(startCard || ownTiles > 0, startCard ? 'the Start card shows for an agent who has not started' : 'own page shows tiles (this user already works Road to Sold)');
