@@ -31,12 +31,12 @@ final class PitchStepsService
 
     /**
      * @param array<string,string> $carry the popup parameters to keep (embed, rts_prospect, rts_stage)
-     * @return array<string,?string> property|owner|pitch|contact|evaluation => address or null
+     * @return array<string,?string> property|owner|pitch|contact|evaluation => address or null, and `address` (the property's, for the title)
      */
     public function plan(User $actor, ?int $listingId, ?int $prospectId, ?int $trackedId, array $carry = []): array
     {
         $agencyId = (int) ($actor->effectiveAgencyId() ?: 0);
-        $out = ['property' => null, 'owner' => null, 'pitch' => null, 'contact' => null, 'evaluation' => null];
+        $out = ['property' => null, 'owner' => null, 'pitch' => null, 'contact' => null, 'evaluation' => null, 'address' => null];
         if ($agencyId <= 0) {
             return $out;
         }
@@ -55,6 +55,9 @@ final class PitchStepsService
         if ($prospect && ! isset($carry['rts_prospect'])) {
             $carry['rts_prospect'] = (string) $prospect->id;
         }
+
+        // the property's address, for the popup's title (the same wording on every step)
+        $out['address'] = trim((string) ($listing?->address ?? '')) !== '' ? trim((string) $listing->address) : (trim((string) $tp?->displayAddress()) ?: null);
 
         // the MIC card (the same one-card page the popup builds for itself when it knows the advert)
         if ($listing) {

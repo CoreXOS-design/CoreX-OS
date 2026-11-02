@@ -64,8 +64,13 @@ class CalendarController extends Controller
         $shared['scopeCeiling'] = $ceiling;
         $shared['autoOpenFeedbackEventId'] = $request->input('capture_feedback');
 
+        // road-to-sold.md 23.23 drop 6: inside the pitch popup's Book evaluation step the calendar page is only the New Event form - nothing of the grid,
+        // the deck or the agenda is shown, so none of it is built (the page took 5-6 s and 2.2 MB, 2,800 queries, to show a form).
+        $pitchBook = $request->boolean('pitch_book') && \App\Support\Embed::on();
+        $request->attributes->set('pitch_book_slim', $pitchBook);
+
         // AT-164 Gate 4 — the Tile Deck (below the grid, all views).
-        $shared['deck']        = $this->tiles->buildDeck($user);
+        $shared['deck']        = $pitchBook ? [] : $this->tiles->buildDeck($user);
         $shared['deckCatalog'] = $this->tiles->catalog($user);
         $shared['deckLayout']  = $this->tiles->resolveLayout($user);
         $shared['deckSlots']   = $this->tiles->slotCount($user);
@@ -79,7 +84,7 @@ class CalendarController extends Controller
         // collapsed states / scroll mode), with code defaults; and the resident agenda.
         $cockpit = $this->resolveCockpit($pref);
         $shared['cockpit'] = $cockpit;
-        $shared['agenda']  = $this->tiles->panelAgenda($user);
+        $shared['agenda']  = $pitchBook ? [] : $this->tiles->panelAgenda($user);
 
         // AT-164 — CALENDAR SCROLLING preference (continuous stream vs classic paged).
         // Per-user, part of the saved arrangement. An explicit ?scroll= renders that mode
@@ -323,7 +328,8 @@ class CalendarController extends Controller
         // lazy-load top threshold (so init never trips loadPrev and drifts), plus enough
         // BELOW to overflow the frame and engage scrolling immediately.
         $preloadStart   = $anchorMonday->copy()->subWeeks(6);
-        $weekRows       = $this->weekRowsData($user, $preloadStart, 20, $typeFilter, $categoryFilter, $scope);
+        $slim           = (bool) $request->attributes->get('pitch_book_slim');
+        $weekRows       = $this->weekRowsData($user, $preloadStart, $slim ? 1 : 20, $typeFilter, $categoryFilter, $scope);
         $anchorWeek     = $anchorMonday->toDateString();
 
         // AT-164 — PAGED shell data: exactly the weeks of the anchor MONTH (Monday of the
@@ -331,7 +337,7 @@ class CalendarController extends Controller
         // renderer as the continuous stream (one rendering truth, two navigation shells).
         $monthLastMonday = Carbon::create($year, $month, 1)->endOfMonth()->startOfWeek(Carbon::MONDAY);
         $pagedWeekCount  = (int) round($monthFirstMonday->diffInWeeks($monthLastMonday)) + 1;
-        $pagedWeekRows   = $this->weekRowsData($user, $monthFirstMonday->copy(), max(4, min(6, $pagedWeekCount)), $typeFilter, $categoryFilter, $scope);
+        $pagedWeekRows   = $this->weekRowsData($user, $monthFirstMonday->copy(), $slim ? 1 : max(4, min(6, $pagedWeekCount)), $typeFilter, $categoryFilter, $scope);
 
         // Agenda range logic
         $rangeGroups = [

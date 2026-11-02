@@ -85,7 +85,7 @@
             b.appendChild(el('span', { text: s[1] }));
             stepEls[s[0]] = b; steps.appendChild(b);
         });
-        var title = el('div', { 'class': 'cxp-title', text: o.label || 'Pitch' });
+        var title = el('div', { 'class': 'cxp-title', text: 'Pitch' + (o.label && /\s-\s/.test(o.label) ? ' · ' + o.label.replace(/^.*?\s-\s/, '') : '') });
         var nextBtn = el('button', { type: 'button', 'class': 'cxp-btn cxp-primary', 'data-qa': 'pitch-next' });
         var closeBtn = el('button', { type: 'button', 'class': 'cxp-btn', 'aria-label': 'Close and go back', 'data-qa': 'pitch-close', text: 'Close' });
         var frame = el('iframe', { 'class': 'cxp-frame', title: 'Pitch', 'data-qa': 'pitch-frame' });
@@ -156,7 +156,9 @@
                 .then(function (r) { return r.ok ? r.json() : null; })
                 .then(function (d) {
                     if (!d || !d.steps || pop !== me) return;
-                    Object.keys(d.steps).forEach(function (k) { if (d.steps[k] && !pop.urls[k]) pop.urls[k] = d.steps[k]; });
+                    // one title for every step: the property's address, not the label of the button that opened it ("Find the owner - ..." stayed on the Pitch step)
+                    if (d.steps.address) { title.textContent = 'Pitch · ' + d.steps.address; }
+                    Object.keys(d.steps).forEach(function (k) { if (k !== 'address' && d.steps[k] && !pop.urls[k]) pop.urls[k] = d.steps[k]; });
                     paint();
                 })
                 .catch(function () { /* the pills stay as they are: the screens still work */ });
@@ -182,8 +184,9 @@
         // Done / Close say what happened: "Pitched · 73 Marine Drive", "Contact logged · 73 Marine Drive", or that nothing was sent
         var where = (p.results.length && p.results[p.results.length - 1].address) || (p.o.label || '').replace(/^Pitch\s*-\s*/i, '');
         if (p.results.length) {
-            var kinds = {}, booked = null; p.results.forEach(function (r) { kinds[r.kind] = true; if (r.kind === 'booked') booked = r; });
-            if (booked) { toast('Evaluation booked · ' + booked.detail + ' · ' + (booked.address || where)); }
+            var kinds = {}, booked = null, claimed = null; p.results.forEach(function (r) { kinds[r.kind] = true; if (r.kind === 'booked') booked = r; if (r.kind === 'claimed') claimed = r; });
+            if (!booked && !kinds.pitched && !kinds.logged && claimed) { toast('Claimed · ' + (claimed.address || where) + ' · yours for ' + (claimed.detail || 'the hold period')); }
+            else if (booked) { toast('Evaluation booked · ' + booked.detail + ' · ' + (booked.address || where)); }
             else { toast((kinds.pitched ? 'Pitched' : 'Contact logged') + (where ? ' · ' + where : '') + (kinds.pitched && kinds.logged ? ' (and a call logged)' : '')); }
         } else if (done === true) {
             toast('Done' + (where ? ' · ' + where : '') + ' - nothing was sent or logged.');
@@ -249,7 +252,11 @@
             return;
         }
         if (e.data.pitch === 'book') { if (e.data.url && sameSite(e.data.url) && !pop.urls.evaluation) { pop.urls.evaluation = e.data.url; if (pop.repaint) pop.repaint(); } return; }
-        if (e.data.pitch === 'result') { pop.results.push({ kind: ['logged', 'booked'].indexOf(e.data.kind) >= 0 ? e.data.kind : 'pitched', address: String(e.data.address || ''), detail: String(e.data.detail || '') }); return; }
+        if (e.data.pitch === 'result') { var rk = ['logged', 'booked', 'claimed'].indexOf(e.data.kind) >= 0 ? e.data.kind : 'pitched';
+            pop.results.push({ kind: rk, address: String(e.data.address || ''), detail: String(e.data.detail || '') });
+            // claiming is said the moment it happens: the agent is looking at the screen that did it
+            if (rk === 'claimed') { toast('Claimed · ' + (e.data.address || 'this property') + ' · yours for ' + (e.data.detail || 'the hold period')); }
+            return; }
         if (e.data.rts === 'done') close(true);
     });
 

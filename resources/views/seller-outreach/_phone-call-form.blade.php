@@ -4,6 +4,7 @@
 @php
     $addr = $property ? (trim((string) $property->composeAddressFromParts()) ?: ($property->address ?: 'this property')) : null;
     $inputStyle = 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);';
+    $callAt = \Carbon\Carbon::parse($phoneCall['now']);
 @endphp
 <div data-qa="phone-call" class="space-y-4"
      x-data="phoneCallForm({
@@ -54,9 +55,12 @@
         @endif
 
         <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);" for="pc-when">When was the call?</label>
-            <input id="pc-when" type="datetime-local" x-model="when" :max="now" class="px-3 py-2 text-sm rounded-md" style="{{ $inputStyle }}">
-            <span class="text-xs ml-2" style="color: var(--text-muted);">Now, unless you are logging an earlier call.</span>
+            <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);" for="pc-when-date">When was the call? <span style="color: var(--ds-crimson, #dc2626);" title="Required">*</span></label>
+            <div class="flex items-center gap-2 flex-wrap" data-qa="call-when">
+                <x-dmy-date id="pc-when-date" name="pc_when_date" :value="$callAt->toDateString()" :required="true" />
+                <input id="pc-when-time" type="time" required value="{{ $callAt->format('H:i') }}" class="px-3 py-2 text-xs rounded-md" style="{{ $inputStyle }}" aria-label="Time of the call">
+                <span class="text-xs" style="color: var(--text-muted);">Now, unless you are logging an earlier call.</span>
+            </div>
         </div>
 
         <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-qa="phone-outcomes">
@@ -77,8 +81,8 @@
         </div>
 
         <div x-show="current && current.needs_date" class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);" for="pc-next">Bring it back on</label>
-            <input id="pc-next" type="date" x-model="nextDate" class="px-3 py-2 text-sm rounded-md" style="{{ $inputStyle }}">
+            <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);" for="pc-next">Bring it back on <span style="color: var(--ds-crimson, #dc2626);" title="Required">*</span></label>
+            <x-dmy-date id="pc-next" name="pc_next" :required="true" :min="now()->toDateString()" />
         </div>
         <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);" x-show="current && current.offers_valuation">
             <input type="checkbox" x-model="valuation"> Evaluation booked
@@ -87,8 +91,11 @@
             You pick the date and time of the evaluation next, in the calendar. The call is logged once it is booked.
         </div>
         <div x-show="!bookUrl && current && (current.needs_appointment || valuation)" class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);" for="pc-appt">Evaluation date and time</label>
-            <input id="pc-appt" type="datetime-local" x-model="appointmentAt" class="px-3 py-2 text-sm rounded-md" style="{{ $inputStyle }}">
+            <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);" for="pc-appt">Evaluation date and time <span style="color: var(--ds-crimson, #dc2626);" title="Required">*</span></label>
+            <div class="flex items-center gap-2 flex-wrap">
+                <x-dmy-date id="pc-appt" name="pc_appt_date" :required="true" :min="now()->toDateString()" />
+                <input id="pc-appt-time" type="time" required value="09:00" class="px-3 py-2 text-xs rounded-md" style="{{ $inputStyle }}" aria-label="Time of the evaluation">
+            </div>
         </div>
 
         <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
@@ -112,33 +119,42 @@
 <script>
 function phoneCallForm(cfg) {
     return {
-        groups: cfg.groups, now: cfg.now, bookUrl: cfg.bookUrl, loggedKind: null, loggedGroup: null, when: cfg.now, chosen: '', nextDate: '', valuation: false, appointmentAt: '', note: '',
+        groups: cfg.groups, now: cfg.now, bookUrl: cfg.bookUrl, loggedKind: null, loggedGroup: null, chosen: '', valuation: false, note: '',
         saving: false, error: '', done: false, doneMessage: '',
         get current() { var id = Number(this.chosen); var found = null; this.groups.forEach(function (g) { g.items.forEach(function (c) { if (c.id === id) { found = c; } }); }); return found; },
         // an evaluation outcome is booked in the calendar's own form (the next step), and the call is logged against that appointment
         get deferBooking() { return !!this.bookUrl && !!this.current && (this.current.needs_appointment || (this.valuation && this.current.offers_valuation)); },
         get canBook() { return !!this.bookUrl && this.loggedKind === 'conversation' && this.loggedGroup !== 'off_ramp'; },
+        // dates are dd/mm/yyyy (x-dmy-date) and post their value as YYYY-MM-DD in a hidden field of that name; the time is its own box
+        iso(name) { var i = this.$root.querySelector('input[type="hidden"][name="' + name + '"]'); return i ? i.value : ''; },
+        timeOf(id) { var i = document.getElementById(id); return i && i.value ? i.value : ''; },
+        readWhen() { var d = this.iso('pc_when_date'), t = this.timeOf('pc-when-time'); return d && t ? d + 'T' + t : ''; },
+        readAppt() { var d = this.iso('pc_appt_date'), t = this.timeOf('pc-appt-time'); return d && t ? d + 'T' + t : ''; },
+        clearDmy(name) { var i = this.$root.querySelector('input[type="hidden"][name="' + name + '"]'); var s = i && i.closest('[data-dmy-date]'); if (s && window.Alpine) { var d = Alpine.$data(s); d.iso = ''; d.shown = ''; } },
         goBook(withCall) {
             var u = new URL(this.bookUrl, window.location.origin);
             if (withCall) {
                 u.searchParams.set('pitch_outcome', this.current.id); u.searchParams.set('pitch_channel', 'phone');
-                if (this.when) { u.searchParams.set('pitch_when', this.when); }
+                if (this.readWhen()) { u.searchParams.set('pitch_when', this.readWhen()); }
                 if (this.note) { u.searchParams.set('pitch_note', this.note); }
             }
             window.location.href = u.toString();
         },
-        again() { this.done = false; this.chosen = ''; this.note = ''; this.nextDate = ''; this.valuation = false; this.appointmentAt = ''; this.error = ''; this.when = this.now; },
+        again() { this.done = false; this.chosen = ''; this.note = ''; this.valuation = false; this.error = ''; this.clearDmy('pc_next'); this.clearDmy('pc_appt_date'); },
         async save() {
             if (this.saving || !this.current) { return; }
             var c = this.current;
-            if (c.needs_date && !this.nextDate) { this.error = 'Pick the date to bring it back on.'; return; }
-            if (!this.bookUrl && (c.needs_appointment || this.valuation) && !this.appointmentAt) { this.error = 'Pick the evaluation date and time.'; return; }
+            var when = this.readWhen(), next = this.iso('pc_next'), appt = this.readAppt();
+            if (!when) { this.error = 'Enter the date (dd/mm/yyyy) and the time of the call.'; return; }
+            if (new Date(when) > new Date(Date.now() + 60000)) { this.error = 'The time of the call cannot be in the future. Use now, or an earlier time.'; return; }
+            if (c.needs_date && !next) { this.error = 'Pick the date to bring it back on (dd/mm/yyyy).'; return; }
+            if (!this.bookUrl && (c.needs_appointment || this.valuation) && !appt) { this.error = 'Pick the evaluation date (dd/mm/yyyy) and time.'; return; }
             if (this.deferBooking) { this.goBook(true); return; }
             this.error = ''; this.saving = true;
-            var body = new URLSearchParams({ tracked_property_id: cfg.tp, outcome_definition_id: c.id, channel: 'phone', occurred_at: this.when || '', note: this.note || '' });
-            if (c.needs_date && this.nextDate) { body.set('next_action_at', this.nextDate); }
+            var body = new URLSearchParams({ tracked_property_id: cfg.tp, outcome_definition_id: c.id, channel: 'phone', occurred_at: when, note: this.note || '' });
+            if (c.needs_date && next) { body.set('next_action_at', next); }
             if (this.valuation) { body.set('valuation_booked', '1'); }
-            if (this.appointmentAt && (c.needs_appointment || this.valuation)) { body.set('appointment_at', this.appointmentAt); }
+            if (appt && (c.needs_appointment || this.valuation)) { body.set('appointment_at', appt); }
             try {
                 var res = await fetch(cfg.url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-TOKEN': cfg.csrf, 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body: body });
                 var data = {}; try { data = await res.json(); } catch (e) { /* not json */ }

@@ -94,14 +94,16 @@ class PitchPathService
             return null;
         }
 
-        // The belt makes this property FOR the agent from a MIC address: it is not something they captured, so it scores nothing (23.16).
-        $property = Property::withoutActivityPoints(function () use ($prospect, $tp, $actor) {
+        // The belt makes this property FOR the agent from a MIC address: it is not something they captured, so it scores nothing (23.16), it spawns no
+        // "Upload signed mandate / owner ID / proof of ownership" chase tasks (it is not a mandate yet: the agency's recipe decides what is chased at a station),
+        // and it belongs to the record's OWN property file, never a second one (23.23 drop 6).
+        $property = \App\Observers\PropertyIdentityLinkObserver::bindingTo((int) $tp->id, fn () => Property::withoutNewListingSideEffects(function () use ($prospect, $tp, $actor) {
             $made = $prospect->prospecting_listing_id
                 ? $this->fromListing($prospect, $tp, $actor)
                 : null;
 
             return $made ?? $this->properties->ensureProperty($tp, $actor);
-        });
+        }));
         if (! $property) {
             return null;
         }
