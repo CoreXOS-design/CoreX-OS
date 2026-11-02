@@ -48,6 +48,12 @@ class ProspectController extends Controller
     {
         $p = $this->find($request, $prospect, true);
         abort_unless($this->steps->exists($step), 404);
+        // the pitch popup's first screen (23.23 drop 5): answer with the screen itself, not with an address that answers with another address (one hop fewer)
+        if (in_array($step, ['pitch', 'find_owner'], true) && \App\Support\Embed::on()) {
+            $path = app(\App\Services\RoadToSold\PitchPathService::class);
+
+            return redirect()->to($path->next($p, $request->user(), $path->carry($request))['url']);
+        }
         $url = $this->steps->urlFor($p, $step);
         abort_unless($url, 404, 'That step has no screen yet.');
 

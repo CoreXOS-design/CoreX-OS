@@ -148,7 +148,8 @@ final class ComposerController extends Controller
         // picker can surface collision badges. ≤2 linked properties per
         // contact (per loadLinkedProperties() comment), so calling resolve()
         // per row is cheap — no batching layer needed.
-        $propertyStatuses = $this->resolveStatusesForPicker(
+        // (the picker, which shows them, is not in the pitch popup: skip the address-matching lookups there - they cost about a third of a second)
+        $propertyStatuses = \App\Support\Embed::on() ? [] : $this->resolveStatusesForPicker(
             $linkedProperties,
             $agencyId,
             (int) $request->user()->id,
