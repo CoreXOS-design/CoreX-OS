@@ -284,6 +284,43 @@ final class ClaimBeltTest extends TestCase
         $this->assertNull(app(ProspectService::class)->ownerOf($this->agency->id, $tp));
     }
 
+    public function test_a_claim_brought_onto_the_belt_late_carries_its_own_date_into_the_entry_date_and_the_hold(): void
+    {
+        $taken = now()->subDays(12);   // Sunday 18 Oct: still inside the hold
+        $tp = $this->tp(['street_name' => 'Bairn Street', 'street_number' => (string) random_int(1, 999)]);
+        $claim = ProspectingClaim::withoutEvents(fn () => ProspectingClaim::create([
+            'agency_id' => $this->agency->id, 'prospecting_listing_id' => $this->listing([], $tp), 'user_id' => $this->agent->id,
+            'status' => 'claimed', 'claimed_at' => $taken, 'last_updated_at' => $taken,
+        ]))->refresh();
+
+        $p = app(ClaimBeltService::class)->placeClaim($claim);
+
+        $this->assertNotNull($p);
+        $this->assertSame($taken->toDateString(), $p->fresh()->stage_entered_at->toDateString(), 'Since is the day the claim was taken');
+        $this->assertSame(
+            app(WorkdayService::class)->addWorkdays($taken, 30, 'ZA', $this->agent)->toDateString(),
+            $claim->fresh()->hold_until->toDateString(),
+            '30 working days from the claim date, not from the day it reached the belt'
+        );
+    }
+
+    public function test_a_claim_taken_today_is_unchanged_and_a_claim_whose_hold_has_run_out_gets_the_whole_hold_from_today(): void
+    {
+        $oldTp = $this->tp(['street_name' => 'Bairn Street', 'street_number' => (string) random_int(1, 999)]);
+        $old = ProspectingClaim::withoutEvents(fn () => ProspectingClaim::create([
+            'agency_id' => $this->agency->id, 'prospecting_listing_id' => $this->listing([], $oldTp), 'user_id' => $this->agent->id,
+            'status' => 'claimed', 'claimed_at' => now()->subDays(200), 'last_updated_at' => now()->subDays(200),
+        ]))->refresh();
+        $p = app(ClaimBeltService::class)->placeClaim($old);
+
+        $this->assertSame(now()->subDays(200)->toDateString(), $p->fresh()->stage_entered_at->toDateString(), 'the real date still shows as Since');
+        $this->assertSame(app(WorkdayService::class)->addWorkdays(now(), 30, 'ZA', $this->agent)->toDateString(), $old->fresh()->hold_until->toDateString(), 'an ended hold is not released: it gets the whole hold from today');
+
+        [$new] = $this->claimFor($this->agent);
+        $this->assertSame(now()->toDateString(), $this->prospectOf((int) app(ClaimBeltService::class)->trackedPropertyOf($new))->stage_entered_at->toDateString());
+        $this->assertSame(app(WorkdayService::class)->addWorkdays(now(), 30, 'ZA', $this->agent)->toDateString(), $new->fresh()->hold_until->toDateString());
+    }
+
     public function test_adoption_dry_run_writes_nothing_then_apply_is_journalled_and_undo_puts_it_back(): void
     {
         // three claims written before v4: no belt record, no hold - one contacted, one a meeting, one with no property file
