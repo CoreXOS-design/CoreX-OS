@@ -7005,11 +7005,28 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             // v3 pitch path from a row (22.10, R8): the owner is known -> the composer, else Find owner; "No owner found" is an outcome.
             Route::get('/prospects/{prospect}/pitch-path', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'show'])
                 ->whereNumber('prospect')->name('prospects.pitch-path');
+            // v4 (23.9): the result of the evaluation / presentation, from the belt card (the one result service)
+            Route::post('/prospects/{prospect}/result', [\App\Http\Controllers\RoadToSold\ProspectController::class, 'result'])
+                ->whereNumber('prospect')->name('prospects.result');
             // v4 (23.8): "Prepare presentation" opens the generator on THAT property (the property page with its Generate Presentation window already open), not the index
             Route::get('/prospects/{prospect}/presentation-path', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'presentation'])
                 ->whereNumber('prospect')->name('prospects.presentation-path');
             Route::post('/prospects/{prospect}/no-owner', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'noOwner'])
                 ->whereNumber('prospect')->name('prospects.no-owner');
+
+            // v4 (23.10): the agency's one result list (won / undecided / lost / not selling), full CRUD with archive and restore
+            Route::prefix('settings/results')
+                ->middleware('permission:road_to_sold.manage_settings')
+                ->name('settings.results.')
+                ->group(function () {
+                    $c = \App\Http\Controllers\RoadToSold\ResultSettingsController::class;
+                    Route::get('/', [$c, 'index'])->name('index');
+                    Route::post('/', [$c, 'store'])->name('store');
+                    Route::put('/{option}', [$c, 'update'])->whereNumber('option')->name('update');
+                    Route::post('/{option}/toggle', [$c, 'toggle'])->whereNumber('option')->name('toggle');
+                    Route::delete('/{option}', [$c, 'archive'])->whereNumber('option')->name('archive');
+                    Route::post('/{option}/restore', [$c, 'restore'])->whereNumber('option')->name('restore');
+                });
 
             Route::prefix('settings/outcomes')
                 ->middleware('permission:road_to_sold.manage_settings')

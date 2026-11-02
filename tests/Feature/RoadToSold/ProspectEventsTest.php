@@ -200,7 +200,8 @@ final class ProspectEventsTest extends TestCase
         ));
 
         $p->refresh();
-        $this->assertSame(S::PRESENTATION_FEEDBACK, $p->stage);
+        // v4 (23.9): a presentation outcome IS a result - the one result service parks it where it stood, with the reason; "Presentation feedback" is a legacy station
+        $this->assertSame(S::FOUND, $p->stage);
         $this->assertSame('Seller chose another agency', $p->park_reason_label, 'dead stock goes to Parked with its reason');
     }
 }

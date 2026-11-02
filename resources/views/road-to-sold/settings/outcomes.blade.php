@@ -41,6 +41,7 @@
             </div>
             <div class="flex items-center gap-2 flex-wrap">
                 @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('road-to-sold.settings.results.index', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs" data-qa="to-results">Results</a>
                 <a href="{{ route('road-to-sold.index', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Back to Road to Sold</a>
                 <button type="button" class="corex-btn-primary corex-btn-xs" @click="openNew()" data-tour="smk-rto-add">Add outcome</button>
             </div>

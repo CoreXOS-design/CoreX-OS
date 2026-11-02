@@ -1190,7 +1190,12 @@ class CalendarController extends Controller
                 // for — never hardcoded to lp_outcome regardless of class.
                 // Reuses $outcomes (already fetched, same category) rather than
                 // re-querying, so the two can never drift.
-                'lp_outcomes' => $outcomes->pluck('label')->values(),
+                // v4 (road-to-sold.md 23.10): a seller-facing appointment (evaluation / listing presentation) answers from the ONE result list, the same one the
+                // presentation panel and the belt card use; a buyer-facing viewing keeps its own list. An answer saved in the old wording stays selectable.
+                'lp_outcomes' => $isSellerFacing
+                    ? collect(array_column(app(\App\Services\RoadToSold\ResultOptionService::class)->list((int) $agencyId), 'label'))
+                        ->merge($properties->map(fn ($p) => ($existing->get($p->id)?->kind_specific_data['outcome'] ?? null))->filter())->unique()->values()
+                    : $outcomes->pluck('label')->values(),
                 // Mandate type has no meaning for a buyer-facing appointment
                 // (a viewing) — empty list, and the "Mandate type" field hides
                 // itself client-side when this is empty (see the x-show gate
