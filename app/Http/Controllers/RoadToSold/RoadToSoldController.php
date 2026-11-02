@@ -512,7 +512,7 @@ class RoadToSoldController extends Controller
     }
 
     /** "Add to my day" - extra properties from one selection, reported apart from the target (lane 2 builds them). */
-    public function addToDay(Request $request): RedirectResponse
+    public function addToDay(Request $request): \Symfony\Component\HttpFoundation\Response
     {
         $max = \App\Services\RoadToSold\SettingsService::forUser($request->user(), Track::fromRequest($request))->addToDayMax();
         $data = $request->validate([
@@ -526,19 +526,54 @@ class RoadToSoldController extends Controller
             'count.max'          => "You can add up to {$max} at a time.",
         ]);
 
+        $track = Track::fromRequest($request);
         try {
-            $added = app(ListBuilderService::class)->addToDay($request->user(), $data['selection'], (int) $data['count'], null, Track::fromRequest($request));
+            $added = app(ListBuilderService::class)->addToDay($request->user(), $data['selection'], (int) $data['count'], null, $track);
         } catch (\InvalidArgumentException $e) {
-            return back()->with('rts_error', $e->getMessage());
+            return $this->addToDayReply($request, false, $e->getMessage());
         } catch (Throwable $e) {
             report($e);
 
-            return back()->with('rts_error', 'We could not add those just now. Try again, or pick a smaller number.');
+            return $this->addToDayReply($request, false, 'We could not add those just now. Try again, or pick a smaller number.');
         }
 
+        // Always an answer, right beside the button (the old flash sat at the top of the page, out of sight): what was added, or why nothing was.
         $n = is_countable($added) ? count($added) : 0;
+        if ($n > 0) {
+            $names = collect($added)->map(fn ($i) => $this->addedAddress($i))->filter()->values();
+            $msg = 'Added: ' . ($names->isEmpty() ? "{$n} " . ($n === 1 ? 'property' : 'properties') : $names->take(2)->implode(', ') . ($names->count() > 2 ? ' and ' . ($names->count() - 2) . ' more' : ''));
 
-        return back()->with('status', $n > 0 ? "Added {$n} to your day." : 'Nothing more is available from that selection right now.');
+            return $this->addToDayReply($request, true, $msg, $n, 'status');
+        }
+        $label = app(CallListService::class)->selectionLabel($data['selection']);
+        $counts = app(CallListService::class)->dayCounts($request->user(), (int) app(ListBuilderService::class)->listOwner($request->user())->id, now()->startOfDay(), $track);
+        $target = app(\App\Services\RoadToSold\WorkdayService::class)->targetFor($request->user(), now(), $track);
+        $full = $target > 0 && (int) $counts['target_items'] >= $target;
+        $msg = ($full ? "Your day is full ({$counts['target_items']} of {$target}). " : '') . "Nothing more is available from {$label} right now.";
+
+        return $this->addToDayReply($request, false, $msg, 0, 'status');
+    }
+
+    /** The same answer for the page's in-place fetch (JSON) and for a plain form post (a flash on the reloaded page). */
+    private function addToDayReply(Request $request, bool $ok, string $message, int $added = 0, string $flash = 'rts_error')
+    {
+        if ($request->expectsJson()) {
+            return response()->json(['ok' => $ok, 'message' => $message, 'added' => $added]);
+        }
+
+        return back()->with($flash, $message);
+    }
+
+    /** The address of a row just added to the day. */
+    private function addedAddress(RtsListItem $item): ?string
+    {
+        $tp = $item->tracked_property_id ? \App\Models\Prospecting\TrackedProperty::query()->withoutGlobalScopes()->find($item->tracked_property_id) : null;
+        $address = $tp ? $tp->displayAddress() : null;
+        if (($address === null || $address === '(no address)') && $item->prospecting_listing_id) {
+            $address = \Illuminate\Support\Facades\DB::table('prospecting_listings')->where('id', $item->prospecting_listing_id)->value('address');
+        }
+
+        return $address && $address !== '(no address)' ? (string) $address : null;
     }
 
     /** "Swap" on a loaded property (23.14): it leaves the list with the reason, the property is released, and the next candidate takes its place. Own list only. */

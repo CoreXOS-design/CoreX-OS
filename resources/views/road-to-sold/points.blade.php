@@ -2,7 +2,7 @@
 
 {{--
     Road to Sold v4 belt points (road-to-sold.md 23.16) - "why did I get these points": the signed-in agent's own credits.
-    Needs $rows (paginator of: activity_date, property, event, points, reversed, counts, revoke_reason), $totals (BeltPoints::totals), $filters, $credits.
+    Needs $rows (paginator of lines: activity_date, property, event, points (a taken-back credit has its own "-" line), running total, line_kind, reversed, waiting, revoke_reason), $totals (BeltPoints::totals), $filters, $credits.
     Screen-text rule (Johan): every line is data or a control. Newest first; search = property or event; filters = event + date range.
 --}}
 
@@ -49,15 +49,17 @@
         @else
             <table class="w-full text-sm" data-qa="points-log">
                 <thead><tr style="border-bottom:1px solid var(--border); color:var(--text-muted);" class="text-left text-xs">
-                    <th class="px-4 py-2">Date</th><th class="px-4 py-2">Property</th><th class="px-4 py-2">What happened</th><th class="px-4 py-2 text-right">Points</th>
+                    <th class="px-4 py-2">Date</th><th class="px-4 py-2">Property</th><th class="px-4 py-2">What happened</th><th class="px-4 py-2 text-right">Points</th><th class="px-4 py-2 text-right">Total</th>
                 </tr></thead>
                 <tbody>
                 @foreach($rows as $r)
-                    <tr style="border-bottom:1px solid var(--border); color:var(--text-primary);" @if($r->reversed) class="opacity-60" @endif>
+                    @php $fmt = fn ($n) => rtrim(rtrim(number_format((float) $n, 2, '.', ' '), '0'), '.'); $pts = (float) $r->points; @endphp
+                    <tr style="border-bottom:1px solid var(--border); color:var(--text-primary);" data-qa="points-line" data-kind="{{ $r->line_kind }}">
                         <td class="px-4 py-2 whitespace-nowrap">{{ \Illuminate\Support\Carbon::parse($r->activity_date)->format('j M Y') }}</td>
                         <td class="px-4 py-2">{{ $r->property ?: '-' }}</td>
-                        <td class="px-4 py-2">{{ $r->event }}@if($r->reversed) <span class="text-xs" style="color:var(--text-muted);">- taken back{{ $r->revoke_reason ? ': ' . $r->revoke_reason : '' }}</span>@endif</td>
-                        <td class="px-4 py-2 text-right font-semibold {{ $r->reversed ? 'line-through' : '' }}">{{ rtrim(rtrim(number_format((float) $r->points, 2), '0'), '.') }}</td>
+                        <td class="px-4 py-2">{{ $r->event }}@if($r->reversed) <span class="text-xs" style="color:var(--text-muted);">- taken back{{ $r->revoke_reason ? ': ' . $r->revoke_reason : '' }}</span>@elseif($r->waiting) <span class="text-xs" style="color:var(--text-muted);">- not confirmed yet</span>@endif</td>
+                        <td class="px-4 py-2 text-right font-semibold" style="{{ $r->reversed ? 'color: var(--ds-crimson, #dc2626);' : '' }}" data-qa="points-amount">{{ $pts < 0 ? '-' . $fmt(abs($pts)) : ($r->waiting ? $fmt($pts) : '+' . $fmt($pts)) }}</td>
+                        <td class="px-4 py-2 text-right" style="color:var(--text-muted);" data-qa="points-running">{{ $fmt($r->running) }}</td>
                     </tr>
                 @endforeach
                 </tbody>

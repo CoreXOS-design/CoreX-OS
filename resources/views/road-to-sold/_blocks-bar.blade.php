@@ -141,7 +141,27 @@
                 </select>
                 <input type="number" name="count" min="1" max="{{ $addMax ?? 100 }}" value="5" aria-label="How many to add" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }} width: 5rem;">
                 <button type="submit" class="corex-btn-outline corex-btn-xs">Add to my day</button>
+                <span role="status" aria-live="polite" class="text-xs" style="color: var(--text-primary);" data-qa="add-to-day-reply"></span>
             </form>
+            {{-- The answer appears right beside the button (what was added, or why nothing was). New rows show after a short pause; no JS = a plain post and a note on the reloaded page. --}}
+            <script>
+            (function () {
+                var f = document.querySelector('[data-qa="add-to-day"]'); if (!f) return;
+                var out = f.querySelector('[data-qa="add-to-day-reply"]'), btn = f.querySelector('button[type="submit"]');
+                f.addEventListener('submit', function (e) {
+                    e.preventDefault(); btn.disabled = true; out.textContent = 'Adding...';
+                    fetch(f.action, { method: 'POST', body: new FormData(f), headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+                        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+                        .then(function (x) {
+                            var j = x.j || {};
+                            out.textContent = j.message || (j.errors ? Object.values(j.errors)[0][0] : 'We could not add those just now.');
+                            btn.disabled = false;
+                            if (x.ok && j.added > 0) { setTimeout(function () { window.location.reload(); }, 1800); }
+                        })
+                        .catch(function () { out.textContent = 'We could not add those just now. Try again.'; btn.disabled = false; });
+                });
+            })();
+            </script>
     @endif
     @unless($viewingOwn)
         <span class="text-xs ml-2" style="color: var(--text-muted);" data-qa="read-only">Looking at {{ $agentName }} - read only</span>

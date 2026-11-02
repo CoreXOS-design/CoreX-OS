@@ -240,6 +240,34 @@ final class BeltPointsTest extends TestCase
         $this->assertSame(0, $this->points()->log($this->agent, ['q' => 'no such street'])->total());
     }
 
+    public function test_a_taken_back_credit_is_a_minus_line_and_the_running_total_adds_up(): void
+    {
+        Carbon::setTestNow('2026-10-29 09:00:00');
+        [, $earlier] = $this->claimed();
+        $this->points()->credit('rts.advertised', $this->agent, $earlier, ['date' => '2026-10-29']);   // +50
+        Carbon::setTestNow('2026-10-30 09:00:00');
+        [$tp] = $this->claimed();
+        $this->actingAs($this->agent);
+        $o = app(OutcomeService::class)->record($this->agent, (int) $tp->id, $this->def('spoke_not_interested')->id, ['channel' => 'phone', 'next_action_at' => '2026-11-10']);   // +20 phone, +20 off-ramp
+        Carbon::setTestNow('2026-11-02 09:00:00');
+        RtsContactOutcome::query()->withoutGlobalScopes()->find($o->id)->delete();   // both taken back
+
+        $log = $this->points()->log($this->agent);
+        $this->assertSame([-20.0, -20.0, 20.0, 20.0, 50.0], $log->getCollection()->map(fn ($r) => (float) $r->points)->all(), 'the reversals are minus lines, not positive ones');
+        $this->assertSame([50.0, 70.0, 90.0, 70.0, 50.0], $log->getCollection()->map(fn ($r) => (float) $r->running)->all(), 'the total after each line, newest first: it ends where the agent actually stands');
+        $this->assertSame(['reversal', 'reversal', 'credit', 'credit', 'credit'], $log->getCollection()->pluck('line_kind')->all());
+        $this->assertSame('2026-11-02', substr((string) $log->first()->activity_date, 0, 10), 'a reversal sits on the day it was taken back');
+        $this->assertSame(50.0, $this->pointsOf($this->agent), 'the log\'s last running total is the agent\'s total');
+
+        // a filter narrows the lines, never the arithmetic
+        $only = $this->points()->log($this->agent, ['event' => 'rts.outcome.phone']);
+        $this->assertSame([-20.0, 20.0], $only->getCollection()->map(fn ($r) => (float) $r->points)->all());
+        $this->assertSame([70.0, 70.0], $only->getCollection()->map(fn ($r) => (float) $r->running)->all());
+
+        $page = $this->actingAs($this->agent)->get(route('road-to-sold.points'))->assertOk();
+        $page->assertSee('-20', false)->assertSee('taken back', false)->assertSee('data-qa="points-running"', false);
+    }
+
     public function test_the_points_screens_render_and_the_settings_save_is_audited(): void
     {
         [$tp] = $this->claimed();

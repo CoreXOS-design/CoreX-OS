@@ -267,8 +267,10 @@ class BeltPoints
     }
 
     /**
-     * "Why did I get these points": the agent's own credits, newest first - date, property, what happened, points. Every credit an
-     * event wrote counts (belt credits and the older automatic ones); a reversed credit stays in the list, marked, and counts for nothing.
+     * "Why did I get these points": the agent's own credits, newest first - date, property, what happened, points and the running total after that line.
+     * Every credit an event wrote is a "+" line on the day it was earned; one that was TAKEN BACK also has a "-" line on the day it was taken back, so
+     * the running total always adds up (+20, then -20 = 0). A credit still waiting to be confirmed shows its points but is not in the total yet.
+     * The total is the agent's whole history up to that line, whatever filter is on.
      *
      * @param array{from?:?string,to?:?string,event?:?string,q?:?string} $filters
      * @return \Illuminate\Pagination\LengthAwarePaginator
@@ -278,7 +280,9 @@ class BeltPoints
         $agencyId = (int) ($agent->effectiveAgencyId() ?: 0);
         $userId = (int) $agent->ownershipUserId();
         $addr = "COALESCE(NULLIF(TRIM(CONCAT_WS(', ', NULLIF(TRIM(CONCAT_WS(' ', tp.street_number, tp.street_name)), ''), NULLIF(tp.suburb, ''))), ''), NULLIF(tp.address_raw, ''), pl.address, NULLIF(pp.address, ''), NULLIF(pp.title, ''))";
-        $q = DB::table('daily_activity_entries as e')
+        $pts = ActivityPointsService::sqlPoints('e', 'd');
+        $counting = "e.point_state IN ('" . implode("','", DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES) . "','" . DailyActivityEntry::STATE_REVOKED . "')";
+        $base = fn () => DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
             ->leftJoin('activity_definition_calendar_classes as m', fn ($j) => $j->on('m.activity_definition_id', '=', 'd.id')->where('m.trigger_kind', 'instant')->where('m.agency_id', $agencyId)->whereNull('m.deleted_at'))
             ->leftJoin('rts_prospects as rp', fn ($j) => $j->on('rp.id', '=', 'e.subject_id')->where('e.subject_type', \App\Models\RoadToSold\RtsProspect::class))
@@ -288,30 +292,40 @@ class BeltPoints
             ->leftJoin('tracked_properties as tp', 'tp.id', '=', DB::raw('COALESCE(rp.tracked_property_id, ro.tracked_property_id)'))
             ->leftJoin('prospecting_listings as pl', 'pl.id', '=', DB::raw('COALESCE(pc.prospecting_listing_id, rp.prospecting_listing_id, ro.prospecting_listing_id)'))
             ->where('e.agency_id', $agencyId)->where('e.user_id', $userId)
-            ->whereIn('e.source', [DailyActivityEntry::SOURCE_AUTO_INSTANT, DailyActivityEntry::SOURCE_AUTO_CALENDAR, DailyActivityEntry::SOURCE_MANUAL])
-            ->select([
-                'e.id', 'e.activity_date', 'e.point_state', 'e.revoke_reason', 'e.source', 'm.slug', 'd.name as definition_name',
-                DB::raw($addr . ' as property'), DB::raw(ActivityPointsService::sqlPoints('e', 'd') . ' as points'),
-            ]);
+            ->whereIn('e.source', [DailyActivityEntry::SOURCE_AUTO_INSTANT, DailyActivityEntry::SOURCE_AUTO_CALENDAR, DailyActivityEntry::SOURCE_MANUAL]);
+        $cols = fn (string $date, string $kind, int $rank, string $points, string $delta) => [
+            DB::raw("{$date} as line_date"), 'e.id as entry_id', DB::raw("{$rank} as line_rank"), DB::raw("'{$kind}' as line_kind"), 'e.point_state', 'e.revoke_reason',
+            'm.slug', 'd.name as definition_name', DB::raw($addr . ' as property'), DB::raw($points . ' as points'), DB::raw($delta . ' as delta'),
+        ];
+
+        $credit = $base()->select($cols('e.activity_date', 'credit', 0, $pts, "(CASE WHEN {$counting} THEN {$pts} ELSE 0 END)"));
+        $reversal = $base()->where('e.point_state', DailyActivityEntry::STATE_REVOKED)
+            ->select($cols('DATE(COALESCE(e.revoked_at, e.updated_at))', 'reversal', 1, "-({$pts})", "-({$pts})"));
+        $lines = DB::query()->fromSub($credit->unionAll($reversal), 'u')
+            ->select('u.*', DB::raw('SUM(u.delta) OVER (ORDER BY u.line_date, u.entry_id, u.line_rank ROWS UNBOUNDED PRECEDING) as running'));
+
+        $q = DB::query()->fromSub($lines, 'l')->select('l.*');
         if (! empty($filters['from'])) {
-            $q->whereDate('e.activity_date', '>=', $filters['from']);
+            $q->whereDate('l.line_date', '>=', $filters['from']);
         }
         if (! empty($filters['to'])) {
-            $q->whereDate('e.activity_date', '<=', $filters['to']);
+            $q->whereDate('l.line_date', '<=', $filters['to']);
         }
         if (! empty($filters['event'])) {
-            $q->where('m.slug', $filters['event']);
+            $q->where('l.slug', $filters['event']);
         }
         if (! empty($filters['q'])) {
             $needle = '%' . str_replace(['%', '_'], ['\\%', '\\_'], (string) $filters['q']) . '%';
-            $q->where(fn ($w) => $w->whereRaw($addr . ' like ?', [$needle])->orWhere('d.name', 'like', $needle));
+            $q->where(fn ($w) => $w->where('l.property', 'like', $needle)->orWhere('l.definition_name', 'like', $needle));
         }
 
-        return $q->orderByDesc('e.activity_date')->orderByDesc('e.id')->paginate($perPage)->withQueryString()->through(function ($r) {
+        return $q->orderByDesc('l.line_date')->orderByDesc('l.entry_id')->orderByDesc('l.line_rank')->paginate($perPage)->withQueryString()->through(function ($r) {
             $slug = (string) ($r->slug ?? '');
-            $r->event = $slug !== '' ? ($this->eventLabel($slug)) : preg_replace('/^\[Auto\]\s*/', '', (string) $r->definition_name);
-            $r->reversed = $r->point_state === DailyActivityEntry::STATE_REVOKED;
-            $r->counts = in_array($r->point_state, DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES, true);
+            $r->event = $slug !== '' ? $this->eventLabel($slug) : preg_replace('/^\[Auto\]\s*/', '', (string) $r->definition_name);
+            $r->activity_date = $r->line_date;
+            $r->reversed = $r->line_kind === 'reversal';
+            $r->waiting = $r->point_state === DailyActivityEntry::STATE_PROVISIONAL;
+            $r->running = round((float) $r->running, 2);
 
             return $r;
         });

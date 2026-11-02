@@ -695,7 +695,7 @@ final class AgentWeekScenarioTest extends TestCase
         $this->capture($this->anna, 'U08', 'do_not_contact', [], $this->itemFor($this->anna, 'U08', self::MON));
 
         // Anna adds two more to her day ("Add to my day") and calls one of them.
-        $this->actingAs($this->anna)->post(route('road-to-sold.add-to-day'), ['selection' => 'long_on_market', 'count' => 2])->assertSessionHas('status', 'Added 2 to your day.');
+        $this->actingAs($this->anna)->post(route('road-to-sold.add-to-day'), ['selection' => 'long_on_market', 'count' => 2])->assertSessionHas('status', fn ($m) => str_starts_with((string) $m, 'Added: '));   // names the properties (23.x: a reply beside the button)
         $this->capture($this->anna, 'U09', 'no_answer', [], $this->itemFor($this->anna, 'U09', self::MON));
 
         // CARA calls the first of hers.
