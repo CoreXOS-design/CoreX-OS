@@ -30,7 +30,7 @@ function runSearch(opts) {
       onInstalled: { addListener: () => {} },
       onStartup: { addListener: () => {} },
       sendMessage: () => {},
-      getManifest: () => ({ version: '3.16.1' }),
+      getManifest: () => ({ version: '3.16.2' }),
     },
     tabs: {
       onUpdated: { addListener: (fn) => updatedListeners.push(fn), removeListener: (fn) => { const i = updatedListeners.indexOf(fn); if (i >= 0) updatedListeners.splice(i, 1); } },

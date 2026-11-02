@@ -757,6 +757,26 @@
     } catch (e) { return { url, changed: false }; }
   };
 
+  // 3.16.2 - the property type named in an advert title ("2 Bedroom Townhouse", "Apartment / Flat", "Vacant Land / Plot"). Whole words only: "house" is NOT in
+  // "Townhouse" or "Penthouse" (the 3.16.1 reader used title.includes() over a list that starts with "house", so every townhouse was stored as a House). Of the types named in the title the
+  // one that comes FIRST wins ("Apartment / Flat" is an Apartment, "Granny Flat" is not a Flat), and the longer name wins a tie ("Vacant Land" over "Land").
+  // The words are the portals' own; the server maps them to its canonical set (house, apartment, townhouse, land, farm, commercial, industrial, other).
+  const PROPERTY_TYPE_WORDS = [
+    'garden cottage', 'granny flat', 'vacant land', 'smallholding', 'townhouse', 'apartment', 'penthouse', 'industrial', 'commercial',
+    'cottage', 'cluster', 'simplex', 'duplex', 'retail', 'studio', 'office', 'house', 'farm', 'land', 'flat',
+  ];
+  MIC.PROPERTY_TYPE_WORDS = PROPERTY_TYPE_WORDS;
+  MIC.propertyTypeFromTitle = function (title) {
+    const t = ' ' + String(title || '').toLowerCase().replace(/town[\s-]+house/g, 'townhouse').replace(/[^a-z]+/g, ' ') + ' ';
+    let best = null;
+    PROPERTY_TYPE_WORDS.forEach((w) => {
+      const at = t.indexOf(' ' + w + ' ');
+      if (at === -1) return;
+      if (best === null || at < best.at || (at === best.at && w.length > best.w.length)) best = { w, at };
+    });
+    return best ? best.w.replace(/\b[a-z]/g, (c) => c.toUpperCase()) : null;
+  };
+
   if (typeof module !== 'undefined' && module.exports) module.exports = MIC;
   else root.CorexMic = MIC;
 })(typeof self !== 'undefined' ? self : this);

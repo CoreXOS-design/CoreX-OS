@@ -45,13 +45,7 @@
   // ── SHARED CONSTANTS ──────────────────────────────────────
   // ══════════════════════════════════════════════════════════
 
-  const PROPERTY_TYPES = [
-    'house', 'apartment', 'townhouse', 'flat', 'duplex', 'simplex',
-    'cluster', 'cottage', 'farm', 'smallholding', 'vacant land',
-    'land', 'commercial', 'industrial', 'office', 'retail',
-    'penthouse', 'studio', 'garden cottage', 'granny flat',
-  ];
-
+  // the property type in a title comes from CorexMic.propertyTypeFromTitle (mic-lib.js, whole words - 3.16.2)
   // ══════════════════════════════════════════════════════════
   // ── PAGE TYPE DETECTION ───────────────────────────────────
   // ══════════════════════════════════════════════════════════
@@ -230,8 +224,8 @@
         const t = titleEl.textContent.trim();
         const bedMatch = t.match(/^(\d+)\s+Bedroom/i);
         if (bedMatch) listing.bedrooms = parseInt(bedMatch[1], 10);
-        const tl = t.toLowerCase();
-        for (const pt of PROPERTY_TYPES) { if (tl.includes(pt)) { listing.property_type = pt.charAt(0).toUpperCase() + pt.slice(1); break; } }
+        const pt = self.CorexMic ? self.CorexMic.propertyTypeFromTitle(t) : null;   // whole words (3.16.2): "Townhouse" is not a House
+        if (pt) listing.property_type = pt;
       }
     } catch (e) { /* */ }
 
@@ -513,13 +507,10 @@
     } catch (e) { /* */ }
 
     if (!property.property_type && property.title) {
-      const tl = property.title.toLowerCase();
-      for (const pt of PROPERTY_TYPES) {
-        if (tl.includes(pt)) {
-          property.property_type = pt.charAt(0).toUpperCase() + pt.slice(1);
-          if (!property.property_type_raw) property.property_type_raw = property.property_type;
-          break;
-        }
+      const pt = self.CorexMic ? self.CorexMic.propertyTypeFromTitle(property.title) : null;   // whole words (3.16.2)
+      if (pt) {
+        property.property_type = pt;
+        if (!property.property_type_raw) property.property_type_raw = pt;
       }
     }
 
