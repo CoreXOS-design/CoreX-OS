@@ -15,8 +15,8 @@ use App\Models\User;
  * road-to-sold.md 23.23 drop 5: the screen behind each pill of the pitch popup, for THIS record.
  *
  * A pill is a control only when its screen exists for the record, so the popup asks once, when it opens, and every pill whose answer is null stays a plain
- * label. The popup knows one of: the advert (listing), the agent's Road to Sold record (prospect) or the tracked property. Property is the MIC card (the
- * popup builds that address itself); the rest:
+ * label. The popup knows one of: the advert (listing), the agent's Road to Sold record (prospect) or the tracked property. Property is the MIC card (when
+ * the record has an advert); the rest:
  *   owner       the compose screen with the live deed picker (the advert's capture, or the tracked property's when the advert has already been pitched)
  *   pitch       "pitch to sellers" - only when the advert has its CoreX property
  *   contact     the outreach screen on the owner and the property
@@ -36,7 +36,7 @@ final class PitchStepsService
     public function plan(User $actor, ?int $listingId, ?int $prospectId, ?int $trackedId, array $carry = []): array
     {
         $agencyId = (int) ($actor->effectiveAgencyId() ?: 0);
-        $out = ['owner' => null, 'pitch' => null, 'contact' => null, 'evaluation' => null];
+        $out = ['property' => null, 'owner' => null, 'pitch' => null, 'contact' => null, 'evaluation' => null];
         if ($agencyId <= 0) {
             return $out;
         }
@@ -54,6 +54,11 @@ final class PitchStepsService
         $tp = $tpId ? TrackedProperty::query()->withoutGlobalScopes()->where('agency_id', $agencyId)->find($tpId) : null;
         if ($prospect && ! isset($carry['rts_prospect'])) {
             $carry['rts_prospect'] = (string) $prospect->id;
+        }
+
+        // the MIC card (the same one-card page the popup builds for itself when it knows the advert)
+        if ($listing) {
+            $out['property'] = route('market-intelligence.work', ['_pitch_card' => $listing->id, 'embed' => 1]);
         }
 
         // the screen where the owner and the deed are found

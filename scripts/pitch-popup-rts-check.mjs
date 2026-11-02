@@ -49,7 +49,7 @@ await page.screenshot({ path: path.join(SHOTS, 'u-rts73-contact.png') });
 const pills = await page.evaluate(() => [...document.querySelectorAll('[data-qa="pitch-steps"] .cxp-step')].map((b) => ({ step: b.dataset.step, click: b.dataset.click, cursor: b.style.cursor })));
 console.log('  pills:', JSON.stringify(pills));
 ok(pills.every((p) => (p.click === '1' && p.cursor === 'pointer') || (p.click === '0' && p.cursor === 'default')), 'every pill is a control or a plain label (no half-state)');
-ok(['owner', 'pitch', 'contact', 'evaluation'].every((k) => pills.find((p) => p.step === k).click === '1'), 'owner, pitch, contact and evaluation all have a screen for this record');
+ok(['property', 'owner', 'contact', 'evaluation'].every((k) => pills.find((p) => p.step === k).click === '1'), 'property (the card), owner (the deed picker), contact and evaluation all open a screen; pitch is a plain label (no pitch-to-sellers screen for this record: ' + pills.find((p) => p.step === 'pitch').click + ')');
 
 // Contact step, trimmed, at 1366x768
 const c = await f.evaluate(() => {

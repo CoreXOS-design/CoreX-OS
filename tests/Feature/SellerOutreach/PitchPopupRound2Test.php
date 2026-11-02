@@ -124,6 +124,7 @@ final class PitchPopupRound2Test extends TestCase
     {
         $r = $this->actingAs($this->agent)->getJson(route('seller-outreach.entry.pitch-steps', ['prospect' => $this->prospect->id]))->assertOk()->json('steps');
 
+        $this->assertStringContainsString('_pitch_card=' . $this->listingId, (string) $r['property']);
         $this->assertStringContainsString('/outreach/compose', (string) $r['owner']);
         $this->assertStringContainsString('/outreach/pitch-ready', (string) $r['pitch']);
         $this->assertStringContainsString('/contacts/' . $this->owner->id . '/outreach/compose', (string) $r['contact']);
