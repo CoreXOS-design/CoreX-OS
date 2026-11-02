@@ -28,7 +28,7 @@
 @elseif($kind === 'adverts')
     {{-- 13.12: one entry per advert, newest listed first, a hairline between entries. `$split` (the "Listed by N agencies" pill only) adds the "Not the same property" button; the Alpine scope `miSplit` is on the pill's wrapper. --}}
     @php
-        $entries = collect($adv['adverts'] ?? [])->sortByDesc(fn ($a) => $a['sort_date'] ?? '')->values();
+        $entries = collect($adv['adverts'] ?? [])->values();
         $mark = 'padding:0 6px; font-size:.6875rem; font-weight:700; background: rgba(15,23,42,.82); color:#fff; border-radius:3px; text-decoration:none; line-height:1.5;';
     @endphp
     <div style="{{ $ph }} padding: 0 8px 4px;">Adverts on this property</div>

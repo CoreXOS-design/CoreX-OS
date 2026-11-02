@@ -473,7 +473,6 @@ final class MicWorkList
                     'portal' => strtoupper($a->portal_source), 'owner' => $a->advertiser_type === 'owner', 'ref' => $a->portal_ref, 'url' => $a->portal_url, 'agency' => $a->agency_name, 'agent' => $a->agent_name,
                     'price' => $a->price, 'listed' => $a->listed_date?->format('j M Y'), 'seen' => $a->first_seen_at?->format('j M Y'), 'active' => (bool) $a->is_active,
                     'status' => $a->portal_status,
-                    'id' => (int) $a->id, 'sole_mandate' => (bool) ($a->sole_mandate_wording ?? false), 'sort_date' => ($a->listed_date ?? $a->first_seen_at)?->format('Y-m-d'),
                     'last_seen' => $a->last_seen_at?->format('j M'),
                     'changes' => $this->netChanges($history->get($a->id, collect())),
                 ])->all(),
