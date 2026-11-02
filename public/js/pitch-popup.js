@@ -146,7 +146,7 @@
             return;
         }
         var url = cardUrl({ listing: head.getAttribute('data-listing') }, true);
-        var frame = el('iframe', { title: 'The property', src: url, 'data-qa': 'peek-frame', style: 'display:block;width:100%;height:480px;border:0;background:transparent' });
+        var frame = el('iframe', { title: 'The property', src: url, 'data-qa': 'peek-frame', style: 'display:block;width:100%;height:360px;border:0;background:transparent' });
         var box = el('div', { 'data-pitch-expander': '', 'data-qa': 'peek-expander', style: 'margin-top:8px;border:1px solid var(--border,#cbd5e1);border-radius:6px;overflow:hidden;background:var(--bg,#f8fafc)' }, [frame]);
         head.parentNode.insertBefore(box, head.nextSibling);
         head.setAttribute('aria-expanded', 'true');
@@ -154,7 +154,7 @@
         frame.addEventListener('load', function () {
             try {
                 var d = frame.contentDocument, card = d.querySelector('[data-qa="pitch-card"]');
-                var fit = function () { frame.style.height = Math.max(480, Math.ceil((card ? card.getBoundingClientRect().height : 0) + 40)) + 'px'; };
+                var fit = function () { frame.style.height = Math.max(360, Math.ceil((card ? card.getBoundingClientRect().height : 0) + 40)) + 'px'; };
                 fit();
                 if (window.ResizeObserver && card) new ResizeObserver(fit).observe(card);
             } catch (e) { /* not same origin: keep the default height */ }

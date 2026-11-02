@@ -107,7 +107,12 @@ final class PitchPopupCardTest extends TestCase
         $h = $this->actingAs($this->admin)->get(route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $a->id, 'fresh' => 1]))->assertOk()->getContent();
         $this->assertStringContainsString('data-pitch-peek data-listing="' . $a->id . '"', $h, 'the Listing from P24 block opens the card');
         $this->assertStringContainsString('What is this property?', $h);
+        $this->assertStringContainsString('data-peek-hint', $h, 'the header unfolds the card in place');
         $this->assertStringContainsString('js/pitch-popup.js', $h);
+        $this->assertStringContainsString('← Back', $h, 'on its own page the screen keeps its Back button');
+
+        $in = $this->actingAs($this->admin)->get(route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $a->id, 'fresh' => 1, 'embed' => 1]))->assertOk()->getContent();
+        $this->assertStringNotContainsString('← Back', $in, 'inside the popup the step bar and Done are the way around, not a Back button');
     }
 
     public function test_the_pitch_now_chip_opens_the_popup_and_the_work_page_loads_it(): void
@@ -117,7 +122,7 @@ final class PitchPopupCardTest extends TestCase
         $h = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'adverts']))->assertOk()->getContent();
         $this->assertStringContainsString('js/pitch-popup.js', $h);
         if (str_contains($h, 'mi-suggested-chip')) {
-            $this->assertMatchesRegularExpression('/data-pitch-popup data-listing="' . $a->id . '"/', $h, 'Pitch now opens the popup');
+            $this->assertMatchesRegularExpression('/data-pitch-popup data-start="owner" data-listing="' . $a->id . '"/', $h, 'MIC Pitch now opens the popup at Owner');
         }
     }
 }

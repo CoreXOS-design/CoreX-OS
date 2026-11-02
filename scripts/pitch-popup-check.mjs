@@ -90,7 +90,8 @@ if (WALK) {
     await f.type('input[name="phone"]', '0821110099');
     await page.screenshot({ path: path.join(SHOTS, 'f-owner-filled.png') });
     await f.evaluate(() => { const b = [...document.querySelectorAll('button[type="submit"]')].find((x) => /continue/i.test(x.innerText)); b.scrollIntoView(); b.click(); });
-    const next = await waitFrame(/outreach\/(pitch-ready|compose)|\/contacts\/\d+\/outreach/, 90000);
+    if (!hasAddress) { console.log('  (this listing has no street address: pick another with --search=)'); }
+    const next = await waitFrame(/outreach\/pitch-ready|\/contacts\/\d+\/outreach/, 90000);
     ok(!!next, 'Create & continue moved on inside the popup: ' + (next ? next.url().replace(BASE, '') : '-'));
     s = await steps();
     console.log('  steps after Owner:', s);
