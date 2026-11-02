@@ -250,4 +250,17 @@ final class MicWorkFilterBarTest extends TestCase
         $this->assertMatchesRegularExpression('/Glenmore <span data-qa="suburb-city" style="color: var\(--text-muted\);">· Port Edward<\/span>/', $h);
         $this->assertStringContainsString('title="Glenmore · Durban"', $h);
     }
+
+    /** 13.2b: More filters never opens on its own; the button carries the count and only a click opens it. */
+    public function test_more_filters_never_opens_by_itself(): void
+    {
+        $this->advert('P24-150000099');
+        foreach ([[], ['address_filter' => 'with_address'], ['address_filter' => 'with_address', 'show_status' => 'all'], ['p24' => 0], ['region' => 'x', 'source' => 'alert']] as $q) {
+            $h = $this->page($q);
+            $this->assertStringContainsString('x-data="{ open: false }" @mic-more-toggle.window', $h, json_encode($q));
+            $this->assertStringNotContainsString('x-data="{ open: true }" @mic-more-toggle.window', $h, json_encode($q));
+        }
+        $this->assertStringContainsString('More filters (2) ▾', $this->page(['address_filter' => 'with_address', 'show_status' => 'all']), 'the button says how many are set');
+        $this->assertStringContainsString('data-qa="filter-chips"', $this->page(['address_filter' => 'with_address']), 'and the chips row shows what is set');
+    }
 }

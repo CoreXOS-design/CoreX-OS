@@ -71,11 +71,10 @@
     if (request('action_preset')) { $chips[] = ['Preset · ' . str_replace('_', ' ', request('action_preset')), $urlWithout('action_preset')]; }
     if (request('tile')) { $chips[] = ['Tile · ' . (\App\Services\Prospecting\MicWork\MicWorkTiles::TILES[\App\Services\Prospecting\MicWork\MicWorkTiles::numberForKey(request('tile'))][3] ?? request('tile')), $urlWithout('tile')]; }
 
-    // "More filters" opens by itself when one of its filters is on
+    // the filters that live under "More filters" (they feed the count on its button)
     $moreKeys = ['address_filter', 'include_in_stock', 'region', 'buyer_id', 'buyer_scope', 'source', 'captured_by', 'date_from', 'agency_name', 'is_active', 'score_min', 'score_max', 'action_preset'];
     $moreNew = collect(['show_status', 'owner_only', 'sole_mandate_only', 'full_details_only', 'claimed'])->filter(fn ($k) => !empty($F[$k]) && !($k === 'claimed' && $F[$k] === 'any'))->count();
-    // a chosen buyer does not open the panel by itself: the buyer banner under the bar already says who, and the panel would push the first advert down (13.14)
-    $moreOn = $moreNew > 0 || collect(array_diff($moreKeys, ['buyer_id', 'buyer_scope']))->contains(fn ($k) => request()->filled($k)) || !request()->boolean('p24', true) || !request()->boolean('pp', true);
+    // More filters never opens by itself (13.2b): the chips row shows what is set and the button carries the count; only a click opens the panel
     $moreCount = $moreNew + collect($moreKeys)->filter(fn ($k) => request()->filled($k))->count() + (!request()->boolean('p24', true) ? 1 : 0) + (!request()->boolean('pp', true) ? 1 : 0);
 
     $hidden = collect(request()->except(array_merge($keys, ['search', 'page', 'view', 'clear', 'reset', '_fragments'])))->filter(fn ($v) => !is_array($v));
@@ -185,7 +184,7 @@
     @endif
 
     {{-- Row 2: More filters (collapsed unless one is on) --}}
-    <div x-data="{ open: {{ $moreOn ? 'true' : 'false' }} }" @mic-more-toggle.window="open = !open" x-show="open" x-cloak data-qa="more-filters" class="mi-filter-bar-more"
+    <div x-data="{ open: false }" @mic-more-toggle.window="open = !open" x-show="open" x-cloak data-qa="more-filters" class="mi-filter-bar-more"
          style="margin-top: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface);">
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-bottom: 6px;">
             @foreach([['show_status', 'all', 'Show under offer / sold', ($F['show_status'] ?? '') === 'all'], ['owner_only', '1', 'Owner advertised', !empty($F['owner_only'])], ['sole_mandate_only', '1', 'Sole mandate', !empty($F['sole_mandate_only'])], ['full_details_only', '1', 'Full details only', !empty($F['full_details_only'])]] as [$k, $val, $lbl, $on])
