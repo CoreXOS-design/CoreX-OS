@@ -16,8 +16,8 @@
     $postBase = $viewingOwn ? [] : ['agent' => $agentId];
 @endphp
 <style>
-    .rts-belt-row { display: grid; grid-template-columns: repeat({{ max(1, count($belt)) }}, minmax(0, 1fr)); gap: 6px; }
-    .rts-tile { display: flex; flex-direction: column; justify-content: flex-start; gap: 0; min-width: 0; height: 100%; padding: 4px 6px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-primary); }
+    .rts-belt-row { display: grid; grid-template-columns: repeat({{ max(1, count($belt)) }}, minmax(0, 1fr)); gap: 3px; }
+    .rts-tile { display: flex; flex-direction: column; justify-content: flex-start; gap: 0; min-width: 0; height: 100%; padding: 4px 4px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-primary); }
     .rts-tile:hover { border-color: var(--brand-icon); }
     .rts-tile.is-lit { border-color: var(--brand-icon); background: color-mix(in srgb, var(--brand-icon) 10%, var(--surface)); }
     .rts-tile .nm { font-size: .625rem; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none; line-height: 1.2; padding-right: 14px; }
