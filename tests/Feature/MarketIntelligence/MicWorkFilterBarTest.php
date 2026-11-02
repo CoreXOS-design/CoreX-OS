@@ -189,4 +189,38 @@ final class MicWorkFilterBarTest extends TestCase
         // no chips line when nothing is active
         $this->assertStringNotContainsString('data-qa="filter-chips"', $h);
     }
+
+    /** mic-work-tab.md 13.13: one suburb per line, A-Z inside each block, ticked pinned on top, never ordered by count. */
+    public function test_the_suburb_panel_is_alphabetical_with_the_ticked_ones_pinned_on_top(): void
+    {
+        $sub = fn (string $name, int $n) => DB::table('p24_suburbs')->insertGetId(['name' => $name, 'slug' => strtolower(str_replace(' ', '-', $name)), 'p24_id' => 980000 + $n, 'created_at' => now(), 'updated_at' => now()]);
+        $long = 'Extraordinarily Long Suburb Name Estate Phase Two';
+        $zulu = $sub('Zulu Bay', 1); $mid = $sub('Mid Town', 2); $amber = $sub('Amber Rock', 3); $bravo = $sub('Bravo Cove', 4); $longId = $sub($long, 5);
+        // the suburb observer reads p24_suburb_id from the advert's suburb text, so each advert carries its suburb's own name
+        foreach ([['Zulu Bay', 5], ['Mid Town', 3], ['Amber Rock', 1], ['Bravo Cove', 2], [$long, 1]] as $k => [$name, $n]) {
+            foreach (range(1, $n) as $i) { $this->advert('P24-9' . $k . $i, ['suburb' => $name]); }
+        }
+        MicAgencySetting::saveValues($this->agency->id, ['areas' => [$zulu, $mid]]);
+
+        $names = fn (string $html) => array_map(fn ($m) => html_entity_decode($m), (function () use ($html) { preg_match_all('/<label data-n="[^"]*" title="([^"]*)"/', $html, $m); return $m[1]; })());
+
+        // nothing ticked: Your suburbs A-Z (Mid Town before Zulu Bay although Zulu has more adverts), then the rest A-Z
+        $h = $this->page();
+        $this->assertSame(['Mid Town', 'Zulu Bay', 'Amber Rock', 'Bravo Cove', 'Extraordinarily Long Suburb Name Estate Phase Two'], $names($h));
+        $this->assertStringContainsString('data-qa="suburb-group-working"', $h);
+        $this->assertStringContainsString('data-qa="suburb-group-others"', $h);
+        $this->assertStringNotContainsString('data-qa="suburb-group-selected"', $h, 'no Selected block when nothing is ticked');
+        $this->assertStringContainsString('font-variant-numeric: tabular-nums', $h, 'counts use tabular figures');
+        $this->assertStringContainsString('text-overflow: ellipsis', $h, 'long names are cut with an ellipsis, never wrapped');
+        $this->assertStringContainsString('title="Extraordinarily Long Suburb Name Estate Phase Two"', $h, 'the full name is in the title');
+        $this->assertStringContainsString("''\"></span>", $h, 'the button carries no count when nothing is ticked');
+
+        // two ticked (one working, one other): they lead, A-Z, and are not repeated in their own group
+        $h = $this->page(['suburbs' => [$zulu, $amber]]);
+        $this->assertSame(['Amber Rock', 'Zulu Bay', 'Mid Town', 'Bravo Cove', 'Extraordinarily Long Suburb Name Estate Phase Two'], $names($h));
+        $this->assertStringContainsString('data-qa="suburb-group-selected"', $h);
+        $this->assertStringContainsString("''\"> · 2</span>", $h, 'the button reads Suburb · 2');
+        $this->assertSame(2, substr_count($h, '<input type="checkbox" name="suburbs[]" value="' . $zulu . '"') + substr_count($h, '<input type="checkbox" name="suburbs[]" value="' . $amber . '"'), 'each ticked suburb appears once');
+        $this->assertSame(2, preg_match_all('/<input type="checkbox" name="suburbs\[\]" value="\d+" checked/', $h));
+    }
 }

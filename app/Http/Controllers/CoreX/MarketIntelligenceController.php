@@ -1072,6 +1072,10 @@ class MarketIntelligenceController extends Controller
             ->get(['id', 'first_name', 'last_name', 'email']);
         $activeBuyerId = $selectedBuyerId;
         $selectedBuyer = $activeBuyerId ? $micBuyers->firstWhere('id', $activeBuyerId) : null;
+        // 13.14: the "Prospecting for" banner is built here (wishlist chips, pop-up links); the view only prints it.
+        $buyerBanner = $selectedBuyer
+            ? app(\App\Services\Prospecting\MicWork\MicBuyerBanner::class)->forBuyer((int) $selectedBuyer->id, (int) $agencyId, $user->hasPermission('access_core_matches'))
+            : null;
 
         // AT-239 region model (Johan-final) — the filter's value is the canonical
         // MDB municipality (towns.region); its LABEL is the agency alias where set
@@ -1282,6 +1286,7 @@ class MarketIntelligenceController extends Controller
                 'tierConfig'                     => $tierConfig,
                 'suggestedActions'               => $suggestedActions,
                 'selectedBuyer'                  => $selectedBuyer,
+                'buyerBanner'                    => $buyerBanner,
                 'isProspectingManager'           => $isProspectingManager,
                 'companyStockMap'                => $companyStockMap,
                 'agencyLogoUrl'                  => $agencyLogoUrl,
@@ -1341,7 +1346,7 @@ class MarketIntelligenceController extends Controller
             'demandPockets', 'actionPreset', 'includeInStock',
             'marketIntelligenceSidebarCount',
             // AT-242 buyer-led prospecting + AT-239 region filter
-            'micBuyers', 'activeBuyerId', 'selectedBuyer', 'micRegions',
+            'micBuyers', 'activeBuyerId', 'selectedBuyer', 'buyerBanner', 'micRegions',
             'buyerScope', 'buyerScopeOptions',
             // 11-tile row + panels
             'workTiles', 'workPanel', 'micView',

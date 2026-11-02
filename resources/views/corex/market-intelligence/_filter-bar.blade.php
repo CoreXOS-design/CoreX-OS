@@ -73,7 +73,8 @@
     // "More filters" opens by itself when one of its filters is on
     $moreKeys = ['address_filter', 'include_in_stock', 'region', 'buyer_id', 'buyer_scope', 'source', 'captured_by', 'date_from', 'agency_name', 'is_active', 'score_min', 'score_max', 'action_preset'];
     $moreNew = collect(['show_status', 'owner_only', 'sole_mandate_only', 'claimed'])->filter(fn ($k) => !empty($F[$k]) && !($k === 'claimed' && $F[$k] === 'any'))->count();
-    $moreOn = $moreNew > 0 || collect($moreKeys)->contains(fn ($k) => request()->filled($k)) || !request()->boolean('p24', true) || !request()->boolean('pp', true);
+    // a chosen buyer does not open the panel by itself: the buyer banner under the bar already says who, and the panel would push the first advert down (13.14)
+    $moreOn = $moreNew > 0 || collect(array_diff($moreKeys, ['buyer_id', 'buyer_scope']))->contains(fn ($k) => request()->filled($k)) || !request()->boolean('p24', true) || !request()->boolean('pp', true);
     $moreCount = $moreNew + collect($moreKeys)->filter(fn ($k) => request()->filled($k))->count() + (!request()->boolean('p24', true) ? 1 : 0) + (!request()->boolean('pp', true) ? 1 : 0);
 
     $hidden = collect(request()->except(array_merge($keys, ['search', 'page', 'view', 'clear', 'reset', '_fragments'])))->filter(fn ($v) => !is_array($v));
@@ -98,24 +99,42 @@
             @if($view)<input type="hidden" name="view" value="{{ $view }}">@endif
             <input type="search" name="search" value="{{ request('search') }}" placeholder="Search address, complex, erf, agent, agency, ref" data-qa="filter-search" onkeydown="if (event.key === 'Enter') { event.preventDefault(); this.form.requestSubmit(); }" style="{{ $box }} flex: 1 1 9rem; min-width: 7rem; max-width: 16.25rem;">
 
-            {{-- Suburb: several at once, the agency's working suburbs first --}}
-            <div x-data="{ open: false, q: '' }" @click.outside="open = false" style="position: relative;">
-                <button type="button" @click="open = !open" data-qa="filter-suburb" style="{{ $box }} cursor: pointer; width: 6.5rem; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                    Suburb{{ count($selSuburbs) ? ' · ' . count($selSuburbs) : '' }} ▾
+            {{-- Suburb (13.13): several at once; ticked pinned on top, then the agency's working suburbs, then the rest, each A-Z (ordered in MicAdvertFilters, never by count) --}}
+            @php
+                $subBlocks = \App\Services\Prospecting\MicWork\MicAdvertFilters::pinSelected($suburbOptions ?? [], $selSuburbs);
+                $subHeads = ['selected' => 'Selected', 'working' => 'Your suburbs', 'others' => 'All other suburbs'];
+            @endphp
+            <div x-data="{ open: false, q: '', ticked: {{ count($selSuburbs) }},
+                           key() { return this.q.trim().toLowerCase(); },
+                           hit(root) { const k = this.key(); return k === '' || Array.prototype.some.call(root.querySelectorAll('label[data-n]'), (l) => l.dataset.n.includes(k)); },
+                           clearAll(form) { form.querySelectorAll('input[name=&quot;suburbs[]&quot;]').forEach((c) => { c.checked = false; }); this.ticked = 0; form.requestSubmit(); } }"
+                 @click.outside="open = false" @keydown.escape="open = false" style="position: relative;">
+                <button type="button" @click="open = !open; if (open) $nextTick(() => $refs.find.focus())" :aria-expanded="open ? 'true' : 'false'" aria-haspopup="true" data-qa="filter-suburb" style="{{ $box }} cursor: pointer; width: 6.5rem; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                    Suburb<span x-text="ticked > 0 ? ' · ' + ticked : ''">{{ count($selSuburbs) ? ' · ' . count($selSuburbs) : '' }}</span> ▾
                 </button>
-                <div x-show="open" x-cloak style="position: absolute; z-index: 30; top: 34px; left: 0; width: 270px; max-height: 340px; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.18); padding: 6px;">
-                    <input type="text" x-model="q" placeholder="Filter suburbs…" autocomplete="off" style="{{ $box }} width: 100%; margin-bottom: 4px;">
-                    @foreach(['working' => 'Your suburbs', 'others' => 'All suburbs'] as $grp => $grpLabel)
-                        @if(!empty($suburbOptions[$grp]))
-                            <div style="font-size: .625rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); padding: 5px 2px 3px;">{{ $grpLabel }}</div>
-                            @foreach($suburbOptions[$grp] as $o)
-                                <label x-show="q === '' || '{{ addslashes(mb_strtolower($o['name'])) }}'.includes(q.toLowerCase())" style="display: flex; align-items: center; gap: 6px; font-size: .8125rem; padding: 2px 2px; cursor: pointer;">
-                                    <input type="checkbox" name="suburbs[]" value="{{ $o['id'] }}" @checked(in_array($o['id'], $selSuburbs, true))> <span style="flex: 1;">{{ $o['name'] }}</span><span style="color: var(--text-muted); font-size: .6875rem;">{{ number_format($o['count']) }}</span>
-                                </label>
-                            @endforeach
-                        @endif
-                    @endforeach
-                    <button type="submit" class="corex-btn text-xs" style="margin-top: 6px; width: 100%;">Apply</button>
+                <div x-show="open" x-cloak data-qa="suburb-panel" style="position: absolute; z-index: 30; top: 34px; left: 0; width: 300px; max-width: calc(100vw - 24px); max-height: 360px; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.18);">
+                    <div style="display: flex; align-items: center; gap: 8px; padding: 6px; border-bottom: 1px solid var(--border);">
+                        <input type="text" x-ref="find" x-model="q" placeholder="Filter suburbs…" autocomplete="off" data-qa="suburb-find" @keydown.enter.prevent style="{{ $box }} flex: 1; min-width: 0;">
+                        <button type="button" x-show="ticked > 0" x-cloak @click="clearAll($root.closest('form'))" data-qa="suburb-clear" style="flex-shrink: 0; background: none; border: 0; padding: 0; cursor: pointer; font-size: .8125rem; color: var(--brand-icon);">Clear</button>
+                    </div>
+                    <div x-ref="list" data-qa="suburb-list" style="flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 6px 4px;">
+                        @foreach($subHeads as $grp => $grpLabel)
+                            @if(!empty($subBlocks[$grp]))
+                                <div data-qa="suburb-group-{{ $grp }}" x-show="hit($el)">
+                                    <div style="font-size: .625rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); padding: 8px 2px 3px;">{{ $grpLabel }}</div>
+                                    @foreach($subBlocks[$grp] as $o)
+                                        <label data-n="{{ mb_strtolower($o['name']) }}" title="{{ $o['name'] }}" x-show="key() === '' || $el.dataset.n.includes(key())" style="display: flex; align-items: center; gap: 8px; font-size: .8125rem; padding: 3px 2px; cursor: pointer; white-space: nowrap;">
+                                            <input type="checkbox" name="suburbs[]" value="{{ $o['id'] }}" @checked(in_array($o['id'], $selSuburbs, true)) @change="ticked += $event.target.checked ? 1 : -1" style="flex-shrink: 0;">
+                                            <span style="flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;">{{ $o['name'] }}</span>
+                                            <span style="flex-shrink: 0; margin-left: auto; color: var(--text-muted); font-size: .6875rem; font-variant-numeric: tabular-nums;">{{ number_format($o['count']) }}</span>
+                                        </label>
+                                    @endforeach
+                                </div>
+                            @endif
+                        @endforeach
+                        <div x-show="!hit($refs.list)" x-cloak style="font-size: .8125rem; color: var(--text-muted); padding: 10px 2px;">No suburb matches</div>
+                    </div>
+                    <div style="padding: 6px; border-top: 1px solid var(--border);"><button type="submit" class="corex-btn text-xs" style="width: 100%;">Apply</button></div>
                 </div>
             </div>
 

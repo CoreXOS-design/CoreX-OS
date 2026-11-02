@@ -91,6 +91,7 @@
 @if(($micView ?? 'adverts') !== 'properties')
 @include('corex.market-intelligence._slideover')
 @endif
+@include('corex.market-intelligence._buyer-banner-script')
 
 {{-- ─────────────────────────────────────────────────────────────────────────
      Tick refresh (cc6) — AJAX partial swap, no full-page reload.
@@ -360,7 +361,7 @@
 <script>
 (function () {
     function register() {
-        window.Alpine.data('miSplit', function (cardId, count, ids, base) {
+        window.Alpine.data('miSplit', function (cardId, count, ids, base, fileUrl) {
             var st = {};
             ids.forEach(function (id) { st[id] = { armed: false, busy: false, gone: false, msg: '' }; });
             var post = function (url) {
@@ -369,7 +370,7 @@
                     .then(function (r) { return r.json().catch(function () { return { ok: false }; }); });
             };
             return {
-                n: count, st: st, note: null, noteAdvert: null, timers: {}, noteTimer: null,
+                n: count, st: st, note: null, noteAdvert: null, viewHref: null, timers: {}, noteTimer: null,
                 // a hairline goes above an entry only when an entry above it is still showing (ids are in the popover's order, newest first)
                 rule: function (id) {
                     for (var i = 0; i < ids.length; i++) { if (ids[i] === id) { return false; } if (!this.st[ids[i]].gone) { return true; } }
@@ -395,7 +396,8 @@
                         s.busy = false;
                         if (!d || !d.ok) { s.msg = (d && d.message) || "Couldn't split - try again"; return; }
                         s.gone = true;
-                        me.n = me.n - 1;
+                        me.n = (typeof d.agencies_left_on_file === 'number') ? d.agencies_left_on_file : me.n - 1;
+                        me.viewHref = d.new_file_id ? fileUrl.replace('__ID__', d.new_file_id) : null;
                         me.note = d.split_id; me.noteAdvert = id;
                         clearTimeout(me.noteTimer);
                         me.noteTimer = setTimeout(function () { me.note = null; }, 10000);
@@ -406,8 +408,38 @@
                     if (!splitId) { return; }
                     post(base + '/split/' + splitId + '/undo').then(function (d) {
                         if (!d || !d.ok) { me.note = null; return; }
-                        me.st[id].gone = false; me.n = me.n + 1; me.note = null; clearTimeout(me.noteTimer);
+                        me.st[id].gone = false; me.n = (typeof d.agencies_left_on_file === 'number') ? d.agencies_left_on_file : me.n + 1; me.note = null; clearTimeout(me.noteTimer);
                     }).catch(function () { me.note = null; });
+                },
+            };
+        });
+        // 13.12b: opens down when the whole panel fits below the trigger in the window, else up; if neither fits, the larger side with the content scrolling; placed again on resize and scroll
+        window.Alpine.data('micPop', function (align) {
+            return {
+                open: false, side: 'down', align: align, h: null,
+                pos: { top: '100%', bottom: 'auto', left: '0px', right: 'auto', marginTop: '8px', marginBottom: '0px', transformOrigin: 'top ' + align, '--pop-max': '22rem' },
+                init: function () {
+                    var self = this;
+                    this.h = function (e) { if (self.open && !(e && e.target && e.target.nodeType === 1 && self.$refs.panel.contains(e.target))) { self.place(); } };
+                    this.$watch('open', function (v) {
+                        if (v) { self.$nextTick(function () { self.place(); }); window.addEventListener('resize', self.h); window.addEventListener('scroll', self.h, true); }
+                        else { window.removeEventListener('resize', self.h); window.removeEventListener('scroll', self.h, true); }
+                    });
+                },
+                place: function () {
+                    var t = this.$refs.trigger.getBoundingClientRect(), panel = this.$refs.panel, inner = this.$refs.inner, c = inner.firstElementChild;
+                    var gap = 8, edge = 8, vh = window.innerHeight, vw = window.innerWidth;
+                    var chrome = inner.offsetHeight - (c ? c.offsetHeight : 0);
+                    var cap = parseFloat(getComputedStyle(document.documentElement).fontSize) * 22;
+                    var want = Math.min(c ? c.scrollHeight : inner.offsetHeight, cap) + chrome;
+                    var below = vh - t.bottom - gap - edge, above = t.top - gap - edge;
+                    var down = want <= below || (want > above && below >= above);
+                    var room = down ? below : above;
+                    var maxContent = want <= room ? cap : Math.max(80, room - chrome);
+                    var w = panel.offsetWidth, base = this.align === 'left' ? 0 : t.width - w, abs = t.left + base, dx = 0;
+                    if (abs < edge) { dx = edge - abs; } else if (abs + w > vw - edge) { dx = vw - edge - (abs + w); }
+                    this.side = down ? 'down' : 'up';
+                    this.pos = { top: down ? '100%' : 'auto', bottom: down ? 'auto' : '100%', left: (base + dx) + 'px', right: 'auto', marginTop: down ? gap + 'px' : '0px', marginBottom: down ? '0px' : gap + 'px', transformOrigin: (down ? 'top ' : 'bottom ') + this.align, '--pop-max': maxContent + 'px' };
                 },
             };
         });

@@ -509,4 +509,27 @@ final class MicAdvertsDataLayerTest extends TestCase
         $this->assertSame([['id' => $big, 'name' => 'Big Suburb', 'count' => 3]], $o['others'], 'then the rest, with counts');
         $this->assertSame(['working' => [], 'others' => []], app(MicAdvertFilters::class)->suburbOptions($this->b->id), "another agency's adverts are not listed");
     }
+
+    /** 13.13: the dropdown is A-Z, never by count; pinSelected lifts the ticked ones out of their group. */
+    public function test_the_suburb_list_is_alphabetical_not_by_count_and_the_ticked_ones_are_pinned(): void
+    {
+        $country = (int) DB::table('p24_countries')->insertGetId(['name' => 'South Africa', 'p24_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        $province = (int) DB::table('p24_provinces')->insertGetId(['name' => 'KwaZulu-Natal', 'p24_id' => 2, 'p24_country_id' => $country, 'created_at' => now(), 'updated_at' => now()]);
+        $city = (int) DB::table('p24_cities')->insertGetId(['name' => 'Margate', 'p24_id' => 376, 'p24_province_id' => $province, 'created_at' => now(), 'updated_at' => now()]);
+        $ids = [];
+        foreach ([['zulu', 4], ['Mid', 3], ['alpha', 1], ['Bravo', 2]] as $k => [$name, $n]) {
+            $ids[$name] = (int) DB::table('p24_suburbs')->insertGetId(['name' => $name, 'slug' => strtolower($name), 'p24_id' => 10 + $k, 'p24_city_id' => $city, 'created_at' => now(), 'updated_at' => now()]);
+            foreach (range(1, $n) as $i) { $this->advert($this->file(), ['p24_suburb_id' => $ids[$name]]); }
+        }
+        MicAgencySetting::saveValues($this->a->id, ['areas' => [$ids['zulu'], $ids['Mid']]]);
+
+        $o = app(MicAdvertFilters::class)->suburbOptions($this->a->id);
+        $this->assertSame(['Mid', 'Zulu'], array_column($o['working'], 'name'), 'working suburbs A-Z although Zulu has the most adverts');
+        $this->assertSame(['Alpha', 'Bravo'], array_column($o['others'], 'name'), 'the rest A-Z (case does not matter)');
+
+        $p = MicAdvertFilters::pinSelected($o, [$ids['Bravo'], $ids['zulu']]);
+        $this->assertSame(['Bravo', 'Zulu'], array_column($p['selected'], 'name'));
+        $this->assertSame(['Mid'], array_column($p['working'], 'name'));
+        $this->assertSame(['Alpha'], array_column($p['others'], 'name'));
+    }
 }

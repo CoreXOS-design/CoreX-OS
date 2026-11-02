@@ -172,7 +172,7 @@ final class AdvertSplitTest extends TestCase
 
         $this->assertSame((int) $this->file->id, $this->fileOf($this->b));
         $this->assertNotNull(DB::table('mic_match_exclusions')->where('id', $r->json('split_id'))->value('undone_at'));
-        $this->assertSame($this->file->id, (int) DB::table('tracked_properties')->where('id', $new)->value('duplicate_of_tracked_property_id'), 'the empty split-off file is closed, not deleted');
+        $this->assertSoftDeleted('tracked_properties', ['id' => $new]);   // no empty property is left behind (soft-deleted, never hard)
         $this->actingAs($this->admin)->postJson(route('market-intelligence.adverts.split-undo', $r->json('split_id')))->assertStatus(409);
         $this->assertNull((new MatchExclusions())->advertConflict((int) $this->agency->id, (int) $this->file->id, [$this->b->canonical_ref]), 'undone: no longer remembered');
     }
@@ -238,5 +238,46 @@ final class AdvertSplitTest extends TestCase
         $this->artisan('mic:advert-split', ['--undo' => $journal, '--split' => $id, '--apply' => true])->assertSuccessful();
         $this->assertSame((int) $this->file->id, $this->fileOf($this->b));
         $this->assertNotNull(DB::table('mic_match_exclusions')->where('id', $id)->value('undone_at'));
+    }
+
+    public function test_the_answer_says_how_many_agencies_are_left_not_only_adverts(): void
+    {
+        $this->advert($this->file, 'Apartment', 2, 960_000, ['agency_name' => 'Agency One', 'portal_source' => 'pp', 'portal_ref' => 'PP-T1']);   // the same agency on a second portal
+
+        $this->split($this->b)->assertOk()->assertJson(['adverts_left_on_file' => 2, 'agencies_left_on_file' => 1]);
+    }
+
+    public function test_one_number_for_the_card_the_pill_and_the_badge(): void
+    {
+        $this->advert($this->file, 'Apartment', 2, 960_000, ['agency_name' => 'Agency One', 'portal_source' => 'pp', 'portal_ref' => 'PP-T2']);
+        DB::table('prospecting_listings')->where('id', $this->a->id)->update(['p24_group_id' => '1850999']);
+        foreach ([(int) substr((string) $this->a->portal_ref, 4), 1, 2, 3, 4] as $no) {   // P24 says five listings are one property; we hold only some of them on this file
+            DB::table('p24_group_members')->insert(['p24_group_id' => '1850999', 'listing_number' => $no, 'group_size' => 5, 'first_seen_at' => now(), 'seen_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+        }
+        $this->actingAs($this->admin);
+
+        $row = app(MicWorkList::class)->forFiles([(int) $this->file->id], (int) $this->agency->id)[0];
+
+        $this->assertSame(3, $row['adverts_total'], 'every advert the popover lists');
+        $this->assertSame(2, $row['agencies_total'], 'two agencies behind three adverts');
+        $this->assertSame(count($row['adverts']), $row['adverts_total']);
+        $this->assertSame(5, $row['group_member_count'], "P24's own group size is a different number and no longer drives the card");
+    }
+
+    public function test_tidy_closes_an_empty_split_off_file_left_by_an_earlier_undo(): void
+    {
+        $id = (int) $this->split($this->b)->json('split_id');
+        $new = (int) DB::table('mic_match_exclusions')->where('id', $id)->value('new_file_id');
+        $journal = (string) DB::table('mic_match_exclusions')->where('id', $id)->value('journal');
+        // an undo from before the fix: advert back, split marked undone, the empty file only flagged duplicate
+        DB::table('prospecting_listings')->where('id', $this->b->id)->update(['tracked_property_id' => $this->file->id]);
+        DB::table('mic_match_exclusions')->where('id', $id)->update(['undone_at' => now()]);
+        DB::table('tracked_properties')->where('id', $new)->update(['status' => 'duplicate', 'duplicate_of_tracked_property_id' => $this->file->id]);
+
+        $this->artisan('mic:advert-split', ['--undo' => $journal, '--tidy' => true])->assertSuccessful();
+        $this->assertNull(DB::table('tracked_properties')->where('id', $new)->value('deleted_at'), 'a dry run changes nothing');
+        $this->artisan('mic:advert-split', ['--undo' => $journal, '--tidy' => true, '--apply' => true])->assertSuccessful();
+        $this->assertSoftDeleted('tracked_properties', ['id' => $new]);
+        $this->assertStringContainsString('file_closed', (string) file_get_contents($journal));
     }
 }
