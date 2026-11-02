@@ -52,6 +52,8 @@ final class PitchStepsService
         }
         $tpId = $prospect ? (int) $prospect->tracked_property_id : ($trackedId ?: ($listing?->tracked_property_id ? (int) $listing->tracked_property_id : null));
         $tp = $tpId ? TrackedProperty::query()->withoutGlobalScopes()->where('agency_id', $agencyId)->find($tpId) : null;
+        // opened from Market Intelligence the popup knows the advert, not the record: the agent's own open record on that file is the one
+        $prospect ??= $tpId ? $this->belt->openProspectFor($actor, (int) $tpId) : null;
         if ($prospect && ! isset($carry['rts_prospect'])) {
             $carry['rts_prospect'] = (string) $prospect->id;
         }
