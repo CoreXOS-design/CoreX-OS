@@ -277,4 +277,99 @@ final class BeltLeftoversTest extends TestCase
         $this->actingAs($this->agent)->get(route('road-to-sold.belt-funnel.list', ['station' => 'contacted', 'kind' => 'reached', 'scope' => 'agency', 'period' => 'this_month']))->assertOk()->assertSee('data-qa="list-not-allowed"', false);
         $this->actingAs($this->agent)->get(route('road-to-sold.belt-funnel.list', ['station' => 'nonsense']))->assertNotFound();
     }
+
+    // ── round 3 (2 Nov): the belt card, the swap box and the funnel read plainly ──
+
+    public function test_each_station_has_one_next_action_and_booked_asks_for_the_evaluation_feedback(): void
+    {
+        $steps = app(\App\Services\RoadToSold\ProspectStepService::class);
+
+        $this->assertSame('find_owner', $steps->primary(['stage' => S::CLAIMED], false)['key']);
+        $this->assertSame('find_owner', $steps->primary(['stage' => S::FOUND], false)['key']);
+        $this->assertSame('evaluation', $steps->primary(['stage' => S::CONTACTED], true)['key']);
+        $this->assertSame('evaluation_feedback', $steps->primary(['stage' => S::APPOINTMENT_SET], true)['key']);
+        $this->assertSame('Evaluation feedback', $steps->primary(['stage' => S::APPOINTMENT_SET], true)['label']);
+        $this->assertSame('evaluation_feedback', $steps->primary(['stage' => S::PRESENTATION_PREPARED], true)['key']);
+    }
+
+    public function test_the_evaluation_feedback_step_opens_the_calendar_feedback_form_on_that_appointment(): void
+    {
+        [$p] = $this->claimed(null, S::APPOINTMENT_SET);
+        $event = \App\Models\CommandCenter\CalendarEvent::withoutGlobalScopes()->create([
+            'agency_id' => $this->agency->id, 'user_id' => $this->agent->id, 'event_type' => 'manual', 'title' => 'Evaluation', 'category' => 'property_evaluation', 'event_date' => '2026-11-03 10:00:00',
+            'status' => 'pending', 'rts_prospect_id' => $p->id,
+        ]);
+
+        $url = app(\App\Services\RoadToSold\ProspectStepService::class)->urlFor($p, 'evaluation_feedback');
+
+        $this->assertStringContainsString('capture_feedback=' . $event->id, (string) $url);
+        $this->assertStringContainsString('/command-center/calendar', (string) $url);
+    }
+
+    public function test_the_card_forms_post_to_the_corex_address_and_the_card_has_one_more_menu(): void
+    {
+        $this->claimed(null, S::EVALUATION_DONE);
+        $html = $this->actingAs($this->agent)->get(route('road-to-sold.index', ['block' => 'prospects']))->assertOk()->getContent();
+        $base = dirname(dirname(route('road-to-sold.prospects.result', 0)));
+
+        $this->assertStringContainsString("'" . $base . "/' + id + '/result'", $html, 'the Result form goes to the real (corex) address, not a path with no prefix');
+        $this->assertStringNotContainsString("'" . url('road-to-sold/prospects') . "/'", $html);
+        $this->assertStringContainsString('data-qa="card-more"', $html);
+        $menu = strpos($html, 'data-qa="card-more-menu"');
+        $this->assertLessThan(strpos($html, 'data-qa="prospect-move"'), $menu, 'Move to... sits behind More');
+        $this->assertLessThan(strpos($html, 'Set aside</button>'), $menu, 'Set aside sits behind More');
+    }
+
+    public function test_a_swap_is_not_offered_on_a_row_already_started_but_is_on_a_fresh_one(): void
+    {
+        [$fresh] = $this->loaded();
+        [$started, $sp] = $this->loaded();
+        app(ProspectService::class)->advance($sp, S::CLAIMED, $this->agent, ['event_class' => 't']);
+
+        $html = $this->actingAs($this->agent)->get(route('road-to-sold.index'))->assertOk()->getContent();
+
+        $this->assertSame(1, substr_count($html, 'data-qa="intake-swap"'), 'only the row nobody has started offers Swap');
+        $this->assertStringContainsString(route('road-to-sold.swap', $fresh->id), $html);
+        $this->assertStringNotContainsString(route('road-to-sold.swap', $started->id), $html);
+    }
+
+    public function test_a_property_that_came_onto_the_belt_at_claimed_counts_as_loaded_and_the_ratio_never_passes_100(): void
+    {
+        app(ProspectService::class)->place($this->agent, (int) $this->tp(['street_name' => 'A', 'street_number' => '1'])->id, 'sales', ['stage' => S::CLAIMED]);
+        app(ProspectService::class)->place($this->agent, (int) $this->tp(['street_name' => 'B', 'street_number' => '2'])->id, 'sales', ['stage' => S::CLAIMED]);
+        $f = app(BeltFunnelService::class);
+
+        $m = $f->funnelOf([$this->agent->id], $f->figures($this->agency->id, $this->period()));
+        $loaded = collect($m['stations'])->firstWhere('key', 'loaded');
+        $this->assertSame(2, $loaded['reached']);
+        $this->assertSame(100.0, $loaded['to_next_pct']);
+        $this->assertFalse($loaded['to_next_capped']);
+
+        // reached the next station in these dates but this one before them: capped and flagged
+        $fig = [$this->agent->id => ['reached' => ['loaded' => 1, 'claimed' => 3], 'off' => [], 'lost' => []]];
+        $capped = collect($f->funnelOf([$this->agent->id], $fig)['stations'])->firstWhere('key', 'loaded');
+        $this->assertSame(100.0, $capped['to_next_pct']);
+        $this->assertTrue($capped['to_next_capped']);
+    }
+
+    public function test_the_agents_own_column_counts_their_own_work_and_the_dates_read_day_month_year(): void
+    {
+        app(ProspectService::class)->place($this->agent, (int) $this->tp(['street_name' => 'A', 'street_number' => '1'])->id, 'sales', ['stage' => S::FOUND]);
+        app(ProspectService::class)->place($this->mate, (int) $this->tp(['street_name' => 'B', 'street_number' => '2'])->id, 'sales', ['stage' => S::FOUND]);
+
+        $d = app(BeltFunnelService::class)->forViewer($this->agent, $this->period());
+        $this->assertSame(1, collect($d['me']['stations'])->firstWhere('key', 'loaded')['reached'], 'only the viewer\'s own');
+
+        $html = $this->actingAs($this->agent)->get(route('road-to-sold.belt-funnel', ['period' => 'last_30_days']))->assertOk()->getContent();
+        $this->assertSame(0, preg_match('#name="start" type="date"|type="date" name="start"#', $html), 'no browser date box (it reads mm/dd/yyyy)');
+        $this->assertSame(4, substr_count($html, 'data-dmy-date'), 'four dd/mm/yyyy boxes');
+        $this->assertStringContainsString("x-show=\"period === 'custom'\"", $html, 'the dates only show when Pick dates is chosen');
+        $this->assertMatchesRegularExpression('#\(\d{2}/\d{2}/\d{4} - \d{2}/\d{2}/\d{4}\)#', $html);
+    }
+
+    public function test_the_group_heading_is_plain(): void
+    {
+        $this->assertStringNotContainsString('Off-ramps - why it stops here', file_get_contents(resource_path('views/road-to-sold/index.blade.php')));
+        $this->assertStringContainsString('Stops here (say why)', file_get_contents(resource_path('views/road-to-sold/index.blade.php')));
+    }
 }

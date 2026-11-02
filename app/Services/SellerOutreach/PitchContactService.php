@@ -53,7 +53,7 @@ final class PitchContactService
     {
         $tp = $this->belt->trackedFor($actor, $property, (int) ($carry['rts_prospect'] ?? 0) ?: null);
         $agencyId = (int) ($actor->effectiveAgencyId() ?: 0);
-        $titles = [Def::GROUP_FORWARD => 'Moves it forward', Def::GROUP_AGAIN => 'Try again later', Def::GROUP_OFF_RAMP => 'Off-ramps - why it stops here'];
+        $titles = [Def::GROUP_FORWARD => 'Moves it forward', Def::GROUP_AGAIN => 'Try again later', Def::GROUP_OFF_RAMP => 'Stops here (say why)'];
         $groups = [];
         foreach ($titles as $key => $title) {
             $groups[$key] = ['key' => $key, 'title' => $title, 'items' => []];
