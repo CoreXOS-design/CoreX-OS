@@ -6931,6 +6931,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/activation/start', [\App\Http\Controllers\RoadToSold\ActivationController::class, 'start'])->name('activation.start');
             Route::post('/activation/pause', [\App\Http\Controllers\RoadToSold\ActivationController::class, 'pause'])->name('activation.pause');
             Route::post('/activation/resume', [\App\Http\Controllers\RoadToSold\ActivationController::class, 'resume'])->name('activation.resume');
+            // v4 belt (spec 23.12): the me / branch / agency figures behind a tile (JSON, aggregates only)
+            Route::get('/belt/{station}/scopes', [\App\Http\Controllers\RoadToSold\BeltController::class, 'scopes'])->where('station', '[a-z_]+')->name('belt.scopes');
 
             // Road to Sold v3 (spec 22.4 / 22.9): what the agent does with a prospect from the page. The prospect is found through the
             // viewer's breadth (own / branch / agency in the query, 404 outside it); every write needs it to be on the viewer's own list.

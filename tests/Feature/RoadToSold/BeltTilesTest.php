@@ -190,4 +190,46 @@ final class BeltTilesTest extends TestCase
         $svc = app(BeltService::class);
         $this->assertSame([], $svc->tiles($this->agent, $this->agent, 'rentals', now()), 'Road to Rented has no belt yet');
     }
+
+    public function test_a_tile_shows_done_over_target_where_the_recipe_sets_one_and_the_count_where_it_does_not(): void
+    {
+        app(\App\Services\RoadToSold\RecipeService::class)->start($this->agency->id, 'sales');
+        $html = str_replace("\n", ' ', $this->page($this->agent)->getContent());
+        $fig = fn (string $k) => preg_match('/data-qa="belt-tile-' . $k . '".*?data-qa="belt-figure">([^<]*)/', $html, $m) ? trim($m[1]) : null;
+        $this->assertSame('0 / 10', $fig('contacted'), 'a daily recipe target: calls recorded today / 10');
+        $this->assertSame('0 / 1', $fig('booked'), 'a weekly target');
+        $this->assertSame('0 / 1', $fig('won'), 'a monthly target');
+        $this->assertMatchesRegularExpression('/^\d+$/', (string) $fig('claimed'), 'no target for Claimed: the count');
+        $this->assertMatchesRegularExpression('/data-qa="belt-tile-booked".*?<span class="sub">this week<\/span>/', $html, 'the period is written under a figure that is not a day');
+        $this->assertMatchesRegularExpression('/data-qa="belt-tile-won".*?<span class="sub">this month<\/span>/', $html);
+        $this->assertDoesNotMatchRegularExpression('/data-qa="belt-tile-contacted".*?<span class="sub">today<\/span>/', $html, '"today" is the default and is not repeated');
+    }
+
+    public function test_the_compare_popover_gives_me_my_branch_and_the_agency_as_figures_only(): void
+    {
+        $this->claim($this->agent, 'Alpha Road', false);
+        $this->claim($this->mate, 'Mates Road', false);
+        $other = $this->makeAgent(null, \App\Models\Branch::create(['agency_id' => $this->agency->id, 'name' => 'Other branch']));
+        $this->claim($other, 'Far Road', false);
+        $stranger = \App\Models\Agency::create(['name' => 'Else ' . uniqid(), 'slug' => 'else-' . uniqid()]);
+        $theirs = $this->makeAgent($stranger, \App\Models\Branch::create(['agency_id' => $stranger->id, 'name' => 'B']));
+        ProspectingClaim::withoutGlobalScopes()->create(['agency_id' => $stranger->id, 'prospecting_listing_id' => $this->listing([], true, $stranger), 'user_id' => $theirs->id, 'status' => 'claimed', 'claimed_at' => now(), 'is_active' => true]);
+
+        $j = $this->actingAs($this->agent)->getJson(route('road-to-sold.belt.scopes', ['station' => 'claimed']))->assertOk()->json();
+        $by = collect($j['scopes'])->keyBy('scope');
+        $this->assertSame(['me', 'branch', 'agency'], array_keys($by->all()));
+        $this->assertSame(1, $by['me']['now']);
+        $this->assertSame(2, $by['branch']['now'], 'my branch: mine and my colleague\'s');
+        $this->assertSame(3, $by['agency']['now'], 'the agency: the other branch too, never another agency');
+        $this->assertSame('Me', $by['me']['label']);
+        $this->assertArrayNotHasKey('rows', $j);
+        $this->assertStringNotContainsString('Mates Road', json_encode($j), 'figures only, no rows');
+
+        $this->actingAs($this->agent)->getJson(route('road-to-sold.belt.scopes', ['station' => 'nonsense']))->assertNotFound();
+        $this->actingAs($this->agent)->getJson(route('road-to-sold.belt.scopes', ['station' => 'claimed', 'agent' => $other->id]))->assertNotFound();
+        $this->actingAs($this->manager)->getJson(route('road-to-sold.belt.scopes', ['station' => 'claimed', 'agent' => $this->agent->id]))->assertOk();
+        $html = $this->page($this->agent)->getContent();
+        $this->assertStringContainsString('data-qa="belt-compare-claimed"', $html);
+        $this->assertStringContainsString('function beltCompare(', $html);
+    }
 }

@@ -27,6 +27,10 @@
     .rts-tile .fg { font-size: 1.05rem; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; white-space: nowrap; }
     .rts-tile .fg .bad { font-size: .6875rem; font-weight: 700; margin-left: 6px; color: var(--ds-red, #f87171); }
     .rts-tile .sub { font-size: .625rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rts-tilewrap .rts-cmp { position: absolute; top: 3px; right: 4px; width: 16px; height: 16px; padding: 0; line-height: 14px; font-size: .625rem; text-align: center; cursor: pointer; color: var(--text-muted); background: none; border: 0; border-radius: 3px; }
+    .rts-tilewrap .rts-cmp:hover { color: var(--text-primary); background: var(--surface-2, rgba(128,128,128,.15)); }
+    .rts-cmp-pop { width: 17rem; }
+    .rts-cmp-row { padding: 6px 0; }
     .rts-belt-line { display: flex; align-items: center; gap: 12px; min-height: 22px; font-size: .75rem; color: var(--text-secondary); }
     .rts-pop { position: absolute; z-index: 40; top: 26px; right: 0; width: 20rem; max-width: 92vw; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); box-shadow: 0 6px 18px rgba(0,0,0,.18); }
 </style>
@@ -67,13 +71,31 @@
 
         @if(count($belt) > 0)
             <div class="rts-belt-row" data-qa="belt-tiles" role="list">
-                @foreach($belt as $t)
-                    <a href="{{ route('road-to-sold.index', $t['url']) }}" role="listitem" data-qa="belt-tile-{{ $t['key'] }}" class="rts-tile {{ $lit($t) ? 'is-lit' : '' }}"
-                       title="{{ $t['label'] }}: {{ $t['target'] !== null ? $t['count'] . ' of ' . $t['target'] . ' today' : $t['count'] . ' now' }}{{ $t['alert'] > 0 ? '. ' . $t['alert'] . ' need attention' : '' }}{{ $t['note'] ? '. ' . $t['note'] : '' }}">
-                        <span class="nm"><span class="short">{{ $t['short'] }}</span><span class="full">{{ $t['label'] }}</span></span>
-                        <span class="fg" data-qa="belt-figure">{{ $t['figure'] }}@if($t['alert'] > 0)<span class="bad" data-qa="belt-alert">!{{ $t['alert'] }}</span>@endif</span>
-                        @if($t['note'])<span class="sub">{{ $t['note'] }}</span>@endif
-                    </a>
+                @foreach($belt as $i => $t)
+                    <div class="rts-tilewrap" x-data="beltCompare('{{ route('road-to-sold.belt.scopes', ['station' => $t['key']] + $postBase + \App\Services\RoadToSold\Track::params($track)) }}')" @keydown.escape.window="open = false" @click.outside="open = false" style="position: relative; min-width: 0;" role="listitem">
+                        <a href="{{ route('road-to-sold.index', $t['url']) }}" data-qa="belt-tile-{{ $t['key'] }}" class="rts-tile {{ $lit($t) ? 'is-lit' : '' }}" style="height: 100%;"
+                           title="{{ $t['label'] }}: {{ $t['target'] !== null ? ($t['done'] ?? $t['count']) . ' of ' . $t['target'] . ' ' . ($t['period'] ?? '') : $t['count'] . ' now' }}{{ $t['alert'] > 0 ? '. ' . $t['alert'] . ' need attention' : '' }}{{ $t['note'] ? '. ' . $t['note'] : '' }}">
+                            <span class="nm"><span class="short">{{ $t['short'] }}</span><span class="full">{{ $t['label'] }}</span></span>
+                            <span class="fg" data-qa="belt-figure">{{ $t['figure'] }}@if($t['alert'] > 0)<span class="bad" data-qa="belt-alert">!{{ $t['alert'] }}</span>@endif</span>
+                            @if($t['note'])<span class="sub">{{ $t['note'] }}</span>@endif
+                        </a>
+                        <button type="button" class="rts-cmp" data-qa="belt-compare-{{ $t['key'] }}" aria-label="Compare {{ $t['label'] }}: me, my branch, the agency" :aria-expanded="open ? 'true' : 'false'" @click.prevent="toggle()">&#9662;</button>
+                        <div x-show="open" x-cloak class="rts-pop rts-cmp-pop" data-qa="belt-compare-pop-{{ $t['key'] }}" style="{{ $i >= count($belt) / 2 ? 'right: 0; left: auto;' : 'left: 0; right: auto;' }} top: 100%;">
+                            <div class="text-xs font-semibold mb-1" style="color: var(--text-primary);">{{ $t['label'] }} - compare</div>
+                            <template x-if="loading"><div class="text-xs" style="color: var(--text-muted);">Loading...</div></template>
+                            <template x-if="failed"><div class="text-xs" style="color: var(--ds-red, #f87171);">Could not load the comparison. Try again.</div></template>
+                            <template x-for="(s, idx) in scopes" :key="s.scope">
+                                <div class="rts-cmp-row" :style="idx > 0 ? 'border-top: 1px solid var(--border);' : ''" data-qa="compare-row">
+                                    <div class="text-xs" style="font-weight: 700; color: var(--text-primary);"><span x-text="s.label"></span><span x-show="s.scope !== 'me'" style="font-weight: 400; color: var(--text-muted);" x-text="' · ' + s.agents + (s.agents === 1 ? ' agent' : ' agents')"></span></div>
+                                    <div class="text-xs" style="color: var(--text-secondary);">
+                                        <span x-text="s.now + ' now'"></span>
+                                        <span x-show="s.reached !== null" x-text="' · ' + s.reached + ' reached this month'"></span>
+                                        <span x-show="s.target !== null" x-text="' · ' + s.done + ' / ' + s.target + ' ' + (s.period || '')"></span>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
                 @endforeach
             </div>
         @endif
@@ -129,3 +151,22 @@
         @endif
     @endif
 </div>
+
+<script>
+// the compare popover behind a belt tile: me / my branch / the agency (spec 23.12), loaded when it is first opened
+function beltCompare(url) {
+    return {
+        open: false, loading: false, failed: false, scopes: [], loaded: false,
+        toggle() {
+            this.open = !this.open;
+            if (!this.open || this.loaded) { return; }
+            this.loading = true; this.failed = false;
+            fetch(url, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+                .then((r) => { if (!r.ok) { throw new Error('bad'); } return r.json(); })
+                .then((d) => { this.scopes = d.scopes || []; this.loaded = true; })
+                .catch(() => { this.failed = true; })
+                .finally(() => { this.loading = false; });
+        },
+    };
+}
+</script>

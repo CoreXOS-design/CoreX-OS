@@ -27,8 +27,34 @@ final class BeltService
 {
     public const PER_PAGE = 25;
 
-    public function __construct(private readonly StageCountService $stages, private readonly WorkdayService $workdays)
+    private const UNIT_ORDER = ['hour' => 0, 'day' => 1, 'week' => 2, 'month' => 3];
+    private const PERIOD_WORDS = ['hour' => 'this hour', 'day' => 'today', 'week' => 'this week', 'month' => 'this month'];
+
+    public function __construct(
+        private readonly StageCountService $stages,
+        private readonly WorkdayService $workdays,
+        private readonly RecipeProgressService $recipe,
+    ) {
+    }
+
+    /**
+     * The recipe target that belongs to a station (23.13): the station's tasks (config `tasks`, by task key) that carry a target for the agent's level,
+     * on the SHORTEST period they use (a daily target beats a weekly one). Null when the agency set no target for the station.
+     *
+     * @param  array<int,array<string,mixed>>  $tasks  RecipeProgressService::forAgent()['tasks']
+     * @return array{target:int,done:int,unit:string,period:string}|null
+     */
+    private function recipeTarget(array $station, array $tasks): ?array
     {
+        $keys = (array) ($station['tasks'] ?? []);
+        $rows = array_values(array_filter($tasks, fn ($t) => in_array($t['key'], $keys, true) && (int) $t['target'] > 0));
+        if ($rows === []) {
+            return null;
+        }
+        $unit = collect($rows)->pluck('unit')->sortBy(fn ($u) => self::UNIT_ORDER[$u] ?? 9)->first();
+        $use = array_filter($rows, fn ($t) => $t['unit'] === $unit);
+
+        return ['target' => (int) array_sum(array_column($use, 'target')), 'done' => (int) array_sum(array_column($use, 'actual')), 'unit' => (string) $unit, 'period' => self::PERIOD_WORDS[$unit] ?? ''];
     }
 
     /** @return list<array<string,mixed>> the stations to draw, in belt order */
@@ -60,6 +86,7 @@ final class BeltService
         }
         $day = Carbon::instance($date)->startOfDay();
         $byStage = collect($this->stages->forStages($viewer, (int) $agent->id, $day->copy()->startOfMonth(), $day, $track))->keyBy('stage');
+        $progress = $this->recipe->forAgent($agent, $track, $day->isToday() ? now() : $day->copy()->endOfDay());
         $out = [];
         foreach (self::stations() as $s) {
             $stageKey = (string) ($s['stages'][0] ?? '');
@@ -96,16 +123,85 @@ final class BeltService
                     $url = ['block' => 'station', 'station' => 'held'];   // the owed list first: "have you given feedback?"
                 }
             }
+            // "done today / target" wherever the agency set a target for the station; the count otherwise (the Stock loaded tile keeps its weekday target)
+            $period = $target !== null ? 'today' : null;
+            $done = $target !== null ? $count : null;
+            if ($s['key'] !== 'loaded' && ($rt = $this->recipeTarget($s, (array) ($progress['tasks'] ?? []))) !== null) {
+                $target = $rt['target'];
+                $done = $rt['done'];
+                $period = $rt['period'];
+            }
+            $subs = array_values(array_filter([$period !== null && $period !== 'today' ? $period : null, $note]));
             $out[] = [
                 'key' => $s['key'], 'label' => (string) $s['label'], 'short' => (string) $s['short'],
-                'figure' => $target !== null ? $count . ' / ' . $target : (string) $count,
-                'count' => $count, 'target' => $target, 'alert' => $alert, 'note' => $note,
+                'figure' => $target !== null ? ($done ?? $count) . ' / ' . $target : (string) $count,
+                'count' => $count, 'target' => $target, 'done' => $done, 'period' => $period, 'alert' => $alert, 'note' => $subs === [] ? null : implode(' · ', $subs),
                 'url' => array_filter($routeBase + $url, fn ($v) => $v !== null && $v !== ''),
                 'stage' => $stageKey !== '' && $source === 'stage' ? $stageKey : null,
             ];
         }
 
         return $out;
+    }
+
+    /**
+     * The compare popover (23.12): the same figure for me, my branch and the whole agency. Aggregates only - never another agent's rows - so any agent may
+     * see them. `now` = the count at the station today; `reached` = properties that entered the station this month (stage stations); `done` / `target` =
+     * the recipe target summed over the agents in the scope.
+     *
+     * @return array{station:string,label:string,period:string,scopes:list<array<string,mixed>>}
+     */
+    public function scopeFigures(User $agent, string $stationKey, string $track, CarbonInterface $date): array
+    {
+        $s = self::station($stationKey);
+        abort_if($s === null, 404);
+        $agencyId = (int) ($agent->effectiveAgencyId() ?: 0);
+        $day = Carbon::instance($date)->startOfDay();
+        $people = fn (?int $branch) => User::query()->withoutGlobalScopes()->where('agency_id', $agencyId)->where('is_active', true)->whereNull('deleted_at')
+            ->where(fn ($w) => $w->whereNull('is_assistant')->orWhere('is_assistant', false))
+            ->when($branch !== null, fn ($q) => $q->where('branch_id', $branch))->limit(300)->get(['id', 'name', 'agency_id', 'branch_id']);
+        $groups = ['me' => ['Me', collect([$agent])]];
+        if ($agent->branch_id) {
+            $groups['branch'] = ['My branch', $people((int) $agent->branch_id)];
+        }
+        $groups['agency'] = ['The agency', $people(null)];
+
+        $stageKey = (string) ($s['stages'][0] ?? '');
+        $useStage = ($s['source'] === 'stage') || (! empty($s['prefer_stage']) && ProspectStages::has($stageKey));
+        $out = [];
+        foreach ($groups as $key => [$label, $users]) {
+            $ids = $users->pluck('id')->map(fn ($v) => (int) $v)->all();
+            $row = ['scope' => $key, 'label' => $label, 'agents' => count($ids), 'now' => 0, 'reached' => null, 'done' => null, 'target' => null, 'period' => null];
+            if ($useStage) {
+                $q = DB::table('rts_prospects')->where('agency_id', $agencyId)->where('track', $track)->whereIn('user_id', $ids)->whereIn('stage', $s['stages'])
+                    ->whereNull('deleted_at')->whereNull('closed_at')->whereNull('released_at')->whereNull('parked_at');
+                $row['now'] = (int) $q->count();
+                $row['reached'] = (int) DB::table('rts_prospect_events as e')->where('e.agency_id', $agencyId)->where('e.track', $track)->where('e.kind', 'stage')
+                    ->whereIn('e.user_id', $ids)->whereIn('e.to_stage', $s['stages'])->whereBetween('e.occurred_at', [$day->copy()->startOfMonth()->toDateTimeString(), $day->copy()->endOfDay()->toDateTimeString()])
+                    ->distinct()->count('e.prospect_id');
+            } elseif ($s['source'] === 'list_today') {
+                $row['now'] = (int) DB::table('rts_list_items')->where('agency_id', $agencyId)->where('track', $track)->whereIn('user_id', $ids)->whereDate('list_date', $day->toDateString())
+                    ->where('origin', '!=', RtsListItem::ORIGIN_FOLLOW_UP)->whereNull('deleted_at')->count();
+                $row['target'] = (int) $users->sum(fn ($u) => $this->workdays->targetFor($u, $day, $track));
+                $row['done'] = $row['now'];
+                $row['period'] = 'today';
+            } else {
+                [$q] = $this->queryFor($s['key'] === 'held' ? 'owed' : $s['source'], $agencyId, $ids, '');
+                $row['now'] = (int) DB::query()->fromSub($q, 't')->count();
+            }
+            if ($s['key'] !== 'loaded') {
+                $t = 0; $d = 0; $per = null;
+                foreach ($users as $u) {
+                    if (count($ids) > 60 && $key === 'agency') { break; }   // keep the agency figure cheap on a very large agency: the recipe read is per agent
+                    $rt = $this->recipeTarget($s, (array) ($this->recipe->forAgent($u, $track, $day->isToday() ? now() : $day->copy()->endOfDay())['tasks'] ?? []));
+                    if ($rt !== null) { $t += $rt['target']; $d += $rt['done']; $per ??= $rt['period']; }
+                }
+                if ($t > 0) { $row['target'] = $t; $row['done'] = $d; $row['period'] = $per; }
+            }
+            $out[] = $row;
+        }
+
+        return ['station' => $s['key'], 'label' => (string) $s['label'], 'period' => 'this month', 'scopes' => $out];
     }
 
     /**
@@ -170,7 +266,7 @@ final class BeltService
 
     private function owedCount(User $agent): int
     {
-        return (int) $this->owedQuery($agent)->count();
+        return (int) $this->owedQueryFor((int) ($agent->effectiveAgencyId() ?: 0), [(int) $agent->id])->count();
     }
 
     // ── the queries: one builder per source, columns id, title, suburb, owner, since (+ extras) ───────────────
@@ -180,7 +276,17 @@ final class BeltService
      */
     private function query(string $source, User $agent, string $label): array
     {
-        $agencyId = (int) ($agent->effectiveAgencyId() ?: 0);
+        return $this->queryFor($source, (int) ($agent->effectiveAgencyId() ?: 0), [(int) $agent->id], $label);
+    }
+
+    /**
+     * The same builders for ONE agent or for a group of agents (the compare popover, 23.12): `$ids` is who the figure is about.
+     *
+     * @param  list<int>  $ids
+     * @return array{0:Builder,1:string,2:string,3:string}
+     */
+    private function queryFor(string $source, int $agencyId, array $ids, string $label): array
+    {
         $addr = "TRIM(COALESCE(NULLIF(l.address, ''), CONCAT_WS(' ', tp.street_number, tp.street_name), tp.address_raw, ''))";
 
         switch ($source) {
@@ -190,7 +296,7 @@ final class BeltService
                     ->join('prospecting_listings as l', 'l.id', '=', 'c.prospecting_listing_id')
                     ->leftJoin('tracked_properties as tp', 'tp.id', '=', 'l.tracked_property_id')
                     ->leftJoin('contacts as o', 'o.id', '=', 'tp.owner_contact_id')
-                    ->where('c.agency_id', $agencyId)->where('c.user_id', $agent->id)->where('c.is_active', 1)->whereNull('c.deleted_at')
+                    ->where('c.agency_id', $agencyId)->whereIn('c.user_id', $ids)->where('c.is_active', 1)->whereNull('c.deleted_at')
                     ->selectRaw("c.id as id, {$addr} as title, COALESCE(l.suburb, tp.suburb) as suburb, TRIM(CONCAT_WS(' ', o.first_name, o.last_name)) as owner, COALESCE(c.last_updated_at, c.claimed_at) as since, l.portal_ref as ref, c.pitched_at as pitched_at");
                 if ($source === 'claims_open') {
                     $q->whereNull('tp.owner_contact_id');
@@ -198,14 +304,14 @@ final class BeltService
                     return [$q, $addr, 'Claimed - owner not found yet', 'No open claims without an owner. Claim a property in Market Intelligence and it appears here.'];
                 }
                 $q->whereNotNull('tp.owner_contact_id')
-                    ->whereNotExists(fn ($e) => $e->from('rts_contact_outcomes as oc')->whereColumn('oc.tracked_property_id', 'l.tracked_property_id')->where('oc.user_id', $agent->id)->whereNull('oc.deleted_at'));
+                    ->whereNotExists(fn ($e) => $e->from('rts_contact_outcomes as oc')->whereColumn('oc.tracked_property_id', 'l.tracked_property_id')->whereIn('oc.user_id', $ids)->whereNull('oc.deleted_at'));
 
                 return [$q, $addr, 'Owner found - not contacted yet', 'No claimed property with an owner waiting for a first contact.'];
 
             case 'presentations_open':
                 $title = "TRIM(COALESCE(NULLIF(p.property_address, ''), NULLIF(p.title, ''), 'Presentation'))";
                 $q = DB::table('presentations as p')
-                    ->where('p.agency_id', $agencyId)->where('p.created_by_user_id', $agent->id)->whereNull('p.deleted_at')
+                    ->where('p.agency_id', $agencyId)->whereIn('p.created_by_user_id', $ids)->whereNull('p.deleted_at')
                     ->whereNotExists(fn ($e) => $e->from('presentation_outcomes as po')->whereColumn('po.presentation_id', 'p.id'))
                     ->selectRaw("p.id as id, {$title} as title, p.suburb as suburb, NULL as owner, p.created_at as since");
 
@@ -214,16 +320,16 @@ final class BeltService
             case 'owed':
                 $title = "TRIM(COALESCE(NULLIF(e.title, ''), 'Evaluation'))";
 
-                return [$this->owedQuery($agent)->selectRaw("e.id as id, {$title} as title, NULL as suburb, NULL as owner, e.event_date as since, e.property_id as property_id"), $title,
+                return [$this->owedQueryFor($agencyId, $ids)->selectRaw("e.id as id, {$title} as title, NULL as suburb, NULL as owner, e.event_date as since, e.property_id as property_id"), $title,
                     'Evaluations that took place - have you given feedback?', 'Nothing is waiting for feedback. Well done.'];
 
             case 'properties_draft':
             case 'properties_active':
             case 'properties_live':
                 $title = "TRIM(COALESCE(NULLIF(pr.address, ''), CONCAT_WS(' ', pr.street_number, pr.street_name)))";
-                $q = DB::table('properties as pr')->where('pr.agency_id', $agencyId)->where('pr.agent_id', $agent->id)->whereNull('pr.deleted_at')
+                $q = DB::table('properties as pr')->where('pr.agency_id', $agencyId)->whereIn('pr.agent_id', $ids)->whereNull('pr.deleted_at')
                     ->selectRaw("pr.id as id, {$title} as title, pr.suburb as suburb, NULL as owner, pr.updated_at as since, pr.price as price");
-                $live = Property::query()->withoutGlobalScopes()->liveOnAnyPortal()->where('agency_id', $agencyId)->where('agent_id', $agent->id)->select('id');
+                $live = Property::query()->withoutGlobalScopes()->liveOnAnyPortal()->where('agency_id', $agencyId)->whereIn('agent_id', $ids)->select('id');
                 if ($source === 'properties_draft') {
                     $q->where('pr.status', 'draft');
 
@@ -242,7 +348,7 @@ final class BeltService
             case 'prospects':
             default:
                 $q = DB::table('rts_prospects as rp')->join('tracked_properties as tp', 'tp.id', '=', 'rp.tracked_property_id')
-                    ->where('rp.agency_id', $agencyId)->where('rp.user_id', $agent->id)->whereNull('rp.deleted_at')->whereNull('rp.closed_at')->whereNull('rp.released_at')->whereNull('rp.parked_at')
+                    ->where('rp.agency_id', $agencyId)->whereIn('rp.user_id', $ids)->whereNull('rp.deleted_at')->whereNull('rp.closed_at')->whereNull('rp.released_at')->whereNull('rp.parked_at')
                     ->selectRaw("rp.id as id, TRIM(COALESCE(NULLIF(tp.address_raw, ''), CONCAT_WS(' ', tp.street_number, tp.street_name))) as title, tp.suburb as suburb, NULL as owner, rp.stage_entered_at as since");
 
                 return [$q, "TRIM(COALESCE(NULLIF(tp.address_raw, ''), CONCAT_WS(' ', tp.street_number, tp.street_name)))", $label, 'Nothing at this station.'];
@@ -250,12 +356,10 @@ final class BeltService
     }
 
     /** Evaluations whose time has passed with no feedback captured (23.10 "Owed"). */
-    private function owedQuery(User $agent): Builder
+    private function owedQueryFor(int $agencyId, array $ids): Builder
     {
-        $agencyId = (int) ($agent->effectiveAgencyId() ?: 0);
-
         return DB::table('calendar_events as e')
-            ->where('e.agency_id', $agencyId)->where('e.user_id', $agent->id)->whereNull('e.deleted_at')
+            ->where('e.agency_id', $agencyId)->whereIn('e.user_id', $ids)->whereNull('e.deleted_at')
             ->whereIn('e.category', ['property_evaluation', 'listing_presentation'])
             ->whereNotIn('e.status', ['dismissed', 'cancelled'])
             ->where('e.event_date', '<', Carbon::now()->toDateTimeString())
