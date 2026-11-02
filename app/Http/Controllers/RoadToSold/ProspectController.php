@@ -54,6 +54,9 @@ class ProspectController extends Controller
 
             return redirect()->to($path->next($p, $request->user(), $path->carry($request))['url']);
         }
+        if ($step === 'evaluation' && \App\Support\Embed::on()) {
+            return app(\App\Http\Controllers\RoadToSold\PitchPathController::class)->evaluation($request, (int) $p->id);   // the prefilled form, one hop
+        }
         $url = $this->steps->urlFor($p, $step);
         abort_unless($url, 404, 'That step has no screen yet.');
 
