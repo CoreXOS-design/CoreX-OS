@@ -263,6 +263,9 @@ class SettingsController extends Controller
         if (RtsSetting::hasAgentStartColumn()) {
             $rules['agent_start_required'] = ['sometimes', 'boolean'];
         }
+        if (RtsSetting::hasSourceForColleaguesColumn()) {
+            $rules['source_for_colleagues'] = ['sometimes', 'string', \Illuminate\Validation\Rule::in(array_keys(RtsSetting::COLLEAGUE_SOURCES))];
+        }
         // The four tick-lists: at least one choice, only known choices. A posted blank (the hidden marker
         // that lets "everything unticked" reach the server) is dropped before the check.
         foreach (RtsSetting::listChoices() as $field => $choices) {
@@ -583,6 +586,7 @@ class SettingsController extends Controller
         'prospect_stall_days'     => 'Days a prospect may sit without moving before it is flagged',
         'capture_needs_review'    => 'Captured tasks wait for a manager\'s approval',
         'agent_start_required'    => 'Agents press Start my Road to Sold before lists load',
+        'source_for_colleagues'   => 'Whose buyers feed an agent\'s stock after their own',
         'levels_signoff_required' => 'A manager signs off each level',
         'level_periods_required'  => 'Weeks on target before a level is put forward',
         'flag_min_sample'         => 'Fewest events before a ratio can be flagged',

@@ -20,10 +20,17 @@ use Tests\TestCase;
  */
 final class HotPocketsTest extends TestCase
 {
-    use RefreshDatabase, RtsFixtures, SeedsDerivedAreas;
+    use RefreshDatabase, SeedsDerivedAreas;
+    use RtsFixtures { listing as protected traitListing; }
 
     private HotPocketService $svc;
     private Carbon $asOf;
+
+    /** The pocket tests are about WHERE a listing is, so unless a test says otherwise the listing is price-reduced (23.14: in a pocket it is the stuck / reduced stock that is offered). */
+    protected function listing(array $attrs = [], $tp = true, ?\App\Models\Agency $agency = null): int
+    {
+        return $this->traitListing($attrs + ['is_reduced' => 1], $tp, $agency);
+    }
 
     protected function setUp(): void
     {
@@ -143,6 +150,25 @@ final class HotPocketsTest extends TestCase
         $this->assertStringStartsWith('Hot pocket: 3 leads / ', $c[0]->reason);
         $this->assertSame('Uvongo', $c[0]->facts['area']);
         $this->assertNotContains($cold, $this->listingIds($c));
+    }
+
+    public function test_in_a_pocket_only_stuck_or_reduced_stock_is_offered(): void
+    {
+        $this->lead($this->property($this->agent->id, ['suburb' => 'Uvongo']));
+
+        $fresh   = $this->listing(['suburb' => 'Uvongo', 'is_reduced' => 0]);                                                    // new, not cut: not worth the call
+        $reduced = $this->listing(['suburb' => 'Uvongo', 'is_reduced' => 1]);                                                    // the portal says reduced
+        $stuck   = $this->listing(['suburb' => 'Uvongo', 'is_reduced' => 0, 'first_seen_at' => now()->subDays(120)]);            // on the market past the stuck days (60)
+        $cut     = $this->listing(['suburb' => 'Uvongo', 'is_reduced' => 0]);                                                    // a price cut inside the look-back
+        DB::table('prospecting_price_history')->insert(['prospecting_listing_id' => $cut, 'old_price' => 1_600_000, 'new_price' => 1_500_000, 'changed_at' => now()->subDays(5), 'created_at' => now(), 'updated_at' => now()]);
+        $oldCut  = $this->listing(['suburb' => 'Uvongo', 'is_reduced' => 0]);                                                    // a cut, but long ago
+        DB::table('prospecting_price_history')->insert(['prospecting_listing_id' => $oldCut, 'old_price' => 1_600_000, 'new_price' => 1_500_000, 'changed_at' => now()->subDays(200), 'created_at' => now(), 'updated_at' => now()]);
+
+        $ids = $this->listingIds((new HotPocketSelection($this->svc))->candidates($this->ctx(), 50));
+
+        $this->assertEqualsCanonicalizing([$reduced, $stuck, $cut], $ids);
+        $this->assertNotContains($fresh, $ids);
+        $this->assertNotContains($oldCut, $ids);
     }
 
     public function test_the_selection_is_empty_when_there_are_no_pockets(): void

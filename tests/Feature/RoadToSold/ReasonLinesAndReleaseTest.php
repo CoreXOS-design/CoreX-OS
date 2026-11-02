@@ -102,7 +102,7 @@ final class ReasonLinesAndReleaseTest extends TestCase
 
         $c = BuyerSourcingSelection::mine()->candidates($this->ctx(), 10);
 
-        $this->assertSame('3 of your buyers match: Sanet, Jo, Piet', $c[0]->reason);
+        $this->assertSame('for Sanet · 3 buyers', $c[0]->reason, '23.14: the best-matching buyer by name, then how many');
         $this->assertSame('my_buyers', $c[0]->facts['kind']);
         $this->assertSame(3, $c[0]->facts['count']);
         $this->assertSame(95, $c[0]->facts['best_match']);
@@ -111,14 +111,14 @@ final class ReasonLinesAndReleaseTest extends TestCase
     public function test_agency_buyers_show_each_buyers_agent(): void
     {
         $l = $this->listing();
-        $this->named($this->agent, 'Piet', $l, 90);
+        $this->named($this->agent, 'Piet', $l, 90);   // my buyer: source 1 has it, not the colleagues' source
         $this->named($this->mate, 'Sanet', $l, 85);
 
         $c = BuyerSourcingSelection::agency()->candidates($this->ctx(), 10);
 
-        $this->assertSame('Agency has 2 buyers (Piet · agent Anna, Sanet · agent Mia)', $c[0]->reason);
-        $this->assertSame('Piet Smith', $c[0]->facts['buyers'][0]['name']);
-        $this->assertSame('Anna Agent', $c[0]->facts['buyers'][0]['agent']);
+        $this->assertSame('for Sanet (Mia Mate)', $c[0]->reason, '23.14: the colleague\'s buyer, the buyer\'s agent named');
+        $this->assertSame('Sanet Smith', $c[0]->facts['buyers'][0]['name']);
+        $this->assertSame('Mia Mate', $c[0]->facts['buyers'][0]['agent']);
     }
 
     public function test_price_drop_new_and_long_on_market_have_their_numbers(): void
@@ -162,16 +162,16 @@ final class ReasonLinesAndReleaseTest extends TestCase
         $items = app(ListBuilderService::class)->buildFor($this->agent, self::WED);
 
         $this->assertCount(1, $items);
-        $this->assertSame('2 of your buyers match: Piet, Sanet', $items->first()->reason);
+        $this->assertSame('for Piet · 2 buyers', $items->first()->reason);
         $this->assertSame(2, $items->first()->reason_facts['count']);
         $prospect = RtsProspect::withoutGlobalScopes()->firstOrFail();
-        $this->assertSame('2 of your buyers match: Piet, Sanet', $prospect->reason);
+        $this->assertSame('for Piet · 2 buyers', $prospect->reason);
 
         // what the market does next does not rewrite what was offered
         $this->named($this->agent, 'Jo', $l);
         Cache::flush();
         $again = app(ListBuilderService::class)->buildFor($this->agent, self::WED);
-        $this->assertSame('2 of your buyers match: Piet, Sanet', $again->first()->reason);
+        $this->assertSame('for Piet · 2 buyers', $again->first()->reason);
 
         // an untouched prospect offered again takes the new line
         $this->prospects->place($this->agent, $prospect->tracked_property_id, 'sales', ['reason' => 'Offered again: new line', 'reason_facts' => ['kind' => 'x'], 'selection' => 'long_on_market']);

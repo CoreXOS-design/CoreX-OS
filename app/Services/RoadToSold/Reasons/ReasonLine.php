@@ -51,31 +51,31 @@ final class ReasonLine
     }
 
     /**
-     * "3 of your buyers match: Piet, Sanet, Jo".
+     * Station 1, source 1 (23.14): "for Piet" / "for Piet · 3 buyers" - the strongest-matching buyer by name, then how many of the agent's buyers match.
      *
-     * @param  array<int,array{id:int,name:string,score?:?int}> $buyers
+     * @param  array<int,array{id:int,name:string,score?:?int}> $buyers best match first
      */
     public static function myBuyers(array $buyers): array
     {
         $n = count($buyers);
-        $names = array_map(fn ($b) => self::first($b['name']), $buyers);
-        $line = $n === 1 ? '1 of your buyers matches: ' . self::names($names) : "{$n} of your buyers match: " . self::names($names);
+        $line = 'for ' . self::first($buyers[0]['name'] ?? '') . ($n > 1 ? " · {$n} buyers" : '');
 
         return ['line' => $line, 'facts' => ['kind' => 'my_buyers', 'count' => $n, 'buyers' => array_slice($buyers, 0, 10), 'best_match' => max(array_map(fn ($b) => (int) ($b['score'] ?? 0), $buyers) ?: [0])]];
     }
 
     /**
-     * "Agency has 2 buyers (Piet · agent Anna, Sanet · agent Jo)".
+     * Station 1, source 2 (23.14): "for Sanet (Mia Manager)" - the colleague's buyer, with the buyer's agent named; "for Sanet (Mia Manager) · 2 buyers" when more match.
      *
-     * @param  array<int,array{id:int,name:string,agent:?string,score?:?int}> $buyers
+     * @param  array<int,array{id:int,name:string,agent?:?string,score?:?int}> $buyers best match first
      */
     public static function agencyBuyers(array $buyers): array
     {
         $n = count($buyers);
-        $each = array_map(fn ($b) => self::first($b['name']) . (! empty($b['agent']) ? ' · agent ' . self::first($b['agent']) : ''), $buyers);
+        $top = $buyers[0] ?? ['name' => '', 'agent' => null];
+        $line = 'for ' . self::first($top['name']) . (! empty($top['agent']) ? ' (' . trim($top['agent']) . ')' : '') . ($n > 1 ? " · {$n} buyers" : '');
 
         return [
-            'line' => 'Agency has ' . $n . ' ' . ($n === 1 ? 'buyer' : 'buyers') . ' (' . self::names($each) . ')',
+            'line' => $line,
             'facts' => ['kind' => 'agency_buyers', 'count' => $n, 'buyers' => array_slice($buyers, 0, 10), 'best_match' => max(array_map(fn ($b) => (int) ($b['score'] ?? 0), $buyers) ?: [0])],
         ];
     }

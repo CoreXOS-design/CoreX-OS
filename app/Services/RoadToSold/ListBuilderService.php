@@ -168,37 +168,154 @@ class ListBuilderService
         $counted = $this->countedToward($user, $day, $track);
         $remaining = min($target, $limitNew ?? $target) - $counted;
         if ($remaining > 0) {
-            foreach ($settings->enabledSelectionKeys as $key) {
-                if ($remaining <= 0) {
-                    break;
-                }
-                $selection = $this->registry->get($key);
-                if ($selection === null) {
-                    // An enabled source with no code behind it is a setup fault: say so, loudly, and carry on with the rest.
-                    Log::error('Road to Sold: an enabled selection has no implementation (skipped)', ['selection' => $key, 'user_id' => $user->id]);
-                    continue;
-                }
-                // A candidate another agent has just taken is refused at insert(); ask the same source again (its context now excludes
-                // what was refused) up to three times so a race never leaves the day short.
-                for ($pass = 0; $pass < 3 && $remaining > 0; $pass++) {
-                    $refused = 0;
-                    foreach ($selection->candidates($this->context($user, $agencyId, $day, $track, $settings), $remaining) as $candidate) {
-                        if ($this->insert($user, $agencyId, $day, $track, $candidate, RtsListItem::ORIGIN_AUTO)) {
-                            $remaining--;
-                        } else {
-                            $refused++;
-                        }
-                    }
-                    if ($refused === 0) {
-                        break;
-                    }
-                }
-            }
+            $this->fillTopDown($user, $agencyId, $day, $track, $settings, $remaining, fn (Candidate $c) => (bool) $this->insert($user, $agencyId, $day, $track, $c, RtsListItem::ORIGIN_AUTO));
         }
 
         if ($limitNew === null || $limitNew >= $target) {
             Cache::put($marker, 1, now()->addMinutes(10));
         }
+    }
+
+    /**
+     * THE allocation order (road-to-sold.md 23.14): the agency's selections, top-down, each only when the earlier ones ran dry, until $remaining properties are
+     * taken. $take places (or, for the preview, merely records) one candidate and says whether it was taken.
+     *
+     * @param  callable(Candidate): bool  $take
+     */
+    private function fillTopDown(User $user, int $agencyId, Carbon $day, string $track, BuilderSettings $settings, int $remaining, callable $take): void
+    {
+        foreach ($settings->enabledSelectionKeys as $key) {
+            if ($remaining <= 0) {
+                break;
+            }
+            $selection = $this->registry->get($key);
+            if ($selection === null) {
+                // An enabled source with no code behind it is a setup fault: say so, loudly, and carry on with the rest.
+                Log::error('Road to Sold: an enabled selection has no implementation (skipped)', ['selection' => $key, 'user_id' => $user->id]);
+                continue;
+            }
+            // A candidate another agent has just taken is refused at insert(); ask the same source again (its context now excludes
+            // what was refused) up to three times so a race never leaves the day short.
+            for ($pass = 0; $pass < 3 && $remaining > 0; $pass++) {
+                $refused = 0;
+                foreach ($selection->candidates($this->context($user, $agencyId, $day, $track, $settings), $remaining) as $candidate) {
+                    if ($take($candidate)) {
+                        $remaining--;
+                    } else {
+                        $refused++;
+                    }
+                }
+                if ($refused === 0) {
+                    break;
+                }
+            }
+        }
+    }
+
+    /**
+     * What the day's list WOULD get from each source, without writing anything (the QA1 check, and the page that wants to say "why 3 for my buyers").
+     * Same gates and the same order as the build; it does not skip an agent who has not started - it reports that as `state`.
+     *
+     * @return array{state:string, target:int, by_source:array<string,int>, rows:list<array<string,mixed>>}
+     */
+    public function preview(User $user, CarbonInterface|string $date, string $track = RtsListItem::TRACK_SALES): array
+    {
+        $this->assertTrack($track);
+        $user = $this->listOwner($user);
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
+        $day = Carbon::parse($date)->startOfDay();
+        $state = ! app(ActivationService::class)->mayBuild($user, $day, $track) ? 'not_loading' : 'loading';
+        $target = $this->calendar->isWorkday($user, $day, $track) ? $this->calendar->targetFor($user, $day, $track) : 0;
+        $out = ['state' => $state, 'target' => $target, 'by_source' => [], 'rows' => []];
+        if ($agencyId <= 0 || $target <= 0) {
+            return $out;
+        }
+        $settings = ($this->settingsResolver)($user, $track);
+        $this->stock = new OtherAgentStock($agencyId, $user->dataIdentityIds());
+        $taken = [];
+        $this->fillTopDown($user, $agencyId, $day, $track, $settings, max(0, $target - $this->countedToward($user, $day, $track)), function (Candidate $c) use ($user, $agencyId, $day, $track, &$taken, &$out) {
+            if (isset($taken[$c->dedupeKey()]) || ! $this->mayPlace($user, $agencyId, $day, $track, $c) || $this->onDay($user, $day, $track, $c)) {
+                return false;
+            }
+            $taken[$c->dedupeKey()] = true;
+            $src = AllocationSource::describe($c->selection, $c->facts);
+            $out['by_source'][$src['kind']] = ($out['by_source'][$src['kind']] ?? 0) + 1;
+            $out['rows'][] = ['kind' => $src['kind'], 'selection' => $c->selection, 'tracked_property_id' => $c->trackedPropertyId, 'listing_id' => $c->prospectingListingId, 'line' => $c->reason, 'has_address' => $c->hasAddress, 'in_area' => $c->inArea];
+
+            return true;
+        });
+
+        return $out;
+    }
+
+    /**
+     * How the day's loaded stock splits by source (kind => count), read from what each row recorded when it was offered (reason_facts.source).
+     *
+     * @return array<string,int>
+     */
+    public function sourceCounts(User $user, CarbonInterface|string $date, string $track = RtsListItem::TRACK_SALES): array
+    {
+        $counts = [];
+        foreach (RtsListItem::query()->forDay($this->listOwner($user), $date, $track)->countingTowardTarget()->get(['selection', 'reason_facts']) as $row) {
+            $kind = $row->reason_facts['source']['kind'] ?? AllocationSource::kindOf((string) $row->selection);
+            $counts[$kind] = ($counts[$kind] ?? 0) + 1;
+        }
+
+        return $counts;
+    }
+
+    /**
+     * Swap a loaded property for another, with a reason (23.14 / 23.11 station 1). The row stays (never offered to this agent again) but leaves the list, the
+     * property is released for others, and the day is topped up with the next candidate. A follow-up, a worked property or a past day cannot be swapped.
+     *
+     * @return array{swapped:RtsListItem, replacement:?RtsListItem}
+     * @throws InvalidArgumentException with a plain-English message
+     */
+    public function swap(User $user, int $itemId, string $reason): array
+    {
+        $user = $this->listOwner($user);
+        $reason = trim(preg_replace('/\s+/u', ' ', $reason) ?? '');
+        if (mb_strlen($reason) < 3) {
+            throw new InvalidArgumentException('Say why you are swapping it (a few words).');
+        }
+        $item = RtsListItem::query()->where('user_id', $user->id)->find($itemId);
+        if (! $item) {
+            throw new InvalidArgumentException('That property is not on your list.');
+        }
+        if ($item->status !== RtsListItem::STATUS_OPEN) {
+            throw new InvalidArgumentException('That property has already been dealt with, so it cannot be swapped.');
+        }
+        if ($item->origin === RtsListItem::ORIGIN_FOLLOW_UP) {
+            throw new InvalidArgumentException('A follow-up is a promise to call back. Log the result of the call instead.');
+        }
+        if (Carbon::parse($item->list_date)->startOfDay()->lt(now()->startOfDay())) {
+            throw new InvalidArgumentException('Only today\'s list can be swapped.');
+        }
+        $prospect = $item->prospect_id ? \App\Models\RoadToSold\RtsProspect::query()->find($item->prospect_id) : null;
+        if ($prospect && $prospect->stage !== ProspectStages::FOUND) {
+            throw new InvalidArgumentException('You have already started on that property, so it cannot be swapped.');
+        }
+
+        DB::transaction(function () use ($item, $prospect, $user, $reason) {
+            $item->forceFill([
+                'status' => RtsListItem::STATUS_SWAPPED, 'status_changed_at' => now(),
+                'reason_facts' => array_merge($item->reason_facts ?? [], ['swap' => ['reason' => mb_substr($reason, 0, 200), 'at' => now()->toDateTimeString(), 'by_user_id' => (int) $user->id]]),
+            ])->save();
+            if ($prospect) {
+                app(ProspectService::class)->release($prospect, $user, 'Swapped on the list: ' . mb_substr($reason, 0, 200));
+            }
+        });
+
+        $replacement = null;
+        if ($item->origin !== RtsListItem::ORIGIN_ADDED) {   // an "added" extra was over and above the target: nothing to replace
+            $before = RtsListItem::query()->forDay($user, $item->list_date, $item->track)->pluck('id')->all();
+            // the "already topped up" marker would make the build a no-op: the day is one short now
+            Cache::forget('rts-built:' . (int) ($user->effectiveAgencyId() ?: 0) . ":{$user->id}:{$item->track}:" . Carbon::parse($item->list_date)->toDateString());
+            $this->buildFor($user, $item->list_date, $item->track);
+            $replacement = RtsListItem::query()->forDay($user, $item->list_date, $item->track)->whereNotIn('id', $before)->orderBy('id')->first();
+        }
+
+        return ['swapped' => $item->fresh() ?? $item, 'replacement' => $replacement];
     }
 
     /** The pseudo-selection key stored on a row that came from the agent's own captured work. */
@@ -310,7 +427,7 @@ class ListBuilderService
 
     private function context(User $user, int $agencyId, Carbon $day, string $track, BuilderSettings $settings): SelectionContext
     {
-        $items = RtsListItem::query()->forDay($user, $day, $track)->get(['tracked_property_id', 'prospecting_listing_id', 'property_id', 'selection']);
+        $items = RtsListItem::query()->withoutGlobalScope(RtsListItem::SCOPE_NOT_SWAPPED)->forDay($user, $day, $track)->get(['tracked_property_id', 'prospecting_listing_id', 'property_id', 'selection', 'status']);
         // Areas by suburb id + town when the provider can say so (never by bare name: two towns share names).
         $matches = $this->areas instanceof AreaMatchProvider ? $this->areas->suburbMatchesFor($user, $track) : [];
 
@@ -329,7 +446,7 @@ class ListBuilderService
             excludeListingIds: $items->pluck('prospecting_listing_id')->filter()->map(fn ($v) => (int) $v)->values()->all(),
             excludePropertyIds: $items->pluck('property_id')->filter()->map(fn ($v) => (int) $v)->values()->all(),
             areaMatches: $matches,
-            countsBySelection: $items->countBy('selection')->map(fn ($n) => (int) $n)->all(),
+            countsBySelection: $items->where('status', '<>', RtsListItem::STATUS_SWAPPED)->countBy('selection')->map(fn ($n) => (int) $n)->all(),
             otherStock: $this->stock,
             resolver: $this->resolver ??= new TrackedPropertyResolver(),
         );
@@ -355,7 +472,7 @@ class ListBuilderService
     /** Is that property already on this agent's list for the day? (tracked property first, else listing, else property) */
     private function onDay(User $user, Carbon $day, string $track, Candidate $c): bool
     {
-        return RtsListItem::query()->forDay($user, $day, $track)->where(function ($q) use ($c) {
+        return RtsListItem::query()->withoutGlobalScope(RtsListItem::SCOPE_NOT_SWAPPED)->forDay($user, $day, $track)->where(function ($q) use ($c) {
             if ($c->trackedPropertyId) {
                 $q->orWhere('tracked_property_id', $c->trackedPropertyId);
             }
@@ -405,9 +522,11 @@ class ListBuilderService
 
         // The allocation (road-to-sold.md 22.6): a property belongs to ONE agent. If another agent owns it, it is not placed -
         // the caller takes its next candidate. A follow-up on a property worked before prospects existed is adopted at "contacted".
+        // WHERE it came from (which buyer / pocket / fill-up) is recorded with the row, for the tile and the stats (23.22)
+        $facts = array_merge($c->facts ?? [], ['source' => AllocationSource::describe($c->selection, $c->facts)]);
         $prospect = app(ProspectService::class)->place($user, (int) $c->trackedPropertyId, $track, [
             'prospecting_listing_id' => $c->prospectingListingId, 'property_id' => $c->propertyId,
-            'selection' => $c->selection, 'reason' => $c->reason, 'reason_facts' => $c->facts,
+            'selection' => $c->selection, 'reason' => $c->reason, 'reason_facts' => $facts,
             'stage' => in_array($origin, [RtsListItem::ORIGIN_FOLLOW_UP, RtsListItem::ORIGIN_ROLLOVER], true) && $c->selection === RtsListItem::SELECTION_FOLLOW_UP
                 ? ProspectStages::CONTACTED : ProspectStages::FOUND,
         ]);
@@ -423,7 +542,7 @@ class ListBuilderService
             'property_id' => $c->propertyId, 'selection' => $c->selection, 'origin' => $origin,
             'position' => $position, 'status' => RtsListItem::STATUS_OPEN, 'reason' => mb_substr($c->reason, 0, 255),
             'rolled_from_item_id' => $rolledFrom,
-            'prospect_id' => $prospect->id, 'reason_facts' => $c->facts,
+            'prospect_id' => $prospect->id, 'reason_facts' => $facts,
         ];
 
         // I vouch for agency_id (it is the agent's own): the auto-stamp must not replace it with the

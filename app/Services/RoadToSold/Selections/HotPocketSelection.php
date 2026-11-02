@@ -109,6 +109,18 @@ final class HotPocketSelection extends MicPoolSelection
             array_push($bind, ...$b);
         }
         $q->whereRaw($terms === [] ? '1 = 0' : '(' . implode(' OR ', $terms) . ')', $bind);
+
+        // 23.14 source 3: in a hot pocket it is the STUCK and PRICE-REDUCED stock that is worth a call - on the market longer than the agency's "stuck" days, or marked
+        // reduced by the portal, or with a price cut inside the price-drop look-back.
+        $day = \Carbon\Carbon::instance($ctx->date)->startOfDay();
+        $stuckBefore = $day->copy()->subDays(max(0, $ctx->settings->stuckStockMinDaysOnMarket));
+        $cutSince = $day->copy()->subDays(max(1, $ctx->settings->priceDropLookbackDays))->toDateTimeString();
+        $q->whereRaw(
+            '(pl.is_reduced = 1'
+            . ' OR COALESCE(pl.listed_date, DATE(pl.first_seen_at)) < ?'
+            . ' OR EXISTS (SELECT 1 FROM prospecting_price_history phr WHERE phr.prospecting_listing_id = pl.id AND phr.changed_at >= ? AND phr.new_price < phr.old_price AND phr.old_price > 0))',
+            [$stuckBefore->toDateString(), $cutSince]
+        );
     }
 
     protected function order(Builder $q, SelectionContext $ctx): void
@@ -129,9 +141,13 @@ final class HotPocketSelection extends MicPoolSelection
     {
         $pocket = $this->pocketOf($row, $ctx);
 
-        return $pocket
-            ? \App\Services\RoadToSold\Reasons\ReasonLine::hotPocket($pocket, max(1, (int) $ctx->settings->hotPocketLookbackDays))
-            : ['line' => 'Hot pocket', 'facts' => ['kind' => 'hot_pocket']];
+        if (! $pocket) {
+            return ['line' => 'Hot pocket', 'facts' => ['kind' => 'hot_pocket']];
+        }
+        $out = \App\Services\RoadToSold\Reasons\ReasonLine::hotPocket($pocket, max(1, (int) $ctx->settings->hotPocketLookbackDays));
+        $out['facts']['suburb_id'] = ! empty($pocket['suburb_id']) ? (int) $pocket['suburb_id'] : null;
+
+        return $out;
     }
 
     /** @return ?array the pocket this row sits in */

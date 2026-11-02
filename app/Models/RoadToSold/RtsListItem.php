@@ -44,7 +44,17 @@ class RtsListItem extends Model
     public const STATUS_WORKED = 'worked';
     public const STATUS_MISSED = 'missed';
     public const STATUS_ROLLED = 'rolled';
-    public const STATUSES = [self::STATUS_OPEN, self::STATUS_WORKED, self::STATUS_MISSED, self::STATUS_ROLLED];
+    /** 23.14: the agent swapped it for another, with a reason. The row is kept (so it is never offered to them again) but is not on their list. */
+    public const STATUS_SWAPPED = 'swapped';
+    public const STATUSES = [self::STATUS_OPEN, self::STATUS_WORKED, self::STATUS_MISSED, self::STATUS_ROLLED, self::STATUS_SWAPPED];
+
+    /** A swapped row is off the agent's list: every query through the model skips it unless it asks (withoutGlobalScope(self::SCOPE_NOT_SWAPPED)). */
+    public const SCOPE_NOT_SWAPPED = 'notSwapped';
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope(self::SCOPE_NOT_SWAPPED, fn ($q) => $q->where('rts_list_items.status', '<>', self::STATUS_SWAPPED));
+    }
 
     /** The pseudo-selection key stored on a follow-up row. */
     public const SELECTION_FOLLOW_UP = 'follow_up';

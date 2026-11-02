@@ -16,9 +16,10 @@ use App\Services\RoadToSold\SettingsService;
  */
 final class BuilderSettings
 {
+    /** 23.14: my buyers, colleagues' buyers, hot pockets, then the fill-ups (price cuts, long on market, expired - own and competitor -, new on market). The agency can reorder. */
     public const DEFAULT_SELECTION_ORDER = [
-        'my_buyers_sourcing', 'agency_buyers_sourcing', 'hot_pockets', 'price_drops', 'new_on_market',
-        'long_on_market', 'owner_known', 'my_expired_stock', 'my_stock_not_selling', 'expired_competitor',
+        'my_buyers_sourcing', 'agency_buyers_sourcing', 'hot_pockets', 'price_drops', 'long_on_market',
+        'my_expired_stock', 'expired_competitor', 'new_on_market', 'owner_known', 'my_stock_not_selling',
     ];
 
     /** @param string[] $enabledSelectionKeys ordered */
@@ -47,6 +48,8 @@ final class BuilderSettings
         public readonly array $buyerActiveStates = RtsSetting::LIST_DEFAULTS['active_buyer_states'],
         /** @var string[] */
         public readonly array $onMarketStatuses = RtsSetting::LIST_DEFAULTS['on_market_statuses'],
+        /** 23.15: `off` | `branch` | `agency` - whose buyers feed the agent's stock after their own */
+        public readonly string $sourceForColleagues = 'agency',
     ) {
     }
 
@@ -81,6 +84,7 @@ final class BuilderSettings
             buyerMatchTiers: $s->buyerMatchTiers(),
             buyerActiveStates: $s->activeBuyerStates(),
             onMarketStatuses: $s->onMarketStatuses(),
+            sourceForColleagues: $s->sourceForColleagues(),
         );
     }
 

@@ -68,8 +68,8 @@ final class SettingsTest extends TestCase
         $this->assertSame(70, $s->summaryRedBelowPct());
         $this->assertSame([1 => 5, 2 => 5, 3 => 5, 4 => 5, 5 => 5, 6 => 0, 7 => 0], $s->defaultWeekdayTargets());
         $this->assertSame(
-            ['my_buyers_sourcing', 'agency_buyers_sourcing', 'hot_pockets', 'price_drops', 'new_on_market',
-             'long_on_market', 'owner_known', 'my_expired_stock', 'my_stock_not_selling', 'expired_competitor'],
+            ['my_buyers_sourcing', 'agency_buyers_sourcing', 'hot_pockets', 'price_drops', 'long_on_market',
+             'my_expired_stock', 'expired_competitor', 'new_on_market', 'owner_known', 'my_stock_not_selling'],
             $s->enabledSelectionKeys()
         );
         $this->assertCount(6, array_filter($s->summarySteps(), fn ($i) => $i['enabled']));

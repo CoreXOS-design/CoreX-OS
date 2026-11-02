@@ -192,10 +192,22 @@ abstract class MicPoolSelection implements Selection
                 "NOT EXISTS (SELECT 1 FROM properties px2 WHERE px2.id = tp.promoted_to_property_id AND px2.deleted_at IS NULL
                     AND px2.agent_id IS NOT NULL AND px2.agent_id NOT IN ({$meIn}) AND (px2.status IS NULL OR px2.status <> 'other_agency_stock'))"
             )
-            // never a listing another agent has claimed or is pitching right now
+            // never a listing that is CLAIMED (23.14 "unclaimed"): another agent's claim is theirs, and mine is already on my belt at station 2 - neither is new
+            // stock. Checked on the advert and on the property file, so a claim on the P24 advert also covers its PP twin.
             ->whereRaw(
                 "NOT EXISTS (SELECT 1 FROM prospecting_claims pc WHERE pc.prospecting_listing_id = pl.id
-                    AND pc.is_active = 1 AND pc.released_at IS NULL AND pc.deleted_at IS NULL AND pc.user_id NOT IN ({$meIn}))"
+                    AND pc.is_active = 1 AND pc.released_at IS NULL AND pc.deleted_at IS NULL)"
+            )
+            ->whereRaw(
+                "(pl.tracked_property_id IS NULL OR NOT EXISTS (SELECT 1 FROM prospecting_claims pc2 JOIN prospecting_listings plc ON plc.id = pc2.prospecting_listing_id
+                    WHERE plc.tracked_property_id = pl.tracked_property_id AND pc2.is_active = 1 AND pc2.released_at IS NULL AND pc2.deleted_at IS NULL))"
+            )
+            // no duplicates across days (23.14): a property that was on ANY earlier list of this agent (worked, missed, rolled or swapped) is not offered as new
+            // stock again. Follow-ups bring it back when it is due; a roll-over carries it on purpose.
+            ->whereRaw(
+                "NOT EXISTS (SELECT 1 FROM rts_list_items ri WHERE ri.user_id IN ({$meIn}) AND ri.track = ? AND ri.list_date < ?
+                    AND (ri.prospecting_listing_id = pl.id OR (pl.tracked_property_id IS NOT NULL AND ri.tracked_property_id = pl.tracked_property_id)))",
+                [$ctx->track, $ctx->date->toDateString()]
             )
             // the app clock (bound), never SQL NOW(): timestamps are stored in app time, the DB session may not be
             ->whereRaw(

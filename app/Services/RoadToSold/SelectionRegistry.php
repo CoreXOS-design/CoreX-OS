@@ -30,12 +30,12 @@ final class SelectionRegistry
             BuyerSourcingSelection::agency(),
             new HotPocketSelection($pockets),
             new PriceDropSelection(),
-            new NewOnMarketSelection(),
             new LongOnMarketSelection(),
-            new OwnerKnownSelection(),
             new MyExpiredStockSelection(),
-            new MyStockNotSellingSelection(),
             new ExpiredCompetitorSelection(),
+            new NewOnMarketSelection(),
+            new OwnerKnownSelection(),
+            new MyStockNotSellingSelection(),
         ] as $s) {
             $this->selections[$s->key()] = $s;
         }

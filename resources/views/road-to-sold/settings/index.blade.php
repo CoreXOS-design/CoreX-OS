@@ -333,6 +333,17 @@
                         <span class="text-xs ml-2" style="color:var(--text-muted);" title="Weekends and the public holidays above do not count.">working days (standard: {{ $defaults['capture_back_date_working_days'] }})</span>
                     </div>
                     </div>
+                    @if(\App\Models\RoadToSold\RtsSetting::hasSourceForColleaguesColumn())
+                    <div class="text-sm" data-qa="setting-source-for-colleagues" style="color:var(--text-primary);">
+                        <label class="block font-semibold mb-1" for="source_for_colleagues">Stock for other agents' buyers</label>
+                        <select id="source_for_colleagues" name="source_for_colleagues" class="rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            @foreach(\App\Models\RoadToSold\RtsSetting::COLLEAGUE_SOURCES as $v => $label)
+                                <option value="{{ $v }}" @selected(old('source_for_colleagues', $settings->sourceForColleagues()) === $v)>{{ $label }}</option>
+                            @endforeach
+                        </select>
+                        <div style="color:var(--text-muted);" class="mt-1">After an agent's own buyers' stock, the list can carry stock for a colleague's buyer (the colleague is named on the row). Standard: {{ \App\Models\RoadToSold\RtsSetting::COLLEAGUE_SOURCES[\App\Models\RoadToSold\RtsSetting::SCALAR_DEFAULTS['source_for_colleagues']] }}.</div>
+                    </div>
+                    @endif
                     @if(\App\Models\RoadToSold\RtsSetting::hasAgentStartColumn())
                     <label class="flex items-start gap-3 text-sm" style="color:var(--text-primary);" data-qa="setting-agent-start">
                         <input type="hidden" name="agent_start_required" value="0">

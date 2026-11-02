@@ -53,7 +53,7 @@ class RtsSetting extends Model
         'summary_ahead_from_pct', 'capture_back_date_working_days', 'capture_needs_review',
         'levels_signoff_required', 'level_periods_required',
         'flag_min_sample', 'flag_below_pct', 'flag_window_days', 'suggest_window_weeks', 'suggest_growth_pct',
-        'expired_competitor_lookback_days', 'prospect_stall_days', 'agent_start_required',
+        'expired_competitor_lookback_days', 'prospect_stall_days', 'agent_start_required', 'source_for_colleagues',
     ];
 
     protected $casts = [
@@ -113,6 +113,17 @@ class RtsSetting extends Model
         return $has ??= \Illuminate\Support\Facades\Schema::hasColumn((new static())->getTable(), 'agent_start_required');
     }
 
+    /** The v4 allocation setting is a column added by migration; until it exists the default ("agency") is used. */
+    public static function hasSourceForColleaguesColumn(): bool
+    {
+        static $has = null;
+
+        return $has ??= \Illuminate\Support\Facades\Schema::hasColumn((new static())->getTable(), 'source_for_colleagues');
+    }
+
+    /** 23.15 rts.source_for_colleagues: whose buyers feed my stock after my own. */
+    public const COLLEAGUE_SOURCES = ['off' => 'Only my own buyers', 'branch' => 'My own buyers, then my branch\'s', 'agency' => 'My own buyers, then my branch\'s, then the whole agency\'s'];
+
     public const SCALAR_DEFAULTS = [
         'lock_agents_to_areas'         => false,
         'half_day_leave_halves_target' => false,
@@ -144,6 +155,7 @@ class RtsSetting extends Model
         'level_periods_required'       => 4,
         'expired_competitor_lookback_days' => 30,
         'prospect_stall_days'          => 14,
+        'source_for_colleagues'        => 'agency',   // 23.15: off | branch | agency
         'agent_start_required'         => true,    // 23.13: an agent presses "Start my Road to Sold" before lists load
         'flag_min_sample'              => 20,
         'flag_below_pct'               => 60,
@@ -202,15 +214,15 @@ class RtsSetting extends Model
     {
         return [
             'my_buyers_sourcing'     => 'My buyers\' stock sourcing',
-            'agency_buyers_sourcing' => 'Agency buyers\' stock sourcing',
-            'hot_pockets'            => 'Hottest sales pockets',
+            'agency_buyers_sourcing' => 'Colleagues\' buyers\' stock sourcing',
+            'hot_pockets'            => 'Hottest sales pockets (stuck and reduced stock)',
             'price_drops'            => 'Price drops',
-            'new_on_market'          => 'New on market',
             'long_on_market'         => 'Long on market',
-            'owner_known'            => 'Owner already known',
             'my_expired_stock'       => 'My expired stock',
-            'my_stock_not_selling'   => 'My stock that is not selling',
             'expired_competitor'     => 'Expired competitor listings',
+            'new_on_market'          => 'New on market',
+            'owner_known'            => 'Owner already known',
+            'my_stock_not_selling'   => 'My stock that is not selling',
         ];
     }
 

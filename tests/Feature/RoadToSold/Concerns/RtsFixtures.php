@@ -136,6 +136,8 @@ trait RtsFixtures
         DB::table('prospecting_buyer_matches')->insert([
             'prospecting_listing_id' => $listingId, 'contact_id' => $contactId,
             'agency_id' => ($agency ?? $this->agency)->id, 'score' => $score, 'tier' => $tier, 'source' => 'manual',
+            // a cache row built under the CURRENT matching rules (mic-work-tab.md 13.15): the allocation engine reads no other
+            'matched_features' => json_encode(['engine' => 'canonical', 'rules' => \App\Services\Matching\BuyerMatchRules::VERSION]),
             'matched_at' => now(), 'last_recompute_at' => now(),
             'dismissed_at' => $dismissed ? now() : null,
             'created_at' => now(), 'updated_at' => now(),

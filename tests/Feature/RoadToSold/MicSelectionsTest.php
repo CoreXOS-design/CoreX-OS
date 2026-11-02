@@ -71,27 +71,31 @@ final class MicSelectionsTest extends TestCase
         $c = BuyerSourcingSelection::mine()->candidates($this->ctx(), 50);
 
         $this->assertSame([$forBoth, $forMine], $this->listingIds($c), 'two of my buyers beats one; mate\'s, lost, cold, weak, dismissed are out');
-        $this->assertStringContainsString('2 of your buyers match: ', $c[0]->reason);
-        $this->assertStringContainsString('1 of your buyers matches: ', $c[1]->reason);
+        $this->assertMatchesRegularExpression('/^for Buyer · 2 buyers$/', $c[0]->reason, '23.14: "for Piet · 3 buyers"');
+        $this->assertSame('for Buyer', $c[1]->reason);
     }
 
-    public function test_agency_buyers_sourcing_uses_every_agents_active_buyers(): void
+    public function test_colleagues_buyers_sourcing_uses_the_other_agents_active_buyers_never_mine(): void
     {
         $mine = $this->buyer($this->agent->id);
         $mate = $this->buyer($this->mate->id);
         $noAgent = $this->buyer($this->agent->id, 'new');
         $noAgent->forceFill(['agent_id' => null])->save();
 
-        $a = $this->listing();
-        $b = $this->listing();
-        $this->buyerMatch($a, $mine->id);
-        $this->buyerMatch($a, $mate->id);
-        $this->buyerMatch($b, $noAgent->id);
+        $onlyMine = $this->listing();
+        $theirs = $this->listing();
+        $both = $this->listing();
+        $noOne = $this->listing();
+        $this->buyerMatch($onlyMine, $mine->id);
+        $this->buyerMatch($theirs, $mate->id);
+        $this->buyerMatch($both, $mine->id);
+        $this->buyerMatch($both, $mate->id);
+        $this->buyerMatch($noOne, $noAgent->id);
 
         $c = BuyerSourcingSelection::agency()->candidates($this->ctx(), 50);
 
-        $this->assertSame([$a, $b], $this->listingIds($c));
-        $this->assertStringContainsString('Agency has 2 buyers (', $c[0]->reason);
+        $this->assertEqualsCanonicalizing([$theirs, $both], $this->listingIds($c), 'a colleague\'s buyer only: my own buyers are source 1, a buyer with no agent has no one to name');
+        $this->assertMatchesRegularExpression('/^for Buyer \(.+\)$/', $c[0]->reason, '23.14: "for Sanet (Mia Manager)" - the buyer\'s agent named');
     }
 
     public function test_buyers_of_another_agency_never_count(): void

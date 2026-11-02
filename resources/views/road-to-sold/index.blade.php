@@ -300,6 +300,19 @@
                                         data-step-label="{{ \App\Services\RoadToSold\ProspectStepService::LABELS[$stepKey] }} - {{ $r['address'] }}"
                                         @click="$dispatch('rts-step', $el.dataset)">{{ \App\Services\RoadToSold\ProspectStepService::LABELS[$stepKey] }}</button>
                             @endif
+                            @if($viewingOwn && $r['status'] === 'open' && ! empty($r['list_item_id']) && ($r['origin'] ?? '') !== 'follow_up')
+                                {{-- 23.14: swap this loaded property for the next one, with a reason --}}
+                                <span x-data="{ open: false }" class="relative" data-qa="intake-swap">
+                                    <button type="button" class="corex-btn-outline corex-btn-xs" @click="open = !open" title="Swap this property for the next one">Swap</button>
+                                    <form x-show="open" x-cloak method="POST" action="{{ route('road-to-sold.swap', $r['list_item_id']) }}" @click.outside="open = false" @keydown.escape="open = false"
+                                          class="absolute right-0 z-20 flex items-center gap-2 p-2 rounded-md" style="background: var(--surface); border: 1px solid var(--border); top: 100%; white-space: nowrap;">
+                                        @csrf
+                                        <input type="text" name="reason" required minlength="3" maxlength="200" placeholder="Why swap it?" autocomplete="off" class="px-2 py-1 text-xs rounded-md"
+                                               style="background: var(--surface-2, var(--surface)); border: 1px solid var(--border); color: var(--text-primary); width: 14rem;">
+                                        <button type="submit" class="corex-btn-primary corex-btn-xs">Swap</button>
+                                    </form>
+                                </span>
+                            @endif
                             @if($viewingOwn && ($r['status'] === 'open' || in_array($filters['view'], ['no_answer', 'wrong_number'], true)))
                                 <button type="button" class="corex-btn-primary corex-btn-xs" @if($loop->first) data-tour="smk-rts-contact" @endif
                                         data-tp="{{ $r['tracked_property_id'] }}" data-item="{{ $r['list_item_id'] }}" data-address="{{ $r['address'] }}"

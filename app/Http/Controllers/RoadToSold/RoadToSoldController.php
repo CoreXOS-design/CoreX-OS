@@ -486,6 +486,29 @@ class RoadToSoldController extends Controller
         return back()->with('status', $n > 0 ? "Added {$n} to your day." : 'Nothing more is available from that selection right now.');
     }
 
+    /** "Swap" on a loaded property (23.14): it leaves the list with the reason, the property is released, and the next candidate takes its place. Own list only. */
+    public function swap(Request $request, int $item): RedirectResponse
+    {
+        $data = $request->validate(['reason' => ['required', 'string', 'min:3', 'max:200']], [
+            'reason.required' => 'Say why you are swapping it (a few words).',
+            'reason.min'      => 'Say why you are swapping it (a few words).',
+            'reason.max'      => 'Keep the reason under 200 characters.',
+        ]);
+        $row = RtsListItem::query()->visibleTo($request->user())->findOrFail($item);
+
+        try {
+            $r = app(ListBuilderService::class)->swap($request->user(), (int) $row->id, $data['reason']);
+        } catch (\InvalidArgumentException $e) {
+            return back()->with('rts_error', $e->getMessage());
+        } catch (Throwable $e) {
+            report($e);
+
+            return back()->with('rts_error', 'We could not swap that just now. Try again.');
+        }
+
+        return back()->with('status', $r['replacement'] ? 'Swapped. Next up: ' . ($r['replacement']->reason ?: 'the next property') . '.' : 'Swapped. Nothing else is available to take its place right now.');
+    }
+
     private function doneMessage($o): string
     {
         $m = 'Saved: ' . $o->outcome_label . '.';

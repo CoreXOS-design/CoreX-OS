@@ -363,6 +363,14 @@ class SettingsService
         return max(1, (int) $this->scalar('capture_back_date_working_days'));
     }
 
+    /** 23.15 rts.source_for_colleagues: `off`, `branch` or `agency` (default) - whose buyers feed an agent's stock after their own. A bad stored value is the default. */
+    public function sourceForColleagues(): string
+    {
+        $v = (string) $this->scalar('source_for_colleagues');
+
+        return array_key_exists($v, RtsSetting::COLLEAGUE_SOURCES) ? $v : RtsSetting::SCALAR_DEFAULTS['source_for_colleagues'];
+    }
+
     /** 23.13: must an agent press "Start my Road to Sold" before their list loads? On by default. */
     public function agentStartRequired(): bool
     {
