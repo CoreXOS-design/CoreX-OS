@@ -151,6 +151,8 @@ if (WALK) {
     await page.screenshot({ path: path.join(SHOTS, 'x-owner-deed-picker.png') });
     await page.click('[data-step="contact"]');
     cur = await waitFrame(/\/contacts\/\d+\/outreach\/compose/, 60000);
+    await cur.evaluate(() => document.querySelector('[data-tour="oc-channel"] button').click());   // back to the WhatsApp tab
+    cur = await waitFrame(/channel=whatsapp/, 60000);
 
     // the owner gate is the belt's: open it for this test property the way finding the owner and the deed would
     console.log('  ', tinker(`$p = \\DB::table('properties')->where('id', ${propertyId})->first(); \\DB::table('tracked_properties')->where('id', $p->tracked_property_id)->update(['owner_contact_id' => ${contactId}, 'deeds_captured_at' => now()]); echo 'owner opened on tracked ' . $p->tracked_property_id;`));
@@ -274,27 +276,7 @@ if (await page.$('[data-qa="pitch-popup"]')) { await page.click('[data-qa="pitch
 ok(!(await page.$('[data-qa="pitch-popup"]')) && /market-intelligence/.test(page.url()), 'the agent is back on the MIC list');
 await page.screenshot({ path: path.join(SHOTS, 'i-back-on-list.png') });
 
-// ---- Road to Sold: a line opens at Property when it has an advert (Owner when it has none) --------------------------------------------------
-await page.goto(`${BASE}/corex/road-to-sold`, { waitUntil: 'networkidle2', timeout: 120000 });
-const rtsBtn = await page.evaluate(() => { const bs = [...document.querySelectorAll('[data-qa="intake-step"]')]; const b = bs.find((x) => x.dataset.tracked) || bs[0]; return b ? { tracked: b.dataset.tracked || '' } : null; });
-console.log('  road to sold step button:', JSON.stringify(rtsBtn));
-if (rtsBtn) {
-    const sel = '[data-qa="intake-step"]' + (rtsBtn.tracked ? `[data-tracked="${rtsBtn.tracked}"]` : '');
-    await page.$eval(sel, (b) => b.scrollIntoView({ block: 'center' }));
-    await (await page.$(sel)).click();
-    await page.waitForSelector('[data-qa="pitch-popup"]', { timeout: 15000 });
-    for (let i = 0; i < 60 && !/current/.test(await steps()); i++) await wait(500);
-    await page.screenshot({ path: path.join(SHOTS, 'j-rts-popup.png') });
-    s = await steps();
-    console.log('  rts frame:', (await frameOf()).url().replace(BASE, ''));
-    console.log('  rts popup steps:', s);
-    const rtsUrl = (await frameOf()).url();
-    const want = rtsBtn.tracked ? 'property:current' : (/\/contacts\/\d+\/outreach\/compose/.test(rtsUrl) ? 'property:todo,owner:todo,pitch:todo,contact:current' : 'property:todo,owner:current');
-    ok(s.startsWith(want), rtsBtn.tracked ? 'Road to Sold starts at step 1, the MIC card' : 'no advert on this row: the popup opens on the real step and ticks nothing it did not do: ' + s);
-    await page.click('[data-qa="pitch-close"]');
-    await wait(2500);
-    ok(/road-to-sold/.test(page.url()) && !(await page.$('[data-qa="pitch-popup"]')), 'Close leaves the agent on Road to Sold');
-}
+// (the Road to Sold start is checked by scripts/pitch-popup-rts-check.mjs, read-only: opening a row's Find owner step here would claim a real prospect's advert)
 await browser.close();
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);
