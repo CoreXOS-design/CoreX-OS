@@ -151,11 +151,35 @@ final class MicAdvertFilters
             $names = DB::table('p24_suburbs')->whereIn('id', array_values(array_unique(array_merge($working, $counts->keys()->all()))))->pluck('name', 'id');
             $row = fn ($id) => ['id' => (int) $id, 'name' => MicWorkList::titleSuburb($names[$id] ?? ('#' . $id)), 'count' => (int) ($counts[$id] ?? 0)];
             $first = array_map($row, $working);
-            usort($first, fn ($a, $b) => [$b['count'], $a['name']] <=> [$a['count'], $b['name']]);
+            usort($first, [self::class, 'byName']);
             $rest = array_map($row, array_values(array_diff($counts->keys()->all(), $working)));
-            usort($rest, fn ($a, $b) => [$b['count'], $a['name']] <=> [$a['count'], $b['name']]);
+            usort($rest, [self::class, 'byName']);
 
             return ['working' => $first, 'others' => $rest];
         });
+    }
+
+    /** A-Z by name, case-insensitive; the id breaks a tie so the order never shuffles (13.13: never by count). */
+    private static function byName(array $a, array $b): int
+    {
+        return [mb_strtolower($a['name']), $a['id']] <=> [mb_strtolower($b['name']), $b['id']];
+    }
+
+    /**
+     * The three blocks the dropdown shows (13.13): the ticked suburbs pinned on top (taken out of their group so none shows twice), then the working suburbs, then the rest;
+     * each block keeps the A-Z order of suburbOptions().
+     *
+     * @param  array{working: list<array>, others: list<array>}  $options
+     * @param  list<int>  $selected
+     * @return array{selected: list<array>, working: list<array>, others: list<array>}
+     */
+    public static function pinSelected(array $options, array $selected): array
+    {
+        $picked = array_flip(array_map('intval', $selected));
+        $pinned = array_values(array_filter(array_merge($options['working'] ?? [], $options['others'] ?? []), fn ($o) => isset($picked[$o['id']])));
+        usort($pinned, [self::class, 'byName']);
+        $without = fn (array $list) => array_values(array_filter($list, fn ($o) => ! isset($picked[$o['id']])));
+
+        return ['selected' => $pinned, 'working' => $without($options['working'] ?? []), 'others' => $without($options['others'] ?? [])];
     }
 }
