@@ -2267,3 +2267,297 @@ Johan: "you'll see them in Settings and can change any". Each answer below is a 
 
 A property an agent captures (a deeds capture, or a property added by hand) that is already a Market Intelligence property is claimed for that agent automatically (`property-identity.md` section 15.2). Road to Sold side: `CaptureClaimService` calls `ProspectService::place()` for the agent - a prospect at **Found**, selection `claimed_deeds` or `claimed_manual`, reason "Claimed when you captured it (...)" - so the property is in the agent's list, the Found tile and the funnel like any other source. Nothing new in the engine: the existing `rts_prospects` row and its PLACED event are the stats hook. Rules: only when the agency has Road to Sold on and the agent is a real (active, non-assistant) agent; a property another agent already works there is left to them; a closed story is not restarted. The Market Intelligence `ClaimCreated` event is deliberately NOT fired (no "claim taken" points for an automatic claim).
 
+
+
+---
+
+## 23. Road to Sold v4 — Get-stock leg: the belt (Johan, approved with corrections 2 Nov 2026; Jira AT-531)
+
+**Status:** spec first, written 2 Nov 2026 07:12-07:45 from the conductor's relay of Johan's ruling and the 06:35 read-only investigation (the table in 23.3 is that investigation, verified on QA1). **Nothing in this section is built.** It **supersedes section 22 (v3) wherever they conflict** (list in 23.2); everything in section 22 that is not named there stands. Cross-referenced from `mic-work-tab.md` 13.15.
+**Why:** the investigation found the belt exists as parts that do not hand over to each other: a MIC claim and a Road to Sold prospect are two ledgers; MIC feedback and the Road to Sold outcome record the same call twice; a phone pitch cannot be told from any other contact; nothing stops an agent contacting before the owner is linked; the calendar appointment, the presentation and the evaluation feedback do not carry the property or the prospect; a presentation outcome and an evaluation feedback use two different lists; "lost" is stored in four places that never agree. v4 makes it ONE belt, ONE record, ONE vocabulary.
+**Words:** "evaluation", never "valuation". Plain words on every screen. Agency wording is data (multi-agency rule): nothing here names HFC.
+**Scope:** step 1 "Get stock" only: stations 1-11. The sell-stock leg (12+: lead, viewing, offer, deal, registered) stays as built in 22.24 until it is specified separately.
+
+### 23.1 The ruling (as relayed by the conductor, 2 Nov 2026 07:12; not Johan's verbatim words except where quoted)
+
+One record per property per agent: the Road to Sold **prospect** (`rts_prospects`, unique per agency / track / tracked property, 22.6). **A MIC claim IS station 2 of that record, not a second ledger. MIC feedback is retired into the station-4 outcome.**
+
+| # | Station | Plain meaning |
+|---|---|---|
+| 1 | Stock loaded | N properties per agent per working day, by the allocation order (23.14); the agent can "add to my day" |
+| 2 | Claimed | Claiming in MIC puts the property on the belt. Held 30 working days while being worked, one extension |
+| 3 | Owner found | Deed linked + owner contact linked, from the MIC card or belt row, in pop-ups. **Gate: no contact action until the owner is linked** |
+| 4 | Contacted | ONE outcome capture: channel (phone pitch / WhatsApp / email / in person), result, next-action date |
+| 5 | Evaluation booked | Appointment created from the outcome, linked to the prospect, the tracked property and the contact |
+| 6 | Presentation prepared | Created from the belt on that property, linked to the prospect, tracked property and seller contact |
+| 7 | Evaluation held | The appointment's feedback: held / no-show / rescheduled, and the result |
+| 8 | Result | Won (mandate → property to Draft) / Not now (parked, revisit date) / Lost (reason) / Not selling (reason). One action sets claim + prospect + property status together |
+| 9 | Draft | Property captured, mandate, FICA, photos: what today's draft-to-active checklist needs |
+| 10 | Active | Compliance complete, published |
+| 11 | Advertised | Live on the portals + social shares |
+
+Johan on the off-ramps: *"on each step why did we lose this property… critical stats… training session"* (relayed). Every station has an off-ramp with an agency-editable reason list (23.11) and the stats read from them (23.12).
+
+### 23.2 What v4 supersedes in v3 (and what it leaves alone)
+
+| v3 text | v4 |
+|---|---|
+| 22.2 the 18 stages | The belt adds **five stage keys** (`claimed`, `owner_found`, `presentation_prepared`, `draft`, `active`) and re-labels two. Stored keys are never renamed or removed. `presentation_given` and `presentation_feedback` stay as stored keys for history and are **no longer stations on the belt** (the presentation is given at the evaluation, which is station 7; its answer is the station-8 result). 23.4 |
+| 22.3 "the daily target N is met by NEW properties only" | Unchanged in spirit. N is now called **stock loaded** (`rts.daily_stock`, 23.15) and is the same number the weekday target holds today, not a second one |
+| 22.6 "There is no automatic timeout" | **Replaced for claimed stock** by the claim hold (23.5). Stock that is only on the list (station 1) is unchanged. A prospect parked or off-ramped is not on a clock |
+| 22.7 / 22.17 outcome capture | Gains a **channel** (23.7). The outcome list and next-action kinds stand |
+| 22.10 pitch path "owner known → composer; else Find owner" | Becomes a **hard gate** server-side as well (23.6) |
+| 22.24 the Prospects line | The Get stock / Win / Market stations are the belt's; the line shows the belt stations (23.4). The Sell and Close phases are unchanged |
+| MIC `claim()` / `feedback()` / 48-hour rule / `mic.claim_feedback` points | Claim places the prospect (23.5); feedback is the outcome (23.7); the 48-hour rule is replaced by the claim hold; `mic.claim_feedback` stops firing (the outcome's own points replace it, so one call is never paid twice) |
+| Not changed | The hold after an outcome (`hold_days`, stored key kept, shown as **recontact days**), allocation by prospect (22.6) and the never-another-agent's-stock rule, park / unpark (22.4), park reasons as an agency list, permissions and scoping (22.14), the summary bar, funnel and training-flag engine (13.x / P13), assistants, levels, Road to Rented (not built) |
+
+### 23.3 Station by station: what exists today, what v4 adds (the 06:35 investigation, verified on QA1)
+
+Legend: **Y** exists, **P** partial, **N** none. File:line are from the investigation (checked 2 Nov).
+
+| # | Station | Today | Where today | What v4 adds / changes (links, columns, events) |
+|---|---|---|---|---|
+| 1 | Stock loaded | P | Road to Sold intake: `ListBuilderService::place` → `ProspectService::place` (stage `found`); selections `app/Services/RoadToSold/Selections/*`; `road-to-sold.add-to-day`, `build-list` (`routes/web.php:6923-6925`) | Allocation order (23.14), per-agent Start (23.13), off-ramp "swap with reason" (23.11). QA1 today: 200 prospects, all at Found |
+| 2 | Claimed | P | `MarketIntelligenceController::claim` :3854 → `prospecting_claims` (`ProspectingClaim.php:96-129`); pitched flag by `claimOnPitchNow` (`ProspectingClaimService.php:405`); 48-hour lazy expiry `ProspectingClaim.php:199-208`; stale 7 / 10 days `SuggestedActionThresholds.php:108-109`. **No claim reaches Road to Sold** (`ClaimCreated` has no prospect listener; `CaptureClaimService.php:212` is the only claim → prospect path). QA1: 419 active claims, 120 prospects adopted once (`claimed_join`) | New listener on `ClaimCreated` places / moves the prospect to stage `claimed` (23.5); `prospecting_claims.rts_prospect_id`, `hold_until`, `hold_extended_at`; claim hold replaces the 48-hour rule; claim status becomes a mirror of the station (23.9) |
+| 3 | Owner found | P | Deeds capture `corex.deeds-capture.*` (`routes/web.php:8402-8406`); owner link on the seller-outreach screens (`routes/web.php:5440-5491`, `EntryPointController.php:1092,1239`) and the property file (`routes/web.php:6554-6556`); done = `tracked_properties.owner_contact_id` (`ProspectStepService.php:70`); event `OwnerLinkedToTrackedProperty` exists (`TrackedPropertyObserver.php:45`). **No gate**: `MarketIntelligenceController::feedback` and `OutcomeService::record` (:44) do not check the owner. QA1: 36 of 419 active claims have an owner | Station `owner_found` entered by that event + deed record (23.6); the owner / deed pop-up opens from the MIC card and the belt row; **server-side gate** in `OutcomeService`, the pitch composer and MIC feedback |
+| 4 | Contacted | P | Outcome pop-up `road-to-sold.outcomes.record` (`routes/web.php:6923`), table `rts_contact_outcomes`; 12 seeded outcomes (`OutcomeDefinitionService.php:27-62`), each with next action + date; MIC's own `feedback()` :4061 (statuses only, no date, not linked). **No channel anywhere** except sent pitches (`seller_outreach_sends.channel`, whatsapp / email) | `rts_contact_outcomes.channel`; MIC `feedback()` becomes an adapter onto the same record (23.7) |
+| 5 | Evaluation booked | P | Calendar `command-center.calendar` (`routes/web.php:2533`); `CalendarEventObserver.php:46` raises `EvaluationBooked`; Road to Sold books from the outcome (`OutcomeService.php:148-160`). Event links: `calendar_events.property_id` and `contact_id` only; `calendar_event_links` roles subject_property / seller_contact (`CalendarEventLink.php:25-29`). **No tracked-property, claim or prospect key.** QA1: 34 evaluation events, 32 overdue | `calendar_events.tracked_property_id`, `rts_prospect_id` (23.8); the belt row's "Book evaluation" opens the calendar form in a pop-up prefilled with them |
+| 6 | Presentation prepared | P | `presentations` has `property_id`, `tracked_property_id`, `seller_contact_id` but the generator writes only `property_id` (`PresentationGeneratorService.php`); event `PresentationGenerated` → `presentation.generated`; **dead link**: `ProspectStepService.php:105` → `presentations.create` → redirect to the list (`PresentationController.php:140-146`); real route `corex.properties.generate-presentation` (`routes/web.php:6277`). QA1: 221 presentations, all `draft` | Belt button "Prepare presentation" → the real generate route in a pop-up, property made from the MIC address first when none (`ProspectPropertyService::ensureProperty`); generator writes tracked property, owner contact, `presentations.rts_prospect_id` (23.8); `PresentationGenerated` moves the prospect to `presentation_prepared` |
+| 7 | Evaluation held | P | Feedback modal `command-center.calendar.feedback.*` (`routes/web.php:2644-2648`): viewings structured (`viewing_status`), evaluations the older JSON with `lp_outcome` options (`AgencyFeedbackOptionsSeeder.php:49-55`); `EvaluationCompleted` on a feedback row with `captured_at` (`CalendarEventFeedbackObserver.php:116-125`); missed-feedback task at 24 h (`ReconcileCalendarEvents.php:214`). QA1: **0** evaluation feedbacks, 32 overdue evaluation events | `eval_status` held / no_show / rescheduled; the shared result list (23.10); `EvaluationCompleted` fires only for `held`; a Road to Sold "owed" list (evaluation held, no feedback) |
+| 8 | Result | P | Presentation outcome `presentations.outcome.record` (`routes/web.php:7314-7317`, table `presentation_outcomes`, fixed enum); property buttons `convertFromProspecting` (`PropertyController.php:2414`) and `markNotSelling` (:2444); park (`ProspectService::park` :284). Four stores that never agree | `ResultService::record` sets prospect + claim + property + calendar feedback + presentation outcome in one transaction (23.9, 23.10) |
+| 9-11 | Draft / Active / Advertised | P | `PropertyCaptured`, `PropertyCompliancePassed`, `PropertyPublished`, `PropertyWentLiveOnPortal`, `MarketingPostPublished` all exist and move prospects today (`AdvanceProspectsFromDomainEvent.php:149-160`); readiness checks `MarketingReadinessService` | Two new stage keys `draft`, `active`; derived blockers (23.11); the card shows the checklist |
+
+### 23.4 The stages on the belt (stored keys)
+
+`ProspectStages::ALL` order (pipeline order: a prospect only moves forward, except the two resets of 22.2). New keys in **bold**. A station may be skipped (a property already mandated enters at `mandate_signed`, one already Active at `active`).
+
+| Belt # | Station (label, agency-renamable) | Stage key | Phase | Entered by | Data it needs |
+|---|---|---|---|---|---|
+| 1 | Stock loaded | `found` | Get stock | list placement, capture, "found by you" | the list item |
+| 2 | Claimed | **`claimed`** | Get stock | MIC claim (`ClaimCreated`), deeds / manual capture auto-claim (`CaptureClaimService`), "Claim" on a belt row | `prospecting_claims.rts_prospect_id`, `hold_until` |
+| 3 | Owner found | **`owner_found`** | Get stock | `OwnerLinkedToTrackedProperty` when the deed rule (23.6) is met | `tracked_properties.owner_contact_id`; deed record |
+| 4 | Contacted | `contacted` | Get stock | `RoadToSoldOutcomeRecorded`, a conversation outcome (an attempt keeps the stage and counts a try) | `rts_contact_outcomes.channel` |
+| 5 | Evaluation booked | `appointment_set` | Get stock | `EvaluationBooked` | `calendar_events.rts_prospect_id`, `tracked_property_id` |
+| 6 | Presentation prepared | **`presentation_prepared`** | Get stock | `PresentationGenerated` | `presentations.rts_prospect_id` |
+| 7 | Evaluation held | `evaluation_done` | Get stock | `EvaluationCompleted` (feedback with `eval_status = held`) | `calendar_event_feedback` |
+| 8 | Result: won | `mandate_signed` | Win the mandate | `ResultService` (won), `MandateSigned`, `DocumentFiledToProperty` (mandate) - whichever is first | `rts_result_options` |
+| 9 | Draft | **`draft`** | Market it | property status becomes `draft` (the won result, or `convertFromProspecting`) | `properties.status` |
+| 10 | Active | **`active`** | Market it | `PropertyCompliancePassed` and `PropertyPublished` both seen | compliance snapshot, `published_at` |
+| 11 | Advertised | `listing_live`, then `advertising` | Market it | `PropertyWentLiveOnPortal`; `MarketingPostPublished`, `SellerLinkCreated` / `Opened` | portal activation, social posts |
+
+- **Station 8 "Result" is not a stage of its own:** its answers are *won* (stage `mandate_signed`), or an **off-ramp** (parked / not selling / lost, 23.11). A pending result ("undecided - revisit on <date>") keeps the prospect at station 7 with a follow-up date.
+- `presentation_given` and `presentation_feedback` stay in `ProspectStages::ALL` (after `evaluation_done`) marked `legacy`: never shown as a tile or a line station, never entered by v4 code. `PresentationPresented` is still raised and logged as a history row (it no longer moves the stage). `PresentationOutcomeRecorded` calls `ResultService` (23.10).
+- Phases (`ProspectStages::PHASES`): Get stock = found, claimed, owner_found, contacted, appointment_set, presentation_prepared, evaluation_done; Win the mandate = mandate_signed; Market it = draft, active, listing_live, advertising; Sell it and Close it unchanged. Short names: Loaded, Claimed, Owner, Contacted, Booked, Prepared, Held, Won, Draft, Active, Advertised.
+- **Funnel counting** reads `rts_prospect_events` (append-only, 22.24): a property counts at a station for a period when a `stage` / `placed` row to that station (or a later one it skipped through) is dated inside the period; once per property per agent per station. Advertised = reached `listing_live` or `advertising`.
+
+### 23.5 Station 2: a MIC claim IS the prospect (claim hold)
+
+1. **Claiming puts the property on the belt.** A listener on `ClaimCreated` (and on the capture auto-claim) calls `ProspectService::place()` for the claiming agent at stage `claimed`: a new prospect (selection `claimed_mic`, reason "Claimed in Market Intelligence on <date>"), or the agent's existing prospect for that tracked property moved forward from `found`. `prospecting_claims.rts_prospect_id` is set. If another agent already holds the prospect (22.6), the claim is refused as today ("Already claimed by <name>"). A claim on a property the agency owns as stock stays resolved-own-stock and places nothing. The existing claim rules (own-stock guard, same-property match, release) stand.
+2. **One-time adoption.** `rts:adopt-claims --agency=<id> [--apply]` (dry-run first; row journal; before / after counts) places a prospect for every active claim that has none: stage by the claim's status (claimed → `claimed`; contacted → `contacted` only if an outcome exists, else `claimed`; meeting_set → `appointment_set`; listing → `mandate_signed`). QA1: 419 active claims, 120 already adopted through `claimed_join`.
+3. **The hold.** `claim_hold_days` (default **30 working days**, setting `rts.claim_hold_days`) **replaces the 48-hour rule** and the stale warn / release days (7 / 10) for claims that have a prospect. The clock counts **working days of the agency calendar** (Monday-Friday, not a public holiday of the agency's country, not a paused day, `WorkdayService`; a new `addWorkdays()` / `workdaysBetween()` beside `backDateLimit`).
+   - **While being worked it does not run out:** any station move, recorded outcome, booked evaluation or generated presentation restarts the clock (`hold_until = today + claim_hold_days working days`). A claim that is not worked for `claim_hold_days` working days is at its end.
+   - **Warning:** `claim_warn_days` (default 5 working days) before the end the agent is told (the existing stale-warning alert, `prospecting.claim_stale_warning`, repointed) and the row shows "N days left".
+   - **One extension:** the agent presses "Extend" once (pop-up with a one-line note); `hold_until` moves on by `claim_extension_days` (default 30 working days) and `hold_extended_at` is set. A second extension is refused in plain words. A manager with `road_to_sold.release_prospects` can extend again (audited in `rts_prospect_events`).
+   - **At the end:** the claim is released (`released_at`, reason `hold_ended`) and the prospect is released to the pool (22.6 "Release"), unless it is at `appointment_set` or later with a future appointment (then the appointment date carries it), or parked / off-ramped (not on a clock). The agent gets a one-line alert. Run by a daily command `rts:release-held-claims` (QA1: on demand, R11; the scheduler is not switched on there).
+   - A **pitched** claim no longer means "permanent": `pitched_at` is kept as a fact and still blocks another agent, but the hold applies to it too (the old "never expires" rule is retired).
+4. **What ends a claim, complete list (all write the same four things, 23.9):** the hold ends; the agent releases ("I'm not taking this", an off-ramp at station 2 with a reason); a manager releases; a result of lost / not selling; the property is promoted to own stock (resolved).
+
+### 23.6 Station 3: owner found, and the gate
+
+1. **Done means:** the tracked property has an **owner contact linked** (`tracked_properties.owner_contact_id`) **and a deed record** (a deeds capture or CMA Info capture on the property: `deeds_captured_at` set or an ownership row from source `deeds_capture` / `cmainfo`). Setting `rts.owner_requires_deed` (default **on**): when off, the linked owner contact alone completes the station. The two are credited separately (23.16).
+2. **Where the agent does it:** from the MIC card (Adverts and List) and from the belt row, **in pop-ups, never leaving the screen** (R1 / 22.9). One pop-up, "Find the owner", with three parts on one screen: (a) the deeds capture / pre-check for this property (the existing screen loaded in embed mode), (b) the CMA Info capture, (c) link or create the owner contact (the existing property contact linker). The MIC card's "Link contact" button opens it (today it only opens the property file) and the row's "Pitch" opens it when the gate is shut.
+3. **The gate (server-side, not just a hidden button).** Until the prospect is at `owner_found` or later, these are refused with a 422 and a plain message ("Find the owner first, then contact them") and a "Find owner" button:
+   - `OutcomeService::record()` for every outcome except those that exist to report the owner problem: `no_owner_found`, `wrong_number`, `do_not_contact` (23.11, owner station);
+   - the pitch composer and every send (`ComposerController`), the MIC Call / WhatsApp / email buttons (today disabled only when no contact exists), and MIC `feedback()` (23.7).
+   An agent who finds the owner by other means (a known owner) links the contact in the same pop-up; nothing else is needed. Prospects migrated by the adoption (23.5) with no owner are gated the same way.
+4. **Event:** `OwnerLinkedToTrackedProperty` (exists) moves the prospect to `owner_found` when 23.6.1 holds; it is re-checked when a deed record arrives later (the deed capture raises `TrackedPropertyEnriched`, already listened to).
+5. **"CMA data first"** (Johan's order: property, CMA data, owner, link, contact): the pop-up shows the CMA Info status for the property as step (b) and does not block on it (a missing CMA record is not a missing owner); it is a prompt, not a gate. Johan can make it a gate with one setting later; none is added now.
+
+### 23.7 Station 4: ONE outcome capture with channel
+
+1. **Table:** `rts_contact_outcomes` gains `channel` varchar(20), values `phone`, `whatsapp`, `email`, `in_person` (a short list in code, labelled in plain words: "Phone pitch", "WhatsApp", "Email", "In person"), indexed. **Required** on every new outcome; `NULL` means "recorded before v4" and is grouped as "channel not recorded" in stats. The capture pop-up shows the channel first (default = the last one this agent used), then the outcome, then the next-action date (the outcome's own rule, 22.7).
+2. **A phone pitch is a channel, not an outcome.** The outcome list stands (12 seeded; agency-editable in Recipe). "Spoke - evaluation booked" by phone and by email are the same outcome with a different channel. The composer's send (`seller_outreach_sends`) writes its own outcome row: channel `whatsapp` / `email`, outcome "No answer yet" (an attempt) until a reply or a recorded result, so a sent pitch is never invisible to the belt.
+3. **MIC `feedback()` is retired into this record.** The MIC row's feedback control (the five status buttons) is replaced by "Log contact", which opens the outcome pop-up. `POST market-intelligence.feedback` stays for old tabs and the API as an **adapter**: it builds an outcome through `OutcomeService::record()` with channel `phone` and these defaults (every default is an agency setting or an outcome's own rule): `contacted` → `spoke_call_back` dated `rts.default_callback_days` (default 3 working days) ahead; `not_interested` → `spoke_not_interested` (its own 6-month rule); `lost` → park with the reason "Other" (the agent's note is kept); `meeting_set` and `listing` are refused with "Book the evaluation from the belt" / "Record the result from the belt" (they need a date / a result). The owner gate applies. Points: `mic.claim_feedback` is switched off (23.16).
+4. **Claim status is a mirror, never an input** (23.9): nobody sets `prospecting_claims.status` any more; the station mover does.
+5. **Stage movement** is unchanged (22.7): a conversation outcome moves `owner_found` → `contacted`; an attempt counts a try; `max_tries` parks with the outcome's reason.
+
+### 23.8 Stations 5 and 6: the appointment and the presentation carry the property
+
+- `calendar_events`: **`tracked_property_id`** and **`rts_prospect_id`** (nullable, indexed). `CalendarEventCreator::create()` accepts both and also writes the `calendar_event_links` rows (subject_property, seller_contact, attendee) it writes today. Set by: the outcome "evaluation booked" (`OutcomeService.php:148-160`), the belt row's "Book evaluation" (the calendar create form in a pop-up, prefilled: property, owner contact, category `property_evaluation`), and, for an evaluation created on the plain calendar, `CalendarEventObserver::created` which looks up the creating agent's open prospect for that property (`properties.id` → tracked property) and fills the two keys when exactly one matches.
+- **Done** for an evaluation = feedback with `eval_status = held` (23.9); `calendar_events.status = 'completed'` follows from the same save. The two signals the investigation found (status vs feedback row) become one rule.
+- `property_evaluation` is added to `CalendarEventClassSetting::ACTIONABLE_CATEGORIES` (the seeder already marks it actionable; the constant disagreed).
+- `presentations`: the generator (`PresentationGeneratorService`) writes **`tracked_property_id`**, **`seller_contact_id`** (the tracked property's owner contact) and the new **`rts_prospect_id`**. A presentation can optionally name its evaluation appointment (`calendar_event_id`, nullable) so the "prepared for" link is visible on both.
+- **Dead link fixed:** `ProspectStepService::href('presentation')` (line 105) points at `corex.properties.generate-presentation` for the prospect's property (`ProspectPropertyService::ensureProperty` first, as the pitch path does); `presentations.create` is no longer used by Road to Sold. The generate screen opens in the pop-up (embed mode).
+- Prepared = a presentation generated for the prospect's property by the agent (`PresentationGenerated`). Several versions are one station (once per prospect).
+
+### 23.9 One action sets claim + prospect + property together (`ResultService`)
+
+A new service `App\Services\RoadToSold\ResultService::record(RtsProspect, string $resultKey, ?date $revisitOn, ?string $note, User $actor, string $source)`, one DB transaction, idempotent on (prospect, result, day). It is the ONLY writer of a result; the evaluation-feedback modal, the presentation outcome panel, the belt card's "Result" button and the MIC adapter all call it.
+
+| Result class | Prospect | Claim (`prospecting_claims`, a mirror) | Property (`properties.status`) | Calendar feedback / presentation outcome |
+|---|---|---|---|---|
+| **Won** (mandate agreed) | stage `mandate_signed`, next action "Take the mandate / get it signed" until signed | `listing` ("Listing secured") | `prospecting` → `draft` (the logic of `convertFromProspecting`, :2414), stage `draft` follows | feedback `result_key` saved; `presentation_outcomes` row `won_mandate` |
+| **Not now** (undecided, revisit) | stays at its station; **parked** with the reason "Not now" and the revisit date (`ProspectService::park`) | `contacted` (kept open until the revisit) | unchanged (`prospecting`) | `still_pending` + the date |
+| **Lost** (reason from the list) | parked with the reason (station-scoped list, 23.11); revisit date from the reason's default | `lost` → released to the pool (as today's closing status) | unchanged (`prospecting`) | `lost_*` mapped from the key |
+| **Not selling** (reason) | parked with the reason; `closed_reason` when the reason says never | `not_interested` → released | `prospecting` → `not_selling` (the logic of `markNotSelling`, :2444); **un-parking returns it to `prospecting`** | `other` + the reason |
+
+- **Claim status mirror** (never an input): `claimed`, `owner_found` → `claimed`; `contacted` → `contacted`; `appointment_set`, `presentation_prepared`, `evaluation_done` → `meeting_set`; `mandate_signed` and later → `listing`; an off-ramp closes the claim with its class (`lost`, `not_interested`). Written by `ProspectService::move/park/close` in the same transaction.
+- A promoted property (`ProspectingClaim::isPromoted`) is never released or closed by a result; a Lost / Not selling on a property the agency already holds as stock is refused with the existing plain message.
+- **Event:** `ProspectResultRecorded` (new domain event, `AbstractDomainEvent`, raised after commit, never throwing) carries prospect, station, result class, key, actor. Add it to `corex-domain-events-spec.md`.
+- **Unpark** (the revisit date arrives or "Bring back now"): the prospect returns to the station it left (22.4) as a follow-up; a `not_selling` property returns to `prospecting`; the claim is re-opened under the same agent when it is free, else the agent is told it was taken.
+
+### 23.10 Station 7: ONE result vocabulary, shared
+
+- New agency list **`rts_result_options`** (agency_id, track, key, label, class `won | pending | lost | not_selling`, `park_reason_key` nullable, `needs_date` bool, `is_system`, `is_active`, `sort_order`, soft deletes; unique per agency / track / key). Full CRUD with archive / restore on the Recipe area (permission `road_to_sold.manage_settings`); seeded per agency, neutral wording:
+
+  | key | label | class | revisit default |
+  |---|---|---|---|
+  | `won_mandate` | Won - mandate agreed | won | - |
+  | `undecided` | Undecided - follow up | pending (needs date) | 7 days |
+  | `lost_other_agency` | Lost to another agency | lost | 90 days |
+  | `lost_price` | Price too far apart | lost | 60 days |
+  | `lost_not_ready` | Not ready to sell yet | lost | 90 days |
+  | `not_selling` | Not selling | not_selling (reason list below) | 180 days |
+
+- **Replaces both existing lists:** the calendar evaluation feedback's `lp_outcome` options (Mandate signed, Considering, Lost, Other agent, Pricing too far, Not ready, Reschedule: migrated, "Reschedule" becomes `eval_status = rescheduled`, not a result) and the `presentation_outcomes.outcome` enum (`won_mandate`, `won_sale`, `lost_to_competitor`, `lost_to_no_decision`, `lost_to_price_dispute`, `lost_to_no_response`, `still_pending`, `other`). `presentation_outcomes` gains `result_key` (nullable) and keeps its enum column filled by a fixed map so every existing reader (the outcomes dashboard, `PromptOutcomeCaptureJob`, the 90-day lock) keeps working: won_mandate / won_sale ← `won_mandate`; lost_to_competitor ← `lost_other_agency`; lost_to_price_dispute ← `lost_price`; lost_to_no_decision / lost_to_no_response ← `lost_not_ready`; still_pending ← `undecided`; other ← `not_selling`. Existing rows are back-filled the other way by the same map (dry-run first, journal, before / after counts).
+- **Evaluation feedback gains `eval_status`** (`held`, `no_show`, `rescheduled`) in `calendar_event_feedback.kind_specific_data` (buyer viewings keep their own `viewing_status`). `held` asks for the result (required) and, for `undecided`, a follow-up date; `no_show` is the station-5 off-ramp "no-show" (23.11) and asks nothing more; `rescheduled` keeps the prospect at `appointment_set`, opens the calendar to move the appointment, and counts neither a held nor a loss.
+- **One save, three stores:** whichever screen the agent uses first (the evaluation feedback modal, the presentation outcome panel, the belt card) calls `ResultService`, which writes the result to the calendar feedback, the presentation outcome and the prospect; the other screens then open pre-filled with it and read-only unless edited (an edit calls the service again; the history row records it).
+- **Prompts:** the missed-feedback task at 24 hours after an evaluation (`ReconcileCalendarEvents::createMissedFeedbackTasks`) now applies to every `property_evaluation` and `listing_presentation` event that has a prospect (it required a manual source and a contact), and Road to Sold shows an **"Owed" list** on the Held tile: evaluations that took place with no feedback, oldest first, "have you given feedback?". The presentation outcome nudge (30 days, `PromptOutcomeCaptureJob`) is replaced by the same prompt at 24 hours after the evaluation.
+
+### 23.11 Off-ramps: why we lost the property, at every station
+
+- **Table:** `rts_park_reasons` (exists, 22.4) gains **`station`** (varchar 30, nullable = any station; a belt station key) and **`kind`** (`off_ramp` default, or `blocker` for the derived blockers below). The "reason picker" at each station shows the reasons for that station first, then the "any station" ones. Full CRUD with archive / restore on Recipe, agency-editable; `default_revisit_days` per reason (exists); `is_system` rows cannot be deleted, only renamed or archived.
+- **An off-ramp is a park with a station and a reason** (`ProspectService::park`, writes `parked_from_stage` = the station and `park_reason_id` / `park_reason_label`, exists). The record **keeps its station and reason**; a **revisit date** (the reason's default, editable) puts it back at that station as a follow-up (22.4). A reason flagged "never" (do not contact) closes it (`closed_reason`) instead.
+- **Defaults (neutral wording, agency-editable):**
+
+  | Station | Off-ramp reasons (revisit default) |
+  |---|---|
+  | 1 Stock loaded | Not for me: wrong area, no address, already know it, other (7 days; the "swap with reason"; the property is replaced by the next candidate) |
+  | 2 Claimed | I'm not taking this (14 days), claim hold ended (system, not agent-chosen) |
+  | 3 Owner found | No owner found (90), Wrong number (90), Do not contact (never) |
+  | 4 Contacted | Not interested - 3 / 6 / 12 months (outcome's own choice), Already listed - open mandate (expiry else 90), Mandated - sole (the mandate end date), Selling privately (30), Unreachable after N tries (60; N = the outcome's `max_tries`) |
+  | 5 Evaluation booked | No-show (14), Cancelled (30) |
+  | 7 Evaluation held | Lost to another agency (90), Price too far apart (60), Not ready (90), Undecided (the date picked) |
+  | 8 Result | Not selling: Seller withdrew (180), Price unrealistic (60), Family decision (180), Other (90) |
+  | 9 Draft → 10 Active | *Blockers, derived, not chosen:* Compliance incomplete, Mandate not signed, Photos missing |
+  | 10 Active → 11 Advertised | *Blockers, derived:* Not published, Portal rejected |
+
+- **Derived blockers (stations 9-11).** Nobody "loses" a draft in a click; the system names why it is stuck. When a prospect has sat at `draft` or `active` for `prospect_stall_days` (exists, 14) the card and the stats name the **first failing readiness check** (`MarketingReadinessService`: compliance snapshot, mandate document, photos; syndication status for the portal) as the blocker. Blockers are counted in the off-ramp stats like any other reason but the prospect stays on the belt (it is not parked) and the count clears when the check passes.
+- The outcome definitions (22.7) point at these reasons by key (`park_reason_key`, exists); the result options (23.10) point at them too. One list, no second one.
+
+### 23.12 Stats: the funnel, the off-ramps, the training flag
+
+- **The funnel** (per agent, per branch, per agency): Loaded → Claimed → Owner → Contacted → Booked → Prepared → Held → Won → Draft → Active → Advertised, each: **reached** (23.4 counting) and **conversion** to the next, plus, at every station, the **off-ramp count and reasons** (a bar per reason, click = the list). One drill-down per figure (the existing `DrilldownService` envelope). Periods: today, last 7 days, this month, last 30 days, custom, **compare two periods** (`PeriodResolver` + `PeriodComparison`, `last_30_days` exists).
+- **Scoping (query layer):** an agent sees **own vs branch vs agency** (their own funnel next to the branch's and the agency's, figures only for the others, never another agent's rows); a branch manager sees every agent in the branch and the branch; BM / admin with `road_to_sold.view` agency see all. `RtsProspect::visibleTo` and `Scope::apply` stand; a figure for a breadth the viewer does not hold is not computed.
+- **Training flag** (extends `FunnelService` flags, `road-to-sold.funnel.flags`): when an agent's **off-ramp rate at a station** (off-ramped at the station ÷ reached the station) is **at least `rts.flag_offramp_excess_pct` (default 25) percent above the branch rate** (the agency rate when the branch has fewer than `flag_min_sample` agents) and the agent has at least `flag_min_sample` (exists, 20) properties through that station in `flag_window_days` (exists, 30), a flag is raised: "<Agent> loses 38% of properties at *Contacted* (branch 22%)", with the top reason, assignable to a training session (the existing assign / note / acknowledge actions). No flag below the sample. The flag names the station and the reason, never the person's other numbers.
+- Everything is read from `rts_prospect_events` (stage and park rows) and `rts_prospects`; no second store.
+
+### 23.13 Tiles, activation and pause
+
+**Tiles (the biggest change on the page).** At the top of Road to Sold, above the blocks, **one tile per belt station in belt order**: *Loaded, Claimed, Owner, Contacted, Booked, Prepared, Held, Won, Draft, Active, Advertised*.
+- Each tile shows its name and a figure: **"done today / target"** for a station whose step has a daily target in the agent's recipe (stock loaded = `rts.daily_stock`; claimed, contacted and booked when the agency set a task target for them), otherwise the **count at the station now**. A red figure counts what needs attention there (next action overdue, or no movement for `prospect_stall_days`, 22.24), and the Held tile also shows the "owed feedback" count.
+- **Click = the list at that station** (the existing prospect list filtered to the station, 22.24; the Loaded tile opens today's intake; the Owed figure opens the owed list). The chosen tile is lit.
+- **Only built stations show.** `config/road-to-sold-belt.php` lists the stations whose wiring is built (`built => [...]`); the rest are added to it as built, so the row grows without a release of its own. Short names below 1700px, full name in the hover, never a sideways scroll (the 11 tiles share the width).
+- **The sticky summary bar** (Johan's earlier ruling, `SummaryBarService`, section 10.6) stays pinned under the tiles; the tiles replace the stage-count strip of 22.4 and the Get stock half of the line in 22.24.
+- A manager viewing an agent sees the same tiles for that agent, read-only; "whole branch" and "whole agency" sums as in 22.24.
+
+**Activation.** The agency switches Road to Sold on (existing feature / setting) and **nothing loads for anyone**. Each agent has **one button, "Start my Road to Sold"** (a single card where the tiles will be, one plain sentence beneath it). Pressing it records `rts_agent_starts.started_at` and the **first list loads from the next working day** (`WorkdayService::nextWorkday`); "Build my list" and `rts:build-lists` skip agents who have not started. An assistant starts the agent they act for. Setting `rts.agent_start_required` (default on); off = lists load for everyone as today.
+
+**Pause.** An agent or a manager (`road_to_sold.pause_others`, new) sets **"Pause until <date>"** with a short reason (training, leave, other). While paused: no list loads and no stock piles up; the paused days are **not working days** for the agent (`WorkdayService::isWorkday`, like approved leave), so they do not count against targets, the month target to date or the claim hold clocks; resume is the next working day after the date. The pause is on the agent's own page and in the manager view. An approved leave application is not a pause (it already stops the days); a pause never overrides it.
+
+**Manager view.** A small panel, "Not started / Paused", on the manager's Road to Sold (and the agency view): who has not started (with the date the agency switched on), who is paused (until, reason, set by), one row per agent, search by name, sort by days not started / paused until; read-only except Start for / Pause for / Resume for those holding `road_to_sold.pause_others`.
+
+### 23.14 Allocation order (fills N top-down; extends 22.3 / 22.6)
+
+For each agent each working day (after their start date, not paused), fill `rts.daily_stock` properties in this order, a source only when the earlier ones run dry:
+1. **My buyers' stock:** properties in `prospecting_buyer_matches` (`BuyerMatchTierService`) at the **strong tier** for a buyer whose agent is me, **unclaimed**, and not dismissed for that buyer (`dismissed_at` null: the existing "not for this buyer" action). The reason line names the buyer: "for Piet · 3 buyers" (22.5, names only to a user who may see the contacts).
+2. **Colleagues' buyers:** the branch's buyers first, then the agency's, strong tier, same rules; the buyer's agent is named ("for Sanet (Mia Manager)"). Setting **`rts.source_for_colleagues`** (`off | branch | agency`, default `agency`; the existing selections on / off and order still apply).
+3. **Hot pockets:** suburbs with the most recent sales, leads and Core Match demand (`HotPocketService::rank`, weights and look-back are the existing settings): the **stuck and price-reduced stock** there.
+4. **Fill-ups in my areas** (`AreaService`): price cuts, long on market, expired (own and competitor), new on market, in the order of the General setting.
+**Rules for every source:** never another agent's claimed or allocated stock (22.6); **with an address first** (the existing address ranking); nothing contacted by anyone within **`rts.recontact_days`** (stored key `hold_days`, default 30) and nothing under a never-suggest flag; round-robin by rank across agents (22.6); **swap with a reason** (the station-1 off-ramp, 23.11) replaces the row with the next candidate; **"add to my day"** (exists, capped by `add_to_day_max`) is unchanged.
+
+### 23.15 Settings (all per agency, Road to Sold settings > General; every one has a default)
+
+| Setting (UI name) | Stored | Default | Meaning |
+|---|---|---|---|
+| `rts.daily_stock` | the agency default weekday target already held in `rts_settings` / `TargetService::merge`; **per-agent override = the existing `rts_weekday_targets` row** (no second store) | 5 | Properties loaded per agent per working day |
+| `rts.claim_hold_days` | new `rts_settings.claim_hold_days` | 30 (working days) | Claim hold; replaces the 48-hour rule |
+| `rts.claim_warn_days` | new | 5 (working days before the end) | Warning before the hold ends |
+| `rts.claim_extension_days` | new | 30 (working days) | Length of the one extension |
+| `rts.claim_extensions_allowed` | new | 1 | Extensions an agent may take (managers can grant more) |
+| `rts.owner_requires_deed` | new | on | Owner station needs a deed record as well as the owner contact |
+| `rts.recontact_days` | existing `hold_days` | 30 | No-one is offered a property contacted within this many days |
+| `rts.source_for_colleagues` | new | `agency` | `off`, `branch` or `agency`: whose buyers feed my stock |
+| `rts.default_callback_days` | new | 3 (working days) | The call-back date the MIC feedback adapter uses |
+| `rts.flag_offramp_excess_pct` | new | 25 | Training flag: off-ramp rate above the branch / agency rate by this percent |
+| `rts.agent_start_required` | new | on | Agents must press "Start my Road to Sold" before lists load |
+| Reused, unchanged | `prospect_stall_days` 14, `flag_min_sample` 20, `flag_window_days` 30, `no_answer_drop_after` 3, `add_to_day_max` 100, the lookbacks and weights | | |
+
+Lists edited on Recipe (full CRUD, archive / restore, search / sort, "Restore default"): off-ramp reasons (`rts_park_reasons` + station), result options (`rts_result_options`), outcomes (exists), stage and station labels (agency-renamable, exists).
+**Setup Wizard (non-negotiable 10a):** these settings are **deliberately NOT in the wizard yet** - Johan's standing 23 Oct ruling for Road to Sold (`agency-onboarding-setup.md` 5.1); recorded there and here. Nothing is added to `config/agency-onboarding-copy.php`.
+
+### 23.16 Points
+
+Existing credits keep and stay as they are: claim 100 (`mic.claim_taken`, now credited from station 2 and only once per prospect), presentation 200 (`presentation.generated`), evaluation booked 200 (provisional, `property_evaluation`), won 200 / lost 50 (`presentation.won` / `presentation.lost`), published 50 (`property.published`), mandate 300 (`mandate.signed`). **`mic.claim_feedback` stops** (replaced by the outcome points, so one call is never paid twice).
+
+New credits, **agency-set** (defaults below are proposals for Johan's sign-off; an agency edits them in the points settings; slugs are new activity definitions seeded per agency, off if the agency has no value):
+
+| Credit | Slug | Default | Fired by |
+|---|---|---|---|
+| Deed linked | `rts.deed_linked` | 20 | the deed record arriving on the property (`TrackedPropertyEnriched`, deeds / CMA) |
+| Owner linked | `rts.owner_linked` | 30 | `OwnerLinkedToTrackedProperty` |
+| Outcome captured, by channel | `rts.outcome.phone` / `.whatsapp` / `.email` / `.in_person` | 20 / 10 / 10 / 40 | `RoadToSoldOutcomeRecorded` (once per outcome; an attempt pays the channel value, a no-answer streak pays the first only) |
+| Evaluation feedback | `rts.evaluation_feedback` | 50 | feedback saved with `eval_status = held` |
+| Work done: not now / not selling / lost with a reason | `rts.offramp_logged` | 20 | `ProspectResultRecorded` or a park with a reason (work done, so the agent is not punished for an honest dead end) |
+| Advertised | `rts.advertised` | 50 | `listing_live` reached (once per property) |
+
+Auto and manual credits stay **separate** (the 21 Oct ruling): everything above is credited from the event; a manual capture (22.8) is a different slug and never pays an auto slug. Back-dating, caps and the duplicate-in-week gate follow the existing `ProvisionalPointService` rules.
+
+### 23.17 Data model (all additive; no hard deletes; every table keeps `agency_id` + `BelongsToAgency`, soft deletes; migrations on QA1 only after Johan's go for the data steps)
+
+| Table | Change |
+|---|---|
+| `rts_prospects` | no new column needed (stage is varchar; `parked_from_stage`, `park_reason_*`, `closed_*` exist). Stage keys added in code |
+| `prospecting_claims` | `rts_prospect_id` (nullable, indexed), `hold_until` (date), `hold_extended_at` (datetime, nullable), `hold_extensions` (tinyint, default 0) |
+| `rts_contact_outcomes` | `channel` varchar(20) nullable, indexed |
+| `calendar_events` | `tracked_property_id`, `rts_prospect_id` (nullable, indexed) |
+| `presentations` | `rts_prospect_id` (nullable, indexed), `calendar_event_id` (nullable); `tracked_property_id` / `seller_contact_id` start being written |
+| `presentation_outcomes` | `result_key` varchar(40) nullable |
+| `rts_park_reasons` | `station` varchar(30) nullable, `kind` varchar(12) default `off_ramp` |
+| `rts_result_options` | **new** (23.10) |
+| `rts_agent_starts` | **new**: `agency_id`, `track`, `user_id`, `started_at`, `first_list_date`, `paused_from`, `paused_until`, `pause_reason`, `paused_by_user_id`, timestamps, soft deletes; unique (agency, track, user) |
+| `rts_settings` | the new scalar columns in 23.15 |
+| `calendar_event_feedback` | `eval_status` and `result_key` inside `kind_specific_data` (JSON; no new column) |
+| activity definitions | the new slugs in 23.16, seeded per agency |
+| Data steps (QA1, journal + dry-run + before / after counts + rollback tag + dump on `/mnt/HC_Volume_103099143`) | `rts:adopt-claims` (23.5), the presentation-outcome back-fill (23.10), seeding of the station reasons and result options |
+
+**New domain events** (to `corex-domain-events-spec.md`): `ProspectResultRecorded`, `ClaimHoldExtended`, `ClaimHoldEnded`, `RoadToSoldStarted`, `RoadToSoldPaused`. **Changed:** `EvaluationCompleted` fires only for `eval_status = held`; `PresentationGenerated` also moves the prospect; `PresentationPresented` no longer moves it.
+**Permissions** (`config/corex-permissions.php`, section `road-to-sold`): existing keys stand; new `road_to_sold.pause_others` (BM / admin default). Self start and self pause need only `access_road_to_sold`. Sidebar / route middleware / controller checks as in 22.14. Every list, count, drill-down and export applies `visibleTo` in the query; an id outside the breadth is a 404.
+
+### 23.18 Input space (prevent or absorb, BUILD_STANDARD 2 / 3)
+
+Channel missing → refused with "Pick how you contacted them". Outcome on a prospect without an owner → 422 + "Find owner" button. A claim by two agents at once → the per-property lock (22.6) and `ClaimOwnershipConflictException`; the second is told who holds it. A second extension → refused in words. Result on a promoted property → refused with the existing message. Feedback saved twice → idempotent (the same result for the same appointment updates, never duplicates). A calendar evaluation created on the plain calendar for a property with no prospect → no keys filled, still booked and still raises `EvaluationBooked`. A presentation generated for a property with no prospect → `rts_prospect_id` null; nothing moves. Pause date in the past → refused; pause over an existing pause → replaces it. A paused agent opening the page sees "Paused until <date>" and the tiles read-only. An agent not started → the Start card only. Deleted / archived reason or result option → existing rows keep the label they stored (`park_reason_label`), nothing re-renders to blank.
+
+### 23.19 Acceptance and tests
+
+- **Station tests (one per station, real fixtures):** a MIC claim places a prospect at `claimed` and sets `rts_prospect_id`; the hold counts working days, restarts on work, warns, extends once, refuses the second, ends and releases (holiday and pause days skipped); the owner gate refuses an outcome, a send and a MIC feedback without an owner and lets `no_owner_found` / `wrong_number` / `do_not_contact` through; `owner_requires_deed` on / off; outcome needs a channel; the feedback adapter writes the same record; an evaluation booked from the outcome and from the plain calendar carries property + prospect + tracked property + contact; the dead presentation link is gone and generation writes the three keys; evaluation feedback `held` / `no_show` / `rescheduled`; the shared result list feeds all three screens and `ResultService` keeps claim, prospect, property, feedback and presentation outcome in step for each result class (including un-park of a not-selling property); derived blockers name the first failing check.
+- **Stats tests:** funnel counts once per property per station per period, skipped stations, compare periods, own vs branch vs agency scoping, a colleague's rows never visible, the training flag above / below the sample and the threshold.
+- **Tiles:** only built stations render; click opens the station list; at 1366x768 and 1920x1080 the tiles fit the width with no sideways scroll and the page does not scroll (`scripts/rts-fit-check.mjs` extended); a manager's tiles are read-only; the sticky bar stays.
+- **Activation:** nothing loads for an agency that switched on; Start loads from the next working day; paused days are skipped by targets and clocks; the manager panel lists not-started and paused agents.
+- **Proof on QA1 (real browser, a test user of agency 1 - never user 22):** claim in MIC → the tile moves; link an owner from the MIC card pop-up; log a phone pitch with a date; book the evaluation; prepare the presentation; give the feedback; record a won result and see the property go to Draft; an off-ramp with a reason and a revisit date.
+
+### 23.20 Lanes and build order
+
+- **Lane A (cc4) - the spine**, in this order, each pushed and deployed to QA1 on its own: **A1** stages + claim ↔ prospect (listener, `rts:adopt-claims`, claim mirror, claim hold + `rts:release-held-claims`); **A2** owner station + the gate (server and MIC buttons); **A3** outcome `channel` + the MIC feedback adapter + `mic.claim_feedback` off; **A4** calendar / presentation keys, the dead link, evaluation `eval_status`; **A5** `rts_result_options`, `ResultService`, the three screens on one list, the presentation back-fill; **A6** off-ramp reasons by station, derived blockers, the stats service (funnel, periods, compare, scoping) and the training flag; **A7** stages 9-11 wiring and the new points slugs. Each step ships its tests and updates this section's build log.
+- **Lane B (cc3, this lane) - tiles + activation**, after A1 (the tiles need the stages) and in parallel with A2-A7: the tile row and its station lists (`config/road-to-sold-belt.php`), the Start card, pause / resume, the manager's "Not started / Paused" panel, the fit check; tiles appear as each station is built.
+- **Not now:** the sell-stock leg (12+), Road to Rented, any scheduler switch-on on QA1 (R11), the Setup Wizard (23.15).
+
+### 23.21 Open points, each with the default built unless Johan says otherwise
+
+1. **Does the claim hold restart when the property is worked?** Built as: yes, any station move or outcome restarts it, and the hold ends only after `claim_hold_days` working days of no work. The alternative (a fixed 30 working days from the claim) is one line in `ClaimHoldService`.
+2. **Is a deed required for "Owner found"?** Built as: yes (`rts.owner_requires_deed` on). Off = the owner contact alone.
+3. **The new points values (23.16)** are proposals.
+4. **Blockers at stations 9-11 are derived, not chosen**, and do not park the prospect.
+5. **"Not now" = parked at the station it was at**, with the revisit date; the claim stays open until then.
+
+### 23.22 Build log (lanes append here)
