@@ -81,6 +81,7 @@ final class BuyerFitLabel
                 'beds' => $wants . ' beds', 'baths' => $wants . ' baths', 'garages' => $wants . ' garages', 'parking' => $wants . ' parking',
                 'erf' => 'erf ' . $wants, 'floor' => 'floor ' . $wants,
                 'type' => str_replace(' · ', ' or ', $wants),
+                'suburb' => str_replace(' · ', ', ', $wants),
                 default => $wants,
             };
             $st = self::state($f['state']);

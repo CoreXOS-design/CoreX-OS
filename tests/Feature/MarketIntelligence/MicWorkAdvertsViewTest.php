@@ -264,7 +264,7 @@ final class MicWorkAdvertsViewTest extends TestCase
         $fit = $this->fit(['fields' => [
             ['key' => 'price', 'label' => 'Price', 'wants' => '≤ R1.2m', 'has' => 'R 950,000', 'state' => 'ok'],
             ['key' => 'type', 'label' => 'Type', 'wants' => 'Apartment / Flat · Townhouse', 'has' => 'Townhouse', 'state' => 'ok'],
-            ['key' => 'suburb', 'label' => 'Suburb', 'wants' => 'Margate, Uvongo', 'has' => 'Uvongo', 'state' => 'ok'],
+            ['key' => 'suburb', 'label' => 'Suburb', 'wants' => 'Margate · Uvongo', 'has' => 'Uvongo', 'state' => 'ok'],
             ['key' => 'beds', 'label' => 'Bedrooms', 'wants' => '2+', 'has' => '3', 'state' => 'ok'],
             ['key' => 'baths', 'label' => 'Bathrooms', 'wants' => null, 'has' => '2', 'state' => 'na'],
             ['key' => 'floor', 'label' => 'Floor', 'wants' => '150+ m²', 'has' => '120 m²', 'state' => 'miss'],
