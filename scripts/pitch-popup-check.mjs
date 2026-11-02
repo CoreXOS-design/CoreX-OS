@@ -88,6 +88,24 @@ if (link) {
     ok(/market-intelligence/.test(page.url()) && (await page.$('[data-qa="advert-card"]')) !== null, 'the agent is back on the list they came from');
     await page.screenshot({ path: path.join(SHOTS, 'e-back-on-list.png') });
 }
+
+// ---- Road to Sold: a line's Pitch / Find owner step opens the same popup (starting at Owner when the property has no advert) ----------------------------
+await page.goto(`${BASE}/corex/road-to-sold`, { waitUntil: 'networkidle2', timeout: 120000 });
+const rtsBtn = await page.evaluate(() => { const bs = [...document.querySelectorAll('[data-qa="intake-step"]')]; const b = bs.find((x) => x.dataset.tracked) || bs[0]; return b ? { tracked: b.dataset.tracked || '', label: b.textContent.trim() } : null; });
+console.log('  road to sold step button:', JSON.stringify(rtsBtn));
+if (rtsBtn) {
+    await page.$eval('[data-qa="intake-step"]' + (rtsBtn.tracked ? `[data-tracked="${rtsBtn.tracked}"]` : ''), (b) => b.scrollIntoView({ block: 'center' }));
+    await (await page.$('[data-qa="intake-step"]' + (rtsBtn.tracked ? `[data-tracked="${rtsBtn.tracked}"]` : ''))).click();
+    await page.waitForSelector('[data-qa="pitch-popup"]', { timeout: 15000 });
+    await wait(4000);
+    await page.screenshot({ path: path.join(SHOTS, 'f-rts-popup.png') });
+    const st = await page.evaluate(() => [...document.querySelectorAll('[data-qa="pitch-steps"] .cxp-step')].map((b) => b.dataset.step + ':' + b.dataset.state).join());
+    console.log('  rts popup steps:', st);
+    ok(rtsBtn.tracked ? st.startsWith('property:current') : st.startsWith('property:done,owner:current'), rtsBtn.tracked ? 'starts at the MIC card' : 'no advert: starts at Owner, Property shown done');
+    await page.click('[data-qa="pitch-close"]');
+    await wait(2500);
+    ok(/road-to-sold/.test(page.url()) && !(await page.$('[data-qa="pitch-popup"]')), 'Close leaves the agent on Road to Sold');
+}
 await browser.close();
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
 process.exit(fails ? 1 : 0);
