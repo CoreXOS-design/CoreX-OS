@@ -79,6 +79,26 @@
         </div>
     @else
 
+        {{-- The property this pitch is about; a click shows its MIC card (road-to-sold.md 23.23) --}}
+        @if(!empty($property))
+            @php $__peek = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->peekAttributes(null, (int) $property->id); @endphp
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-qa="listing-header" {!! $__peek !!}>
+                <div class="text-[10px] uppercase tracking-wider font-semibold mb-1 flex items-center justify-between" style="color: var(--text-muted);">
+                    <span>Pitching about</span>
+                    @if($__peek !== '')<span style="color: var(--brand-icon, #0ea5e9); text-transform: none; letter-spacing: 0; font-size: .75rem;">What is this property? ›</span>@endif
+                </div>
+                <div class="font-semibold text-sm" style="color: var(--text-primary);">
+                    {{ $property->address ?: $property->title ?: ('Property #' . $property->id) }}{{ !empty($property->suburb) ? ', ' . $property->suburb : '' }}
+                </div>
+                <div class="text-xs mt-1" style="color: var(--text-muted);">
+                    @if(!empty($property->price))R {{ number_format((float) $property->price, 0, '.', ',') }} · @endif
+                    {{ $property->property_type ?? 'property' }}
+                    @if(!empty($property->beds)) · {{ $property->beds }} beds @endif
+                    @if(!empty($property->baths)) · {{ $property->baths }} baths @endif
+                </div>
+            </div>
+        @endif
+
         {{-- Two-column composer (60/40 on lg+) --}}
         <div class="grid grid-cols-1 lg:grid-cols-5 gap-5">
             <div class="lg:col-span-3">
@@ -287,4 +307,5 @@ function propertyPickerCollision(init) {
     };
 }
 </script>
+@include('layouts.partials._pitch-popup')
 @endsection

@@ -169,6 +169,11 @@ function rtsStepModal() {
         isOpen: false, label: '', opener: null, touched: false,
         open(d) {
             if (!d || !d.stepUrl) { return; }
+            // the pitch steps (find the owner, pitch) run in the ONE pitch popup, starting at the MIC card when the property has an advert (road-to-sold.md 23.23)
+            if (/\/prospects\/\d+\/step\/(pitch|find_owner)(\?|$)/.test(d.stepUrl) && window.CorexPitch) {
+                window.CorexPitch.open({ next: new URL(d.stepUrl, window.location.href).toString(), tracked: d.tracked || null, label: d.stepLabel || 'Pitch' });
+                return;
+            }
             this.label = d.stepLabel || 'Road to Sold step';
             this.opener = document.activeElement;
             this.isOpen = true; this.touched = false;
@@ -199,3 +204,4 @@ function rtsStepModal() {
     };
 }
 </script>
+@include('layouts.partials._pitch-popup')

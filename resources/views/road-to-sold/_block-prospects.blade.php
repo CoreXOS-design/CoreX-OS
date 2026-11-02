@@ -15,11 +15,12 @@
     $byStage = collect($lineChips)->groupBy('stage');
     $lineCols = max(1, collect($linePhases)->sum(fn ($ph) => count($ph['stations'])));   // one grid column per station shown (v4: 21, the two presentation stages are legacy)
     $stationList = collect($stageMeta)->reject(fn ($m, $k) => in_array($k, \App\Services\RoadToSold\ProspectStages::LEGACY, true))->map(fn ($m, $k) => ['key' => $k, 'label' => $m['label'], 'short' => \App\Services\RoadToSold\ProspectStages::short($k), 'phase' => \App\Services\RoadToSold\ProspectStages::phaseOf($k)])->values()->all();
+    $withCards = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->trackedWithCards((int) auth()->user()->effectiveAgencyId(), collect($lineChips)->pluck('tracked_property_id'));
     $cards = collect($lineChips)->mapWithKeys(fn ($c) => [$c['id'] => [
         'id' => $c['id'], 'tp' => $c['tracked_property_id'], 'address' => $c['address'], 'suburb' => $c['suburb'], 'owner' => $c['owner_name'], 'phone' => $c['owner_phone'],
         'price' => $moneyFmt($c['price']), 'stage' => $c['stage'], 'stage_label' => $c['stage_label'], 'agent' => $c['agent_name'], 'next' => $c['next_action'],
         'due_state' => $c['due_state'], 'due_words' => $c['due_words'], 'next_at' => $c['next_action_at'], 'days' => $c['days_in_stage'], 'reason' => $c['reason'], 'journey' => (object) $c['journey'],
-        'step_url' => route('road-to-sold.prospects.step', [$c['id'], $c['primary']['key']]), 'step_label' => $c['primary']['label'],
+        'card' => isset($withCards[(int) $c['tracked_property_id']]), 'step_url' => route('road-to-sold.prospects.step', [$c['id'], $c['primary']['key']]), 'step_label' => $c['primary']['label'],
         'history_url' => route('road-to-sold.prospects.history', [$c['id'], 'embed' => 1]),
     ]]);
 @endphp
@@ -196,7 +197,7 @@
                 <div class="text-xs" style="color: var(--text-muted);" x-show="card.reason" x-text="card.reason ? 'Started: ' + card.reason : ''"></div>
                 <div class="flex items-center gap-1 flex-wrap">
                     @if($canWriteProspects)
-                        <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="prospect-step" :data-step-url="card.step_url" :data-step-label="card.step_label + ' - ' + card.address"
+                        <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="prospect-step" :data-step-url="card.step_url" :data-tracked="card.card ? card.tp : ''" :data-step-label="card.step_label + ' - ' + card.address"
                                 @click="cardId = null; $dispatch('rts-step', $el.dataset)" x-text="card.step_label"></button>
                         <button type="button" class="corex-btn-outline corex-btn-xs" :data-tp="card.tp" :data-address="card.address" @click="cardId = null; openContact($el.dataset)">Record a result</button>
                         <button type="button" class="corex-btn-outline corex-btn-xs" @click="openNext(card.id, card.next, card.next_at)">Next action</button>

@@ -252,6 +252,7 @@
                 </tr>
             </thead>
             <tbody>
+            @php $__pitchCards = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->trackedWithCards((int) auth()->user()->effectiveAgencyId(), collect($rowsPage)->pluck('tracked_property_id')); @endphp
             @forelse($rowsPage as $r)
                 @php $lo = $r['last_outcome']; @endphp
                 <tr style="border-top: 1px solid var(--border);">
@@ -295,7 +296,7 @@
                             @endif
                             @if($viewingOwn && $r['status'] === 'open' && ! empty($intakeProspects[$r['tracked_property_id']]))
                                 @php $stepKey = $r['owner_name'] ? 'pitch' : 'find_owner'; @endphp
-                                <button type="button" class="corex-btn-outline corex-btn-xs" data-qa="intake-step"
+                                <button type="button" class="corex-btn-outline corex-btn-xs" data-qa="intake-step" data-tracked="{{ isset($__pitchCards[(int) $r['tracked_property_id']]) ? $r['tracked_property_id'] : '' }}"
                                         data-step-url="{{ route('road-to-sold.prospects.step', [$intakeProspects[$r['tracked_property_id']], $stepKey]) }}"
                                         data-step-label="{{ \App\Services\RoadToSold\ProspectStepService::LABELS[$stepKey] }} - {{ $r['address'] }}"
                                         @click="$dispatch('rts-step', $el.dataset)">{{ \App\Services\RoadToSold\ProspectStepService::LABELS[$stepKey] }}</button>

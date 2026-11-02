@@ -93,6 +93,7 @@
 @endif
 @include('corex.market-intelligence._buyer-banner-script')
 @include('corex.market-intelligence._advert-fetch-script')
+@include('layouts.partials._pitch-popup')
 
 {{-- ─────────────────────────────────────────────────────────────────────────
      Tick refresh (cc6) — AJAX partial swap, no full-page reload.

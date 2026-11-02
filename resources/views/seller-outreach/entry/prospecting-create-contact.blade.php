@@ -45,9 +45,11 @@
          extends the view to render either context; the form below posts to
          the matching store route. --}}
     @if(!empty($trackedProperty))
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
-                Tracked Property
+        @php($__peek = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->peekAttributes(null, null, (int) $trackedProperty->id))
+        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-qa="listing-header" {!! $__peek !!}>
+            <div class="text-[10px] uppercase tracking-wider font-semibold mb-1 flex items-center justify-between" style="color: var(--text-muted);">
+                <span>Tracked Property</span>
+                @if($__peek !== '')<span style="color: var(--brand-icon, #0ea5e9); text-transform: none; letter-spacing: 0; font-size: .75rem;">What is this property? ›</span>@endif
             </div>
             <div class="font-semibold text-sm" style="color: var(--text-primary);">
                 {{ $trackedProperty->displayAddress() }}
@@ -61,9 +63,11 @@
             </div>
         </div>
     @elseif(!empty($property))
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
-                Property — in agency stock
+        @php($__peek = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->peekAttributes(null, (int) $property->id))
+        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-qa="listing-header" {!! $__peek !!}>
+            <div class="text-[10px] uppercase tracking-wider font-semibold mb-1 flex items-center justify-between" style="color: var(--text-muted);">
+                <span>Property — in agency stock</span>
+                @if($__peek !== '')<span style="color: var(--brand-icon, #0ea5e9); text-transform: none; letter-spacing: 0; font-size: .75rem;">What is this property? ›</span>@endif
             </div>
             <div class="font-semibold text-sm" style="color: var(--text-primary);">
                 {{ $property->address ?: $property->title ?: 'Property #' . $property->id }}{{ !empty($property->suburb) ? ', ' . $property->suburb : '' }}
@@ -79,9 +83,11 @@
             </div>
         </div>
     @elseif(!empty($listing))
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">
-                Listing from {{ strtoupper((string) ($listing->portal_source ?? 'portal')) }}
+        @php($__peek = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->peekAttributes((int) $listing->id))
+        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-qa="listing-header" {!! $__peek !!}>
+            <div class="text-[10px] uppercase tracking-wider font-semibold mb-1 flex items-center justify-between" style="color: var(--text-muted);">
+                <span>Listing from {{ strtoupper((string) ($listing->portal_source ?? 'portal')) }}</span>
+                @if($__peek !== '')<span style="color: var(--brand-icon, #0ea5e9); text-transform: none; letter-spacing: 0; font-size: .75rem;">What is this property? ›</span>@endif
             </div>
             <div id="listing-header-address" class="font-semibold text-sm" style="color: var(--text-primary);"
                  data-original-address="{{ $listing->address ?? '(no address)' }}{{ !empty($listing->suburb) ? ', ' . $listing->suburb : '' }}">
@@ -1014,4 +1020,5 @@
         </div>
     </form>
 </div>
+@include('layouts.partials._pitch-popup')
 @endsection

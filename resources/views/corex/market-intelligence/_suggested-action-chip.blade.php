@@ -106,8 +106,10 @@
     @if($s->clickType === 'anchor')
         {{-- Open the action (Pitch now / capture) in a NEW TAB so the agent keeps
              their MIC list + filters instead of navigating away and losing them. --}}
+        {{-- the pitch screens open in the ONE pitch popup (road-to-sold.md 23.23); anything else, and a browser without the script, opens a new tab --}}
         <a href="{{ $s->href }}"
            target="_blank" rel="noopener"
+           @if(preg_match('#/outreach/(compose|pitch-ready)(\?|$)|/contacts/\d+/outreach/#', (string) $s->href) && $listingIdForModal) data-pitch-popup data-listing="{{ $listingIdForModal }}" data-label="{{ $chipLabel }}" @endif
            class="mi-suggested-chip"
            data-rank="{{ $s->rank }}"
            data-tier="{{ $s->tier }}"
