@@ -13,7 +13,7 @@
     @foreach($inboxProblems as $p)
         <div class="rounded-md px-4 py-2 mt-2 text-sm flex-shrink-0" data-inbox-problem="{{ $p->id }}"
              style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); color: var(--text-primary);">
-            Replies and bounces for {{ $p->email }} are not being checked — {{ (new \App\Services\Communications\MailFailureClassifier())->friendlyForConnect($p->last_inbox_error) }}
+            Replies and bounces for {{ $p->email }} are not being checked — {{ \App\Services\Campaigns\CampaignInboxChecker::friendly($p->last_inbox_error) }}
             <a href="{{ route('admin.campaigns.settings') }}" class="cmp-link ml-1">Settings</a>
         </div>
     @endforeach

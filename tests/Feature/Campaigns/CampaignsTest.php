@@ -426,6 +426,20 @@ final class CampaignsTest extends TestCase
         $this->assertSame(2, CampaignSend::whereHas('step', fn ($q) => $q->where('step_number', 2))->count(), 'step 2 only to leads 4 and 5');
     }
 
+    public function test_inbox_is_never_opened_from_a_non_sending_environment(): void
+    {
+        // §42 hard rule — the testing environment is not on the sending allowlist, so no IMAP login may be attempted at all.
+        $this->assertFalse(\App\Support\OutboundMailGuard::isSendingConfirmed());
+        $sender = $this->sender(['smtp_host' => '192.0.2.1', 'imap_host' => '192.0.2.1']); // TEST-NET: would hang if dialled
+        $checker = app(CampaignInboxChecker::class);
+
+        $started = microtime(true);
+        $this->assertSame(CampaignInboxChecker::OFF_HERE, $checker->testInbox($sender));
+        $this->assertSame(['checked' => 0, 'error' => CampaignInboxChecker::OFF_HERE], $checker->checkSender($sender));
+        $this->assertLessThan(2, microtime(true) - $started, 'no connection attempted');
+        $this->assertSame(CampaignInboxChecker::OFF_HERE, $sender->fresh()->last_inbox_error);
+    }
+
     // ── steps ───────────────────────────────────────────────────────────────────────────────
 
     public function test_unknown_merge_field_and_short_day_gap_are_rejected(): void

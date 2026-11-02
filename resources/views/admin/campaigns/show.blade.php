@@ -10,9 +10,7 @@
     $tabOn = 'padding: 8px 14px; font-size: 0.8125rem; font-weight: 600; border-bottom: 2px solid var(--brand-icon, #0ea5e9); color: var(--brand-icon, #0ea5e9);';
 @endphp
 <div class="w-full h-full flex flex-col">
-    @include('admin.campaigns._head')
-
-    <div class="rounded-md px-5 py-3 mt-2 corex-page-banner flex-shrink-0" data-campaign-header>
+    <div class="rounded-md px-5 py-3 corex-page-banner flex-shrink-0" data-campaign-header>
         <div class="flex flex-wrap items-center justify-between gap-3">
             <div class="min-w-0">
                 <div class="flex items-center gap-2">
@@ -59,6 +57,8 @@
             </div>
         </div>
     </div>
+
+    @include('admin.campaigns._head')
 
     <nav class="flex gap-1 mt-2 flex-shrink-0" style="border-bottom: 1px solid var(--border);" data-campaign-tabs>
         @foreach(['list' => 'List', 'steps' => 'Steps', 'activity' => 'Activity'] as $t => $label)

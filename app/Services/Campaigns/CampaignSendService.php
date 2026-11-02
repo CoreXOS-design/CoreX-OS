@@ -171,11 +171,12 @@ class CampaignSendService
     public function countedToday(Campaign $campaign, CarbonInterface $now): int
     {
         $start = $now->copy()->startOfDay();
+        $end = $now->copy()->endOfDay();
 
         return CampaignSend::where('campaign_id', $campaign->id)
-            ->where(function ($q) use ($start) {
-                $q->where('sent_at', '>=', $start)
-                    ->orWhere(fn ($q2) => $q2->whereIn('status', [CampaignSend::STATUS_SENDING, CampaignSend::STATUS_UNKNOWN])->where('updated_at', '>=', $start));
+            ->where(function ($q) use ($start, $end) {
+                $q->whereBetween('sent_at', [$start, $end])
+                    ->orWhere(fn ($q2) => $q2->whereIn('status', [CampaignSend::STATUS_SENDING, CampaignSend::STATUS_UNKNOWN])->whereBetween('updated_at', [$start, $end]));
             })
             ->count();
     }

@@ -9,7 +9,6 @@ use App\Models\Campaigns\CampaignSender;
 use App\Services\Campaigns\CampaignInboxChecker;
 use App\Services\Campaigns\CampaignSendService;
 use App\Services\Campaigns\CampaignSettings;
-use App\Services\Communications\MailFailureClassifier;
 use App\Services\Communications\PerMailboxMailTransportBuilder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -180,14 +179,12 @@ class CampaignSettingsController extends Controller
         $inboxError = $inbox->testInbox($sender);
         $sender->forceFill($inboxError ? ['last_inbox_error' => $inboxError] : ['last_inbox_error' => null])->save();
 
-        $classifier = new MailFailureClassifier();
-
         return back()->with('sender_test', [
             'sender_id' => $sender->id,
             'send_ok' => $sendError === null,
             'send_text' => $sendError === null ? 'Test email sent to ' . $sender->email . '. Check that inbox.' : 'Could not send: ' . $sends->friendlyReason($sendError) . '.',
             'inbox_ok' => $inboxError === null,
-            'inbox_text' => $inboxError === null ? 'Inbox opened — replies and bounces can be read.' : 'Inbox: ' . $classifier->friendlyForConnect($inboxError),
+            'inbox_text' => $inboxError === null ? 'Inbox opened — replies and bounces can be read.' : 'Inbox: ' . CampaignInboxChecker::friendly($inboxError),
         ]);
     }
 

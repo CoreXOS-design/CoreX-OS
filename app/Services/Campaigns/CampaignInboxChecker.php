@@ -7,6 +7,7 @@ use App\Models\Campaigns\CampaignLead;
 use App\Models\Campaigns\CampaignSend;
 use App\Models\Campaigns\CampaignSender;
 use App\Services\Communications\MailFailureClassifier;
+use App\Support\OutboundMailGuard;
 use Illuminate\Support\Facades\Log;
 use Webklex\PHPIMAP\ClientManager;
 
@@ -18,6 +19,16 @@ use Webklex\PHPIMAP\ClientManager;
 class CampaignInboxChecker
 {
     private const OUR_ID = '/cx-campaign-(\d+)-[a-z0-9]+@[A-Za-z0-9.\-]+/';
+
+    /** Reason recorded when this environment may not open a real IMAP connection (§42 hard rule, ImapSentFolderAppender precedent). */
+    public const OFF_HERE = 'off_on_this_server';
+
+    public static function friendly(?string $reason): string
+    {
+        return $reason === self::OFF_HERE
+            ? 'inbox checks only run on the live and Staging servers.'
+            : (new MailFailureClassifier())->friendlyForConnect((string) $reason);
+    }
 
     public function __construct(private CampaignSendService $sends, private MailFailureClassifier $classifier = new MailFailureClassifier())
     {
@@ -38,6 +49,12 @@ class CampaignInboxChecker
     /** @return array{checked:int, error:?string} */
     public function checkSender(CampaignSender $sender): array
     {
+        if (! OutboundMailGuard::isSendingConfirmed()) {
+            $sender->forceFill(['last_inbox_error' => self::OFF_HERE])->save();
+
+            return ['checked' => 0, 'error' => self::OFF_HERE];
+        }
+
         $startedAt = now();
         $since = ($sender->last_inbox_check_at ?? now()->subDays(7))->copy()->subDay();
         $checked = 0;
@@ -247,6 +264,10 @@ class CampaignInboxChecker
     /** Test connection, inbox leg only: log in and open INBOX. Null = OK, else the sanitised reason. */
     public function testInbox(CampaignSender $sender): ?string
     {
+        if (! OutboundMailGuard::isSendingConfirmed()) {
+            return self::OFF_HERE; // never a real IMAP login from a non-sending environment (§42)
+        }
+
         try {
             $client = $this->connect($sender);
             $ok = (bool) $client->getFolder('INBOX');

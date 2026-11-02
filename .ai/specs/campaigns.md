@@ -247,6 +247,7 @@ New command `campaigns:check-inbox`, scheduled every 5 minutes (`onOneServer`, `
   - Otherwise → lead `replied`; sequence stops; not suppressed.
   - `replied_at` set on the matched send.
 - Auto-replies (`Auto-Submitted: auto-replied`, `X-Autoreply`, out-of-office subjects) are **not** treated as replies.
+- **Only on the confirmed live / Staging servers** (`OutboundMailGuard::isSendingConfirmed()`, the same �42 hard rule as `ImapSentFolderAppender`). Everywhere else the check and the Test button never open an IMAP connection; they record `off_on_this_server` and say "inbox checks only run on the live and Staging servers." (Found in the 2026-11-02 click-through: the local Test button had logged in to the real server with a placeholder password.)
 - If the sender's inbox login fails: `last_inbox_error` is recorded, the Campaigns list shows a banner "Replies and bounces for {email} are not being checked — {reason}", and sending continues.
 
 ---
@@ -319,6 +320,7 @@ Not in the brief → not built.
 - **Unsubscribe** is one signed URL: GET (`campaigns.public.unsubscribe`) shows the page, POST (`campaigns.public.unsubscribe.confirm`) acts; `List-Unsubscribe` carries the same URL.
 - **Inbox parsing tests** use raw header/body strings in the test, not `.eml` fixture files.
 - **Schema snapshot NOT refreshed.** `schema:dump` from the test DB would also pull ~20 tables from other lanes' migrations not yet in the committed snapshot (plus a whole-file line-ending churn) — outside this task. Tests stay correct (migrations run on top of the snapshot); refreshing the snapshot is reported to the conductor.
+- **Click-through 2026-11-02 (headless Chrome, owner login):** every screen and action clicked, 0 browser errors. Fixed from it: campaign page header sat under the module tabs; the "today" count had no upper bound; the inbox check / Test opened a real IMAP login from a non-live server (now gated, see �6.6).
 - **Local verification:** this machine's mail settings trip OutboundMailGuard, so the real transport refuses with `blocked_by_guard` before opening any socket (proved in the run). The rest of the flow was proved with a recording transport, exactly as the test suite does.
 
 **Environment:** nothing in `.env` — sender logins are entered on the Settings page per environment (andre@corexos.co.za's password is typed in there, never committed).
