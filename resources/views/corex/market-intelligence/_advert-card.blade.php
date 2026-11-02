@@ -136,13 +136,13 @@
 
         @if($fitChips)@include('corex.market-intelligence._buyer-fit-chips', ['fit' => $fit])@endif
 
-        <div style="display:flex; align-items:center; gap:2px 14px; margin-top:{{ ($text !== '' || $featBits || $costBits || $fitChips) ? 'auto' : '4px' }}; font-size:.875rem; color: var(--text-primary);" data-qa="advert-icons">
+        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:2px 14px; margin-top:{{ ($text !== '' || $featBits || $costBits || $fitChips) ? 'auto' : '4px' }}; font-size:.875rem; color: var(--text-primary);" data-qa="advert-icons">
             @if(!empty($f['beds']))<span title="Bedrooms" style="display:inline-flex; align-items:center; gap:4px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px; height:15px; color: var(--text-secondary);"><path d="M3 18v-7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7M3 14h18M3 18v2M21 18v2M7 9V6h10v3"/></svg>{{ $f['beds'] }}</span>@endif
             @if(!empty($f['baths']))<span title="Bathrooms" style="display:inline-flex; align-items:center; gap:4px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px; height:15px; color: var(--text-secondary);"><path d="M4 12h16v3a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4v-3zM6 12V6a2 2 0 0 1 4 0M7 19l-1 2M17 19l1 2"/></svg>{{ $f['baths'] }}</span>@endif
             @if(!empty($f['garages']))<span title="Garages" style="display:inline-flex; align-items:center; gap:4px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px; height:15px; color: var(--text-secondary);"><path d="M5 17h14M6 17l1.5-6h9L18 17M7 17v2M17 17v2"/></svg>{{ $f['garages'] }}</span>@endif
             @if(!empty($adv['parking']))<span title="Parking bays" style="display:inline-flex; align-items:center; gap:4px;"><span style="font-weight:800; color: var(--text-secondary);">P</span>{{ $adv['parking'] }}</span>@endif
-            @if(!empty($adv['erf_size_m2']))<span title="Erf size">Erf {{ number_format((float) $adv['erf_size_m2']) }} m²</span>@endif
-            @if(!empty($adv['floor_size_m2']))<span title="Floor size">Floor {{ number_format((float) $adv['floor_size_m2']) }} m²</span>@endif
+            @if(!empty($adv['erf_size_m2']))<span title="Erf size" style="white-space:nowrap;">Erf {{ number_format((float) $adv['erf_size_m2']) }} m²</span>@endif
+            @if(!empty($adv['floor_size_m2']))<span title="Floor size" style="white-space:nowrap;">Floor {{ number_format((float) $adv['floor_size_m2']) }} m²</span>@endif
         </div>
         @if($fit)@include('corex.market-intelligence._buyer-fit-line', ['fit' => $fit])@endif
         <div style="font-size:.8125rem; line-height:1.3; color: var(--text-primary); display:flex; align-items:baseline; gap:6px; min-width:0;" data-qa="advert-source">
