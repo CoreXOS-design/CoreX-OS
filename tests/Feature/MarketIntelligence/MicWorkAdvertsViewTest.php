@@ -205,6 +205,91 @@ final class MicWorkAdvertsViewTest extends TestCase
         $this->assertSame(0, preg_match('/x-show="(intel|noteOpen|commentsModalOpen)"[^>]*display: ?flex/s', $h), 'no x-show element relies on an inline display:flex (Alpine replaces it)');
     }
 
+    public function test_the_analyse_and_market_pulse_slide_over_keeps_to_the_right_edge(): void
+    {
+        foreach (['market-intelligence.analyse', 'market-intelligence.market-pulse'] as $route) {
+            $h = $this->actingAs($this->admin)->get(route($route))->assertOk()->getContent();
+            $at = strpos($h, 'x-data="micSlideover()"');
+            $this->assertNotFalse($at, "{$route} carries the slide-over");
+            $slide = substr($h, $at, 1200);
+            $this->assertStringNotContainsString('z-index: 60; display: flex', substr($slide, 0, 500), $route);
+            $this->assertStringContainsString('position: absolute; top: 0; right: 0; bottom: 0;', $slide, $route);
+        }
+    }
+
+    private function fit(array $over = []): array
+    {
+        return array_replace([
+            'first_name' => 'Alex', 'score' => 88, 'tier' => 'strong',
+            'fields' => [
+                ['key' => 'price', 'label' => 'Price', 'wants' => '≤ R1.0m', 'has' => 'R 950,000', 'state' => 'ok'],
+                ['key' => 'type', 'label' => 'Type', 'wants' => 'House', 'has' => 'Apartment', 'state' => 'miss'],
+                ['key' => 'suburb', 'label' => 'Suburb', 'wants' => 'Margate', 'has' => 'Margate', 'state' => 'ok'],
+                ['key' => 'beds', 'label' => 'Bedrooms', 'wants' => '3+', 'has' => '3', 'state' => 'ok'],
+                ['key' => 'baths', 'label' => 'Bathrooms', 'wants' => '2+', 'has' => null, 'state' => 'unknown'],
+                ['key' => 'parking', 'label' => 'Parking', 'wants' => null, 'has' => null, 'state' => 'na'],
+                ['key' => 'erf', 'label' => 'Erf', 'wants' => null, 'has' => null, 'state' => 'na'],
+                ['key' => 'floor', 'label' => 'Floor', 'wants' => '150+', 'has' => '120 m²', 'state' => 'miss'],
+            ],
+            'must_haves' => [['label' => 'Pool', 'state' => 'ok'], ['label' => 'Pet friendly', 'state' => 'unknown'], ['label' => 'Sea view', 'state' => 'miss']],
+            'deal_breakers' => [],
+        ], $over);
+    }
+
+    public function test_buyer_fit_wording_counts_and_colours_follow_the_states_the_engine_gave(): void
+    {
+        $B = \App\Services\Prospecting\MicWork\BuyerFitLabel::class;
+        $sum = $B::summary($this->fit());
+        $this->assertSame('Fits Alex · 4 of 9 · misses type, floor, sea view · check bathrooms, pet friendly', $sum['text'], 'na fields are not counted');
+        $this->assertSame('miss', $sum['tone']);
+        $allOk = $this->fit(['fields' => [['key' => 'price', 'label' => 'Price', 'wants' => '≤ R1.0m', 'has' => 'R 1', 'state' => 'ok']], 'must_haves' => [['label' => 'Pool', 'state' => 'ok']]]);
+        $this->assertSame(['text' => 'Fits Alex · 2 of 2', 'tone' => 'ok', 'ok' => 2, 'total' => 2], $B::summary($allOk));
+        $unk = $this->fit(['fields' => [['key' => 'price', 'label' => 'Price', 'wants' => '≤ R1.0m', 'has' => null, 'state' => 'ok']], 'must_haves' => [['label' => 'Pool', 'state' => 'unknown'], ['label' => 'Pets', 'state' => 'unknown']]]);
+        $this->assertSame('Fits Alex · 1 of 3 · check pool, pets', $B::summary($unk)['text']);
+        $this->assertSame('unknown', $B::summary($unk)['tone']);
+        $this->assertSame(['text' => '≤ R1.0m ✓', 'color' => '#166534'], array_intersect_key($B::chip($this->fit(), 'price'), ['text' => 1, 'color' => 1]));
+        $this->assertSame('House ✗', $B::chip($this->fit(), 'type')['text']);
+        $this->assertNull($B::chip($this->fit(), 'parking'), 'a field that does not apply gets no chip');
+        $this->assertNull($B::chip(['fields' => []], 'price'), 'nothing given, nothing shown');
+    }
+
+    public function test_the_mirror_line_the_chips_and_the_popover_render_each_state_in_its_colour(): void
+    {
+        $fit = $this->fit();
+        $line = view('corex.market-intelligence._buyer-fit-line', ['fit' => $fit])->render();
+        $this->assertStringContainsString('Alex wants', $line);
+        $this->assertSame(1, preg_match('/data-qa="fit-beds"[^>]*color: #166534[^>]*>.*?3\+/s', $line), 'ok is green');
+        $this->assertSame(1, preg_match('/data-qa="fit-baths"[^>]*color: #92400e[^>]*>.*?2\+ \?/s', $line), 'unknown is amber with a question mark');
+        $this->assertSame(1, preg_match('/data-qa="fit-floor"[^>]*color: #b91c1c[^>]*>.*?150\+/s', $line), 'miss is red');
+        $this->assertSame(1, preg_match('/data-qa="fit-parking"[^>]*color: var\(--text-secondary\)[^>]*>.*?–/s', $line), 'na is grey with a dash');
+        $this->assertLessThan(strpos($line, 'data-qa="fit-baths"'), strpos($line, 'data-qa="fit-beds"'), 'same order as the facts line');
+        $this->assertLessThan(strpos($line, 'data-qa="fit-floor"'), strpos($line, 'data-qa="fit-erf"'));
+
+        $chips = view('corex.market-intelligence._buyer-fit-chips', ['fit' => $fit])->render();
+        $this->assertStringContainsString('>Pool ✓</span>', $chips);
+        $this->assertStringContainsString('>Pet friendly ?</span>', $chips);
+        $this->assertStringContainsString('>Sea view ✗</span>', $chips);
+        $this->assertStringContainsString('>Deal-breaker: none</span>', $chips);
+        $this->assertStringContainsString('>Deal-breaker: Complex ✓</span>', view('corex.market-intelligence._buyer-fit-chips', ['fit' => $this->fit(['deal_breakers' => [['label' => 'Complex', 'state' => 'ok']]])])->render());
+        $this->assertSame('', trim(view('corex.market-intelligence._buyer-fit-chips', ['fit' => $this->fit(['must_haves' => [], 'deal_breakers' => []])])->render()), 'nothing set, nothing shown');
+
+        $pop = view('corex.market-intelligence._advert-pop', ['kind' => 'fit', 'adv' => ['buyer_fit' => $fit], 'listing' => (object) ['id' => 1], 'money' => fn ($v) => 'R ' . number_format($v)])->render();
+        $this->assertStringContainsString('Alex · 4 of 9 fit · 88% match', preg_replace('/\s+/', ' ', strip_tags($pop)));
+        $this->assertSame(11, substr_count($pop, 'data-qa="pop-entry"'), 'eight fields, three must-haves, one line each');
+        $this->assertSame(10, substr_count($pop, 'border-top: 1px solid var(--border)'), 'a hairline between lines');
+        $this->assertStringContainsString('wants ≤ R1.0m · has R 950,000', $pop);
+    }
+
+    public function test_nothing_changes_on_the_cards_when_no_buyer_is_selected(): void
+    {
+        $this->advert('P24-150100060', 1_100_000, ['tracked_property_id' => $this->file('P24-150100060')], ['description_snippet' => 'A lovely family home close to the beach with a big garden.']);
+        $h = $this->page(['view' => 'adverts']);
+        foreach (['fit-line', 'fit-chips', 'fit-badge', 'fit-chip-price', 'fit-chip-type', 'mi-advert-body mi-advert-body-fit'] as $k) {
+            $this->assertStringNotContainsString($k, $h, $k);
+        }
+        $this->assertStringContainsString('-webkit-line-clamp:4;', $h, 'the description keeps its four lines');
+    }
+
     public function test_the_list_view_is_still_the_classic_list(): void
     {
         $this->advert('P24-150100002', 900_000);

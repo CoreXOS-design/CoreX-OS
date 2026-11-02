@@ -14,10 +14,11 @@
      @mic-open-pocket.window="openPocket($event.detail.suburb, $event.detail.bedrooms)"
      @keydown.escape.window="close()"
      x-show="open" x-cloak
-     style="position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end;
+     style="position: fixed; inset: 0; z-index: 60;
             background: rgba(15, 23, 42, 0.45);">
+    {{-- right edge by position, not by a flex parent: x-show replaces the inline display value, so display:flex here was lost on the first show and the panel opened on the left --}}
     <aside @click.outside="close()" data-tour="mic-slideover-panel"
-           style="width: min(480px, 100%); height: 100%; background: var(--surface);
+           style="position: absolute; top: 0; right: 0; bottom: 0; width: min(480px, 100%); height: 100%; background: var(--surface);
                   border-left: 1px solid var(--border); overflow-y: auto;
                   box-shadow: -8px 0 24px rgba(0,0,0,0.18);">
         <div style="display: flex; justify-content: flex-end; padding: 8px;">

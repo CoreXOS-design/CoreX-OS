@@ -14,6 +14,11 @@
     $text = trim((string) ($adv['description'] ?? '')) !== '' ? trim((string) $adv['description']) : trim((string) ($adv['description_snippet'] ?? ''));
     $adverts = $adv['adverts'] ?? [];
     $lead = $adverts[0] ?? null;
+    // 13.18 Buyer wants vs property has: only when a buyer is selected (the row then carries buyer_fit); no buyer, nothing changes
+    $fit = !empty($adv['buyer_fit']) ? $adv['buyer_fit'] : null;
+    $fitChips = $fit && (count($fit['must_haves'] ?? []) + count($fit['deal_breakers'] ?? [])) > 0;
+    $fitChip = fn (string $key) => $fit ? \App\Services\Prospecting\MicWork\BuyerFitLabel::chip($fit, $key) : null;
+    $chipStyle = 'font-size:.6875rem; font-weight:700; line-height:1.4; padding:0 6px; border:1px solid currentColor; border-radius:8px; white-space:nowrap; vertical-align:middle;';
     $ownerSale = !empty($adv['is_owner']);
     $status = $adv['portal_status'] ?? null;
     // ribbons on the photo, in the spec's order
@@ -86,15 +91,16 @@
     </div>
 
     {{-- Column 2: the advert's text, sized like a P24 result card --}}
-    <div class="mi-advert-body" data-qa="advert-left" x-data="{ more: false }" :class="more ? 'mi-advert-body-open' : ''">
+    <div class="mi-advert-body {{ $fit ? 'mi-advert-body-fit' : '' }}" data-qa="advert-left" x-data="{ more: false }" :class="more ? 'mi-advert-body-open' : ''">
         <div style="display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;" data-qa="advert-price">
             <span style="font-size:1.5rem; line-height:1.2; font-weight:800; color: var(--text-primary);">{{ !empty($adv['price']) ? $money($adv['price']) : '—' }}</span>
+            @if($pc = $fitChip('price'))<span data-qa="fit-chip-price" title="{{ $pc['title'] }}" style="{{ $chipStyle }} color: {{ $pc['color'] }};">{{ $pc['text'] }}</span>@endif
             @if(!empty($adv['old_price']) && !empty($adv['cut_amount']))
                 <span style="font-size:.9375rem; color: var(--text-secondary); text-decoration: line-through;">{{ $money($adv['old_price']) }}</span>
                 <span style="font-size:.8125rem; font-weight:600; color: var(--ds-crimson, #dc2626);">cut {{ $money($adv['cut_amount']) }}{{ !empty($adv['cut_date']) ? ' · ' . \Carbon\Carbon::parse($adv['cut_date'])->format('j M') : '' }}</span>
             @endif
         </div>
-        <div style="font-size:1rem; line-height:1.3; font-weight:600; color: var(--text-primary);" data-qa="advert-heading">{{ $heading }}</div>
+        <div style="font-size:1rem; line-height:1.3; font-weight:600; color: var(--text-primary);" data-qa="advert-heading">{{ $heading }}@if($tc = $fitChip('type')) <span data-qa="fit-chip-type" title="{{ $tc['title'] }}" style="{{ $chipStyle }} color: {{ $tc['color'] }};">{{ $tc['text'] }}</span>@endif</div>
         <div style="font-size:.875rem; line-height:1.3; font-weight:700; color: var(--text-primary);" data-qa="advert-place">{{ $adv['suburb'] ?? $listing->suburb }}@if($hasAddress) · {{ \Illuminate\Support\Str::limit($displayAddress, 80) }}@endif</div>
 
         @php
@@ -111,7 +117,7 @@
         @endphp
         @if($text !== '')
             <div style="font-size:.875rem; line-height:1.4; color: var(--text-primary);" data-qa="advert-description">
-                <div :style="more ? '' : 'display:-webkit-box; -webkit-line-clamp:4; -webkit-box-orient:vertical; overflow:hidden;'">{{ $text }}</div>
+                <div :style="more ? '' : 'display:-webkit-box; -webkit-line-clamp:{{ $fitChips ? 3 : 4 }}; -webkit-box-orient:vertical; overflow:hidden;'">{{ $text }}</div>
                 @if(mb_strlen($text) > 160)
                     @if(($adv['details']['level'] ?? 'search') === 'full')
                     <button type="button" data-advert-open data-qa="read-more" style="background:none; border:none; padding:0; font-size:.8125rem; color: var(--text-primary); text-decoration: underline; text-decoration-color: var(--brand-icon); cursor:pointer;">Read more</button>
@@ -128,7 +134,9 @@
             </div>
         @endif
 
-        <div style="display:flex; align-items:center; gap:2px 14px; margin-top:{{ ($text !== '' || $featBits || $costBits) ? 'auto' : '4px' }}; font-size:.875rem; color: var(--text-primary);" data-qa="advert-icons">
+        @if($fitChips)@include('corex.market-intelligence._buyer-fit-chips', ['fit' => $fit])@endif
+
+        <div style="display:flex; align-items:center; gap:2px 14px; margin-top:{{ ($text !== '' || $featBits || $costBits || $fitChips) ? 'auto' : '4px' }}; font-size:.875rem; color: var(--text-primary);" data-qa="advert-icons">
             @if(!empty($f['beds']))<span title="Bedrooms" style="display:inline-flex; align-items:center; gap:4px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px; height:15px; color: var(--text-secondary);"><path d="M3 18v-7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7M3 14h18M3 18v2M21 18v2M7 9V6h10v3"/></svg>{{ $f['beds'] }}</span>@endif
             @if(!empty($f['baths']))<span title="Bathrooms" style="display:inline-flex; align-items:center; gap:4px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px; height:15px; color: var(--text-secondary);"><path d="M4 12h16v3a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4v-3zM6 12V6a2 2 0 0 1 4 0M7 19l-1 2M17 19l1 2"/></svg>{{ $f['baths'] }}</span>@endif
             @if(!empty($f['garages']))<span title="Garages" style="display:inline-flex; align-items:center; gap:4px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px; height:15px; color: var(--text-secondary);"><path d="M5 17h14M6 17l1.5-6h9L18 17M7 17v2M17 17v2"/></svg>{{ $f['garages'] }}</span>@endif
@@ -136,6 +144,7 @@
             @if(!empty($adv['erf_size_m2']))<span title="Erf size">Erf {{ number_format((float) $adv['erf_size_m2']) }} m²</span>@endif
             @if(!empty($adv['floor_size_m2']))<span title="Floor size">Floor {{ number_format((float) $adv['floor_size_m2']) }} m²</span>@endif
         </div>
+        @if($fit)@include('corex.market-intelligence._buyer-fit-line', ['fit' => $fit])@endif
         <div style="font-size:.8125rem; line-height:1.3; color: var(--text-primary); display:flex; align-items:baseline; gap:6px; min-width:0;" data-qa="advert-source">
             <span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ implode(' · ', array_filter([$who, $adv['agent_name'] ?? null])) }}@if($lead && !empty($lead['ref']))@if($who || !empty($adv['agent_name'])) · @endif<span style="{{ $muted }}">{{ $lead['ref'] }}</span>@endif</span>
             @include('corex.market-intelligence._advert-fetch')
@@ -155,6 +164,7 @@
     .mi-advert { display: grid; grid-template-columns: 18.75rem minmax(0, 1fr) minmax(24rem, 28rem); gap: 16px; padding: 12px 14px; align-items: start; }
     .mi-advert-photo { position: relative; width: 18.75rem; max-width: 100%; aspect-ratio: 4 / 3; }
     .mi-advert-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; height: 14.0625rem; overflow: hidden; }
+    .mi-advert-body.mi-advert-body-fit { height: calc(14.0625rem + 1.5rem); }
     .mi-advert-body.mi-advert-body-open { height: auto; min-height: 14.0625rem; overflow: visible; }
     [data-qa="row-wrap"] + [data-qa="row-wrap"] > .mi-advert { border-top: 1px solid var(--border); }
     @media (max-width: 64rem) {
