@@ -60,9 +60,9 @@
     .rts-card { padding: .4rem .6rem; }
     @media (max-width: 900px) { .rts-board { grid-template-columns: minmax(0, 1fr) !important; } }
 
-    /* THE PRODUCTION LINE (spec 22.24): 18 stations on one grid, the line pinned at the top of the one scrolling region, chips under their station */
+    /* THE PRODUCTION LINE (spec 22.24, v4 23.4): one grid column per station (--rts-n), the line pinned at the top of the one scrolling region, chips under their station */
     .rts-linebox { padding: 0; }
-    .rts-grid18 { display: grid; grid-template-columns: repeat(18, minmax(0, 1fr)); column-gap: .25rem; }
+    .rts-grid18 { display: grid; grid-template-columns: repeat(var(--rts-n, 21), minmax(0, 1fr)); column-gap: .25rem; }
     .rts-line { position: sticky; top: 0; z-index: 3; background: var(--surface); padding: .2rem 0 .3rem; border-bottom: 1px solid var(--border); }
     .rts-phase { display: flex; align-items: center; justify-content: space-between; gap: .25rem; min-width: 0; padding: 0 .2rem .1rem; border-bottom: 2px solid var(--brand-icon, #0ea5e9); font-size: .625rem; font-weight: 800; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; overflow: hidden; }
     .rts-phase-name { overflow: hidden; text-overflow: ellipsis; }

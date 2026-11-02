@@ -169,7 +169,14 @@ final class ProductionLineAutoAdvanceTest extends TestCase
         foreach ($constants as $key => $name) {
             $this->assertStringContainsString('S::' . $name, $source, "no way into the {$key} station");
         }
-        $this->assertSame(array_keys(S::ALL), array_merge([S::FOUND, S::CONTACTED], array_keys($constants)), 'the 18 stations are exactly these');
+        // v4 (23.4): the belt adds Claimed (the MIC claim), Owner found, Presentation prepared, Draft and Active, each entered by its own code (the claim listener, the owner
+        // link, the presentation generator, the property status), not by this listener; the two presentation stages stay as legacy keys.
+        $this->assertSame(array_keys(S::ALL), [
+            S::FOUND, S::CLAIMED, S::OWNER_FOUND, S::CONTACTED, S::APPOINTMENT_SET, S::PRESENTATION_PREPARED, S::EVALUATION_DONE, S::PRESENTATION_GIVEN, S::PRESENTATION_FEEDBACK,
+            S::MANDATE_SIGNED, S::DRAFT, S::ACTIVE, S::LISTING_LIVE, S::ADVERTISING, S::LEAD, S::LEAD_CONTACTED, S::CORE_MATCH, S::VIEWING_SCHEDULED, S::VIEWING_PACK,
+            S::VIEWING_FEEDBACK, S::OFFER, S::DEAL, S::REGISTERED,
+        ], 'the stages are exactly these');
+        $this->assertSame([S::PRESENTATION_GIVEN, S::PRESENTATION_FEEDBACK], S::LEGACY);
     }
 
     public function test_an_event_for_a_colleagues_property_does_not_move_my_line(): void

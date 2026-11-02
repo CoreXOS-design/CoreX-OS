@@ -28,6 +28,10 @@ class ProspectingClaim extends Model
         'flagged_at',
         'warned_at',
         'is_active',
+        'rts_prospect_id',
+        'hold_until',
+        'hold_extended_at',
+        'hold_extensions',
     ];
 
     protected $casts = [
@@ -39,6 +43,9 @@ class ProspectingClaim extends Model
         'flagged_at'      => 'datetime',
         'warned_at'       => 'datetime',
         'is_active'       => 'boolean',
+        'hold_until'      => 'date',
+        'hold_extended_at' => 'datetime',
+        'hold_extensions' => 'integer',
     ];
 
     /**
@@ -67,6 +74,7 @@ class ProspectingClaim extends Model
     public function needsStaleWarning(int $warnDays): bool
     {
         return $this->is_active
+            && $this->hold_until === null          // a claim on the belt runs on the claim hold (road-to-sold.md 23.5), not the stale rules
             && ! $this->isOwnStockClaim()
             && $this->released_at === null
             && $this->warned_at === null
@@ -77,6 +85,7 @@ class ProspectingClaim extends Model
     public function isStaleForReview(int $releaseDays): bool
     {
         return $this->is_active
+            && $this->hold_until === null
             && ! $this->isOwnStockClaim()
             && $this->released_at === null
             && $this->staleAgeDays() >= $releaseDays;
@@ -195,9 +204,16 @@ class ProspectingClaim extends Model
      * A PITCHED claim (pitched_at set — the agent captured + linked a contact
      * via "Pitch now") is PERMANENT: it never expires and is never re-claimable
      * on the timer. The 48h window applies ONLY to a claim-without-pitch.
+     *
+     * v4: that is the rule for a claim that is NOT on the belt. A claim on the belt (hold_until set) follows the claim hold instead,
+     * for pitched and unpitched claims alike (ClaimHoldService, road-to-sold.md 23.5).
      */
     public function isExpired(): bool
     {
+        // Road to Sold v4 (23.5): a claim on the belt has a hold, counted in working days, and a pitched claim is no longer permanent.
+        if ($this->hold_until !== null) {
+            return app(\App\Services\RoadToSold\ClaimHoldService::class)->hasEnded($this);
+        }
         if ($this->pitched_at !== null) {
             return false;
         }

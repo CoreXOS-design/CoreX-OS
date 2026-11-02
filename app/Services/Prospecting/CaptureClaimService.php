@@ -24,7 +24,7 @@ use Illuminate\Support\Facades\Log;
  * What "claims" means here, so it behaves exactly like a claim an agent took by hand:
  *   - a real prospecting claim on every advert of the property file (MIC "my claims" lists it; no other agent can pitch it);
  *   - the agency's work record shows who holds it and since when, with the history line "claimed from a deeds capture";
- *   - Road to Sold gets a prospect for the agent at the Found stage (ProspectService::place - the same door every other Road to Sold
+ *   - Road to Sold gets a prospect for the agent at the Claimed stage (the Found stage before v4) (ProspectService::place - the same door every other Road to Sold
  *     source uses), so it counts in the agent's list, funnel and stats.
  *
  * Only a match the door was sure about claims, and only at or above the agency's own setting (address_match_settings.auto_claim_min_confidence,
@@ -96,11 +96,12 @@ final class CaptureClaimService
         $todo = array_values(array_diff($ids, $mine));
 
         $text = self::ORIGIN_TEXT[$origin] ?? 'a capture';
+        $created = [];
         if ($todo !== []) {
             $note = '[' . now()->format('Y-m-d H:i') . '] Claimed automatically: matched ' . $text . ' by ' . $user->name . '.';
-            ProspectingClaim::withoutEvents(function () use ($todo, $agencyId, $owner, $propertyId, $note) {
+            ProspectingClaim::withoutEvents(function () use ($todo, $agencyId, $owner, $propertyId, $note, &$created) {
                 foreach ($todo as $listingId) {
-                    ProspectingClaim::withoutGlobalScope(AgencyScope::class)->create([
+                    $created[] = ProspectingClaim::withoutGlobalScope(AgencyScope::class)->create([
                         'agency_id' => $agencyId, 'prospecting_listing_id' => $listingId, 'property_id' => $propertyId, 'user_id' => $owner,
                         'status' => 'claimed', 'notes' => $note, 'claimed_at' => now(), 'last_updated_at' => now(), 'is_active' => true,
                     ]);
@@ -111,6 +112,7 @@ final class CaptureClaimService
         }
 
         $rts = $placeOnRoadToSold ? $this->placeOnRoadToSold($agencyId, $trackedPropertyId, $user, $propertyId, $origin) : 'skipped';
+        $this->putClaimsOnTheBelt($created, $agencyId, $trackedPropertyId, $owner);
 
         return [
             'outcome' => $todo === [] ? self::OUTCOME_ALREADY : self::OUTCOME_CLAIMED,
@@ -193,7 +195,33 @@ final class CaptureClaimService
         return $lock ? (int) $lock : null;
     }
 
-    /** The existing Road to Sold door: a prospect at Found for the agent. Returns a plain word for the report, never throws. */
+    /**
+     * v4 (road-to-sold.md 23.5): the claims this capture wrote are claims on the belt like any other - they point at the agent's prospect and
+     * sit on the claim hold. The claim rows were written without the claim events (no "claim taken" points for an automatic claim), so the
+     * belt is told here instead. No prospect (Road to Sold off, an assistant, another agent's record) leaves the claims exactly as before.
+     *
+     * @param list<ProspectingClaim> $claims
+     */
+    private function putClaimsOnTheBelt(array $claims, int $agencyId, int $trackedPropertyId, int $owner): void
+    {
+        if ($claims === []) {
+            return;
+        }
+        try {
+            $p = app(ProspectService::class)->find($agencyId, $trackedPropertyId, 'sales');
+            if (! $p || $p->closed_at !== null || $p->released_at !== null || (int) $p->user_id !== $owner) {
+                return;
+            }
+            $hold = app(\App\Services\RoadToSold\ClaimHoldService::class);
+            foreach ($claims as $c) {
+                $hold->start($c, $p);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Capture claim: the claims could not be put on the belt (the claims stand)', ['tracked_property_id' => $trackedPropertyId, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /** The existing Road to Sold door: a prospect at Claimed for the agent (it was Found before v4: a capture claim IS a claim now). Returns a plain word for the report, never throws. */
     private function placeOnRoadToSold(int $agencyId, int $trackedPropertyId, User $user, ?int $propertyId, string $origin): ?string
     {
         try {
@@ -210,9 +238,13 @@ final class CaptureClaimService
                 return 'closed';   // that story is over; a late claim does not restart it
             }
             $p = $prospects->place($user, $trackedPropertyId, 'sales', [
-                'property_id' => $propertyId, 'selection' => 'claimed_' . $origin, 'stage' => ProspectStages::FOUND,
+                'property_id' => $propertyId, 'selection' => 'claimed_' . $origin, 'stage' => ProspectStages::CLAIMED,
                 'reason' => 'Claimed when you captured it (' . (self::ORIGIN_TEXT[$origin] ?? 'a capture') . ')', 'actor' => $user,
             ]);
+
+            if ($p && ProspectStages::order((string) $p->stage) < ProspectStages::order(ProspectStages::CLAIMED)) {
+                $prospects->advance($p, ProspectStages::CLAIMED, $user, ['event_class' => 'CaptureClaim', 'note' => 'Claimed when you captured it']);
+            }
 
             return $p ? 'placed' : 'owned_by_other';
         } catch (\Throwable $e) {

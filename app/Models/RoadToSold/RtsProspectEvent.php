@@ -23,6 +23,8 @@ class RtsProspectEvent extends Model
     public const UNPARK = 'unpark';
     public const RELEASE = 'release';
     public const CLOSE = 'close';
+    /** v4 23.5: a claim hold was started, extended or ended (the note says which). Never a stage move. */
+    public const HOLD = 'hold';
 
     protected $fillable = [
         'agency_id', 'track', 'prospect_id', 'user_id', 'actor_user_id', 'occurred_at', 'kind', 'from_stage', 'to_stage',

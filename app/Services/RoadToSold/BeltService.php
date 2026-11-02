@@ -126,6 +126,9 @@ final class BeltService
             $source = 'prospects';
         }
         [$q, $titleExpr, $heading, $empty] = $this->query($source, $agent, (string) $s['label']);
+        if ($source === 'prospects') {
+            $q->whereIn('rp.stage', $s['stages']);   // a station read from the stage count lists only the properties AT that stage
+        }
 
         $term = trim((string) ($f['q'] ?? ''));
         if ($term !== '') {

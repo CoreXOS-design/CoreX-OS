@@ -263,6 +263,12 @@ class SettingsController extends Controller
         if (RtsSetting::hasAgentStartColumn()) {
             $rules['agent_start_required'] = ['sometimes', 'boolean'];
         }
+        if (RtsSetting::hasClaimHoldColumns()) {
+            $rules['claim_hold_days']          = ['sometimes', 'integer', 'min:1', 'max:365'];
+            $rules['claim_warn_days']          = ['sometimes', 'integer', 'min:0', 'max:60'];
+            $rules['claim_extension_days']     = ['sometimes', 'integer', 'min:1', 'max:365'];
+            $rules['claim_extensions_allowed'] = ['sometimes', 'integer', 'min:0', 'max:10'];
+        }
         // The four tick-lists: at least one choice, only known choices. A posted blank (the hidden marker
         // that lets "everything unticked" reach the server) is dropped before the check.
         foreach (RtsSetting::listChoices() as $field => $choices) {
@@ -414,7 +420,7 @@ class SettingsController extends Controller
             } elseif ($row->trashed()) {
                 $row->restore();
                 // Coming back from "all defaults": start from the defaults, not from what was archived.
-                foreach (RtsSetting::SCALAR_DEFAULTS as $field => $default) {
+                foreach (RtsSetting::scalarDefaultsAvailable() as $field => $default) {
                     $row->{$field} = $default;
                 }
                 foreach ([...array_keys(RtsSetting::LIST_DEFAULTS), 'selections', 'summary_steps', 'default_weekday_targets', 'default_monthly_targets'] as $field) {
@@ -426,7 +432,7 @@ class SettingsController extends Controller
             }
             // First save of a row: store the full set of defaults for fields never touched, so the row is complete.
             if (! $row->exists) {
-                foreach (RtsSetting::SCALAR_DEFAULTS as $field => $default) {
+                foreach (RtsSetting::scalarDefaultsAvailable() as $field => $default) {
                     if (! array_key_exists($field, $new)) {
                         $row->{$field} = $default;
                     }
@@ -583,6 +589,10 @@ class SettingsController extends Controller
         'prospect_stall_days'     => 'Days a prospect may sit without moving before it is flagged',
         'capture_needs_review'    => 'Captured tasks wait for a manager\'s approval',
         'agent_start_required'    => 'Agents press Start my Road to Sold before lists load',
+        'claim_hold_days'         => 'Working days a claimed property is held while it is not worked',
+        'claim_warn_days'         => 'Working days before the hold ends that the agent is told',
+        'claim_extension_days'    => 'Working days one extension adds to a claim hold',
+        'claim_extensions_allowed' => 'Extensions an agent may take on one claim',
         'levels_signoff_required' => 'A manager signs off each level',
         'level_periods_required'  => 'Weeks on target before a level is put forward',
         'flag_min_sample'         => 'Fewest events before a ratio can be flagged',

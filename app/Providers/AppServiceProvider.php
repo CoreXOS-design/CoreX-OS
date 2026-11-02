@@ -552,6 +552,9 @@ class AppServiceProvider extends ServiceProvider
         // Road to Sold v3 (22.2): the same events move each agent's prospect from stage to stage; a portal lead is not a DomainEvent, so it has its own line.
         Event::listen(DomainEvent::class, \App\Listeners\RoadToSold\AdvanceProspectsFromDomainEvent::class);
         Event::listen(\App\Events\Leads\NewPortalLeadReceived::class, [\App\Listeners\RoadToSold\AdvanceProspectsFromDomainEvent::class, 'handleLead']);
+        // Road to Sold v4 (23.5): a MIC claim IS station 2 of the prospect; ending the claim ends the belt record with it.
+        Event::listen(\App\Events\Prospecting\ClaimCreated::class, [\App\Listeners\RoadToSold\BeltFollowsClaim::class, 'handleCreated']);
+        Event::listen(\App\Events\Prospecting\ClaimReleased::class, [\App\Listeners\RoadToSold\BeltFollowsClaim::class, 'handleReleased']);
 
         // ─────────────────────────────────────────────────────────────────
         // Syndication Approval Gate (layer 3) — .ai/specs/syndication-approval-gate.md §8.

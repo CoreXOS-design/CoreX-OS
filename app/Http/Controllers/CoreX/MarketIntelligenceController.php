@@ -4069,13 +4069,20 @@ class MarketIntelligenceController extends Controller
             ->active()->first();
 
         if ($existing) {
-            if ($existing->isExpired()) {
-                $existing->update([
-                    'is_active'   => false,
-                    'released_at' => now(),
-                ]);
-            } else {
+            // v4 (road-to-sold.md 23.5): a claim on the belt runs out by the claim hold (working days), any other by the old 48 hours.
+            if (! app(\App\Services\RoadToSold\ClaimHoldService::class)->releaseIfExpired($existing)) {
                 return back()->with('error', 'Already claimed by ' . $existing->user->name);
+            }
+        }
+
+        // v4 (23.5): one record per property file. Another agent's claim or belt record on ANY advert of this property file holds it.
+        $fileId = $listing->tracked_property_id ? (int) $listing->tracked_property_id : null;
+        if ($fileId !== null) {
+            $holderId = app(\App\Services\RoadToSold\ClaimBeltService::class)->holderOfFile((int) $agencyId, $fileId, (int) $user->id, (int) $user->ownershipUserId());
+            if ($holderId !== null) {
+                $holderName = \App\Models\User::withoutGlobalScopes()->whereKey($holderId)->value('name') ?: 'another agent';
+
+                return back()->with('error', 'Already held by ' . $holderName . ' - this property is on their Road to Sold.');
             }
         }
 

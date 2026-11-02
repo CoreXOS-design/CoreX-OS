@@ -145,6 +145,50 @@ class WorkdayService
         return $cursor;
     }
 
+    /**
+     * The date that is $workingDays WORKING days after $from (v4 23.5, the claim hold clock). A working day is Monday to Friday that is not a
+     * public holiday of the agency's country and, when an agent is given, not a day that agent is paused (23.13). The agent's own leave and
+     * weekday target are deliberately not part of it: the clock is the agency's calendar, the same for everyone.
+     */
+    public function addWorkdays(CarbonInterface|string $from, int $workingDays, string $country, ?User $agent = null, string $track = RtsSetting::TRACK_SALES): Carbon
+    {
+        $cursor    = $this->day($from);
+        $remaining = max(0, $workingDays);
+        // 800 calendar days is more than any allowed setting needs even across a run of holidays; the loop can never spin.
+        for ($i = 0; $i < 800 && $remaining > 0; $i++) {
+            $cursor = $cursor->copy()->addDay();
+            if ($this->countsAsClockDay($cursor, $country, $agent, $track)) {
+                $remaining--;
+            }
+        }
+
+        return $cursor;
+    }
+
+    /** Working days after $from up to and including $to (0 when $to is not after $from). Same calendar as addWorkdays(). */
+    public function workdaysBetween(CarbonInterface|string $from, CarbonInterface|string $to, string $country, ?User $agent = null, string $track = RtsSetting::TRACK_SALES): int
+    {
+        $start = $this->day($from);
+        $end   = $this->day($to);
+        $n     = 0;
+        for ($d = $start->copy()->addDay(); $d->lte($end) && $n < 2000; $d->addDay()) {
+            if ($this->countsAsClockDay($d, $country, $agent, $track)) {
+                $n++;
+            }
+        }
+
+        return $n;
+    }
+
+    private function countsAsClockDay(Carbon $day, string $country, ?User $agent, string $track): bool
+    {
+        if ($day->isWeekend() || $this->isPublicHoliday($day, $country)) {
+            return false;
+        }
+
+        return ! ($agent && $this->activation()->pausedOn($this->listOwner($agent), $day, $track));
+    }
+
     // ── internals ─────────────────────────────────────────────────────────
 
     private function sum(User $user, Carbon $from, Carbon $to, string $track): int

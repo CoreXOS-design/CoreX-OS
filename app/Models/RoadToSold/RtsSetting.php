@@ -54,6 +54,7 @@ class RtsSetting extends Model
         'levels_signoff_required', 'level_periods_required',
         'flag_min_sample', 'flag_below_pct', 'flag_window_days', 'suggest_window_weeks', 'suggest_growth_pct',
         'expired_competitor_lookback_days', 'prospect_stall_days', 'agent_start_required',
+        'claim_hold_days', 'claim_warn_days', 'claim_extension_days', 'claim_extensions_allowed',
     ];
 
     protected $casts = [
@@ -94,6 +95,10 @@ class RtsSetting extends Model
         'expired_competitor_lookback_days' => 'integer',
         'prospect_stall_days'          => 'integer',
         'agent_start_required'         => 'boolean',
+        'claim_hold_days'              => 'integer',
+        'claim_warn_days'              => 'integer',
+        'claim_extension_days'         => 'integer',
+        'claim_extensions_allowed'     => 'integer',
         'flag_min_sample'              => 'integer',
         'flag_below_pct'               => 'integer',
         'flag_window_days'             => 'integer',
@@ -111,6 +116,35 @@ class RtsSetting extends Model
         static $has = null;
 
         return $has ??= \Illuminate\Support\Facades\Schema::hasColumn((new static())->getTable(), 'agent_start_required');
+    }
+
+    /**
+     * SCALAR_DEFAULTS limited to columns that exist. Two groups arrive by migration (the v4 start switch and the claim-hold settings); until
+     * a migration has run, writing "all the defaults" must not name a column the table does not have yet.
+     *
+     * @return array<string,mixed>
+     */
+    public static function scalarDefaultsAvailable(): array
+    {
+        $out = self::SCALAR_DEFAULTS;
+        if (! self::hasAgentStartColumn()) {
+            unset($out['agent_start_required']);
+        }
+        if (! self::hasClaimHoldColumns()) {
+            foreach (['claim_hold_days', 'claim_warn_days', 'claim_extension_days', 'claim_extensions_allowed'] as $c) {
+                unset($out[$c]);
+            }
+        }
+
+        return $out;
+    }
+
+    /** The v4 claim-hold settings (23.15) are columns added by migration; until they exist the claim rules run as before. */
+    public static function hasClaimHoldColumns(): bool
+    {
+        static $has = null;
+
+        return $has ??= \Illuminate\Support\Facades\Schema::hasColumn((new static())->getTable(), 'claim_hold_days');
     }
 
     public const SCALAR_DEFAULTS = [
@@ -145,6 +179,10 @@ class RtsSetting extends Model
         'expired_competitor_lookback_days' => 30,
         'prospect_stall_days'          => 14,
         'agent_start_required'         => true,    // 23.13: an agent presses "Start my Road to Sold" before lists load
+        'claim_hold_days'              => 30,      // 23.5: working days a claim is held while it is not worked (replaces the 48-hour rule)
+        'claim_warn_days'              => 5,       // working days before the end the agent is told
+        'claim_extension_days'         => 30,      // length of the one extension, in working days
+        'claim_extensions_allowed'     => 1,       // extensions an agent may take (a manager can grant more)
         'flag_min_sample'              => 20,
         'flag_below_pct'               => 60,
         'flag_window_days'             => 30,

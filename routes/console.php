@@ -492,6 +492,8 @@ Schedule::command('rts:build-lists')->dailyAt('04:30')->onOneServer()->withoutOv
 Schedule::command('rts:check-levels')->dailyAt('05:00')->onOneServer()->withoutOverlapping();
 // Road to Sold v3 (22.6): an agent who has gone keeps no allocation - their open prospects go back to the pool.
 Schedule::command('rts:release-inactive')->dailyAt('05:15')->onOneServer()->withoutOverlapping();
+// Road to Sold v4 (23.5): warn about, then release, claims whose claim hold has ended (working days; an agency setting).
+Schedule::command('rts:release-held-claims')->dailyAt('05:20')->onOneServer()->withoutOverlapping();
 Schedule::command('corex:leave:send-reminders')->dailyAt('06:00')->onOneServer()->withoutOverlapping();
 
 // (P24 location tree now refreshes DAILY at 11:00 with stamp-and-sweep — see

@@ -35,14 +35,15 @@ final class ProspectStages
     public const DEAL = 'deal';
     public const REGISTERED = 'registered';
 
-    // v4 belt (road-to-sold.md section 23.4): the five stage keys the belt adds. They are CONSTANTS ONLY until Lane A1 adds them to ALL (adding a
-    // key to ALL changes the line, the stage counts and the flow figures at once); the belt tiles read them through BeltService, which uses a
-    // stage count the moment the key is in ALL and a station's own source until then.
+    // v4 belt (road-to-sold.md section 23.4): the five stage keys the belt adds. They joined ALL in step A1.
     public const CLAIMED = 'claimed';
     public const OWNER_FOUND = 'owner_found';
     public const PRESENTATION_PREPARED = 'presentation_prepared';
     public const DRAFT = 'draft';
     public const ACTIVE = 'active';
+
+    /** Kept in ALL for history (they are STORED keys) but no longer stations on the belt: never a tile or a line station, never entered by v4 code (23.4). */
+    public const LEGACY = [self::PRESENTATION_GIVEN, self::PRESENTATION_FEEDBACK];
 
     /** True once the key is a real stage (in ALL). */
     public static function has(string $key): bool
@@ -53,12 +54,17 @@ final class ProspectStages
     /** @var array<string,array{label:string,step:string,group:string,next:?string}> in pipeline order */
     public const ALL = [
         self::FOUND                 => ['label' => 'Found',                       'step' => 'find',              'group' => RtsStep::GROUP_GET_STOCK,  'next' => 'Make first contact'],
+        self::CLAIMED               => ['label' => 'Claimed',                     'step' => 'find',              'group' => RtsStep::GROUP_GET_STOCK,  'next' => 'Find the owner'],
+        self::OWNER_FOUND           => ['label' => 'Owner found',                 'step' => 'find_owner',        'group' => RtsStep::GROUP_GET_STOCK,  'next' => 'Make first contact'],
         self::CONTACTED             => ['label' => 'Contacted',                   'step' => 'contact_outcome',   'group' => RtsStep::GROUP_GET_STOCK,  'next' => 'Follow up with the seller'],
         self::APPOINTMENT_SET       => ['label' => 'Appointment set',             'step' => 'evaluation_booked', 'group' => RtsStep::GROUP_GET_STOCK,  'next' => 'Do the evaluation'],
+        self::PRESENTATION_PREPARED => ['label' => 'Presentation prepared',       'step' => 'presentation',      'group' => RtsStep::GROUP_GET_STOCK,  'next' => 'Do the evaluation'],
         self::EVALUATION_DONE       => ['label' => 'Evaluation done',             'step' => 'evaluation_booked', 'group' => RtsStep::GROUP_GET_STOCK,  'next' => 'Give the presentation'],
         self::PRESENTATION_GIVEN    => ['label' => 'Presentation given',          'step' => 'presentation',      'group' => RtsStep::GROUP_GET_STOCK,  'next' => 'Get the presentation feedback'],
         self::PRESENTATION_FEEDBACK => ['label' => 'Presentation feedback',       'step' => 'presentation',      'group' => RtsStep::GROUP_GET_STOCK,  'next' => 'Get the mandate signed'],
         self::MANDATE_SIGNED        => ['label' => 'Mandate signed',              'step' => 'mandate',           'group' => RtsStep::GROUP_GET_STOCK,  'next' => 'Take the listing live'],
+        self::DRAFT                 => ['label' => 'Draft',                       'step' => 'mandate',           'group' => RtsStep::GROUP_GET_STOCK,  'next' => 'Complete the draft: mandate, FICA, photos'],
+        self::ACTIVE                => ['label' => 'Active',                      'step' => 'listing_live',      'group' => RtsStep::GROUP_GET_STOCK,  'next' => 'Take the listing live'],
         self::LISTING_LIVE          => ['label' => 'Listing live',                'step' => 'listing_live',      'group' => RtsStep::GROUP_GET_STOCK,  'next' => 'Advertise the listing'],
         self::ADVERTISING           => ['label' => 'Advertising / social shares', 'step' => 'marketing',         'group' => RtsStep::GROUP_SELL_STOCK, 'next' => 'Follow up leads'],
         self::LEAD                  => ['label' => 'Lead',                        'step' => 'buyers',            'group' => RtsStep::GROUP_SELL_STOCK, 'next' => 'Contact the lead'],
@@ -79,16 +85,17 @@ final class ProspectStages
      * @var array<string,array{label:string,stages:string[]}>
      */
     public const PHASES = [
-        'get_stock' => ['label' => 'Get stock',       'stages' => [self::FOUND, self::CONTACTED, self::APPOINTMENT_SET, self::EVALUATION_DONE]],
-        'win'       => ['label' => 'Win the mandate', 'stages' => [self::PRESENTATION_GIVEN, self::PRESENTATION_FEEDBACK, self::MANDATE_SIGNED]],
-        'market'    => ['label' => 'Market it',       'stages' => [self::LISTING_LIVE, self::ADVERTISING]],
+        'get_stock' => ['label' => 'Get stock',       'stages' => [self::FOUND, self::CLAIMED, self::OWNER_FOUND, self::CONTACTED, self::APPOINTMENT_SET, self::PRESENTATION_PREPARED, self::EVALUATION_DONE]],
+        'win'       => ['label' => 'Win the mandate', 'stages' => [self::MANDATE_SIGNED]],
+        'market'    => ['label' => 'Market it',       'stages' => [self::DRAFT, self::ACTIVE, self::LISTING_LIVE, self::ADVERTISING]],
         'sell'      => ['label' => 'Sell it',         'stages' => [self::LEAD, self::LEAD_CONTACTED, self::CORE_MATCH, self::VIEWING_SCHEDULED, self::VIEWING_PACK, self::VIEWING_FEEDBACK, self::OFFER]],
         'close'     => ['label' => 'Close it',        'stages' => [self::DEAL, self::REGISTERED]],
     ];
 
     /** Names for a narrow screen; the full label is always in the hover. */
     public const SHORT = [
-        self::FOUND => 'Found', self::CONTACTED => 'Contacted', self::APPOINTMENT_SET => 'Appt set', self::EVALUATION_DONE => 'Eval done',
+        self::FOUND => 'Loaded', self::CLAIMED => 'Claimed', self::OWNER_FOUND => 'Owner', self::PRESENTATION_PREPARED => 'Prepared',
+        self::DRAFT => 'Draft', self::ACTIVE => 'Active', self::CONTACTED => 'Contacted', self::APPOINTMENT_SET => 'Appt set', self::EVALUATION_DONE => 'Eval done',
         self::PRESENTATION_GIVEN => 'Presented', self::PRESENTATION_FEEDBACK => 'Feedback', self::MANDATE_SIGNED => 'Mandate',
         self::LISTING_LIVE => 'Live', self::ADVERTISING => 'Adverts',
         self::LEAD => 'Lead', self::LEAD_CONTACTED => 'Called', self::CORE_MATCH => 'Match', self::VIEWING_SCHEDULED => 'View set',

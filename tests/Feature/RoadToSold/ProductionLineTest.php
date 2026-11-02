@@ -101,7 +101,7 @@ final class ProductionLineTest extends TestCase
 
     // ── the line ────────────────────────────────────────────────────────
 
-    public function test_the_line_is_five_phases_and_eighteen_stations_in_the_order_johan_gave(): void
+    public function test_the_line_is_five_phases_and_the_belt_stations_in_the_order_johan_gave(): void
     {
         $this->owned($this->agent, 'Alpha Road');
         $html = $this->page($this->agent)->assertOk()->getContent();
@@ -112,20 +112,22 @@ final class ProductionLineTest extends TestCase
             $this->assertStringContainsString('>' . $label . '</span>', $html);
         }
         preg_match_all('/data-station="([a-z_]+)"/', $html, $st);
-        $this->assertSame(S::keys(), $st[1]);
-        $this->assertCount(18, $st[1]);
+        // v4 (road-to-sold.md 23.4): the belt stations, in order; the two presentation stations are legacy (kept as stored keys, never a station)
+        $this->assertSame(array_merge(...array_column(S::PHASES, 'stages')), $st[1]);
+        $this->assertCount(21, $st[1]);
+        $this->assertSame(array_values(array_diff(S::keys(), S::LEGACY)), $st[1]);
         // phase membership is exactly the brief's
-        $this->assertSame([S::FOUND, S::CONTACTED, S::APPOINTMENT_SET, S::EVALUATION_DONE], S::PHASES['get_stock']['stages']);
-        $this->assertSame([S::PRESENTATION_GIVEN, S::PRESENTATION_FEEDBACK, S::MANDATE_SIGNED], S::PHASES['win']['stages']);
-        $this->assertSame([S::LISTING_LIVE, S::ADVERTISING], S::PHASES['market']['stages']);
+        $this->assertSame([S::FOUND, S::CLAIMED, S::OWNER_FOUND, S::CONTACTED, S::APPOINTMENT_SET, S::PRESENTATION_PREPARED, S::EVALUATION_DONE], S::PHASES['get_stock']['stages']);
+        $this->assertSame([S::MANDATE_SIGNED], S::PHASES['win']['stages']);
+        $this->assertSame([S::DRAFT, S::ACTIVE, S::LISTING_LIVE, S::ADVERTISING], S::PHASES['market']['stages']);
         $this->assertSame([S::LEAD, S::LEAD_CONTACTED, S::CORE_MATCH, S::VIEWING_SCHEDULED, S::VIEWING_PACK, S::VIEWING_FEEDBACK, S::OFFER], S::PHASES['sell']['stages']);
         $this->assertSame([S::DEAL, S::REGISTERED], S::PHASES['close']['stages']);
-        // every station has a short name for a narrow screen and its full name in the hover; nothing scrolls sideways (the line is a grid of 18)
-        foreach (S::keys() as $k) {
+        // every station has a short name for a narrow screen and its full name in the hover; nothing scrolls sideways (the line is a grid of one column per station)
+        foreach (array_diff(S::keys(), S::LEGACY) as $k) {
             $this->assertNotSame('', S::short($k));
             $this->assertStringContainsString('title="' . e(S::label($k)) . ':', $html);
         }
-        $this->assertStringContainsString('repeat(18, minmax(0, 1fr))', $html);
+        $this->assertStringContainsString('--rts-n: 21;', $html);
     }
 
     public function test_a_station_shows_how_many_are_there_and_a_red_figure_for_overdue_or_stalled(): void
@@ -294,7 +296,7 @@ final class ProductionLineTest extends TestCase
     /** Four properties with a month of movement: one crossed one boundary, one skipped a phase, one set aside, one lost, one registered. */
     private function monthOfMovement(): array
     {
-        $a = $this->owned($this->agent, 'Alpha Road');   $this->move($a, S::PRESENTATION_GIVEN);                    // Get stock -> Win
+        $a = $this->owned($this->agent, 'Alpha Road');   $this->move($a, S::MANDATE_SIGNED);                        // Get stock -> Win
         $b = $this->owned($this->agent, 'Beta Road');    $this->move($b, S::LISTING_LIVE);                          // skipped Win: crosses two boundaries
         $c = $this->owned($this->agent, 'Gamma Road');   $this->prospects->park($c, 'not_selling_now', Carbon::parse('2026-11-30'), null, $this->agent);   // fell out of Get stock
         $d = $this->owned($this->agent, 'Delta Road');   $this->move($d, S::LEAD); $this->prospects->close($d, 'do_not_contact', $this->agent);   // fell out of Sell it
@@ -325,16 +327,16 @@ final class ProductionLineTest extends TestCase
     {
         Carbon::setTestNow('2026-09-20 09:00:00');
         $old = $this->owned($this->agent, 'Old Road');
-        $this->move($old, S::PRESENTATION_GIVEN);
+        $this->move($old, S::MANDATE_SIGNED);
         Carbon::setTestNow(self::WED . ' 09:00:00');
         $p = $this->owned($this->agent, 'Alpha Road');
         $this->move($p, S::APPOINTMENT_SET);
-        $this->move($p, S::PRESENTATION_GIVEN);
-        $this->move($p, S::PRESENTATION_FEEDBACK);
+        $this->move($p, S::EVALUATION_DONE);
+        $this->move($p, S::MANDATE_SIGNED);
         $phases = collect(app(PipelineLineService::class)->phases($this->agent, $this->agent->id, null, Carbon::parse('2026-10-01'), Carbon::parse(self::WED)))->keyBy('key');
 
         $this->assertSame(1, $phases['get_stock']['moved'], 'September does not count and the property counts once however many stations it passed');
-        $this->assertSame(0, $phases['win']['moved'], 'Presentation given -> feedback stays inside the phase');
+        $this->assertSame(0, $phases['win']['moved'], 'Mandate signed has not been left yet: Win the mandate has not been crossed');
     }
 
     public function test_the_line_shows_the_flow_figures_on_the_phase_boundaries_and_clicking_one_lists_who(): void

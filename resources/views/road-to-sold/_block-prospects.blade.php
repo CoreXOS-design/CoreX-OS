@@ -1,4 +1,4 @@
-{{-- Road to Sold v3 block 2 - MY PROSPECTS = THE PRODUCTION LINE (spec 22.24): 18 stations in 5 phases across the top, every active property as a chip
+{{-- Road to Sold v3 block 2 - MY PROSPECTS = THE PRODUCTION LINE (spec 22.24, v4 23.4): the belt stations in 5 phases across the top, every active property as a chip
      under its station (address, days there, next action, due date), the month's flow between phases on the phase boundaries. A station click filters
      the chips; a chip opens the property's card with the whole line drawn and the property's place lit. Everything but the chip area stays put. --}}
 @php
@@ -13,7 +13,8 @@
     $lineUrl = fn (array $over = []) => route('road-to-sold.index', array_filter($base + $keep + $over, fn ($v) => $v !== null && $v !== ''));
     $searching = $pf['q'] !== '' || $pf['due'] !== '' || $pf['suburb'] !== '';
     $byStage = collect($lineChips)->groupBy('stage');
-    $stationList = collect($stageMeta)->map(fn ($m, $k) => ['key' => $k, 'label' => $m['label'], 'short' => \App\Services\RoadToSold\ProspectStages::short($k), 'phase' => \App\Services\RoadToSold\ProspectStages::phaseOf($k)])->values()->all();
+    $lineCols = max(1, collect($linePhases)->sum(fn ($ph) => count($ph['stations'])));   // one grid column per station shown (v4: 21, the two presentation stages are legacy)
+    $stationList = collect($stageMeta)->reject(fn ($m, $k) => in_array($k, \App\Services\RoadToSold\ProspectStages::LEGACY, true))->map(fn ($m, $k) => ['key' => $k, 'label' => $m['label'], 'short' => \App\Services\RoadToSold\ProspectStages::short($k), 'phase' => \App\Services\RoadToSold\ProspectStages::phaseOf($k)])->values()->all();
     $cards = collect($lineChips)->mapWithKeys(fn ($c) => [$c['id'] => [
         'id' => $c['id'], 'tp' => $c['tracked_property_id'], 'address' => $c['address'], 'suburb' => $c['suburb'], 'owner' => $c['owner_name'], 'phone' => $c['owner_phone'],
         'price' => $moneyFmt($c['price']), 'stage' => $c['stage'], 'stage_label' => $c['stage_label'], 'agent' => $c['agent_name'], 'next' => $c['next_action'],
@@ -85,7 +86,7 @@
       <div class="rts-inner">
         {{-- THE LINE: pinned while the chips scroll under it --}}
         <div class="rts-line" data-qa="production-line">
-            <div class="rts-grid18 rts-phases">
+            <div class="rts-grid18 rts-phases" style="--rts-n: {{ $lineCols }};">
                 @foreach($linePhases as $ph)
                     <div class="rts-phase" style="grid-column: span {{ count($ph['stations']) }};" data-phase="{{ $ph['key'] }}">
                         <span class="rts-phase-name" title="{{ $ph['label'] }}: {{ $ph['total'] }} {{ $ph['total'] === 1 ? 'property' : 'properties' }} now">{{ $ph['label'] }}</span>
@@ -100,7 +101,7 @@
                     </div>
                 @endforeach
             </div>
-            <div class="rts-grid18 rts-stations">
+            <div class="rts-grid18 rts-stations" style="--rts-n: {{ $lineCols }};">
                 @foreach($linePhases as $ph)
                     @foreach($ph['stations'] as $st)
                         @php
@@ -179,7 +180,7 @@
                     </div>
                     <button type="button" class="corex-btn-outline corex-btn-xs" @click="cardId = null" aria-label="Close the card">Close</button>
                 </div>
-                <div class="rts-grid18 rts-miniline" data-qa="card-line">
+                <div class="rts-grid18 rts-miniline" style="--rts-n: {{ $lineCols }};" data-qa="card-line">
                     <template x-for="s in stations" :key="s.key">
                         <div class="rts-mini" :class="{ 'is-here': s.key === card.stage, 'is-done': s.key !== card.stage && !!card.journey[s.key] }" :title="s.label + (card.journey[s.key] ? ' - reached ' + card.journey[s.key] : '')" :data-mini="s.key">
                             <span class="dot"></span><span class="nm" x-text="s.short"></span>

@@ -96,7 +96,7 @@ final class BeltTilesTest extends TestCase
             $at = $pos;
         }
         $fig = fn (string $k) => preg_match('/data-qa="belt-tile-' . $k . '".*?data-qa="belt-figure">([^<]*)/s', $html, $m) ? trim($m[1]) : null;
-        $this->assertSame('1', $fig('claimed'), "only this agent's claim without an owner");
+        $this->assertSame('2', $fig('claimed'), "this agent's two claims are both at Claimed (v4 A1: a claim IS the prospect; the owner station moves them on in A2); a colleague's never counts");
         $this->assertSame('1', $fig('owner'));
         $this->assertSame('1', $fig('draft'));
         $this->assertSame('1', $fig('active'), 'active and not on a portal yet');
@@ -105,7 +105,7 @@ final class BeltTilesTest extends TestCase
         $this->assertStringNotContainsString('data-qa="belt-start-card"', $html, 'a started agent has no Start card');
     }
 
-    public function test_a_stage_station_counts_the_prospects_at_it_and_the_new_stage_keys_are_constants_ready_for_the_spine(): void
+    public function test_a_stage_station_counts_the_prospects_at_it_and_the_new_stage_keys_are_real_stages(): void
     {
         $p = app(ProspectService::class)->place($this->agent, $this->tp(['street_number' => '3', 'street_name' => 'Talk Road'])->id);
         $p->forceFill(['stage' => S::CONTACTED, 'next_action_at' => '2026-10-10'])->save();   // overdue
@@ -114,7 +114,7 @@ final class BeltTilesTest extends TestCase
         $this->assertStringContainsString('p_stage=contacted', $html, 'the tile opens the existing prospects list at that stage');
         foreach (['CLAIMED' => 'claimed', 'OWNER_FOUND' => 'owner_found', 'PRESENTATION_PREPARED' => 'presentation_prepared', 'DRAFT' => 'draft', 'ACTIVE' => 'active'] as $const => $key) {
             $this->assertSame($key, constant(S::class . '::' . $const));
-            $this->assertFalse(S::has($key), "{$key} is not a real stage until Lane A1 adds it (so the line and the counts are untouched)");
+            $this->assertTrue(S::has($key), "{$key} became a real stage in Lane A1");
         }
     }
 

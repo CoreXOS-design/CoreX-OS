@@ -345,7 +345,7 @@ final class ProspectScreenTest extends TestCase
         $html = $this->page($this->manager, ['block' => 'prospects', 'agent' => $this->agent->id])->assertOk()->getContent();
         preg_match_all('/data-station="([a-z_]+)"/', $html, $m);
 
-        $this->assertSame(S::keys(), $m[1], 'Found first, Registered last, nothing moved up for having work in it');
+        $this->assertSame(array_values(array_diff(S::keys(), S::LEGACY)), $m[1], 'Found first, Registered last, nothing moved up for having work in it (the two legacy presentation stages are not stations)');
     }
 
     public function test_the_page_turns_a_marked_link_into_a_pop_up_instead_of_leaving_the_page(): void
