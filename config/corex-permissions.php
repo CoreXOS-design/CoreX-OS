@@ -658,6 +658,8 @@ return [
         // Road to Sold v3 (spec 22.6): give a property an agent holds back to the pool, with a reason. Owner roles by the owner rule, admin by
         // all-minus-exclude, branch managers by the list below; agents hold no key. Breadth is road_to_sold.view, applied in the query.
         ['key' => 'road_to_sold.release_prospects', 'label' => 'Give an agent\'s property back to the pool (reason required)', 'section' => 'road-to-sold', 'type' => 'action', 'module' => 'road_to_sold', 'sort_order' => 18],
+        // 23.13 (v4 belt): a manager starts or pauses an agent's Road to Sold. An agent starts and pauses their own with access_road_to_sold alone.
+        ['key' => 'road_to_sold.pause_others',     'label' => 'Start, pause or resume an agent\'s Road to Sold', 'section' => 'road-to-sold', 'type' => 'action', 'module' => 'road_to_sold', 'sort_order' => 19],
 
         // ── Core Matches ──
         ['key' => 'access_core_matches',        'label' => 'Access Core Matches',         'section' => 'core-matches',     'type' => 'access',  'module' => 'core_matches',     'sort_order' => 1],
@@ -1327,7 +1329,7 @@ return [
                 'contacts.delete', 'contacts.whatsapp', 'contacts.email', 'contacts.export',
                 'contacts.reassign_agent', // AT-118 hardening — managers reassign contact agents
                 // AT-454 — Road to Sold: branch managers see their branch and assign areas / set targets for it.
-                'access_road_to_sold', 'road_to_sold.view', 'road_to_sold.manage_areas', 'road_to_sold.manage_targets', 'road_to_sold.review_completions', 'road_to_sold.signoff_levels', 'road_to_sold.view_funnel', 'road_to_sold.release_prospects',
+                'access_road_to_sold', 'road_to_sold.view', 'road_to_sold.manage_areas', 'road_to_sold.manage_targets', 'road_to_sold.review_completions', 'road_to_sold.signoff_levels', 'road_to_sold.view_funnel', 'road_to_sold.release_prospects', 'road_to_sold.pause_others',
                 'access_core_matches',
                 'core_matches.view', 'core_matches.create', 'core_matches.delete', 'core_matches.manage', 'core_matches.convert_to_deal',
                 'buyer_notes.view', // who may read notes on a buyer — own/branch/agency via scope_defaults + Role Manager

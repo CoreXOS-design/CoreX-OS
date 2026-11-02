@@ -43,6 +43,13 @@ class WorkdayService
     ) {
     }
 
+    private ?ActivationService $activationMemo = null;
+
+    private function activation(): ActivationService
+    {
+        return $this->activationMemo ??= app(ActivationService::class);
+    }
+
     public static function make(): self
     {
         return app(self::class);
@@ -57,6 +64,11 @@ class WorkdayService
     {
         $user = $this->listOwner($user);
         $day  = $this->day($date);
+
+        // a paused day is not a working day (v4 23.13): it counts against nothing, like approved leave
+        if ($this->activation()->pausedOn($user, $day, $track)) {
+            return 0;
+        }
 
         if ($this->isPublicHoliday($day, SettingsService::forUser($user, $track)->holidayCountry())) {
             return 0;

@@ -103,6 +103,11 @@
         </div>
     @endif
 
+    {{-- v4 belt (spec 23.13): the tile row (or the Start card) - the team view is about everyone, so not there. --}}
+    @unless($isTeam)
+        @include('road-to-sold._belt-tiles')
+    @endunless
+
     {{-- What to do next and where the month stands stay in view on every block (the team view is about everyone, so not there). --}}
     @unless($isTeam)
         <div class="rts-top">
@@ -128,6 +133,8 @@
         @include('road-to-sold._block-prospects')
     @elseif($block === 'parked')
         @include('road-to-sold._block-parked')
+    @elseif($block === 'station')
+        @include('road-to-sold._block-station')
     @else
     {{-- Filters --}}
     <form method="GET" class="flex items-end gap-3 flex-wrap" data-tour="smk-rts-filters">

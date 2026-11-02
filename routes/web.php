@@ -6927,6 +6927,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/outcomes', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'recordOutcome'])->name('outcomes.record');
             Route::post('/add-to-day', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'addToDay'])->name('add-to-day');
             Route::post('/build-list', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'buildList'])->name('build-list');
+            // v4 belt (spec 23.13): "Start my Road to Sold", pause and resume - an agent's own, or another agent's with road_to_sold.pause_others
+            Route::post('/activation/start', [\App\Http\Controllers\RoadToSold\ActivationController::class, 'start'])->name('activation.start');
+            Route::post('/activation/pause', [\App\Http\Controllers\RoadToSold\ActivationController::class, 'pause'])->name('activation.pause');
+            Route::post('/activation/resume', [\App\Http\Controllers\RoadToSold\ActivationController::class, 'resume'])->name('activation.resume');
 
             // Road to Sold v3 (spec 22.4 / 22.9): what the agent does with a prospect from the page. The prospect is found through the
             // viewer's breadth (own / branch / agency in the query, 404 outside it); every write needs it to be on the viewer's own list.

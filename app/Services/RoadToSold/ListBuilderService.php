@@ -119,6 +119,10 @@ class ListBuilderService
         if ($agencyId <= 0) {
             return collect();   // STANDARDS Rule 17: no agency context, nothing is written
         }
+        // v4 23.13: nothing loads for an agent who has not pressed Start, is paused, or whose first list day has not come
+        if (! app(ActivationService::class)->mayBuild($user, $day, $track)) {
+            return $this->listFor($user, $day, $track);
+        }
 
         $lock = Cache::lock("rts-build:{$agencyId}:{$user->id}:{$track}:{$day->toDateString()}", 120);
 

@@ -333,6 +333,16 @@
                         <span class="text-xs ml-2" style="color:var(--text-muted);" title="Weekends and the public holidays above do not count.">working days (standard: {{ $defaults['capture_back_date_working_days'] }})</span>
                     </div>
                     </div>
+                    @if(\App\Models\RoadToSold\RtsSetting::hasAgentStartColumn())
+                    <label class="flex items-start gap-3 text-sm" style="color:var(--text-primary);" data-qa="setting-agent-start">
+                        <input type="hidden" name="agent_start_required" value="0">
+                        <input type="checkbox" name="agent_start_required" value="1" class="mt-1" @checked(old('agent_start_required', $settings->agentStartRequired()))>
+                        <span>
+                            <span class="font-semibold">Agents press "Start my Road to Sold" before their lists load</span><br>
+                            <span style="color:var(--text-muted);">On: switching Road to Sold on loads nothing for anyone; each agent presses Start and the first list arrives the next working day. Off: lists load for everyone, as before.</span>
+                        </span>
+                    </label>
+                    @endif
                     <label class="flex items-start gap-3 text-sm" style="color:var(--text-primary);">
                         <input type="hidden" name="capture_needs_review" value="0">
                         <input type="checkbox" name="capture_needs_review" value="1" class="mt-1" @checked(old('capture_needs_review', $settings->captureNeedsReview()))>

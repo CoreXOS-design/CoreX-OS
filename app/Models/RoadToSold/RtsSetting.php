@@ -53,7 +53,7 @@ class RtsSetting extends Model
         'summary_ahead_from_pct', 'capture_back_date_working_days', 'capture_needs_review',
         'levels_signoff_required', 'level_periods_required',
         'flag_min_sample', 'flag_below_pct', 'flag_window_days', 'suggest_window_weeks', 'suggest_growth_pct',
-        'expired_competitor_lookback_days', 'prospect_stall_days',
+        'expired_competitor_lookback_days', 'prospect_stall_days', 'agent_start_required',
     ];
 
     protected $casts = [
@@ -93,6 +93,7 @@ class RtsSetting extends Model
         'level_periods_required'       => 'integer',
         'expired_competitor_lookback_days' => 'integer',
         'prospect_stall_days'          => 'integer',
+        'agent_start_required'         => 'boolean',
         'flag_min_sample'              => 'integer',
         'flag_below_pct'               => 'integer',
         'flag_window_days'             => 'integer',
@@ -104,6 +105,14 @@ class RtsSetting extends Model
     public const SCAN_PAGE_SIZE = 200;
 
     /** Scalar defaults — the single source of truth (migration defaults mirror these). */
+    /** The v4 start / pause switch is a column added by migration; until it exists the code runs as before (nothing is gated). */
+    public static function hasAgentStartColumn(): bool
+    {
+        static $has = null;
+
+        return $has ??= \Illuminate\Support\Facades\Schema::hasColumn((new static())->getTable(), 'agent_start_required');
+    }
+
     public const SCALAR_DEFAULTS = [
         'lock_agents_to_areas'         => false,
         'half_day_leave_halves_target' => false,
@@ -135,6 +144,7 @@ class RtsSetting extends Model
         'level_periods_required'       => 4,
         'expired_competitor_lookback_days' => 30,
         'prospect_stall_days'          => 14,
+        'agent_start_required'         => true,    // 23.13: an agent presses "Start my Road to Sold" before lists load
         'flag_min_sample'              => 20,
         'flag_below_pct'               => 60,
         'flag_window_days'             => 30,

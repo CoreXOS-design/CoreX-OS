@@ -363,6 +363,12 @@ class SettingsService
         return max(1, (int) $this->scalar('capture_back_date_working_days'));
     }
 
+    /** 23.13: must an agent press "Start my Road to Sold" before their list loads? On by default. */
+    public function agentStartRequired(): bool
+    {
+        return (bool) $this->scalar('agent_start_required');
+    }
+
     /** Do captured tasks wait for a manager's approval before they count (spec 10.4 review queue)? Off by default: they count at once. */
     public function captureNeedsReview(): bool
     {

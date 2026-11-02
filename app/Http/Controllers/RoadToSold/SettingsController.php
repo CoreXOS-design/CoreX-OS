@@ -260,6 +260,9 @@ class SettingsController extends Controller
             'default_monthly.listings'     => ['sometimes', 'integer', 'min:0', 'max:' . RtsSetting::MAX_MONTHLY_COUNT],
             'default_monthly.value'        => ['sometimes', 'numeric', 'min:0', 'max:' . RtsSetting::MAX_MONTHLY_VALUE],
         ];
+        if (RtsSetting::hasAgentStartColumn()) {
+            $rules['agent_start_required'] = ['sometimes', 'boolean'];
+        }
         // The four tick-lists: at least one choice, only known choices. A posted blank (the hidden marker
         // that lets "everything unticked" reach the server) is dropped before the check.
         foreach (RtsSetting::listChoices() as $field => $choices) {
@@ -579,6 +582,7 @@ class SettingsController extends Controller
         'expired_competitor_lookback_days' => 'Days back a competitor\'s withdrawn advert is still offered',
         'prospect_stall_days'     => 'Days a prospect may sit without moving before it is flagged',
         'capture_needs_review'    => 'Captured tasks wait for a manager\'s approval',
+        'agent_start_required'    => 'Agents press Start my Road to Sold before lists load',
         'levels_signoff_required' => 'A manager signs off each level',
         'level_periods_required'  => 'Weeks on target before a level is put forward',
         'flag_min_sample'         => 'Fewest events before a ratio can be flagged',

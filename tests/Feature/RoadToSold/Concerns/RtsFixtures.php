@@ -33,6 +33,8 @@ trait RtsFixtures
         OnMarketStockService::flushCache();
         $this->agency = Agency::create(['name' => 'RTS Agency ' . uniqid(), 'slug' => 'rts-' . uniqid()]);
         $this->branch = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Main']);
+        // v4 (spec 23.13): the tests written before "Start my Road to Sold" assume a list builds for any agent; BeltActivationTest switches this on
+        config(['road-to-sold-belt.enforce_start' => false]);
         $this->agent = $this->makeAgent();
         $this->mate = $this->makeAgent();
     }

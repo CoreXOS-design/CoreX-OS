@@ -120,6 +120,16 @@ class RoadToSoldController extends Controller
                 && ! in_array($d->next_action, [Def::ACTION_APPOINTMENT, Def::ACTION_NEVER_AGAIN], true),
         ])->values()->all();
 
+        // v4 belt (spec 23): the tile row, the Start card and the manager's "Not started / Paused" panel
+        $activationSvc = app(\App\Services\RoadToSold\ActivationService::class);
+        $activation = $agentUser ? $activationSvc->state($agentUser, $track, $date) : null;
+        $beltBase = ($viewingOwn ? [] : ['agent' => $agentId]) + Track::params($track);
+        $belt = $agentUser && ($activation['state'] ?? '') !== \App\Services\RoadToSold\ActivationService::STATE_NOT_STARTED
+            ? app(\App\Services\RoadToSold\BeltService::class)->tiles($viewer, $agentUser, $track, $date, $beltBase) : [];
+        $canPauseOthers = $viewer->hasPermission('road_to_sold.pause_others');
+        $roster = ($agents->count() > 1 && ($canPauseOthers || $viewer->hasPermission('road_to_sold.view')) && \App\Services\RoadToSold\ActivationService::tableReady())
+            ? $activationSvc->roster($agents, $track, $date) : [];
+
         $progress = $agentUser ? $this->progress->forAgent($agentUser, $track) : ['started' => false, 'level' => null, 'tasks' => [], 'steps' => [], 'met' => 0, 'counted' => 0, 'points' => 0.0, 'points_label' => ''];
         $bar = $agentUser ? $this->bar->forAgent($agentUser, $date, $track) : ['month' => $date->format('F Y'), 'steps' => []];
         $nextAction = $this->nextAction->resolve($progress, $feeds, $this->todaysOpen($viewer, $agentId, $date, $track, $isCaptures, $listFilters, $data), $viewingOwn, $bar);
@@ -145,6 +155,13 @@ class RoadToSoldController extends Controller
         }
 
         return view('road-to-sold.index', $data + $this->blocks($request, $viewer, $agentId, $agents, $viewingOwn, $track, $date, collect($data['rows']->items())->pluck('tracked_property_id')->all()) + [
+            'belt'           => $belt,
+            'activation'     => $activation,
+            'roster'         => $roster,
+            'beltBase'       => $beltBase,
+            'canPauseOthers' => $canPauseOthers,
+            'activationReady' => \App\Services\RoadToSold\ActivationService::tableReady(),
+            'startRequired'  => $agentUser ? $activationSvc->required($agentUser, $track) : false,
             'feeds'          => $feeds,
             'emptyState'     => $emptyState,
             'progress'       => $progress,
@@ -232,7 +249,7 @@ class RoadToSoldController extends Controller
      */
     private function blocks(Request $request, $viewer, int $agentId, $agents, bool $viewingOwn, string $track, $date, array $intakeTrackedIds = []): array
     {
-        $block = in_array($request->query('block'), ['intake', 'prospects', 'parked', 'progress'], true) ? (string) $request->query('block') : 'intake';
+        $block = in_array($request->query('block'), ['intake', 'prospects', 'parked', 'progress', 'station'], true) ? (string) $request->query('block') : 'intake';
         $own = fn () => RtsProspect::query()->visibleTo($viewer)->where('rts_prospects.track', $track)->where('rts_prospects.user_id', $agentId);
         $out = [
             'block' => $block,
@@ -309,6 +326,13 @@ class RoadToSoldController extends Controller
                     ->whereNotNull('sp.suburb')->where('sp.suburb', '<>', '')->distinct()->orderBy('sp.suburb')->pluck('sp.suburb')->all(),
             ];
             $out['canWriteProspects'] = $viewingOwn && $who === 'agent';
+        } elseif ($block === 'station') {
+            // a belt tile's list (spec 23.13): the stations that have no prospect stage yet
+            $stationKey = (string) $request->query('station', '');
+            abort_if(\App\Services\RoadToSold\BeltService::station($stationKey) === null, 404);
+            $sf = ['q' => (string) $request->query('s_q', ''), 'sort' => (string) $request->query('s_sort', 'age'), 'dir' => (string) $request->query('s_dir', 'asc'), 'page' => (int) $request->query('page', 1)];
+            $stationAgent = \App\Models\User::query()->withoutGlobalScopes()->where('agency_id', (int) ($viewer->effectiveAgencyId() ?: 0))->findOrFail($agentId);
+            $out += ['stationKey' => $stationKey, 'stationFilters' => $sf] + ['stationList' => app(\App\Services\RoadToSold\BeltService::class)->list($stationAgent, $stationKey, $sf)];
         } elseif ($block === 'parked') {
             $everyone = $request->query('who') === 'all' && $agents->count() > 1;
             $f = [

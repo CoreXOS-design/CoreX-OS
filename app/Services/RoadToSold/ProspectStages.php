@@ -35,6 +35,21 @@ final class ProspectStages
     public const DEAL = 'deal';
     public const REGISTERED = 'registered';
 
+    // v4 belt (road-to-sold.md section 23.4): the five stage keys the belt adds. They are CONSTANTS ONLY until Lane A1 adds them to ALL (adding a
+    // key to ALL changes the line, the stage counts and the flow figures at once); the belt tiles read them through BeltService, which uses a
+    // stage count the moment the key is in ALL and a station's own source until then.
+    public const CLAIMED = 'claimed';
+    public const OWNER_FOUND = 'owner_found';
+    public const PRESENTATION_PREPARED = 'presentation_prepared';
+    public const DRAFT = 'draft';
+    public const ACTIVE = 'active';
+
+    /** True once the key is a real stage (in ALL). */
+    public static function has(string $key): bool
+    {
+        return isset(self::ALL[$key]);
+    }
+
     /** @var array<string,array{label:string,step:string,group:string,next:?string}> in pipeline order */
     public const ALL = [
         self::FOUND                 => ['label' => 'Found',                       'step' => 'find',              'group' => RtsStep::GROUP_GET_STOCK,  'next' => 'Make first contact'],
