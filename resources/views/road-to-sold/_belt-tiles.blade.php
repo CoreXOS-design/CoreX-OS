@@ -100,10 +100,22 @@
             </div>
         @endif
 
-        @if($canAct || count($roster ?? []) > 0)
-            <div class="rts-belt-line" style="position: relative;" x-data="{ pause: false, roster: false }" @keydown.escape.window="pause = false; roster = false" @click.outside="pause = false; roster = false">
+        @if($canAct || count($roster ?? []) > 0 || count($activationHistory ?? []) > 0)
+            <div class="rts-belt-line" style="position: relative;" x-data="{ pause: false, roster: false, hist: false }" @keydown.escape.window="pause = false; roster = false; hist = false" @click.outside="pause = false; roster = false; hist = false">
                 @if($canAct && $aState !== 'paused')
                     <button type="button" class="underline" style="background: none; border: 0; padding: 0; cursor: pointer; color: var(--text-secondary);" @click="pause = !pause; roster = false" data-qa="belt-pause-open">{{ $viewingOwn ? 'Pause my Road to Sold' : 'Pause ' . $agentName }}</button>
+                @endif
+                @if(count($activationHistory ?? []) > 0)
+                    <button type="button" class="underline" style="background: none; border: 0; padding: 0; cursor: pointer; color: var(--text-secondary);" @click="hist = !hist; pause = false; roster = false" data-qa="belt-history-open">Start / pause history</button>
+                    <div x-show="hist" x-cloak class="rts-pop" data-qa="belt-history" style="left: 0; right: auto; width: 24rem; max-height: 16rem; overflow-y: auto;">
+                        <div class="text-xs font-semibold mb-1" style="color: var(--text-primary);">{{ $viewingOwn ? 'My' : $agentName . '\'s' }} Start / pause history</div>
+                        @foreach($activationHistory as $h)
+                            <div class="py-1 text-xs" style="border-top: 1px solid var(--border);" data-qa="history-row">
+                                <div style="font-weight: 700; color: var(--text-primary);">{{ $h['detail'] }}</div>
+                                <div style="color: var(--text-muted);">{{ $h['when'] }}@if($h['by']) · by {{ $h['by'] }}@endif</div>
+                            </div>
+                        @endforeach
+                    </div>
                 @endif
                 @if(count($roster ?? []) > 0)
                     @php $ns = collect($roster)->where('state', 'not_started')->count(); $ps = collect($roster)->where('state', 'paused')->count(); @endphp

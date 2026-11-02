@@ -4,9 +4,14 @@ declare(strict_types=1);
 
 namespace App\Services\RoadToSold;
 
+use App\Events\RoadToSold\RoadToSoldPaused;
+use App\Events\RoadToSold\RoadToSoldResumed;
+use App\Events\RoadToSold\RoadToSoldStarted;
 use App\Models\RoadToSold\RtsAgentStart;
+use App\Models\RoadToSold\RtsAgentStartEvent;
 use App\Models\RoadToSold\RtsSetting;
 use App\Models\User;
+use App\Support\Events\SafeRaise;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -38,6 +43,14 @@ final class ActivationService
         static $ready = null;
 
         return $ready ??= Schema::hasTable('rts_agent_starts');
+    }
+
+    /** The history table is its own migration; until it exists the presses are still honoured, just not written down. */
+    public static function historyReady(): bool
+    {
+        static $ready = null;
+
+        return $ready ??= Schema::hasTable('rts_agent_start_events');
     }
 
     public function required(User $agent, string $track = RtsSetting::TRACK_SALES): bool
@@ -128,6 +141,9 @@ final class ActivationService
             $row->started_by_user_id = $by->id;
             $row->first_list_date = WorkdayService::make()->nextWorkday($agent, Carbon::today(), $track)?->toDateString() ?: Carbon::tomorrow()->toDateString();
             $row->save();
+            $first = $row->first_list_date?->toDateString();
+            $this->note('started', $by, $agent, $track, ['first_list_date' => $first]);
+            SafeRaise::dispatch('RoadToSoldStarted', fn () => new RoadToSoldStarted((int) $agent->effectiveAgencyId(), $track, (int) $agent->id, $first, (int) $by->id));
         }
         $this->forget($agent, $track);
 
@@ -144,6 +160,11 @@ final class ActivationService
         $row->paused_by_user_id = $by->id;
         $row->save();
         $this->forget($agent, $track);
+        $from = $row->paused_from->toDateString();
+        $to = $row->paused_until->toDateString();
+        $why = $row->pause_reason;
+        $this->note('paused', $by, $agent, $track, ['paused_from' => $from, 'paused_until' => $to, 'reason' => $why]);
+        SafeRaise::dispatch('RoadToSoldPaused', fn () => new RoadToSoldPaused((int) $agent->effectiveAgencyId(), $track, (int) $agent->id, $from, $to, $why, (int) $by->id));
 
         return $row;
     }
@@ -151,8 +172,13 @@ final class ActivationService
     public function resume(User $by, User $agent, string $track = RtsSetting::TRACK_SALES): RtsAgentStart
     {
         $row = $this->rowForWrite($agent, $track);
+        $was = $row->paused_until?->toDateString();
         $row->forceFill(['paused_from' => null, 'paused_until' => null, 'pause_reason' => null, 'paused_by_user_id' => null])->save();
         $this->forget($agent, $track);
+        if ($was !== null) {   // resuming something that was not paused is not an event
+            $this->note('resumed', $by, $agent, $track, ['paused_until' => $was]);
+            SafeRaise::dispatch('RoadToSoldResumed', fn () => new RoadToSoldResumed((int) $agent->effectiveAgencyId(), $track, (int) $agent->id, $was, (int) $by->id));
+        }
 
         return $row;
     }
@@ -185,6 +211,49 @@ final class ActivationService
         usort($out, fn ($x, $y) => [$x['state'] === self::STATE_PAUSED ? 1 : 0, $x['name']] <=> [$y['state'] === self::STATE_PAUSED ? 1 : 0, $y['name']]);
 
         return $out;
+    }
+
+    /**
+     * The last presses for an agent, newest first (the "History" popover): who pressed what, and when.
+     *
+     * @return list<array{kind:string,when:string,by:?string,detail:string}>
+     */
+    public function history(User $agent, string $track = RtsSetting::TRACK_SALES, int $limit = 12): array
+    {
+        if (! self::historyReady()) {
+            return [];
+        }
+        $rows = RtsAgentStartEvent::query()->withoutGlobalScopes()->where('agency_id', (int) ($agent->effectiveAgencyId() ?: 0))
+            ->where('user_id', $agent->id)->where('track', $track)->orderByDesc('occurred_at')->orderByDesc('id')->limit($limit)->get();
+        $names = User::query()->withoutGlobalScopes()->whereIn('id', $rows->pluck('actor_user_id')->filter())->pluck('name', 'id');
+
+        return $rows->map(fn ($r) => [
+            'kind' => (string) $r->kind,
+            'when' => $r->occurred_at->format('j M Y H:i'),
+            'by' => $r->actor_user_id ? (string) ($names[$r->actor_user_id] ?? null) : null,
+            'detail' => match ($r->kind) {
+                'started' => 'Started' . ($r->first_list_date ? ' - first list ' . $r->first_list_date->format('D j M') : ''),
+                'paused' => 'Paused until ' . $r->paused_until?->format('j M Y') . ($r->reason ? ' (' . $r->reason . ')' : ''),
+                'resumed' => 'Resumed' . ($r->paused_until ? ' (the pause had run to ' . $r->paused_until->format('j M') . ')' : ''),
+                default => ucfirst((string) $r->kind),
+            },
+        ])->all();
+    }
+
+    /** @param array<string,mixed> $fields */
+    private function note(string $kind, User $by, User $agent, string $track, array $fields): void
+    {
+        if (! self::historyReady()) {
+            return;
+        }
+        try {
+            RtsAgentStartEvent::query()->withoutGlobalScopes()->create([
+                'agency_id' => (int) ($agent->effectiveAgencyId() ?: 0), 'branch_id' => $agent->branch_id, 'track' => $track, 'user_id' => $agent->id,
+                'actor_user_id' => $by->id, 'kind' => $kind, 'occurred_at' => now(),
+            ] + $fields);
+        } catch (\Throwable $e) {
+            report($e);   // the press itself stands; only the history line is lost
+        }
     }
 
     private function rowForWrite(User $agent, string $track): RtsAgentStart

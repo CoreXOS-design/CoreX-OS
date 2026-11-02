@@ -179,4 +179,28 @@ final class BeltActivationTest extends TestCase
         $this->assertStringContainsString('Road to Sold is paused until 20 Oct 2026 (Leave). No list loads until then.', $p);
         $this->assertStringNotContainsString('not a working day for you', $p);
     }
+
+    public function test_start_pause_and_resume_raise_their_events_once_and_write_the_history(): void
+    {
+        \Illuminate\Support\Facades\Event::fake([\App\Events\RoadToSold\RoadToSoldStarted::class, \App\Events\RoadToSold\RoadToSoldPaused::class, \App\Events\RoadToSold\RoadToSoldResumed::class]);
+        $this->actingAs($this->fresh)->post(route('road-to-sold.activation.start'));
+        $this->actingAs($this->fresh)->post(route('road-to-sold.activation.start'));   // pressing it again changes and raises nothing
+        $this->actingAs($this->fresh)->post(route('road-to-sold.activation.resume'));   // resuming what is not paused raises nothing
+        $this->actingAs($this->manager)->post(route('road-to-sold.activation.pause'), ['agent' => $this->fresh->id, 'until' => '2026-10-20', 'reason' => 'Leave']);
+        $this->actingAs($this->manager)->post(route('road-to-sold.activation.resume'), ['agent' => $this->fresh->id]);
+
+        \Illuminate\Support\Facades\Event::assertDispatchedTimes(\App\Events\RoadToSold\RoadToSoldStarted::class, 1);
+        \Illuminate\Support\Facades\Event::assertDispatched(\App\Events\RoadToSold\RoadToSoldStarted::class, fn ($e) => $e->userId === $this->fresh->id && $e->firstListDate === '2026-10-15' && $e->actorUserId === $this->fresh->id && $e->agencyId === $this->agency->id);
+        \Illuminate\Support\Facades\Event::assertDispatchedTimes(\App\Events\RoadToSold\RoadToSoldPaused::class, 1);
+        \Illuminate\Support\Facades\Event::assertDispatched(\App\Events\RoadToSold\RoadToSoldPaused::class, fn ($e) => $e->pausedUntil === '2026-10-20' && $e->reason === 'Leave' && $e->actorUserId === $this->manager->id);
+        \Illuminate\Support\Facades\Event::assertDispatchedTimes(\App\Events\RoadToSold\RoadToSoldResumed::class, 1);
+
+        $h = $this->svc()->history($this->fresh);
+        $this->assertSame(['resumed', 'paused', 'started'], array_column($h, 'kind'), 'newest first, one row per press that did something');
+        $this->assertStringContainsString('Paused until 20 Oct 2026 (Leave)', $h[1]['detail']);
+        $this->assertSame('Mia Manager', $h[1]['by']);
+        $page = $this->actingAs($this->manager)->get(route('road-to-sold.index', ['agent' => $this->fresh->id]))->getContent();
+        $this->assertStringContainsString('data-qa="belt-history"', $page);
+        $this->assertSame(3, substr_count($page, 'data-qa="history-row"'));
+    }
 }

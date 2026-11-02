@@ -127,6 +127,7 @@ class RoadToSoldController extends Controller
         $belt = $agentUser && ($activation['state'] ?? '') !== \App\Services\RoadToSold\ActivationService::STATE_NOT_STARTED
             ? app(\App\Services\RoadToSold\BeltService::class)->tiles($viewer, $agentUser, $track, $date, $beltBase) : [];
         $canPauseOthers = $viewer->hasPermission('road_to_sold.pause_others');
+        $activationHistory = $agentUser ? $activationSvc->history($agentUser, $track) : [];
         $roster = ($agents->count() > 1 && ($canPauseOthers || $viewer->hasPermission('road_to_sold.view')) && \App\Services\RoadToSold\ActivationService::tableReady())
             ? $activationSvc->roster($agents, $track, $date) : [];
 
@@ -160,6 +161,7 @@ class RoadToSoldController extends Controller
             'roster'         => $roster,
             'beltBase'       => $beltBase,
             'canPauseOthers' => $canPauseOthers,
+            'activationHistory' => $activationHistory,
             'activationReady' => \App\Services\RoadToSold\ActivationService::tableReady(),
             'startRequired'  => $agentUser ? $activationSvc->required($agentUser, $track) : false,
             'feeds'          => $feeds,
