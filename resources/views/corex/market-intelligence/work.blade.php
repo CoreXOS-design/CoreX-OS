@@ -421,6 +421,7 @@
                 init: function () {
                     var self = this;
                     this.h = function (e) { if (self.open && !(e && e.target && e.target.nodeType === 1 && self.$refs.panel.contains(e.target))) { self.place(); } };
+                    if (window.ResizeObserver) { new ResizeObserver(function () { if (self.open) { self.place(); } }).observe(this.$refs.inner); }
                     this.$watch('open', function (v) {
                         if (v) { self.$nextTick(function () { self.place(); }); window.addEventListener('resize', self.h); window.addEventListener('scroll', self.h, true); }
                         else { window.removeEventListener('resize', self.h); window.removeEventListener('scroll', self.h, true); }

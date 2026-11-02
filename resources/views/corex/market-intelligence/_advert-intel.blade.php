@@ -94,7 +94,16 @@
                 <span style="{{ $btnOff }}" title="{{ $claimedByOther ? 'Already claimed by ' . ($adv['claimed_by'] ?? 'a colleague') : 'Not claimable' }}">Claim</span>
             @endif
             @if($listing->tracked_property_id && ($canViewComments ?? false))
-                <button type="button" @click.stop="openCommentsModal({{ $listing->tracked_property_id }})" style="{{ $btn }}" title="{{ $commentCount > 0 ? $commentCount . ' comments on this property - view and add' : 'Comments on this property - view and add' }}">Comment<span data-tp-comment-count="{{ $listing->tracked_property_id }}" style="font-weight:700;">{{ $commentCount > 0 ? ' ' . $commentCount : '' }}</span></button>
+                <x-mic-pop align="right" content-classes="p-1">
+                    <x-slot name="trigger"><button type="button" data-qa="comment-btn" @click="if (!open) loadComments({{ $listing->tracked_property_id }})" style="{{ $btn }}" title="{{ $commentCount > 0 ? $commentCount . ' comments on this property - view and add' : 'Comments on this property - view and add' }}">Comment<span data-tp-comment-count="{{ $listing->tracked_property_id }}" style="font-weight:700;">{{ $commentCount > 0 ? ' ' . $commentCount : '' }}</span></button></x-slot>
+                    <x-slot name="content">
+                        <div data-qa="comment-pop" style="padding:4px 8px; max-height: min(24rem, var(--pop-max, 24rem)); overflow-y:auto; font-size:.75rem; color: var(--text-primary);" @click.stop @keydown.escape.window="$dispatch('close')">
+                            <div style="font-weight:700; font-size:.75rem; padding: 2px 0 6px;">Property comments</div>
+                            <template x-if="commentsModalLoading"><div style="padding:12px 0; color: var(--text-secondary);">Loading…</div></template>
+                            <div x-show="!commentsModalLoading" x-html="commentsModalHtml"></div>
+                        </div>
+                    </x-slot>
+                </x-mic-pop>
             @else
                 <span style="{{ $btnOff }}">Comment</span>
             @endif

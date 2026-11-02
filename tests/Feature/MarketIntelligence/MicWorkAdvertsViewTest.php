@@ -187,6 +187,23 @@ final class MicWorkAdvertsViewTest extends TestCase
         $this->assertStringContainsString('agencies_left_on_file', $h, 'the pill count follows the server when it sends one');
     }
 
+    public function test_the_comment_button_opens_an_anchored_popover_and_the_dialogs_do_not_depend_on_a_flex_parent(): void
+    {
+        $this->advert('P24-150100050', 1_100_000, ['tracked_property_id' => $this->file('P24-150100050')]);
+        $h = $this->page(['view' => 'adverts']);
+
+        $this->assertStringContainsString('data-qa="comment-btn"', $h, 'the Comment button on the card');
+        $this->assertStringContainsString('data-qa="comment-pop"', $h, 'its comments open in the card popover, anchored to the button');
+        $this->assertStringContainsString('loadComments(', $h);
+        $btn = strpos($h, 'data-qa="comment-btn"');
+        $this->assertNotFalse(strrpos(substr($h, 0, $btn), 'x-data="micPop('), 'the button sits inside the flipping popover component');
+        // the shared dialogs: x-show swaps the inline display value, so neither may rely on display:flex on the x-show element
+        $this->assertStringContainsString('transform: translate(-50%, -50%)', $h, 'the comments dialog is centred by position');
+        $slide = substr($h, strpos($h, 'x-data="miSlideover()"'), 900);
+        $this->assertStringNotContainsString('display: flex; justify-content: flex-end', $slide);
+        $this->assertStringContainsString('position: absolute; top: 0; right: 0; bottom: 0;', $slide, 'the Intel slide-over keeps to the right edge');
+    }
+
     public function test_the_list_view_is_still_the_classic_list(): void
     {
         $this->advert('P24-150100002', 900_000);
