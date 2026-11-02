@@ -49,7 +49,10 @@
         '.cxp-step[data-state="done"]{color:var(--text-primary,#0f172a)}' +
         '.cxp-step[data-click="1"]{cursor:pointer}' +
         '.cxp-step[data-click="1"]:hover{border-color:var(--brand-button,#0ea5e9)}' +
+        '.cxp-body{position:relative;flex:1;min-height:0;display:flex}' +
         '.cxp-frame{flex:1;width:100%;border:0;background:var(--bg,#f8fafc)}' +
+        '.cxp-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg,#f8fafc);color:var(--text-secondary,#475569);font-size:.9375rem;font-weight:600}' +
+        '.cxp-toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:1200;padding:10px 18px;border-radius:8px;background:#0f766e;color:#fff;font-size:.9375rem;font-weight:700;box-shadow:0 6px 24px rgba(0,0,0,.35);transition:opacity .4s}' +
         '.cxp-btn{padding:5px 14px;border-radius:6px;font-size:.8125rem;font-weight:700;cursor:pointer;border:1px solid var(--border,#cbd5e1);background:var(--surface,#fff);color:var(--text-primary,#0f172a)}' +
         '.cxp-btn.cxp-primary{background:var(--brand-button,#0ea5e9);border-color:var(--brand-button,#0ea5e9);color:#fff}';
     document.head.appendChild(css);
@@ -62,6 +65,9 @@
     }
 
     // ---- the popup ---------------------------------------------------------------------------------------------------------------------------------
+    // A step pill is ticked only for a step the agent actually went through here (or the card they had just looked at before Pitch now); one the owner's
+    // state let them skip is plain. A pill is a control when its screen is known: the ones visited, Property when the property has an advert, the current one
+    // (it reloads that screen).
     function open(o) {
         if (pop) return;
         var next = o.next && sameSite(o.next) ? o.next : null;
@@ -82,46 +88,69 @@
         var nextBtn = el('button', { type: 'button', 'class': 'cxp-btn cxp-primary', 'data-qa': 'pitch-next' });
         var closeBtn = el('button', { type: 'button', 'class': 'cxp-btn', 'aria-label': 'Close and go back', 'data-qa': 'pitch-close', text: 'Close' });
         var frame = el('iframe', { 'class': 'cxp-frame', title: 'Pitch', 'data-qa': 'pitch-frame' });
-        var win = el('div', { 'class': 'cxp-win' }, [el('div', { 'class': 'cxp-bar' }, [title, steps, nextBtn, closeBtn]), frame]);
+        var loading = el('div', { 'class': 'cxp-loading', role: 'status', 'data-qa': 'pitch-loading', text: 'Opening…' });
+        var body = el('div', { 'class': 'cxp-body' }, [frame, loading]);
+        var win = el('div', { 'class': 'cxp-win' }, [el('div', { 'class': 'cxp-bar' }, [title, steps, nextBtn, closeBtn]), body]);
         var back = el('div', { 'class': 'cxp-back', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Pitch', 'data-qa': 'pitch-popup' }, [win]);
         document.body.appendChild(back);
         document.documentElement.style.overflow = 'hidden';
 
-        pop = { back: back, frame: frame, opener: document.activeElement, touched: false, o: o, current: startAtCard ? 'property' : 'owner', reached: startAtCard ? 0 : 1, loads: 0 };
+        pop = {
+            back: back, frame: frame, opener: document.activeElement, o: o, loads: 0, results: [],
+            // the screen we are on is not known until it has loaded, except when we open the card ourselves
+            current: startAtCard ? 'property' : null, visited: {}, urls: {},
+        };
+        if (hasCard) { pop.urls.property = cardUrl(o); }
+        if (hasCard && !startAtCard) { pop.visited.property = true; }   // Pitch now on a card the agent was just looking at
+        if (startAtCard) { pop.visited.property = true; }
 
+        function go(url) { loading.style.display = ''; frame.src = url; }
         function paint() {
-            var idx = STEPS.map(function (s) { return s[0]; }).indexOf(pop.current);
+            var idx = pop.current ? STEPS.map(function (s) { return s[0]; }).indexOf(pop.current) : -1;
             STEPS.forEach(function (s, i) {
                 var b = stepEls[s[0]];
-                var state = i < idx || (!hasCard && i === 0) ? 'done' : (i === idx ? 'current' : 'todo');
+                var state = s[0] === pop.current ? 'current' : (pop.visited[s[0]] ? 'done' : 'todo');
                 b.setAttribute('data-state', state);
                 b.setAttribute('aria-current', state === 'current' ? 'step' : 'false');
                 b.firstChild.textContent = state === 'done' ? '✓' : String(i + 1);
-                b.setAttribute('data-click', s[0] === 'property' && hasCard && state !== 'current' ? '1' : '0');
+                var clickable = !!pop.urls[s[0]];
+                b.setAttribute('data-click', clickable ? '1' : '0');
+                b.style.cursor = clickable ? 'pointer' : 'default';
             });
-            var label = NEXT_LABEL[pop.current];
+            var label = pop.current ? NEXT_LABEL[pop.current] : '';
             nextBtn.style.display = label && next ? '' : 'none';
             nextBtn.textContent = (label || '') + ' →';
+            void idx;
         }
-        stepEls.property.addEventListener('click', function () {
-            if (stepEls.property.getAttribute('data-click') === '1') frame.src = cardUrl(o);
+        STEPS.forEach(function (s) {
+            stepEls[s[0]].addEventListener('click', function () { if (pop && pop.urls[s[0]]) go(pop.urls[s[0]]); });
         });
-        nextBtn.addEventListener('click', function () { if (next) frame.src = withEmbed(next); });
+        nextBtn.addEventListener('click', function () { if (next) go(withEmbed(next)); });
         closeBtn.addEventListener('click', function () { close(false); });
         frame.addEventListener('load', function () {
-            pop.loads++;
-            var href = ''; try { href = frame.contentWindow.location.href; } catch (e) { return; }
+            if (!pop) return;
+            var href = ''; try { href = frame.contentWindow.location.href; } catch (e) { loading.style.display = 'none'; return; }
             if (href === 'about:blank') return;
-            var s = stepOf(href);
-            if (s) pop.current = s;
-            pop.touched = pop.loads > 1;
+            pop.loads++;
+            loading.style.display = 'none';
+            var st = stepOf(href);
+            if (st) { pop.current = st; pop.visited[st] = true; pop.urls[st] = href; }
+            // any move from inside the screen (a form saved, a link followed) shows the loading line until the next one is up
+            try { frame.contentWindow.addEventListener('beforeunload', function () { if (pop) loading.style.display = ''; }); } catch (e) { /* not same origin */ }
             paint();
         });
-        pop.keydown = function (e) { if (e.key === 'Escape' && !document.querySelector('.cxp-back ~ .cxp-back')) close(false); };
+        pop.keydown = function (e) { if (e.key === 'Escape') close(false); };
         document.addEventListener('keydown', pop.keydown);
         paint();
         frame.src = first;
         closeBtn.focus();
+    }
+
+    function toast(text) {
+        var old = document.querySelector('[data-qa="pitch-toast"]'); if (old) old.remove();
+        var t = el('div', { role: 'status', 'data-qa': 'pitch-toast', 'class': 'cxp-toast', text: text });
+        document.body.appendChild(t);
+        setTimeout(function () { t.style.opacity = '0'; setTimeout(function () { t.remove(); }, 400); }, 7000);
     }
 
     function close(done) {
@@ -132,7 +161,15 @@
         p.back.remove();
         document.documentElement.style.overflow = '';
         if (p.opener && p.opener.focus) { try { p.opener.focus(); } catch (e) { /* gone */ } }
-        window.dispatchEvent(new CustomEvent('corex-pitch-closed', { detail: { listing: p.o.listing || null, touched: p.touched || done === true } }));
+        // Done / Close say what happened: "Pitched · 73 Marine Drive", "Contact logged · 73 Marine Drive", or that nothing was sent
+        var where = (p.results.length && p.results[p.results.length - 1].address) || (p.o.label || '').replace(/^Pitch\s*-\s*/i, '');
+        if (p.results.length) {
+            var kinds = {}; p.results.forEach(function (r) { kinds[r.kind] = true; });
+            toast((kinds.pitched ? 'Pitched' : 'Contact logged') + (where ? ' · ' + where : '') + (kinds.pitched && kinds.logged ? ' (and a call logged)' : ''));
+        } else if (done === true) {
+            toast('Done' + (where ? ' · ' + where : '') + ' - nothing was sent or logged.');
+        }
+        window.dispatchEvent(new CustomEvent('corex-pitch-closed', { detail: { listing: p.o.listing || null, touched: p.results.length > 0 || p.loads > 1 || done === true, results: p.results } }));
     }
 
     // ---- "What is this property?": the card unfolds under the header, in place; a second click folds it ---------------------------------------------------
@@ -186,8 +223,9 @@
     });
 
     window.addEventListener('message', function (e) {
-        if (e.origin !== window.location.origin || !e.data || e.data.rts !== 'done' || !pop || e.source !== pop.frame.contentWindow) return;
-        close(true);
+        if (e.origin !== window.location.origin || !e.data || !pop || e.source !== pop.frame.contentWindow) return;
+        if (e.data.pitch === 'result') { pop.results.push({ kind: e.data.kind === 'logged' ? 'logged' : 'pitched', address: String(e.data.address || ''), detail: String(e.data.detail || '') }); return; }
+        if (e.data.rts === 'done') close(true);
     });
 
     // closing returns to the list the agent came from, refreshed in place (the MIC list); any other page reloads

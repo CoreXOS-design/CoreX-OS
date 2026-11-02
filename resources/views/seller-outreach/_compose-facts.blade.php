@@ -41,7 +41,11 @@
             <div>
                 <div class="text-xs" style="color: var(--text-muted);">Matching this specific property</div>
                 <div class="text-sm mt-0.5" style="color: var(--text-muted);">
-                    No property linked — this pitch makes an area-level demand statement only.
+                    @if($addressOnly ?? false)
+                        No property linked — this pitch makes an area-level demand statement only.
+                    @else
+                        No buyer count for this property yet (it needs a type, bedrooms and a price) — the pitch uses the area demand.
+                    @endif
                 </div>
             </div>
             @endif

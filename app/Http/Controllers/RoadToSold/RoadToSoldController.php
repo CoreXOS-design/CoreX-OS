@@ -421,7 +421,7 @@ class RoadToSoldController extends Controller
             ->with($n > 0 ? ['status' => "Built {$who} list for today: {$n} " . ($n === 1 ? 'property.' : 'properties.')] : []);
     }
 
-    public function recordOutcome(Request $request): RedirectResponse
+    public function recordOutcome(Request $request): RedirectResponse|\Illuminate\Http\JsonResponse
     {
         $user = $request->user();
         $data = $request->validate([
@@ -434,12 +434,15 @@ class RoadToSoldController extends Controller
             'appointment_at'        => ['nullable', 'date'],
             'follow_up_months'      => ['nullable', 'integer', 'min:1', 'max:60'],
             'channel'               => ['nullable', 'in:' . implode(',', array_keys(\App\Models\RoadToSold\RtsContactOutcome::CHANNELS))],
+            'occurred_at'           => ['nullable', 'date', 'before_or_equal:now'],
         ], [
             'channel.in'                     => 'Pick how you contacted them: phone, WhatsApp, email or in person.',
             'tracked_property_id.required'   => 'Pick the property again.',
             'outcome_definition_id.required' => 'Pick an outcome.',
             'next_action_at.date'            => 'We could not read that date. Pick it again.',
             'appointment_at.date'            => 'We could not read the evaluation date and time. Pick it again.',
+            'occurred_at.date'               => 'We could not read the time of the call. Pick it again.',
+            'occurred_at.before_or_equal'    => 'The time cannot be in the future. Use now, or an earlier time.',
             'note.max'                       => 'Keep the note under 5000 characters.',
         ]);
 
@@ -450,6 +453,7 @@ class RoadToSoldController extends Controller
             'appointment_at'   => $data['appointment_at'] ?? null,
             'follow_up_months' => $data['follow_up_months'] ?? null,
             'channel'          => $data['channel'] ?? null,
+            'occurred_at'      => $data['occurred_at'] ?? null,
         ];
 
         if (! empty($data['list_item_id'])) {
@@ -463,8 +467,17 @@ class RoadToSoldController extends Controller
         try {
             $outcome = $this->outcomes->record($user, (int) $data['tracked_property_id'], (int) $data['outcome_definition_id'], $input, Track::fromRequest($request));
         } catch (RoadToSoldException $e) {
+            // the pitch popup's Phone call tab posts here too (road-to-sold.md 23.23): the same route, answered as JSON
+            if ($request->expectsJson()) {
+                return response()->json(['ok' => false, 'message' => $e->getMessage()], 422);
+            }
+
             return back()->withInput()->with('rts_error', $e->getMessage())
                 ->with('rts_reopen', ['tp' => (int) $data['tracked_property_id'], 'item' => $data['list_item_id'] ?? null]);
+        }
+
+        if ($request->expectsJson()) {
+            return response()->json(['ok' => true, 'message' => $this->doneMessage($outcome), 'outcome' => $outcome->outcome_label]);
         }
 
         return back()->with('status', $this->doneMessage($outcome));

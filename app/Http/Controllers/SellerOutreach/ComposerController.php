@@ -84,14 +84,19 @@ final class ComposerController extends Controller
 
         $property = $this->resolvePropertyForContact($propertyId, $linkedProperties);
 
+        $contactRecord = app(\App\Services\SellerOutreach\PitchContactService::class);
+        $phoneTab = $contactRecord->phoneTabAvailable($request->user());
         $channel = $request->query('channel', 'whatsapp');
-        if (!in_array($channel, ['whatsapp', 'email'], true)) {
+        if (!in_array($channel, ['whatsapp', 'email'], true) && ! ($channel === 'phone' && $phoneTab)) {
             $channel = 'whatsapp';
         }
 
+        // The Phone call tab (road-to-sold.md 23.23): no template, no composed message - the call has already happened, the agent says how it went.
+        $phoneCall = $channel === 'phone' ? $contactRecord->phoneForm($request->user(), $contact, $property) : null;
+
         $availableTemplates = SellerOutreachTemplate::withoutGlobalScopes()
             ->where('agency_id', $agencyId)
-            ->where('channel', $channel)
+            ->where('channel', $channel === 'phone' ? 'whatsapp' : $channel)
             ->where('is_active', true)
             ->whereNull('deleted_at')
             ->orderByDesc('is_default_for_channel')
@@ -123,7 +128,7 @@ final class ComposerController extends Controller
 
         // Compose context when a property is selected OR in address-only mode.
         $context = null;
-        if ($property || $addressOnly) {
+        if (($property || $addressOnly) && $channel !== 'phone') {
             $context = $this->composer->composeContext(
                 agencyId:        $agencyId,
                 contact:         $contact,
@@ -156,6 +161,8 @@ final class ComposerController extends Controller
             'agencyId'           => $agencyId,
             'propertyStatuses'   => $propertyStatuses,
             'addressOnly'        => $addressOnly,
+            'phoneTab'           => $phoneTab,
+            'phoneCall'          => $phoneCall,
         ]);
     }
 
@@ -326,11 +333,23 @@ final class ComposerController extends Controller
             ? $this->sender->whatsappUrl($send)
             : null;
 
+        // The contact record (road-to-sold.md 23.23 / 23.7a): an e-mail is sent by CoreX itself, so it is a contact now; a WhatsApp is recorded when the
+        // agent confirms it went (markSent), because CoreX cannot tell.
+        $logged = $validated['channel'] === 'email'
+            ? app(\App\Services\SellerOutreach\PitchContactService::class)->recordSend($request->user(), $send, $property)
+            : ['logged' => false, 'message' => null];
+
+        if ($logged['message']) {
+            session()->flash('contact_message', $logged['message']);   // shown on the sent page the agent is sent to next
+        }
+
         if ($request->wantsJson()) {
             return response()->json([
                 'send_id'             => $send->id,
                 'tracking_short_code' => $send->tracking_short_code,
                 'client_url'          => $clientUrl,
+                'contact_logged'      => $logged['logged'],
+                'contact_message'     => $logged['message'],
                 'message'             => $validated['channel'] === 'whatsapp'
                     ? 'Pitch recorded — opening WhatsApp.'
                     : 'Pitch recorded — branded email sent.',
@@ -438,10 +457,16 @@ final class ComposerController extends Controller
             ? $this->sender->whatsappUrl($sendModel)
             : null;
 
+        $sentProperty = $sendModel->property_id
+            ? Property::withoutGlobalScopes()->where('agency_id', $agencyId)->find((int) $sendModel->property_id)
+            : null;
+
         return view('seller-outreach.sent', [
             'contact'   => $contact,
             'send'      => $sendModel,
             'clientUrl' => $clientUrl,
+            // what the pitch popup says when the agent presses Done ("Pitched · 73 Marine Drive")
+            'address'   => $sentProperty ? (trim((string) $sentProperty->composeAddressFromParts()) ?: (string) $sentProperty->address) : '',
         ]);
     }
 
@@ -543,8 +568,14 @@ final class ComposerController extends Controller
             }
         }
 
+        // the agent says the WhatsApp went: that is the contact (road-to-sold.md 23.23)
+        $property = $sendModel->property_id
+            ? Property::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->find((int) $sendModel->property_id)
+            : null;
+        $logged = app(\App\Services\SellerOutreach\PitchContactService::class)->recordSend($request->user(), $sendModel, $property);
+
         return $request->wantsJson()
-            ? response()->json(['ok' => true, 'message' => 'Recorded as sent.'])
+            ? response()->json(['ok' => true, 'message' => 'Recorded as sent.', 'contact_logged' => $logged['logged'], 'contact_message' => $logged['message']])
             : back()->with('success', 'Recorded as sent.');
     }
 

@@ -19,7 +19,9 @@
          contactUrl: @js(route('corex.contacts.show', $contact)),
      })">
 
-    {{-- Header --}}
+    @php $inPopup = \App\Support\Embed::on(); @endphp
+    {{-- Header (the pitch popup has its own title and step bar) --}}
+    @unless($inPopup)
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
@@ -40,6 +42,8 @@
             </div>
         </div>
     </div>
+
+    @endunless
 
     {{-- Flash --}}
     @if(session('error'))
@@ -103,7 +107,7 @@
 
         {{-- Two-column composer (60/40 on lg+) --}}
         <div class="grid grid-cols-1 lg:grid-cols-5 gap-5">
-            <div class="lg:col-span-3">
+            <div class="{{ $inPopup ? 'lg:col-span-5' : 'lg:col-span-3' }}">
                 @include('seller-outreach._compose-form', [
                     'contact'            => $contact,
                     'property'           => $property,
@@ -113,11 +117,17 @@
                     'context'            => $context,
                     'propertyStatuses'   => $propertyStatuses ?? [],
                     'addressOnly'        => $addressOnly ?? false,
+                    'phoneTab'           => $phoneTab ?? false,
+                    'phoneCall'          => $phoneCall ?? null,
+                    'inPopup'            => $inPopup,
                 ])
             </div>
+            {{-- the demand and tracking panels are the page's; the popup is for doing the contact --}}
+            @unless($inPopup)
             <div class="lg:col-span-2" data-tour="oc-facts">
-                @include('seller-outreach._compose-facts', ['context' => $context])
+                @include('seller-outreach._compose-facts', ['context' => $context, 'addressOnly' => $addressOnly ?? false])
             </div>
+            @endunless
         </div>
     @endif
 </div>
@@ -310,4 +320,5 @@ function propertyPickerCollision(init) {
 }
 </script>
 @include('layouts.partials._pitch-popup')
+@include('layouts.partials._pitch-result')
 @endsection
