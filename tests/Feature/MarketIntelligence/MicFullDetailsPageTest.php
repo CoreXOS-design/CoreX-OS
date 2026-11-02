@@ -87,4 +87,18 @@ final class MicFullDetailsPageTest extends TestCase
         $this->assertStringContainsString('Full wording of the ad.', $ad);
         $this->assertStringContainsString('Price history', $ad, 'the Full card is still underneath');
     }
+
+    public function test_an_advert_with_no_property_file_opens_its_full_ad_with_a_negative_key(): void
+    {
+        $l = new ProspectingListing();
+        $l->forceFill(['agency_id' => $this->agency->id, 'portal_source' => 'p24', 'portal_ref' => 'P24-160000009', 'portal_url' => 'https://www.property24.com/x/160000009', 'suburb' => 'Margate', 'price' => 900_000,
+            'captured_by_user_id' => $this->admin->id, 'first_seen_at' => now()->subDays(2), 'last_seen_at' => now(), 'is_active' => true, 'portal_status' => 'active', 'card_heading' => '2 Bedroom Flat',
+            'details_read_at' => now(), 'details_read_price' => 900_000, 'description' => 'A lone advert, full wording.'])->save();
+        $this->assertNull($l->fresh()->tracked_property_id);
+        $h = $this->page();
+        $this->assertStringContainsString('data-file="-' . $l->id . '"', $h);
+        $ad = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'adverts', '_card' => -$l->id, '_ad' => 1]), ['X-Requested-With' => 'XMLHttpRequest'])->assertOk()->getContent();
+        $this->assertStringContainsString('A lone advert, full wording.', $ad);
+        $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'adverts', '_card' => -999999, '_ad' => 1]), ['X-Requested-With' => 'XMLHttpRequest'])->assertNotFound();
+    }
 }

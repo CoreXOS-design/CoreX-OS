@@ -618,7 +618,10 @@ class MarketIntelligenceController extends Controller
         // file is only served when this viewer's scoped list can reach it; another agency's file is a 404.
         if ($request->filled('_card') && $request->ajax()) {
             $fid = (int) $request->query('_card');
-            abort_unless($fid > 0 && (clone $query)->where('tracked_property_id', $fid)->exists(), 404);
+            // a negative key is an advert that is not linked to a property file yet: it is its own file (the same key MicWorkList uses)
+            abort_unless($fid > 0
+                ? (clone $query)->where('tracked_property_id', $fid)->exists()
+                : ($fid < 0 && (clone $query)->whereKey(-$fid)->whereNull('tracked_property_id')->exists()), 404);
             $rec = app(\App\Services\Prospecting\MicWork\MicWorkList::class)->forFiles([$fid], (int) $agencyId)[0] ?? abort(404);
 
             return response(view('corex.market-intelligence.partials._work-record-card', ['r' => $rec, 'showAd' => $request->boolean('_ad')])->render());

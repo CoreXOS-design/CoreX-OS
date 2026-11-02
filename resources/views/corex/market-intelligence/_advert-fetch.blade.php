@@ -10,7 +10,7 @@
     $labelColour = $stale ? 'var(--ds-amber, #b45309)' : ($full ? 'var(--ds-green, #059669)' : 'var(--text-secondary, #9ca3af)');
     $btn = 'background:none; border:none; padding:0; margin:0; font:inherit; cursor:pointer; text-decoration:underline; text-decoration-color: var(--brand-icon); color: var(--text-primary);';
 @endphp
-<span data-advert-fetch-wrap data-qa="advert-level" data-level="{{ $stale ? 'changed' : ($full ? 'full' : 'search') }}" data-listing="{{ $t['id'] ?? '' }}" data-file="{{ $adv['tp_id'] ?? '' }}"
+<span data-advert-fetch-wrap data-qa="advert-level" data-level="{{ $stale ? 'changed' : ($full ? 'full' : 'search') }}" data-listing="{{ $t['id'] ?? '' }}" data-file="{{ $adv['key'] ?? ($adv['tp_id'] ?? '') }}"
       data-card-listing="{{ $listing->id }}" data-ext-help="{{ route('agent.portal') }}#tools" style="white-space:nowrap; flex-shrink:0;">
     @if($full)
         <button type="button" data-advert-open data-qa="level-label" title="Open the full ad" style="{{ $btn }} color: {{ $labelColour }}; font-weight:600; text-decoration:none;">{{ $label }}</button>
