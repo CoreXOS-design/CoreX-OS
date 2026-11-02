@@ -170,6 +170,8 @@
     .mi-advert-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; height: 14.0625rem; overflow: hidden; }
     .mi-clamp { display: -webkit-box; -webkit-line-clamp: var(--mi-lines, 4); -webkit-box-orient: vertical; overflow: hidden; }
     .mi-clamp.mi-unclamp { display: block; -webkit-line-clamp: unset; overflow: visible; }
+    .mi-fit-grid { container-type: inline-size; }
+    @container (max-width: 300px) { .mi-fit-grid .mi-wants-word { display: none; } }
     .mi-advert-body.mi-advert-body-fit { height: auto; min-height: calc(14.0625rem + 1.5rem); overflow: visible; } /* one line more than the photo; never clips when the column is narrow */
     .mi-advert-body.mi-advert-body-open { height: auto; min-height: 14.0625rem; overflow: visible; }
     [data-qa="row-wrap"] + [data-qa="row-wrap"] > .mi-advert { border-top: 1px solid var(--border); }
