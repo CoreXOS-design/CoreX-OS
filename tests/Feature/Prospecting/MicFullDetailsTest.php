@@ -223,7 +223,7 @@ final class MicFullDetailsTest extends TestCase
         $this->assertSame(['Garage', 'Parking', 'Garden', 'Security'], $labels('Outside'));
         $this->assertSame(['Type', 'Floor size', 'Rates', 'Levies', 'Listing date', 'Listing number'], $labels('Building'), 'Building in the P24 order; the record fills nothing twice');
         $this->assertSame(['Pets allowed', 'Internet', 'Temperature control', 'Backup water', 'Wheelchair accessible', 'Special features', 'Mystery Key'], $labels('Extras'), 'unknown keys go to Extras');
-        $this->assertSame(['Bedroom 1', 'Bedroom 2', 'Bathroom 1', 'Bathroom 2', 'Lounge', 'Kitchen'], array_column($g['room_details'], 0));
+        $this->assertSame(['Lounge', 'Kitchen', 'Bedroom 1', 'Bedroom 2', 'Bathroom 1', 'Bathroom 2'], array_column($g['room_details'], 0));
         $all = array_merge(...array_map(fn ($rows) => array_column($rows, 0), array_values($g['groups'])));
         $this->assertSame($all, array_values(array_unique($all)), 'nothing is listed twice');
         $this->assertNotContains('Street address', $all, 'the street address is the header');
