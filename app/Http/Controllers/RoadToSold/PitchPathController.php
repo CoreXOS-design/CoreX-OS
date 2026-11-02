@@ -60,6 +60,26 @@ class PitchPathController extends Controller
         return redirect()->to(route('corex.properties.show', $property->id) . '?' . http_build_query($this->path->carry($request) + ['generate_presentation' => 1, 'rts_prospect' => $row->id]));
     }
 
+    /**
+     * Road to Sold v4 drop 4 (road-to-sold.md 23.23): the Book evaluation step. The property is made from the Market Intelligence address first when there is none
+     * (as the other steps do), then the agent lands on the calendar's own evaluation form with the property, the owner as the seller and themselves as the
+     * creator prefilled. Nobody found yet: the pitch path's Find owner, with the reason.
+     */
+    public function evaluation(Request $request, int $prospect): RedirectResponse
+    {
+        $row = $this->own($request, $prospect);
+        $carry = $this->path->carry($request);
+        $property = $this->path->ensureProperty($row, $request->user());
+        $ownerId = (int) \App\Models\Prospecting\TrackedProperty::query()->withoutGlobalScopes()->whereKey($row->tracked_property_id)->value('owner_contact_id');
+        $owner = $ownerId ? \App\Models\Contact::query()->withoutGlobalScopes()->where('agency_id', $row->agency_id)->whereNull('deleted_at')->find($ownerId) : null;
+        if (! $property || ! $owner) {
+            return redirect()->to($this->path->next($row, $request->user(), $carry)['url'])
+                ->with('error', 'Find the owner first - an evaluation needs the property and the person who owns it.');
+        }
+
+        return redirect()->to(app(\App\Services\SellerOutreach\PitchBookService::class)->url($property, $owner, $carry + ['rts_prospect' => (string) $row->id]));
+    }
+
     public function show(Request $request, int $prospect): JsonResponse|RedirectResponse
     {
         $row = $this->own($request, $prospect);

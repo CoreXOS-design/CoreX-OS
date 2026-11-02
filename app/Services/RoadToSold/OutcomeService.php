@@ -77,7 +77,12 @@ class OutcomeService
             && ($def->next_action === Def::ACTION_APPOINTMENT
                 || ($def->isConversation() && filter_var($input['valuation_booked'] ?? false, FILTER_VALIDATE_BOOLEAN)));
         $appointmentAt = null;
-        if ($wantsValuation) {
+        // The pitch popup's Book evaluation step (road-to-sold.md 23.23 drop 4) books the evaluation in the calendar's own form FIRST and then records the
+        // call against it: the appointment already exists, so it is used (its own date and time) and no second one is made.
+        $preBooked = $wantsValuation ? $this->preBookedEvaluation($actor, $agencyId, $input['calendar_event_id'] ?? null) : null;
+        if ($preBooked) {
+            $appointmentAt = \Illuminate\Support\Carbon::parse($preBooked->event_date);
+        } elseif ($wantsValuation) {
             $appointmentAt = $this->parseDateTime($input['appointment_at'] ?? null, 'the evaluation');
             if (! $appointmentAt) {
                 throw new RoadToSoldException('Pick the date and time of the evaluation.');
@@ -87,7 +92,7 @@ class OutcomeService
             }
         }
 
-        $outcome = DB::transaction(function () use ($actor, $agencyId, $agentId, $trackedPropertyId, $def, $input, $track, $note, $occurredAt, $wantsValuation, $appointmentAt, $settings, $channel) {
+        $outcome = DB::transaction(function () use ($actor, $agencyId, $agentId, $trackedPropertyId, $def, $input, $track, $note, $occurredAt, $wantsValuation, $appointmentAt, $settings, $channel, $preBooked) {
             $tp = TrackedProperty::query()->where('agency_id', $agencyId)->lockForUpdate()->find($trackedPropertyId);
             if (! $tp) {
                 throw new RoadToSoldException('That property could not be found.');
@@ -152,7 +157,9 @@ class OutcomeService
             }
 
             $eventId = null;
-            if ($wantsValuation) {
+            if ($wantsValuation && $preBooked) {
+                $eventId = (int) $preBooked->id;
+            } elseif ($wantsValuation) {
                 // The parties (R10): every owner CoreX knows for the property, as attendees of the appointment - not only the event's
                 // contact field - and each linked to the property as its seller so the appointment, the property and the owners agree.
                 $parties = $this->partiesOf($tp, $contact, $agencyId);
@@ -407,6 +414,21 @@ class OutcomeService
         } catch (Throwable $e) {
             report($e);
         }
+    }
+
+    /** An evaluation appointment this agent already made in the calendar form (agency wall, their own, category property_evaluation), or null. */
+    private function preBookedEvaluation(User $actor, int $agencyId, mixed $eventId): ?\App\Models\CommandCenter\CalendarEvent
+    {
+        $id = (int) $eventId;
+        if ($id <= 0) {
+            return null;
+        }
+        $event = \App\Models\CommandCenter\CalendarEvent::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->find($id);
+        if (! $event || (string) $event->category !== 'property_evaluation' || ! in_array((int) $event->user_id, [(int) $actor->id, (int) $actor->ownershipUserId()], true)) {
+            throw new RoadToSoldException('That evaluation could not be found. Book it again.');
+        }
+
+        return $event;
     }
 
     private function parseDateTime(mixed $value, string $what): ?Carbon

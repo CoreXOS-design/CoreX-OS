@@ -101,7 +101,9 @@ final class ProspectStepService
             // the pitch path (22.10, PitchPathService): owner known -> the composer on that contact and the property (made from the MIC address
             // first when there is none); nobody -> Find owner. One answer for both buttons, so a row never dead-ends.
             'find_owner', 'pitch' => $r('road-to-sold.prospects.pitch-path', $p->id),
-            'evaluation', 'viewing' => $r('command-center.calendar', [], $property ? ['property_id' => $property] : []),
+            // v4 drop 4 (23.23): the calendar's own evaluation form, prefilled with the property and the owner, inside the pitch popup
+            'evaluation' => $r('road-to-sold.prospects.evaluation-path', $p->id),
+            'viewing' => $r('command-center.calendar', [], $property ? ['property_id' => $property] : []),
             // v4 (23.8): the real generator, on this property - never the presentations list (presentations.create only redirects there)
             'presentation' => $r('road-to-sold.prospects.presentation-path', $p->id),
             'mandate', 'offer' => $r('docuperfect.esign.create', [], $property ? ['property_id' => $property] : []),

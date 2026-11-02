@@ -43,9 +43,9 @@ final class PitchContactService
     /**
      * What the Phone call form shows for this property. `trackedPropertyId` null = nothing on the belt to log against (address-only pitch).
      *
-     * @return array{tracked_property_id:?int, refusal:?string, groups:list<array{key:string,title:string,items:list<array<string,mixed>>}>, phone:?string, now:string}
+     * @return array{tracked_property_id:?int, refusal:?string, groups:list<array{key:string,title:string,items:list<array<string,mixed>>}>, phone:?string, now:string, book_url:?string}
      */
-    public function phoneForm(User $actor, Contact $contact, ?Property $property): array
+    public function phoneForm(User $actor, Contact $contact, ?Property $property, array $carry = []): array
     {
         $tp = $property && $property->tracked_property_id ? (int) $property->tracked_property_id : null;
         $agencyId = (int) ($actor->effectiveAgencyId() ?: 0);
@@ -59,7 +59,7 @@ final class PitchContactService
                 continue;
             }
             $groups[$d->group()]['items'][] = [
-                'id' => (int) $d->id, 'label' => $d->labelFor('phone'), 'kind' => $d->kind, 'summary' => $d->nextActionSummary(),
+                'id' => (int) $d->id, 'label' => $d->labelFor('phone'), 'kind' => $d->kind, 'group' => $d->group(), 'summary' => $d->nextActionSummary(),
                 'needs_date' => in_array($d->next_action, [Def::ACTION_PICKED_DATE, Def::ACTION_EXPIRY_ELSE], true),
                 'needs_appointment' => $d->next_action === Def::ACTION_APPOINTMENT,
                 'offers_valuation' => $d->kind === Def::KIND_CONVERSATION && ! in_array($d->next_action, [Def::ACTION_APPOINTMENT, Def::ACTION_NEVER_AGAIN], true),
@@ -74,6 +74,8 @@ final class PitchContactService
             'groups' => array_values(array_filter($groups, fn ($g) => $g['items'] !== [])),
             'phone' => $phone !== '' ? $phone : null,
             'now' => now()->format('Y-m-d\TH:i'),
+            // the Book evaluation step (23.23 drop 4): the calendar's own form, prefilled with this property and this seller
+            'book_url' => $property ? app(PitchBookService::class)->url($property, $contact, $carry) : null,
         ];
     }
 

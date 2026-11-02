@@ -13,6 +13,7 @@
         now: @js($phoneCall['now']),
         address: @js($addr),
         groups: @js($phoneCall['groups']),
+        bookUrl: @js($phoneCall['book_url']),
      })">
 
     @if(! $phoneCall['tracked_property_id'])
@@ -29,7 +30,10 @@
     <div x-show="done" x-cloak class="rounded-md p-5" data-qa="phone-done" style="background: color-mix(in srgb, var(--ds-green, #10b981) 10%, var(--surface)); border: 1px solid color-mix(in srgb, var(--ds-green, #10b981) 40%, var(--border));">
         <div class="text-base font-semibold" style="color: var(--text-primary);">✓ Call logged</div>
         <div class="text-sm mt-1" style="color: var(--text-secondary);" x-text="doneMessage"></div>
-        <button type="button" class="corex-btn-outline text-sm mt-3" @click="again()">Log another call</button>
+        <div class="flex items-center gap-2 mt-3 flex-wrap">
+            <button type="button" x-show="canBook" x-cloak data-qa="phone-book-next" class="px-4 py-2 text-sm font-semibold rounded-md" style="background: var(--brand-button, #0ea5e9); color:#fff;" @click="goBook(false)">Book evaluation →</button>
+            <button type="button" class="corex-btn-outline text-sm" @click="again()">Log another call</button>
+        </div>
     </div>
 
     <div x-show="!done" class="space-y-4">
@@ -73,7 +77,10 @@
         <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);" x-show="current && current.offers_valuation">
             <input type="checkbox" x-model="valuation"> Evaluation booked
         </label>
-        <div x-show="current && (current.needs_appointment || valuation)" class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <div x-show="deferBooking" x-cloak data-qa="phone-book-hint" class="rounded-md p-4 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">
+            You pick the date and time of the evaluation next, in the calendar. The call is logged once it is booked.
+        </div>
+        <div x-show="!bookUrl && current && (current.needs_appointment || valuation)" class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
             <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);" for="pc-appt">Evaluation date and time</label>
             <input id="pc-appt" type="datetime-local" x-model="appointmentAt" class="px-3 py-2 text-sm rounded-md" style="{{ $inputStyle }}">
         </div>
@@ -89,7 +96,7 @@
             <button type="button" data-qa="phone-save" @click="save()" :disabled="saving || !chosen"
                     class="px-6 py-2.5 text-sm font-semibold rounded-md"
                     :style="chosen ? 'background: var(--brand-button, #0ea5e9); color:#fff;' : 'background: var(--surface-2); color: var(--text-muted); cursor:not-allowed;'">
-                <span x-show="!saving">Log this call</span><span x-show="saving" x-cloak>Saving…</span>
+                <span x-show="!saving" x-text="deferBooking ? 'Next: book the evaluation →' : 'Log this call'"></span><span x-show="saving" x-cloak>Saving…</span>
             </button>
         </div>
     </div>
@@ -99,15 +106,28 @@
 <script>
 function phoneCallForm(cfg) {
     return {
-        groups: cfg.groups, now: cfg.now, when: cfg.now, chosen: '', nextDate: '', valuation: false, appointmentAt: '', note: '',
+        groups: cfg.groups, now: cfg.now, bookUrl: cfg.bookUrl, loggedKind: null, loggedGroup: null, when: cfg.now, chosen: '', nextDate: '', valuation: false, appointmentAt: '', note: '',
         saving: false, error: '', done: false, doneMessage: '',
         get current() { var id = Number(this.chosen); var found = null; this.groups.forEach(function (g) { g.items.forEach(function (c) { if (c.id === id) { found = c; } }); }); return found; },
+        // an evaluation outcome is booked in the calendar's own form (the next step), and the call is logged against that appointment
+        get deferBooking() { return !!this.bookUrl && !!this.current && (this.current.needs_appointment || (this.valuation && this.current.offers_valuation)); },
+        get canBook() { return !!this.bookUrl && this.loggedKind === 'conversation' && this.loggedGroup !== 'off_ramp'; },
+        goBook(withCall) {
+            var u = new URL(this.bookUrl, window.location.origin);
+            if (withCall) {
+                u.searchParams.set('pitch_outcome', this.current.id); u.searchParams.set('pitch_channel', 'phone');
+                if (this.when) { u.searchParams.set('pitch_when', this.when); }
+                if (this.note) { u.searchParams.set('pitch_note', this.note); }
+            }
+            window.location.href = u.toString();
+        },
         again() { this.done = false; this.chosen = ''; this.note = ''; this.nextDate = ''; this.valuation = false; this.appointmentAt = ''; this.error = ''; this.when = this.now; },
         async save() {
             if (this.saving || !this.current) { return; }
             var c = this.current;
             if (c.needs_date && !this.nextDate) { this.error = 'Pick the date to bring it back on.'; return; }
-            if ((c.needs_appointment || this.valuation) && !this.appointmentAt) { this.error = 'Pick the evaluation date and time.'; return; }
+            if (!this.bookUrl && (c.needs_appointment || this.valuation) && !this.appointmentAt) { this.error = 'Pick the evaluation date and time.'; return; }
+            if (this.deferBooking) { this.goBook(true); return; }
             this.error = ''; this.saving = true;
             var body = new URLSearchParams({ tracked_property_id: cfg.tp, outcome_definition_id: c.id, channel: 'phone', occurred_at: this.when || '', note: this.note || '' });
             if (c.needs_date && this.nextDate) { body.set('next_action_at', this.nextDate); }
@@ -121,7 +141,7 @@ function phoneCallForm(cfg) {
                     this.error = (first && first[0]) || data.message || 'We could not log the call. Try again.';
                     return;
                 }
-                this.done = true; this.doneMessage = data.message || 'Saved.';
+                this.done = true; this.doneMessage = data.message || 'Saved.'; this.loggedKind = c.kind; this.loggedGroup = c.group;
                 if (window.corexPitchResult) { window.corexPitchResult('logged', cfg.address, c.label); }
             } catch (e) {
                 this.error = 'No response from the server. Check your connection and try again.';

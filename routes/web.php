@@ -5445,6 +5445,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'storeFromProspecting'])
                 ->where('prospectingListingId', '\d+')
                 ->name('store-from-prospecting');
+            // road-to-sold.md 23.23 drop 4 - the page after the calendar's own form saved an evaluation inside the pitch popup.
+            Route::get('/outreach/evaluation-booked/{calendarEvent}',
+                [\App\Http\Controllers\SellerOutreach\PitchBookController::class, 'done'])
+                ->whereNumber('calendarEvent')
+                ->name('evaluation-booked');
             // Spec 13.21 - the "Link a deed" picker, live (fetched on open and on each keystroke; agency-scoped).
             Route::get('/outreach/deeds',
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'deedsPicker'])
@@ -7009,6 +7014,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/prospects/{prospect}/result', [\App\Http\Controllers\RoadToSold\ProspectController::class, 'result'])
                 ->whereNumber('prospect')->name('prospects.result');
             // v4 (23.8): "Prepare presentation" opens the generator on THAT property (the property page with its Generate Presentation window already open), not the index
+            // v4 drop 4 (23.23): the Book evaluation step - the calendar's own form, in the pitch popup, with the property, the owner and the agent prefilled
+            Route::get('/prospects/{prospect}/evaluation-path', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'evaluation'])
+                ->whereNumber('prospect')->name('prospects.evaluation-path');
             Route::get('/prospects/{prospect}/presentation-path', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'presentation'])
                 ->whereNumber('prospect')->name('prospects.presentation-path');
             Route::post('/prospects/{prospect}/no-owner', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'noOwner'])

@@ -92,7 +92,9 @@ final class ComposerController extends Controller
         }
 
         // The Phone call tab (road-to-sold.md 23.23): no template, no composed message - the call has already happened, the agent says how it went.
-        $phoneCall = $channel === 'phone' ? $contactRecord->phoneForm($request->user(), $contact, $property) : null;
+        $phoneCall = $channel === 'phone' ? $contactRecord->phoneForm($request->user(), $contact, $property, app(\App\Services\RoadToSold\PitchPathService::class)->carry($request)) : null;
+        // the popup's step 5: known as soon as the composer is open, so its pill works before any call is logged
+        $bookUrl = $phoneTab && $property ? app(\App\Services\SellerOutreach\PitchBookService::class)->url($property, $contact, app(\App\Services\RoadToSold\PitchPathService::class)->carry($request)) : null;
 
         $availableTemplates = SellerOutreachTemplate::withoutGlobalScopes()
             ->where('agency_id', $agencyId)
@@ -163,6 +165,7 @@ final class ComposerController extends Controller
             'addressOnly'        => $addressOnly,
             'phoneTab'           => $phoneTab,
             'phoneCall'          => $phoneCall,
+            'bookUrl'            => $bookUrl,
         ]);
     }
 

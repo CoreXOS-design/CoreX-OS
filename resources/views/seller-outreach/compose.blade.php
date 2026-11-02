@@ -321,4 +321,7 @@ function propertyPickerCollision(init) {
 </script>
 @include('layouts.partials._pitch-popup')
 @include('layouts.partials._pitch-result')
+@if(!empty($bookUrl))
+<script>window.addEventListener('load', function () { if (window.corexPitchBook) { window.corexPitchBook(@js($bookUrl)); } });</script>
+@endif
 @endsection

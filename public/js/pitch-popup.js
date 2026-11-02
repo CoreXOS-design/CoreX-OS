@@ -13,8 +13,8 @@
     'use strict';
     if (window.CorexPitch) return;
     var cfg = window.CorexPitchConfig || {};
-    var STEPS = [['property', 'Property'], ['owner', 'Owner'], ['pitch', 'Pitch'], ['contact', 'Contact']];
-    var NEXT_LABEL = { property: 'Next: find the owner', owner: '', pitch: '', contact: '' };
+    var STEPS = [['property', 'Property'], ['owner', 'Owner'], ['pitch', 'Pitch'], ['contact', 'Contact'], ['evaluation', 'Evaluation']];
+    var NEXT_LABEL = { property: 'Next: find the owner', owner: '', pitch: '', contact: '', evaluation: '' };
     var pop = null;   // the open popup, or null
 
     function sameSite(u) { try { return new URL(u, window.location.href).origin === window.location.origin; } catch (e) { return false; } }
@@ -32,6 +32,7 @@
         var u; try { u = new URL(href, window.location.href); } catch (e) { return null; }
         if (u.searchParams.has('_pitch_card') || u.searchParams.has('_pitch_property') || u.searchParams.has('_pitch_tracked')) return 'property';
         if (/\/outreach\/pitch-ready$/.test(u.pathname)) return 'pitch';
+        if (/\/outreach\/evaluation-booked\//.test(u.pathname) || (/\/command-center\/calendar$/.test(u.pathname) && u.searchParams.has('pitch_book'))) return 'evaluation';
         if (/\/contacts\/\d+\/outreach\//.test(u.pathname)) return 'contact';
         if (/\/outreach\/compose$/.test(u.pathname)) return 'owner';
         return null;
@@ -141,6 +142,7 @@
         });
         pop.keydown = function (e) { if (e.key === 'Escape') close(false); };
         document.addEventListener('keydown', pop.keydown);
+        pop.repaint = paint;
         paint();
         frame.src = first;
         closeBtn.focus();
@@ -164,8 +166,9 @@
         // Done / Close say what happened: "Pitched · 73 Marine Drive", "Contact logged · 73 Marine Drive", or that nothing was sent
         var where = (p.results.length && p.results[p.results.length - 1].address) || (p.o.label || '').replace(/^Pitch\s*-\s*/i, '');
         if (p.results.length) {
-            var kinds = {}; p.results.forEach(function (r) { kinds[r.kind] = true; });
-            toast((kinds.pitched ? 'Pitched' : 'Contact logged') + (where ? ' · ' + where : '') + (kinds.pitched && kinds.logged ? ' (and a call logged)' : ''));
+            var kinds = {}, booked = null; p.results.forEach(function (r) { kinds[r.kind] = true; if (r.kind === 'booked') booked = r; });
+            if (booked) { toast('Evaluation booked · ' + booked.detail + ' · ' + (booked.address || where)); }
+            else { toast((kinds.pitched ? 'Pitched' : 'Contact logged') + (where ? ' · ' + where : '') + (kinds.pitched && kinds.logged ? ' (and a call logged)' : '')); }
         } else if (done === true) {
             toast('Done' + (where ? ' · ' + where : '') + ' - nothing was sent or logged.');
         }
@@ -224,7 +227,8 @@
 
     window.addEventListener('message', function (e) {
         if (e.origin !== window.location.origin || !e.data || !pop || e.source !== pop.frame.contentWindow) return;
-        if (e.data.pitch === 'result') { pop.results.push({ kind: e.data.kind === 'logged' ? 'logged' : 'pitched', address: String(e.data.address || ''), detail: String(e.data.detail || '') }); return; }
+        if (e.data.pitch === 'book') { if (e.data.url && sameSite(e.data.url) && !pop.urls.evaluation) { pop.urls.evaluation = e.data.url; if (pop.repaint) pop.repaint(); } return; }
+        if (e.data.pitch === 'result') { pop.results.push({ kind: ['logged', 'booked'].indexOf(e.data.kind) >= 0 ? e.data.kind : 'pitched', address: String(e.data.address || ''), detail: String(e.data.detail || '') }); return; }
         if (e.data.rts === 'done') close(true);
     });
 

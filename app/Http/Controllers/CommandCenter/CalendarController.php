@@ -1921,6 +1921,12 @@ class CalendarController extends Controller
             return response()->json($event, 201);
         }
 
+        // road-to-sold.md 23.23 drop 4: an evaluation booked in the pitch popup goes on to the "Evaluation booked" page (it records the call and tells the popup)
+        if ($request->boolean('pitch_book') && \App\Support\Embed::on()) {
+            return redirect()->route('seller-outreach.entry.evaluation-booked', ['calendarEvent' => $event->id]
+                + array_filter($request->only(['pitch_outcome', 'pitch_when', 'pitch_note', 'pitch_channel', 'rts_prospect', 'rts_stage', 'embed']), fn ($v) => is_scalar($v) && $v !== ''));
+        }
+
         return redirect()
             ->route('command-center.calendar', ['view' => 'day', 'date' => Carbon::parse($event->event_date)->toDateString()])
             ->with('success', 'Event created.');

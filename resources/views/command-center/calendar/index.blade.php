@@ -113,6 +113,16 @@
 
 <div class="flex flex-col h-full overflow-hidden -m-4 lg:-m-6" x-data="calendarPage()" x-init="initPanel(); restoreCreateEventState(); restoreEventDetailState(); if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }}); handlePrefill(); window.addEventListener('beforeunload', () => { persistCreateEventState(); persistEventDetailState(); }); $watch('showCreateEvent', open => { if (open) { this.panelOpen = false; } if (!open) { this.pendingCreateDate = null; sessionStorage.removeItem('corex.calendar.createEventState'); this.clearStalePickerState(); } }); $watch('panelOpen', open => { if (open) { this.showCreateEvent = false; } if (!open) sessionStorage.removeItem('corex.calendar.eventDetailState'); });" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
 
+    @if(request()->boolean('pitch_book') && \App\Support\Embed::on())
+    {{-- road-to-sold.md 23.23 drop 4: the pitch popup's Book evaluation step is the calendar's own New Event form and nothing else: it fills the popup,
+         the calendar is not behind it and there is no way to close it into an empty calendar (the popup's step bar and Done are the way out) --}}
+    <style>
+        aside[data-tour="cal-event-form"] { position: fixed !important; inset: 0 0 3.6rem 0 !important; width: auto !important; max-width: none !important; z-index: 55 !important; transform: none !important; }
+        aside[data-tour="cal-event-form"] > div:first-child button,
+        aside[data-tour="cal-event-form"] > div:last-child .corex-btn-outline { display: none !important; }
+    </style>
+    @endif
+
     @once
     <style>
         /* AT-164 — MONTH BOUNDARY TINT (continuous month stream only). Alternating faint wash
@@ -1875,6 +1885,12 @@
           class="flex-1 overflow-y-auto px-6 py-4 space-y-4"
           @submit="onFormSubmit($event)">
         @csrf
+        {{-- road-to-sold.md 23.23 drop 4: inside the pitch popup's Book evaluation step, store() sends the agent to the "Evaluation booked" page and records the call --}}
+        @if(request()->boolean('pitch_book'))
+            @foreach(['pitch_book', 'pitch_outcome', 'pitch_when', 'pitch_note', 'pitch_channel', 'rts_prospect', 'rts_stage', 'embed'] as $__pb)
+                @if(request()->filled($__pb))<input type="hidden" name="{{ $__pb }}" value="{{ request()->input($__pb) }}">@endif
+            @endforeach
+        @endif
         <template x-if="editMode"><input type="hidden" name="_method" value="PUT"></template>
 
         {{-- Title --}}
@@ -3536,7 +3552,8 @@ function calendarPage() {
             this.$nextTick(() => {
                 const today = new Date().toISOString().slice(0, 10);
                 this.form = {
-                    title: '',
+                    // road-to-sold.md 23.23 drop 4: the pitch popup's Book evaluation step names the evaluation after the property
+                    title: params.get('prefill_title') || '',
                     category: prefillClass || 'viewing',
                     startDate: today,
                     startTime: prefillClass === 'viewing' ? '14:00' : '09:00',
