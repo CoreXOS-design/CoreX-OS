@@ -218,19 +218,22 @@ class ListBuilderService
      *
      * @return array{state:string, target:int, by_source:array<string,int>, rows:list<array<string,mixed>>}
      */
-    public function preview(User $user, CarbonInterface|string $date, string $track = RtsListItem::TRACK_SALES): array
+    public function preview(User $user, CarbonInterface|string $date, string $track = RtsListItem::TRACK_SALES, ?array $only = null, ?int $targetOverride = null): array
     {
         $this->assertTrack($track);
         $user = $this->listOwner($user);
         $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
         $day = Carbon::parse($date)->startOfDay();
         $state = ! app(ActivationService::class)->mayBuild($user, $day, $track) ? 'not_loading' : 'loading';
-        $target = $this->calendar->isWorkday($user, $day, $track) ? $this->calendar->targetFor($user, $day, $track) : 0;
+        $target = $this->calendar->isWorkday($user, $day, $track) ? ($targetOverride ?? $this->calendar->targetFor($user, $day, $track)) : 0;
         $out = ['state' => $state, 'target' => $target, 'by_source' => [], 'rows' => []];
         if ($agencyId <= 0 || $target <= 0) {
             return $out;
         }
         $settings = ($this->settingsResolver)($user, $track);
+        if ($only !== null) {   // capacity check: ask only these sources (stored selection keys)
+            $settings = $settings->with(['enabledSelectionKeys' => array_values(array_intersect($settings->enabledSelectionKeys, $only))]);
+        }
         $this->stock = new OtherAgentStock($agencyId, $user->dataIdentityIds());
         $taken = [];
         $this->fillTopDown($user, $agencyId, $day, $track, $settings, max(0, $target - $this->countedToward($user, $day, $track)), function (Candidate $c) use ($user, $agencyId, $day, $track, &$taken, &$out) {

@@ -13,7 +13,7 @@ use Illuminate\Console\Command;
  */
 class RtsAllocationPreview extends Command
 {
-    protected $signature = 'rts:allocation-preview {user : the agent\'s user id} {--date= : the working day (default: today)} {--track=sales} {--rows=10 : how many rows to print}';
+    protected $signature = 'rts:allocation-preview {user : the agent\'s user id} {--date= : the working day (default: today)} {--track=sales} {--rows=10 : how many rows to print} {--only= : comma-separated selection keys to ask (a capacity check)} {--target= : pretend the daily stock is this many}';
 
     protected $description = 'Show what the Road to Sold allocation would load for an agent on a day, by source (writes nothing)';
 
@@ -26,7 +26,8 @@ class RtsAllocationPreview extends Command
             return self::FAILURE;
         }
         $date = $this->option('date') ?: now()->toDateString();
-        $p = $builder->preview($user, $date, (string) $this->option('track'));
+        $only = $this->option('only') ? array_values(array_filter(array_map('trim', explode(',', (string) $this->option('only'))))) : null;
+        $p = $builder->preview($user, $date, (string) $this->option('track'), $only, $this->option('target') !== null ? (int) $this->option('target') : null);
 
         $this->line("{$user->name} (#{$user->id}) on {$date}: " . ($p['state'] === 'loading' ? 'lists load for this agent' : 'NOT loading (not started, paused, or before the first list day)') . ", target {$p['target']}");
         $this->line('would load: ' . array_sum($p['by_source']));
