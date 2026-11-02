@@ -44,6 +44,14 @@
                 @endif
             </span>
         @endif
+        @if(!empty($bb['nudge']))
+            @if($bb['edit_url'])
+                <button type="button" data-qa="buyer-banner-nudge" @click="open('{{ $bb['edit_url'] }}', 'Edit criteria · {{ addslashes($bb['buyer']['name']) }}', true, $el)"
+                        style="margin-left: auto; padding: 0 8px; font-size: .6875rem; line-height: 18px; cursor: pointer; border-radius: 10px; color: var(--text-primary); background: color-mix(in srgb, #f59e0b 18%, transparent); border: 1px solid #f59e0b;">Wishlist says only price and type — add suburbs or beds to narrow this list</button>
+            @else
+                <span data-qa="buyer-banner-nudge" style="margin-left: auto; font-size: .6875rem; color: var(--text-primary);">Wishlist says only price and type — add suburbs or beds to narrow this list</span>
+            @endif
+        @endif
     </div>
 
         <div x-show="isOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" role="dialog" aria-modal="true" :aria-label="label" data-qa="buyer-pop">

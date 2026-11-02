@@ -44,12 +44,14 @@ final class MicBuyerBanner
             'wishlists_url' => route('corex.contacts.show', $contact) . '?tab=matches',
             'results_url' => null,
             'edit_url' => null,
+            'nudge' => false,
         ];
         if (! $shown) {
             return $out;
         }
 
         $out['chips'] = $this->chips($shown);
+        $out['nudge'] = $this->tooBroad($shown);
         $out['wishlist'] = [
             'id' => $shown->id,
             'primary' => (bool) $shown->is_primary,
@@ -102,6 +104,18 @@ final class MicBuyerBanner
         }
 
         return $c;
+    }
+
+    /**
+     * 13.14: a wishlist that says little ranks nearly everything alike. True when fewer than 3 of suburbs, beds, baths, sizes and features are set
+     * (price, type, category and garages do not count). Uses the wishlist's own criteria groups, so "set" means what the countable-buyer rule means.
+     */
+    public function tooBroad(ContactMatch $m): bool
+    {
+        $g = $m->presentCriteriaGroups();
+        $set = count(array_intersect(['area', 'beds', 'baths', 'size'], $g)) + (array_intersect(['must_have', 'nice_to_have', 'deal_breakers'], $g) ? 1 : 0);
+
+        return $set < 3;
     }
 
     private function human(string $v): string

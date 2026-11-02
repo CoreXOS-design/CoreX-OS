@@ -124,9 +124,9 @@
                                 <div data-qa="suburb-group-{{ $grp }}" x-show="hit($el)">
                                     <div style="font-size: .625rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); padding: 8px 2px 3px;">{{ $grpLabel }}</div>
                                     @foreach($subBlocks[$grp] as $o)
-                                        <label data-n="{{ mb_strtolower($o['name']) }}" title="{{ $o['name'] }}" x-show="key() === '' || $el.dataset.n.includes(key())" class="mic-sub-row" style="font-size: .8125rem; padding: 3px 2px; cursor: pointer; white-space: nowrap;">
+                                        <label data-n="{{ mb_strtolower($o['name']) }}" title="{{ $o['name'] }}{{ !empty($o['city']) ? ' · ' . $o['city'] : '' }}" x-show="key() === '' || $el.dataset.n.includes(key())" class="mic-sub-row" style="font-size: .8125rem; padding: 3px 2px; cursor: pointer; white-space: nowrap;">
                                             <input type="checkbox" name="suburbs[]" value="{{ $o['id'] }}" @checked(in_array($o['id'], $selSuburbs, true)) @change="ticked += $event.target.checked ? 1 : -1" style="flex-shrink: 0;">
-                                            <span style="flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;">{{ $o['name'] }}</span>
+                                            <span style="flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;">{{ $o['name'] }}@if(!empty($o['city'])) <span data-qa="suburb-city" style="color: var(--text-muted);">· {{ $o['city'] }}</span>@endif</span>
                                             <span style="flex-shrink: 0; margin-left: auto; color: var(--text-muted); font-size: .6875rem; font-variant-numeric: tabular-nums;">{{ number_format($o['count']) }}</span>
                                         </label>
                                     @endforeach

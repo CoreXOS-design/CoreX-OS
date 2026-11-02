@@ -144,29 +144,46 @@ final class MicAdvertFilters
     /**
      * The suburb dropdown: the agency's working suburbs first, then every other suburb that has adverts, each with its live advert count.
      *
-     * @return array{working: list<array{id:int,name:string,count:int}>, others: list<array{id:int,name:string,count:int}>}
+     * @return array{working: list<array{id:int,name:string,count:int,city?:string}>, others: list<array{id:int,name:string,count:int,city?:string}>}
      */
     public function suburbOptions(int $agencyId): array
     {
-        return MicWorkList::remember('suburb-options-az:' . $agencyId, 300, function () use ($agencyId) {
+        return MicWorkList::remember('suburb-options-az2:' . $agencyId, 300, function () use ($agencyId) {
             $counts = DB::table('prospecting_listings')->where('agency_id', $agencyId)->whereNull('deleted_at')->where('is_active', 1)->whereNotNull('p24_suburb_id')
                 ->groupBy('p24_suburb_id')->selectRaw('p24_suburb_id as id, COUNT(*) as n')->pluck('n', 'id');
             $working = array_keys(app(WorkingSuburbs::class)->ids($agencyId));
-            $names = DB::table('p24_suburbs')->whereIn('id', array_values(array_unique(array_merge($working, $counts->keys()->all()))))->pluck('name', 'id');
+            $found = DB::table('p24_suburbs')->leftJoin('p24_cities', 'p24_cities.id', '=', 'p24_suburbs.p24_city_id')
+                ->whereIn('p24_suburbs.id', array_values(array_unique(array_merge($working, $counts->keys()->all()))))
+                ->get(['p24_suburbs.id', 'p24_suburbs.name', 'p24_cities.name as city']);
+            $names = $found->pluck('name', 'id');
+            $cities = $found->pluck('city', 'id');
             $row = fn ($id) => ['id' => (int) $id, 'name' => MicWorkList::titleSuburb($names[$id] ?? ('#' . $id)), 'count' => (int) ($counts[$id] ?? 0)];
             $first = array_map($row, $working);
             usort($first, [self::class, 'byName']);
             $rest = array_map($row, array_values(array_diff($counts->keys()->all(), $working)));
             usort($rest, [self::class, 'byName']);
 
-            return ['working' => $first, 'others' => $rest];
+            // two different suburbs can share a name (Glenmore in Durban and in Port Edward): only then does a row carry its city, so the two can be told apart
+            $seen = array_count_values(array_map(fn ($o) => mb_strtolower($o['name']), array_merge($first, $rest)));
+            $withCity = function (array $list) use ($seen, $cities) {
+                return array_map(function ($o) use ($seen, $cities) {
+                    $city = trim((string) ($cities[$o['id']] ?? ''));
+                    if (($seen[mb_strtolower($o['name'])] ?? 0) > 1 && $city !== '') {
+                        $o['city'] = MicWorkList::titleSuburb($city);
+                    }
+
+                    return $o;
+                }, $list);
+            };
+
+            return ['working' => $withCity($first), 'others' => $withCity($rest)];
         });
     }
 
     /** A-Z by name, case-insensitive; the id breaks a tie so the order never shuffles (13.13: never by count). */
     private static function byName(array $a, array $b): int
     {
-        return [mb_strtolower($a['name']), $a['id']] <=> [mb_strtolower($b['name']), $b['id']];
+        return [mb_strtolower($a['name']), $a['id']] <=> [mb_strtolower($b['name']), $b['id']]; // same name: the lower id first, so the order never shuffles
     }
 
     /**

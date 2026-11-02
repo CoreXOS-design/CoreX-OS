@@ -226,4 +226,28 @@ final class MicWorkFilterBarTest extends TestCase
         $this->assertSame(2, substr_count($h, '<input type="checkbox" name="suburbs[]" value="' . $zulu . '"') + substr_count($h, '<input type="checkbox" name="suburbs[]" value="' . $amber . '"'), 'each ticked suburb appears once');
         $this->assertSame(2, preg_match_all('/<input type="checkbox" name="suburbs\[\]" value="\d+" checked/', $h));
     }
+
+    /** 13.13: two different suburbs with the same name (Glenmore in Durban and in Port Edward) show their city; a name that is alone does not. */
+    public function test_a_suburb_name_that_appears_twice_shows_its_city_in_grey(): void
+    {
+        $country = DB::table('p24_countries')->insertGetId(['name' => 'South Africa', 'p24_id' => 1, 'created_at' => now(), 'updated_at' => now()]);
+        $province = DB::table('p24_provinces')->insertGetId(['name' => 'KwaZulu-Natal', 'p24_id' => 2, 'p24_country_id' => $country, 'created_at' => now(), 'updated_at' => now()]);
+        $city = fn (string $n, int $p) => DB::table('p24_cities')->insertGetId(['name' => $n, 'p24_id' => 990000 + $p, 'p24_province_id' => $province, 'created_at' => now(), 'updated_at' => now()]);
+        $durban = $city('Durban', 1); $pe = $city('Port Edward', 2);
+        $sub = fn (string $name, int $cityId, int $n) => DB::table('p24_suburbs')->insertGetId(['name' => $name, 'slug' => strtolower($name) . $n, 'p24_id' => 991000 + $n, 'p24_city_id' => $cityId, 'created_at' => now(), 'updated_at' => now()]);
+        $g1 = $sub('Glenmore', $durban, 1); $g2 = $sub('Glenmore', $pe, 2); $solo = $sub('Solo Bay', $pe, 3);
+        MicAgencySetting::saveValues($this->agency->id, ['areas' => [$g1, $g2, $solo]]);
+
+        $o = app(\App\Services\Prospecting\MicWork\MicAdvertFilters::class)->suburbOptions($this->agency->id);
+        $by = collect($o['working'])->keyBy('id');
+        $this->assertSame('Durban', $by[$g1]['city']);
+        $this->assertSame('Port Edward', $by[$g2]['city']);
+        $this->assertArrayNotHasKey('city', $by[$solo], 'a name that is alone carries no city');
+
+        $h = $this->page();
+        $this->assertSame(2, substr_count($h, 'data-qa="suburb-city"'));
+        $this->assertMatchesRegularExpression('/Glenmore <span data-qa="suburb-city" style="color: var\(--text-muted\);">· Durban<\/span>/', $h);
+        $this->assertMatchesRegularExpression('/Glenmore <span data-qa="suburb-city" style="color: var\(--text-muted\);">· Port Edward<\/span>/', $h);
+        $this->assertStringContainsString('title="Glenmore · Durban"', $h);
+    }
 }
