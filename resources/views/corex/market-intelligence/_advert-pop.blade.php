@@ -9,6 +9,7 @@
     $dim = 'color: var(--text-secondary);';
     $link = 'color: var(--text-primary); font-weight:700; text-decoration: underline; text-decoration-color: var(--brand-icon);';
     $split = !empty($split);
+    $B = \App\Services\Prospecting\MicWork\BuyerFitLabel::class;
 @endphp
 {{-- With the split button the popover stays open on a click inside it (the dropdown would close it); a click that is not on a split button turns an armed one back to normal --}}
 <div style="padding:4px 0; max-height: min(22rem, var(--pop-max, 22rem)); overflow-y:auto; {{ $pt }}" @keydown.escape.window="$dispatch('close')" @if($split) @click.stop="if ($event.splitBtn === undefined) disarm()" @endif>
@@ -78,6 +79,26 @@
                             x-text="label({{ $aid }})">Not the same property</button>
                 </div>
             @endif
+        </div>
+    @endforeach
+@elseif($kind === 'fit')
+    @php $fit = $adv['buyer_fit'] ?? []; $fs = $B::summary($fit); $fi = 0; @endphp
+    <div style="{{ $ph }}">{{ $fit['first_name'] ?? 'Buyer' }} · {{ $fs['ok'] }} of {{ $fs['total'] }} fit @if(isset($fit['score'])) · {{ $fit['score'] }}% match @endif</div>
+    @foreach($fit['fields'] ?? [] as $f)
+        @php $parts = array_values(array_filter([trim((string) ($f['wants'] ?? '')) !== '' ? 'wants ' . $f['wants'] : null, trim((string) ($f['has'] ?? '')) !== '' ? 'has ' . $f['has'] : null])); @endphp
+        <div data-qa="pop-entry" style="{{ $row($fi++) }}">
+            <div style="{{ $bold }}">{{ $f['label'] ?? ucfirst($f['key'] ?? '') }} <span style="color: {{ $B::color($f['state'] ?? null) }};">{{ $B::mark($f['state'] ?? null) }}</span></div>
+            <div style="{{ $dim }}">{{ $parts ? implode(' · ', $parts) : ($B::state($f['state'] ?? null) === 'na' ? 'not asked for' : 'nothing recorded') }}</div>
+        </div>
+    @endforeach
+    @foreach($fit['must_haves'] ?? [] as $m)
+        <div data-qa="pop-entry" style="{{ $row($fi++) }}">
+            <div style="{{ $bold }}">Must-have: {{ $m['label'] }} <span style="color: {{ $B::color($m['state'] ?? null) }};">{{ $B::mark($m['state'] ?? null) }}</span></div>
+        </div>
+    @endforeach
+    @foreach($fit['deal_breakers'] ?? [] as $d)
+        <div data-qa="pop-entry" style="{{ $row($fi++) }}">
+            <div style="{{ $bold }}">Deal-breaker: {{ $d['label'] }} <span style="color: {{ $B::color($d['state'] ?? null) }};">{{ $B::mark($d['state'] ?? null) }}</span></div>
         </div>
     @endforeach
 @elseif($kind === 'alerts')

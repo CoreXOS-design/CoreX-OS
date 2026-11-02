@@ -189,4 +189,33 @@ final class MicBuyerBannerTest extends TestCase
         $none = $this->wishlist($this->buyer, ['is_primary' => false, 'property_types' => [], 'property_type' => null]);
         $this->assertSame([], $none->propertyTypeLabels());
     }
+
+    /** 13.14: a wishlist that sets fewer than 3 of suburbs / beds / baths / sizes / features gets the amber nudge, which opens Edit criteria. */
+    public function test_a_thin_wishlist_gets_the_amber_nudge_and_a_detailed_one_does_not(): void
+    {
+        $text = 'Wishlist says only price and type — add suburbs or beds to narrow this list';
+        $svc = app(MicBuyerBanner::class);
+        $thin = $this->wishlist($this->buyer, ['p24_suburb_ids' => [], 'beds_min' => null, 'category' => null]);
+        $this->assertTrue($svc->tooBroad($thin), 'price and type only');
+        $this->advertFor($this->buyer);
+        $h = $this->page();
+        $this->assertMatchesRegularExpression('/<button type="button" data-qa="buyer-banner-nudge" @click="open\(\'[^\']*' . $thin->id . '\/edit[^"]*"[^>]*>' . preg_quote($text, '/') . '<\/button>/', $h, 'the nudge opens Edit criteria');
+        $this->assertSame(1, substr_count($h, 'data-qa="buyer-banner-nudge"'));
+        $this->assertGreaterThan(strpos($h, 'data-qa="buyer-banner-line2"'), strpos($h, 'data-qa="buyer-banner-nudge"'), 'the nudge sits on the second line');
+        $this->assertLessThan(strpos($h, 'data-qa="buyer-pop"'), strpos($h, 'data-qa="buyer-banner-nudge"'));
+
+        $thin->update(['beds_min' => 2]);
+        $this->assertTrue($svc->tooBroad($thin->refresh()), 'one set (beds)');
+        $this->wishlist($this->buyer, ['is_primary' => false])->update(['status' => 'paused']); // not an active wishlist: never counted
+
+        $two = $this->wishlist($this->buyer, ['is_primary' => false, 'beds_min' => 2, 'baths_min' => 1, 'must_have_features' => ['pool'], 'nice_to_have_features' => ['garden']]);
+        $this->assertFalse($svc->tooBroad($two), 'beds + baths + features (two feature lists count once) = 3');
+        $three = $this->wishlist($this->buyer, ['is_primary' => false, 'p24_suburb_ids' => [DB::table('p24_suburbs')->value('id')], 'beds_min' => 3, 'floor_size_min' => 80]);
+        $this->assertFalse($svc->tooBroad($three), 'suburb + beds + size = 3');
+        $five = $this->wishlist($this->buyer, ['is_primary' => false, 'p24_suburb_ids' => [], 'beds_min' => 3, 'floor_size_min' => 80]);
+        $this->assertTrue($svc->tooBroad($five), 'beds + size = 2');
+
+        // without core match access the nudge is plain text, not a button
+        $this->assertNull($svc->forBuyer($this->buyer->id, $this->agency->id, false)['edit_url']);
+    }
 }

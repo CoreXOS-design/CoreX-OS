@@ -64,8 +64,13 @@
     ];
 @endphp
 
+    @php
+        // 13.18: the buyer-fit badge replaces "Possible match" while a buyer is selected
+        $fit = !empty($adv['buyer_fit']) ? $adv['buyer_fit'] : null;
+        $fs = $fit ? \App\Services\Prospecting\MicWork\BuyerFitLabel::summary($fit) : null;
+    @endphp
     <div class="mi-advert-right" data-qa="advert-right">
-        <div data-qa="line-score" style="display:flex; align-items:center; gap:8px; white-space:nowrap; overflow:hidden; height:1.5rem; font-size:.75rem;">
+        <div data-qa="line-score" style="display:flex; align-items:center; gap:8px; white-space:nowrap; overflow:{{ $fs ? 'visible' : 'hidden' }}; height:1.5rem; font-size:.75rem;">
             @if($adv['score'] !== null)
                 <span style="font-size:.8125rem; font-weight:800; color: var(--text-primary); flex-shrink:0;">Score {{ number_format($adv['score'], 0) }}</span>
                 <span style="display:flex; gap:6px; min-width:0; overflow:hidden; text-overflow:ellipsis; {{ $muted }}">@foreach(array_slice($adv['reasons'] ?? [], 0, 3) as $rc)<span style="white-space:nowrap;">· {{ \App\Services\Prospecting\MicWork\MicWorkList::REASON_LABELS[$rc] ?? ucfirst(str_replace('_', ' ', $rc)) }}</span>@endforeach</span>
@@ -73,7 +78,15 @@
                 <span style="{{ $muted }}">No score yet</span>
             @endif
             @include('corex.market-intelligence._advert-buyer-hide')
-            @if(!empty($adv['pair_ids']))<span style="font-size:.625rem; font-weight:700; padding:0 5px; border:1px solid var(--ds-amber, #f59e0b); border-radius:8px; color: var(--text-primary); flex-shrink:0;">Possible match</span>@endif
+            @if($fs)
+                {{-- 13.18: with a buyer selected the badge says how well this property fits THEM; click for the full wants / has table --}}
+                <div style="min-width:0; flex-shrink:1;" data-qa="fit-wrap">
+                    <x-mic-pop align="left" content-classes="p-1">
+                        <x-slot name="trigger"><button type="button" data-qa="fit-badge" title="{{ $fs['text'] }} - click for what {{ $fit['first_name'] ?? 'the buyer' }} wants against what this has" style="display:block; max-width:100%; font-size:.625rem; font-weight:700; line-height:1.4; padding:0 6px; border:1px solid currentColor; border-radius:8px; background:none; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color: {{ \App\Services\Prospecting\MicWork\BuyerFitLabel::COLORS[$fs['tone']] }};">{{ $fs['text'] }}</button></x-slot>
+                        <x-slot name="content">@include('corex.market-intelligence._advert-pop', ['kind' => 'fit'])</x-slot>
+                    </x-mic-pop>
+                </div>
+            @elseif(!empty($adv['pair_ids']))<span style="font-size:.625rem; font-weight:700; padding:0 5px; border:1px solid var(--ds-amber, #f59e0b); border-radius:8px; color: var(--text-primary); flex-shrink:0;">Possible match</span>@endif
             <span data-qa="claim-state" style="margin-left:auto; flex-shrink:0; font-weight:600; {{ $claimedByMe ? 'color: var(--text-primary);' : $muted }}">{{ $claimState }}</span>
         </div>
 

@@ -1205,6 +1205,15 @@ class MarketIntelligenceController extends Controller
         $rowExtras = $this->classicRowExtras($listings->items(), (int) $agencyId);
         // 13.3 / 13.4: the full file read (MicWorkList::forFiles, one batched read per source) for this page's rows, keyed by listing id. The Adverts cards are built from it.
         $fileRows = $this->fileRowsFor($listings->items(), (int) $agencyId);
+        // 13.18 look check: until the match engine supplies row['buyer_fit'], ?fit_stub=1 shows a stand-in (a selected buyer, not production); removed when the real data lands
+        if ($selectedBuyer && $request->boolean('fit_stub') && ! app()->environment('production')) {
+            $i = 0;
+            foreach ($fileRows as $lid => $r) {
+                if (empty($r['buyer_fit'])) {
+                    $fileRows[$lid]['buyer_fit'] = \App\Services\Prospecting\MicWork\BuyerFitStub::for((string) ($selectedBuyer->first_name ?? 'Buyer'), $i++);
+                }
+            }
+        }
         $tileNote = $this->tileNote($request, $listings->total(), (int) $agencyId, $user);
         $suburbOptions = app(\App\Services\Prospecting\MicWork\MicAdvertFilters::class)->suburbOptions((int) $agencyId);
 
