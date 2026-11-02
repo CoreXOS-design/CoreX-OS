@@ -20,6 +20,7 @@
         <div style="flex: 1 1 auto; min-width: 0; display: flex; align-items: baseline; gap: 8px; white-space: nowrap; overflow: hidden;">
             <span style="font-size: .8125rem; font-weight: 700; color: var(--text-primary); flex-shrink: 0;">Prospecting for <a href="{{ $bb['buyer']['url'] }}" data-qa="buyer-banner-name" style="color: inherit; text-decoration: underline; text-decoration-color: var(--border);">{{ $bb['buyer']['name'] }}</a></span>
             <span data-qa="buyer-banner-count" style="font-size: .6875rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis;">{{ number_format($total) }} propert{{ $total === 1 ? 'y' : 'ies' }} matching — strongest match first (Core Matches score)</span>
+            @include('corex.market-intelligence._buyer-hidden-link')
         </div>
         <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
             @if($bb['results_url'])

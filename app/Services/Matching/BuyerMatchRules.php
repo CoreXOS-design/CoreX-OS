@@ -15,6 +15,10 @@ use App\Services\MarketIntelligence\PropertyTypes\PropertyTypeResolver;
  *
  * An advert that has not captured a value the buyer asked about (no beds, no size, no type, no features...) is not excluded on that
  * field, but the field is returned in `unverified`, and a match with anything unverified cannot score "strong" (see MatchingService::assess).
+ *
+ * evaluate() is the single pass over the rules. check() is its fast form (stops at the first failure - what scoring uses); the same pass run
+ * to the end ($all) also reports every field's verdict with the wishlist's "wants" and the property's "has" (spec 13.18, "Buyer wants vs
+ * property has"), so what the card shows is the very verdict the filters used, never a second calculation.
  */
 class BuyerMatchRules
 {
@@ -54,38 +58,87 @@ class BuyerMatchRules
      */
     public function check(Property $p, ContactMatch $m, ?float $tolerance = null): array
     {
+        $e = $this->evaluate($p, $m, $tolerance, false);
+
+        return ['ok' => $e['reason'] === null, 'reason' => $e['reason'], 'unverified' => $e['reason'] === null ? $e['unverified'] : []];
+    }
+
+    /**
+     * The full pass: every field's verdict. Same rules, same order, same result as check(); it just does not stop at the first miss.
+     *
+     * @return array{reason: ?string, unverified: list<string>, fields: list<array{key:string,label:string,wants:string,has:string,state:string}>,
+     *               must_haves: list<array{label:string,state:string}>, deal_breakers: list<array{label:string,state:string}>}
+     */
+    public function evaluate(Property $p, ContactMatch $m, ?float $tolerance = null, bool $all = false): array
+    {
         $agencyId = $m->agency_id ?: ($p->agency_id ?: null);
         $tolerance ??= self::toleranceFor($agencyId ? (int) $agencyId : null);
         $unverified = [];
-        $fail = fn (string $reason): array => ['ok' => false, 'reason' => $reason, 'unverified' => []];
+        $reason = null;      // the first rule the property failed
+        $fields = [];        // key => [label, wants, has, state]
+        $mustOut = [];
+        $breakOut = [];
+        $stop = function () use (&$reason, $all): bool {
+            return ! $all && $reason !== null;
+        };
+        $miss = function (string $r) use (&$reason): void {
+            $reason ??= $r;
+        };
+        $done = function () use (&$reason, &$unverified, &$fields, &$mustOut, &$breakOut): array {
+            $list = [];
+            foreach ($fields as $k => $f) {
+                $list[] = ['key' => $k] + $f;
+            }
+
+            return ['reason' => $reason, 'unverified' => array_values(array_unique($unverified)), 'fields' => $list, 'must_haves' => $mustOut, 'deal_breakers' => $breakOut];
+        };
+        $set = function (string $key, string $label, string $wants, string $has, string $state) use (&$fields): void {
+            $fields[$key] = ['label' => $label, 'wants' => $wants, 'has' => $has, 'state' => $state];
+        };
 
         // 1. Listing type: sale vs rental are different markets.
         if ($m->listing_type) {
             if (blank($p->listing_type)) {
                 $unverified[] = 'listing type';
             } elseif (strtolower((string) $p->listing_type) !== strtolower((string) $m->listing_type)) {
-                return $fail('listing-type');
+                $miss('listing-type');
             }
+        }
+        if ($stop()) {
+            return $done();
         }
 
         // 2. Auctions: a buyer who will not bid at an auction never sees one (open_to_auction is null or true = open).
         if ($m->open_to_auction === false && $this->isAuction($p)) {
-            return $fail('auction');
+            $miss('auction');
+        }
+        if ($stop()) {
+            return $done();
         }
 
         // 3. Price: the minimum is never relaxed; the maximum is relaxed by the agency's tolerance only.
+        $price = (int) $p->effectivePrice();
         if ($m->price_min || $m->price_max) {
-            $price = (int) $p->effectivePrice();
+            $wants = self::moneyRange($m->price_min, $m->price_max);
             if ($price <= 0 || (! $p->isRental() && $price < self::SALE_PRICE_FLOOR)) {
                 $unverified[] = 'price';
+                $set('price', 'Price', $wants, '', 'unknown');
             } else {
+                $state = 'ok';
                 if ($m->price_min && $price < (int) $m->price_min) {
-                    return $fail('price-below-min');
+                    $miss('price-below-min');
+                    $state = 'miss';
+                } elseif ($m->price_max && $price > (int) ceil((int) $m->price_max * (1 + max(0.0, $tolerance)))) {
+                    $miss('price-above-max');
+                    $state = 'miss';
                 }
-                if ($m->price_max && $price > (int) ceil((int) $m->price_max * (1 + max(0.0, $tolerance)))) {
-                    return $fail('price-above-max');
-                }
+                $set('price', 'Price', $wants, self::money($price), $state);
             }
+        } else {
+            $set('price', 'Price', '', $price > 0 ? self::money($price) : '', 'na');
+        }
+        if ($stop()) {
+            return $done();
         }
 
         // The advert's canonical type (house, apartment, townhouse, land...), mapped the same way MIC maps it everywhere.
@@ -97,15 +150,20 @@ class BuyerMatchRules
             if ($cat === null) {
                 $unverified[] = 'category';
             } elseif ($cat !== strtolower(trim((string) $m->category))) {
-                return $fail('category');
+                $miss('category');
             }
+        }
+        if ($stop()) {
+            return $done();
         }
 
         // 5. Property type: must be one of the wishlist's types (a Townhouse is not a House). A type the map cannot read falls back to the
         // coarser family (built / land / farm / commercial): a different family still excludes; the same family is kept but unverified.
         $wanted = [];
         $wantedFamilies = [];
+        $wantedNames = [];
         foreach ($m->propertyTypeList() as $name) {
+            $wantedNames[] = (string) $name;
             $k = $this->typeKey($name, $agencyId);
             if ($k !== null && $k !== 'other') {
                 $wanted[$k] = true;
@@ -114,84 +172,108 @@ class BuyerMatchRules
                 $wantedFamilies[$fam] = true;
             }
         }
+        $hasType = trim((string) $p->property_type);
         if ($wanted !== [] || $wantedFamilies !== []) {
             $mapped = $typeKey !== null && $typeKey !== 'other';
+            $state = 'ok';
             if ($wanted !== [] && $mapped) {
                 if (! isset($wanted[$typeKey])) {
-                    return $fail('property-type');
+                    $miss('property-type');
+                    $state = 'miss';
                 }
             } else {
                 $advertFamily = MatchingService::propertyTypeFamily($p->property_type);
                 if ($advertFamily !== null && $wantedFamilies !== [] && ! isset($wantedFamilies[$advertFamily])) {
-                    return $fail('property-type');
-                }
-                if (! $mapped) {
+                    $miss('property-type');
+                    $state = 'miss';
+                } elseif (! $mapped) {
                     $unverified[] = 'property type';
+                    $state = 'unknown';
                 }
             }
+            $set('type', 'Type', implode(' · ', $wantedNames), $hasType, $state);
+        } else {
+            $set('type', 'Type', '', $hasType, 'na');
+        }
+        if ($stop()) {
+            return $done();
         }
 
         // 6. Suburbs: a buyer who named suburbs only sees those (an open wishlist matches anywhere).
-        if (! $this->matcher->suburbCompatible($p, $m)) {
-            return $fail('suburb');
+        $okSuburb = $this->matcher->suburbCompatible($p, $m);
+        if (! $okSuburb) {
+            $miss('suburb');
+        }
+        $suburbNamed = ! empty($m->p24SuburbIdList());
+        $set('suburb', 'Suburb', $this->wantedSuburbs($m), (string) ($p->suburb ?? ''), ! $suburbNamed ? 'na' : ($okSuburb ? 'ok' : 'miss'));
+        if ($stop()) {
+            return $done();
         }
 
         // 7. Counts and sizes: a value below the minimum (or above a maximum) excludes; a missing value is unverified.
-        $count = function (string $label, mixed $have, ?int $min, ?int $max = null) use (&$unverified): ?string {
+        $count = function (string $key, string $label, mixed $have, ?int $min, ?int $max, string $unit = '') use (&$unverified, $miss, $set): void {
+            $fmt = fn (int $n): string => number_format($n);
+            $sfx = $unit !== '' ? ' ' . $unit : '';
             if (! $min && ! $max) {
-                return null;
+                $set($key, $label, '', $have !== null && (int) $have > 0 ? $fmt((int) $have) . $sfx : '', 'na');
+
+                return;
             }
+            $wants = $min && $max ? $fmt($min) . '–' . $fmt($max) . $sfx : ($min ? $fmt($min) . '+' . $sfx : '≤ ' . $fmt($max) . $sfx);
             if ($have === null || (int) $have <= 0) {
                 $unverified[] = $label;
+                $set($key, $label, $wants, '', 'unknown');
 
-                return null;
+                return;
             }
+            $state = 'ok';
             if ($min && (int) $have < $min) {
-                return $label . '-below-min';
+                $miss($label . '-below-min');
+                $state = 'miss';
+            } elseif ($max && (int) $have > $max) {
+                $miss($label . '-above-max');
+                $state = 'miss';
             }
-            if ($max && (int) $have > $max) {
-                return $label . '-above-max';
-            }
-
-            return null;
+            $set($key, $label, $wants, $fmt((int) $have) . $sfx, $state);
         };
-        $checks = [
-            ['bedrooms', $p->beds, $m->beds_min, $m->bedrooms_max],
-            ['bathrooms', $p->baths, $m->baths_min, null],
-            ['garages', $p->garages, $m->garages_min, null],
-            ['parking', $p->getAttribute('parking'), $m->parking_min, null],
-            ['floor size', $p->size_m2, $m->floor_size_min, $m->floor_size_max],
-            ['erf size', $p->erf_size_m2, $m->erf_size_min, $m->erf_size_max],
-        ];
-        foreach ($checks as [$label, $have, $min, $max]) {
-            if ($reason = $count($label, $have, $min ? (int) $min : null, $max ? (int) $max : null)) {
-                return $fail($reason);
-            }
+        // the labels double as the "unverified" names (spec 13.15)
+        $count('beds', 'bedrooms', $p->beds, $m->beds_min ? (int) $m->beds_min : null, $m->bedrooms_max ? (int) $m->bedrooms_max : null);
+        $count('baths', 'bathrooms', $p->baths, $m->baths_min ? (int) $m->baths_min : null, null);
+        $count('garages', 'garages', $p->garages, $m->garages_min ? (int) $m->garages_min : null, null);
+        $count('parking', 'parking', $p->getAttribute('parking'), $m->parking_min ? (int) $m->parking_min : null, null);
+        $count('floor', 'floor size', $p->size_m2, $m->floor_size_min ? (int) $m->floor_size_min : null, $m->floor_size_max ? (int) $m->floor_size_max : null, 'm²');
+        $count('erf', 'erf size', $p->erf_size_m2, $m->erf_size_min ? (int) $m->erf_size_min : null, $m->erf_size_max ? (int) $m->erf_size_max : null, 'm²');
+        if ($stop()) {
+            return $done();
         }
 
         // 8. Features: a deal-breaker present, or a must-have missing, excludes - but only against an advert that has structured
         // features to read. One without any is "unknown", flagged, never a silent pass or a silent fail.
-        $breakers = is_array($m->deal_breakers) ? array_filter($m->deal_breakers) : [];
-        $must = is_array($m->must_have_features) ? array_filter($m->must_have_features) : [];
+        $breakers = is_array($m->deal_breakers) ? array_values(array_filter($m->deal_breakers)) : [];
+        $must = is_array($m->must_have_features) ? array_values(array_filter($m->must_have_features)) : [];
         $nice = is_array($m->nice_to_have_features) ? array_filter($m->nice_to_have_features) : [];
         if ($breakers || $must || $nice) {
-            if (! $this->matcher->featuresKnown($p)) {
+            $known = $this->matcher->featuresKnown($p);
+            if (! $known) {
                 $unverified[] = 'features';
-            } else {
-                foreach ($breakers as $b) {
-                    if ($this->matcher->hasFeature($p, (string) $b)) {
-                        return $fail('deal-breaker');
-                    }
+            }
+            foreach ($breakers as $b) {
+                $state = ! $known ? 'unknown' : ($this->matcher->hasFeature($p, (string) $b) ? 'miss' : 'ok');
+                if ($state === 'miss') {
+                    $miss('deal-breaker');
                 }
-                foreach ($must as $f) {
-                    if (! $this->matcher->hasFeature($p, (string) $f)) {
-                        return $fail('must-have');
-                    }
+                $breakOut[] = ['label' => self::featureLabel((string) $b), 'state' => $state];
+            }
+            foreach ($must as $f) {
+                $state = ! $known ? 'unknown' : ($this->matcher->hasFeature($p, (string) $f) ? 'ok' : 'miss');
+                if ($state === 'miss') {
+                    $miss('must-have');
                 }
+                $mustOut[] = ['label' => self::featureLabel((string) $f), 'state' => $state];
             }
         }
 
-        return ['ok' => true, 'reason' => null, 'unverified' => array_values(array_unique($unverified))];
+        return $done();
     }
 
     public function isAuction(Property $p): bool
@@ -202,5 +284,39 @@ class BuyerMatchRules
     private function typeKey(?string $raw, ?int $agencyId): ?string
     {
         return $this->types->keyFor($raw, $agencyId ? (int) $agencyId : null);
+    }
+
+    private function wantedSuburbs(ContactMatch $m): string
+    {
+        $names = is_array($m->suburbs) ? array_values(array_filter(array_map('strval', $m->suburbs))) : [];
+
+        return implode(' · ', $names);
+    }
+
+    private static function featureLabel(string $f): string
+    {
+        return ucfirst(trim(str_replace('_', ' ', $f)));
+    }
+
+    /** R950k, R1.0m, R12,500 */
+    public static function money(int $n): string
+    {
+        if ($n >= 1_000_000) {
+            return 'R' . number_format($n / 1_000_000, 1, '.', '') . 'm';
+        }
+        if ($n >= 100_000) {
+            return 'R' . number_format((int) round($n / 1000)) . 'k';
+        }
+
+        return 'R' . number_format($n);
+    }
+
+    /** "≤ R1.0m", "≥ R800k", "R800k – R1.0m" */
+    public static function moneyRange(mixed $min, mixed $max): string
+    {
+        $min = (int) $min;
+        $max = (int) $max;
+
+        return $min && $max ? self::money($min) . ' – ' . self::money($max) : ($max ? '≤ ' . self::money($max) : ($min ? '≥ ' . self::money($min) : ''));
     }
 }

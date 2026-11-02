@@ -762,13 +762,17 @@ class ContactMatchController extends Controller
         $property = (int) Property::query()->whereKey($property)->value('id');
         abort_if($property === 0, 404);
 
+        // 13.17: hiding is "not for this buyer" - one record shared with Market Intelligence (all of his wishlists, and MIC's list, counts and buyer lines).
+        $exclusions = app(\App\Services\Matching\BuyerPropertyExclusions::class);
         if ($match->isPropertyHidden($property)) {
-            $match->unhideProperty($property);
+            if (! $exclusions->restoreForProperty($contact, $property, $request->user())) {
+                $match->unhideProperty($property); // an older hide on this wishlist alone
+            }
         } else {
             $data = $request->validate([
                 'reason' => 'required|string|min:3|max:500',
             ], [], ['reason' => 'reason']);
-            $match->hidePropertyWithReason($property, $data['reason']);
+            $exclusions->hide($contact, null, null, $data['reason'], $request->user(), 'core_match', $property);
         }
 
         return back();

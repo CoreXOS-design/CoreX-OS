@@ -844,8 +844,34 @@ class MatchingService
      */
     public function assess(Property $property, ContactMatch $match, ?float $priceBandPct = null): array
     {
-        $rules = $this->rules ??= new BuyerMatchRules($this, app(\App\Services\MarketIntelligence\PropertyTypes\PropertyTypeResolver::class));
-        $check = $rules->check($property, $match, $priceBandPct);
+        $check = $this->rules()->check($property, $match, $priceBandPct);
+
+        return $this->assessFrom($check, $property, $match, $priceBandPct);
+    }
+
+    /**
+     * The verdict AND the field-by-field picture for the "Buyer wants vs property has" panel (spec 13.18): one pass of the rules (evaluate, run to the
+     * end), the score worked out from that same pass - the card shows exactly what the filters decided, nothing is calculated twice.
+     *
+     * @return array{score:int, tier:?string, unverified:list<string>, reason:?string, fields:list<array{key:string,label:string,wants:string,has:string,state:string}>,
+     *               must_haves:list<array{label:string,state:string}>, deal_breakers:list<array{label:string,state:string}>}
+     */
+    public function fit(Property $property, ContactMatch $match, ?float $priceBandPct = null): array
+    {
+        $e = $this->rules()->evaluate($property, $match, $priceBandPct, true);
+        $check = ['ok' => $e['reason'] === null, 'reason' => $e['reason'], 'unverified' => $e['reason'] === null ? $e['unverified'] : []];
+
+        return $this->assessFrom($check, $property, $match, $priceBandPct) + ['fields' => $e['fields'], 'must_haves' => $e['must_haves'], 'deal_breakers' => $e['deal_breakers']];
+    }
+
+    private function rules(): BuyerMatchRules
+    {
+        return $this->rules ??= new BuyerMatchRules($this, app(\App\Services\MarketIntelligence\PropertyTypes\PropertyTypeResolver::class));
+    }
+
+    /** @param array{ok:bool, reason:?string, unverified:list<string>} $check */
+    private function assessFrom(array $check, Property $property, ContactMatch $match, ?float $priceBandPct): array
+    {
         if (! $check['ok']) {
             return ['score' => 0, 'tier' => null, 'unverified' => [], 'reason' => $check['reason']];
         }

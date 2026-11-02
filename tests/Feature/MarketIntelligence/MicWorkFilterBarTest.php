@@ -184,7 +184,7 @@ final class MicWorkFilterBarTest extends TestCase
 
         // the buyer-match slider is inside More filters, and there is no chip while it sits at its default
         $this->assertGreaterThan(strpos($h, 'data-qa="more-filters"'), strpos($h, 'id="mic-score-min"'));
-        $this->assertStringNotContainsString('Buyer match 50', $this->page()); // spec 13.15: the slider's default is now the engine's mid tier (50), so no chip at the default
+        $this->assertStringNotContainsString('Buyer match 80', $this->page()); // spec 13.15: the slider's default is the engine's strong tier (80), so no chip at the default
         $this->assertStringContainsString('Buyer match 60–100%', $this->page(['score_min' => 60, 'score_max' => 100]));
         // no chips line when nothing is active
         $this->assertStringNotContainsString('data-qa="filter-chips"', $h);

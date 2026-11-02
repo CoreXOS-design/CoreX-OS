@@ -49,16 +49,19 @@ use Illuminate\Support\Facades\Storage;
  */
 class MarketIntelligenceController extends Controller
 {
+    /** @var array{buyer_id:int,first_name:string,count:int,viewing:bool,by_file:array<int,int>,by_listing:array<int,int>}|null the selected buyer's hidden properties (spec 13.17), set while building the page */
+    private ?array $buyerHiddenCtx = null;
+
     /**
-     * Spec 13.15: the lowest score that counts as a match anywhere on MIC - the engine's "mid" tier (buyer_match_tiers.mid_min_score,
-     * default 50), the same line the card's "Buyers N strong · N mid" line and the Buyers waiting tile already use. The banner
-     * count, the %-slider's default and the headline counts all start here, so they cannot disagree.
+     * Spec 13.15 (Johan, 2 Nov 05:21): the default floor for a buyer's list is the engine's STRONG tier (buyer_match_tiers.strong_min_score,
+     * default 80) - his complaint is "it shows everything else". The banner count, the %-slider's default and the headline counts all
+     * start here so they cannot disagree; the agent widens the slider to the mid tier when strong is thin.
      */
     private function buyerMatchFloor(int $agencyId): int
     {
         $tiers = app(\App\Services\Prospecting\ProspectingConfigurationService::class)->buyerMatchTiers($agencyId);
 
-        return max(1, min(100, (int) ($tiers['mid_min_score'] ?? 50)));
+        return max(1, min(100, (int) ($tiers['strong_min_score'] ?? 80)));
     }
 
     /**
@@ -495,21 +498,40 @@ class MarketIntelligenceController extends Controller
         // scored by the canonical Core Matches engine (MatchingService::score),
         // whose output is already cached per (listing, buyer) in
         // prospecting_buyer_matches. One truth — we filter the cache, never
-        // re-score, never fork the matching logic. Floor = the engine's mid tier
-        // (buyer_match_tiers.mid_min_score, spec 13.15), the same line the card's
-        // "Buyers N strong · N mid" and the Buyers waiting tile count from.
+        // re-score, never fork the matching logic. Floor = the engine's STRONG tier
+        // (buyer_match_tiers.strong_min_score, spec 13.15); the slider widens it to mid.
         $selectedBuyerId = null;
         if ($request->filled('buyer_id')) {
             $selectedBuyerId = (int) $request->query('buyer_id');
-            $buyerFloor = $this->buyerMatchFloor((int) $agencyId);
-            $query->whereIn('id', function ($sub) use ($selectedBuyerId, $agencyId, $buyerFloor) {
-                $sub->from('prospecting_buyer_matches')
-                    ->select('prospecting_listing_id')
-                    ->where('contact_id', $selectedBuyerId)
-                    ->where('agency_id', $agencyId)
-                    ->whereNull('dismissed_at')
-                    ->where('score', '>=', $buyerFloor);
-            });
+            // the slider widens it: an agent who moves it down to the mid tier sees that buyer's mid matches too
+            $buyerFloor = $request->filled('score_min')
+                ? max(1, min(100, (int) $request->query('score_min')))
+                : $this->buyerMatchFloor((int) $agencyId);
+            // 13.17 "Not for <buyer>": the ones hidden for him (a hidden property is not a match: the cache rows are dismissed, so the normal list never has them)
+            $hiddenFor = app(\App\Services\Matching\BuyerPropertyExclusions::class)->activeFor((int) $agencyId, $selectedBuyerId);
+            $hiddenCtx = [
+                'buyer_id' => $selectedBuyerId,
+                'first_name' => trim((string) \DB::table('contacts')->where('id', $selectedBuyerId)->where('agency_id', $agencyId)->value('first_name')),
+                'count' => $hiddenFor->count(),
+                'viewing' => (string) $request->query('hidden') === '1',
+                'by_file' => $hiddenFor->whereNotNull('tracked_property_id')->pluck('id', 'tracked_property_id')->all(),
+                'by_listing' => $hiddenFor->whereNotNull('prospecting_listing_id')->pluck('id', 'prospecting_listing_id')->all(),
+            ];
+            $this->buyerHiddenCtx = $hiddenCtx;
+            view()->share('buyerHidden', $hiddenCtx);
+
+            if ($hiddenCtx['viewing']) {
+                $query->where(fn ($q) => $q->whereIn('tracked_property_id', array_keys($hiddenCtx['by_file']) ?: [0])->orWhereIn('id', array_keys($hiddenCtx['by_listing']) ?: [0]));
+            } else {
+                $query->whereIn('id', function ($sub) use ($selectedBuyerId, $agencyId, $buyerFloor) {
+                    $sub->from('prospecting_buyer_matches')
+                        ->select('prospecting_listing_id')
+                        ->where('contact_id', $selectedBuyerId)
+                        ->where('agency_id', $agencyId)
+                        ->whereNull('dismissed_at')
+                        ->where('score', '>=', $buyerFloor);
+                });
+            }
         }
 
         if ($request->filled('bedroom_segment_id')) {
@@ -622,7 +644,7 @@ class MarketIntelligenceController extends Controller
             abort_unless($fid > 0
                 ? (clone $query)->where('tracked_property_id', $fid)->exists()
                 : ($fid < 0 && (clone $query)->whereKey(-$fid)->whereNull('tracked_property_id')->exists()), 404);
-            $rec = app(\App\Services\Prospecting\MicWork\MicWorkList::class)->forFiles([$fid], (int) $agencyId)[0] ?? abort(404);
+            $rec = app(\App\Services\Prospecting\MicWork\MicWorkList::class)->forFiles([$fid], (int) $agencyId, $request->filled('buyer_id') ? (int) $request->query('buyer_id') : null)[0] ?? abort(404);
 
             return response(view('corex.market-intelligence.partials._work-record-card', ['r' => $rec, 'showAd' => $request->boolean('_ad')])->render());
         }
@@ -1042,6 +1064,10 @@ class MarketIntelligenceController extends Controller
             ->whereNull('dismissed_at')
             ->distinct()
             ->pluck('contact_id')->all()));
+        // 13.17: a buyer whose every match has been hidden still has to be selectable (the "N hidden" list and Restore live under his banner)
+        if ($this->buyerHiddenCtx && $this->buyerHiddenCtx['count'] > 0) {
+            $micBuyerIds = $micBuyerIds->push($this->buyerHiddenCtx['buyer_id'])->unique()->values();
+        }
 
         // AT-242 buyer-selector SCOPE (Johan): My buyers (own) / My branch / Whole
         // company. Role-sensible default — admins agency-wide, everyone else their
@@ -1449,13 +1475,21 @@ class MarketIntelligenceController extends Controller
             return [];
         }
         $byKey = [];
-        foreach (app(\App\Services\Prospecting\MicWork\MicWorkList::class)->forFiles(array_values(array_unique($keyOf)), $agencyId) as $row) {
+        foreach (app(\App\Services\Prospecting\MicWork\MicWorkList::class)->forFiles(array_values(array_unique($keyOf)), $agencyId, $this->buyerHiddenCtx['buyer_id'] ?? null) as $row) {
             $byKey[$row['key']] = $row;
         }
         $out = [];
+        $hc = $this->buyerHiddenCtx;
         foreach ($keyOf as $id => $key) {
             if (isset($byKey[$key])) {
                 $out[$id] = $byKey[$key];
+                if ($hc) { // 13.17: the card's "Not for <buyer>" button reads these
+                    $exclusionId = $key > 0 ? ($hc['by_file'][$key] ?? null) : ($hc['by_listing'][-$key] ?? null);
+                    $out[$id]['buyer_id'] = $hc['buyer_id'];
+                    $out[$id]['buyer_first_name'] = $hc['first_name'];
+                    $out[$id]['buyer_hidden'] = $exclusionId !== null;
+                    $out[$id]['buyer_exclusion_id'] = $exclusionId;
+                }
             }
         }
 

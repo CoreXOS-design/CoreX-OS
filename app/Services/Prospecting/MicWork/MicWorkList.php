@@ -174,7 +174,7 @@ final class MicWorkList
      * @param  list<int>  $keys  tracked property ids (positive) or negated advert ids (single-advert rows)
      * @return list<array<string, mixed>>
      */
-    public function forFiles(array $keys, int $agencyId): array
+    public function forFiles(array $keys, int $agencyId, ?int $buyerId = null): array
     {
         $tpIds = array_values(array_filter($keys, fn ($k) => $k > 0));
         $loneIds = array_values(array_map(fn ($k) => -$k, array_filter($keys, fn ($k) => $k < 0)));
@@ -186,7 +186,7 @@ final class MicWorkList
                 'property_size_m2', 'erf_size_m2', 'property_type', 'agent_name', 'agency_name', 'first_seen_at', 'last_seen_at', 'listed_date', 'is_active',
                 'portal_status', 'advertiser_type', 'is_reduced', 'canonical_ref', 'p24_suburb_id', 'p24_group_id', 'thumbnail_source_url', 'thumbnail_path',
                 'card_heading', 'description_snippet', 'description', 'photo_urls', 'photo_count', 'features', 'parking', 'sole_mandate_wording', 'sole_mandate_first_seen_at', 'rates_amount', 'levies_amount',
-                'details_read_at', 'details_read_price', 'details_read_by', 'details_read_card_hash'])
+                'details_read_at', 'details_read_price', 'details_read_by', 'details_read_card_hash', 'listing_type', 'agency_id'])
             ->groupBy(fn ($l) => $l->tracked_property_id ?: -$l->id);
         $advertIds = $adverts->flatten()->pluck('id')->all();
 
@@ -203,7 +203,7 @@ final class MicWorkList
             ->whereIn('tracked_property_id', $tpIds)->pluck('tracked_property_id')->flip() : collect();
 
         // 13.12 the file's own history lines for the Full card: "Split from ... by ... on ..." / "Advert split off to ..." / "Advert split undone ..." (newest last)
-        $fileNotes = $tpIds ? DB::table('tracked_property_agency_work_events')->where('agency_id', $agencyId)->whereIn('tracked_property_id', $tpIds)->whereIn('kind', ['split_from', 'split_off', 'split_undone'])
+        $fileNotes = $tpIds ? DB::table('tracked_property_agency_work_events')->where('agency_id', $agencyId)->whereIn('tracked_property_id', $tpIds)->whereIn('kind', ['split_from', 'split_off', 'split_undone', 'buyer_hidden', 'buyer_restored'])
             ->orderBy('occurred_at')->orderBy('id')->get(['tracked_property_id', 'reason', 'occurred_at'])->groupBy('tracked_property_id') : collect();
         $work = $tpIds ? DB::table('tracked_property_agency_work as w')->leftJoin('users as u', 'u.id', '=', 'w.claimed_by_user_id')
             ->where('w.agency_id', $agencyId)->whereIn('w.tracked_property_id', $tpIds)
@@ -299,6 +299,8 @@ final class MicWorkList
         $staleDays = $mic->staleWindowDays();
         $mandateWords = $mic->mandateWords();
         $mandateLength = \App\Models\MicAgencySetting::mandateLengthDaysFor($agencyId);
+
+        $buyerFit = BuyerFit::for($agencyId, $buyerId); // 13.18: only when a buyer is selected
 
         $out = [];
         foreach ($keys as $key) {
@@ -404,6 +406,11 @@ final class MicWorkList
                 })(),
                 'pair_ids' => $pairs[$key] ?? [],
                 'buyer_names' => array_values($buyerNames[$key] ?? []),
+                // 13.18 "Buyer wants vs property has" for the selected buyer: the filters' own verdicts, field by field (null without a buyer)
+                'buyer_fit' => $buyerFit?->forFacts([
+                    'price' => $priceNow, 'suburb' => $suburb, 'suburb_id' => $pid ? (int) $pid : null, 'type' => $type, 'beds' => $beds, 'baths' => $baths, 'garages' => $garages,
+                    'erf' => $erf, 'floor' => $floor, 'parking' => $list->max('parking'), 'features' => $lead->features, 'listing_type' => $lead->listing_type,
+                ]),
                 'claims' => $this->collapseClaims($claimsByKey[$key] ?? []),
                 'mandates' => ($mandates->get($key) ?? collect())->map(fn ($m) => ['status' => $m->status, 'type' => $m->mandate_type, 'expiry' => $m->expiry_date ? \Carbon\Carbon::parse($m->expiry_date)->format('j M Y') : null, 'price' => $m->price ? (int) $m->price : null])->all(),
                 'context' => $context[$key] ?? null,

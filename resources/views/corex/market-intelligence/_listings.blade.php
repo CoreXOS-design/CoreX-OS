@@ -127,6 +127,10 @@
     <div x-data="micRowComments()">
     {{-- Row stack --}}
     @if($listings->isEmpty())
+        @if(!empty($selectedBuyer))
+            {{-- 13.17: with the last property hidden the list is empty, but the buyer banner (and its "N hidden" link) must stay --}}
+            @include('corex.market-intelligence._buyer-banner')
+        @endif
         @php
             // Same distinction the legacy Prospecting page already makes
             // (prospecting/_summary-block.blade.php) but the F.1 redesign left

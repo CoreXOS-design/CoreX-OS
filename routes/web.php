@@ -8518,6 +8518,10 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
         Route::post('/claims/{claim}/release-no-address', [\App\Http\Controllers\Prospecting\StaleClaimController::class, 'releaseNoAddress'])
             ->whereNumber('claim')->name('claims.release-no-address');
 
+        // 13.17 "Not for <buyer>": hide a property file for the selected buyer (all his wishlists) and put it back.
+        Route::post('/buyer-hide', [\App\Http\Controllers\CoreX\MicBuyerHideController::class, 'store'])->name('buyer-hide.store');
+        Route::post('/buyer-hide/{exclusion}/restore', [\App\Http\Controllers\CoreX\MicBuyerHideController::class, 'restore'])->whereNumber('exclusion')->name('buyer-hide.restore');
+
         // Phase G3 — feedback-template JSON for the claim slide-over.
         Route::get('/feedback-templates', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'feedbackTemplates'])->name('feedback-templates');
 

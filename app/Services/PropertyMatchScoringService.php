@@ -623,6 +623,8 @@ class PropertyMatchScoringService
             ];
         }
 
+        $rows = app(\App\Services\Matching\BuyerPropertyExclusions::class)->markDismissed($rows, (int) $listing->agency_id); // spec 13.17: a hidden buyer stays hidden
+
         // Stale-row eviction — mirror recomputeProspectingMatchesForBuyer()'s
         // BUG 2 fix. This listing's cache must exactly reflect the current
         // qualifying set, so a buyer who dropped out (family/suburb gate,
@@ -648,7 +650,7 @@ class PropertyMatchScoringService
                     'prospecting_buyer_matches',
                     $rows,
                     ['prospecting_listing_id', 'contact_id'],
-                    ['agency_id', 'score', 'tier', 'source', 'matched_features', 'missing_features', 'last_recompute_at', 'updated_at']
+                    ['agency_id', 'score', 'tier', 'source', 'matched_features', 'missing_features', 'last_recompute_at', 'updated_at', 'dismissed_at', 'dismissed_by_user_id']
                 );
             }
         });
@@ -724,6 +726,8 @@ class PropertyMatchScoringService
             ];
         }
 
+        $rows = app(\App\Services\Matching\BuyerPropertyExclusions::class)->markDismissed($rows, (int) $contact->agency_id); // spec 13.17: a hidden property stays hidden
+
         // BUG 2 fix — mirror recomputeForBuyer()'s stale-row eviction: this
         // buyer's cache must exactly reflect the current qualifying set, so a
         // listing that dropped out (suburb gate, went inactive, score decayed)
@@ -746,7 +750,7 @@ class PropertyMatchScoringService
                     'prospecting_buyer_matches',
                     $rows,
                     ['prospecting_listing_id', 'contact_id'],
-                    ['agency_id', 'score', 'tier', 'source', 'matched_features', 'missing_features', 'last_recompute_at', 'updated_at']
+                    ['agency_id', 'score', 'tier', 'source', 'matched_features', 'missing_features', 'last_recompute_at', 'updated_at', 'dismissed_at', 'dismissed_by_user_id']
                 );
             }
         });

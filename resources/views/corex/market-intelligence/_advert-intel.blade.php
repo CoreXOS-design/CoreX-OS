@@ -72,6 +72,7 @@
             @else
                 <span style="{{ $muted }}">No score yet</span>
             @endif
+            @include('corex.market-intelligence._advert-buyer-hide')
             @if(!empty($adv['pair_ids']))<span style="font-size:.625rem; font-weight:700; padding:0 5px; border:1px solid var(--ds-amber, #f59e0b); border-radius:8px; color: var(--text-primary); flex-shrink:0;">Possible match</span>@endif
             <span data-qa="claim-state" style="margin-left:auto; flex-shrink:0; font-weight:600; {{ $claimedByMe ? 'color: var(--text-primary);' : $muted }}">{{ $claimState }}</span>
         </div>
