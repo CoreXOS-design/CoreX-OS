@@ -202,6 +202,7 @@ final class MicWorkAdvertsViewTest extends TestCase
         $slide = substr($h, strpos($h, 'x-data="miSlideover()"'), 900);
         $this->assertStringNotContainsString('display: flex; justify-content: flex-end', $slide);
         $this->assertStringContainsString('position: absolute; top: 0; right: 0; bottom: 0;', $slide, 'the Intel slide-over keeps to the right edge');
+        $this->assertSame(0, preg_match('/x-show="(intel|noteOpen|commentsModalOpen)"[^>]*display: ?flex/s', $h), 'no x-show element relies on an inline display:flex (Alpine replaces it)');
     }
 
     public function test_the_list_view_is_still_the_classic_list(): void

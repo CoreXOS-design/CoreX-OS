@@ -442,8 +442,8 @@
 </article>
 {{-- The Card button opens the same intelligence block the Adverts card carries (one partial, two places). --}}
 @if(!empty($adv) && !empty($adv['tp_id']))
-<div x-show="intel" x-cloak data-qa="row-intel-host" style="display:flex; justify-content:flex-end; padding: 8px 14px; background: var(--surface-2); border-bottom: 1px solid var(--border);">
-    <div style="width: 100%; max-width: 28rem;">@include('corex.market-intelligence._advert-intel')</div>
+<div x-show="intel" x-cloak data-qa="row-intel-host" style="padding: 8px 14px; background: var(--surface-2); border-bottom: 1px solid var(--border);">
+    <div style="width: 100%; max-width: 28rem; margin-left: auto;">@include('corex.market-intelligence._advert-intel')</div>
 </div>
 @endif
 @endif
