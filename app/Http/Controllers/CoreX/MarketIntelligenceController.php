@@ -50,6 +50,18 @@ use Illuminate\Support\Facades\Storage;
 class MarketIntelligenceController extends Controller
 {
     /**
+     * Spec 13.15: the lowest score that counts as a match anywhere on MIC - the engine's "mid" tier (buyer_match_tiers.mid_min_score,
+     * default 50), the same line the card's "Buyers N strong · N mid" line and the Buyers waiting tile already use. The banner
+     * count, the %-slider's default and the headline counts all start here, so they cannot disagree.
+     */
+    private function buyerMatchFloor(int $agencyId): int
+    {
+        $tiers = app(\App\Services\Prospecting\ProspectingConfigurationService::class)->buyerMatchTiers($agencyId);
+
+        return max(1, min(100, (int) ($tiers['mid_min_score'] ?? 50)));
+    }
+
+    /**
      * Work tab — the daily working surface. Builds the canvass-pool listing
      * list with filters, action presets, and the "This Week" hero block
      * (Phase D2). Legacy ?mode=analyse query branch removed — Analyse lives
@@ -483,12 +495,13 @@ class MarketIntelligenceController extends Controller
         // scored by the canonical Core Matches engine (MatchingService::score),
         // whose output is already cached per (listing, buyer) in
         // prospecting_buyer_matches. One truth — we filter the cache, never
-        // re-score, never fork the matching logic. Floor = the agency's MIC
-        // match threshold (agency-configurable, sensible default).
+        // re-score, never fork the matching logic. Floor = the engine's mid tier
+        // (buyer_match_tiers.mid_min_score, spec 13.15), the same line the card's
+        // "Buyers N strong · N mid" and the Buyers waiting tile count from.
         $selectedBuyerId = null;
         if ($request->filled('buyer_id')) {
             $selectedBuyerId = (int) $request->query('buyer_id');
-            $buyerFloor = (int) AgencyContactSettings::forAgency($agencyId)->micMatchThreshold();
+            $buyerFloor = $this->buyerMatchFloor((int) $agencyId);
             $query->whereIn('id', function ($sub) use ($selectedBuyerId, $agencyId, $buyerFloor) {
                 $sub->from('prospecting_buyer_matches')
                     ->select('prospecting_listing_id')
@@ -722,7 +735,7 @@ class MarketIntelligenceController extends Controller
         // AT-75 — %-match band from the slider/tile (default: agency threshold → 100).
         // The band lower bound also lowers the per-listing count floor so the
         // badges + counts agree with the slider.
-        $agencyThreshold = AgencyContactSettings::forAgency($agencyId)->micMatchThreshold();
+        $agencyThreshold = $this->buyerMatchFloor((int) $agencyId);
         $bandActive = $request->filled('score_min') || $request->filled('score_max');
         $scoreMin = (int) $request->get('score_min', $bandActive ? 0 : 0);
         $scoreMax = (int) $request->get('score_max', 100);
@@ -3126,7 +3139,7 @@ class MarketIntelligenceController extends Controller
         //   properties_matched = distinct canvass listings matched ≥ threshold.
         // Only countable buyers are ever cached (AT-71), so distinct contact_id
         // here is the distinct-countable-buyer truth.
-        $threshold = AgencyContactSettings::forAgency($agencyId)->micMatchThreshold();
+        $threshold = $this->buyerMatchFloor((int) $agencyId);
         // Perf (cc6): both distinct-counts come from ONE pass over the same match
         // set rather than two identical scans. Same COUNT(DISTINCT …) semantics.
         $matchAgg = DB::table('prospecting_buyer_matches')

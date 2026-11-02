@@ -69,6 +69,7 @@ final class MicSettingsController extends Controller
                 'reduced_window_days' => $s->reducedWindowDays(),
                 'stale_window_days' => $s->staleWindowDays(),
                 'mandate_length_days' => $s->mandateLengthDays(),
+                'price_tolerance_pct' => $s->priceTolerancePct(),
                 'mandate_words' => implode("\n", $s->mandateWords()),
             ],
             'suburbs' => $suburbsSorted,
@@ -91,6 +92,7 @@ final class MicSettingsController extends Controller
             'reduced_window_days' => ['nullable', 'integer', 'min:1', 'max:365'],
             'stale_window_days' => ['nullable', 'integer', 'min:1', 'max:365'],
             'mandate_length_days' => ['nullable', 'integer', 'min:1', 'max:730'],
+            'price_tolerance_pct' => ['nullable', 'integer', 'min:0', 'max:50'],
             'mandate_words' => ['nullable', 'string', 'max:2000'],
             'tiles_shown' => ['nullable', 'array'],
             'tiles_shown.*' => ['integer', 'between:1,11'],
@@ -150,6 +152,8 @@ final class MicSettingsController extends Controller
             'stale_window_days' => $request->has('adverts_present') && $request->filled('stale_window_days') ? (int) $data['stale_window_days'] : null,
             'mandate_length_days' => $request->has('adverts_present') && $request->filled('mandate_length_days') ? (int) $data['mandate_length_days'] : null,
             'mandate_words' => $request->has('adverts_present') && $request->filled('mandate_words') ? $mandateWords : null,
+            // buyer matching (13.15): saved only when the form that posted it carried the group
+            'price_tolerance_pct' => $request->has('adverts_present') && $request->filled('price_tolerance_pct') ? (int) $data['price_tolerance_pct'] : null,
         ], fn ($v) => $v !== null) + [
             'areas' => array_values(array_unique($areas)),
             'refresh_interval_days' => (int) $data['refresh_interval_days'],

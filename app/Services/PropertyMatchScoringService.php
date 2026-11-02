@@ -596,7 +596,7 @@ class PropertyMatchScoringService
             ->get()
             ->groupBy('contact_id');
 
-        $bandPct = AgencyContactSettings::forAgency((int) $listing->agency_id)->micPriceBandFraction();
+        $bandPct = \App\Services\Matching\BuyerMatchRules::toleranceFor((int) $listing->agency_id);
         $target  = $this->wrapCaptureAsProperty($listing);
 
         $rows = [];
@@ -698,7 +698,7 @@ class PropertyMatchScoringService
                 ->get();
         }
 
-        $bandPct = AgencyContactSettings::forAgency((int) $contact->agency_id)->micPriceBandFraction();
+        $bandPct = \App\Services\Matching\BuyerMatchRules::toleranceFor((int) $contact->agency_id);
 
         $rows = [];
         $now  = now();
@@ -787,18 +787,18 @@ class PropertyMatchScoringService
             if (!$m->isCountable()) {
                 continue; // AT-71 gate — uncountable wishlists never match
             }
-            if ($this->violatesDealBreakers($m, $target)) {
-                continue; // only deal-breakers hard-exclude
-            }
-            if (!$this->matcher()->suburbCompatible($target, $m)) {
+            // Spec 13.15: the hard rules (listing type, price + tolerance, category, type, suburb, beds/baths/garages/parking, sizes,
+            // deal-breakers, auction) and the score are ONE verdict from the shared engine - the same one Core Matches asks.
+            // A failed hard rule scores 0 and is never cached; nothing here re-implements a rule.
+            $a = $this->matcher()->assess($target, $m);
+            if ($a['score'] <= 0) {
                 continue;
             }
-            $score = $this->matcher()->score($target, $m, $bandPct);
-            if ($best === null || $score > $best['score']) {
+            if ($best === null || $a['score'] > $best['score']) {
                 $best = [
-                    'score'            => $score,
-                    'tier'             => $this->determineTier($score),
-                    'breakdown'        => ['engine' => 'canonical', 'price_band_pct' => $bandPct],
+                    'score'            => $a['score'],
+                    'tier'             => $this->determineTier($a['score']),
+                    'breakdown'        => ['engine' => 'canonical', 'rules' => '13.15', 'price_tolerance_pct' => (int) round($bandPct * 100), 'unverified' => $a['unverified']],
                     'missing_features' => [],
                 ];
             }
@@ -1037,6 +1037,10 @@ class PropertyMatchScoringService
      */
     public const PROSPECTING_POOL_COLUMNS = [
         'id',
+        'agency_id',
+        'listing_type',
+        'parking',
+        'features',
         'price',
         'suburb',
         'property_type',
@@ -1058,7 +1062,10 @@ class PropertyMatchScoringService
         $p->garages       = $data->garages ?? null;
         $p->size_m2       = $data->property_size_m2 ?? ($data->size_m2 ?? null);
         $p->erf_size_m2   = $data->erf_size_m2 ?? null;
-        $p->features_json = $data->features_json ?? null;
+        $p->features_json = $data->features_json ?? ($data->features ?? null);
+        $p->listing_type  = $data->listing_type ?? null;
+        $p->agency_id     = $data->agency_id ?? null;
+        $p->setAttribute('parking', $data->parking ?? null);
         // AT-75 — prospecting listings store only a suburb NAME; resolve it to a
         // p24_suburb_id so the canonical area scorer (suburbFitRatio) works.
         $p->p24_suburb_id = $this->resolveSuburbId($data->suburb ?? null);

@@ -818,3 +818,34 @@ Johan: "the listed by x agencies at the bottom of a image. 1 - clean up the look
    - *Audit:* the Full card of both files shows "Split from <address> by <user> on <date>" / "Advert split off to <address> by <user> on <date>" (file history rows).
 5. **Tests:** split moves the advert and leaves the claim; the count drops; undo restores; the exclusion stops `MergeGuard` / `PortalGroupLinker` / the group rule from re-joining on a re-run; 409 when the advert is alone; 403 across agencies.
 6. **Scope notes.** Any agency user may split (same permission as claiming); an agency's own splits only ever affect its own files (multi-agency). No setting is added. The build log goes in 13.9b.
+
+### 13.15 Buyer match rules - one set for MIC and Core Matches (Johan, 2 Nov 2026 04:34: "my buyer wants x but mic shows everything else")
+
+**Why.** Before this, MIC (adverts) and Core Matches (own stock) judged a buyer's wishlist by different rules: price tolerance 10% on MIC and 30% on Core Matches; the property type only a family gate (a House-only buyer saw Townhouses at "83% strong", because a wrong type cost 5 of 30 points); beds-max, parking and auction ignored; an advert with nothing captured scored as if it fitted. A buyer's matches now mean the same on every screen.
+
+**Where it lives.** `App\Services\Matching\BuyerMatchRules` (the hard filters) and `MatchingService::assess()` (the verdict: score, tier, unverified list; `score()` is `assess()['score']`). Core Matches (`propertiesForMatch`, `propertyCountsForMatches`), the MIC cache (`PropertyMatchScoringService::canonicalBestAcross` -> `prospecting_buyer_matches`), the property page and the buyer portal all call that one method. The MIC banner count, the "Buyers N strong · N mid" line on each card (`mic_file_stats`) and the Buyers waiting tile all read the same cache, so they cannot disagree.
+
+**Hard filters - an advert or property that fails any ONE is not a match and is not shown (score 0):**
+1. Listing type (sale vs rental).
+2. Price: at or above the wishlist minimum (never relaxed) and at most `max x (1 + tolerance)`. The tolerance is the agency setting **"Price tolerance above a buyer's maximum (%)"**, `mic_agency_settings.values.price_tolerance_pct`, default 10, 0-50, on the MIC Settings page (Adverts view box); `MicAgencySetting::priceTolerancePct()`. Inside the tolerance the price component decays linearly (at the maximum 100%, at the edge 0%).
+3. Category when set (an advert with no category takes it from its type: house / apartment / townhouse = Residential, commercial / industrial = Commercial).
+4. Property type in the wishlist's types when set, compared by the MIC canonical type (`PropertyTypeResolver`: "Apartment" = "Apartment / Flat" = "Flat"; Duplex / Simplex = Townhouse; **a Townhouse is not a House**). A type the map cannot read falls back to the family (built / land / farm / commercial): another family excludes, the same family is kept as unverified.
+5. Suburbs when set (an open wishlist matches anywhere).
+6. Bedrooms at least the minimum and at most the maximum; baths, garages, parking at least the minimum; floor and erf size within their min / max - each only when set.
+7. Deal-breaker features present, or a must-have missing - excluded.
+8. Auction lots (status `on_auction`) excluded when the buyer is not open to auctions (`open_to_auction = false`; empty = open).
+
+**Unknown values.** An advert that has not captured a value the buyer asked about (beds, baths, garages, parking, sizes, price, type, category, listing type, or any features when the wishlist has deal-breakers / must-haves / nice-to-haves) is NOT excluded on that field. The field is listed as **unverified** (stored in `prospecting_buyer_matches.matched_features.unverified`), is left out of the score, and a match with anything unverified tops out at 79 - it cannot be "strong". A sale price under R10,000 counts as "no price" (a typo or placeholder), not a bargain.
+
+**Score (only among those that pass).** Only what the buyer stated counts: price distance to their maximum 25, suburb 20, beds 8, baths 7, garages 5, category 5, type 5, sizes 5 each, nice-to-haves 15 (share present), must-haves 15. A wishlist that states little therefore gives 100% to everything that fits it - that is correct and is the answer to "why are all 55 100%": the wishlist said little. **Tiers** are the engine's: strong 80+ and mid 50-79 (`buyer_match_tiers`, agency-configurable; Core Matches: strong 80 / good 65 / fair 50). The MIC %-slider and the buyer-banner floor now default to the mid line (50) instead of the old fixed 75 (`mic_match_threshold` is no longer read by MIC).
+
+**Not built here (Johan's call, spec 5.1).** Role Manager entry and Setup Wizard entry for the new tolerance setting. The wizard's MIC step does not carry the other MIC settings today either; it stays only on the MIC Settings page until Johan decides.
+
+**Case that started it.** Alex Swanepoel (contact 18742), wishlist 702: sale, up to R1,000,000, Residential, types **House + Apartment / Flat + Townhouse** (the line "For sale · up to R 1,000,000 · Residential · House" shows only the first type), no suburbs / beds / features. Under the rules a Townhouse at R950,000 IS a match for him (it is on his list). The same wishlist ticked House only would not match it - the tests cover both.
+
+**Tests.** `tests/Feature/Matching/BuyerMatchRulesTest.php`: Alex's wishlist against a House, a Townhouse, a flat, land, a House at R1.05m (inside 10%, decayed, not strong), a House at R1.2m (out), the minimum never relaxed, the tolerance as a setting (0 and 25), deal-breaker present / features unknown, unknown type, beds / baths / garages / erf / bedrooms-max / auction, listing type and category, and **Core Matches and the MIC cache agreeing, case by case, on both the verdict and the score**. Three older tests that encoded the superseded rules were updated (Townhouse for an apartment buyer, the 30% near-miss, the 75 line).
+
+### 13.9b (build log, buyer match rules, cc1, 2 Nov 2026)
+- New: `BuyerMatchRules`, `MatchingService::assess/featuresKnown/hasFeature/rawTypeNamesFor`; `MicAgencySetting::priceTolerancePct()`; MIC Settings field; `MarketIntelligenceController::buyerMatchFloor()`.
+- Changed: `MatchingService::score()` (now `assess()`), the SQL pre-filters (blank type = unknown; canonical type spellings; price max by tolerance, min strict), `PropertyMatchScoringService` (adverts now carry listing type, parking, features and agency; `canonicalBestAcross` uses `assess`).
+- The MIC cache must be rebuilt for the new rules to show: `php artisan` per-buyer recompute (see the QA1 run in the Jira note).

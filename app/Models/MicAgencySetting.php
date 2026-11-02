@@ -51,6 +51,8 @@ class MicAgencySetting extends Model
         'reduced_window_days'        => 90,
         'stale_window_days'          => 7,
         'mandate_length_days'        => 90,
+        // Buyer matching (spec 13.15): how far above a buyer's maximum an advert may be priced and still count as a match. Never hardcoded.
+        'price_tolerance_pct'        => 10,
         'mandate_words'              => ['sole mandate', 'sole and exclusive', 'exclusive mandate', 'sole agent', 'sole agency'],
     ];
 
@@ -247,6 +249,16 @@ class MicAgencySetting extends Model
 
     public static function staleWindowDaysFor(int $agencyId): int { return static::for($agencyId)->staleWindowDays(); }
 
+    /** Buyer matching (spec 13.15): % above the buyer's maximum price an advert may be and still match. 0-50, default 10; 0 is a valid choice (no tolerance). */
+    public function priceTolerancePct(): int
+    {
+        $v = $this->value('price_tolerance_pct');
+
+        return is_numeric($v) && (int) $v >= 0 && (int) $v <= 50 ? (int) $v : (int) self::DEFAULTS['price_tolerance_pct'];
+    }
+
+    public static function priceTolerancePctFor(int $agencyId): int { return static::for($agencyId)->priceTolerancePct(); }
+
     public function mandateLengthDays(): int
     {
         return min(730, $this->positiveInt('mandate_length_days'));
@@ -294,6 +306,7 @@ class MicAgencySetting extends Model
         $words = $row->values['mandate_words'] ?? null;
         $row->values = array_merge($row->values ?? [], $patch);
         $row->save();
+        \App\Services\Matching\BuyerMatchRules::flush();
         if (array_key_exists('mandate_words', $patch) && $patch['mandate_words'] !== $words) {
             // the agency changed its mandate words: every advert's stored wording flag is re-matched (only adverts with text are touched)
             try {
@@ -324,6 +337,13 @@ class MicAgencySetting extends Model
                 } else {
                     unset($patch[$key]);
                 }
+            }
+        }
+        if (array_key_exists('price_tolerance_pct', $patch)) {
+            if (is_numeric($patch['price_tolerance_pct'])) {
+                $patch['price_tolerance_pct'] = max(0, min(50, (int) $patch['price_tolerance_pct']));
+            } else {
+                unset($patch['price_tolerance_pct']);
             }
         }
         if (array_key_exists('mandate_words', $patch)) {

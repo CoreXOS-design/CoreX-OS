@@ -118,7 +118,7 @@ final class MicCanonicalScoringTest extends TestCase
 
         $this->assertSame(2, $kpis['buyers_matched'], 'two distinct countable buyers matched at threshold');
         $this->assertSame(2, $kpis['properties_matched'], 'two canvass listings matched at threshold');
-        $this->assertSame(75, $kpis['match_threshold']);
+        $this->assertSame(50, $kpis['match_threshold'], 'spec 13.15: the headline line is the engine\'s mid tier (buyer_match_tiers.mid_min_score, default 50), not the old 75');
     }
 
     public function test_kpi_excludes_buyers_below_threshold(): void

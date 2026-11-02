@@ -1202,3 +1202,7 @@ Side effect, intended: the board's per-match total/visible counts now equal the 
 relists, the Setup Wizard (no new setting, so nothing to surface - rule 10a not triggered).
 
 **Tests:** `tests/Feature/CoreMatches/SentIsSentAt503Test.php`.
+
+## One set of buyer-match rules with MIC (2 Nov 2026, Johan)
+
+Core Matches and Market Intelligence now judge a buyer's wishlist by the same rules: the same hard filters (listing type, price with the agency's tolerance above the maximum and a strict minimum, category, the wishlist's property types by canonical type - a Townhouse is not a House -, suburbs, beds / baths / garages / parking / sizes, deal-breakers, auctions), the same "unverified, never strong" handling of values an advert did not capture, and the same strong / mid tiers. The fixed +/-30% relaxed price band in this engine is replaced by the agency setting. Full rules, the setting and the tests: `.ai/specs/mic-work-tab.md` section 13.15; code: `App\Services\Matching\BuyerMatchRules` and `MatchingService::assess()`.
