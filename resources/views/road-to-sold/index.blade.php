@@ -393,7 +393,7 @@
                                 <span x-data="{ open: false }" class="relative" data-qa="intake-swap">
                                     <button type="button" class="corex-btn-outline corex-btn-xs" @click="open = !open" title="Swap this property for the next one">Swap</button>
                                     <form x-show="open" x-cloak method="POST" action="{{ route('road-to-sold.swap', $r['list_item_id']) }}" @click.outside="open = false" @keydown.escape="open = false"
-                                          x-data="{ key: '' }" class="absolute flex items-center gap-2 p-2 rounded-md" style="z-index: 40; right: calc(100% + 6px); top: 50%; transform: translateY(-50%); white-space: nowrap; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 22px rgba(0,0,0,.4);">
+                                          x-data="{ key: '' }" class="absolute flex items-center gap-2 rounded-md" style="padding: 3px; z-index: 40; right: calc(100% + 6px); top: 50%; transform: translateY(-50%); white-space: nowrap; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 22px rgba(0,0,0,.4);">
                                         @csrf
                                         {{-- v4 (23.11): the Stock loaded off-ramp - the agency's own reasons for it; "other" asks for a few words --}}
                                         <select name="reason_key" required x-model="key" aria-label="Why swap it?" class="px-2 py-1 text-xs rounded-md"
