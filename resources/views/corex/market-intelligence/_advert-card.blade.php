@@ -119,7 +119,8 @@
         @endphp
         @if($text !== '')
             <div style="font-size:.875rem; line-height:1.4; color: var(--text-primary);" data-qa="advert-description">
-                <div :style="more ? '' : 'display:-webkit-box; -webkit-line-clamp:{{ ($fitLine || ($adv['details']['level'] ?? 'search') === 'full') ? 3 : 4 }}; -webkit-box-orient:vertical; overflow:hidden;'">{{ $text }}</div>
+                {{-- the clamp is plain CSS in the server HTML (3 lines for a pulled card or with a buyer line, else 4), so it holds before Alpine starts and after a row swap; "more" only lifts it --}}
+                <div class="mi-clamp" style="--mi-lines: {{ ($fitLine || ($adv['details']['level'] ?? 'search') === 'full') ? 3 : 4 }};" :class="more ? 'mi-unclamp' : ''" data-qa="advert-description-text">{{ $text }}</div>
                 @if(mb_strlen($text) > 160)
                     @if(($adv['details']['level'] ?? 'search') === 'full')
                     <button type="button" data-advert-open data-qa="read-more" style="background:none; border:none; padding:0; font-size:.8125rem; color: var(--text-primary); text-decoration: underline; text-decoration-color: var(--brand-icon); cursor:pointer;">Read more</button>
@@ -164,6 +165,8 @@
     .mi-advert { display: grid; grid-template-columns: 18.75rem minmax(0, 1fr) minmax(24rem, 28rem); gap: 16px; padding: 12px 14px; align-items: start; }
     .mi-advert-photo { position: relative; width: 18.75rem; max-width: 100%; aspect-ratio: 4 / 3; }
     .mi-advert-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; height: 14.0625rem; overflow: hidden; }
+    .mi-clamp { display: -webkit-box; -webkit-line-clamp: var(--mi-lines, 4); -webkit-box-orient: vertical; overflow: hidden; }
+    .mi-clamp.mi-unclamp { display: block; -webkit-line-clamp: unset; overflow: visible; }
     .mi-advert-body.mi-advert-body-fit { height: auto; min-height: calc(14.0625rem + 1.5rem); overflow: visible; } /* one line more than the photo; never clips when the column is narrow */
     .mi-advert-body.mi-advert-body-open { height: auto; min-height: 14.0625rem; overflow: visible; }
     [data-qa="row-wrap"] + [data-qa="row-wrap"] > .mi-advert { border-top: 1px solid var(--border); }

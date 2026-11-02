@@ -93,7 +93,7 @@ final class MicFullDetailsPageTest extends TestCase
     {
         $this->advert('P24-160000007', 7, ['details_read_at' => now(), 'details_read_price' => 1_000_000, 'description' => str_repeat('A long description for the card. ', 12), 'photo_urls' => ['https://i.test/1']]);
         $h = $this->page();
-        $this->assertStringContainsString('-webkit-line-clamp:3;', $h, 'three lines + Read more at full details');
+        $this->assertStringContainsString('class="mi-clamp" style="--mi-lines: 3;"', $h, 'three lines + Read more at full details');
         $this->assertStringContainsString('data-qa="advert-dates"', $h, 'the First seen line stays');
         $this->assertMatchesRegularExpression('/<span[^>]*>1<\/span> <span[^>]*>with full details/', $h);
     }
