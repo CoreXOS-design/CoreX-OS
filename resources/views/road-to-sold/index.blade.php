@@ -130,7 +130,9 @@
     {{-- What to do next and where the month stands stay in view on every block (the team view is about everyone, so not there). --}}
     @unless($isTeam)
         <div class="rts-top">
-            @include('road-to-sold._recipe', ['part' => 'next'])
+            @if($nextAction)
+                @include('road-to-sold._recipe', ['part' => 'next'])
+            @endif
 
             @include('road-to-sold._summary-bar')
         </div>

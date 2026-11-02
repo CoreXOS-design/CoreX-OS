@@ -620,6 +620,7 @@ final class AgentViewAndCaptureTest extends TestCase
     {
         $task = $this->custom('property', 'week', 2, 'none', 5.0, 'Drive your area');
         $this->complete($task, $this->agent, 1);
+        config(['road-to-sold-belt.enforce_start' => false]);   // an agent who has not pressed Start gets no "do this next" card (Johan, 2 Nov); this one is working
 
         // v3: the task progress table lives on the "My progress" block; the header, next action and step tile stay on every block
         $res = $this->actingAs($this->agent)->get(route('road-to-sold.index', ['block' => 'progress']));

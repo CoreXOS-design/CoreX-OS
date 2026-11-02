@@ -10,8 +10,8 @@
     };
     $recipeUrl = $canManageRecipe && \Illuminate\Support\Facades\Route::has('road-to-sold.settings.recipe.index')
         ? route('road-to-sold.settings.recipe.index', \App\Services\RoadToSold\Track::params($track)) : null;
-    $na = $nextAction;
-    $naEdge = $na['kind'] === 'done' ? 'var(--rts-achieved)' : 'var(--brand-button, #0ea5e9)';
+    $na = $nextAction ?? null;
+    $naEdge = ($na['kind'] ?? null) === 'done' ? 'var(--rts-achieved)' : 'var(--brand-button, #0ea5e9)';
 @endphp
 
 @if(($part ?? 'next') === 'next')

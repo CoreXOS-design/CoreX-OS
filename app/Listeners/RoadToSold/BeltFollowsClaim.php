@@ -57,7 +57,9 @@ class BeltFollowsClaim
                     ? 'Closed in Market Intelligence: ' . \App\Models\ProspectingClaim::humanStatus((string) $c->status)
                     : 'Claim given up in Market Intelligence',
             };
-            $this->prospects->release($p, null, $note);
+            // the agent gave the claim up (or its hold ended): the property stays on today's list as loaded - it is not "missed" until the day ends
+            $keepRow = in_array((string) $c->release_reason, ['hold_ended'], true) || $note === 'Claim given up in Market Intelligence';
+            $this->prospects->release($p, null, $note, ! $keepRow);
         } catch (Throwable $ex) {
             Log::warning('Belt: the prospect could not follow the released claim (the release stands)', ['claim_id' => $e->claim->id ?? null, 'message' => $ex->getMessage()]);
         }

@@ -143,6 +143,16 @@ class RoadToSoldController extends Controller
         $todaysOpen['loaded'] = $loadedTile ? (int) $loadedTile['count'] : null;
         $todaysOpen['worked'] = (int) ($this->list->dayCounts($viewer, $agentId, $date, $track)['worked'] ?? 0);
         $nextAction = $this->nextAction->resolve($progress, $feeds, $todaysOpen, $viewingOwn, $bar);
+        // a new agent (not started, paused, or waiting for the first list) has nothing to "do next": the card would only repeat month figures
+        $firstListAt = $activation['first_list_date'] ?? null;
+        $waiting = ($activation['state'] ?? '') === \App\Services\RoadToSold\ActivationService::STATE_NOT_STARTED
+            || ($activation['state'] ?? '') === \App\Services\RoadToSold\ActivationService::STATE_PAUSED
+            || ($firstListAt !== null && $firstListAt->copy()->startOfDay()->gt($date->copy()->startOfDay()) && (int) ($data['counts']['any'] ?? 0) === 0);
+        if ($waiting) {
+            $nextAction = null;
+        }
+        // one tour only: it starts once there is something to tour (after Start), never over the Start card
+        view()->share('tourHoldAutoStart', ($activation['state'] ?? '') === \App\Services\RoadToSold\ActivationService::STATE_NOT_STARTED);
         $captureTasks = $viewingOwn && $agentUser ? $this->capture->capturableTasks($agentUser, $track) : collect();
         $captures = null;
         $teamTotals = [];

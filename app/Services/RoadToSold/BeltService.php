@@ -27,6 +27,12 @@ final class BeltService
 {
     public const PER_PAGE = 25;
 
+    /**
+     * The owner's name as the home list's row reads it (CallListService::ownerOf): the contact linked on the tracked property (alias `o`), else the first
+     * contact in its owners table. ONE source for the tile lists and the rows - a tile list must never say "-" for an owner the row names.
+     */
+    public const OWNER_NAME_SQL = "COALESCE(NULLIF(TRIM(CONCAT_WS(' ', o.first_name, o.last_name)), ''), (SELECT NULLIF(TRIM(CONCAT_WS(' ', oc.first_name, oc.last_name)), '') FROM tracked_property_owners tpo JOIN contacts oc ON oc.id = tpo.contact_id WHERE tpo.tracked_property_id = tp.id ORDER BY tpo.is_primary DESC, tpo.id LIMIT 1))";
+
     private const UNIT_ORDER = ['hour' => 0, 'day' => 1, 'week' => 2, 'month' => 3];
     private const PERIOD_WORDS = ['hour' => 'this hour', 'day' => 'today', 'week' => 'this week', 'month' => 'this month'];
 
@@ -296,6 +302,7 @@ final class BeltService
     private function queryFor(string $source, int $agencyId, array $ids, string $label): array
     {
         $addr = "TRIM(COALESCE(NULLIF(l.address, ''), CONCAT_WS(' ', tp.street_number, tp.street_name), tp.address_raw, ''))";
+        $ownerSql = self::OWNER_NAME_SQL;
 
         switch ($source) {
             case 'claims_open':
@@ -305,7 +312,7 @@ final class BeltService
                     ->leftJoin('tracked_properties as tp', 'tp.id', '=', 'l.tracked_property_id')
                     ->leftJoin('contacts as o', 'o.id', '=', 'tp.owner_contact_id')
                     ->where('c.agency_id', $agencyId)->whereIn('c.user_id', $ids)->where('c.is_active', 1)->whereNull('c.deleted_at')
-                    ->selectRaw("c.id as id, {$addr} as title, COALESCE(l.suburb, tp.suburb) as suburb, TRIM(CONCAT_WS(' ', o.first_name, o.last_name)) as owner, COALESCE(c.last_updated_at, c.claimed_at) as since, l.portal_ref as ref, c.pitched_at as pitched_at");
+                    ->selectRaw("c.id as id, {$addr} as title, COALESCE(l.suburb, tp.suburb) as suburb, {$ownerSql} as owner, COALESCE(c.last_updated_at, c.claimed_at) as since, l.portal_ref as ref, c.pitched_at as pitched_at");
                 if ($source === 'claims_open') {
                     $q->whereNull('tp.owner_contact_id');
 
@@ -356,8 +363,9 @@ final class BeltService
             case 'prospects':
             default:
                 $q = DB::table('rts_prospects as rp')->join('tracked_properties as tp', 'tp.id', '=', 'rp.tracked_property_id')
+                    ->leftJoin('contacts as o', fn ($j) => $j->on('o.id', '=', 'tp.owner_contact_id')->whereNull('o.deleted_at'))
                     ->where('rp.agency_id', $agencyId)->whereIn('rp.user_id', $ids)->whereNull('rp.deleted_at')->whereNull('rp.closed_at')->whereNull('rp.released_at')->whereNull('rp.parked_at')
-                    ->selectRaw("rp.id as id, TRIM(COALESCE(NULLIF(tp.address_raw, ''), CONCAT_WS(' ', tp.street_number, tp.street_name))) as title, tp.suburb as suburb, NULL as owner, rp.stage_entered_at as since");
+                    ->selectRaw("rp.id as id, TRIM(COALESCE(NULLIF(tp.address_raw, ''), CONCAT_WS(' ', tp.street_number, tp.street_name))) as title, tp.suburb as suburb, " . self::OWNER_NAME_SQL . " as owner, rp.stage_entered_at as since");
 
                 return [$q, "TRIM(COALESCE(NULLIF(tp.address_raw, ''), CONCAT_WS(' ', tp.street_number, tp.street_name)))", $label, 'Nothing at this station.'];
         }
