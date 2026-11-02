@@ -130,7 +130,8 @@ final class MicBuyerBannerTest extends TestCase
         $chips = app(MicBuyerBanner::class)->forBuyer($this->buyer->id, $this->agency->id, true)['chips'];
         $labels = array_column($chips, 0);
         $this->assertContains('Any suburb', $labels);
-        $this->assertContains('House, Apartment / Flat', $labels, 'several types are comma-separated (a type can itself hold a slash)');
+        $this->assertContains('House', $labels, 'one chip per type');
+        $this->assertContains('Apartment / Flat', $labels, 'a type can itself hold a slash');
         $this->assertContains('Must have: Pool, Garden, Braai, Alarm +2', $labels);
         $this->assertContains('Avoid: Busy Road', $labels);
         $cut = collect($chips)->firstWhere(0, 'Must have: Pool, Garden, Braai, Alarm +2');
@@ -163,5 +164,29 @@ final class MicBuyerBannerTest extends TestCase
         $this->assertStringNotContainsString('back to Road to Sold', $html);
         $rts = $this->actingAs($this->admin)->get(route('corex.contacts.matches.results', [$this->buyer, $w]) . '?embed=1&rts_stage=3')->assertOk()->getContent();
         $this->assertStringContainsString('Done - back to Road to Sold', $rts, 'the Road to Sold pop-up keeps its wording');
+    }
+
+    /** Every screen that shows a wishlist's type shows ALL of them, not the first pick the legacy single column keeps. */
+    public function test_every_wishlist_type_shows_on_the_results_header_the_contact_card_the_board_and_the_pdf_sheet(): void
+    {
+        $w = $this->wishlist($this->buyer, ['property_type' => 'House', 'property_types' => ['House', 'Apartment / Flat', 'Townhouse']]); // the form mirrors the first pick into the legacy column
+        $this->assertSame('House', $w->property_type, 'the legacy column only holds the first pick');
+        $this->assertSame(['House', 'Apartment / Flat', 'Townhouse'], $w->propertyTypeLabels());
+
+        $h = $this->actingAs($this->admin)->get(route('corex.contacts.matches.results', [$this->buyer, $w]))->assertOk()->getContent();
+        foreach (['House', 'Apartment / Flat', 'Townhouse'] as $t) {
+            $this->assertMatchesRegularExpression('/<span class="ds-badge ds-badge-pill ds-badge-default">\s*' . preg_quote($t, '/') . '\s*<\/span>/', $h, "results header chip {$t}");
+        }
+
+        $c = $this->actingAs($this->admin)->get(route('corex.contacts.show', $this->buyer))->assertOk()->getContent();
+        $this->assertStringContainsString('House · Apartment / Flat · Townhouse', $c, 'the contact page Saved Matches card');
+
+        $summary = (new \ReflectionMethod(\App\Services\Matching\CoreMatchListPdfService::class, 'criteriaSummary'));
+        $summary->setAccessible(true);
+        $line = $summary->invoke(app(\App\Services\Matching\CoreMatchListPdfService::class), $w);
+        $this->assertStringContainsString('House  •  Apartment / Flat  •  Townhouse', $line, 'the PDF sheet header');
+
+        $none = $this->wishlist($this->buyer, ['is_primary' => false, 'property_types' => [], 'property_type' => null]);
+        $this->assertSame([], $none->propertyTypeLabels());
     }
 }
