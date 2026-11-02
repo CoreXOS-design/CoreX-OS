@@ -920,7 +920,7 @@ class MatchingService
         }
         if (! isset($skip['features'])) {
             $wants = $match->nice_to_have_features ?? [];
-            if (! empty($wants)) {
+            if (! empty($wants) && $this->propertyHasStructuredFeatures($property)) { // no feature list on the property: a wish we cannot check is skipped, not scored 0
                 $hits = 0;
                 foreach ($wants as $f) {
                     if ($this->propertyHasFeature($property, (string) $f)) {

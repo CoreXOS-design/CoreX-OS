@@ -26,7 +26,7 @@ class BuyerMatchRules
     public const SALE_PRICE_FLOOR = 10000;
 
     /** Stamped into every MIC cache row (matched_features.rules). Bump it whenever a matching rule changes: each buyer's stale rows are then rebuilt once, on demand (BuyerMatchFreshness). */
-    public const VERSION = '13.15';
+    public const VERSION = '13.15.1';
 
     /** type_key => the wishlist `category` it belongs to; land / farm / other are not mapped, so the category stays unverified. */
     private const CATEGORY_OF_TYPE = [
@@ -257,7 +257,9 @@ class BuyerMatchRules
         $nice = is_array($m->nice_to_have_features) ? array_filter($m->nice_to_have_features) : [];
         if ($breakers || $must || $nice) {
             $known = $this->matcher->featuresKnown($p);
-            if (! $known) {
+            // Only a deal-breaker or a must-have makes an advert without a feature list "unverified" (and so never strong). A nice-to-have is a wish, not a
+            // requirement: adverts almost never carry features, so counting it would cap every such buyer's list at mid.
+            if (! $known && ($breakers || $must)) {
                 $unverified[] = 'features';
             }
             foreach ($breakers as $b) {

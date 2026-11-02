@@ -151,6 +151,20 @@ final class BuyerMatchRulesTest extends TestCase
         $this->assertGreaterThan(0, $unknown['score']);
     }
 
+    public function test_a_nice_to_have_alone_never_caps_an_advert_without_a_feature_list(): void
+    {
+        // Jan Breedt's case: his only feature is a nice-to-have ("garage"); adverts carry no feature lists, so counting that as "unverified" would have capped
+        // every one of his matches at mid. A wish we cannot check is skipped, not penalised.
+        $m = $this->houseOnly();
+        $m->update(['nice_to_have_features' => ['pool']]);
+        $a = app(MatchingService::class)->assess($this->stock(['features_json' => null]), $m->fresh());
+        $this->assertNotContains('features', $a['unverified']);
+        $this->assertSame(100, $a['score']);
+        // with a feature list that lacks it, it is still only a wish: the score drops, the advert stays
+        $this->assertLessThan(100, $this->ownStockScore($m, $this->stock(['features_json' => ['garden']])));
+        $this->assertGreaterThan(0, $this->ownStockScore($m, $this->stock(['features_json' => ['garden']])));
+    }
+
     public function test_an_unknown_type_is_not_excluded_but_is_unverified_and_cannot_be_strong(): void
     {
         $m = $this->houseOnly();
