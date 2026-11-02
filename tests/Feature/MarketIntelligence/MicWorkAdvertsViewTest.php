@@ -154,6 +154,39 @@ final class MicWorkAdvertsViewTest extends TestCase
         $this->assertStringNotContainsString('data-qa="not-same"', substr($line, 0, strpos($line, 'data-qa="line-alerts"') ?: 6000));
     }
 
+    public function test_every_popover_on_the_card_flips_and_shares_one_layout_and_the_split_note_has_a_view_link(): void
+    {
+        $tp = $this->file('P24-150100040');
+        $l = $this->advert('P24-150100040', 1_400_000, ['tracked_property_id' => $tp, 'p24_group_id' => 889]);
+        foreach (['111', '222'] as $no) {
+            DB::table('p24_group_members')->insert(['p24_group_id' => 889, 'listing_number' => $no, 'group_size' => 2, 'first_seen_at' => now(), 'seen_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+        }
+        $this->advert('PP-150100041', 1_350_000, ['portal_source' => 'pp', 'agency_name' => 'Other Agents', 'tracked_property_id' => $tp]);
+        DB::table('prospecting_price_history')->insert([
+            ['prospecting_listing_id' => $l->id, 'old_price' => 1_600_000, 'new_price' => 1_500_000, 'changed_at' => now()->subDays(30), 'created_at' => now(), 'updated_at' => now()],
+            ['prospecting_listing_id' => $l->id, 'old_price' => 1_500_000, 'new_price' => 1_400_000, 'changed_at' => now()->subDays(10), 'created_at' => now(), 'updated_at' => now()],
+        ]);
+        $h = $this->page(['view' => 'adverts']);
+
+        $this->assertStringNotContainsString('<x-dropdown', $h);
+        $this->assertGreaterThanOrEqual(6, substr_count($h, 'data-qa="mic-pop-panel"'), 'the five fact lines and the Listed-by pill all open through the flipping popover');
+        $this->assertStringContainsString('micPop(', $h);
+        $this->assertStringContainsString('max-height: min(22rem, var(--pop-max, 22rem))', $h, 'a popover that fits neither side scrolls inside the room it has');
+
+        $price = substr($h, strpos($h, 'Price history'));
+        $price = substr($price, 0, strpos($price, 'data-qa="line-adverts"') ?: 4000);
+        $this->assertStringContainsString('R 1,600,000 → R 1,500,000', $price);
+        $this->assertStringContainsString('R 1,500,000 → R 1,400,000', $price);
+        $this->assertGreaterThanOrEqual(2, substr_count($price, 'border-top: 1px solid var(--border)'), 'a hairline between price entries');
+        $this->assertStringNotContainsString('A cut counts only', $h, 'no helper text in the popover');
+
+        $from = strpos($h, 'data-qa="listed-by"');
+        $pill = substr($h, $from, strpos($h, 'data-qa="photo-marks"', $from) - $from);
+        $this->assertStringContainsString('data-qa="split-view"', $pill, 'Split off as its own entry · View · Undo');
+        $this->assertStringContainsString('__ID__', $pill, 'the View link opens the new entry from new_file_id');
+        $this->assertStringContainsString('agencies_left_on_file', $h, 'the pill count follows the server when it sends one');
+    }
+
     public function test_the_list_view_is_still_the_classic_list(): void
     {
         $this->advert('P24-150100002', 900_000);

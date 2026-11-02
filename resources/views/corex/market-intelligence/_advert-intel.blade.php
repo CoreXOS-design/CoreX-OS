@@ -112,10 +112,10 @@
 
         @foreach($fact as [$kind, $label, $face])
             <div data-qa="line-{{ $kind }}" style="height:1.5rem; min-width:0;">
-                <x-dropdown align="right" width="w-96 max-w-[90vw]" content-classes="p-1">
+                <x-mic-pop align="right" content-classes="p-1">
                     <x-slot name="trigger"><button type="button" style="{{ $lineBtn }}" title="{{ $label }}: {{ $face }}"><span style="{{ $lab }}">{{ $label }}</span> <span style="{{ str_starts_with($face, 'No ') ? $muted : '' }}">{{ $face }}</span></button></x-slot>
                     <x-slot name="content">@include('corex.market-intelligence._advert-pop', ['kind' => $kind])</x-slot>
-                </x-dropdown>
+                </x-mic-pop>
             </div>
         @endforeach
 

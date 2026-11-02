@@ -61,11 +61,11 @@
             @endforeach
         </div>
         @if((int) ($adv['agencies_total'] ?? 0) >= 2)
-            <div style="position:absolute; bottom:8px; left:8px;" data-qa="listed-by" x-data="miSplit({{ $listing->id }}, {{ (int) $adv['agencies_total'] }}, @js(collect($adv['adverts'] ?? [])->pluck('id')->filter()->values()->all()), '{{ url('/corex/market-intelligence/adverts') }}')" x-show="n >= 2 || note" @click.outside="disarm()">
-                <x-dropdown align="left" width="w-[22rem] max-w-[90vw]" content-classes="p-1">
+            <div style="position:absolute; bottom:8px; left:8px;" data-qa="listed-by" x-data="miSplit({{ $listing->id }}, {{ (int) $adv['agencies_total'] }}, @js(collect($adv['adverts'] ?? [])->pluck('id')->filter()->values()->all()), '{{ url('/corex/market-intelligence/adverts') }}', '{{ route('market-intelligence.opportunities.show', ['tp' => '__ID__']) }}')" x-show="n >= 2 || note" @click.outside="disarm()">
+                <x-mic-pop align="left" content-classes="p-1">
                     <x-slot name="trigger"><button type="button" title="Every advert on this property" style="{{ $markStyle }} cursor:pointer; border:none;" x-text="'Listed by ' + n + ' agencies'">Listed by {{ (int) $adv['agencies_total'] }} agencies</button></x-slot>
                     <x-slot name="content">@include('corex.market-intelligence._advert-pop', ['kind' => 'adverts', 'split' => true])</x-slot>
-                </x-dropdown>
+                </x-mic-pop>
             </div>
         @endif
         <div style="position:absolute; bottom:8px; right:8px; display:flex; gap:4px; align-items:center;" data-qa="photo-marks">
@@ -76,10 +76,10 @@
                 @if($ppUrl)<a href="{{ $ppUrl }}" target="_blank" rel="noopener" data-qa="mark-pp" title="{{ !empty($ppAd['active']) ? 'Open the PP advert' : 'Not seen since ' . ($ppAd['last_seen'] ?? '-') . ' - open the PP advert anyway' }}" style="{{ $markStyle }} {{ !empty($ppAd['active']) ? '' : $markOff }}">PP</a>@else<span data-qa="mark-pp" style="{{ $markStyle }}">PP</span>@endif
             @endif
             @if(!empty($adv['alert']))
-                <x-dropdown align="right" width="w-96 max-w-[90vw]" content-classes="p-1">
+                <x-mic-pop align="right" content-classes="p-1">
                     <x-slot name="trigger"><button type="button" data-qa="envelope" title="{{ $adv['alert_tip'] ?? 'In a P24 alert email' }} - open the alert details" style="{{ $markStyle }} cursor:pointer; border:none; display:inline-flex;"><svg viewBox="0 0 16 12" width="14" height="10" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="1" y="1" width="14" height="10" rx="1.5"/><path d="M1.5 2.2 8 7l6.5-4.8"/></svg></button></x-slot>
                     <x-slot name="content">@include('corex.market-intelligence._advert-pop', ['kind' => 'alerts'])</x-slot>
-                </x-dropdown>
+                </x-mic-pop>
             @endif
         </div>
     </div>
