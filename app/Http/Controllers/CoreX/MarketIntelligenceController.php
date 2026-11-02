@@ -533,9 +533,11 @@ class MarketIntelligenceController extends Controller
             $wishlistScore = fn (int $id) => "CAST(JSON_UNQUOTE(JSON_EXTRACT(matched_features, '\$.wishlists.\"{$id}\"')) AS UNSIGNED)";
             $this->buyerWishlistsOut = $wishlists->map(fn ($w) => [
                 'id' => (int) $w->id, 'label' => \App\Services\Prospecting\MicWork\BuyerWishlists::label($w), 'primary' => (bool) $w->is_primary, 'selected' => (int) $w->id === $this->buyerWishlistId,
-                'count' => (int) DB::table('prospecting_buyer_matches as m')->join('prospecting_listings as pl', 'pl.id', '=', 'm.prospecting_listing_id')
-                    ->where('m.agency_id', $agencyId)->where('m.contact_id', $selectedBuyerId)->whereNull('m.dismissed_at')->whereNull('pl.deleted_at')
-                    ->whereRaw(str_replace('matched_features', 'm.matched_features', $wishlistScore((int) $w->id)) . ' >= ?', [$buyerFloor])->count(),
+                // the same population the list shows (the canvass pool as filtered so far: in-stock, pitched and claim rules applied), so a tab's count matches the banner when it is selected
+                'count' => (clone $query)->whereIn('id', function ($sub) use ($selectedBuyerId, $agencyId, $buyerFloor, $w, $wishlistScore) {
+                    $sub->from('prospecting_buyer_matches')->select('prospecting_listing_id')->where('contact_id', $selectedBuyerId)->where('agency_id', $agencyId)->whereNull('dismissed_at')
+                        ->whereRaw($wishlistScore((int) $w->id) . ' >= ?', [$buyerFloor]);
+                })->count(),
             ])->values()->all();
             view()->share('buyerWishlists', $this->buyerWishlistsOut);
 
