@@ -39,6 +39,17 @@ final class ComposerController extends Controller
         private readonly MapProspectStatusService $prospectStatus = new MapProspectStatusService(),
     ) {}
 
+    /** The owner gate (road-to-sold.md 23.6) for a pitch about this property; null = may send. A property off the belt is not gated here. */
+    private function ownerGate(Request $request, ?Property $property): ?string
+    {
+        $tpId = $property?->tracked_property_id;
+        if (! $tpId) {
+            return null;
+        }
+
+        return app(\App\Services\RoadToSold\OwnerStationService::class)->refusal($request->user(), (int) $tpId);
+    }
+
     public function show(Request $request, Contact $contact)
     {
         $agencyId = $this->ensureAgencyContext($request, $contact);
@@ -200,6 +211,11 @@ final class ComposerController extends Controller
                 : back()->with('error', $msg);
         }
 
+        // v4 gate (road-to-sold.md 23.6): no send for a belt property whose owner is not found yet.
+        if ($gate = $this->ownerGate($request, $property)) {
+            return $request->wantsJson() ? response()->json(['message' => $gate, 'find_owner' => true], 422) : back()->with('error', $gate);
+        }
+
         // Laravel's `nullable|integer` validates but does NOT cast — the value
         // is still a string from the form payload. composeContext() declares
         // `?int $templateId`, so PHP TypeErrors at the call site. Explicit
@@ -357,6 +373,10 @@ final class ComposerController extends Controller
             \App\Services\Properties\OtherAgencyStockActionRules::assertAllowed('pitch_seller', $property);
         } elseif (!$contact->hasStructuredAddress()) {
             return $this->queueError($request, 'Cannot queue: this contact has no linked property and no captured address to pitch.');
+        }
+
+        if ($gate = $this->ownerGate($request, $property)) {
+            return $this->queueError($request, $gate);
         }
 
         $templateId = !empty($validated['template_id']) ? (int) $validated['template_id'] : null;

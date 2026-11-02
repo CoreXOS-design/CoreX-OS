@@ -8684,6 +8684,10 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
         Route::post('/claims/{claimId}/release-as-manager', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'releaseAsManager'])
             ->where('claimId', '\d+')
             ->name('claims.release-as-manager');
+        // Road to Sold v4 (23.5): extend a claim hold (once for the agent; a manager may grant more)
+        Route::post('/claims/{claimId}/extend-hold', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'extendHold'])
+            ->where('claimId', '\d+')
+            ->name('claims.extend-hold');
 
         Route::get('/thumbnail/{listing}', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'thumbnail'])->name('thumbnail');
         // mic-work-tab.md 13.12: "Not the same property" on the Listed-by popover (split one advert off its file) and its undo
@@ -8724,6 +8728,9 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
     Route::post('/claims/{claimId}/release-as-manager', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'releaseAsManager'])
         ->where('claimId', '\d+')
         ->name('claims.release-as-manager');
+    Route::post('/claims/{claimId}/extend-hold', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'extendHold'])
+        ->where('claimId', '\d+')
+        ->name('claims.extend-hold');
 
     Route::get('/thumbnail/{listing}', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'thumbnail'])->name('thumbnail');
     Route::post('/{listing}/claim',    [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'claim'])->name('claim');

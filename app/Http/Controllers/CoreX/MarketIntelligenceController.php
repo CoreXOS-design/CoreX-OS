@@ -4194,6 +4194,15 @@ class MarketIntelligenceController extends Controller
             return back()->with('error', 'This property has already been promoted onto your books — it can no longer be closed out or released.');
         }
 
+        // v4 gate (road-to-sold.md 23.6): a claim on the belt cannot be logged as contacted / meeting / listing until the owner is found. A 'lost'
+        // (dead end, wrong contact) is how an agent reports the owner problem, so it passes.
+        if ($claim->rts_prospect_id && $newStatus !== ProspectingClaim::STATUS_LOST && $listing->tracked_property_id) {
+            $refusal = app(\App\Services\RoadToSold\OwnerStationService::class)->refusal($user, (int) $listing->tracked_property_id);
+            if ($refusal !== null) {
+                return back()->with('error', $refusal);
+            }
+        }
+
         // First-feedback detection — the activity-points credit (mic.claim_feedback)
         // fires ONCE, when feedback_at transitions null→now. Re-editing the status
         // later keeps the original feedback_at and does NOT re-award.
@@ -4296,6 +4305,26 @@ class MarketIntelligenceController extends Controller
         ]);
 
         return back()->with('success', 'Claim released');
+    }
+
+    /** Road to Sold v4 (road-to-sold.md 23.5): extend the hold on a claim. The agent once; a manager with road_to_sold.release_prospects may grant more. */
+    public function extendHold(Request $request, int $claimId)
+    {
+        $claim = ProspectingClaim::findOrFail($claimId);
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId() ?? $user->agency_id;
+        if ($agencyId === null || (int) $claim->agency_id !== (int) $agencyId) {
+            abort(404);
+        }
+        $isOwner = (int) $claim->user_id === (int) $user->id || (int) $claim->user_id === (int) $user->ownershipUserId();
+        $isManager = method_exists($user, 'hasPermission') && $user->hasPermission('road_to_sold.release_prospects');
+        if (! $isOwner && ! $isManager) {
+            abort(403, 'Only the claim owner or a manager can extend this hold.');
+        }
+
+        $r = app(\App\Services\RoadToSold\ClaimHoldService::class)->extend($claim, $user, ! $isOwner && $isManager, $request->input('note'));
+
+        return back()->with($r['ok'] ? 'success' : 'error', $r['message']);
     }
 
     public function releaseAsManager(Request $request, int $claimId)

@@ -588,3 +588,10 @@ If the audit listener (Prompt 01) ever has a critical bug, set the env flag `COR
 ## E-sign document workshop events (28 Oct 2026)
 
 Three events in `App\Events\Docuperfect\` (`TemplateReleased`, `TemplateReleaseApproved`, `TemplateReleaseDeclined`), each carrying `releaseId`, `templateId`, the TARGET agency and the actor; subject `docuperfect_template_releases`. Fired after the transaction that made the change has finished. `TemplateReleased` is the one an agency's authorisers are told by (listener `NotifyDocumentAuthorisers`: in-app + the agency's normal mail); the others are facts for the audit log. The release log itself is `docuperfect_template_release_events` (insert-only). Spec: `esign-template-transfer.md` §13.
+
+## Road to Sold v4 belt events (2 Nov 2026)
+
+| Event | Raised when | Carries | Raised by |
+|---|---|---|---|
+| `RoadToSold\ClaimHoldExtended` | the agent (or a manager) extends a claim hold (road-to-sold.md 23.5) | `claimId`, `agencyId`, `userId` (holder), `prospectId`, `holdUntil` (the new end), `actorUserId` | `ClaimHoldService::extend()` via `SafeRaise` |
+| `RoadToSold\ClaimHoldEnded` | a claim hold ran out and the claim was released with reason `hold_ended`, with its belt record | same; `holdUntil` = the end that passed; `actorUserId` null (the daily job) or the agent whose claim was taken over | `ClaimHoldService::endHold()` via `SafeRaise` |

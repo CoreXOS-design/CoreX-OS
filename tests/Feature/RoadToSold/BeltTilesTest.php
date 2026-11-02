@@ -69,11 +69,17 @@ final class BeltTilesTest extends TestCase
     /** an open claim by $agent on a listing whose property has (or has not) an owner */
     private function claim(User $agent, string $street, bool $owner, ?Carbon $since = null): ProspectingClaim
     {
-        $tp = $this->tp(['street_number' => '9', 'street_name' => $street] + ($owner ? ['owner_contact_id' => $this->owner($agent)] : []));
+        $tp = $this->tp(['street_number' => '9', 'street_name' => $street] + ($owner ? ['owner_contact_id' => $this->owner($agent), 'deeds_captured_at' => now()] : []));
         $listing = $this->listing(['address' => '9 ' . $street . ', Margate', 'portal_ref' => 'P24-' . random_int(100000000, 999999999)], $tp);
 
-        return ProspectingClaim::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'prospecting_listing_id' => $listing, 'user_id' => $agent->id, 'status' => 'claimed',
+        $claim = ProspectingClaim::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'prospecting_listing_id' => $listing, 'user_id' => $agent->id, 'status' => 'claimed',
             'claimed_at' => $since ?? now()->subDay(), 'last_updated_at' => $since ?? now()->subDay(), 'is_active' => true]);
+        if ($owner) {
+            // v4 A2: a claim whose property already has its owner and deed is at Owner found, not Claimed
+            app(\App\Services\RoadToSold\OwnerStationService::class)->evaluate($this->agency->id, (int) $tp->id);
+        }
+
+        return $claim;
     }
 
     public function test_the_tile_row_shows_the_built_stations_in_belt_order_with_todays_counts(): void
@@ -96,8 +102,8 @@ final class BeltTilesTest extends TestCase
             $at = $pos;
         }
         $fig = fn (string $k) => preg_match('/data-qa="belt-tile-' . $k . '".*?data-qa="belt-figure">([^<]*)/s', $html, $m) ? trim($m[1]) : null;
-        $this->assertSame('2', $fig('claimed'), "this agent's two claims are both at Claimed (v4 A1: a claim IS the prospect; the owner station moves them on in A2); a colleague's never counts");
-        $this->assertSame('1', $fig('owner'));
+        $this->assertSame('1', $fig('claimed'), "the claim with no owner is at Claimed (v4 A1: a claim IS the prospect); a colleague's never counts");
+        $this->assertSame('1', $fig('owner'), 'the claim whose owner and deed are on record is at Owner found (v4 A2)');
         $this->assertSame('1', $fig('draft'));
         $this->assertSame('1', $fig('active'), 'active and not on a portal yet');
         $this->assertSame('0', $fig('advertised'));

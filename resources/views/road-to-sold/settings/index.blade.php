@@ -343,6 +343,16 @@
                         </span>
                     </label>
                     @endif
+                    @if(\App\Models\RoadToSold\RtsSetting::hasOwnerRequiresDeedColumn())
+                    <label class="flex items-start gap-3 text-sm" style="color:var(--text-primary);" data-qa="setting-owner-requires-deed">
+                        <input type="hidden" name="owner_requires_deed" value="0">
+                        <input type="checkbox" name="owner_requires_deed" value="1" class="mt-1" @checked(old('owner_requires_deed', $settings->ownerRequiresDeed()))>
+                        <span>
+                            <span class="font-semibold">A property counts as "Owner found" only once its deed is on record too</span><br>
+                            <span style="color:var(--text-muted);">On: the owner contact and a deeds or CMA Info capture are both needed before an agent may contact the owner. Off: the linked owner contact alone is enough.</span>
+                        </span>
+                    </label>
+                    @endif
                     @if(\App\Models\RoadToSold\RtsSetting::hasClaimHoldColumns())
                     <div class="grid gap-3 sm:grid-cols-2" data-qa="setting-claim-hold">
                         @foreach([

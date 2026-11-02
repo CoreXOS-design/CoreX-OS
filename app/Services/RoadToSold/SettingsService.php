@@ -385,6 +385,12 @@ class SettingsService
         return max(0, (int) $this->scalar('claim_extensions_allowed'));
     }
 
+    /** 23.6: does the Owner station need a deed record as well as the linked owner contact? On by default. */
+    public function ownerRequiresDeed(): bool
+    {
+        return (bool) $this->scalar('owner_requires_deed');
+    }
+
     /** 23.13: must an agent press "Start my Road to Sold" before their list loads? On by default. */
     public function agentStartRequired(): bool
     {

@@ -209,6 +209,8 @@ final class MicWorkList
             ->where('w.agency_id', $agencyId)->whereIn('w.tracked_property_id', $tpIds)
             ->get(['w.tracked_property_id', 'w.prospecting_status', 'w.prospecting_reason', 'w.is_own_stock', 'w.claimed_by_user_id', 'u.name as claimed_by'])->keyBy('tracked_property_id') : collect();
 
+        $holds = $this->myHolds($agencyId, $tpIds);
+
         $buyers = $advertIds ? DB::table('prospecting_buyer_matches')->where('agency_id', $agencyId)->whereIn('prospecting_listing_id', $advertIds)
             ->whereNull('dismissed_at')->where('score', '>=', 50)->groupBy('prospecting_listing_id')
             ->selectRaw('prospecting_listing_id, COUNT(DISTINCT contact_id) c')->pluck('c', 'prospecting_listing_id') : collect();
@@ -479,6 +481,8 @@ final class MicWorkList
                 'claimed_by' => $w->claimed_by ?? null,
                 'work_status' => $w->prospecting_status ?? null,
                 'work_reason' => $w->prospecting_reason ?? null,
+                // v4 (road-to-sold.md 23.5 / 23.6): the viewer's own claim hold on this file and whether the owner still has to be found
+                'hold' => $tp ? ($holds[(int) $tp->id] ?? null) : null,
                 // 13.12: newest listed first (listed date, else first seen); `id` is what "Not the same property" posts; `can_split` is false for the only advert on a file
                 'adverts' => $list->sortByDesc(fn ($a) => ($a->listed_date ?? $a->first_seen_at)?->format('Y-m-d') ?? '')->values()->map(fn ($a) => [
                     'id' => (int) $a->id, 'can_split' => $list->pluck('canonical_ref')->map(fn ($r) => $r ?: 'x')->unique()->count() > 1,
@@ -616,5 +620,39 @@ final class MicWorkList
                 ? ['id' => (int) $pick->id, 'portal' => $pick->portal_source === 'pp' ? 'pp' : 'p24', 'ref' => (string) $pick->portal_ref, 'url' => (string) $pick->portal_url] : null,
             'photo_count' => $photos,
         ];
+    }
+    /**
+     * The viewer's own claim holds on these property files (v4 23.5): claim id, hold end, working days left, whether an extension is left, and
+     * whether the owner still has to be found before the owner can be contacted (23.6). Empty for a viewer without a held claim.
+     *
+     * @param  int[]  $tpIds
+     * @return array<int,array{claim_id:int,until:string,days_left:?int,can_extend:bool,find_owner:bool,missing:string}>
+     */
+    private function myHolds(int $agencyId, array $tpIds): array
+    {
+        $uid = (int) (auth()->id() ?: 0);
+        $hold = app(\App\Services\RoadToSold\ClaimHoldService::class);
+        if ($uid <= 0 || $tpIds === [] || ! $hold->available()) {
+            return [];
+        }
+        $claims = \App\Models\ProspectingClaim::withoutGlobalScopes()->where('prospecting_claims.agency_id', $agencyId)->where('prospecting_claims.user_id', $uid)
+            ->where('prospecting_claims.is_active', 1)->whereNull('prospecting_claims.released_at')->whereNull('prospecting_claims.deleted_at')->whereNotNull('prospecting_claims.hold_until')
+            ->join('prospecting_listings as l', 'l.id', '=', 'prospecting_claims.prospecting_listing_id')->whereIn('l.tracked_property_id', $tpIds)
+            ->orderBy('prospecting_claims.hold_until')->get(['prospecting_claims.*', 'l.tracked_property_id as file_id']);
+        $owner = app(\App\Services\RoadToSold\OwnerStationService::class);
+        $out = [];
+        foreach ($claims as $c) {
+            $tpId = (int) $c->file_id;
+            if (isset($out[$tpId])) {
+                continue;
+            }
+            $missing = $owner->missing($agencyId, $tpId);
+            $out[$tpId] = [
+                'claim_id' => (int) $c->id, 'until' => \Carbon\Carbon::parse($c->hold_until)->format('j M Y'), 'days_left' => $hold->daysLeft($c),
+                'can_extend' => $hold->mayExtend($c), 'find_owner' => $missing !== [], 'missing' => implode(' and ', $missing),
+            ];
+        }
+
+        return $out;
     }
 }
