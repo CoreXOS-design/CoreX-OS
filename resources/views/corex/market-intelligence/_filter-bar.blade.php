@@ -112,7 +112,7 @@
                 <button type="button" @click="open = !open; if (open) $nextTick(() => $refs.find.focus())" :aria-expanded="open ? 'true' : 'false'" aria-haspopup="true" data-qa="filter-suburb" style="{{ $box }} cursor: pointer; width: 6.5rem; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                     Suburb<span x-text="ticked > 0 ? ' · ' + ticked : ''">{{ count($selSuburbs) ? ' · ' . count($selSuburbs) : '' }}</span> ▾
                 </button>
-                <div x-show="open" x-cloak data-qa="suburb-panel" style="position: absolute; z-index: 30; top: 34px; left: 0; width: 300px; max-width: calc(100vw - 24px); max-height: 360px; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.18);">
+                <div x-show="open" x-cloak data-qa="suburb-panel" class="mic-sub-panel" style="position: absolute; z-index: 30; top: 34px; left: 0; width: 300px; max-width: calc(100vw - 24px); max-height: 360px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.18);">
                     <div style="display: flex; align-items: center; gap: 8px; padding: 6px; border-bottom: 1px solid var(--border);">
                         <input type="text" x-ref="find" x-model="q" placeholder="Filter suburbs…" autocomplete="off" data-qa="suburb-find" @keydown.enter.prevent style="{{ $box }} flex: 1; min-width: 0;">
                         <button type="button" x-show="ticked > 0" x-cloak @click="clearAll($root.closest('form'))" data-qa="suburb-clear" style="flex-shrink: 0; background: none; border: 0; padding: 0; cursor: pointer; font-size: .8125rem; color: var(--brand-icon);">Clear</button>
@@ -123,7 +123,7 @@
                                 <div data-qa="suburb-group-{{ $grp }}" x-show="hit($el)">
                                     <div style="font-size: .625rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); padding: 8px 2px 3px;">{{ $grpLabel }}</div>
                                     @foreach($subBlocks[$grp] as $o)
-                                        <label data-n="{{ mb_strtolower($o['name']) }}" title="{{ $o['name'] }}" x-show="key() === '' || $el.dataset.n.includes(key())" style="display: flex; align-items: center; gap: 8px; font-size: .8125rem; padding: 3px 2px; cursor: pointer; white-space: nowrap;">
+                                        <label data-n="{{ mb_strtolower($o['name']) }}" title="{{ $o['name'] }}" x-show="key() === '' || $el.dataset.n.includes(key())" class="mic-sub-row" style="font-size: .8125rem; padding: 3px 2px; cursor: pointer; white-space: nowrap;">
                                             <input type="checkbox" name="suburbs[]" value="{{ $o['id'] }}" @checked(in_array($o['id'], $selSuburbs, true)) @change="ticked += $event.target.checked ? 1 : -1" style="flex-shrink: 0;">
                                             <span style="flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;">{{ $o['name'] }}</span>
                                             <span style="flex-shrink: 0; margin-left: auto; color: var(--text-muted); font-size: .6875rem; font-variant-numeric: tabular-nums;">{{ number_format($o['count']) }}</span>
@@ -209,5 +209,8 @@
     </div>
 </div>
 <style>
+    /* the suburb panel's layout lives in classes, NOT inline: Alpine's x-show strips an inline `display` when it shows an element, which turned the rows back into running text (two to a line) and let the list run out of the panel */
+    .mic-sub-panel { display: flex; flex-direction: column; }
+    .mic-sub-row { display: flex; align-items: center; gap: 8px; }
     @media (max-width: 64rem) { .mi-bar-row { flex-wrap: wrap !important; } }
 </style>

@@ -210,6 +210,9 @@ final class MicWorkFilterBarTest extends TestCase
         $this->assertStringContainsString('data-qa="suburb-group-working"', $h);
         $this->assertStringContainsString('data-qa="suburb-group-others"', $h);
         $this->assertStringNotContainsString('data-qa="suburb-group-selected"', $h, 'no Selected block when nothing is ticked');
+        $this->assertStringContainsString('class="mic-sub-panel"', $h);
+        $this->assertStringContainsString('class="mic-sub-row"', $h);
+        $this->assertDoesNotMatchRegularExpression('/x-show="[^"]*"[^>]*style="[^"]*display:/', substr($h, strpos($h, 'data-qa="suburb-panel"') - 200, 9000), 'no x-show element carries an inline display: Alpine strips it when it shows the element');
         $this->assertStringContainsString('font-variant-numeric: tabular-nums', $h, 'counts use tabular figures');
         $this->assertStringContainsString('text-overflow: ellipsis', $h, 'long names are cut with an ellipsis, never wrapped');
         $this->assertStringContainsString('title="Extraordinarily Long Suburb Name Estate Phase Two"', $h, 'the full name is in the title');
