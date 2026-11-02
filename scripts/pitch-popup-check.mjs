@@ -80,8 +80,10 @@ if (link) {
             ok(!!(await page.$('[data-qa="pitch-popup"]')), 'the popup is still open behind it');
         }
     }
+    await page.evaluate(() => document.querySelector('[data-qa="pitch-close"]').scrollIntoView());
     await page.click('[data-qa="pitch-close"]');
-    await wait(1500);
+    await wait(2500);
+    console.log('  after close:', JSON.stringify(await page.evaluate(() => ({ popups: document.querySelectorAll('.cxp-back').length, url: location.pathname }))));
     ok(!(await page.$('[data-qa="pitch-popup"]')), 'Close shuts the popup');
     ok(/market-intelligence/.test(page.url()) && (await page.$('[data-qa="advert-card"]')) !== null, 'the agent is back on the list they came from');
     await page.screenshot({ path: path.join(SHOTS, 'e-back-on-list.png') });

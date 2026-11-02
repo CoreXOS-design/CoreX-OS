@@ -98,7 +98,7 @@ class MarketIntelligenceController extends Controller
         if ($request->hasAny(['_pitch_card', '_pitch_property', '_pitch_tracked'])) {
             $pitchCardId = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->listingId($request, (int) $agencyId);
             abort_if($pitchCardId === null, 404);
-            $request->query->replace(['view' => 'adverts', 'clear' => '1', 'is_active' => 'all', '_fragments' => '1', 'embed' => '1']);
+            $request->query->replace(['view' => 'adverts', 'clear' => '1', 'is_active' => 'all', '_fragments' => '1', 'embed' => '1'] + ($request->boolean('peek') ? ['peek' => '1'] : []));
         }
 
         // Tick refresh (cc6): an AJAX filter toggle requests ?_fragments=1 and is

@@ -18,12 +18,13 @@
 
     function sameSite(u) { try { return new URL(u, window.location.href).origin === window.location.origin; } catch (e) { return false; } }
     function withEmbed(u) { var x = new URL(u, window.location.href); x.searchParams.set('embed', '1'); return x.toString(); }
-    function cardUrl(p) {
+    function cardUrl(p, peek) {
         var x = new URL(cfg.card || '/corex/market-intelligence/work', window.location.origin);
         if (p.listing) x.searchParams.set('_pitch_card', p.listing);
         else if (p.property) x.searchParams.set('_pitch_property', p.property);
         else if (p.tracked) x.searchParams.set('_pitch_tracked', p.tracked);
         x.searchParams.set('embed', '1');
+        if (peek) x.searchParams.set('peek', '1');
         return x.toString();
     }
     function stepOf(href) {
@@ -50,7 +51,7 @@
         '.cxp-frame{flex:1;width:100%;border:0;background:var(--bg,#f8fafc)}' +
         '.cxp-btn{padding:5px 14px;border-radius:6px;font-size:.8125rem;font-weight:700;cursor:pointer;border:1px solid var(--border,#cbd5e1);background:var(--surface,#fff);color:var(--text-primary,#0f172a)}' +
         '.cxp-btn.cxp-primary{background:var(--brand-button,#0ea5e9);border-color:var(--brand-button,#0ea5e9);color:#fff}' +
-        '.cxp-peek{max-width:64rem;height:88vh}';
+        '.cxp-peek{max-width:72rem;height:90vh}';
     document.head.appendChild(css);
 
     function el(tag, attrs, kids) {
@@ -136,7 +137,7 @@
 
     // ---- "What is this property?" ------------------------------------------------------------------------------------------------------------------
     function peek(p) {
-        var url = cardUrl(p);
+        var url = cardUrl(p, true);
         var closeBtn = el('button', { type: 'button', 'class': 'cxp-btn', text: 'Close', 'data-qa': 'peek-close' });
         var frame = el('iframe', { 'class': 'cxp-frame', title: 'The property', src: url, 'data-qa': 'peek-frame' });
         var win = el('div', { 'class': 'cxp-win cxp-peek' }, [el('div', { 'class': 'cxp-bar' }, [el('div', { 'class': 'cxp-title', text: 'What is this property?' }), closeBtn]), frame]);

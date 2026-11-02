@@ -58,6 +58,11 @@ final class PitchPopupCardTest extends TestCase
         $this->assertStringContainsString('3 Bedroom House', $h);
         $this->assertStringNotContainsString('P24-170000002', $h);
         $this->assertStringNotContainsString('id="corex-sidebar"', $h, 'chrome-less in embed mode');
+        $this->assertStringContainsString('data-embed-done', $h, 'in the popup the page ends with Done');
+
+        $peek = $this->card(['_pitch_card' => $a->id, 'embed' => 1, 'peek' => 1])->assertOk()->getContent();
+        $this->assertStringContainsString('data-qa="advert-card"', $peek);
+        $this->assertStringNotContainsString('data-embed-done', $peek, 'the header window has no Done bar of its own');
     }
 
     public function test_it_finds_the_card_from_the_property_or_the_tracked_property_too(): void
