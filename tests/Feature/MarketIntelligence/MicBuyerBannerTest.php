@@ -120,7 +120,9 @@ final class MicBuyerBannerTest extends TestCase
 
         $this->assertStringContainsString(route('corex.contacts.matches.results', [$this->buyer, $primary]), $h, 'the pop-up opens the primary wishlist, not the newest');
         $this->assertStringContainsString('Primary wishlist', $h);
-        $this->assertMatchesRegularExpression('/<a href="[^"]*tab=matches" data-qa="buyer-banner-wishlists"[^>]*>2 wishlists<\/a>/', $h);
+        // 13.20: with the real per-wishlist data the banner shows one tab per wishlist (the old "N wishlists / best score" link is only the fallback without it)
+        $this->assertSame(2, substr_count($h, 'data-qa="buyer-wishlist-tab"'), 'one tab per wishlist');
+        $this->assertMatchesRegularExpression('/data-qa="buyer-wishlist-tab" data-active="1" data-wishlist-id="' . $primary->id . '"/', $h, 'the primary is the active one');
         $this->assertStringNotContainsString('>Office<', $h);
     }
 
