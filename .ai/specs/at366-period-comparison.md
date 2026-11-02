@@ -193,10 +193,20 @@ comparisons), `PerformanceDrilldownService`, `AgencyPerformanceReportController`
 `components/performance-delta`, `agency-report/index` + `print-company`.
 Tests: `tests/Feature/Performance/AgencyReportDealStatusTicksTest.php`.
 
-**Not changed (reported):** the branch and agent journey pages (`/agency-report/branch/…`, `/agent/…`) and their prints still
-count every status; the headline "the agency earned" uses the agent share of commission while the Commission card's big
-number is Gross (agent + company).
+**Follow-on (same day, same bug):** the branch page, the agent page and the agent print now follow the same `?status[]` selection
+(same default, same "Counting …" line), for both the period and the preceding period they compare to; links from the company
+report (branch / agent rows) carry the period, custom dates and the ticks, and so do Back, the agent Print link, the agent
+links on the branch page and the period selector (hidden `status[]` fields). The Buyer-activity tiles on the company report
+show the previous period's actual figure beside the delta (ruling C, same component). The commission column / agent
+card on the branch, agent and company tables is headed **"Commission (agent share, ex-VAT)"** because the number it holds is
+the agent's own money line (`CommissionGrossProvider::forUsers`); the card keeps "Commission (gross ex-VAT)" because its
+big number is Gross. The basis itself is NOT changed (open with Johan).
+
+**Not changed (reported, with Johan):** the headline "the agency earned" uses the agent share of commission while the
+Commission card's big number is Gross (agent + company); DR2 `completed`/`active` fall into Pending; agent rows can add up
+to more than the company deal count on joint deals.
 
 ### Build log
 
 - 2026-11-02 — AT-535: rulings A–G built on QA1. See above.
+- 2026-11-02 — AT-535 follow-on: branch / agent pages + agent print follow the ticks; buyer-activity tiles show the previous figure; commission column headed "agent share" (basis unchanged).

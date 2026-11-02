@@ -350,4 +350,138 @@ final class AgencyReportDealStatusTicksTest extends TestCase
         $this->assertStringNotContainsString('Colin Ramsgate', $print);
         $this->assertSame('R 100.00 · ▲ +R 45.00 (+81.8%) · 2026-09-01 → 2026-09-30: R 55.00', $this->region($print, 'hero-compare'));
     }
+
+    // ───────────────────────── branch / agent pages follow the same ticks (AT-535 follow-on) ─────────────────────────
+
+    private function metricOf(array $journey, string $key): array
+    {
+        return collect($journey['metrics'])->firstWhere('key', $key);
+    }
+
+    public function test_agent_and_branch_journeys_follow_the_ticks_for_both_periods(): void
+    {
+        $svc = app(AgencyPerformanceReportService::class);
+        $period = app(PeriodResolver::class)->resolve('custom', '2026-10-01', '2026-10-31');
+
+        $agentDefault = $svc->agentJourney($this->agency->id, $this->a1->id, $period, null, DealStatusSelection::default());
+        $agentAll     = $svc->agentJourney($this->agency->id, $this->a1->id, $period, null, DealStatusSelection::all());
+        $agentLegacy  = $svc->agentJourney($this->agency->id, $this->a1->id, $period);
+
+        // a1, October: Pending 10 + Granted 20 + Registered 30 = 60 (+ Declined 40 = 100). The previous period is the 31 days before
+        // (1 Sep - 30 Sep), on the SAME ticks: Granted 5 (+ Declined 50 = 55).
+        $c = $this->metricOf($agentDefault, 'commission_gross_ex_vat');
+        $this->assertEqualsWithDelta(60.0, $c['value'], 0.001);
+        $this->assertEqualsWithDelta(5.0, $c['previous'], 0.001);
+        $this->assertEqualsWithDelta(55.0, $c['delta'], 0.001);
+        $call = $this->metricOf($agentAll, 'commission_gross_ex_vat');
+        $this->assertEqualsWithDelta(100.0, $call['value'], 0.001);
+        $this->assertEqualsWithDelta(55.0, $call['previous'], 0.001);
+        $this->assertEqualsWithDelta(100.0, $this->metricOf($agentLegacy, 'commission_gross_ex_vat')['value'], 0.001, 'no selection = every status, as before');
+        $this->assertSame(3, $this->metricOf($agentDefault, 'deals_created')['value']);
+        $this->assertSame(5, $this->metricOf($agentAll, 'deals_created')['value']);
+
+        $branchDefault = $svc->branchJourney($this->agency->id, (string) $this->b1->id, $period, null, DealStatusSelection::default());
+        $branchAll     = $svc->branchJourney($this->agency->id, (string) $this->b1->id, $period, null, DealStatusSelection::all());
+        $this->assertEqualsWithDelta(67.0, $this->metricOf($branchDefault, 'commission_gross_ex_vat')['value'], 0.001);
+        $this->assertEqualsWithDelta(107.0, $this->metricOf($branchAll, 'commission_gross_ex_vat')['value'], 0.001);
+        $this->assertSame(4, $this->metricOf($branchDefault, 'deals_created')['value']);
+        $this->assertSame(6, $this->metricOf($branchAll, 'deals_created')['value']);
+    }
+
+    public function test_branch_agent_and_agent_print_pages_show_the_counting_line_and_carry_the_selection_through_their_links(): void
+    {
+        $this->actingAs($this->admin);
+        $q = ['period' => 'custom', 'start' => '2026-10-01', 'end' => '2026-10-31'];
+        $text = fn (string $html) => preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($html)));
+
+        $branch = $this->get(route('performance.agency-report.branch', ['branch' => $this->b1->id] + $q))->assertOk()->getContent();
+        $this->assertStringContainsString('Counting Pending, Granted, Registered deals (Declined excluded)', $text($branch));
+        $this->assertStringContainsString('Counting all deals, including Declined', $text($this->get(route('performance.agency-report.branch', ['branch' => $this->b1->id, 'status' => ['all']] + $q))->getContent()));
+
+        // links from the branch page keep the period AND the ticks
+        $withTicks = $this->get(route('performance.agency-report.branch', ['branch' => $this->b1->id, 'status' => ['granted', 'declined']] + $q))->assertOk()->getContent();
+        $this->assertSame(1, preg_match('/href="([^"]*agency-report\/agent\/' . $this->a1->id . '[^"]*)"/', $withTicks, $m));
+        parse_str((string) parse_url(html_entity_decode($m[1]), PHP_URL_QUERY), $link);
+        $this->assertSame(['granted', 'declined'], $link['status']);
+        $this->assertSame('2026-10-01', $link['start']);
+        $this->assertStringContainsString('name="status[]" value="granted"', $withTicks, 'changing the period on the page keeps the ticks');
+
+        $agentUrl = route('performance.agency-report.agent', ['user' => $this->a1->id, 'status' => ['all']] + $q);
+        $agent = $this->get($agentUrl)->assertOk()->getContent();
+        $this->assertStringContainsString('Counting all deals, including Declined', $text($agent));
+        $this->assertSame(1, preg_match('/href="([^"]*agency-report\/agent\/' . $this->a1->id . '\/print[^"]*)"/', $agent, $pm));
+        parse_str((string) parse_url(html_entity_decode($pm[1]), PHP_URL_QUERY), $printQ);
+        $this->assertSame(['pending', 'granted', 'registered', 'declined'], $printQ['status'], 'the selection, spelled out');
+
+        $print = $this->get(route('performance.agency-report.agent.print', ['user' => $this->a1->id] + $q))->assertOk()->getContent();
+        $this->assertStringContainsString('Counting Pending, Granted, Registered deals (Declined excluded)', $text($print));
+        $printAll = $this->get(route('performance.agency-report.agent.print', ['user' => $this->a1->id, 'status' => ['all']] + $q))->assertOk()->getContent();
+        $this->assertStringContainsString('Counting all deals, including Declined', $text($printAll));
+        $this->assertNotSame($text($print), $text($printAll), 'the printed figures move with the ticks');
+    }
+
+    public function test_company_report_links_to_branch_and_agent_pages_carry_period_and_ticks(): void
+    {
+        $this->actingAs($this->admin);
+        $html = html_entity_decode($this->get(route('performance.agency-report', self::URL + ['status' => ['granted', 'declined']]))->assertOk()->getContent());
+
+        foreach (['branchUrlBase' => '/agency-report/branch/__KEY__', 'agentUrlBase' => '/agency-report/agent/__UID__'] as $key => $path) {
+            $this->assertSame(1, preg_match('/' . $key . ": '(.*?)'/", $html, $m), "$key present");
+            $url = json_decode('"' . str_replace("'", "\\'", $m[1]) . '"');
+            $this->assertStringContainsString($path, $url);
+            parse_str((string) parse_url($url, PHP_URL_QUERY), $q);
+            $this->assertSame('custom', $q['period']);
+            $this->assertSame('2026-10-01', $q['start']);
+            $this->assertSame('2026-10-31', $q['end']);
+            $this->assertSame(['granted', 'declined'], $q['status'], "$key carries the ticks");
+        }
+    }
+
+    public function test_the_commission_column_is_headed_for_the_number_it_holds(): void
+    {
+        // The branch / agent columns hold the AGENT share (CommissionGrossProvider::forUsers), not the gross the card headlines.
+        $report = $this->build(DealStatusSelection::default(), '2026-10-01', '2026-10-31');
+        $meta = collect($report['metrics'])->keyBy('key');
+        $this->assertSame('Commission (agent share, ex-VAT)', $meta['commission_gross_ex_vat']['column_label']);
+        $this->assertSame('Commission (gross ex-VAT)', $meta['commission_gross_ex_vat']['label'], 'the card / drilldown name is unchanged');
+        $this->assertSame($meta['deals_created']['label'], $meta['deals_created']['column_label']);
+
+        $this->actingAs($this->admin);
+        $q = ['period' => 'custom', 'start' => '2026-10-01', 'end' => '2026-10-31'];
+        $this->assertStringContainsString('Commission (agent share, ex-VAT)', $this->get(route('performance.agency-report.branch', ['branch' => $this->b1->id] + $q))->getContent());
+        $this->assertStringContainsString('Commission (agent share, ex-VAT)', $this->get(route('performance.agency-report.agent', ['user' => $this->a1->id] + $q))->getContent());
+        $this->assertStringContainsString('Commission (agent share, ex-VAT)', $this->get(route('performance.agency-report.print', self::URL))->getContent());
+        $this->assertStringContainsString('Commission (agent share, ex-VAT)', html_entity_decode($this->get(route('performance.agency-report', self::URL))->getContent()));
+    }
+
+    public function test_buyer_activity_tiles_show_the_previous_periods_figure_beside_the_delta(): void
+    {
+        $metrics = \App\Services\Performance\BuyerActivityService::METRICS;
+        $cmp = [];
+        foreach ($metrics as $m) {
+            $cmp[$m['key']] = \App\Services\Performance\PeriodComparison::compute($m['currency'] ? 1500.5 : 5.0, $m['currency'] ? 1000.0 : 3.0, $m['direction']);
+        }
+        $html = view('performance.agency-report._buyer-summary', [
+            'report' => ['period' => ['label' => 'Oct']],
+            'buyer' => ['metrics' => $metrics, 'aggregate' => array_map(fn ($c) => $c['value'], $cmp)],
+            'buyerComparison' => ['company' => $cmp],
+            'comparisonMeta' => ['phrase' => 'vs 2026-09-01 → 2026-09-30', 'range' => '2026-09-01 → 2026-09-30'],
+        ])->render();
+        $text = preg_replace('/\s+/', ' ', html_entity_decode(strip_tags($html)));
+
+        $this->assertStringContainsString('▲ +2 (+66.7%) · 2026-09-01 → 2026-09-30: 3', $text, 'a count: delta, then the previous period and its figure');
+        $this->assertStringContainsString('▲ +R 500.50 (+50.1%) · 2026-09-01 → 2026-09-30: R 1,000.00', $text, 'Lost value, same format as the other cards');
+        $this->assertSame(count($metrics), substr_count($text, '2026-09-01 → 2026-09-30:'), 'all six tiles');
+    }
+
+    public function test_the_ticks_on_the_detail_pages_cannot_widen_the_scope(): void
+    {
+        $this->actingAs($this->a1);
+        $q = ['period' => 'custom', 'start' => '2026-10-01', 'end' => '2026-10-31', 'status' => ['all']];
+        $this->get(route('performance.agency-report.agent', ['user' => $this->a2->id] + $q))->assertForbidden();
+        $this->get(route('performance.agency-report.agent.print', ['user' => $this->a2->id] + $q))->assertForbidden();
+        $this->get(route('performance.agency-report.branch', ['branch' => $this->b1->id] + $q))->assertForbidden();
+        $own = $this->get(route('performance.agency-report.agent', ['user' => $this->a1->id] + $q))->assertOk()->getContent();
+        $this->assertStringContainsString('100', strip_tags($own), 'their own commission, Declined ticked in');
+    }
 }

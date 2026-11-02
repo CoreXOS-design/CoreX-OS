@@ -3,11 +3,15 @@
 @section('title', 'Branch — ' . ($report['branch']['label'] ?? ''))
 
 @section('corex-content')
+@php
+    // What the company report had selected travels with the reader: period (+ custom dates) and the deal-status ticks.
+    $carry = array_merge($viewQuery ?? [], ['period' => $preset]);
+@endphp
 <div class="w-full space-y-5">
     <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rpt-pb-intro">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
-            <a href="{{ route('performance.agency-report', ['period' => $preset]) }}"
+            <a href="{{ route('performance.agency-report', $carry) }}"
                class="text-[11px] no-underline" style="color:var(--text-muted);">&larr; Back to company report</a>
             <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">{{ $report['branch']['label'] }}</h1>
             <p class="text-xs" style="color:var(--text-muted);">
@@ -22,6 +26,7 @@
                 'preset' => $preset,
                 'presets' => $presets,
                 'formAction' => route('performance.agency-report.branch', $report['branch']['key']),
+                'hiddenFields' => $statuses->toQuery(),
             ])
         </div>
       </div>
@@ -30,6 +35,11 @@
     @if(session('period_error'))
         <div class="text-xs px-3 py-2 rounded" style="background:#fee; color:#900;">{{ session('period_error') }}</div>
     @endif
+
+    <p class="text-[11px]" style="color:var(--text-muted);" data-qa="counting-statuses">
+        Counting {{ $statuses->isEverything() ? 'all deals, including Declined' : $statuses->label() . ' deals' }}{{ in_array('declined', $statuses->buckets(), true) ? '' : ' (Declined excluded)' }}.
+        The deal figures below follow the ticks chosen on the company report.
+    </p>
 
     {{-- The branch's rolled-up metrics, each with its prior-period trend. --}}
     <div>
@@ -65,7 +75,7 @@
                     <tr style="background:var(--surface-2);">
                         <th class="text-left px-3 py-3 font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Agent</th>
                         @foreach($report['metric_meta'] as $m)
-                            <th class="text-right px-3 py-3 font-semibold uppercase tracking-wide" style="color:var(--text-muted);">{{ $m['label'] }}</th>
+                            <th class="text-right px-3 py-3 font-semibold uppercase tracking-wide" style="color:var(--text-muted);">{{ $m['column_label'] ?? $m['label'] }}</th>
                         @endforeach
                     </tr>
                 </thead>
@@ -73,7 +83,7 @@
                     @forelse($report['agents'] as $agent)
                         <tr style="border-top:1px solid var(--border);">
                             <td class="px-3 py-2">
-                                <a href="{{ route('performance.agency-report.agent', ['user' => $agent['user_id'], 'period' => $preset]) }}"
+                                <a href="{{ route('performance.agency-report.agent', ['user' => $agent['user_id']] + $carry) }}"
                                    class="no-underline" style="color:var(--brand, #3b82f6);" @if($loop->first) data-tour="rpt-pb-agent-link" @endif>{{ $agent['name'] }}</a>
                             </td>
                             @foreach($report['metric_meta'] as $m)

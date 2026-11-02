@@ -10,8 +10,10 @@
         ->values()->all();
     $agentRows  = $report['agents'];
     $metricMeta = $report['metrics'];
-    $branchUrlBase = route('performance.agency-report.branch', ['branch' => '__KEY__', 'period' => $preset]);
-    $agentUrlBase  = route('performance.agency-report.agent', ['user' => '__UID__', 'period' => $preset]);
+    // The branch and agent pages open on the same period (custom dates included) and the same deal-status ticks as this screen.
+    $detailCarry   = array_filter(['start' => request('start'), 'end' => request('end')]) + $statuses->toQuery();
+    $branchUrlBase = route('performance.agency-report.branch', ['branch' => '__KEY__', 'period' => $preset] + $detailCarry);
+    $agentUrlBase  = route('performance.agency-report.agent', ['user' => '__UID__', 'period' => $preset] + $detailCarry);
     // Custom-range params flow through to the drilldown endpoint (contract §B). Built as a
     // plain path (not route()) so the view never depends on cc6's endpoint being registered
     // yet — the modal degrades to "coming soon" on 404 until cc6 lands the route.
@@ -69,7 +71,7 @@
                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                title="Print the whole-company report">Print report</a>
             {{-- Period selector (cc5-owned partial — DO NOT edit here, only include it) --}}
-            @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes])
+            @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes, 'hiddenFields' => $statuses->toQuery()])
         </div>
 
         @if(session('period_error'))
@@ -260,7 +262,7 @@
                         </th>
                         <template x-for="m in metrics" :key="m.key">
                             <th :class="isMoney(m.key) ? 'metric-th metric-money' : 'metric-th metric-qty'" @click="sortBranch(m.key)" :aria-sort="ariaBranch(m.key)">
-                                <div :class="isMoney(m.key) ? '' : 'th-rot'"><span x-text="m.label"></span> <span x-text="branchArrow(m.key)"></span></div>
+                                <div :class="isMoney(m.key) ? '' : 'th-rot'"><span x-text="m.column_label || m.label"></span> <span x-text="branchArrow(m.key)"></span></div>
                             </th>
                         </template>
                     </tr>
@@ -372,7 +374,7 @@
                         </th>
                         <template x-for="m in metrics" :key="m.key">
                             <th :class="isMoney(m.key) ? 'metric-th metric-money' : 'metric-th metric-qty'" @click="sortAgent(m.key)" :aria-sort="ariaAgent(m.key)">
-                                <div :class="isMoney(m.key) ? '' : 'th-rot'"><span x-text="m.label"></span> <span x-text="agentArrow(m.key)"></span></div>
+                                <div :class="isMoney(m.key) ? '' : 'th-rot'"><span x-text="m.column_label || m.label"></span> <span x-text="agentArrow(m.key)"></span></div>
                             </th>
                         </template>
                     </tr>

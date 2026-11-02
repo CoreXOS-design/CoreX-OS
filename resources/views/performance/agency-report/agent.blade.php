@@ -3,11 +3,14 @@
 @section('title', 'Agent Journey — ' . ($journey['agent']['name'] ?? ''))
 
 @section('corex-content')
+@php
+    $carry = array_merge($viewQuery ?? [], ['period' => $preset]);
+@endphp
 <div class="w-full space-y-5">
     <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rpt-pa-intro">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
-            <a href="{{ route('performance.agency-report', ['period' => $preset]) }}"
+            <a href="{{ route('performance.agency-report', $carry) }}"
                class="text-[11px] no-underline" style="color:var(--text-muted);">&larr; Back to report</a>
             <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">{{ $journey['agent']['name'] }}</h1>
             <p class="text-xs" style="color:var(--text-muted);">
@@ -19,7 +22,7 @@
         <div class="flex items-center gap-2 flex-wrap">
             @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             {{-- #8 per-agent print — hand the agent their own figures --}}
-            <a href="{{ route('performance.agency-report.agent.print', ['user' => $journey['agent']['user_id'], 'period' => $preset]) }}" target="_blank" data-tour="rpt-pa-print"
+            <a href="{{ route('performance.agency-report.agent.print', ['user' => $journey['agent']['user_id']] + $carry) }}" target="_blank" data-tour="rpt-pa-print"
                class="text-[11px] px-3 py-2 rounded no-underline print:hidden"
                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                title="Print this agent's figures">🖨 Print agent</a>
@@ -28,6 +31,7 @@
                 'preset' => $preset,
                 'presets' => $presets,
                 'formAction' => route('performance.agency-report.agent', $journey['agent']['user_id']),
+                'hiddenFields' => $statuses->toQuery(),
             ])
         </div>
       </div>
@@ -36,6 +40,11 @@
     @if(session('period_error'))
         <div class="text-xs px-3 py-2 rounded" style="background:#fee; color:#900;">{{ session('period_error') }}</div>
     @endif
+
+    <p class="text-[11px]" style="color:var(--text-muted);" data-qa="counting-statuses">
+        Counting {{ $statuses->isEverything() ? 'all deals, including Declined' : $statuses->label() . ' deals' }}{{ in_array('declined', $statuses->buckets(), true) ? '' : ' (Declined excluded)' }}.
+        The deal figures below follow the ticks chosen on the company report.
+    </p>
 
     {{-- The agent journey: every metric with its prior-period trend. --}}
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3" data-tour="rpt-pa-metrics">
