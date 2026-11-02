@@ -240,4 +240,18 @@ final class BeltTilesTest extends TestCase
         $this->assertStringContainsString('data-qa="belt-compare-claimed"', $html);
         $this->assertStringContainsString('function beltCompare(', $html);
     }
+
+    /** Johan, 2 Nov: a tile list says where the record is and what comes next - not a list-item open / closed flag. */
+    public function test_a_tile_list_shows_the_station_and_the_next_step_of_the_record(): void
+    {
+        $p = app(ProspectService::class)->place($this->agent, $this->tp(['street_number' => '73', 'street_name' => 'Marine Drive'])->id);
+        $p->forceFill(['stage' => S::APPOINTMENT_SET, 'next_action_key' => 'evaluation_feedback', 'next_action_label' => 'Evaluation feedback', 'next_action_at' => '2026-10-15'])->save();
+        DB::table('calendar_events')->insert(['agency_id' => $this->agency->id, 'user_id' => $this->agent->id, 'title' => 'Evaluation 73 Marine Drive', 'event_type' => 'meeting', 'category' => 'property_evaluation',
+            'event_date' => '2026-10-15 10:00:00', 'status' => 'scheduled', 'rts_prospect_id' => $p->id, 'tracked_property_id' => $p->tracked_property_id, 'created_at' => now(), 'updated_at' => now()]);
+
+        $h = $this->page($this->agent, ['station' => 'booked'])->assertOk()->getContent();
+        $this->assertStringContainsString('Station · next step', $h);
+        $this->assertMatchesRegularExpression('/data-qa="station-where"[^>]*>Evaluation booked · 15 Oct 10:00 · Evaluation feedback</', $h);
+        $this->assertStringNotContainsString('>Open</a>', $h, 'the row button is not a status');
+    }
 }

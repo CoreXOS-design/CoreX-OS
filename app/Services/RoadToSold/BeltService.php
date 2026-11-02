@@ -248,7 +248,7 @@ final class BeltService
         ($f['sort'] ?? 'age') === 'address' ? $q->orderByRaw("({$titleExpr}) {$dir}") : $q->orderBy('since', $dir === 'asc' ? 'asc' : 'desc');
         $page = max(1, (int) ($f['page'] ?? 1));
         $paginator = $q->paginate(self::PER_PAGE, ['*'], 'page', $page);
-        $paginator->getCollection()->transform(fn ($r) => $this->decorate((array) $r, $source));
+        $paginator->getCollection()->transform(fn ($r) => $this->decorate((array) $r, $source, (string) $s['label']));
 
         return ['rows' => $paginator, 'label' => (string) $s['label'], 'heading' => $heading, 'empty' => $empty, 'owed' => $source === 'owed'];
     }
@@ -365,7 +365,7 @@ final class BeltService
                 $q = DB::table('rts_prospects as rp')->join('tracked_properties as tp', 'tp.id', '=', 'rp.tracked_property_id')
                     ->leftJoin('contacts as o', fn ($j) => $j->on('o.id', '=', 'tp.owner_contact_id')->whereNull('o.deleted_at'))
                     ->where('rp.agency_id', $agencyId)->whereIn('rp.user_id', $ids)->whereNull('rp.deleted_at')->whereNull('rp.closed_at')->whereNull('rp.released_at')->whereNull('rp.parked_at')
-                    ->selectRaw("rp.id as id, TRIM(COALESCE(NULLIF(tp.address_raw, ''), CONCAT_WS(' ', tp.street_number, tp.street_name))) as title, tp.suburb as suburb, " . self::OWNER_NAME_SQL . " as owner, rp.stage_entered_at as since");
+                    ->selectRaw("rp.id as id, TRIM(COALESCE(NULLIF(tp.address_raw, ''), CONCAT_WS(' ', tp.street_number, tp.street_name))) as title, tp.suburb as suburb, " . self::OWNER_NAME_SQL . " as owner, rp.stage_entered_at as since, rp.stage as stage, rp.next_action_label as next_label, rp.next_action_at as next_at" . $this->appointmentSql());
 
                 return [$q, "TRIM(COALESCE(NULLIF(tp.address_raw, ''), CONCAT_WS(' ', tp.street_number, tp.street_name)))", $label, 'Nothing at this station.'];
         }
@@ -389,8 +389,51 @@ final class BeltService
             ->whereDate('rts_list_items.list_date', $day->toDateString())->whereNull('rts_list_items.deleted_at');
     }
 
+    /** The record's next evaluation / presentation appointment (with its time), when the calendar carries the link (belt A4). */
+    private function appointmentSql(): string
+    {
+        static $has = null;
+        $has ??= \Illuminate\Support\Facades\Schema::hasColumn('calendar_events', 'rts_prospect_id');
+
+        return $has
+            ? ", (SELECT MIN(ce.event_date) FROM calendar_events ce WHERE ce.rts_prospect_id = rp.id AND ce.deleted_at IS NULL AND ce.status NOT IN ('dismissed', 'cancelled') AND ce.category IN ('property_evaluation', 'listing_presentation')) as appt_at"
+            : ', NULL as appt_at';
+    }
+
+    /**
+     * "Evaluation booked · 3 Nov 10:00 · Evaluation feedback": the station, when the next step falls due (a time only when one was set) and what it is.
+     *
+     * @param array<string,mixed> $r
+     */
+    private function whereLine(array $r, string $source, string $stationLabel): string
+    {
+        $parts = [];
+        $stage = (string) ($r['stage'] ?? '');
+        // the station's own name (the belt calls it "Evaluation booked"; the stored stage key reads "Appointment set")
+        $parts[] = $stationLabel !== '' ? $stationLabel : ($stage !== '' && ProspectStages::has($stage) ? ProspectStages::label($stage) : '');
+        // a booked evaluation is when the appointment is (with its time); anything else is when the next step falls due
+        $when = ($stage === ProspectStages::APPOINTMENT_SET && ! empty($r['appt_at'])) ? $r['appt_at'] : ($r['next_at'] ?? null);
+        if (! empty($when)) {
+            $at = Carbon::parse($when);
+            $parts[] = $at->format('j M') . ($at->format('H:i') !== '00:00' ? ' ' . $at->format('H:i') : '');
+        }
+        if (! empty($r['next_label'])) {
+            $parts[] = (string) $r['next_label'];
+        } elseif ($source === 'claims_open') {
+            $parts[] = 'Find the owner';
+        } elseif ($source === 'claims_owner') {
+            $parts[] = 'Make the first contact';
+        } elseif ($source === 'presentations_open') {
+            $parts[] = 'Waiting for an answer';
+        } elseif ($source === 'owed') {
+            $parts[] = 'Feedback owed';
+        }
+
+        return implode(' · ', array_filter($parts, fn ($p) => $p !== ''));
+    }
+
     /** @param array<string,mixed> $r */
-    private function decorate(array $r, string $source): array
+    private function decorate(array $r, string $source, string $stationLabel = ''): array
     {
         $since = ! empty($r['since']) ? Carbon::parse($r['since']) : null;
         $r['since_label'] = $since?->format('j M Y');
@@ -402,6 +445,8 @@ final class BeltService
             'properties_draft', 'properties_active', 'properties_live' => route('corex.properties.show', $r['id']),
             default => route('road-to-sold.index', ['block' => 'prospects']),
         };
+        // "where it is and what is next" - the record's own station and next action, never the list item's open / closed flag
+        $r['where'] = $this->whereLine($r, $source, $stationLabel);
         $r['title'] = $r['title'] !== null && trim((string) $r['title']) !== '' ? $r['title'] : 'Address not captured';
 
         return $r;

@@ -33,16 +33,17 @@
         <div class="px-4 py-8 text-center text-sm" style="color: var(--text-secondary);" data-qa="station-empty">{{ $f['q'] !== '' ? 'Nothing matches that search.' : $L['empty'] }}</div>
     @else
         <table class="w-full text-xs ds-table">
-            <thead><tr><th class="text-left">Property</th><th class="text-left">Suburb</th><th class="text-left">Owner</th><th class="text-left">{{ $L['owed'] ? 'Evaluation date' : 'Since' }}</th><th class="text-left">Days</th><th></th></tr></thead>
+            <thead><tr><th class="text-left">Property</th><th class="text-left">Suburb</th><th class="text-left">Owner</th><th class="text-left">Station · next step</th><th class="text-left">{{ $L['owed'] ? 'Evaluation date' : 'Since' }}</th><th class="text-left">Days</th><th></th></tr></thead>
             <tbody>
             @foreach($rowsP as $r)
                 <tr data-qa="station-row">
                     <td class="rts-nw" title="{{ $r['title'] }}"><a href="{{ $r['url'] }}" class="underline" style="color: var(--text-primary);">{{ $r['title'] }}</a></td>
                     <td class="rts-nw">{{ \Illuminate\Support\Str::title(mb_strtolower((string) ($r['suburb'] ?? ''))) }}</td>
                     <td class="rts-nw">{{ $r['owner'] ?: '-' }}</td>
+                    <td class="rts-nw" style="max-width: 26rem;" title="{{ $r['where'] ?? '' }}" data-qa="station-where">{{ $r['where'] ?? '-' }}</td>
                     <td>{{ $r['since_label'] ?? '-' }}</td>
                     <td style="font-variant-numeric: tabular-nums;">{{ $r['days'] ?? '-' }}</td>
-                    <td class="text-right"><a href="{{ $r['url'] }}" class="corex-btn-outline corex-btn-xs">{{ $L['owed'] ? 'Give feedback' : 'Open' }}</a></td>
+                    <td class="text-right"><a href="{{ $r['url'] }}" class="corex-btn-outline corex-btn-xs">{{ $L['owed'] ? 'Give feedback' : 'View' }}</a></td>
                 </tr>
             @endforeach
             </tbody>
