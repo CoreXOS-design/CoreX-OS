@@ -59,7 +59,7 @@
             @if(!empty($t['display']))
                 <div style="font-size: .9375rem; font-weight: 700; line-height: 1.3; color: {{ $numColor }}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $t['display'] }}</div>
             @elseif($t['count'] !== null)
-                <div style="font-size: 1.0625rem; font-weight: 700; line-height: 1.3; color: {{ $numColor }}; white-space: nowrap;">{{ number_format($t['count']) }}@if(!empty($t['threshold']))<span data-qa="tile-threshold" style="margin-left: 4px; font-size: .625rem; font-weight: 700; color: var(--text-muted);">{{ $t['threshold'] }}</span>@endif</div>
+                <div style="font-size: 1.0625rem; font-weight: 700; line-height: 1.3; color: {{ $numColor }}; white-space: nowrap;{{ !empty($t['threshold']) ? ' display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 4px;' : '' }}">{{ number_format($t['count']) }}@if(!empty($t['threshold']))<span data-qa="tile-threshold" style="font-size: .625rem; font-weight: 700; color: var(--text-muted);">{{ $t['threshold'] }}</span>@endif</div>
             @elseif($t['ready'] && $t['kind'] === 'panel')
                 <div style="font-size: .8125rem; font-weight: 700; line-height: 1.5; color: {{ $numColor }};">Open ▸</div>
             @elseif($t['ready'])
