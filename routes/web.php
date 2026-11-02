@@ -5819,6 +5819,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/create',        [\App\Http\Controllers\Admin\AgencyController::class, 'create'])->name('create');
         Route::post('/',             [\App\Http\Controllers\Admin\AgencyController::class, 'store'])->name('store');
         Route::post('/{agency}/toggle-active', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleActive'])->name('toggle-active');
+        // Agency suspension — .ai/specs/agency-suspension.md
+        Route::post('/{agency}/toggle-suspend', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleSuspend'])->name('toggle-suspend');
         // Per-agency maintenance mode (AT-93). Owner-only; owners bypass the
         // gate so they can always lift it. Spec: .ai/specs/maintenance-mode.md
         Route::post('/{agency}/toggle-maintenance', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleMaintenance'])->name('toggle-maintenance');
