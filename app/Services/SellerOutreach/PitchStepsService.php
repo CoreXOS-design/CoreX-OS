@@ -83,6 +83,10 @@ final class PitchStepsService
         if ($owner && $property) {
             $out['contact'] = route('seller-outreach.composer.show', ['contact' => $owner->id, 'property_id' => $property->id, 'channel' => 'whatsapp'] + $carry);
             $out['evaluation'] = $this->book->url($property, $owner, $carry);
+        } elseif ($owner && $prospect && app(\App\Services\RoadToSold\OwnerStationService::class)->ownerFound($agencyId, (int) $tpId)) {
+            // the owner is on the file and the deed is on record but the record has no CoreX property yet: the belt's own steps make it (once, for the record) and open the screen
+            $out['contact'] = route('road-to-sold.prospects.step', ['prospect' => $prospect->id, 'step' => 'pitch'] + $carry);
+            $out['evaluation'] = route('road-to-sold.prospects.step', ['prospect' => $prospect->id, 'step' => 'evaluation'] + $carry);
         }
 
         return $out;

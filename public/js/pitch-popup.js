@@ -139,6 +139,7 @@
             // any move from inside the screen (a form saved, a link followed) shows the loading line until the next one is up
             try { frame.contentWindow.addEventListener('beforeunload', function () { if (pop) loading.style.display = ''; }); } catch (e) { /* not same origin */ }
             paint();
+            if (pop.plan && pop.planTries < 6 && (!pop.urls.contact || !pop.urls.evaluation || !pop.urls.owner)) { pop.planTries++; pop.plan(); }
         });
         pop.keydown = function (e) { if (e.key === 'Escape') close(false); };
         document.addEventListener('keydown', pop.keydown);
@@ -152,7 +153,8 @@
             if (o.listing) q.set('listing', o.listing);
             if (o.tracked) q.set('tracked', o.tracked);
             if (prospect) q.set('prospect', prospect);
-            fetch(cfg.steps + '?' + q.toString(), { credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } })
+            pop.planQuery = q.toString();
+            pop.plan = function () { return fetch(cfg.steps + '?' + pop.planQuery, { credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } })
                 .then(function (r) { return r.ok ? r.json() : null; })
                 .then(function (d) {
                     if (!d || !d.steps || pop !== me) return;
@@ -161,7 +163,8 @@
                     Object.keys(d.steps).forEach(function (k) { if (k !== 'address' && d.steps[k] && !pop.urls[k]) pop.urls[k] = d.steps[k]; });
                     paint();
                 })
-                .catch(function () { /* the pills stay as they are: the screens still work */ });
+                .catch(function () { /* the pills stay as they are: the screens still work */ }); };
+            pop.planTries = 1; pop.plan();
         }
         closeBtn.focus();
     }

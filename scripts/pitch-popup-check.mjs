@@ -38,6 +38,7 @@ const waitFrame = async (re, ms = 60000) => { const t = Date.now(); while (Date.
 await page.goto(`${BASE}/corex/market-intelligence?view=adverts&clear=1&search=${encodeURIComponent(SEARCH)}`, { waitUntil: 'networkidle2', timeout: 120000 });
 await page.screenshot({ path: path.join(SHOTS, 'a-list.png') });
 const link = await page.evaluate(() => { const a = document.querySelector('a[data-pitch-popup]'); return a ? { href: a.href, listing: a.dataset.listing, start: a.dataset.start } : null; });
+const LISTING = link ? link.listing : 0;
 console.log('  chip:', JSON.stringify(link));
 ok(!!link && link.start === 'owner', 'MIC "Pitch now" is set to open at step 2, Owner');
 
@@ -48,6 +49,11 @@ await (await page.$('a[data-pitch-popup]')).click();
 await page.waitForSelector('[data-qa="pitch-popup"]', { timeout: 15000 });
 let f = await waitFrame(/outreach\/compose/);
 ok(!!f, 'the popup went straight to the Owner screen (no Property step first)');
+const claimToast = await page.evaluate(() => (document.querySelector('[data-qa="pitch-toast"]') || {}).innerText || null);
+console.log('  first-open notice:', claimToast);
+ok(!!claimToast && /^Claimed · .* · yours for \d+ working days$/.test(claimToast), 'the first open says it claimed the property: "' + claimToast + '"');
+const heading = await f.evaluate(() => (document.querySelector('[data-qa="step-heading"]') || {}).innerText || null);
+ok(heading === 'Owner', 'the Owner screen has one heading, "' + heading + '"');
 await page.screenshot({ path: path.join(SHOTS, 'b-mic-opens-at-owner.png') });
 let s = await steps();
 console.log('  steps:', s);
@@ -86,6 +92,8 @@ if (WALK) {
     // ---- 4. Owner -> next steps (writes test data) ----------------------------------------------------------------------------------------------------
     const hasAddress = await f.evaluate(() => !/\(no address\)/.test(document.querySelector('[data-qa="listing-header"]').innerText));
     console.log('  listing has an address:', hasAddress);
+    const snap = () => JSON.parse(tinker(`$l = \\DB::table('prospecting_listings')->where('id', ${LISTING})->first(['tracked_property_id']); echo json_encode(['tp' => \\DB::table('tracked_properties')->where('agency_id', 1)->count(), 'props' => \\DB::table('properties')->where('agency_id', 1)->count(), 'tasks' => \\DB::table('command_tasks')->where('agency_id', 1)->count(), 'sends' => \\DB::table('seller_outreach_sends')->where('agency_id', 1)->count(), 'owner' => \\DB::table('tracked_properties')->where('id', $l->tracked_property_id)->value('owner_contact_id'), 'claim' => \\DB::table('prospecting_claims')->where('user_id', ${USER_ID})->where('prospecting_listing_id', ${LISTING})->where('is_active', 1)->value('status'), 'pitched' => \\DB::table('prospecting_listings')->where('id', ${LISTING})->value('pitched_at')]);`));
+    const before = snap();
     await f.evaluate(() => { const b = [...document.querySelectorAll('button')].find((x) => /Create new/.test(x.innerText)); if (b) b.click(); });
     await f.type('input[name="first_name"]', 'ZZ');
     await f.type('input[name="last_name"]', 'Popup Test');
@@ -93,19 +101,29 @@ if (WALK) {
     await page.screenshot({ path: path.join(SHOTS, 'f-owner-filled.png') });
     await f.evaluate(() => { const b = [...document.querySelectorAll('button[type="submit"]')].find((x) => /continue/i.test(x.innerText)); b.scrollIntoView(); b.click(); });
     if (!hasAddress) { console.log('  (this listing has no street address: pick another with --search=)'); }
-    const next = await waitFrame(/outreach\/pitch-ready|\/contacts\/\d+\/outreach/, 90000);
-    ok(!!next, 'Create & continue moved on inside the popup: ' + (next ? next.url().replace(BASE, '') : '-'));
+    // the deed is not on record: the Owner step says so and stays on the compose screen (never the pitch page, never a property made behind the agent's back)
+    let cur = await waitFrame(/outreach\/compose.*need=deed/, 90000);
+    ok(!!cur, 'Create & continue saved the owner and stayed on the Owner step because the deed is missing: ' + (cur ? cur.url().replace(BASE, '') : '-'));
+    await wait(1200);
+    const after = snap();
+    console.log('  before:', JSON.stringify(before), ' after:', JSON.stringify(after));
+    ok(after.tp === before.tp && after.props === before.props, 'no second tracked property, no property made (' + before.tp + '/' + before.props + ' -> ' + after.tp + '/' + after.props + ')');
+    ok(after.tasks === before.tasks, 'no "Upload signed mandate / owner ID / proof of ownership" tasks');
+    ok(after.sends === before.sends && !/sent|contacted/i.test(String(after.claim)) && after.pitched === null, 'nothing "sent", the claim is not "contacted" (' + after.claim + '), not stamped pitched');
+    ok(!!after.owner && after.owner !== before.owner, 'the owner is on the record\'s own file (contact ' + after.owner + ')');
     s = await steps();
     console.log('  steps after Owner:', s);
-    ok(/^property:done,owner:done,/.test(s), 'Owner ticked');
+    ok(/owner:current/.test(s), 'the Owner step is still the current one');
+    ok(await cur.evaluate(() => !!document.querySelector('[data-qa="need-deed"]')), 'it says the deed record is what is missing');
     await page.screenshot({ path: path.join(SHOTS, 'g-after-owner.png') });
-    var cur = next;
-    if (cur && /pitch-ready/.test(cur.url())) {
-        ok(/pitch:current/.test(s), 'Pitch step shown (choose the seller)');
-        ok(!(await cur.evaluate(() => /Back to Market Intelligence/.test(document.body.innerText))), 'no "Back to Market Intelligence" link inside the popup');
-        await cur.evaluate(() => document.querySelector('a[href*="/outreach/compose"]').click());
-        cur = await waitFrame(/\/contacts\/\d+\/outreach\/compose/, 60000);
-    }
+    // the deed arrives (the way linking it would put it on record); the Contact pill now has a screen: the belt makes the property, once, for the record
+    tinker(`$l = \\DB::table('prospecting_listings')->where('id', ${LISTING})->first(['tracked_property_id']); \\DB::table('tracked_properties')->where('id', $l->tracked_property_id)->update(['deeds_captured_at' => now()]); echo 'deed on record';`);
+    for (let i = 0; i < 40 && (await page.$eval('[data-step="contact"]', (b) => b.dataset.click)) !== '1'; i++) { await page.evaluate(() => {}); await wait(400); if (i % 5 === 4) { await cur.evaluate(() => location.reload()); await wait(1500); cur = await frameOf(); } }
+    ok((await page.$eval('[data-step="contact"]', (b) => b.dataset.click)) === '1', 'the Contact pill became a control once the owner and the deed were on record');
+    await page.click('[data-step="contact"]');
+    cur = await waitFrame(/\/contacts\/\d+\/outreach\/compose/, 90000);
+    const made = snap();
+    ok(made.props === before.props + 1 && made.tp === before.tp && made.tasks === before.tasks, 'the property was made once, for the record, on its own file, with no chase tasks (' + made.props + '/' + made.tp + '/' + made.tasks + ')');
     ok(!!cur && /\/contacts\/\d+\/outreach\/compose/.test(cur.url()), 'the outreach screen is inside the popup');
     s = await steps();
     ok(/contact:current/.test(s), 'step bar: Contact is current (' + s + ')');
@@ -179,16 +197,18 @@ if (WALK) {
     cur = await waitFrame(/channel=phone/, 60000);
     await cur.waitForSelector('[data-qa="phone-outcomes"]', { timeout: 30000 });
     await page.screenshot({ path: path.join(SHOTS, 'n-phone-tab.png') });
-    const p1 = await cur.evaluate(() => ({ groups: [...document.querySelectorAll('[data-qa="phone-outcomes"] .uppercase')].map((e) => e.innerText), when: document.getElementById('pc-when').value, max: document.getElementById('pc-when').max, saveDisabled: document.querySelector('[data-qa="phone-save"]').disabled }));
+    const p1 = await cur.evaluate(() => ({ groups: [...document.querySelectorAll('[data-qa="phone-outcomes"] .uppercase')].map((e) => e.innerText), when: document.getElementById('pc-when-date').value + ' ' + document.getElementById('pc-when-time').value, dmy: /^\d\d\/\d\d\/\d{4}$/.test(document.getElementById('pc-when-date').value), required: !!document.querySelector('[data-qa="call-when"]').previousElementSibling.querySelector('[title="Required"]'), usDate: !!document.querySelector('input[type="datetime-local"]'), saveDisabled: document.querySelector('[data-qa="phone-save"]').disabled }));
     console.log('  phone form:', JSON.stringify(p1));
     ok(p1.groups.map((g) => g.toLowerCase()).join('|') === 'moves it forward|try again later|off-ramps - why it stops here', 'outcomes grouped: ' + p1.groups.join(' | '));
     ok(p1.saveDisabled, 'Log this call is off until an outcome is picked');
+    ok(p1.dmy && p1.required && !p1.usDate, 'the call date is dd/mm/yyyy (' + p1.when + '), marked required, no bare US date box');
     await cur.evaluate(() => { const r = [...document.querySelectorAll('[data-qa="phone-outcomes"] label')].find((l) => /Spoke - call back/.test(l.innerText)); r.querySelector('input').click(); });
     const hourAgo = await cur.evaluate(() => { const d = new Date(Date.now() - 3600 * 1000); const pad = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()); });
-    await cur.evaluate((v) => { const i = document.getElementById('pc-when'); i.value = v; i.dispatchEvent(new Event('input', { bubbles: true })); }, hourAgo);
+    await cur.evaluate((v) => { const i = document.getElementById('pc-when-time'); i.value = v.slice(11); i.dispatchEvent(new Event('input', { bubbles: true })); }, hourAgo);
     await cur.waitForSelector('#pc-next', { visible: true, timeout: 10000 });
-    const nextDay = await cur.evaluate(() => { const d = new Date(Date.now() + 3 * 864e5); return d.toISOString().slice(0, 10); });
-    await cur.evaluate((v) => { const i = document.getElementById('pc-next'); i.value = v; i.dispatchEvent(new Event('input', { bubbles: true })); }, nextDay);
+    const nextDmy = await cur.evaluate(() => { const d = new Date(Date.now() + 3 * 864e5); const pad = (n) => String(n).padStart(2, '0'); return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear(); });
+    await cur.type('#pc-next', nextDmy);
+    await cur.evaluate(() => document.getElementById('pc-next').blur());
     await cur.type('#pc-note', 'Walk check: wants a call back after the weekend');
     await page.screenshot({ path: path.join(SHOTS, 'o-phone-filled.png') });
     await cur.evaluate(() => document.querySelector('[data-qa="phone-save"]').click());
@@ -198,7 +218,7 @@ if (WALK) {
     console.log('  phone row:', phoneRow);
     const pr = JSON.parse(phoneRow);
     ok(pr.channel === 'phone' && /Spoke - call back/.test(pr.outcome_label) && /weekend/.test(pr.note), 'the call is on the record: channel phone, "' + pr.outcome_label + '"');
-    ok(pr.occurred_at.slice(0, 16) === hourAgo.replace('T', ' '), 'it carries the time the agent gave: ' + pr.occurred_at);
+    ok(pr.occurred_at.slice(11, 16) === hourAgo.slice(11), 'it carries the time the agent gave: ' + pr.occurred_at);
 
     // ---- 7b. Book evaluation: step 5, the calendar's own form inside the popup --------------------------------------------------------------------
     const canBook = await cur.evaluate(() => { const b = document.querySelector('[data-qa="phone-book-next"]'); return !!b && getComputedStyle(b).display !== 'none'; });
@@ -223,6 +243,9 @@ if (WALK) {
     ok(/Property evaluation/.test(form.type || ''), 'the type is Property evaluation');
     ok(/ZZ Popup Test/.test(form.chips) && /Salmon Drive/.test(form.chips), 'the property and the owner (as the seller) are on the form');
     ok(!form.cancel, 'no Cancel / close into an empty calendar');
+    const evHeading = await cur.evaluate(() => (document.querySelector('aside[data-tour="cal-event-form"] [data-qa="step-heading"]') || {}).innerText || null);
+    ok(evHeading === 'Evaluation', 'the form is headed "Evaluation": "' + evHeading + '"');
+    ok(await cur.evaluate(() => !document.querySelector('[data-tour="cal-layers"]') || getComputedStyle(document.querySelector('aside[data-tour="cal-event-form"]')).position === 'fixed'), 'only the form is shown (no calendar grid, layers or deck in view)');
     await page.screenshot({ path: path.join(SHOTS, 'r-book-form.png') });
     const evDate = await cur.evaluate(() => { const root = document.querySelector('[x-data*="calendarPage"]'); const d = Alpine.$data(root); const dt = new Date(Date.now() + 10 * 864e5); const iso = dt.toISOString().slice(0, 10); d.form.startDate = iso; d.form.endDate = iso; d.form.startTime = '10:00'; d.form.endTime = '11:00'; return iso; });
     await wait(400);
