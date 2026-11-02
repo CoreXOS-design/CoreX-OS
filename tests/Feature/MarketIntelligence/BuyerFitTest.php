@@ -50,7 +50,7 @@ final class BuyerFitTest extends TestCase
 
     private function advert(array $extra = []): array
     {
-        $file = (int) app(TrackedPropertyMatchOrCreateService::class)->matchOrCreate($this->agency->id, ['street_number' => '4', 'street_name' => 'Emtunzi', 'suburb' => 'Margate'], ['type' => 'p24', 'ref' => 'P24-' . Str::random(8)])->id;
+        $file = (int) app(TrackedPropertyMatchOrCreateService::class)->matchOrCreate($this->agency->id, ['street_number' => (string) random_int(4, 900), 'street_name' => 'Emtunzi', 'suburb' => 'Margate'], ['type' => 'p24', 'ref' => 'P24-' . Str::random(8)])->id;
         $id = (int) DB::table('prospecting_listings')->insertGetId(array_merge([
             'agency_id' => $this->agency->id, 'tracked_property_id' => $file, 'captured_by_user_id' => $this->agent->id, 'portal_source' => 'p24', 'portal_ref' => 'ref-' . Str::random(8), 'portal_url' => 'https://x.test/' . Str::random(5),
             'address' => '4 Emtunzi', 'suburb' => 'Margate', 'listing_type' => 'sale', 'price' => 950_000, 'bedrooms' => 2, 'bathrooms' => 2, 'garages' => 1, 'property_type' => 'Townhouse',
