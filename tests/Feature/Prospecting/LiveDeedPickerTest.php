@@ -107,6 +107,8 @@ final class LiveDeedPickerTest extends TestCase
         $this->assertContains($needle, collect($this->picker(['q' => 'goomal'])->assertOk()->json('deeds'))->pluck('tracked_property_id')->all());
         $this->assertSame([$needle], collect($this->picker(['q' => 'goomal tucker'])->json('deeds'))->pluck('tracked_property_id')->all(), 'every word must match');
         $this->assertSame([], $this->picker(['q' => 'nobody-by-this-name'])->json('deeds'));
+        $this->deed('Fresh Street', 'FRESH', '2', $this->me, now()->subMinutes(5));
+        $this->assertSame(1, $this->picker(['q' => 'goomal'])->json('today_count'), 'the banner count is the day\'s captures, not the typed-filtered list');
     }
 
     public function test_the_deed_of_the_same_complex_is_a_likely_match_and_comes_before_the_others(): void

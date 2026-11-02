@@ -583,10 +583,8 @@ class DeedsCaptureLinkService
         $propScheme = self::schemeKey($property['complex'] ?? null);
         $propUnit = self::sectionKey($property['unit'] ?? null);
 
-        $todayCount = 0;
         foreach ($pool as &$d) {
             $mine = $userId && $d['captured_by'] === $userId && $d['captured_at'] && \Illuminate\Support\Carbon::parse($d['captured_at'])->gte($since);
-            $todayCount += $mine ? 1 : 0;
             $d['group'] = $mine ? 'just_now' : 'other';
             if ($propScheme !== '' && $d['scheme_key'] !== '' && $d['scheme_key'] === $propScheme) {
                 $sec = self::sectionKey($d['section']);
@@ -623,6 +621,10 @@ class DeedsCaptureLinkService
 
             return $d;
         }, $pool);
+
+        // the banner's count is the user's captures of the last 24 h - never the typed-filtered pool
+        $todayCount = $userId ? (int) TrackedProperty::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')
+            ->where('deeds_captured_by_user_id', $userId)->where('deeds_captured_at', '>=', $since)->count() : 0;
 
         return ['deeds' => array_slice($pool, 0, $limit), 'today_count' => $todayCount];
     }
