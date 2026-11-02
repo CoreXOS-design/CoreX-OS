@@ -864,6 +864,16 @@
                                 onclick="if(confirm('Remove agent photo?')){let f=document.createElement('form');f.method='POST';f.action='{{ route('admin.users.remove-file', $user) }}';f.innerHTML='<input type=hidden name=_token value='+document.querySelector('meta[name=csrf-token]').getAttribute('content')+'><input name=field value=agent_photo><input type=hidden name=active_tab value=compliance>';document.body.appendChild(f);f.submit();}">Remove current photo</button>
                         @endif
                     </div>
+                    @if($isEdit)
+                    {{-- Client QR Code --}}
+                    <div>
+                        <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">Client QR Code</label>
+                        <div class="text-[11px] mb-2" style="color:var(--text-muted);">Prospects who scan it sign up as this person's client.</div>
+                        <a href="{{ route('admin.users.qr-code.download', $user) }}"
+                           class="inline-block text-xs font-medium px-3 py-2 rounded-md"
+                           style="color:var(--brand-icon, #0ea5e9); border:1px solid var(--border); background:var(--surface-2);">Download QR code (PNG)</a>
+                    </div>
+                    @endif
                     {{-- FFC Certificate --}}
                     <div>
                         <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">

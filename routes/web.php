@@ -960,6 +960,8 @@ Route::middleware('auth')->group(function () {
     // Legacy users.ffc_certificate_path read path — see UserDocumentDownloadController::downloadFfcCertificate().
     Route::get('/admin/users/{user}/ffc-certificate/download', [\App\Http\Controllers\UserDocumentDownloadController::class, 'downloadFfcCertificate'])
         ->middleware(['permission:manage_users', 'deny_assistant_download'])->name('admin.users.ffc-certificate.download');
+    Route::get('/admin/users/{user}/qr-code/download', [\App\Http\Controllers\UserDocumentDownloadController::class, 'downloadQr'])
+        ->middleware('permission:manage_users')->name('admin.users.qr-code.download');
     // PP Agent ownership
     Route::post('/admin/users/{user}/pp/sync', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'sync'])->middleware('permission:manage_users')->name('admin.users.pp.sync');
     Route::post('/admin/users/{user}/pp/update-id', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'updateId'])->middleware('permission:manage_users')->name('admin.users.pp.update-id');
