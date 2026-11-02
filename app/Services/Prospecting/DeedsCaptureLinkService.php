@@ -430,7 +430,7 @@ class DeedsCaptureLinkService
      *
      * @return array<int, array{tracked_property_id:int, address:string, erf:?string, scheme:?string, suburb:?string, sold_price:?string, sold_date:?string, owner_names:string, owners:array<int,array<string,mixed>>, search:string}>
      */
-    public function availableDeeds(int $agencyId, int $limit = 500): array
+    public function availableDeeds(int $agencyId, int $limit = 500, array $tokens = []): array
     {
         // CX-101 (2026-08-19, Johan — real property, blocked): a deed that is
         // already linked to a property on the books used to be hidden from
@@ -473,6 +473,16 @@ class DeedsCaptureLinkService
             // property he was on was invisible, with nothing saying why. A
             // deed with no owner still has an address/erf worth linking; the
             // agent adds the seller manually afterward. State it, don't hide it.
+            // live picker (13.21): the words typed narrow the query itself (address, scheme, suburb, erf, an owner's name or ID number), so a search never builds thousands of rows
+            ->when($tokens !== [], function ($q) use ($tokens) {
+                foreach ($tokens as $t) {
+                    $like = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $t) . '%';
+                    $q->where(fn ($w) => $w->where('scheme_name', 'like', $like)->orWhere('complex_name', 'like', $like)->orWhere('street_name', 'like', $like)
+                        ->orWhere('street_number', 'like', $like)->orWhere('suburb', 'like', $like)->orWhere('town', 'like', $like)->orWhere('erf_number', 'like', $like)
+                        ->orWhereExists(fn ($e) => $e->selectRaw('1')->from('tracked_property_owners as o')->whereColumn('o.tracked_property_id', 'tracked_properties.id')
+                            ->where(fn ($x) => $x->where('o.name', 'like', $like)->orWhere('o.id_number', 'like', $like))));
+                }
+            })
             ->orderByRaw("CASE WHEN capture_kind = 'deeds_capture' THEN 0 ELSE 1 END")
             ->orderByDesc('updated_at')
             ->limit($limit)
@@ -566,7 +576,7 @@ class DeedsCaptureLinkService
     {
         $q = mb_strtolower(trim((string) $q));
         $tokens = $q === '' ? [] : array_values(array_filter(preg_split('/\s+/', $q)));
-        $pool = $this->availableDeeds($agencyId, $q === '' ? 300 : 2000);
+        $pool = $this->availableDeeds($agencyId, $q === '' ? 300 : 1000, $tokens);
         $since = now()->subDay();
         $propScheme = self::schemeKey($property['complex'] ?? null);
         $propUnit = self::sectionKey($property['unit'] ?? null);
