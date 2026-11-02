@@ -52,6 +52,14 @@ class ReportPeriodComparator
                 $direction,
             );
         }
+        // The commission card shows three numbers (gross = agent share + company share), so each
+        // gets its own like-for-like comparison. 'commission_gross_ex_vat' above is the agent share.
+        $curAgent  = (float) ($curRow['commission_gross_ex_vat'] ?? 0);
+        $prevAgent = (float) ($prevRow['commission_gross_ex_vat'] ?? 0);
+        $curCo     = (float) ($curRow['commission_gross_ex_vat_company'] ?? 0);
+        $prevCo    = (float) ($prevRow['commission_gross_ex_vat_company'] ?? 0);
+        $out['commission_gross_ex_vat_company'] = PeriodComparison::compute($curCo, $prevCo, 'higher_is_better');
+        $out['commission_gross_total']          = PeriodComparison::compute($curAgent + $curCo, $prevAgent + $prevCo, 'higher_is_better');
         $out['deal_status'] = $this->compareDealStatus($curRow['deal_status'] ?? [], $prevRow['deal_status'] ?? []);
 
         return $out;
