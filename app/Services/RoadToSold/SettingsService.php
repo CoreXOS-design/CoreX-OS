@@ -393,6 +393,12 @@ class SettingsService
         return max(0, (int) $this->scalar('claim_extensions_allowed'));
     }
 
+    /** 23.12: the training flag fires when an agent's off-ramp rate at a station is this many percent above the branch (or agency) rate. */
+    public function flagOffRampExcessPct(): int
+    {
+        return max(1, (int) $this->scalar('flag_offramp_excess_pct'));
+    }
+
     /** 23.7: working days ahead the call-back date of a Market Intelligence "contacted" feedback is set. */
     public function defaultCallbackDays(): int
     {

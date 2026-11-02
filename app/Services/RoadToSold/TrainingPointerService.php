@@ -58,7 +58,7 @@ class TrainingPointerService
         abort_unless($by->hasPermission('road_to_sold.manage_settings'), 403);
         $agencyId = (int) ($by->effectiveAgencyId() ?: 0);
         abort_if($agencyId <= 0, 403);
-        if (! isset(FunnelService::RATIOS[$ratioKey])) {
+        if (FunnelService::meta($ratioKey) === null) {
             throw ValidationException::withMessages(['ratio_key' => 'Choose one of the funnel ratios.']);
         }
         if (! isset(RtsTrainingPointer::KINDS[$kind])) {

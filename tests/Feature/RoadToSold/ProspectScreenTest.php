@@ -218,7 +218,12 @@ final class ProspectScreenTest extends TestCase
             $this->assertStringContainsString('embed=1', $loc);
             $this->assertStringContainsString('rts_prospect=' . $p->id, $loc);
         }
-        $this->assertStringContainsString('/presentations/create', $go('presentation')->headers->get('Location'));
+        // v4 (road-to-sold.md 23.8): the Presentation step opens the generator on THIS property (the presentation path makes the property, then lands on it with the
+        // Generate Presentation window open) - never the presentations list that presentations/create used to redirect to
+        $presentationLoc = $go('presentation')->headers->get('Location');
+        $this->assertStringContainsString("/road-to-sold/prospects/{$p->id}/presentation-path", $presentationLoc);
+        $this->assertStringContainsString('embed=1', $presentationLoc);
+        $this->assertStringNotContainsString('/presentations/create', $presentationLoc);
         $this->assertStringContainsString('/deals-dr2/create', $go('deal')->headers->get('Location'));
         $this->assertStringContainsString('/corex/core-matches', $go('core_match')->headers->get('Location'));
         $this->assertStringContainsString('/corex/viewing-packs', $go('viewing_pack')->headers->get('Location'));

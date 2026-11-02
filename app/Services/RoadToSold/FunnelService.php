@@ -58,6 +58,25 @@ class FunnelService
         'offers_to_registered'            => ['Offers to registered deals',      'deal',              'deals_registered',    'otp_signed',          'seeing offers through to registration'],
     ];
 
+    /**
+     * v4 (road-to-sold.md 23.12): the OFF-RAMP flags. Same tuple shape as RATIOS: [label, recipe step, null, null, the skill a high loss rate points at]. They are
+     * measured by BeltFunnelService (an agent's loss rate at a station against their branch's / the agency's), not by a numerator / denominator pair, so they are
+     * never in RATIOS - every place that reads a flag's meaning asks meta().
+     */
+    public const OFFRAMPS = [
+        'offramp_claimed'   => ['Loses properties after claiming',        'find',              null, null, 'working a claim through to the owner'],
+        'offramp_owner'     => ['Loses properties at Owner found',        'find_owner',        null, null, 'finding and linking the owner'],
+        'offramp_contacted' => ['Loses properties at Contacted',          'contact_outcome',   null, null, 'turning a first contact into an evaluation'],
+        'offramp_booked'    => ['Loses properties at Evaluation booked',  'evaluation_booked', null, null, 'keeping evaluation appointments'],
+        'offramp_held'      => ['Loses properties after the evaluation',  'presentation',      null, null, 'winning the seller after the evaluation'],
+    ];
+
+    /** A flag key's meaning: a funnel ratio or an off-ramp flag. @return array{0:string,1:string,2:?string,3:?string,4:string}|null */
+    public static function meta(string $key): ?array
+    {
+        return self::RATIOS[$key] ?? self::OFFRAMPS[$key] ?? null;
+    }
+
     /** The fewest agents that must reach the minimum sample before an agency median means anything. */
     public const MIN_AGENTS_FOR_MEDIAN = 3;
 
@@ -125,7 +144,20 @@ class FunnelService
         $computed = $this->compute($agencyId, $this->agencyAgentIds($agencyId), $period, $track, $doneBy);
         $medians = $this->medians($computed['ratios'], $settings->flagMinSample());
 
-        return ['computed' => $computed, 'medians' => $medians, 'flags' => $this->flags($computed['ratios'], $medians, $settings->flagMinSample(), $settings->flagBelowPct())];
+        $flags = $this->flags($computed['ratios'], $medians, $settings->flagMinSample(), $settings->flagBelowPct());
+        // v4 (23.12): where properties are lost on the belt - an agent's loss rate at a station against the branch's / agency's (BeltFunnelService)
+        try {
+            $belt = app(BeltFunnelService::class);
+            foreach ($belt->flags($agencyId, $belt->figures($agencyId, $period, $track), $this->agencyAgentIds($agencyId), $settings) as $agentId => $byKey) {
+                foreach ($byKey as $key => $flag) {
+                    $flags[$agentId][$key] = $flag;
+                }
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Belt off-ramp flags could not be worked out (the ratio flags stand)', ['message' => $e->getMessage()]);
+        }
+
+        return ['computed' => $computed, 'medians' => $medians, 'flags' => $flags];
     }
 
     /**
@@ -217,9 +249,13 @@ class FunnelService
         return $out;
     }
 
-    /** The sentence for a flag: "Needs training: the evaluation pitch". */
-    public static function flagText(string $ratioKey): string
+    /** The sentence for a flag: "Needs training: the evaluation pitch". An off-ramp flag names the station and the top reason ("Retha loses 38% of properties at Contacted (branch 22%)"). */
+    public static function flagText(string $ratioKey, ?array $flag = null): string
     {
-        return 'Needs training: ' . (self::RATIOS[$ratioKey][4] ?? $ratioKey);
+        if (isset(self::OFFRAMPS[$ratioKey]) && ! empty($flag['text'])) {
+            return $flag['text'];
+        }
+
+        return 'Needs training: ' . (self::meta($ratioKey)[4] ?? $ratioKey);
     }
 }

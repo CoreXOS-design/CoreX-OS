@@ -151,6 +151,9 @@
             @if(\Illuminate\Support\Facades\Route::has('road-to-sold.report'))
                 <a href="{{ route('road-to-sold.report', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Report</a>
             @endif
+            @if(\Illuminate\Support\Facades\Route::has('road-to-sold.belt-funnel') && $track === 'sales')
+                <a href="{{ route('road-to-sold.belt-funnel') }}" class="corex-btn-outline corex-btn-xs" data-qa="belt-funnel-link" title="How many properties reach each station, and where they stop">Funnel</a>
+            @endif
             @if($canManageOutcomes)
                 <a href="{{ route('road-to-sold.settings.outcomes.index', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Outcomes</a>
             @endif

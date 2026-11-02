@@ -54,7 +54,7 @@ class RtsSetting extends Model
         'levels_signoff_required', 'level_periods_required',
         'flag_min_sample', 'flag_below_pct', 'flag_window_days', 'suggest_window_weeks', 'suggest_growth_pct',
         'expired_competitor_lookback_days', 'prospect_stall_days', 'agent_start_required', 'source_for_colleagues',
-        'claim_hold_days', 'claim_warn_days', 'claim_extension_days', 'claim_extensions_allowed', 'owner_requires_deed', 'default_callback_days',
+        'claim_hold_days', 'claim_warn_days', 'claim_extension_days', 'claim_extensions_allowed', 'owner_requires_deed', 'default_callback_days', 'flag_offramp_excess_pct',
     ];
 
     protected $casts = [
@@ -101,6 +101,7 @@ class RtsSetting extends Model
         'claim_extensions_allowed'     => 'integer',
         'owner_requires_deed'          => 'boolean',
         'default_callback_days'        => 'integer',
+        'flag_offramp_excess_pct'      => 'integer',
         'flag_min_sample'              => 'integer',
         'flag_below_pct'               => 'integer',
         'flag_window_days'             => 'integer',
@@ -149,6 +150,9 @@ class RtsSetting extends Model
         if (! self::hasDefaultCallbackColumn()) {
             unset($out['default_callback_days']);
         }
+        if (! self::hasOffRampFlagColumn()) {
+            unset($out['flag_offramp_excess_pct']);
+        }
         if (! self::hasClaimHoldColumns()) {
             foreach (['claim_hold_days', 'claim_warn_days', 'claim_extension_days', 'claim_extensions_allowed'] as $c) {
                 unset($out[$c]);
@@ -159,6 +163,14 @@ class RtsSetting extends Model
         }
 
         return $out;
+    }
+
+    /** v4 A6: the off-ramp training flag threshold is a column added by migration; until it exists the default of 25 applies. */
+    public static function hasOffRampFlagColumn(): bool
+    {
+        static $has = null;
+
+        return $has ??= \Illuminate\Support\Facades\Schema::hasColumn((new static())->getTable(), 'flag_offramp_excess_pct');
     }
 
     /** v4 A3: the default call-back days is a column added by migration; until it exists the default of 3 applies. */
@@ -223,6 +235,7 @@ class RtsSetting extends Model
         'claim_extension_days'         => 30,      // length of the one extension, in working days
         'claim_extensions_allowed'     => 1,       // extensions an agent may take (a manager can grant more)
         'owner_requires_deed'          => true,    // 23.6: the Owner station needs a deed record as well as the owner contact
+        'flag_offramp_excess_pct'      => 25,      // 23.12: the training flag fires when an agent's off-ramp rate at a station is this percent above the branch / agency rate
         'default_callback_days'        => 3,       // 23.7: working days ahead the call-back date of a Market Intelligence "contacted" feedback is set
         'flag_min_sample'              => 20,
         'flag_below_pct'               => 60,

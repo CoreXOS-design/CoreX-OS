@@ -35,7 +35,7 @@ class ManagerActionService
         if (! $target) {
             throw ValidationException::withMessages(['training' => 'Your agency has not chosen training for this yet - choose it under Settings, Road to Sold, Training & flags.']);
         }
-        $skill = FunnelService::RATIOS[$ratioKey][4];
+        $skill = FunnelService::meta($ratioKey)[4];
 
         $action = DB::transaction(function () use ($by, $agent, $ratioKey, $track, $target, $skill) {
             $task = CommandTask::create([
@@ -124,7 +124,7 @@ class ManagerActionService
         abort_unless($by->hasPermission('road_to_sold.view_funnel'), 403);
         abort_unless(VisibleAgents::canSee($by, (int) $agent->id), 404);
         abort_if(in_array((int) $agent->id, array_map('intval', $by->dataIdentityIds()), true), 403, 'Another manager works on your own flags.');
-        if (! isset(FunnelService::RATIOS[$ratioKey])) {
+        if (FunnelService::meta($ratioKey) === null) {
             throw ValidationException::withMessages(['ratio_key' => 'Choose one of the funnel ratios.']);
         }
     }

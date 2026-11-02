@@ -383,7 +383,7 @@ class RoadToSoldController extends Controller
         }
         $out['parkReasons'] = $block === 'prospects' && $viewingOwn
             ? app(\App\Services\RoadToSold\ParkReasonService::class)->choices((int) ($viewer->effectiveAgencyId() ?: 0), $track)
-                ->map(fn ($r) => ['key' => $r->key, 'label' => $r->label, 'days' => (int) $r->default_revisit_days])->values()->all()
+                ->map(fn ($r) => ['key' => $r->key, 'label' => $r->label, 'days' => (int) $r->default_revisit_days, 'station' => \App\Models\RoadToSold\RtsParkReason::hasStationColumns() ? $r->station : null])->values()->all()
             : [];
 
         return $out;

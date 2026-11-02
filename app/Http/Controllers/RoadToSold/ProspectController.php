@@ -70,6 +70,13 @@ class ProspectController extends Controller
             'until.after'     => 'Pick a day after today for it to come back.',
             'until.date'      => 'We could not read that date. Pick it again.',
         ]);
+        // v4 (23.11): a reason that is "never" (do not contact, 0 days) closes the record for good instead of setting it aside
+        $chosen = $this->reasons->byKey((int) $p->agency_id, (string) $p->track, $data['reason']);
+        if ($chosen && (int) $chosen->default_revisit_days === 0 && $chosen->key === $data['reason']) {
+            $this->prospects->close($p, 'do_not_contact', $request->user());
+
+            return back()->with('status', 'Closed: this owner will not be contacted again.');
+        }
         $this->prospects->park($p, $data['reason'], ! empty($data['until']) ? Carbon::parse($data['until']) : null, $data['note'] ?? null, $request->user());
 
         return back()->with('status', 'Set aside. It comes back on ' . $p->fresh()->parked_until->format('j M Y') . '.');

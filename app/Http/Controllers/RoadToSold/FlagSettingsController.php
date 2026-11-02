@@ -35,7 +35,7 @@ class FlagSettingsController extends Controller
         $live = $this->pointers->forAgency($agencyId, $track);
         $archived = $this->pointers->forAgency($agencyId, $track, true)->filter(fn ($p) => $p->trashed());
         $rows = [];
-        foreach (FunnelService::RATIOS as $key => [$label, , , , $skill]) {
+        foreach (FunnelService::RATIOS + FunnelService::OFFRAMPS as $key => [$label, , , , $skill]) {
             if ($q !== '' && ! str_contains(mb_strtolower($label . ' ' . $skill), $q)) {
                 continue;
             }

@@ -184,7 +184,7 @@
                         @endforeach
                         <td class="px-3 py-2" style="color: var(--text-primary);">
                             @foreach(collect($agentFlags)->sortByDesc('severity') as $key => $flag)
-                                <div>{{ \App\Services\RoadToSold\FunnelService::flagText($key) }}</div>
+                                <div>{{ \App\Services\RoadToSold\FunnelService::flagText($key, $flag) }}</div>
                             @endforeach
                         </td>
                     @else

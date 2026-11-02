@@ -23,7 +23,11 @@
     $cards = collect($lineChips)->mapWithKeys(fn ($c) => [$c['id'] => [
         'id' => $c['id'], 'tp' => $c['tracked_property_id'], 'address' => $c['address'], 'suburb' => $c['suburb'], 'owner' => $c['owner_name'], 'phone' => $c['owner_phone'],
         'price' => $moneyFmt($c['price']), 'stage' => $c['stage'], 'stage_label' => $c['stage_label'], 'agent' => $c['agent_name'], 'next' => $c['next_action'],
-        'due_state' => $c['due_state'], 'due_words' => $c['due_words'], 'next_at' => $c['next_action_at'], 'days' => $c['days_in_stage'], 'reason' => $c['reason'], 'journey' => (object) $c['journey'],
+        'station' => \App\Services\RoadToSold\ParkReasonService::stationOfStage($c['stage']),
+        'blocker' => in_array($c['stage'], ['draft', 'active'], true) ? (function () use ($c) {   // v4 (23.11): the system names why a stuck draft / active record is stuck
+            $b = app(\App\Services\RoadToSold\BlockerService::class)->firstBlocker(\App\Models\RoadToSold\RtsProspect::withoutGlobalScopes()->findOrFail($c['id']));
+            return $b ? (collect(\App\Services\RoadToSold\ParkReasonService::stationDefaults())->firstWhere('key', $b['key'])['label'] ?? $b['key']) . ($b['detail'] ? ' - ' . $b['detail'] : '') : null;
+        })() : null, 'due_state' => $c['due_state'], 'due_words' => $c['due_words'], 'next_at' => $c['next_action_at'], 'days' => $c['days_in_stage'], 'reason' => $c['reason'], 'journey' => (object) $c['journey'],
         'card' => isset($withCards[(int) $c['tracked_property_id']]), 'step_url' => route('road-to-sold.prospects.step', [$c['id'], $c['primary']['key']]), 'step_label' => $c['primary']['label'],
         'history_url' => route('road-to-sold.prospects.history', [$c['id'], 'embed' => 1]),
     ]]);
@@ -181,6 +185,7 @@
                     <span :class="'rts-due-' + card.due_state" x-text="card.due_words.charAt(0).toLowerCase() + card.due_words.slice(1)"></span>
                 </div>
                 <div class="text-xs" style="color: var(--text-muted);" x-show="card.reason" x-text="card.reason ? 'Started: ' + card.reason : ''"></div>
+                <div class="text-xs" style="color: var(--text-primary);" x-show="card.blocker" data-qa="card-blocker" x-text="card.blocker ? 'Stuck: ' + card.blocker : ''"></div>
                 <div class="flex items-center gap-1 flex-wrap">
                     @if($canWriteProspects)
                         <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="prospect-step" :data-step-url="card.step_url" :data-tracked="card.card ? card.tp : ''" :data-step-label="card.step_label + ' - ' + card.address"
@@ -269,7 +274,7 @@
             <div><label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="pk-reason">Why</label>
                 <select id="pk-reason" name="reason" x-model="reason" @change="pickReason()" required class="w-full rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}">
                     <option value="">Pick a reason</option>
-                    <template x-for="r in reasons" :key="r.key"><option :value="r.key" x-text="r.label"></option></template>
+                    <template x-for="r in reasonsHere" :key="r.key"><option :value="r.key" x-text="r.label"></option></template>
                 </select></div>
             <div><label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="pk-until">Bring it back on</label>
                 <input id="pk-until" type="date" name="until" x-model="until" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}"></div>
@@ -289,6 +294,12 @@ function rtsProspectActions(reasons, cards, stations) {
         openResult(id, address) { this.id = id; this.address = address; this.resultKey = ''; this.resultDate = ''; this.resultOpen = true; },
         pickResult() { var o = this.resultOptions.find(x => x.key === this.resultKey); if (o && o.days) { var d = new Date(); d.setDate(d.getDate() + o.days); this.resultDate = d.toISOString().slice(0, 10); } },
         get card() { return this.cardId !== null ? (this.cards[this.cardId] || null) : null; },
+        // v4 (23.11): the reasons for the station the record is at come first, then the ones that fit any station; another station's own reasons are left out
+        get reasonsHere() {
+            var c = this.cards[this.id] || this.card; var st = c ? c.station : null;
+            var fit = this.reasons.filter(r => !r.station || !st || r.station === st);
+            return fit.sort((a, b) => ((b.station === st && st) ? 1 : 0) - ((a.station === st && st) ? 1 : 0));
+        },
         get laterStations() {
             var c = this.card; if (!c) return [];
             var i = this.stations.findIndex(s => s.key === c.stage);

@@ -45,6 +45,7 @@
                 ['flag_min_sample', 'Fewest events before a ratio can be flagged', $settings->flagMinSample(), 1, 1000, 'events'],
                 ['flag_below_pct', 'Flag a ratio below', $settings->flagBelowPct(), 1, 100, '% of the agency median'],
                 ['flag_window_days', 'The funnel and its flags look back', $settings->flagWindowDays(), 7, 366, 'days'],
+                ...(\App\Models\RoadToSold\RtsSetting::hasOffRampFlagColumn() ? [['flag_offramp_excess_pct', 'Flag an agent who loses properties at a station', $settings->flagOffRampExcessPct(), 1, 500, '% more than the branch (the agency when the branch is small)']] : []),
                 ['suggest_window_weeks', 'A suggested target learns from', $settings->suggestWindowWeeks(), 2, 52, 'weeks'],
                 ['suggest_growth_pct', 'A suggested target allows growth of', $settings->suggestGrowthPct(), 0, 100, '%'],
             ] as [$name, $label, $value, $min, $max, $unit])

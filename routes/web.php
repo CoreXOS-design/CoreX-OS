@@ -7010,6 +7010,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             // v3 pitch path from a row (22.10, R8): the owner is known -> the composer, else Find owner; "No owner found" is an outcome.
             Route::get('/prospects/{prospect}/pitch-path', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'show'])
                 ->whereNumber('prospect')->name('prospects.pitch-path');
+            // v4 (23.12): the belt funnel and where properties are lost - own vs branch vs agency; agents' rows only for the managers who may see them
+            Route::get('/belt-funnel', [\App\Http\Controllers\RoadToSold\BeltFunnelController::class, 'index'])->name('belt-funnel');
+
             // v4 (23.9): the result of the evaluation / presentation, from the belt card (the one result service)
             Route::post('/prospects/{prospect}/result', [\App\Http\Controllers\RoadToSold\ProspectController::class, 'result'])
                 ->whereNumber('prospect')->name('prospects.result');

@@ -124,7 +124,7 @@ class FunnelController extends Controller
         $list = [];
         foreach ($c['visible'] as $agent) {
             foreach ($c['flags'][$agent->id] ?? [] as $ratioKey => $flag) {
-                [$label, $stepKey, , , $skill] = FunnelService::RATIOS[$ratioKey];
+                [$label, $stepKey, , , $skill] = FunnelService::meta($ratioKey);
                 $action = $acted[$agent->id][$ratioKey] ?? null;
                 if ($q !== '' && ! str_contains(mb_strtolower($agent->name . ' ' . $skill . ' ' . $label), $q)) {
                     continue;
@@ -155,7 +155,7 @@ class FunnelController extends Controller
 
         return view('road-to-sold.funnel.flags', $c + [
             'rows' => $paged, 'filters' => ['q' => $request->query('q', ''), 'status' => $status, 'sort' => $sort, 'dir' => $dir, 'step' => $step],
-            'steps' => collect(FunnelService::RATIOS)->mapWithKeys(fn ($r) => [$r[1] => \App\Services\RoadToSold\RecipeCatalogue::STEPS[$r[1]][1] ?? $r[1]])->all(),
+            'steps' => collect(FunnelService::RATIOS + FunnelService::OFFRAMPS)->mapWithKeys(fn ($r) => [$r[1] => \App\Services\RoadToSold\RecipeCatalogue::STEPS[$r[1]][1] ?? $r[1]])->all(),
             'canAssign' => true, 'tab' => 'flags',
             'qualifying' => collect($c['computed']['ratios'])->filter(fn ($r) => collect($r)->contains(fn ($x) => $x['den'] >= $c['settings']->flagMinSample()))->count(),
         ]);

@@ -96,10 +96,10 @@
                 <tr style="border-top: 1px solid var(--border);">
                     <td class="px-3 py-2 font-semibold" style="color: var(--text-primary);">{{ $r['agent']->name }}</td>
                     <td class="px-3 py-2" style="color: var(--text-primary);">{{ $r['agent']->branch?->name ?? '-' }}</td>
-                    <td class="px-3 py-2" style="color: var(--text-primary);">{{ \App\Services\RoadToSold\FunnelService::flagText($r['ratio']) }}</td>
+                    <td class="px-3 py-2" style="color: var(--text-primary);">{{ \App\Services\RoadToSold\FunnelService::flagText($r['ratio'], $r['flag']) }}</td>
                     <td class="px-3 py-2" style="color: var(--text-primary);">
                         {{ $r['label'] }}: <strong>{{ $r['flag']['pct'] }}%</strong>
-                        <div style="color: var(--text-muted);">agency median {{ $r['flag']['median'] }}% - {{ number_format($r['flag']['num']) }} of {{ number_format($r['flag']['den']) }}</div>
+                        <div style="color: var(--text-muted);">{{ $r['flag']['compare_label'] ?? 'agency median' }} {{ $r['flag']['median'] }}% - {{ number_format($r['flag']['num']) }} of {{ number_format($r['flag']['den']) }}</div>
                     </td>
                     <td class="px-3 py-2" style="color: var(--text-primary);">
                         @if($r['action'])
