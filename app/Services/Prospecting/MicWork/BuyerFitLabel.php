@@ -42,29 +42,61 @@ final class BuyerFitLabel
         return null;
     }
 
-    /** true when the buyer stated at least one of the facts the mirror line shows (beds, baths, garages, parking, erf, floor) */
-    public static function hasMirror(array $fit): bool
-    {
-        foreach (['beds', 'baths', 'garages', 'parking', 'erf', 'floor'] as $key) {
-            $f = self::field($fit, $key);
-            if ($f && self::state($f['state'] ?? null) !== 'na') {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /** the small chip after the price / the type: "≤ R1.0m ✓"; null when the engine gave no such field or it does not apply */
-    public static function chip(array $fit, string $key): ?array
+    /** the one small tick after the price / the type: ✓ ok, ✗ miss, ? unknown; null when the engine gave no such field or the wishlist does not state it */
+    public static function tick(array $fit, string $key): ?array
     {
         $f = self::field($fit, $key);
-        if (! $f || self::state($f['state'] ?? null) === 'na' || trim((string) ($f['wants'] ?? '')) === '') {
+        if (! $f || self::state($f['state'] ?? null) === 'na') {
             return null;
         }
         $st = self::state($f['state']);
 
-        return ['text' => trim($f['wants'] . ' ' . self::mark($st)), 'color' => self::color($st), 'title' => self::fieldTitle($fit, $f)];
+        return ['mark' => self::mark($st), 'color' => self::color($st), 'title' => self::fieldTitle($fit, $f)];
+    }
+
+    /** the colour of a fact the buyer stated (beds, baths ...) so the facts line itself shows the verdict; null when not stated */
+    public static function factColor(array $fit, string $key): ?string
+    {
+        $f = self::field($fit, $key);
+
+        return $f && self::state($f['state'] ?? null) !== 'na' ? self::color($f['state']) : null;
+    }
+
+    /**
+     * The items of the "Jan wants" line: only what the wishlist states (state not na, something to say), in the order beds, baths, garages, parking, price, type,
+     * suburb, erf, floor, then the must-haves and deal-breakers. Each: text (with its tick), state, colour, hover title.
+     *
+     * @return list<array{key: string, text: string, state: string, color: string, title: string}>
+     */
+    public static function wantsItems(array $fit): array
+    {
+        $out = [];
+        foreach (['beds', 'baths', 'garages', 'parking', 'price', 'type', 'suburb', 'erf', 'floor'] as $key) {
+            $f = self::field($fit, $key);
+            $wants = trim((string) ($f['wants'] ?? ''));
+            if (! $f || self::state($f['state'] ?? null) === 'na' || $wants === '') {
+                continue;
+            }
+            $text = match ($key) {
+                'beds' => $wants . ' beds', 'baths' => $wants . ' baths', 'garages' => $wants . ' garages', 'parking' => $wants . ' parking',
+                'erf' => 'erf ' . $wants, 'floor' => 'floor ' . $wants,
+                'type' => str_replace(' · ', ' or ', $wants),
+                default => $wants,
+            };
+            $st = self::state($f['state']);
+            $out[] = ['key' => $key, 'text' => trim($text . ' ' . self::mark($st)), 'state' => $st, 'color' => self::color($st), 'title' => self::fieldTitle($fit, $f)];
+        }
+        foreach (['must_haves' => '', 'deal_breakers' => 'no '] as $group => $prefix) {
+            foreach ($fit[$group] ?? [] as $it) {
+                $st = self::state($it['state'] ?? null);
+                if ($st === 'na' || trim((string) ($it['label'] ?? '')) === '') {
+                    continue;
+                }
+                $out[] = ['key' => $group, 'text' => trim($prefix . $it['label'] . ' ' . self::mark($st)), 'state' => $st, 'color' => self::color($st), 'title' => ($group === 'must_haves' ? 'Must-have: ' : 'Deal-breaker: ') . $it['label']];
+            }
+        }
+
+        return $out;
     }
 
     /** "Alex wants 3 bedrooms or more - this has 2" style hover text, from the parts the row gives */
@@ -82,8 +114,8 @@ final class BuyerFitLabel
     }
 
     /**
-     * The badge in the right panel: "Fits Alex · 5 of 7 · check pool, pets".
-     * Counted over the fields, must-haves and deal-breakers that apply (state not na); "check" lists the unknown ones, "misses" the ones that do not fit.
+     * The chip on the buyer row: "Jan · Fits 4 of 4 ✓ · check pets". Counted over the DECIDED states (ok + miss) of the fields, must-haves and deal-breakers that apply;
+     * "check" lists the unknown ones, "misses" the ones that do not fit (two names, then "+N"; the popover lists every one).
      *
      * @return array{text: string, tone: string, ok: int, total: int}
      */
@@ -98,15 +130,22 @@ final class BuyerFitLabel
             }
         }
         $by = fn (string $st) => array_values(array_filter($items, fn ($it) => self::state($it['state'] ?? null) === $st));
-        // the badge is one short line: at most two names, then "+N" (the popover lists every one)
         $labels = fn (array $list) => implode(', ', array_slice(array_map(fn ($it) => mb_strtolower((string) ($it['label'] ?? '')), $list), 0, 2)) . (count($list) > 2 ? ' +' . (count($list) - 2) : '');
         $ok = count($by('ok'));
         $miss = $by('miss');
         $unknown = $by('unknown');
-        $text = 'Fits ' . ($fit['first_name'] ?? 'buyer') . ' · ' . $ok . ' of ' . count($items)
-            . ($miss ? ' · misses ' . $labels($miss) : '')
-            . ($unknown ? ' · check ' . $labels($unknown) : '');
+        $total = $ok + count($miss);
+        $parts = [];
+        if ($total > 0) {
+            $parts[] = 'Fits ' . $ok . ' of ' . $total . (! $miss ? ' ✓' : '');
+        }
+        if ($miss) {
+            $parts[] = 'misses ' . $labels($miss);
+        }
+        if ($unknown) {
+            $parts[] = 'check ' . $labels($unknown);
+        }
 
-        return ['text' => $text, 'tone' => $miss ? 'miss' : ($unknown ? 'unknown' : 'ok'), 'ok' => $ok, 'total' => count($items)];
+        return ['text' => implode(' · ', array_merge([$fit['first_name'] ?? 'Buyer'], $parts)), 'tone' => $miss ? 'miss' : ($unknown ? 'unknown' : 'ok'), 'ok' => $ok, 'total' => $total];
     }
 }

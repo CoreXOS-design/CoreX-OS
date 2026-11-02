@@ -241,55 +241,77 @@ final class MicWorkAdvertsViewTest extends TestCase
     {
         $B = \App\Services\Prospecting\MicWork\BuyerFitLabel::class;
         $sum = $B::summary($this->fit());
-        $this->assertSame('Fits Alex · 5 of 10 · misses type, floor +1 · check bathrooms, pet friendly', $sum['text'], 'na fields are not counted');
+        $this->assertSame('Alex · Fits 5 of 8 · misses type, floor +1 · check bathrooms, pet friendly', $sum['text'], 'counted over decided states; na is not counted');
         $this->assertSame('miss', $sum['tone']);
         $allOk = $this->fit(['fields' => [['key' => 'price', 'label' => 'Price', 'wants' => '≤ R1.0m', 'has' => 'R 1', 'state' => 'ok']], 'must_haves' => [['label' => 'Pool', 'state' => 'ok']]]);
-        $this->assertSame(['text' => 'Fits Alex · 2 of 2', 'tone' => 'ok', 'ok' => 2, 'total' => 2], $B::summary($allOk));
-        $unk = $this->fit(['fields' => [['key' => 'price', 'label' => 'Price', 'wants' => '≤ R1.0m', 'has' => null, 'state' => 'ok']], 'must_haves' => [['label' => 'Pool', 'state' => 'unknown'], ['label' => 'Pets', 'state' => 'unknown']]]);
-        $this->assertSame('Fits Alex · 1 of 3 · check pool, pets', $B::summary($unk)['text']);
+        $this->assertSame(['text' => 'Alex · Fits 2 of 2 ✓', 'tone' => 'ok', 'ok' => 2, 'total' => 2], $B::summary($allOk));
+        $unk = $this->fit(['fields' => [['key' => 'price', 'label' => 'Price', 'wants' => '≤ R1.0m', 'has' => null, 'state' => 'ok']], 'must_haves' => [['label' => 'Pets', 'state' => 'unknown']]]);
+        $this->assertSame('Alex · Fits 1 of 1 ✓ · check pets', $B::summary($unk)['text']);
         $this->assertSame('unknown', $B::summary($unk)['tone']);
-        $this->assertSame(['text' => '≤ R1.0m ✓', 'color' => '#166534'], array_intersect_key($B::chip($this->fit(), 'price'), ['text' => 1, 'color' => 1]));
-        $this->assertSame('House ✗', $B::chip($this->fit(), 'type')['text']);
-        $this->assertNull($B::chip($this->fit(), 'parking'), 'a field that does not apply gets no chip');
-        $this->assertNull($B::chip(['fields' => []], 'price'), 'nothing given, nothing shown');
+        $this->assertSame('Alex · check pets', $B::summary($this->fit(['fields' => [], 'must_haves' => [['label' => 'Pets', 'state' => 'unknown']]]))['text'], 'nothing decided yet: no "Fits 0 of 0"');
+
+        $this->assertSame(['mark' => '✓', 'color' => '#166534'], array_intersect_key($B::tick($this->fit(), 'price'), ['mark' => 1, 'color' => 1]));
+        $this->assertSame('✗', $B::tick($this->fit(), 'type')['mark']);
+        $this->assertNull($B::tick($this->fit(), 'parking'), 'a field the wishlist does not state gets no tick');
+        $this->assertNull($B::tick(['fields' => []], 'price'), 'nothing given, nothing shown');
+        $this->assertSame('#166534', $B::factColor($this->fit(), 'beds'));
+        $this->assertSame('#b91c1c', $B::factColor($this->fit(), 'floor'));
+        $this->assertNull($B::factColor($this->fit(), 'erf'), 'na: the fact keeps its normal colour');
     }
 
-    public function test_the_mirror_line_the_chips_and_the_popover_render_each_state_in_its_colour(): void
+    public function test_the_wants_line_is_one_coloured_line_of_only_what_the_wishlist_states(): void
     {
-        $fit = $this->fit();
+        $fit = $this->fit(['fields' => [
+            ['key' => 'price', 'label' => 'Price', 'wants' => '≤ R1.2m', 'has' => 'R 950,000', 'state' => 'ok'],
+            ['key' => 'type', 'label' => 'Type', 'wants' => 'Apartment / Flat · Townhouse', 'has' => 'Townhouse', 'state' => 'ok'],
+            ['key' => 'suburb', 'label' => 'Suburb', 'wants' => 'Margate, Uvongo', 'has' => 'Uvongo', 'state' => 'ok'],
+            ['key' => 'beds', 'label' => 'Bedrooms', 'wants' => '2+', 'has' => '3', 'state' => 'ok'],
+            ['key' => 'baths', 'label' => 'Bathrooms', 'wants' => null, 'has' => '2', 'state' => 'na'],
+            ['key' => 'floor', 'label' => 'Floor', 'wants' => '150+ m²', 'has' => '120 m²', 'state' => 'miss'],
+        ], 'must_haves' => [['label' => 'Pets', 'state' => 'unknown']], 'deal_breakers' => [['label' => 'Complex', 'state' => 'ok']]]);
         $line = view('corex.market-intelligence._buyer-fit-line', ['fit' => $fit])->render();
-        $this->assertStringContainsString('Alex wants', $line);
-        $this->assertSame(1, preg_match('/data-qa="fit-beds"[^>]*color: #166534[^>]*>.*?3\+/s', $line), 'ok is green');
-        $this->assertSame(1, preg_match('/data-qa="fit-baths"[^>]*color: #92400e[^>]*>.*?2\+ \?/s', $line), 'unknown is amber with a question mark');
-        $this->assertSame(1, preg_match('/data-qa="fit-floor"[^>]*color: #b91c1c[^>]*>.*?150\+/s', $line), 'miss is red');
-        $this->assertSame(1, preg_match('/data-qa="fit-parking"[^>]*color: var\(--text-secondary\)[^>]*>.*?–/s', $line), 'na is grey with a dash');
-        $this->assertLessThan(strpos($line, 'data-qa="fit-baths"'), strpos($line, 'data-qa="fit-beds"'), 'same order as the facts line');
-        $this->assertLessThan(strpos($line, 'data-qa="fit-floor"'), strpos($line, 'data-qa="fit-erf"'));
-        $this->assertSame(1, preg_match('/data-qa="fit-garages"[^>]*color: #166534/', $line), 'garages has its own place after baths');
-        $this->assertLessThan(strpos($line, 'data-qa="fit-garages"'), strpos($line, 'data-qa="fit-baths"'));
+        $text = trim(preg_replace('/\s+/', ' ', strip_tags($line)));
+        $this->assertSame('Alex wants · 2+ beds ✓ · ≤ R1.2m ✓ · Apartment / Flat or Townhouse ✓ · Margate, Uvongo ✓ · floor 150+ m² ✗ · Pets ? · no Complex ✓', $text, 'no dashes, na left out, one line');
+        $this->assertSame(1, substr_count($line, 'data-qa="fit-line"'));
+        $this->assertStringContainsString('white-space:nowrap; overflow:hidden; text-overflow:ellipsis', $line, 'one line, ellipsis when long');
+        $this->assertSame(1, preg_match('/data-qa="fit-label"[^>]*color-mix\(in srgb, var\(--brand-icon\) 60%, black\)/', $line), 'the label is in the buyer teal');
+        $this->assertSame(1, preg_match('/data-state="ok"[^>]*color: #166534[^>]*>2\+ beds ✓/', $line), 'ok is green on the text');
+        $this->assertSame(1, preg_match('/data-state="miss"[^>]*color: #b91c1c[^>]*>floor 150\+ m² ✗/', $line), 'miss is red on the text');
+        $this->assertSame(1, preg_match('/data-state="unknown"[^>]*color: #92400e[^>]*>Pets \?/', $line), 'unknown is amber on the text');
+        $this->assertLessThan(strpos($line, '≤ R1.2m'), strpos($line, '2+ beds'), 'beds first, then price');
 
-        $this->assertSame('', trim(view('corex.market-intelligence._buyer-fit-line', ['fit' => $this->fit(['fields' => array_map(fn ($f) => array_replace($f, ['state' => 'na', 'wants' => null]), $fit['fields'])])])->render()), 'a buyer who stated none of these gets no line of dashes');
+        $none = $this->fit(['fields' => array_map(fn ($f) => array_replace($f, ['state' => 'na', 'wants' => null]), $this->fit()['fields']), 'must_haves' => [], 'deal_breakers' => []]);
+        $this->assertSame('', trim(view('corex.market-intelligence._buyer-fit-line', ['fit' => $none])->render()), 'a wishlist that states none of it gets no line');
 
-        $chips = view('corex.market-intelligence._buyer-fit-chips', ['fit' => $fit])->render();
-        $this->assertStringContainsString('>Pool ✓</span>', $chips);
-        $this->assertStringContainsString('>Pet friendly ?</span>', $chips);
-        $this->assertStringContainsString('>Sea view ✗</span>', $chips);
-        $this->assertStringContainsString('>Deal-breaker: none</span>', $chips);
-        $this->assertStringContainsString('>Deal-breaker: Complex ✓</span>', view('corex.market-intelligence._buyer-fit-chips', ['fit' => $this->fit(['deal_breakers' => [['label' => 'Complex', 'state' => 'ok']]])])->render());
-        $this->assertSame('', trim(view('corex.market-intelligence._buyer-fit-chips', ['fit' => $this->fit(['must_haves' => [], 'deal_breakers' => []])])->render()), 'nothing set, nothing shown');
-
-        $pop = view('corex.market-intelligence._advert-pop', ['kind' => 'fit', 'adv' => ['buyer_fit' => $fit], 'listing' => (object) ['id' => 1], 'money' => fn ($v) => 'R ' . number_format($v)])->render();
-        $this->assertStringContainsString('Alex · 5 of 10 fit · 88% match', preg_replace('/\s+/', ' ', strip_tags($pop)));
+        $pop = view('corex.market-intelligence._advert-pop', ['kind' => 'fit', 'adv' => ['buyer_fit' => $this->fit()], 'listing' => (object) ['id' => 1], 'money' => fn ($v) => 'R ' . number_format($v)])->render();
         $this->assertSame(12, substr_count($pop, 'data-qa="pop-entry"'), 'nine fields, three must-haves, one line each');
         $this->assertSame(11, substr_count($pop, 'border-top: 1px solid var(--border)'), 'a hairline between lines');
         $this->assertStringContainsString('wants ≤ R1.0m · has R 950,000', $pop);
+    }
+
+    public function test_the_buyer_row_sits_under_the_score_line_and_the_other_lines_are_untouched(): void
+    {
+        // the real card with a buyer is checked on QA1 (a page test would need a buyer + wishlist); here the markup contract of the new row
+        $src = file_get_contents(resource_path('views/corex/market-intelligence/_advert-intel.blade.php'));
+        $score = strpos($src, 'data-qa="line-score"');
+        $fitRow = strpos($src, 'data-qa="line-fit"');
+        $buttons = strpos($src, 'data-qa="line-buttons"');
+        $this->assertTrue($score < $fitRow && $fitRow < $buttons, 'the new row is directly under the Score line');
+        $scoreLine = substr($src, $score, $fitRow - $score);
+        $this->assertStringNotContainsString('_advert-buyer-hide', $scoreLine, 'the Score line keeps nothing new');
+        $this->assertStringNotContainsString('fit-badge', $scoreLine);
+        $this->assertStringContainsString('Possible match', $scoreLine);
+        $row = substr($src, $fitRow, $buttons - $fitRow);
+        $this->assertStringContainsString('justify-content:space-between', $row);
+        $this->assertStringContainsString('_advert-buyer-hide', $row, 'cc1\'s "Not for <buyer>" sits right on the same row');
+        $this->assertStringContainsString('x-mic-pop', $row, 'the chip opens the wants / has popover');
     }
 
     public function test_nothing_changes_on_the_cards_when_no_buyer_is_selected(): void
     {
         $this->advert('P24-150100060', 1_100_000, ['tracked_property_id' => $this->file('P24-150100060')], ['description_snippet' => 'A lovely family home close to the beach with a big garden.']);
         $h = $this->page(['view' => 'adverts']);
-        foreach (['fit-line', 'fit-chips', 'fit-badge', 'fit-chip-price', 'fit-chip-type', 'mi-advert-body mi-advert-body-fit'] as $k) {
+        foreach (['fit-line', 'fit-chips', 'fit-badge', 'line-fit', 'fit-tick-price', 'fit-tick-type', 'mi-advert-body mi-advert-body-fit', 'mi-advert-right mi-advert-right-fit'] as $k) {
             $this->assertStringNotContainsString($k, $h, $k);
         }
         $this->assertStringContainsString('-webkit-line-clamp:4;', $h, 'the description keeps its four lines');
