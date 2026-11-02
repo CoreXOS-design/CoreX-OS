@@ -166,4 +166,17 @@ final class BeltActivationTest extends TestCase
         $this->assertTrue($this->svc()->mayBuild($this->fresh, self::WED));
         $this->assertStringNotContainsString('data-qa="belt-start-card"', $this->actingAs($this->fresh)->get(route('road-to-sold.index'))->getContent());
     }
+
+    public function test_the_empty_list_says_not_started_or_paused_instead_of_a_wrong_reason(): void
+    {
+        $html = $this->actingAs($this->fresh)->get(route('road-to-sold.index'))->getContent();
+        $this->assertStringContainsString('have not pressed Start yet', $html);
+        $this->assertStringNotContainsString('matches the list rules', $html);
+
+        app(ProspectService::class)->place($this->agent, $this->tp(['street_number' => '1', 'street_name' => 'Old Road'])->id);
+        $this->actingAs($this->agent)->post(route('road-to-sold.activation.pause'), ['until' => '2026-10-20', 'reason' => 'Leave']);
+        $p = $this->actingAs($this->agent)->get(route('road-to-sold.index'))->getContent();
+        $this->assertStringContainsString('Road to Sold is paused until 20 Oct 2026 (Leave). No list loads until then.', $p);
+        $this->assertStringNotContainsString('not a working day for you', $p);
+    }
 }

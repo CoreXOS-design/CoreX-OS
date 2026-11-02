@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\Route;
  *
  * The reasons, checked in this order (the first that is true wins):
  *   build_failed   the build was tried and threw - say so, offer to try again
+ *   not_started    the agent has not pressed "Start my Road to Sold" (v4 23.13) - no list loads until they do
+ *   paused         the agent is paused until a date (v4 23.13)
  *   not_workday    no target today (weekend, public holiday, approved leave, or all weekdays at 0)
  *   no_sources     every list source is switched off for the agency
  *   no_areas       the agency locks agents to their areas and this agent has none
@@ -39,6 +41,15 @@ final class EmptyListExplainer
 
         if ($buildFailed) {
             return $this->answer('build_failed', ucfirst($your) . ' list could not be built just now.', $this->build($agent, 'Try again'));
+        }
+
+        $activation = app(ActivationService::class)->state($agent, $track, $date);
+        if ($activation['state'] === ActivationService::STATE_NOT_STARTED) {
+            return $this->answer('not_started', ucfirst($you) . ($viewingOwn ? ' have' : ' has') . ' not pressed Start yet, so no list loads. Press Start above and the first list arrives on the next working day.', null);
+        }
+        if ($activation['state'] === ActivationService::STATE_PAUSED) {
+            return $this->answer('paused', ($viewingOwn ? 'Your' : $agent->name . "'s") . ' Road to Sold is paused until ' . $activation['paused_until']?->format('j M Y')
+                . ($activation['pause_reason'] ? ' (' . $activation['pause_reason'] . ')' : '') . '. No list loads until then.', null);
         }
 
         if (! WorkdayService::make()->isWorkday($agent, $date, $track)) {
