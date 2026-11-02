@@ -25,7 +25,7 @@ class CampaignSend extends Model
     public const COUNTS_AGAINST_LIMIT = ['sending', 'sent', 'unknown'];
 
     protected $fillable = [
-        'campaign_id', 'campaign_step_id', 'campaign_lead_id', 'status', 'attempts', 'to_email', 'from_email', 'subject', 'body',
+        'campaign_id', 'campaign_step_id', 'campaign_lead_id', 'status', 'attempts', 'to_email', 'from_email', 'subject', 'body', 'body_html',
         'message_id', 'sent_at', 'error_reason', 'replied_at', 'bounced_at', 'unsubscribed_at', 'created_by', 'updated_by',
     ];
 

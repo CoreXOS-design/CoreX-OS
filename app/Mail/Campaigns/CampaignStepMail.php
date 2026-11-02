@@ -25,6 +25,8 @@ class CampaignStepMail extends Mailable
         public string $bodyText,
         public string $messageIdValue,
         public string $unsubscribePostUrl,
+        public ?string $bodyHtml = null,
+        public ?string $signatureImagePath = null,
     ) {
     }
 
@@ -50,6 +52,11 @@ class CampaignStepMail extends Mailable
 
     public function content(): Content
     {
-        return new Content(text: 'mail.campaigns.step-text');
+        // Plain text only, unless the sending address has a signature image (spec 9.3): then text + HTML, picture embedded.
+        if ($this->bodyHtml === null) {
+            return new Content(text: 'mail.campaigns.step-text');
+        }
+
+        return new Content(html: 'mail.campaigns.step-html', text: 'mail.campaigns.step-text');
     }
 }

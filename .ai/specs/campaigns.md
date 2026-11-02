@@ -376,3 +376,15 @@ lead out for good (6.6). "Stop by on Tuesday" therefore suppresses a warm prospe
 is essentially just STOP should count.
 
 Not fixed, noted: the inbox check reads at most 500 messages per run (date-granular IMAP SINCE) - fine at current volume.
+
+
+### 9.3 Image signature - 2026-11-02 (branch `AT-534-campaigns-signature-image`)
+
+Asked for by the owner: a sending address can carry a picture signature (logo / image) as well as the text signature. Where this section differs from the text above (6.5 "plain text only"), this section wins.
+
+1. **Setting.** Campaigns -> Settings -> sending address (add or edit): optional **Signature picture**. JPG, PNG or GIF, up to 1 MB and 1200 x 600 pixels (SVG is refused on purpose: it can carry scripts and most mail programs block it). Edit shows the current picture with a **Remove this picture** tick. Replacing or removing deletes the old file. Files are private (local disk, folder `campaign-signatures/`, random names); the owner-only route `admin.campaigns.senders.image` previews them.
+2. **What is sent.** A sender WITH a picture sends a two-part email: the same plain text as before (kept as the text copy) plus an HTML version = body, signature text, **the picture embedded inside the email** (no remote image, nothing to "load images" for, no tracking pixel), then the opt-out footer with the unsubscribe link. A sender WITHOUT a picture is unchanged: plain text only. All text and merge-field values are escaped in the HTML; URLs become links.
+3. **Never-send-twice is unchanged.** The HTML version is snapshotted on the send row (`campaign_sends.body_html`, NULL = plain only) at claim time exactly like `body`, so a retry re-sends the identical message. If the picture file has gone missing the email simply goes without it (text-only when nothing usable). The picture is read at send time; the snapshot holds only a placeholder.
+4. **Test button** on a sender with a picture sends the formatted version (text, signature, picture) to the sender's own address so the look can be checked before a campaign starts.
+5. **Migration** `2027_01_05_100000_add_signature_image_to_campaigns` (two nullable columns: `campaign_senders.signature_image_path`, `campaign_sends.body_html`). Schema snapshot not refreshed, same as 9.1 (a refresh touches every lane's test bootstrap and is outside Campaigns).
+6. **Not in scope / unchanged:** no per-campaign or per-step picture, no open/click tracking, still no agency scoping and no Setup Wizard step (platform data, 1.2).

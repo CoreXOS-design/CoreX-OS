@@ -6,6 +6,7 @@ use App\Models\Communications\CommunicationMailbox;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * AT-534 — a CoreX sending address for Campaigns (.ai/specs/campaigns.md §3.0). Platform data: no agency_id, no BelongsToAgency.
@@ -16,7 +17,7 @@ class CampaignSender extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'email', 'from_name', 'signature', 'smtp_host', 'smtp_port', 'smtp_encryption', 'username', 'encrypted_password',
+        'email', 'from_name', 'signature', 'signature_image_path', 'smtp_host', 'smtp_port', 'smtp_encryption', 'username', 'encrypted_password',
         'imap_host', 'imap_port', 'imap_encryption', 'is_default', 'last_send_error', 'last_send_error_at', 'last_sent_at',
         'last_inbox_check_at', 'last_inbox_error', 'created_by', 'updated_by',
     ];
@@ -36,6 +37,21 @@ class CampaignSender extends Model
     public function campaigns(): HasMany
     {
         return $this->hasMany(Campaign::class);
+    }
+
+    /** Private folder (local disk) holding the uploaded signature pictures (spec 9.3). */
+    public const SIGNATURE_IMAGE_DIR = 'campaign-signatures';
+
+    /** Full path of the signature picture, or null when none is set or the file is gone. */
+    public function signatureImageFullPath(): ?string
+    {
+        $path = (string) $this->signature_image_path;
+        if ($path === '' || ! str_starts_with($path, self::SIGNATURE_IMAGE_DIR . '/')) {
+            return null;
+        }
+        $disk = Storage::disk('local');
+
+        return $disk->exists($path) ? $disk->path($path) : null;
     }
 
     public function imapHost(): string

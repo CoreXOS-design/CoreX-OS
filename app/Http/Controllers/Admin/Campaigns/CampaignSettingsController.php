@@ -6,6 +6,7 @@ use App\Exceptions\Communications\OutgoingMailboxSendFailedException;
 use App\Http\Controllers\Controller;
 use App\Models\Campaigns\Campaign;
 use App\Models\Campaigns\CampaignSender;
+use App\Services\Campaigns\CampaignHtmlRenderer;
 use App\Services\Campaigns\CampaignInboxChecker;
 use App\Services\Campaigns\CampaignSendService;
 use App\Services\Campaigns\CampaignSettings;
@@ -14,6 +15,8 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Mail\Mailable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
@@ -80,6 +83,10 @@ class CampaignSettingsController extends Controller
     {
         $this->guard($request);
         $data = $this->validateSender($request, null, 'newSender');
+        $newImage = $this->storeSignatureImage($request);
+        if ($newImage !== null) {
+            $data['signature_image_path'] = $newImage;
+        }
         DB::transaction(function () use ($data, $request) {
             $first = ! CampaignSender::exists();
             $sender = CampaignSender::create($data + ['created_by' => $request->user()->id, 'updated_by' => $request->user()->id, 'is_default' => false]);
@@ -99,9 +106,41 @@ class CampaignSettingsController extends Controller
         if (($data['encrypted_password'] ?? '') === '') {
             unset($data['encrypted_password']); // blank = keep the saved password
         }
+        $oldImage = $sender->signature_image_path;
+        $newImage = $this->storeSignatureImage($request);
+        if ($newImage !== null) {
+            $data['signature_image_path'] = $newImage;
+        } elseif ($request->boolean('remove_signature_image')) {
+            $data['signature_image_path'] = null;
+        }
         $sender->fill($data + ['updated_by' => $request->user()->id, 'last_send_error' => null, 'last_inbox_error' => null])->save();
+        if ($oldImage && $oldImage !== $sender->signature_image_path && str_starts_with($oldImage, CampaignSender::SIGNATURE_IMAGE_DIR . '/')) {
+            Storage::disk('local')->delete($oldImage); // the replaced / removed picture; nothing else points at it
+        }
 
         return back()->with('success', 'Sending address saved.');
+    }
+
+    /** Owner-only preview of the saved signature picture (the files are private; there is no public URL). */
+    public function signatureImage(Request $request, int $sender)
+    {
+        $this->guard($request);
+        $path = CampaignSender::withTrashed()->findOrFail($sender)->signatureImageFullPath();
+        abort_if($path === null, 404);
+
+        return response()->file($path, ['X-Content-Type-Options' => 'nosniff', 'Cache-Control' => 'private, max-age=300']);
+    }
+
+    /** Saves an uploaded signature picture (already validated) under a random name; returns its storage path or null. */
+    private function storeSignatureImage(Request $request): ?string
+    {
+        $file = $request->file('signature_image');
+        if (! $file || ! $file->isValid()) {
+            return null;
+        }
+        $ext = strtolower((string) $file->guessExtension());
+
+        return $file->storeAs(CampaignSender::SIGNATURE_IMAGE_DIR, Str::random(40) . '.' . $ext, 'local') ?: null;
     }
 
     public function archiveSender(Request $request, int $sender): RedirectResponse
@@ -160,9 +199,21 @@ class CampaignSettingsController extends Controller
 
             public function build(): static
             {
-                return $this->from($this->s->email, $this->s->from_name)
+                $text = "This is a connection test from CoreX Campaigns. It is safe to delete.\n";
+                $mail = $this->from($this->s->email, $this->s->from_name)
                     ->subject('CoreX campaigns test — ' . now()->format('Y-m-d H:i'))
-                    ->text('mail.campaigns.step-text', ['bodyText' => "This is a connection test from CoreX Campaigns. It is safe to delete.\n"]);
+                    ->text('mail.campaigns.step-text', ['bodyText' => $text]);
+
+                // With a signature picture the test shows the real look: text, signature, picture.
+                if (($image = $this->s->signatureImageFullPath()) !== null) {
+                    $mail->view('mail.campaigns.step-html', [
+                        'bodyHtml' => app(CampaignHtmlRenderer::class)->render(rtrim($text), trim((string) $this->s->signature) ?: null, '', ''),
+                        'signatureImagePath' => $image,
+                        'fromName' => $this->s->from_name,
+                    ]);
+                }
+
+                return $mail;
             }
         };
         $mail->to($sender->email); // only ever the address itself
@@ -212,6 +263,7 @@ class CampaignSettingsController extends Controller
             'email' => ['required', 'email', 'max:254', Rule::unique('campaign_senders', 'email')->whereNull('deleted_at')->ignore($sender?->id)],
             'from_name' => ['required', 'string', 'max:150'],
             'signature' => ['nullable', 'string', 'max:2000'],
+            'signature_image' => ['nullable', 'file', 'mimes:jpg,jpeg,png,gif', 'max:1024', 'dimensions:max_width=1200,max_height=600'],
             'smtp_host' => ['required', 'string', 'max:255', 'regex:/^[A-Za-z0-9.\-]+$/'],
             'smtp_port' => ['required', 'integer', 'between:1,65535'],
             'smtp_encryption' => ['required', Rule::in(['tls', 'ssl', 'none'])],
@@ -229,6 +281,10 @@ class CampaignSettingsController extends Controller
             'smtp_host.regex' => 'Enter a server name like mail.corexos.co.za.',
             'imap_host.regex' => 'Enter a server name like mail.corexos.co.za.',
             'password.required' => 'Enter the mailbox password.',
+            'signature_image.mimes' => 'The signature picture must be a JPG, PNG or GIF file.',
+            'signature_image.max' => 'The signature picture must be 1 MB or smaller.',
+            'signature_image.dimensions' => 'The signature picture must be no bigger than 1200 pixels wide and 600 pixels high.',
+            'signature_image.uploaded' => 'The picture could not be uploaded. Use a JPG, PNG or GIF under 1 MB.',
         ]);
 
         return [

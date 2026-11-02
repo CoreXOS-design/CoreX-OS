@@ -5654,6 +5654,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::put('/senders/{sender}',                        [$t, 'updateSender'])->whereNumber('sender')->name('senders.update');
         Route::delete('/senders/{sender}',                     [$t, 'archiveSender'])->whereNumber('sender')->name('senders.archive');
         Route::post('/senders/{sender}/restore',               [$t, 'restoreSender'])->whereNumber('sender')->name('senders.restore');
+        Route::get('/senders/{sender}/signature-image',        [$t, 'signatureImage'])->whereNumber('sender')->name('senders.image');
         Route::post('/senders/{sender}/default',               [$t, 'makeDefault'])->whereNumber('sender')->name('senders.default');
         Route::post('/senders/{sender}/test',                  [$t, 'testSender'])->whereNumber('sender')->middleware('throttle:10,1')->name('senders.test');
 

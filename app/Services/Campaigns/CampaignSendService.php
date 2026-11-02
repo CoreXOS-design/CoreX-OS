@@ -281,6 +281,8 @@ class CampaignSendService
             bodyText: $send->body,
             messageIdValue: (string) $send->message_id,
             unsubscribePostUrl: $this->unsubscribeUrl($send),
+            bodyHtml: $send->body_html,
+            signatureImagePath: $send->body_html !== null ? $sender->signatureImageFullPath() : null,
         );
         $mail->to($send->to_email);
 
@@ -323,6 +325,7 @@ class CampaignSendService
                 $send->forceFill([
                     'message_id' => $this->messageIdFor($send->id, $fromEmail),
                     'body' => $this->composeBody($body, $campaign, $send),
+                    'body_html' => $this->composeHtml($body, $campaign, $send),
                 ])->save();
 
                 return $send;
@@ -354,6 +357,25 @@ class CampaignSendService
         $parts[] = $this->settings->all()['opt_out_footer'] . "\n" . $this->unsubscribeUrl($send);
 
         return implode("\n\n", $parts) . "\n";
+    }
+
+    /**
+     * HTML version of the same email (spec 9.3) - ONLY when the sending address has a signature image; null = plain text as before.
+     * Snapshotted on the send row at claim time, like the text body, so a retry sends the identical message.
+     */
+    public function composeHtml(string $renderedBody, Campaign $campaign, CampaignSend $send): ?string
+    {
+        $sender = $campaign->sender;
+        if (! $sender || $sender->signatureImageFullPath() === null) {
+            return null;
+        }
+
+        return app(CampaignHtmlRenderer::class)->render(
+            rtrim($renderedBody),
+            trim((string) $sender->signature) !== '' ? trim((string) $sender->signature) : null,
+            (string) $this->settings->all()['opt_out_footer'],
+            $this->unsubscribeUrl($send),
+        );
     }
 
     public function unsubscribeUrl(CampaignSend $send): string

@@ -5,7 +5,7 @@
     $val = fn ($f, $default = '') => $bag->any() ? old($f, $default) : ($isNew ? $default : $sender->{$f});
 @endphp
 <form method="POST" action="{{ $isNew ? route('admin.campaigns.senders.store') : route('admin.campaigns.senders.update', $sender->id) }}"
-      class="grid grid-cols-2 md:grid-cols-6 gap-2 rounded-md p-3" style="background: var(--surface-2);" data-sender-form="{{ $isNew ? 'new' : $sender->id }}">
+      enctype="multipart/form-data" class="grid grid-cols-2 md:grid-cols-6 gap-2 rounded-md p-3" style="background: var(--surface-2);" data-sender-form="{{ $isNew ? 'new' : $sender->id }}">
     @csrf
     @unless($isNew) @method('PUT') @endunless
     <div class="col-span-2"><label class="cmp-label">Email</label><input type="email" name="email" value="{{ $val('email') }}" required class="cmp-input">
@@ -16,6 +16,16 @@
         @if($bag->has('password'))<div class="cmp-err">{{ $bag->first('password') }}</div>@endif</div>
     <div class="col-span-2 md:col-span-6"><label class="cmp-label">Signature</label><textarea name="signature" rows="4" maxlength="2000" class="cmp-input">{{ $val('signature') }}</textarea>
         @if($bag->has('signature'))<div class="cmp-err">{{ $bag->first('signature') }}</div>@endif</div>
+    <div class="col-span-2 md:col-span-6"><label class="cmp-label">Signature picture (optional - logo or image signature)</label>
+        @if(! $isNew && $sender->signatureImageFullPath())
+            <div class="flex items-center gap-3 mb-1">
+                <img src="{{ route('admin.campaigns.senders.image', $sender->id) }}" alt="Current signature picture" style="max-width:220px; max-height:90px; border:1px solid var(--border); background:#fff;" data-signature-preview>
+                <label class="inline-flex items-center gap-1 text-xs" style="color: var(--text-secondary);"><input type="checkbox" name="remove_signature_image" value="1"> Remove this picture</label>
+            </div>
+        @endif
+        <input type="file" name="signature_image" accept="image/png,image/jpeg,image/gif" class="cmp-input">
+        <div class="text-xs cmp-muted mt-0.5">JPG, PNG or GIF, up to 1 MB and 1200 x 600 pixels. When a picture is set, emails from this address go out as a formatted email (your text, then the signature and picture) with a plain-text copy for mail programs that need one. Use <b>Test</b> to see how it looks.</div>
+        @if($bag->has('signature_image'))<div class="cmp-err">{{ $bag->first('signature_image') }}</div>@endif</div>
     <div class="col-span-2"><label class="cmp-label">Outgoing server</label><input name="smtp_host" value="{{ $val('smtp_host', $defaultSmtpHost) }}" required class="cmp-input">
         @if($bag->has('smtp_host'))<div class="cmp-err">{{ $bag->first('smtp_host') }}</div>@endif</div>
     <div><label class="cmp-label">Port</label><input type="number" name="smtp_port" min="1" max="65535" value="{{ $val('smtp_port', 587) }}" required class="cmp-input"></div>
