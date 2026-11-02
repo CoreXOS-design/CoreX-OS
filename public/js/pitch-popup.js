@@ -96,7 +96,7 @@
         document.body.appendChild(back);
         document.documentElement.style.overflow = 'hidden';
 
-        pop = {
+        var me = pop = {
             back: back, frame: frame, opener: document.activeElement, o: o, loads: 0, results: [],
             // the screen we are on is not known until it has loaded, except when we open the card ourselves
             current: startAtCard ? 'property' : null, visited: {}, urls: {},
@@ -145,6 +145,22 @@
         pop.repaint = paint;
         paint();
         frame.src = first;
+        // which screens exist for THIS record: every other pill is a control when it has one, a plain label when it has none
+        var prospect = o.prospect || ((String(o.next || '').match(/\/prospects\/(\d+)\//) || String(o.next || '').match(/rts_prospect=(\d+)/) || [])[1]) || '';
+        if (cfg.steps && (o.listing || o.tracked || prospect)) {
+            var q = new URLSearchParams();
+            if (o.listing) q.set('listing', o.listing);
+            if (o.tracked) q.set('tracked', o.tracked);
+            if (prospect) q.set('prospect', prospect);
+            fetch(cfg.steps + '?' + q.toString(), { credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } })
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (d) {
+                    if (!d || !d.steps || pop !== me) return;
+                    Object.keys(d.steps).forEach(function (k) { if (d.steps[k] && !pop.urls[k]) pop.urls[k] = d.steps[k]; });
+                    paint();
+                })
+                .catch(function () { /* the pills stay as they are: the screens still work */ });
+        }
         closeBtn.focus();
     }
 

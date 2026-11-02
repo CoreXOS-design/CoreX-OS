@@ -1274,14 +1274,14 @@ class MarketIntelligenceController extends Controller
         // 13.3 / 13.4: the full file read (MicWorkList::forFiles, one batched read per source) for this page's rows, keyed by listing id. The Adverts cards are built from it.
         $fileRows = $this->fileRowsFor($listings->items(), (int) $agencyId);
         $tileNote = $this->tileNote($request, $listings->total(), (int) $agencyId, $user);
-        $suburbOptions = app(\App\Services\Prospecting\MicWork\MicAdvertFilters::class)->suburbOptions((int) $agencyId);
+        $suburbOptions = $pitchCardId !== null ? [] : app(\App\Services\Prospecting\MicWork\MicAdvertFilters::class)->suburbOptions((int) $agencyId);
 
         $listingIdsForTiers = collect($listings->items())->pluck('id')->all();
         $buyerTiers = app(\App\Services\Prospecting\BuyerMatchTierService::class)
             ->tiersForListings($listingIdsForTiers, $agencyId);
         $tierConfig = $config->buyerMatchTiers($agencyId);
 
-        $presets = app(\App\Services\Prospecting\SmartFilterPresetService::class)
+        $presets = $pitchCardId !== null ? [] : app(\App\Services\Prospecting\SmartFilterPresetService::class)
             ->presetsFor($agencyId, (int) $user->id);
         $activePreset = $request->query('preset');
 
@@ -1333,13 +1333,14 @@ class MarketIntelligenceController extends Controller
         // filter-rail counts move with the same filters as the list.
         // Pass the active LITERAL suburb filter so the in-stock KPI reflects that
         // suburb's real on-market owned-property count (canonical OnMarketStockService).
-        $snapshotKpis = $this->computeSnapshotKpis(
+        // The one-card page (the pitch popup, road-to-sold.md 23.23) shows none of the list's tiles, counts or rail: it skips these four agency-wide counts.
+        $snapshotKpis = $pitchCardId !== null ? [] : $this->computeSnapshotKpis(
             $agencyId,
             $includeInStock,
             $kpiCountBase,
             $request->filled('suburb') ? (string) $request->get('suburb') : null,
         );
-        $actionPresetCounts = $this->computeActionPresetCounts(
+        $actionPresetCounts = $pitchCardId !== null ? [] : $this->computeActionPresetCounts(
             $agencyId,
             $user?->id !== null ? (int) $user->id : null,
             $thresholdsForPreset,
@@ -1348,7 +1349,7 @@ class MarketIntelligenceController extends Controller
             // instead of leaking agency-wide counts (e.g. Pitch now·high 2,537).
             $request->filled('suburb') ? (string) $request->get('suburb') : null,
         );
-        $filterRailAggregates = $this->computeFilterRailAggregates(
+        $filterRailAggregates = $pitchCardId !== null ? [] : $this->computeFilterRailAggregates(
             $agencyId,
             $includeInStock,
             $railCountBase,
@@ -1357,7 +1358,7 @@ class MarketIntelligenceController extends Controller
             $request->filled('suburb') ? (string) $request->get('suburb') : null,
             $injectedStockCountBySuburb,
         );
-        $demandPockets = $this->computeDemandPockets($agencyId, $thresholdsForPreset);
+        $demandPockets = $pitchCardId !== null ? [] : $this->computeDemandPockets($agencyId, $thresholdsForPreset);
 
         // ── Tick refresh (cc6): AJAX fragment response ──────────────────────────
         // Everything the four swapped partials read is now built. Return just those

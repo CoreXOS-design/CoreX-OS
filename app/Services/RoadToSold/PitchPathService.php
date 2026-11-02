@@ -199,6 +199,25 @@ class PitchPathService
         $ownerId = (int) TrackedProperty::query()->withoutGlobalScopes()->whereKey($prospect->tracked_property_id)->value('owner_contact_id');
         $owner = $ownerId ? Contact::query()->withoutGlobalScopes()->where('agency_id', $prospect->agency_id)->whereNull('deleted_at')->find($ownerId) : null;
 
+        // ONE rule (23.6, OwnerStationService): an owner on the file is not "found" until the deed is on record too (agency setting). With the owner linked and
+        // the deed missing, the step is the compose screen with the live deed picker - never the pitch page, which the gate would refuse anyway (23.23 drop 5).
+        $stationOpen = ! config('road-to-sold-belt.enforce_owner_gate', true)
+            || app(OwnerStationService::class)->ownerFound((int) $prospect->agency_id, (int) $prospect->tracked_property_id);
+        if ($owner && ! $stationOpen) {
+            $listing = $prospect->prospecting_listing_id
+                ? DB::table('prospecting_listings')->where('id', $prospect->prospecting_listing_id)->first(['id', 'pitched_at'])
+                : null;
+            $need = ['need' => 'deed'];
+
+            return [
+                'step' => 'find_owner', 'label' => 'Find owner', 'property_id' => $prospect->property_id ? (int) $prospect->property_id : null, 'contact_id' => (int) $owner->id,
+                'missing' => app(OwnerStationService::class)->missing((int) $prospect->agency_id, (int) $prospect->tracked_property_id),
+                'url' => $listing && empty($listing->pitched_at)
+                    ? route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $listing->id] + $need + $carry)
+                    : route('seller-outreach.entry.from-tracked-property', ['trackedProperty' => $prospect->tracked_property_id] + $need + $carry),
+            ];
+        }
+
         if ($owner) {
             $property = $this->ready($prospect, $owner, $actor);
             if ($property) {

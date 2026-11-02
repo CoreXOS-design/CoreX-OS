@@ -26,7 +26,8 @@ const cookie = { name: out.match(/COOKIE_NAME=(.+)/)[1].trim(), value: out.match
 
 const browser = await puppeteer.launch({ executablePath: '/usr/bin/chromium', headless: 'new', args: ['--no-sandbox', '--disable-gpu'] });
 const page = await browser.newPage();
-await page.setViewport({ width: 1500, height: 950 });
+const VP = (arg('vp', '1366x768')).split('x').map(Number);
+await page.setViewport({ width: VP[0], height: VP[1] });
 await page.setCookie({ name: cookie.name, value: cookie.value, domain: new URL(BASE).hostname, path: '/', httpOnly: true, secure: true });
 await page.setCacheEnabled(false);
 page.on('pageerror', (e) => { if (!/ViewTransition/.test(e.message)) console.log('  pageerror:', e.message); });
