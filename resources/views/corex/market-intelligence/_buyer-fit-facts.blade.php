@@ -12,12 +12,12 @@
     };
     $cols = array_values(array_filter($factKeys, fn ($k) => $has($k) || isset($row['figures'][$k])));
     $tint = 'background: color-mix(in srgb, var(--brand-icon) 13%, transparent);';
-    $cell = 'min-height: 1.5rem; padding: 0 7px; display:flex; align-items:center; white-space:nowrap;';
+    $cell = 'min-height: 1.5rem; padding: 0 5px; display:flex; align-items:center; white-space:nowrap;';
 @endphp
 <div data-qa="advert-icons" style="display:flex; flex-wrap:wrap; align-items:stretch; margin-top:{{ $factsMt }}; font-size:.875rem; color: var(--text-primary);">
     <div style="display:flex; flex-direction:column;">
         <div style="{{ $cell }} padding-left: 0;" aria-hidden="true"></div>
-        <div style="{{ $cell }} {{ $tint }} border-radius: 4px 0 0 4px; padding-left: 5px;"><span data-qa="fit-pill" style="font-size:.75rem; font-weight:700; line-height:1.5; padding:0 8px; border-radius:9px; color:#fff; background: color-mix(in srgb, var(--brand-icon) 65%, black);">{{ $first }} wants</span></div>
+        <div style="{{ $cell }} {{ $tint }} border-radius: 4px 0 0 4px; padding-left: 3px;"><span data-qa="fit-pill" style="font-size:.6875rem; font-weight:700; line-height:1.5; padding:0 6px; border-radius:9px; color:#fff; background: color-mix(in srgb, var(--brand-icon) 65%, black);">{{ $first }} wants</span></div>
     </div>
     @foreach($cols as $k)
         @php $g = $row['figures'][$k] ?? null; @endphp
