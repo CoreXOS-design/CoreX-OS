@@ -7,4 +7,5 @@
     @include('corex.market-intelligence._listings')
 </div>
 @include('corex.market-intelligence._advert-fetch-script')
+@include('corex.market-intelligence._work-card-scripts')
 @endsection
