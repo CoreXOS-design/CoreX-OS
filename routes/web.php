@@ -6927,6 +6927,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/outcomes', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'recordOutcome'])->name('outcomes.record');
             Route::post('/add-to-day', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'addToDay'])->name('add-to-day');
             Route::post('/build-list', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'buildList'])->name('build-list');
+            // 23.16: why did I get these points - the agent's own belt points log
+            Route::get('/points', [\App\Http\Controllers\RoadToSold\BeltPointsController::class, 'log'])->name('points');
             // 23.14: swap a loaded property for the next one, with a reason
             Route::post('/list/{item}/swap', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'swap'])->whereNumber('item')->name('swap');
             // v4 belt (spec 23.13): "Start my Road to Sold", pause and resume - an agent's own, or another agent's with road_to_sold.pause_others
@@ -7003,6 +7005,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             // v3 pitch path from a row (22.10, R8): the owner is known -> the composer, else Find owner; "No owner found" is an outcome.
             Route::get('/prospects/{prospect}/pitch-path', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'show'])
                 ->whereNumber('prospect')->name('prospects.pitch-path');
+            // v4 (23.8): "Prepare presentation" opens the generator on THAT property (the property page with its Generate Presentation window already open), not the index
+            Route::get('/prospects/{prospect}/presentation-path', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'presentation'])
+                ->whereNumber('prospect')->name('prospects.presentation-path');
             Route::post('/prospects/{prospect}/no-owner', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'noOwner'])
                 ->whereNumber('prospect')->name('prospects.no-owner');
 

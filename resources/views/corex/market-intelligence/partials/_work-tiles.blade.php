@@ -59,7 +59,7 @@
             @if(!empty($t['display']))
                 <div style="font-size: .9375rem; font-weight: 700; line-height: 1.3; color: {{ $numColor }}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $t['display'] }}</div>
             @elseif($t['count'] !== null)
-                <div style="font-size: 1.0625rem; font-weight: 700; line-height: 1.3; color: {{ $numColor }}; white-space: nowrap;">{{ number_format($t['count']) }}@if(!empty($t['threshold']))<span data-qa="tile-threshold" style="margin-left: 4px; font-size: .625rem; font-weight: 700; color: var(--text-muted);">{{ $t['threshold'] }}</span>@endif</div>
+                <div style="font-size: 1.0625rem; font-weight: 700; line-height: 1.3; color: {{ $numColor }}; white-space: nowrap;{{ !empty($t['threshold']) ? ' display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 2px;' : '' }}">{{ number_format($t['count']) }}@if(!empty($t['threshold']))<span data-qa="tile-threshold" style="font-size: .5625rem; letter-spacing: -.03em; font-weight: 700; color: var(--text-muted);">{{ $t['threshold'] }}</span>@endif</div>
             @elseif($t['ready'] && $t['kind'] === 'panel')
                 <div style="font-size: .8125rem; font-weight: 700; line-height: 1.5; color: {{ $numColor }};">Open ▸</div>
             @elseif($t['ready'])
@@ -67,7 +67,7 @@
             @else
                 <div style="font-size: .8125rem; line-height: 1.5; color: var(--text-muted);">Coming</div>
             @endif
-            <div style="font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $t['short'] }}</div>
+            <div data-qa="tile-label" title="{{ $t['short'] }}" style="font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere;">{{ $t['short'] }}</div>
         @if($clickable)</a>@else</div>@endif
     @endforeach
 </div>

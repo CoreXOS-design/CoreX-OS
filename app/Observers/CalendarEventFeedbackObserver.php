@@ -14,6 +14,7 @@ use App\Services\Activity\PointStateService;
 use App\Services\BuyerStateService;
 use App\Services\Properties\PropertyViewings;
 use App\Support\Events\SafeRaise;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class CalendarEventFeedbackObserver
@@ -121,7 +122,9 @@ class CalendarEventFeedbackObserver
 
     public function updated(CalendarEventFeedback $feedback): void
     {
-        if ($feedback->wasChanged('captured_at') && $feedback->getOriginal('captured_at') === null) {
+        if (($feedback->wasChanged('captured_at') && $feedback->getOriginal('captured_at') === null)
+            // v4 (23.10): an edit that turns the status into "held" is the save that makes the evaluation count (raiseEvaluationCompleted dedupes on an earlier held one)
+            || ($feedback->wasChanged('kind_specific_data') && $feedback->captured_at !== null)) {
             $this->raiseEvaluationCompleted($feedback);
         }
         // The row as it was before this save: a viewing counts only on the save that first makes it count.
@@ -187,14 +190,29 @@ class CalendarEventFeedbackObserver
             if (! $event || $event->category !== 'property_evaluation') {
                 return;
             }
+            // v4 (road-to-sold.md 23.8 / 23.10): the evaluation counts as HELD only when the feedback says so. No feedback status at all (every feedback
+            // saved before v4, or by a screen that does not ask) is held, as it always was. A no-show is the station-5 off-ramp; a rescheduled one keeps
+            // the appointment and counts neither as held nor as lost.
+            $status = $this->evalStatus($feedback);
+            if ($status === 'no_show') {
+                app(\App\Services\RoadToSold\BeltLinks::class)->evaluationNoShow($event, $feedback->captured_by_user_id ? (int) $feedback->captured_by_user_id : null);
+
+                return;
+            }
+            if ($status !== 'held') {
+                return;
+            }
             $earlier = CalendarEventFeedback::withoutGlobalScopes()
                 ->where('calendar_event_id', $feedback->calendar_event_id)
                 ->where('id', '!=', $feedback->id)
                 ->whereNotNull('captured_at')
-                ->exists();
+                ->get(['kind_specific_data'])
+                ->contains(fn ($f) => $this->evalStatus($f) === 'held');
             if ($earlier) {
                 return;
             }
+            // done is ONE rule: the held feedback also completes the appointment itself (without touching the observer that cancels / dismisses)
+            DB::table('calendar_events')->where('id', $event->id)->where('status', 'pending')->update(['status' => 'completed']);
             SafeRaise::dispatch('EvaluationCompleted', fn () => new EvaluationCompleted(
                 calendarEventId: (int) $event->id,
                 feedbackId: (int) $feedback->id,
@@ -204,6 +222,7 @@ class CalendarEventFeedbackObserver
                 contactId: $feedback->contact_id !== null ? (int) $feedback->contact_id : ($event->contact_id !== null ? (int) $event->contact_id : null),
                 completedAt: (string) $feedback->captured_at,
                 actorUserId: $feedback->captured_by_user_id !== null ? (int) $feedback->captured_by_user_id : null,
+                trackedPropertyId: ! empty($event->tracked_property_id) ? (int) $event->tracked_property_id : null,
             ));
         } catch (\Throwable $e) {
             Log::warning('EvaluationCompleted hook caught exception, feedback save proceeds', [
@@ -211,6 +230,16 @@ class CalendarEventFeedbackObserver
                 'message'     => $e->getMessage(),
             ]);
         }
+    }
+
+    /** held | no_show | rescheduled; a feedback with no status is held (v4 23.10). */
+    private function evalStatus($feedback): string
+    {
+        $kd = $feedback->kind_specific_data;
+        $kd = is_array($kd) ? $kd : (is_string($kd) ? (json_decode($kd, true) ?: []) : []);
+        $s = (string) ($kd['eval_status'] ?? 'held');
+
+        return in_array($s, ['held', 'no_show', 'rescheduled'], true) ? $s : 'held';
     }
 
     private function refreshPropertyView(int $contactId, int $propertyId, int $feedbackId, ?int $agencyId): void

@@ -43,6 +43,23 @@ class PitchPathController extends Controller
         return $prospect;
     }
 
+    /**
+     * Road to Sold v4 (road-to-sold.md 23.8): the Presentation step. The property is made from the Market Intelligence address first when there is none (as the
+     * pitch path does), then the agent lands on that property with the Generate Presentation window already open. This replaces the old link to the
+     * presentations list, which dropped the agent on a page that said "open a property" with no property.
+     */
+    public function presentation(Request $request, int $prospect): RedirectResponse
+    {
+        $row = $this->own($request, $prospect);
+        $property = $this->path->ensureProperty($row, $request->user());
+        if (! $property) {
+            return redirect()->to($this->path->next($row, $request->user(), $this->path->carry($request))['url'])
+                ->with('error', 'Add the property address first - there is nothing to prepare a presentation about yet.');
+        }
+
+        return redirect()->to(route('corex.properties.show', $property->id) . '?' . http_build_query($this->path->carry($request) + ['generate_presentation' => 1, 'rts_prospect' => $row->id]));
+    }
+
     public function show(Request $request, int $prospect): JsonResponse|RedirectResponse
     {
         $row = $this->own($request, $prospect);

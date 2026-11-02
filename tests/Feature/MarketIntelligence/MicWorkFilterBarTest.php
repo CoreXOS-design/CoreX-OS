@@ -159,6 +159,45 @@ final class MicWorkFilterBarTest extends TestCase
         $this->assertSame(2, $first(['sort' => 'buyers', 'dir' => 'desc']), 'Most buyers');
     }
 
+    public function test_with_a_buyer_selected_the_stats_line_carries_no_second_count_and_the_pitch_figure_is_called_to_pitch(): void
+    {
+        $render = fn (array $query) => view('corex.market-intelligence._stats-strip', [
+            'statsLine' => true, 'listings' => new \Illuminate\Pagination\LengthAwarePaginator([], 627, 25),
+            'snapshotKpis' => ['active' => 1, 'buyers_matched' => 49, 'properties_matched' => 638, 'match_threshold' => 75, 'buyer_matched' => 1, 'in_stock' => 0, 'new_today' => 8, 'cross_listed' => 0],
+            'actionPresetCounts' => ['pitch_now_high' => 7276, 'pitch_now' => 0, 'log_outcomes' => 0, 'my_claims' => 0, 'expiring' => 0],
+        ])->render();
+        $this->actingAs($this->admin);
+        $this->get('/corex/market-intelligence/work');   // boot a request for the helper below
+        request()->query->replace([]);
+        $plain = $render([]);
+        $this->assertStringContainsString('Properties matched', $plain);
+        $this->assertStringContainsString('data-qa="rows-total"', $plain);
+        $this->assertStringContainsString('>To pitch</span>', $plain, 'the stats-line figure is "To pitch"; the card button keeps "Pitch now"');
+        $this->assertStringNotContainsString('>Pitch now</span>', $plain);
+
+        request()->query->replace(['buyer_id' => '20682']);
+        $buyer = $render(['buyer_id' => 20682]);
+        $this->assertStringNotContainsString('Properties matched', $buyer, 'the all-buyers figure (638) is not shown next to one buyer\'s list');
+        $this->assertStringNotContainsString('data-qa="rows-total"', $buyer, 'the one count is the banner\'s, the same as the active wishlist tab');
+        $this->assertStringContainsString('To pitch', $buyer);
+        $this->assertStringContainsString('My claims', $buyer);
+        $this->assertStringContainsString('New today', $buyer);
+        $this->assertStringNotContainsString('<span style="color: var(--text-muted, #9ca3af);">·</span><span style="color: var(--text-muted, #9ca3af);">·</span>', $buyer, 'no doubled separator');
+    }
+
+    public function test_tile_labels_wrap_to_two_lines_the_mic_tab_bar_is_compact_and_the_search_placeholder_is_short(): void
+    {
+        $tiles = file_get_contents(resource_path('views/corex/market-intelligence/partials/_work-tiles.blade.php'));
+        $this->assertStringContainsString('data-qa="tile-label"', $tiles);
+        $this->assertStringContainsString('-webkit-line-clamp: 2', $tiles);
+        $label = substr($tiles, (int) strpos($tiles, 'data-qa="tile-label"'), 420);
+        $this->assertStringNotContainsString('white-space: nowrap', $label, 'a tile label may take two lines');
+        $this->assertStringContainsString("'hubCompact' => true", file_get_contents(resource_path('views/corex/market-intelligence/partials/tabs.blade.php')));
+        $this->assertStringContainsString("(\$hubCompact ?? false) ? '10px 8px' : '10px 16px'", file_get_contents(resource_path('views/corex/partials/_hub-tabs.blade.php')), 'other hubs keep their spacing');
+        $this->assertStringContainsString("flex-wrap: wrap;' : 'overflow-x: auto;", file_get_contents(resource_path('views/corex/partials/_hub-tabs.blade.php')), 'compact tabs wrap instead of hiding behind a scroll; other hubs still scroll');
+        $this->assertStringContainsString('placeholder="Search…"', file_get_contents(resource_path('views/corex/market-intelligence/_filter-bar.blade.php')));
+    }
+
     public function test_the_compact_top_is_one_line_bar_one_line_of_figures_and_a_slim_tile_face(): void
     {
         $this->advert('P24-150000040');
@@ -172,7 +211,7 @@ final class MicWorkFilterBarTest extends TestCase
         $line = substr($h, (int) strpos($h, 'data-qa="stats-line"'), 6000);
         $this->assertMatchesRegularExpression('/· [0-9,]+ buyers?<\/span>/', $line);
         $at = -1;
-        foreach (['Properties matched', 'Pitch now', 'My claims', 'Expiring', 'New today', 'data-qa="rows-total"'] as $part) {
+        foreach (['Properties matched', 'To pitch', 'My claims', 'Expiring', 'New today', 'data-qa="rows-total"'] as $part) {
             $pos = strpos($line, $part);
             $this->assertNotFalse($pos, $part);
             $this->assertGreaterThan($at, $pos, "{$part} in order");

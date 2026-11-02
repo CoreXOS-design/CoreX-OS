@@ -371,6 +371,10 @@ class PresentationGeneratorService
             ])->save();
             $version->refresh();
 
+            // ── 5b. Road to Sold v4 (road-to-sold.md 23.8): the presentation carries the tracked property, the owner as seller, the belt record and
+            // the evaluation appointment it is prepared for. Never breaks the generation.
+            app(\App\Services\RoadToSold\BeltLinks::class)->linkPresentation($presentation, $agentUserId);
+
             // ── 6. Fire event ──────────────────────────────────────────────
             PresentationGenerated::dispatch($presentation, $version);
 

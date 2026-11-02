@@ -56,6 +56,7 @@ class CalendarEvent extends Model
         'event_date', 'end_date', 'all_day', 'priority', 'send_reminder', 'status', 'colour',
         'source_type', 'source_id',
         'property_id', 'contact_id', 'branch_id', 'agency_id',
+        'tracked_property_id', 'rts_prospect_id',   // v4 A4 (road-to-sold.md 23.8): the appointment carries the property and the belt record
         'reminder_offsets', 'reminder_channels', 'reminders_sent',
         'is_recurring', 'recurrence_rule', 'parent_event_id',
         'dismissal_reason_code', 'dismissal_reason_notes',

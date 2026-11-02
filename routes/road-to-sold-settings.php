@@ -76,6 +76,13 @@ return function () {
         Route::post('/agents/{user}/tasks/{task}/restore', [$c, 'restore'])->whereNumber('user')->whereNumber('task')->name('restore');
     });
 
+    // Points - what the agency pays for each belt credit (road-to-sold.md 23.16).
+    Route::middleware([$rts, 'permission:road_to_sold.manage_settings'])->prefix('points')->name('points.')->group(function () {
+        $c = \App\Http\Controllers\RoadToSold\BeltPointsController::class;
+        Route::get('/', [$c, 'settings'])->name('index');
+        Route::put('/', [$c, 'save'])->name('save');
+    });
+
     // Training & flags - the thresholds (saved through the General tab's writer) and the training an agency points at for each funnel ratio (v2 phase 5, spec 9.3).
     Route::middleware([$rts, 'permission:road_to_sold.manage_settings'])->prefix('flags')->name('flags.')->group(function () {
         $c = \App\Http\Controllers\RoadToSold\FlagSettingsController::class;

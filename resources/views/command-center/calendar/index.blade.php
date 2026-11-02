@@ -1618,7 +1618,16 @@
                             <div class="rounded-md p-4" style="background: var(--surface-2); border: 1px solid var(--border);">
                                 <h3 class="text-sm font-semibold mb-3" style="color: var(--text-primary);" x-text="item.label"></h3>
 
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                                {{-- v4 (road-to-sold.md 23.10): an evaluation says what happened first. Held asks for the outcome; no show and rescheduled ask for nothing more. --}}
+                                <div class="mb-3" x-show="feedbackData.is_evaluation" data-qa="eval-status">
+                                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">What happened?</label>
+                                    <div class="flex flex-wrap gap-4 text-sm" style="color: var(--text-primary);">
+                                        <label class="flex items-center gap-1.5"><input type="radio" value="held" x-model="feedbackForm['prop:' + item.property_id].eval_status"> The evaluation was held</label>
+                                        <label class="flex items-center gap-1.5"><input type="radio" value="no_show" x-model="feedbackForm['prop:' + item.property_id].eval_status"> The seller was not there (no-show)</label>
+                                        <label class="flex items-center gap-1.5"><input type="radio" value="rescheduled" x-model="feedbackForm['prop:' + item.property_id].eval_status"> It was moved to another day</label>
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3" x-show="!feedbackData.is_evaluation || (feedbackForm['prop:' + item.property_id].eval_status || 'held') === 'held'">
                                     {{-- Outcome --}}
                                     <div>
                                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outcome</label>
@@ -4087,6 +4096,7 @@ function calendarPage() {
                     is_multi_property: !!data.is_multi_property,
                     outcomes: data.outcomes || [],
                     concerns: data.concerns || [],
+                    is_evaluation: !!data.is_evaluation,
                     lp_outcomes: data.lp_outcomes || [],
                     lp_mandate_types: data.lp_mandate_types || [],
                     lp_concerns: data.lp_concerns || [],
@@ -4114,6 +4124,7 @@ function calendarPage() {
                     this.feedbackData.items.forEach(it => {
                         const kd = it.kind_data || {};
                         this.feedbackForm['prop:' + it.property_id] = {
+                            eval_status:    kd.eval_status || 'held',
                             outcome:        kd.outcome || '',
                             mandate_type:   kd.mandate_type || '',
                             concern_ids:    Array.isArray(kd.concern_ids) ? kd.concern_ids.map(String) : [],
@@ -4175,6 +4186,7 @@ function calendarPage() {
                         .map(([k, f]) => ({
                             property_id: parseInt(k.slice('prop:'.length)),
                             kind_specific_data: {
+                                eval_status:    this.feedbackData.is_evaluation ? (f.eval_status || 'held') : undefined,
                                 outcome:        f.outcome || null,
                                 mandate_type:   f.mandate_type || null,
                                 concern_ids:    (f.concern_ids || []).map(Number),

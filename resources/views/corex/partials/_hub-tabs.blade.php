@@ -2,7 +2,7 @@
     .ai/specs/real-estate-menu-tabs.md - the tab bar of a tabbed menu item (App\Support\Navigation\TabHub). Shown at the top of each of the
     hub's screens; a user sees only the tabs they may open. Renders nothing on a route none of the hub's tabs matches (e.g. the Rentals
     entry of a shared screen).
-    Receives: $hub (the TabHub class), optional $hubActiveTab (tab key, overrides the route match), optional $hubFlush (no space below the bar, for a
+    Receives: $hub (the TabHub class), optional $hubActiveTab (tab key, overrides the route match), optional $hubCompact (tighter tabs, see below), optional $hubFlush (no space below the bar, for a
     dense screen header such as the Calendar's), optional $hubAlpineTabs (tab keys this screen switches
     itself, client-side, through its own Alpine `tab` - those tabs keep their link as a fallback and do not reload the page).
     (Option names are prefixed: an @include also sees the host page's own variables, and $active is a common one.)
@@ -12,15 +12,18 @@
     $hubTabs = $hub::forUser(auth()->user());
     $hubActive = $hubActiveTab ?? $hub::activeKey();
     $hubAlpine = $hubAlpineTabs ?? [];
+    // $hubCompact: a hub with many tabs (Market intelligence has 14) tightens the padding and type so the whole bar fits a 1366 screen on one row, and wraps onto a second row (never scrolls out of sight) when a user has more tabs than fit; every other hub keeps its spacing.
+    $hubPad = ($hubCompact ?? false) ? '10px 8px' : '10px 16px';
+    $hubFs = ($hubCompact ?? false) ? '0.8rem' : '0.875rem';
 @endphp
 @if($hubActive !== null && count($hubTabs) > 0)
 <nav class="corex-hub-tabs" data-hub-tabs aria-label="{{ $hub::label() }}"
      style="display: flex; align-items: center; border-bottom: 1px solid var(--border, rgba(0,0,0,0.07)); margin-bottom: {{ ($hubFlush ?? false) ? '0' : '16px' }}; padding: 0 4px; flex-shrink: 0;">
-    <div style="display: flex; gap: 2px; overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; scrollbar-width: thin;">
+    <div style="display: flex; gap: 2px; max-width: 100%; {{ ($hubCompact ?? false) ? 'flex-wrap: wrap;' : 'overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: thin;' }}">
         @foreach($hubTabs as $hubKey => $hubTab)
             @php
-                $hubBase = 'padding: 10px 16px; text-decoration: none; font-size: 0.875rem; font-weight: 500; white-space: nowrap; border-bottom: 2px solid transparent; color: var(--text-muted, #9ca3af); border-top-left-radius: 4px; border-top-right-radius: 4px; display: inline-flex; align-items: center; gap: 6px;';
-                $hubOn = 'padding: 10px 16px; text-decoration: none; font-size: 0.875rem; font-weight: 600; white-space: nowrap; border-bottom: 2px solid var(--brand-icon, #0ea5e9); color: var(--brand-icon, #0ea5e9); background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, transparent); border-top-left-radius: 4px; border-top-right-radius: 4px; display: inline-flex; align-items: center; gap: 6px;';
+                $hubBase = 'padding: ' . $hubPad . '; text-decoration: none; font-size: ' . $hubFs . '; font-weight: 500; white-space: nowrap; border-bottom: 2px solid transparent; color: var(--text-muted, #9ca3af); border-top-left-radius: 4px; border-top-right-radius: 4px; display: inline-flex; align-items: center; gap: 6px;';
+                $hubOn = 'padding: ' . $hubPad . '; text-decoration: none; font-size: ' . $hubFs . '; font-weight: 600; white-space: nowrap; border-bottom: 2px solid var(--brand-icon, #0ea5e9); color: var(--brand-icon, #0ea5e9); background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, transparent); border-top-left-radius: 4px; border-top-right-radius: 4px; display: inline-flex; align-items: center; gap: 6px;';
                 $hubIsAlpine = in_array($hubKey, $hubAlpine, true);
             @endphp
             @if($hubIsAlpine)

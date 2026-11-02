@@ -194,6 +194,11 @@ final class EntryPointController extends Controller
         // risks duplicating the pitch). A pitched item opens the PROPERTY RECORD. Mid-scratchpad
         // items (pitched_at null) are unaffected — the agent can still return to compose to edit.
         if (! empty($listing->pitched_at) && ! empty($listing->matched_property_id)) {
+            // Inside the pitch popup (road-to-sold.md 23.23) the property record is a dead end with no step to show: carry on to "pitch to sellers"
+            if (\App\Support\Embed::on()) {
+                return redirect()->route('seller-outreach.entry.pitch-ready-prospecting', ['prospectingListingId' => $prospectingListingId] + app(\App\Services\RoadToSold\PitchPathService::class)->carry($request));
+            }
+
             return redirect()->route('corex.properties.show', ['property' => (int) $listing->matched_property_id]);
         }
 

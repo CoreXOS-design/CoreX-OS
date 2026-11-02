@@ -7,7 +7,8 @@ namespace App\Events\Evaluation;
 use App\Events\AbstractDomainEvent;
 
 /**
- * Fires once per evaluation, when the first feedback for it is captured (the evaluation was done).
+ * Fires once per evaluation, when the first feedback for it is captured WITH eval_status = held (the evaluation was done). A no-show or a
+ * rescheduled feedback (v4 23.10) raises nothing here.
  * Raised by CalendarEventFeedbackObserver::saved(); a second attendee's feedback, or an edit of the
  * first, does not raise it again. Spec: road-to-sold.md step 4.
  */
@@ -22,6 +23,7 @@ final class EvaluationCompleted extends AbstractDomainEvent
         public readonly ?int $contactId,
         public readonly ?string $completedAt,
         public readonly ?int $actorUserId = null,
+        public readonly ?int $trackedPropertyId = null,   // v4 A4: the tracked property the appointment carries (null = none)
         ?string $traceId = null,
     ) {
         parent::__construct($traceId);

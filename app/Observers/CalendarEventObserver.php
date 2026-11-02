@@ -44,6 +44,9 @@ final class CalendarEventObserver
         // Road to Sold step 4: a property evaluation was booked (from the calendar or from a Road to Sold
         // outcome - both create the same calendar row). One event per booking. Never breaks the save.
         if ($event->category === 'property_evaluation') {
+            // v4 A4 (road-to-sold.md 23.8): the appointment names its tracked property and belt record (a booking from Road to Sold already did; one made on
+            // the plain calendar is matched to the creating agent's open record for the property, only when exactly one matches)
+            [$trackedId, $prospectId] = app(\App\Services\RoadToSold\BeltLinks::class)->linkEvaluation($event);
             SafeRaise::dispatch('EvaluationBooked', fn () => new EvaluationBooked(
                 calendarEventId: (int) $event->id,
                 agencyId: $event->agency_id !== null ? (int) $event->agency_id : null,
@@ -52,6 +55,8 @@ final class CalendarEventObserver
                 contactId: $event->contact_id !== null ? (int) $event->contact_id : null,
                 startsAt: $event->event_date ? (string) $event->event_date : null,
                 actorUserId: $event->created_by_id !== null ? (int) $event->created_by_id : (auth()->id() ? (int) auth()->id() : null),
+                trackedPropertyId: $trackedId,
+                prospectId: $prospectId,
             ));
         }
 
