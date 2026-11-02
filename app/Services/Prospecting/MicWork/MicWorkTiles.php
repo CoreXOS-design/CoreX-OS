@@ -22,11 +22,11 @@ final class MicWorkTiles
     public const SHOW_EVERYTHING = ['gone', 'our_stock', 'lead_sources'];
 
     /** Bump when a tile's face/number logic changes, so a deploy never serves the previous face from the 10-minute cache. */
-    private const CACHE_VERSION = 5;
+    private const CACHE_VERSION = 6;
 
     /** number => [key, full title (tooltip), what a click does: filter | strip | panel, short label shown on the tile] */
     public const TILES = [
-        1 => ['stuck', 'Stuck on the market', 'filter', 'Stuck'],
+        1 => ['stuck', 'Long on market', 'filter', 'Long on market'], // the key stays 'stuck' (tile=stuck URLs); the agent never sees that word. Terminology: never "stuck" (mic-work-tab.md 13).
         2 => ['owner', 'Owner selling privately', 'filter', 'Owner selling'],
         3 => ['gone', 'Under offer, sold or gone', 'filter', 'Under offer / sold'],
         4 => ['our_stock', 'Where our stock sits', 'strip', 'Our stock'],
@@ -99,6 +99,20 @@ final class MicWorkTiles
         return null;
     }
 
+    /** "90+ days": the agency's long-on-market window (MIC Settings, default 90). */
+    public static function longOnMarketLabel(int $agencyId): string
+    {
+        return class_exists(self::CC5_SETTINGS) ? app(self::CC5_SETTINGS)::for($agencyId)->stuckDomDays() . '+ days' : '';
+    }
+
+    /** The tile's full name for a heading: "Long on market (90+ days)" for tile 1, the plain title otherwise. */
+    public static function titleFor(int $number, int $agencyId): string
+    {
+        $title = self::TILES[$number][1];
+
+        return $number === 1 && ($l = self::longOnMarketLabel($agencyId)) !== '' ? $title . ' (' . $l . ')' : $title;
+    }
+
     /**
      * The tile row, in order, only the numbers $shown (agency Settings; default all eleven).
      *
@@ -169,6 +183,11 @@ final class MicWorkTiles
         }
 
         foreach ($out as &$t) {
+            if ($t['key'] === 'stuck') {
+                // the agency's own long-on-market window ("90+ days"): under the name on the tile, and in the title everywhere the tile is named
+                $t['threshold'] = self::longOnMarketLabel($agencyId);
+                $t['title'] .= ' (' . $t['threshold'] . ')';
+            }
             $t['unit'] = self::UNITS[$t['key']] ?? null;
             // a tile whose service gives no list of properties (market prices; panels aside) must not look like a filter: its click would show everything
             $t['linkable'] = $t['kind'] === 'panel' ? $t['ready'] : ($t['ready'] && $this->propertyIds($t['key'], $agencyId, $user) !== null);

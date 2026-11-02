@@ -68,6 +68,7 @@
                 <div style="font-size: .8125rem; line-height: 1.5; color: var(--text-muted);">Coming</div>
             @endif
             <div style="font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ $t['short'] }}</div>
+            @if(!empty($t['threshold']))<div data-qa="tile-threshold" style="font-size: 0.625rem; color: var(--text-muted); line-height: 1.2; white-space: nowrap;">{{ $t['threshold'] }}</div>@endif
         @if($clickable)</a>@else</div>@endif
     @endforeach
 </div>

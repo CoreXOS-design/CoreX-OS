@@ -43,6 +43,21 @@ final class MicWorkTilesTest extends TestCase
         }
     }
 
+    public function test_tile_one_is_long_on_market_with_the_agency_window_under_it_and_the_word_stuck_is_never_shown(): void
+    {
+        $r = $this->actingAs($this->admin)->get(route('market-intelligence.work'));
+        $r->assertOk()->assertDontSee('Stuck on the market', false)->assertDontSee('>Stuck<', false);
+        $tile = collect(MicWorkTiles::fromContainer()->row($this->agency->id, $this->admin))->firstWhere('number', 1);
+        $this->assertSame('stuck', $tile['key'], 'the internal key (tile=stuck in URLs) stays');
+        $this->assertSame('Long on market', $tile['short']);
+        $this->assertSame('90+ days', $tile['threshold']);
+        $this->assertSame('Long on market (90+ days)', $tile['title']);
+        $this->assertSame('Long on market (90+ days)', MicWorkTiles::titleFor(1, $this->agency->id));
+        $this->assertSame('Owner selling privately', MicWorkTiles::titleFor(2, $this->agency->id), 'only tile 1 carries a window');
+        $this->actingAs($this->admin)->get(route('market-intelligence.work', ['tile' => 'stuck']))->assertOk()->assertSee('Tile · Long on market', false)->assertDontSee('Tile · Stuck', false);
+        $this->assertStringContainsString('data-qa="tile-threshold"', file_get_contents(resource_path('views/corex/market-intelligence/partials/_work-tiles.blade.php')));
+    }
+
     public function test_a_tagged_provider_feeds_its_tile_and_a_click_filters_the_list(): void
     {
         $agencyId = $this->agency->id;

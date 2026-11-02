@@ -1504,7 +1504,7 @@ class MarketIntelligenceController extends Controller
         $differs = $tile && $tile['count'] !== null && $files !== null && (int) $tile['count'] !== $files;
 
         return [
-            'title' => \App\Services\Prospecting\MicWork\MicWorkTiles::TILES[$n][1], 'rows' => $rows, 'files' => $files,
+            'title' => \App\Services\Prospecting\MicWork\MicWorkTiles::titleFor($n, (int) $agencyId), 'rows' => $rows, 'files' => $files,
             'tileCount' => $differs ? (int) $tile['count'] : null,
             'tileCounts' => $differs ? trim(explode(' · ', (string) $tile['reason'])[0]) : null,
             'asOf' => $stamp !== '' ? \Carbon\Carbon::parse($stamp)->timezone(config('app.timezone'))->format('j M H:i') : null,
