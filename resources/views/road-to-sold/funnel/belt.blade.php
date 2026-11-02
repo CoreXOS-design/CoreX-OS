@@ -84,7 +84,8 @@
     @endif
     <div class="grid gap-4 md:grid-cols-3" data-qa="belt-offramps">
         @foreach(['me' => ['My off-ramps', $me], 'branch' => ['My branch', $branch], 'agency' => ['The agency', $agency]] as $scopeKey => [$title, $f])
-            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-qa="offramps-{{ $scopeKey }}">
+            {{-- fits the window: a long list scrolls inside its own panel, never off the page --}}
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border); max-height: 20rem; overflow-y: auto;" data-qa="offramps-{{ $scopeKey }}">
                 <h2 class="text-sm font-bold mb-2" style="color: var(--text-primary);">{{ $title }} - why properties stopped</h2>
                 @php $any = false; @endphp
                 @foreach($f['stations'] as $row)
@@ -93,7 +94,7 @@
                         <div class="mb-2"><div class="text-xs font-semibold" style="color: var(--text-primary);">{{ $row['label'] }}</div>
                             @foreach($row['reasons'] as $reason => $n)
                                 <div class="flex items-center gap-2 text-xs" style="color: var(--text-primary);">
-                                    <div style="width: 38%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ $reason }}">{!! $link($drill($scopeKey, $row['key'], 'lost', $reason), $reason) !!}</div>
+                                    <div style="width: 42%; overflow-wrap: anywhere;">{!! $link($drill($scopeKey, $row['key'], 'lost', $reason), $reason) !!}</div>
                                     <div class="grow" style="background: var(--border); border-radius: 3px; height: 8px;"><div style="width: {{ max(4, (int) round($n / max(1, $max) * 100)) }}%; height: 8px; border-radius: 3px; background: var(--brand-icon, #0ea5e9);"></div></div>
                                     <div style="width: 2rem; text-align: right;">{{ $n }}</div>
                                 </div>
@@ -116,9 +117,10 @@
     @endif
 
     @if(count($agents))
-        <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);" data-qa="belt-agents">
+        {{-- every agent the viewer may see: the table scrolls inside its own block and keeps its column heads in view --}}
+        <div class="rounded-md overflow-auto" style="background: var(--surface); border: 1px solid var(--border); max-height: 22rem;" data-qa="belt-agents">
             <table class="w-full text-xs ds-table">
-                <thead><tr style="color: var(--text-muted);"><th class="px-3 py-2 text-left">Agent</th><th class="px-3 py-2 text-left">Branch</th>@foreach($stations as $s)<th class="px-2 py-2 text-right" title="{{ $s['label'] }}">{{ $s['short'] }}</th>@endforeach<th class="px-3 py-2 text-right">Lost</th></tr></thead>
+                <thead style="position: sticky; top: 0; z-index: 1; background: var(--surface);"><tr style="color: var(--text-muted);"><th class="px-3 py-2 text-left">Agent</th><th class="px-3 py-2 text-left">Branch</th>@foreach($stations as $s)<th class="px-2 py-2 text-right" title="{{ $s['label'] }}">{{ $s['short'] }}</th>@endforeach<th class="px-3 py-2 text-right">Lost</th></tr></thead>
                 <tbody>
                 @foreach($agents as $row)
                     <tr style="border-top: 1px solid var(--border);">
