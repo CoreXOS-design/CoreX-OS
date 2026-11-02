@@ -28,6 +28,8 @@
     .rts-col { display: flex; flex-direction: column; gap: .5rem; flex: 1 1 0; min-height: 0; }
     .rts-clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.25; }
     .rts-nw { white-space: nowrap; max-width: 15rem; overflow: hidden; text-overflow: ellipsis; }
+    /* the summary bar stays in view whatever block is open (Johan's ruling; the page itself never scrolls at laptop sizes, this holds it when a block does) */
+    .rts-top { position: sticky; top: 0; z-index: 5; background: var(--bg, transparent); }
     .rts-top .rts-long { display: none; }
     .rts-top .grid { grid-template-columns: repeat(auto-fit, minmax(6.2rem, 1fr)) !important; }
     .rts-block-body form select, .rts-block-body form input[type=text], .rts-block-body form input[type=date] { padding-top: .3rem !important; padding-bottom: .3rem !important; }

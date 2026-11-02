@@ -24,6 +24,14 @@ return [
     // presentations with no answer older than this show red on the Prepared tile
     'presentation_alert_days' => 30,
 
+    // the recipe task keys behind a summary-bar step whose "should be" is not already a monthly target (SummaryBarService; 23.13)
+    'summary_tasks' => [
+        'evaluations_booked' => ['evaluation-booked'],
+        'evaluations_done'   => ['evaluation-done'],
+        'mandates_signed'    => ['mandate-filed'],
+        'listings_live'      => ['listing-live'],
+    ],
+
     'stations' => [
         ['key' => 'loaded',     'label' => 'Stock loaded',          'short' => 'Loaded',    'stages' => ['found'],                              'source' => 'list_today',        'prefer_stage' => false, 'tasks' => [], 'built' => true],
         ['key' => 'claimed',    'label' => 'Claimed',               'short' => 'Claimed',   'stages' => ['claimed'],                            'source' => 'claims_open',       'prefer_stage' => true,  'tasks' => [], 'built' => true],

@@ -203,4 +203,23 @@ final class BeltActivationTest extends TestCase
         $this->assertStringContainsString('data-qa="belt-history"', $page);
         $this->assertSame(3, substr_count($page, 'data-qa="history-row"'));
     }
+
+    /** v4 23.13 / Johan's ruling: every summary-bar step says where the agent should be and where they are; the recipe's targets fill the steps that had none. */
+    public function test_the_summary_bar_says_should_be_on_x_for_every_step_that_has_a_target(): void
+    {
+        app(ProspectService::class)->place($this->agent, $this->tp(['street_number' => '1', 'street_name' => 'Old Road'])->id);
+        app(\App\Services\RoadToSold\RecipeService::class)->start($this->agency->id, 'sales');   // level 1: a weekly evaluation booked, a monthly mandate filed
+        $bar = app(\App\Services\RoadToSold\SummaryBarService::class)->forAgent($this->agent, self::WED, 'sales');
+        $by = collect($bar['steps'])->keyBy('key');
+        // 14 Oct 2026: 22 working days in the month, 10 passed (1-14 Oct, weekdays) -> weekly 1 x 22/5 = 4.4 a month, pro-rated 10/22 = 2
+        $this->assertEqualsWithDelta(2.0, (float) $by['evaluations_booked']['should_be'], 0.11);
+        $this->assertSame('red', $by['evaluations_booked']['status'], 'nothing booked against a target');
+        $this->assertEqualsWithDelta(0.5, (float) $by['mandates_signed']['should_be'], 0.11, 'a monthly target of 1, 10 of 22 days in');
+        $this->assertNull($by['conversations']['should_be'], 'no target for conversations: the actual only');
+        $this->assertNotNull($by['calls_made']['should_be'], 'calls keep their weekday target');
+
+        $html = $this->actingAs($this->agent)->get(route('road-to-sold.index'))->getContent();
+        $this->assertMatchesRegularExpression('/Should be on 2 · Behind/', $html);
+        $this->assertStringNotContainsString('rts-long">Should be on', $html, 'the line is not in the hidden long text');
+    }
 }

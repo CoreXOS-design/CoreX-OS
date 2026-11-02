@@ -20,13 +20,12 @@
                     style="background: var(--surface); border: 1px solid var(--border); border-left: 4px solid {{ $edge }}; cursor: pointer;"
                     title="Click to see the rows behind this figure">
                 <div class="text-[11px]" style="color: var(--text-muted);">{{ $step['label'] }}</div>
-                <div class="text-lg font-semibold mt-0.5" style="color: var(--text-primary);">
-                    {{ number_format($step['actual']) }}
-                    @if($should !== null)<span class="text-xs font-normal" style="color: var(--text-muted);"> of {{ $fmt($should) }}</span>@endif
+                <div class="text-lg font-semibold mt-0.5" style="color: var(--text-primary);" data-qa="bar-actual">
+                    {{ number_format($step['actual']) }}<span class="text-xs font-normal" style="color: var(--text-muted);"> {{ $should !== null ? 'so far' : '' }}</span>
                 </div>
-                <div class="text-[11px] mt-0.5" style="color: var(--text-muted);">
+                <div class="text-[11px] mt-0.5" style="color: var(--text-muted);" data-qa="bar-line">
                     @if($should !== null && $should > 0)
-                        <span class="rts-long">{{ round($step['pct']) }}% of where you should be · </span>{{ $statusWord }}
+                        Should be on {{ $fmt($should) }}{{ $statusWord !== '' ? ' · ' . $statusWord : '' }}
                     @elseif($should !== null)
                         No target this month
                     @else
