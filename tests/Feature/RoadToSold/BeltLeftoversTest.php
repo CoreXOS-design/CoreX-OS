@@ -249,13 +249,16 @@ final class BeltLeftoversTest extends TestCase
         $branchAsManager = $svc->drill($manager, $this->period(), 'contacted', 'reached', null, 'branch');
         $this->assertTrue($branchAsManager['allowed']);
         $this->assertCount(2, $branchAsManager['rows']);
-        $agencyAsManager = $svc->drill($manager, $this->period(), 'contacted', 'reached', null, 'agency');
-        $this->assertTrue($agencyAsManager['allowed'], 'one branch: the agency is the same agents');
+        $this->assertFalse($svc->drill($manager, $this->period(), 'contacted', 'reached', null, 'agency')['allowed'], 'the agency is wider than a branch manager\'s breadth');
 
         $other = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Other branch']);
         $far = $this->makeAgent($this->agency, $other);
         app(ProspectService::class)->place($far, (int) $this->tp(['street_name' => 'Far', 'street_number' => '3'])->id, 'sales', ['stage' => S::CONTACTED]);
-        $this->assertFalse($svc->drill($manager, $this->period(), 'contacted', 'reached', null, 'agency')['allowed'], "a manager does not get another branch's properties");
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin', 'is_active' => true]);
+        RolePermission::updateOrCreate(['role' => 'admin', 'permission_key' => 'access_road_to_sold', 'agency_id' => $this->agency->id]);
+        RolePermission::updateOrCreate(['role' => 'admin', 'permission_key' => 'road_to_sold.view', 'agency_id' => $this->agency->id], ['scope' => 'all']);
+        PermissionService::clearCache();
+        $this->assertCount(3, $svc->drill($admin, $this->period(), 'contacted', 'reached', null, 'agency')['rows'], 'an admin with the agency breadth sees every branch');
     }
 
     public function test_the_funnel_page_links_its_numbers_and_bars_and_the_list_page_renders(): void

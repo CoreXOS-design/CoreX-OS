@@ -239,10 +239,10 @@ class BeltFunnelService
             'agency' => $users->keys()->all(),
             default  => [$me],
         };
-        $visible = VisibleAgents::for($viewer)->keys()->map(fn ($v) => (int) $v)->all();
-        $visible[] = $me;
-        $ids = array_values(array_intersect($scoped, array_unique($visible)));
-        $allowed = $scope === 'me' || count(array_diff($scoped, $ids)) === 0;
+        // the breadth decides whose PROPERTIES may be listed (never a hidden link): own work always; the branch for a branch-wide viewer; the agency for an agency-wide one
+        $level = Scope::level($viewer);
+        $allowed = $scope === 'me' || ($scope === 'branch' && in_array($level, ['branch', 'all'], true)) || ($scope === 'agency' && $level === 'all');
+        $ids = $allowed ? array_values(array_unique(array_map('intval', $scoped))) : [];
         if (! isset(self::STATIONS[$station]) || $ids === []) {
             return ['allowed' => $allowed, 'title' => $title, 'rows' => []];
         }
