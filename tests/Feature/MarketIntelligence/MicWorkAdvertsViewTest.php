@@ -80,6 +80,45 @@ final class MicWorkAdvertsViewTest extends TestCase
         $this->assertStringNotContainsString('data-qa="row-wrap"><article', $h);
     }
 
+    public function test_the_sole_mandate_flag_reads_days_title_and_may_be_ending_from_the_row_on_the_card_the_badge_and_the_full_card(): void
+    {
+        $tp = $this->file('P24-150100020');
+        $l = $this->advert('P24-150100020', 1_200_000, ['tracked_property_id' => $tp, 'description_snippet' => 'Sole mandate - lovely home.']);
+        DB::table('prospecting_listings')->where('id', $l->id)->update(['sole_mandate_wording' => 1, 'sole_mandate_first_seen_at' => now()->subDays(81)->startOfDay()]);
+
+        $h = $this->page(['view' => 'adverts']);
+        $this->assertStringContainsString('>Sole mandate · 81 d</span>', $h);
+        $this->assertStringContainsString('title="first seen as sole mandate ' . now()->subDays(81)->format('j M Y') . '"', $h);
+        $this->assertStringNotContainsString('may be ending', $h, '81 days is under the default 90');
+        $this->assertStringContainsString('Sole mandate · 81 d', $this->page(['view' => 'list']), 'the List badge says the same');
+
+        DB::table('prospecting_listings')->where('id', $l->id)->update(['sole_mandate_first_seen_at' => now()->subDays(95)->startOfDay()]);
+        $h = $this->page(['view' => 'adverts']);
+        $this->assertStringContainsString('>Sole mandate · 95 d · may be ending</span>', $h);
+        $this->assertMatchesRegularExpression('/var\(--ds-amber[^>]*>Sole mandate · 95 d · may be ending/', $h, 'the ending ribbon takes the warning colour');
+        $this->assertStringContainsString('Sole mandate · 95 d · may be ending', $this->page(['view' => 'list']));
+
+        $card = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['_card' => $tp]), ['X-Requested-With' => 'XMLHttpRequest'])->assertOk()->getContent();
+        $this->assertStringContainsString('data-qa="sole-mandate-line"', $card);
+        $this->assertStringContainsString('Sole mandate · 95 d · may be ending', $card);
+
+        MicAgencySetting::saveValues($this->agency->id, ['mandate_length_days' => 120]);
+        $this->assertStringNotContainsString('may be ending', $this->page(['view' => 'adverts']), 'the agency raised the mandate length');
+    }
+
+    public function test_a_price_that_rose_back_shows_no_cut_and_the_card_never_works_out_its_own(): void
+    {
+        $l = $this->advert('P24-150100021', 1_420_000, ['tracked_property_id' => $this->file('P24-150100021')]);
+        DB::table('prospecting_price_history')->insert([
+            ['prospecting_listing_id' => $l->id, 'old_price' => 1_399_000, 'new_price' => 1_350_000, 'changed_at' => now()->subDays(40), 'created_at' => now(), 'updated_at' => now()],
+            ['prospecting_listing_id' => $l->id, 'old_price' => 1_350_000, 'new_price' => 1_420_000, 'changed_at' => now()->subDays(2), 'created_at' => now(), 'updated_at' => now()],
+        ]);
+        $h = $this->page(['view' => 'adverts']);
+        $this->assertStringNotContainsString('line-through', $h, 'the price is back above where it was: no cut shown');
+        $this->assertStringNotContainsString('>Reduced</span>', $h);
+        $this->assertStringNotContainsString('cut R', $h);
+    }
+
     public function test_the_list_view_is_still_the_classic_list(): void
     {
         $this->advert('P24-150100002', 900_000);

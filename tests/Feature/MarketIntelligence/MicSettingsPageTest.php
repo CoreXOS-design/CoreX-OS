@@ -69,6 +69,32 @@ final class MicSettingsPageTest extends TestCase
         $this->assertStringNotContainsString('data-qa="tile-3"', $html, 'a tile the agency switched off is not shown');
     }
 
+    public function test_mandate_length_is_saved_read_back_validated_and_an_older_form_does_not_reset_it(): void
+    {
+        $page = $this->actingAs($this->admin)->get(route('market-intelligence.settings'))->assertOk();
+        $page->assertSee('name="mandate_length_days"', false)->assertSee('Mandate length (days)', false)->assertSee('value="90"', false);
+
+        $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload(['adverts_present' => 1, 'mandate_length_days' => 120]))->assertRedirect(route('market-intelligence.settings'));
+        $this->assertSame(120, MicAgencySetting::mandateLengthDaysFor($this->agency->id));
+        $this->assertSame(90, MicAgencySetting::mandateLengthDaysFor($this->b->id), 'another agency keeps the default');
+
+        $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload(['adverts_present' => 1, 'mandate_length_days' => 800]))->assertSessionHasErrors('mandate_length_days');
+        $this->assertSame(120, MicAgencySetting::mandateLengthDaysFor($this->agency->id), 'a rejected value changes nothing');
+
+        $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload())->assertRedirect(route('market-intelligence.settings'));
+        $this->assertSame(120, MicAgencySetting::mandateLengthDaysFor($this->agency->id), 'a form without the Adverts group does not reset it');
+    }
+
+    public function test_a_mandate_word_without_sole_or_exclusive_is_refused_with_a_plain_message(): void
+    {
+        $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload(['adverts_present' => 1, 'mandate_words' => "sole mandate\nopen mandate"]))
+            ->assertSessionHasErrors(['mandate_words' => 'Not saved: "open mandate". A sole-mandate word must have "sole" or "exclusive" next to mandate, agent or agency (for example "sole mandate" or "exclusive agency"), 3 to 60 characters.']);
+        $this->assertSame(0, DB::table('mic_agency_settings')->where('agency_id', $this->agency->id)->count(), 'nothing was saved');
+
+        $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload(['adverts_present' => 1, 'mandate_words' => "Sole Mandate\nexclusive agency\nsole mandate"]))->assertSessionHasNoErrors();
+        $this->assertSame(['sole mandate', 'exclusive agency'], MicAgencySetting::mandateWordsFor($this->agency->id));
+    }
+
     public function test_weights_must_add_up_to_100_and_at_least_one_tile_must_show(): void
     {
         $this->actingAs($this->admin)->put(route('market-intelligence.settings.update'), $this->payload(['weights' => ['seller' => 50]]))->assertSessionHasErrors('weights');

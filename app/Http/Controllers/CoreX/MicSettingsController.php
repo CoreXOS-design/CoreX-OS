@@ -68,6 +68,7 @@ final class MicSettingsController extends Controller
                 'rows_per_page' => $s->rowsPerPage(),
                 'reduced_window_days' => $s->reducedWindowDays(),
                 'stale_window_days' => $s->staleWindowDays(),
+                'mandate_length_days' => $s->mandateLengthDays(),
                 'mandate_words' => implode("\n", $s->mandateWords()),
             ],
             'suburbs' => $suburbsSorted,
@@ -89,6 +90,7 @@ final class MicSettingsController extends Controller
             'rows_per_page' => ['nullable', 'integer', 'min:10', 'max:100'],
             'reduced_window_days' => ['nullable', 'integer', 'min:1', 'max:365'],
             'stale_window_days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            'mandate_length_days' => ['nullable', 'integer', 'min:1', 'max:730'],
             'mandate_words' => ['nullable', 'string', 'max:2000'],
             'tiles_shown' => ['nullable', 'array'],
             'tiles_shown.*' => ['integer', 'between:1,11'],
@@ -108,6 +110,22 @@ final class MicSettingsController extends Controller
 
         if (array_sum($data['weights']) !== 100) {
             return back()->withInput()->withErrors(['weights' => 'The five score weights must add up to 100 (they add up to ' . array_sum($data['weights']) . ').']);
+        }
+        // Mandate words: each must say "sole" or "exclusive" next to mandate / agent / agency (13.4), so "open mandate" can never flag a property
+        $mandateWords = [];
+        $badWords = [];
+        if ($request->has('adverts_present') && $request->filled('mandate_words')) {
+            foreach (preg_split('/\R+/', (string) $data['mandate_words']) ?: [] as $w) {
+                $w = mb_strtolower(trim(preg_replace('/\s+/u', ' ', $w)));
+                if ($w === '') {
+                    continue;
+                }
+                MicAgencySetting::cleanMandateWords([$w]) === [] ? $badWords[] = $w : $mandateWords[] = $w;
+            }
+            if ($badWords !== []) {
+                return back()->withInput()->withErrors(['mandate_words' => 'Not saved: "' . implode('", "', $badWords) . '". A sole-mandate word must have "sole" or "exclusive" next to mandate, agent or agency (for example "sole mandate" or "exclusive agency"), 3 to 60 characters.']);
+            }
+            $mandateWords = array_values(array_unique($mandateWords));
         }
         $tiles = array_values(array_unique(array_map('intval', $data['tiles_shown'] ?? [])));
         if ($tiles === []) {
@@ -130,8 +148,8 @@ final class MicSettingsController extends Controller
             'rows_per_page' => $request->has('adverts_present') && $request->filled('rows_per_page') ? (int) $data['rows_per_page'] : null,
             'reduced_window_days' => $request->has('adverts_present') && $request->filled('reduced_window_days') ? (int) $data['reduced_window_days'] : null,
             'stale_window_days' => $request->has('adverts_present') && $request->filled('stale_window_days') ? (int) $data['stale_window_days'] : null,
-            'mandate_words' => $request->has('adverts_present') && $request->filled('mandate_words')
-                ? array_values(array_unique(array_filter(array_map(fn ($w) => mb_strtolower(trim($w)), preg_split('/\R+/', (string) $data['mandate_words']) ?: []), fn ($w) => $w !== ''))) : null,
+            'mandate_length_days' => $request->has('adverts_present') && $request->filled('mandate_length_days') ? (int) $data['mandate_length_days'] : null,
+            'mandate_words' => $request->has('adverts_present') && $request->filled('mandate_words') ? $mandateWords : null,
         ], fn ($v) => $v !== null) + [
             'areas' => array_values(array_unique($areas)),
             'refresh_interval_days' => (int) $data['refresh_interval_days'],

@@ -114,6 +114,7 @@
             <label style="font-size:.8125rem; margin-left: 18px;">Adverts per page <input type="number" name="rows_per_page" min="10" max="100" value="{{ old('rows_per_page', $values['rows_per_page']) }}" style="{{ $in }} width: 70px;"></label>
             <label style="font-size:.8125rem; margin-left: 18px;">"Reduced" looks back <input type="number" name="reduced_window_days" min="1" max="365" value="{{ old('reduced_window_days', $values['reduced_window_days']) }}" style="{{ $in }} width: 70px;"> days</label>
             <label style="font-size:.8125rem; margin-left: 18px;">Not seen for <input type="number" name="stale_window_days" min="1" max="365" value="{{ old('stale_window_days', $values['stale_window_days']) }}" style="{{ $in }} width: 70px;"> days is greyed</label>
+            <label style="font-size:.8125rem; margin-left: 18px;" title="A sole mandate this old is flagged 'may be ending' and counts as stuck">Mandate length (days) <input type="number" name="mandate_length_days" min="1" max="730" value="{{ old('mandate_length_days', $values['mandate_length_days']) }}" style="{{ $in }} width: 70px;" data-qa="mandate-length-days"></label>
             <div style="margin-top: 8px;">
                 <label style="font-size:.8125rem; display: block; margin-bottom: 2px;">Words that mark a sole mandate (one per line)</label>
                 <textarea name="mandate_words" rows="4" style="{{ $in }} width: 320px; height: auto; padding: 6px 8px;">{{ old('mandate_words', $values['mandate_words']) }}</textarea>

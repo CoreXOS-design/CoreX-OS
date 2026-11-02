@@ -64,6 +64,7 @@
     <div data-qa="our-history">
         @forelse($r['claims'] as $c)<div>Claim{{ ($c['count'] ?? 1) > 1 ? ' ×' . $c['count'] : '' }} · {{ $c['who'] ?? 'agent' }} · {{ $c['at'] }} · {{ str_replace('_', ' ', $c['status'] ?? '') }}@if($c['released']) · released {{ $c['released'] }}@endif @if($c['reason']) ({{ $c['reason'] }})@endif</div>@empty<div style="color: var(--text-muted);">No claims yet.</div>@endforelse
         @if($r['work_status'])<div>Status · {{ ucfirst(str_replace('_', ' ', $r['work_status'])) }}@if($r['work_reason']) · {{ $r['work_reason'] }}@endif</div>@endif
+        @if($mandate = \App\Services\Prospecting\MicWork\SoleMandateLabel::for($r))<div data-qa="sole-mandate-line" title="{{ $mandate['title'] }}" style="{{ $mandate['ending'] ? 'color: #b45309; font-weight: 700;' : '' }}">{{ $mandate['text'] }}</div>@endif
         @foreach($r['mandates'] as $m)<div>Mandate · {{ $m['type'] ? ucfirst($m['type']) : '-' }} · {{ ucfirst(str_replace('_', ' ', (string) $m['status'])) }}@if($m['expiry']) · expires {{ $m['expiry'] }}@endif @if($m['price']) · {{ $money($m['price']) }}@endif</div>@endforeach
     </div>
     <div style="margin-top: 8px;">@if($r['tp_id'])<a href="{{ route('market-intelligence.opportunities.show', ['tp' => $r['tp_id']]) }}" style="color: var(--brand-icon); text-decoration:none;">Open the property page →</a>@else Not on a property file yet.@endif</div>

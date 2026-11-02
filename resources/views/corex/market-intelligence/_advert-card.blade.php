@@ -22,7 +22,7 @@
     if ($status === 'under_offer') { $ribbons[] = ['Under offer', 'var(--ds-amber, #f59e0b)', null]; }
     if ($status === 'sold') { $ribbons[] = ['Sold', '#475569', null]; }
     if ($ownerSale) { $ribbons[] = ['Owner selling', 'var(--brand-icon, #0ea5e9)', null]; }
-    if (!empty($adv['is_sole_mandate'])) { $ribbons[] = ['Sole mandate', '#7c3aed', ($adv['sole_mandate_source'] ?? '') === 'alert' ? 'Sole mandate (from a P24 alert)' : 'Sole mandate (from the advert wording)']; }
+    if ($mandate = \App\Services\Prospecting\MicWork\SoleMandateLabel::for($adv)) { $ribbons[] = [$mandate['text'], $mandate['ending'] ? 'var(--ds-amber, #f59e0b)' : '#7c3aed', $mandate['title']]; }
     // the photo's P24 / PP marks are the links to the adverts themselves (the live one of that portal first)
     $portalAdvert = function (string $portal) use ($adverts) {
         $mine = array_values(array_filter($adverts, fn ($a) => $a['portal'] === $portal && !empty($a['url'])));
