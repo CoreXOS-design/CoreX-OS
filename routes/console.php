@@ -658,3 +658,8 @@ Schedule::command('rollout:release')->everyFifteenMinutes()->onOneServer()->with
 
 // Attorney portal - the daily "new documents" note to attorneys (one per deal per day; each agency can switch it off).
 Schedule::command('attorney-portal:notify-new-documents')->dailyAt('07:30')->withoutOverlapping();
+
+// AT-534 — Campaigns (CoreX's own outbound email sequences): queue a send run per running campaign, and read each in-use
+// sending address's inbox for replies / STOP / bounces. Both idempotent. Spec: .ai/specs/campaigns.md §6.1, §6.6.
+Schedule::command('campaigns:send-due')->everyFiveMinutes()->onOneServer()->withoutOverlapping(10);
+Schedule::command('campaigns:check-inbox')->everyFiveMinutes()->onOneServer()->withoutOverlapping(10);
