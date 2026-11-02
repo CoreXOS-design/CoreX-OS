@@ -314,7 +314,7 @@ final class MicWorkAdvertsViewTest extends TestCase
         foreach (['fit-line', 'fit-chips', 'fit-badge', 'line-fit', 'fit-tick-price', 'fit-tick-type', 'mi-advert-body mi-advert-body-fit', 'mi-advert-right mi-advert-right-fit'] as $k) {
             $this->assertStringNotContainsString($k, $h, $k);
         }
-        $this->assertStringContainsString('-webkit-line-clamp:4;', $h, 'the description keeps its four lines');
+        $this->assertStringContainsString('class="mi-clamp" style="--mi-lines: 4;"', $h, 'the description keeps its four lines, as plain CSS (no Alpine needed)');
     }
 
     public function test_the_list_view_is_still_the_classic_list(): void
