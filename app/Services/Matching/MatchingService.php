@@ -1187,6 +1187,12 @@ class MatchingService
         if (isset($negations[$key])) {
             return !$this->propertyHasFeature($property, $negations[$key]);
         }
+        // "no_stairs" is a POSITIVE property fact (the agent ticked "No Stairs"),
+        // not the absence of "Stairs" — an untagged property is unknown, so it must
+        // not satisfy a No Stairs requirement. Handled before the generic no_X rule.
+        if ($key === 'no_stairs') {
+            return in_array('no_stairs', $this->propertyFeatureTokens($property), true);
+        }
         // Generic "no_X" / "not_X" → negate inner check
         if (preg_match('/^(no|not)_(.+)$/', $key, $m)) {
             return !$this->propertyHasFeature($property, $m[2]);

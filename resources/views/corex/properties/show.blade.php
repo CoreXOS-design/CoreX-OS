@@ -12192,7 +12192,7 @@ const _DEFAULT_SPACE_FEATURES = {
 };
 const _ALL_SPACE_TYPES = ['Bedroom','Bathroom','Garage','Parking','Kitchen','Garden','Pool','Flatlet','Study','Domestic Room','Lounge','Dining Room','Outside Toilet','Domestic Bathroom','Entrance Hall','Bar','Boardroom','Boat Launch','Boathouse','Braai Room','Cellar','Changing Room','Clubhouse','Courtyard','Gazebo','Greenhouse','Gym','Jacuzzi','Jetty','Lapa','Laundry Room','Linen Room','Loft','Office','Patio','Pool Shed','Reception Room','Sauna','Scullery','Shed','Squash Court','Stable','Storeroom','Studio','Tennis Court','TV Room','Veranda','Wendy House','Workshop','Yard'];
 const _FEATURE_CATEGORIES = {
-    theProperty:    { label: 'The Property', features: ['Air Conditioned','Balcony','Cleaning Service','Communal Braai Area','Complex','Freehold','Furnished','Green Building','Ground Floor Unit','Investment','Leasehold','Multi Tenanted','Natural Light','No Transfer Duty','Office Building','Pet Friendly','Pets Not Allowed','Renovation Fixer-Upper','Sea View','Second Floor and Above','Sectional Title','Serviced','Single Storey','Standalone','Top Floor','Unfurnished','Wheelchair Friendly'] },
+    theProperty:    { label: 'The Property', features: ['Air Conditioned','Balcony','Cleaning Service','Communal Braai Area','Complex','Freehold','Furnished','Green Building','Ground Floor Unit','Investment','Leasehold','Multi Tenanted','Natural Light','No Stairs','No Transfer Duty','Office Building','Pet Friendly','Pets Not Allowed','Renovation Fixer-Upper','Sea View','Second Floor and Above','Sectional Title','Serviced','Single Storey','Stairs','Standalone','Top Floor','Unfurnished','Wheelchair Friendly'] },
     building:       { label: 'Building',     features: ['Wall: Brick','Wall: Concrete','Wall: Face Brick','Wall: Plaster','Wall: Stone','Wall: Timber','Floor: Carpeted','Floor: Concrete','Floor: Laminated','Floor: Marble','Floor: Parquet','Floor: Tiled','Floor: Vinyl','Floor: Wooden','Roof: Aluminium','Roof: Asbestos','Roof: Clay Tiles','Roof: Concrete','Roof: Concrete Tiles','Roof: Corrugated Iron','Roof: IBR','Roof: Insulation','Roof: Slate','Roof: Thatch','Roof: Tiles','Roof: Waterproofing','Roof: Zinc','Window: Aluminium','Window: Double Glazed','Window: PVC','Window: Steel','Window: Wood','Style: Cape Dutch','Style: Colonial','Style: Contemporary','Style: Conventional','Style: Mediterranean','Style: Modern','Style: Spanish','Style: Tuscan','Style: Victorian'] },
     security:       { label: 'Security',     features: ['24 Hour Access','24 Hour Guard','Alarm System','Armed Response','Boomed Area','Burglar Bars','CCTV','Electric Fence','Electric Gate','Gated Community','Guard House','In Security','Indoor Beams','Intercom','Outdoor Beams','Partially Fenced','Perimeter Wall','Safe','Security Gate','Totally Fenced','Totally Walled','Security Complex','Automated Garage Doors','Security Estate'] },
     connectivity:   { label: 'Connectivity', features: ['ADSL','Cable TV','Fibre','Internet Port','Satellite Dish','Satellite Internet','Telephone Port','TV Port','Wi-Fi'] },
@@ -12438,7 +12438,11 @@ function spacesAndFeaturesManager(initSpaces, initFeatures, initBeds, initBaths,
         },
         toggleGlobalFeature(catKey, feat) {
             const arr = this.features[catKey]; const i = arr.indexOf(feat);
-            if (i >= 0) arr.splice(i, 1); else arr.push(feat);
+            if (i >= 0) { arr.splice(i, 1); return; }
+            // "Stairs" and "No Stairs" contradict each other — picking one clears the other.
+            const opposite = feat === 'Stairs' ? 'No Stairs' : (feat === 'No Stairs' ? 'Stairs' : null);
+            if (opposite) { const o = arr.indexOf(opposite); if (o >= 0) arr.splice(o, 1); }
+            arr.push(feat);
         },
         removeFeatureByName(feat) {
             // Remove from global feature categories

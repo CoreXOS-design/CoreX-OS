@@ -86,7 +86,8 @@ class BuyerDetailController extends Controller
         $matchTypes      = \App\Models\PropertySettingItem::group('property_type')->where('active', true)->get();
         $featureOptions  = array_merge(
             \App\Http\Controllers\CoreX\ContactMatchController::FEATURE_OPTIONS,
-            \App\Http\Controllers\CoreX\ContactMatchController::POOL_TYPE_OPTIONS
+            \App\Http\Controllers\CoreX\ContactMatchController::POOL_TYPE_OPTIONS,
+            \App\Http\Controllers\CoreX\ContactMatchController::STAIRS_OPTIONS
         );
 
         return view('command-center.buyers.detail', [

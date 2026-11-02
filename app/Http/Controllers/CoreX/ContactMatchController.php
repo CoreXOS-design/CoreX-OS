@@ -61,6 +61,18 @@ class ContactMatchController extends Controller
         'pool_communal',
     ];
 
+    /**
+     * Stairs / No Stairs wishlist options — separate from FEATURE_OPTIONS for the
+     * same reason as POOL_TYPE_OPTIONS (that list is the AI photo-vision vocabulary;
+     * stairs is a layout fact the agent ticks on the property, not something to
+     * classify from a photo). Matched against the "Stairs" / "No Stairs" property
+     * features — see MatchingService::propertyHasFeature(). Never syndicated.
+     */
+    public const STAIRS_OPTIONS = [
+        'no_stairs',
+        'stairs',
+    ];
+
     public function __construct(protected MatchingService $matching) {}
 
     /**
@@ -664,7 +676,7 @@ class ContactMatchController extends Controller
 
         $matchCategories = PropertySettingItem::group('category')->get();
         $matchTypes      = PropertySettingItem::group('property_type')->where('active', true)->get();
-        $featureOptions  = array_merge(self::FEATURE_OPTIONS, self::POOL_TYPE_OPTIONS);
+        $featureOptions  = array_merge(self::FEATURE_OPTIONS, self::POOL_TYPE_OPTIONS, self::STAIRS_OPTIONS);
 
         return view('corex.contacts.match-edit', compact(
             'contact', 'match', 'matchCategories', 'matchTypes', 'featureOptions'
