@@ -37,7 +37,7 @@ final class AdvertSplitService
     }
 
     /**
-     * @return array{split_id:int, from_file_id:int, new_file_id:int, new_file_address:string, adverts_left_on_file:int}
+     * @return array{split_id:int, from_file_id:int, new_file_id:int, new_file_address:string, adverts_left_on_file:int, agencies_left_on_file:int}
      *
      * @throws AdvertSplitException 404 / 409 with a plain-words message
      */
@@ -103,7 +103,8 @@ final class AdvertSplitService
 
             $this->merger->refreshStats($agencyId, [$from, $newId]);
 
-            return ['split_id' => (int) $id, 'from_file_id' => $from, 'new_file_id' => (int) $newId, 'new_file_address' => $newAddress, 'adverts_left_on_file' => $others->unique('canonical_ref')->count()];
+            return ['split_id' => (int) $id, 'from_file_id' => $from, 'new_file_id' => (int) $newId, 'new_file_address' => $newAddress, 'adverts_left_on_file' => $others->unique('canonical_ref')->count(),
+                'agencies_left_on_file' => $this->agenciesOn($agencyId, $from)];
         });
     }
 
@@ -111,7 +112,7 @@ final class AdvertSplitService
      * Put a split back (from the database record, or from a journal line with the same shape). Rows that have moved on since are left alone and counted.
      *
      * @param  array<string,mixed>|null $record  a journal line; null = read the exclusion row
-     * @return array{file_id:int, returned:int, left_alone:int}
+     * @return array{file_id:int, returned:int, left_alone:int, closed_file:bool}
      *
      * @throws AdvertSplitException 404 / 409
      */
@@ -135,18 +136,36 @@ final class AdvertSplitService
             }
             DB::table('mic_match_exclusions')->where('id', $row->id)->update(['undone_at' => now(), 'undone_by' => $user?->id]);
             MatchExclusions::flush();
-            // the split-off file is empty now: closed as a duplicate of the file it came from, never deleted
-            if ($this->merger->isEmptyShell((int) $row->new_file_id, ['tracked_property_agency_work_events'])   /* its own history lines do not count */) {
-                $this->merger->flagDuplicate((int) $row->new_file_id, (int) $row->file_id, 'advert-split-undo');
-            }
+            // the split-off file is empty now: it is soft-deleted (never hard-deleted), so no empty property is left behind
+            $closed = $this->closeIfEmpty($agencyId, (int) $row->new_file_id);
             $this->audit($agencyId, (int) $row->file_id, 'split_undone', null, null, 'Advert split undone' . ($user ? " by {$user->name}" : '') . ' on ' . now()->format('j M Y'), $user?->id);
             $this->merger->refreshStats($agencyId, [(int) $row->file_id, (int) $row->new_file_id]);
             if ($row->journal) {
-                @file_put_contents((string) $row->journal, json_encode(['event' => 'undo', 'split_id' => (int) $row->id, 'at' => now()->toIso8601String(), 'user_id' => $user?->id, 'returned' => $returned, 'left_alone' => $left], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
+                @file_put_contents((string) $row->journal, json_encode(['event' => 'undo', 'split_id' => (int) $row->id, 'at' => now()->toIso8601String(), 'user_id' => $user?->id, 'returned' => $returned, 'left_alone' => $left, 'closed_file' => $closed ? (int) $row->new_file_id : null], JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND | LOCK_EX);
             }
 
-            return ['file_id' => (int) $row->file_id, 'returned' => $returned, 'left_alone' => $left];
+            return ['file_id' => (int) $row->file_id, 'returned' => $returned, 'left_alone' => $left, 'closed_file' => $closed];
         });
+    }
+
+    /** Soft-delete a split-off file that holds nothing but its own history lines. True when it was closed. */
+    public function closeIfEmpty(int $agencyId, int $fileId): bool
+    {
+        $file = TrackedProperty::queryWithoutAgencyScope()->where('agency_id', $agencyId)->find($fileId);
+        if (! $file || ! $this->merger->isEmptyShell($fileId, ['tracked_property_agency_work_events'], true)) {
+            return false;
+        }
+        $file->delete();
+
+        return true;
+    }
+
+    /** the number of different agencies on the adverts still on a file (same count the card, pill and badge show) */
+    private function agenciesOn(int $agencyId, int $fileId): int
+    {
+        return \App\Services\Prospecting\MicWork\MicWorkList::agenciesIn(
+            DB::table('prospecting_listings')->where('agency_id', $agencyId)->where('tracked_property_id', $fileId)->whereNull('deleted_at')->get(['agency_name', 'advertiser_type'])
+        );
     }
 
     /** @return list<int> */

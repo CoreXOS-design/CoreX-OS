@@ -449,6 +449,10 @@ final class MicWorkList
                 'sole_mandate_ending' => $mandateDays !== null && $mandateDays >= $mandateLength,
                 'sole_mandate_source' => $byWording ? 'wording' : ($byAlert ? 'alert' : null),
                 'group_member_count' => (int) $live->map(fn ($a) => (int) ($groupCounts[$a->p24_group_id] ?? 0))->max(),
+                // ONE number for "how many adverts / agencies are on this property": the popover, the pill, the List badge and the Adverts line of the intel block all read these (live, from the same adverts);
+                // `group_member_count` stays P24's own statement of its group size, which can include adverts we hold on other files
+                'adverts_total' => $list->count(),
+                'agencies_total' => self::agenciesIn($list),
                 'days_on_market' => $dom['days'],
                 'dom_is_minimum' => str_ends_with((string) $dom['label'], '+'),
                 'last_seen_days' => $lastSeenDays,
@@ -481,6 +485,17 @@ final class MicWorkList
         }
 
         return $out;
+    }
+
+    /** How many different agencies stand behind these adverts (an owner's private advert counts as one "agency"; the same agency twice counts once). */
+    public static function agenciesIn(iterable $adverts): int
+    {
+        $seen = [];
+        foreach ($adverts as $a) {
+            $seen[(($a->advertiser_type ?? null) === 'owner') ? 'owner' : mb_strtolower(trim((string) ($a->agency_name ?? '')))] = true;
+        }
+
+        return count($seen);
     }
 
     /**

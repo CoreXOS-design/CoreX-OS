@@ -60,10 +60,10 @@
                 <span data-qa="ribbon" title="{{ $rtitle ?? $rt }}" style="padding:2px 8px; font-size:.6875rem; font-weight:700; color: {{ str_contains($rc, 'amber') ? '#111827' : '#fff' }}; background: {{ $rc }}; border-radius:3px; box-shadow:0 1px 3px rgba(0,0,0,.3);">{{ $rt }}</span>
             @endforeach
         </div>
-        @if((int) ($adv['group_member_count'] ?? 0) >= 2)
-            <div style="position:absolute; bottom:8px; left:8px;" data-qa="listed-by" x-data="miSplit({{ $listing->id }}, {{ (int) $adv['group_member_count'] }}, @js(collect($adv['adverts'] ?? [])->pluck('id')->filter()->values()->all()), '{{ url('/corex/market-intelligence/adverts') }}')" x-show="n >= 2 || note" @click.outside="disarm()">
+        @if((int) ($adv['agencies_total'] ?? 0) >= 2)
+            <div style="position:absolute; bottom:8px; left:8px;" data-qa="listed-by" x-data="miSplit({{ $listing->id }}, {{ (int) $adv['agencies_total'] }}, @js(collect($adv['adverts'] ?? [])->pluck('id')->filter()->values()->all()), '{{ url('/corex/market-intelligence/adverts') }}')" x-show="n >= 2 || note" @click.outside="disarm()">
                 <x-dropdown align="left" width="w-[22rem] max-w-[90vw]" content-classes="p-1">
-                    <x-slot name="trigger"><button type="button" title="Every advert on this property" style="{{ $markStyle }} cursor:pointer; border:none;" x-text="'Listed by ' + n + ' agencies'">Listed by {{ (int) $adv['group_member_count'] }} agencies</button></x-slot>
+                    <x-slot name="trigger"><button type="button" title="Every advert on this property" style="{{ $markStyle }} cursor:pointer; border:none;" x-text="'Listed by ' + n + ' agencies'">Listed by {{ (int) $adv['agencies_total'] }} agencies</button></x-slot>
                     <x-slot name="content">@include('corex.market-intelligence._advert-pop', ['kind' => 'adverts', 'split' => true])</x-slot>
                 </x-dropdown>
             </div>

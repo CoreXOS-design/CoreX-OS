@@ -319,10 +319,10 @@ final class TrackedPropertyMerger
      * Is this file now an empty shell — nothing left on it but its own row? (no adverts, no owner, no work, no deeds, no
      * promotion). Only such a file may be flagged duplicate after its adverts moved away.
      */
-    public function isEmptyShell(int $fileId, array $ignoreTables = []): bool
+    public function isEmptyShell(int $fileId, array $ignoreTables = [], bool $anyStatus = false): bool
     {
         $tp = DB::table('tracked_properties')->where('id', $fileId)->first(['promoted_to_property_id', 'capture_kind', 'owner_contact_id', 'status']);
-        if ($tp === null || $tp->promoted_to_property_id || $tp->capture_kind || $tp->owner_contact_id || $tp->status !== TrackedProperty::STATUS_ACTIVE) {
+        if ($tp === null || $tp->promoted_to_property_id || $tp->capture_kind || $tp->owner_contact_id || (! $anyStatus && $tp->status !== TrackedProperty::STATUS_ACTIVE)) {
             return false;
         }
         foreach (self::FILE_TABLES as $table) {

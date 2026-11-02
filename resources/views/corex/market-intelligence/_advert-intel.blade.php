@@ -33,9 +33,9 @@
         $priceLine = 'No price moves';
     }
     // Adverts: everything on the file, live or gone (the photo's "Listed by N agencies" and the popover list the same set)
-    $nAd = count($adverts);
+    $nAd = (int) ($adv['adverts_total'] ?? count($adverts));
     $nLive = count(array_filter($adverts, fn ($a) => $a['active']));
-    $nAg = count(array_unique(array_map(fn ($a) => $a['owner'] ? 'owner' : mb_strtolower(trim((string) $a['agency'])), $adverts)));
+    $nAg = (int) ($adv['agencies_total'] ?? count(array_unique(array_map(fn ($a) => $a['owner'] ? 'owner' : mb_strtolower(trim((string) $a['agency'])), $adverts))));
     $portals = array_values(array_unique(array_map(fn ($a) => $a['portal'], $adverts)));
     $advertsLine = $nAd . ' advert' . ($nAd === 1 ? '' : 's') . ' · ' . $nAg . ' agenc' . ($nAg === 1 ? 'y' : 'ies') . ' · ' . $nLive . ' live · ' . implode(', ', $portals);
     // Alerts
