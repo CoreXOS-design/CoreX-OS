@@ -204,23 +204,67 @@ final class MicFullDetailsTest extends TestCase
         $this->assertStringNotContainsString('data-qa="photo-count"', $none, 'no photo, no count');
     }
 
-    public function test_the_full_ad_shows_wording_features_agent_and_rates_but_no_phone_number(): void
+    private function emtunzi(): array
+    {
+        // the keys the real 4 Emtunzi Drive page gave (QA1 advert 6281, 2 Nov)
+        return ['Other' => 'Dining room', 'Garage' => 'Roll up, Single', 'Garden' => 'Communal, Courtyard, Garden Services, Immaculate Condition', 'Levies' => 'R 1 975',
+            'Lounge' => 'Curtain Rails, Fan, Internet Port, Open Plan, Laminated Floors, Veranda', 'Kitchen' => 'Breakfast Nook, Open Plan, Extractor Fan, Granite Tops', 'Parking' => 'Visitors Parking, Carport, Secure Parking, Single',
+            'Bedrooms' => '2', 'Security' => 'Totally Fenced, Electric Gate, Security Gate, Safe', 'Bathrooms' => '2', 'Bedroom 1' => 'Air Conditioner, Curtain Rails, Fan, Double Bedroom', 'Bedroom 2' => 'Air Conditioner, Queen Bedroom',
+            'Bathroom 1' => 'Tiled Floors, Shower, Bath, Toilet and Basin', 'Bathroom 2' => 'Tiled Floors, Main en Suite, Shower', 'Floor Size' => '187 m²', 'Backup Water' => 'Water Tank', 'Listing Date' => '02 May 2026',
+            'Pets Allowed' => 'Yes', 'Listing Number' => '117177245', 'Street Address' => '4 Emtunzi Drive, Uvongo', 'Internet Access' => 'Fibre', 'Rates and Taxes' => 'R 925', 'Special Features' => 'Open Plan, Totally Walled',
+            'Type of Property' => 'Townhouse', 'Temperature Control' => 'Air Conditioning Unit, Cooling Fans', 'Wheelchair Accessible' => 'Yes', 'Mystery Key' => 'Something new'];
+    }
+
+    public function test_features_are_grouped_the_p24_way_every_key_once_and_the_room_lists_are_kept_apart(): void
+    {
+        $g = \App\Services\Prospecting\MicWork\FullAdFeatures::group($this->emtunzi(), ['floor_size_m2' => 187, 'erf_size_m2' => 0, 'rates_amount' => 925, 'levies_amount' => 1975, 'listed_date' => '2026-05-02']);
+        $labels = fn (string $grp) => array_column($g['groups'][$grp], 0);
+        $this->assertSame(['Bedrooms', 'Bathrooms', 'Other rooms'], $labels('Rooms'));
+        $this->assertSame(['Garage', 'Parking', 'Garden', 'Security'], $labels('Outside'));
+        $this->assertSame(['Type', 'Floor size', 'Rates', 'Levies', 'Listing date', 'Listing number'], $labels('Building'), 'Building in the P24 order; the record fills nothing twice');
+        $this->assertSame(['Pets allowed', 'Internet', 'Temperature control', 'Backup water', 'Wheelchair accessible', 'Special features', 'Mystery Key'], $labels('Extras'), 'unknown keys go to Extras');
+        $this->assertSame(['Bedroom 1', 'Bedroom 2', 'Bathroom 1', 'Bathroom 2', 'Lounge', 'Kitchen'], array_column($g['room_details'], 0));
+        $all = array_merge(...array_map(fn ($rows) => array_column($rows, 0), array_values($g['groups'])));
+        $this->assertSame($all, array_values(array_unique($all)), 'nothing is listed twice');
+        $this->assertNotContains('Street address', $all, 'the street address is the header');
+        $rows = array_column($g['groups']['Building'], 1, 0);
+        $this->assertSame('187 m²', $rows['Floor size']);
+        $this->assertSame('Townhouse', $rows['Type']);
+        // the record fills a Building row the page rows did not give
+        $g2 = \App\Services\Prospecting\MicWork\FullAdFeatures::group(['Pets Allowed' => 'No', 'Pool' => 'Yes'], ['erf_size_m2' => 1200, 'rates_amount' => 800]);
+        $this->assertSame([['Erf size', '1,200 m²'], ['Rates', 'R 800']], $g2['groups']['Building']);
+        $this->assertSame([['Pool', 'Yes']], $g2['groups']['Outside']);
+        $this->assertArrayNotHasKey('Extras', $g2['groups'], 'a "No" row is not shown');
+    }
+
+    public function test_the_full_ad_is_the_ad_left_and_ours_right_with_no_helper_text(): void
     {
         $tp = $this->file();
         $l = $this->advert($tp);
-        $this->read($l)->assertOk();
+        $this->read($l, ['features' => $this->emtunzi(), 'description' => "First paragraph.\n\nSecond paragraph.", 'photo_urls' => array_map(fn ($i) => "https://i.test/$i", range(1, 17)), 'photo_count' => 17])->assertOk();
         $r = app(MicWorkList::class)->forFiles([$tp->id], $this->a->id)[0];
-        $html = view('corex.market-intelligence.partials._work-record-card', ['r' => $r, 'showAd' => true])->render();
-        $this->assertStringContainsString('data-qa="full-ad"', $html);
-        $this->assertStringContainsString('Five minutes to the beach.', $html);
-        $this->assertStringContainsString('Pets Allowed', $html);
-        $this->assertStringContainsString('Jane Smith', $html);
-        $this->assertStringContainsString('R 1,200 pm', $html);
-        $this->assertStringContainsString('2 parking', $html);
-        $this->assertStringContainsString('data-fullad-gallery', $html);
-        $this->assertStringContainsString('Phone numbers are not read', $html);
-        $plain = view('corex.market-intelligence.partials._work-record-card', ['r' => $r])->render();
-        $this->assertStringNotContainsString('data-qa="full-ad"', $plain, 'the ad block only shows when asked for');
+        $left = view('corex.market-intelligence.partials._full-ad', ['r' => $r])->render();
+        $right = view('corex.market-intelligence.partials._full-ad-ours', ['r' => $r])->render();
+
+        $this->assertStringContainsString('1 of 17', $left);
+        $this->assertStringContainsString('data-fullad-strip', $left);
+        $this->assertStringContainsString('data-fullad-strip-next', $left, 'thumbnail arrows at the ends');
+        $this->assertSame(2, substr_count($left, '<p style="margin: 0 0 .85em;">'), 'the description is paragraphs');
+        foreach (['Rooms', 'Outside', 'Building', 'Extras'] as $grp) {
+            $this->assertStringContainsString('data-group="' . $grp . '"', $left, $grp);
+        }
+        $this->assertStringContainsString('Room details', $left);
+        $this->assertStringContainsString('Listed by', $left);
+        $this->assertStringContainsString('Open on P24', $left);
+        $this->assertStringContainsString('Jane Smith', $left);
+        $this->assertStringNotContainsString('Phone numbers', $left, 'no helper text');
+        $this->assertLessThanOrEqual(5, substr_count($left, 'data-qa="fact-tile"'));
+        foreach (['Price history', 'Portal alert', 'Matched buyers', 'Deeds', 'Adverts on this property', 'Our history'] as $ours) {
+            $this->assertStringNotContainsString($ours, $left, "nothing of ours on the left: $ours");
+            $this->assertStringContainsString($ours, $right, "ours on the right: $ours");
+        }
+        $this->assertStringContainsString('Open the property page', $right);
+        $this->assertStringNotContainsString('max-height: min(22rem', $right, 'no inner scroll boxes in the window');
     }
 
     public function test_the_full_details_only_filter_keeps_only_read_adverts_and_is_url_stateful(): void

@@ -76,16 +76,26 @@ final class MicFullDetailsPageTest extends TestCase
         $this->assertNotNull($read);
     }
 
-    public function test_the_card_endpoint_serves_the_full_ad_block_only_when_asked(): void
+    public function test_the_card_endpoint_answers_the_full_ad_as_title_left_and_right(): void
     {
         $l = $this->advert('P24-160000004', 4, ['details_read_at' => now(), 'details_read_price' => 1_000_000, 'description' => 'Full wording of the ad.', 'photo_urls' => ['https://i.test/1', 'https://i.test/2']]);
         $url = route('market-intelligence.work', ['view' => 'adverts', '_card' => $l->tracked_property_id]);
         $plain = $this->actingAs($this->admin)->get($url, ['X-Requested-With' => 'XMLHttpRequest'])->assertOk()->getContent();
         $this->assertStringNotContainsString('data-qa="full-ad"', $plain);
-        $ad = $this->actingAs($this->admin)->get($url . '&_ad=1', ['X-Requested-With' => 'XMLHttpRequest'])->assertOk()->getContent();
-        $this->assertStringContainsString('data-qa="full-ad"', $ad);
-        $this->assertStringContainsString('Full wording of the ad.', $ad);
-        $this->assertStringContainsString('Price history', $ad, 'the Full card is still underneath');
+        $j = $this->actingAs($this->admin)->get($url . '&_ad=1', ['X-Requested-With' => 'XMLHttpRequest'])->assertOk()->json();
+        $this->assertSame('4 Read Road, Margate', $j['title'], 'the window is titled with the address');
+        $this->assertStringContainsString('Full wording of the ad.', $j['left']);
+        $this->assertStringContainsString('Price history', $j['right']);
+        $this->assertStringNotContainsString('Price history', $j['left']);
+    }
+
+    public function test_the_card_keeps_its_line_budget_at_full_details_and_the_count_matches(): void
+    {
+        $this->advert('P24-160000007', 7, ['details_read_at' => now(), 'details_read_price' => 1_000_000, 'description' => str_repeat('A long description for the card. ', 12), 'photo_urls' => ['https://i.test/1']]);
+        $h = $this->page();
+        $this->assertStringContainsString('-webkit-line-clamp:3;', $h, 'three lines + Read more at full details');
+        $this->assertStringContainsString('data-qa="advert-dates"', $h, 'the First seen line stays');
+        $this->assertMatchesRegularExpression('/<span[^>]*>1<\/span> <span[^>]*>with full details/', $h);
     }
 
     public function test_an_advert_with_no_property_file_opens_its_full_ad_with_a_negative_key(): void
@@ -97,8 +107,8 @@ final class MicFullDetailsPageTest extends TestCase
         $this->assertNull($l->fresh()->tracked_property_id);
         $h = $this->page();
         $this->assertStringContainsString('data-file="-' . $l->id . '"', $h);
-        $ad = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'adverts', '_card' => -$l->id, '_ad' => 1]), ['X-Requested-With' => 'XMLHttpRequest'])->assertOk()->getContent();
-        $this->assertStringContainsString('A lone advert, full wording.', $ad);
+        $ad = $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'adverts', '_card' => -$l->id, '_ad' => 1]), ['X-Requested-With' => 'XMLHttpRequest'])->assertOk()->json();
+        $this->assertStringContainsString('A lone advert, full wording.', $ad['left']);
         $this->actingAs($this->admin)->get(route('market-intelligence.work', ['view' => 'adverts', '_card' => -999999, '_ad' => 1]), ['X-Requested-With' => 'XMLHttpRequest'])->assertNotFound();
     }
 }

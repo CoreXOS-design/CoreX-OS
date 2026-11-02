@@ -128,6 +128,9 @@
                 var fresh = tpl.content.querySelector('[data-advert-fetch-wrap][data-card-listing="' + listingId + '"]');
                 var freshRow = fresh && fresh.closest('[data-qa="row-wrap"]');
                 var oldRow = wrap.closest('[data-qa="row-wrap"]');
+                // the stats line ("N with full details") moves with the read, like it does on a tick refresh
+                var stats = document.getElementById('mic-slot-stats');
+                if (stats && typeof d.statsStrip === 'string' && d.statsStrip !== '') stats.innerHTML = d.statsStrip;
                 if (freshRow && oldRow) { oldRow.replaceWith(freshRow); return; }
                 // the row is no longer in the list as filtered: say so on the old one
                 wrap.removeAttribute('data-busy');
@@ -175,14 +178,14 @@
         el.setAttribute('aria-modal', 'true');
         el.style.cssText = 'position:fixed; inset:0; z-index:90; background:rgba(15,23,42,.55); display:flex; align-items:center; justify-content:center; padding:2vh 2vw;';
         el.innerHTML =
-            '<div style="background: var(--surface, #fff); color: var(--text-primary); border-radius:8px; width:min(1280px, 100%); height:96vh; display:flex; flex-direction:column; box-shadow:0 20px 50px rgba(0,0,0,.35);">' +
-              '<div style="display:flex; align-items:center; justify-content:space-between; padding:8px 14px; border-bottom:1px solid var(--border);">' +
-                '<strong style="font-size:.9375rem;">The full ad</strong>' +
-                '<button type="button" data-fullad-close aria-label="Close" style="background:none; border:1px solid var(--border); border-radius:5px; padding:2px 10px; cursor:pointer; color: var(--text-primary);">Close ✕</button>' +
+            '<div style="background: var(--surface, #fff); color: var(--text-primary); border-radius:8px; width:min(1360px, 100%); height:96vh; display:flex; flex-direction:column; box-shadow:0 20px 50px rgba(0,0,0,.35);">' +
+              '<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 18px; border-bottom:1px solid var(--border);">' +
+                '<strong data-fullad-title style="font-size:1.0625rem;">&nbsp;</strong>' +
+                '<button type="button" data-fullad-close aria-label="Close" style="background:none; border:1px solid var(--border); border-radius:5px; padding:3px 12px; cursor:pointer; color: var(--text-primary); white-space:nowrap;">Close ✕</button>' +
               '</div>' +
-              '<div style="flex:1; min-height:0; display:grid; grid-template-columns: minmax(0,1fr) 26rem; gap:0;">' +
-                '<div data-fullad-body style="overflow:auto; padding:12px 16px;"><div style="color: var(--text-muted); font-size:.8125rem;">Loading the ad…</div></div>' +
-                '<div data-fullad-right style="overflow:auto; padding:12px 14px; border-left:1px solid var(--border);"></div>' +
+              '<div style="flex:1; min-height:0; display:grid; grid-template-columns: minmax(0,1fr) 32rem;">' +
+                '<div data-fullad-body style="overflow:auto; padding:16px 22px;"><div style="color: var(--text-secondary); font-size:.8125rem;">Loading the ad…</div></div>' +
+                '<div data-fullad-right class="mi-fullad-right" style="overflow:auto; padding:14px 16px; border-left:1px solid var(--border); background: var(--surface-2, transparent);"><div data-fullad-intel></div><div data-fullad-ours></div></div>' +
               '</div>' +
             '</div>';
         // inside the card's own row, so the clone of the intelligence panel keeps the row's and the page's Alpine scopes (Claim, Comment, Pitch now, Link contact work as on the card)
@@ -194,13 +197,17 @@
             clone.style.borderLeft = '0';
             clone.style.paddingLeft = '0';
             var fc = clone.querySelector('[data-qa="full-card"]'); if (fc) fc.remove();
-            el.querySelector('[data-fullad-right]').appendChild(clone);
+            el.querySelector('[data-fullad-intel]').appendChild(clone);
         }
         var q = window.location.search;
         var url = window.location.pathname + q + (q ? '&' : '?') + '_card=' + encodeURIComponent(fileId) + '&_ad=1';
-        fetch(url, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-            .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
-            .then(function (html) { el.querySelector('[data-fullad-body]').innerHTML = html; })
+        fetch(url, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } })
+            .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(function (d) {
+                el.querySelector('[data-fullad-title]').textContent = d.title || 'The advert';
+                el.querySelector('[data-fullad-body]').innerHTML = d.left || '';
+                el.querySelector('[data-fullad-ours]').innerHTML = d.right || '';
+            })
             .catch(function () { el.querySelector('[data-fullad-body]').innerHTML = '<div style="color: var(--ds-crimson, #dc2626);">Couldn’t load the ad. Close this and try again.</div>'; });
 
         var onKey = function (e) {
@@ -221,7 +228,11 @@
         g.setAttribute('data-i', String(i));
         var main = g.querySelector('[data-fullad-main]'); if (main) main.src = photos[i];
         var c = g.querySelector('[data-fullad-count]'); if (c) c.textContent = (i + 1) + ' of ' + photos.length;
-        Array.prototype.forEach.call(g.querySelectorAll('[data-fullad-thumb]'), function (t) { t.style.borderColor = parseInt(t.getAttribute('data-fullad-thumb'), 10) === i ? 'var(--brand-icon)' : 'transparent'; });
+        Array.prototype.forEach.call(g.querySelectorAll('[data-fullad-thumb]'), function (t) {
+            var on = parseInt(t.getAttribute('data-fullad-thumb'), 10) === i;
+            t.style.borderColor = on ? 'var(--brand-icon)' : 'transparent';
+            if (on && t.scrollIntoView) { try { t.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) { /* old browser */ } }
+        });
     }
 
     // ---- one listener for everything --------------------------------------------------------------------------------------------------------------------------
@@ -235,6 +246,9 @@
         if (t.closest('[data-fullad-close]')) { closeModal(); return; }
         var fg = t.closest('[data-fullad-gallery]');
         if (fg) {
+            var strip = fg.querySelector('[data-fullad-strip]');
+            if (t.closest('[data-fullad-strip-prev]') && strip) { strip.scrollBy({ left: -strip.clientWidth * 0.8, behavior: 'smooth' }); return; }
+            if (t.closest('[data-fullad-strip-next]') && strip) { strip.scrollBy({ left: strip.clientWidth * 0.8, behavior: 'smooth' }); return; }
             if (t.closest('[data-fullad-prev]')) { fullAdStep(fg, -1); return; }
             if (t.closest('[data-fullad-next]')) { fullAdStep(fg, 1); return; }
             var th = t.closest('[data-fullad-thumb]');

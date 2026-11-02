@@ -117,7 +117,7 @@
         @endphp
         @if($text !== '')
             <div style="font-size:.875rem; line-height:1.4; color: var(--text-primary);" data-qa="advert-description">
-                <div :style="more ? '' : 'display:-webkit-box; -webkit-line-clamp:{{ $fitChips ? 3 : 4 }}; -webkit-box-orient:vertical; overflow:hidden;'">{{ $text }}</div>
+                <div :style="more ? '' : 'display:-webkit-box; -webkit-line-clamp:{{ ($fitChips || ($adv['details']['level'] ?? 'search') === 'full') ? 3 : 4 }}; -webkit-box-orient:vertical; overflow:hidden;'">{{ $text }}</div>
                 @if(mb_strlen($text) > 160)
                     @if(($adv['details']['level'] ?? 'search') === 'full')
                     <button type="button" data-advert-open data-qa="read-more" style="background:none; border:none; padding:0; font-size:.8125rem; color: var(--text-primary); text-decoration: underline; text-decoration-color: var(--brand-icon); cursor:pointer;">Read more</button>

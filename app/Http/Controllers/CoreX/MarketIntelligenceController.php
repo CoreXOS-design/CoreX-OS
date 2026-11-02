@@ -646,7 +646,18 @@ class MarketIntelligenceController extends Controller
                 : ($fid < 0 && (clone $query)->whereKey(-$fid)->whereNull('tracked_property_id')->exists()), 404);
             $rec = app(\App\Services\Prospecting\MicWork\MicWorkList::class)->forFiles([$fid], (int) $agencyId, $request->filled('buyer_id') ? (int) $request->query('buyer_id') : null)[0] ?? abort(404);
 
-            return response(view('corex.market-intelligence.partials._work-record-card', ['r' => $rec, 'showAd' => $request->boolean('_ad')])->render());
+            // "Show full ad" (13.16b item 5): the ad (left), our intelligence (right) and the window's title, as JSON
+            if ($request->boolean('_ad')) {
+                $title = trim(($rec['address'] ?? '') . (! empty($rec['address']) && ! empty($rec['suburb']) ? ', ' : '') . ($rec['suburb'] ?? ''));
+
+                return response()->json([
+                    'title' => $title !== '' ? $title : ((string) ($rec['card_heading'] ?? 'The advert')),
+                    'left' => view('corex.market-intelligence.partials._full-ad', ['r' => $rec])->render(),
+                    'right' => view('corex.market-intelligence.partials._full-ad-ours', ['r' => $rec])->render(),
+                ]);
+            }
+
+            return response(view('corex.market-intelligence.partials._work-record-card', ['r' => $rec])->render());
         }
 
         // The tile row is the slow part when it is not cached (cc5/cc4 queries): the page does not wait for it. A cold page gets placeholders and the

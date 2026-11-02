@@ -12,7 +12,7 @@
     $B = \App\Services\Prospecting\MicWork\BuyerFitLabel::class;
 @endphp
 {{-- With the split button the popover stays open on a click inside it (the dropdown would close it); a click that is not on a split button turns an armed one back to normal --}}
-<div style="padding:4px 0; max-height: min(22rem, var(--pop-max, 22rem)); overflow-y:auto; {{ $pt }}" @keydown.escape.window="$dispatch('close')" @if($split) @click.stop="if ($event.splitBtn === undefined) disarm()" @endif>
+<div style="padding:4px 0; @if(empty($flat))max-height: min(22rem, var(--pop-max, 22rem)); overflow-y:auto;@endif {{ $pt }}" @keydown.escape.window="$dispatch('close')" @if($split) @click.stop="if ($event.splitBtn === undefined) disarm()" @endif>
 @if($kind === 'buyers')
     <div style="{{ $ph }}">Matched buyers · {{ $adv['buyers_strong'] ?? $adv['buyers'] ?? 0 }} strong · {{ $adv['buyers_mid'] ?? 0 }} mid</div>
     @php $bi = 0; @endphp
