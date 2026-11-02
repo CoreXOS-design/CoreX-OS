@@ -37,7 +37,13 @@ class CampaignInboxChecker
     /** @return array<int, array{checked:int, error:?string}> sender id => outcome */
     public function checkAll(): array
     {
-        $senderIds = Campaign::whereIn('status', [Campaign::STATUS_RUNNING, Campaign::STATUS_PAUSED])->pluck('campaign_sender_id')->unique();
+        // A campaign flips to 'done' the moment its last email is out, but replies / STOP / bounces to that last email arrive after — so
+        // a recently finished campaign's sender is still watched for a while (campaigns.inbox_watch_after_done_days).
+        $watchSince = now()->subDays((int) config('campaigns.inbox_watch_after_done_days'));
+        $senderIds = Campaign::where(fn ($q) => $q
+            ->whereIn('status', [Campaign::STATUS_RUNNING, Campaign::STATUS_PAUSED])
+            ->orWhere(fn ($done) => $done->where('status', Campaign::STATUS_DONE)->where('done_at', '>=', $watchSince)))
+            ->pluck('campaign_sender_id')->unique();
         $out = [];
         foreach (CampaignSender::whereIn('id', $senderIds)->get() as $sender) {
             $out[$sender->id] = $this->checkSender($sender);
@@ -103,7 +109,7 @@ class CampaignInboxChecker
             if (! $send) {
                 return 'ignored';
             }
-            if (preg_match('/^\s*Status:\s*5\.\d{1,3}\.\d{1,3}/mi', $rawMessage) || (! preg_match('/^\s*Status:\s*4\./mi', $rawMessage) && preg_match('/\b5\.\d\.\d\b/', $rawMessage))) {
+            if ($this->isHardBounce($rawMessage)) {
                 $this->sends->recordHardBounce($send);
 
                 return 'bounce';
@@ -130,6 +136,23 @@ class CampaignInboxChecker
         $this->sends->recordReply($send);
 
         return 'reply';
+    }
+
+    /**
+     * A permanent failure. The machine-readable "Status:" field decides (5.x.x hard, 4.x.x temporary). With no Status field, only a
+     * real SMTP failure line counts (`550 5.1.1 …` or `Diagnostic-Code: smtp; 550 5.1.1 …`) — a "5.x.x"-looking number elsewhere in
+     * the message (an IP address in a Received header, say) must never suppress a good address for good.
+     */
+    private function isHardBounce(string $rawMessage): bool
+    {
+        if (preg_match('/^\s*Status:\s*5\.\d{1,3}\.\d{1,3}/mi', $rawMessage)) {
+            return true;
+        }
+        if (preg_match('/^\s*Status:\s*4\./mi', $rawMessage)) {
+            return false;
+        }
+
+        return (bool) preg_match('/^\s*(?:Diagnostic-Code:\s*smtp;\s*)?5\d\d[ -]5\.\d{1,3}\.\d{1,3}\b/mi', $rawMessage);
     }
 
     public function saysStop(string $text): bool

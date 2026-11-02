@@ -22,5 +22,7 @@ return [
     'max_attempts' => 3,
     'sending_stale_minutes' => 15,
     'reply_fallback_days' => 90,
+    'inbox_watch_after_done_days' => 30,
+    'import_upload_keep_hours' => 24,
     'imap_timeout_seconds' => (int) env('CAMPAIGNS_IMAP_TIMEOUT_SECONDS', 15),
 ];

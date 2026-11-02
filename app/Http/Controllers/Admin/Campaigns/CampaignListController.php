@@ -27,7 +27,7 @@ class CampaignListController extends Controller
 {
     use GuardsCampaigns;
 
-    private const IMPORT_DIR = 'campaign-imports';
+    private const IMPORT_DIR = CampaignImportService::IMPORT_DIR;
 
     public function __construct(private CampaignImportService $importer)
     {

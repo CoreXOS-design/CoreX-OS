@@ -239,9 +239,9 @@ The write phase runs in **one DB transaction**; any exception rolls back every r
 - **OutboundMailGuard applies unchanged.** On local/QA/staging the guard intercepts and redirects per its existing rules; nothing reaches a real inbox unless the environment is confirmed for sending.
 
 ### 6.6 Replies, STOP and bounces
-New command `campaigns:check-inbox`, scheduled every 5 minutes (`onOneServer`, `withoutOverlapping`). For **each sender used by a running or paused campaign**, reads that sender's INBOX over IMAP (Webklex, same library as `ImapMailboxPoller.php:9`) for messages since its `last_inbox_check_at` minus 1 day overlap. Does **not** mark messages read, move, or delete anything. All updates are idempotent, so re-reading a message changes nothing.
+New command `campaigns:check-inbox`, scheduled every 5 minutes (`onOneServer`, `withoutOverlapping`). For **each sender used by a running or paused campaign, or by one that finished in the last 30 days** (see 9.2-1), reads that sender's INBOX over IMAP (Webklex, same library as `ImapMailboxPoller.php:9`) for messages since its `last_inbox_check_at` minus 1 day overlap. Does **not** mark messages read, move, or delete anything. All updates are idempotent, so re-reading a message changes nothing.
 
-- **Bounce** = sender `mailer-daemon@` / `postmaster@`, or `multipart/report; report-type=delivery-status`. The original is found by our Message-ID inside the report (or `Final-Recipient`). Status `5.x.x` → lead `bounced` + suppression `hard_bounce` + `bounced_at`. Status `4.x.x` (temporary) → ignored.
+- **Bounce** = sender `mailer-daemon@` / `postmaster@`, or `multipart/report; report-type=delivery-status`. The original is found by our Message-ID inside the report (or `Final-Recipient`). Status `5.x.x` (or, with no Status field, a real SMTP failure line - see 9.2-2) → lead `bounced` + suppression `hard_bounce` + `bounced_at`. Status `4.x.x` (temporary) → ignored.
 - **Reply** = `In-Reply-To` / `References` contains a stored `message_id`; fallback: sender address equals a lead with a `sent` send in the last 90 days.
   - Reply text (quoted lines `>` and the part after "On … wrote:" removed) contains the word **STOP** or **UNSUBSCRIBE** (whole word, any case) → lead `stopped` (`reply_stop`) + suppression.
   - Otherwise → lead `replied`; sequence stops; not suppressed.
@@ -351,3 +351,28 @@ Original questions:
 - **Q1 — the 5-row test list vs dedupe on email.** Five rows with the same address are, by the rule in §5, one lead (the other four are skipped as duplicates). To prove five leads, the verification would use `can.assurance+1@gmail.com` … `+5@gmail.com` (Gmail delivers all five to the same inbox). Approve plus-addressing, or keep a single address and prove dedupe instead.
 - **Q2 — the pillar exception in §0.1-6** (prospects are not written to Contacts).
 - **Q3 — "one email"** (2026-11-02 instruction: "add a sig and one email etc"). Read as: more than one sending address can be added. If it means sending a single one-off email to one person, that is not in this spec yet.
+
+
+### 9.2 Audit fixes - 2026-11-02 (branch `AT-534-campaigns-audit-fixes`)
+
+Found in the post-merge audit of AT-534. Where this section differs from the text above, this section wins.
+
+1. **Replies to the last email were never read.** A campaign becomes `done` the moment its last email is out, and the inbox check only
+   covered running/paused campaigns, so a reply / STOP to the final email was missed. The check now also covers the sender of any
+   campaign that finished within `campaigns.inbox_watch_after_done_days` (30). Older than that: no longer watched.
+2. **Hard-bounce rule tightened.** A bounce is hard when its `Status:` field is `5.x.x`; temporary when `4.x.x`. With NO Status field, only a
+   real SMTP failure line counts (`550 5.1.1 ...` at line start, or `Diagnostic-Code: smtp; 550 5.1.1 ...`). The old rule matched any
+   `5.x.x`-looking text (an IP address in a Received header) and could suppress a good address for good. Anything else is a soft bounce.
+3. **Uploaded import files are pruned.** The file is deleted when an import finishes, but an abandoned or failed one stayed on disk (prospect
+   personal data). `campaigns:send-due` (every 5 minutes) now deletes upload files older than `campaigns.import_upload_keep_hours` (24).
+4. **CSV encoding detection.** The first 64 KB decides UTF-8 vs Windows-1252; a sample cut inside a multi-byte character (only when the
+   sample really is 64 KB) no longer makes a valid UTF-8 file read as Windows-1252.
+5. **Step numbers.** `campaign_steps` has no unique index on (`campaign_id`, `step_number`) (3.4 said unique). Adding a step now locks the
+   campaign row and re-counts under the lock, so a double-click cannot create two "step 2"s; the second request is told the steps changed.
+   No migration, so the schema snapshot is unaffected.
+
+**Deliberately NOT changed (decision pending):** a reply containing the whole word STOP / UNSUBSCRIBE anywhere in its own text still opts the
+lead out for good (6.6). "Stop by on Tuesday" therefore suppresses a warm prospect. Awaiting the owner's ruling on whether only a reply that
+is essentially just STOP should count.
+
+Not fixed, noted: the inbox check reads at most 500 messages per run (date-granular IMAP SINCE) - fine at current volume.

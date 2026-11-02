@@ -253,10 +253,25 @@ class CampaignController extends Controller
             return back()->with('error', 'A campaign has at most ' . Campaign::MAX_STEPS . ' steps.');
         }
         $data = $this->validateStep($request, $count + 1);
-        CampaignStep::create($data + [
-            'campaign_id' => $campaign->id, 'step_number' => $count + 1,
-            'created_by' => $request->user()->id, 'updated_by' => $request->user()->id,
-        ]);
+
+        // A double-click sends this twice at once. The campaign row is locked while the step is numbered, and the count is taken again
+        // under the lock, so two requests can never both become "step 2".
+        $added = DB::transaction(function () use ($campaign, $count, $data, $request) {
+            Campaign::whereKey($campaign->id)->lockForUpdate()->first();
+            if ($campaign->steps()->count() !== $count) {
+                return false;
+            }
+            CampaignStep::create($data + [
+                'campaign_id' => $campaign->id, 'step_number' => $count + 1,
+                'created_by' => $request->user()->id, 'updated_by' => $request->user()->id,
+            ]);
+
+            return true;
+        });
+        if (! $added) {
+            return redirect()->route('admin.campaigns.show', ['campaign' => $campaign->id, 'tab' => 'steps'])
+                ->with('error', 'The steps changed while you were adding this one. Check the Steps tab and add it again if it is missing.');
+        }
 
         return redirect()->route('admin.campaigns.show', ['campaign' => $campaign->id, 'tab' => 'steps'])->with('success', 'Step added.');
     }

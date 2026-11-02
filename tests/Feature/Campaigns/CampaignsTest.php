@@ -440,6 +440,79 @@ final class CampaignsTest extends TestCase
         $this->assertSame(CampaignInboxChecker::OFF_HERE, $sender->fresh()->last_inbox_error);
     }
 
+    public function test_a_bounce_with_no_status_field_is_hard_only_on_a_real_smtp_failure_line(): void
+    {
+        // An IP address in a Received header looks like "5.1.2" to a loose pattern — that must never suppress a good address.
+        $campaign = $this->campaign(2, 1);
+        $this->travelTo(Carbon::parse('2027-01-04 09:00'));
+        $this->service()->runBatch($campaign, now());
+        $sends = CampaignSend::orderBy('id')->get();
+        $checker = app(CampaignInboxChecker::class);
+        $sender = CampaignSender::first();
+        $dsn = "From: Mail Delivery System <MAILER-DAEMON@mx.example.com>\r\nContent-Type: multipart/report; report-type=delivery-status; boundary=x\r\n";
+
+        $delay = $dsn . "\r\n\r\nReceived: from relay [10.5.1.20] by mx\r\nYour message is delayed and will be retried.\r\nMessage-ID: <" . $sends[0]->message_id . '>';
+        $this->assertSame('soft_bounce', $checker->process($sender, $dsn, $delay, ''));
+        $this->assertSame('sent', CampaignLead::orderBy('id')->first()->status);
+        $this->assertFalse(CampaignSuppression::isSuppressed('can.assurance+1@gmail.com'));
+
+        $refused = $dsn . "\r\n\r\nDiagnostic-Code: smtp; 550 5.1.1 <can.assurance+2@gmail.com> User unknown\r\nMessage-ID: <" . $sends[1]->message_id . '>';
+        $this->assertSame('bounce', $checker->process($sender, $dsn, $refused, ''));
+        $this->assertSame('bounced', CampaignLead::orderBy('id')->get()[1]->status);
+        $this->assertTrue(CampaignSuppression::isSuppressed('can.assurance+2@gmail.com'));
+    }
+
+    public function test_inbox_is_still_watched_for_a_recently_finished_campaign_but_not_an_old_one(): void
+    {
+        // Replies to the LAST email arrive after the campaign has flipped to 'done'.
+        $campaign = $this->campaign(1, 1);
+        $senderId = $campaign->campaign_sender_id;
+        $checker = app(CampaignInboxChecker::class);
+
+        $campaign->forceFill(['status' => Campaign::STATUS_DONE, 'done_at' => now()->subDays(5)])->save();
+        $this->assertSame([$senderId], array_keys($checker->checkAll()), 'finished 5 days ago: still watched');
+
+        $campaign->forceFill(['done_at' => now()->subDays(40)])->save();
+        $this->assertSame([], array_keys($checker->checkAll()), 'finished 40 days ago: no longer watched');
+
+        $campaign->forceFill(['status' => Campaign::STATUS_PAUSED, 'done_at' => null])->save();
+        $this->assertSame([$senderId], array_keys($checker->checkAll()), 'paused: watched');
+    }
+
+    // ── import files ────────────────────────────────────────────────────────────────────────
+
+    public function test_abandoned_import_uploads_are_pruned_but_fresh_ones_are_kept(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('local');
+        $disk = \Illuminate\Support\Facades\Storage::disk('local');
+        $disk->put(CampaignImportService::IMPORT_DIR . '/old.csv', "email\nold@example.com\n");
+        $disk->put(CampaignImportService::IMPORT_DIR . '/fresh.csv', "email\nfresh@example.com\n");
+        touch($disk->path(CampaignImportService::IMPORT_DIR . '/old.csv'), time() - 48 * 3600);
+
+        $this->assertSame(1, app(CampaignImportService::class)->pruneStaleUploads());
+        $disk->assertMissing(CampaignImportService::IMPORT_DIR . '/old.csv');
+        $disk->assertExists(CampaignImportService::IMPORT_DIR . '/fresh.csv');
+    }
+
+    public function test_a_large_utf8_csv_is_not_misread_when_an_accent_straddles_the_detection_sample(): void
+    {
+        // The encoding is judged from the first 64 KB; put the first byte of "é" at offset 65535 so the sample ends mid-character.
+        $csv = "email,first_name\n";
+        for ($i = 0; strlen($csv) < 65200; $i++) {
+            $csv .= "f{$i}@example.com,Fill\n";
+        }
+        $last = 'z@example.com,';
+        $csv .= 'p@example.com,Pad' . str_repeat('x', 65535 - strlen($csv) - strlen($last) - 18) . "\n";
+        $csv .= $last . "é\n";
+        $this->assertSame("\xC3", $csv[65535], 'fixture: the sample must end half-way through the é');
+
+        $list = CampaignList::create(['name' => 'Accents']);
+        $result = app(CampaignImportService::class)->import($list, $this->csv($csv), 'csv', ['email' => 0, 'first_name' => 1], $this->owner->id);
+
+        $this->assertSame(0, $result['rejected']);
+        $this->assertSame('é', CampaignLead::where('email', 'z@example.com')->value('first_name'));
+    }
+
     // ── steps ───────────────────────────────────────────────────────────────────────────────
 
     public function test_unknown_merge_field_and_short_day_gap_are_rejected(): void

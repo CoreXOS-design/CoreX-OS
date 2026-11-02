@@ -7,6 +7,7 @@ use App\Models\Campaigns\CampaignLead;
 use App\Models\Campaigns\CampaignList;
 use App\Models\Campaigns\CampaignSuppression;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use OpenSpout\Reader\CSV\Options as CsvOptions;
 use OpenSpout\Reader\CSV\Reader as CsvReader;
 use OpenSpout\Reader\XLSX\Reader as XlsxReader;
@@ -18,6 +19,9 @@ use OpenSpout\Reader\XLSX\Reader as XlsxReader;
  */
 class CampaignImportService
 {
+    /** Where uploaded files wait (local disk) between the upload and the import finishing. */
+    public const IMPORT_DIR = 'campaign-imports';
+
     /** field => [label, column length, header aliases] */
     public const FIELDS = [
         'first_name' => ['First name', 150, ['first name', 'firstname', 'first', 'name', 'given name']],
@@ -232,11 +236,42 @@ class CampaignImportService
         return (string) array_key_first($counts) ?: ',';
     }
 
+    /**
+     * Uploaded prospect files are personal data. The import deletes its file when it finishes, but an abandoned or failed import
+     * leaves it behind — so anything older than campaigns.import_upload_keep_hours is removed. Returns how many were deleted.
+     */
+    public function pruneStaleUploads(): int
+    {
+        $disk = Storage::disk('local');
+        $cutoff = now()->subHours(max(1, (int) config('campaigns.import_upload_keep_hours')))->getTimestamp();
+        $deleted = 0;
+        foreach ($disk->files(self::IMPORT_DIR) as $file) {
+            if ($disk->lastModified($file) < $cutoff && $disk->delete($file)) {
+                $deleted++;
+            }
+        }
+
+        return $deleted;
+    }
+
     private function detectEncoding(string $path): string
     {
         $sample = (string) file_get_contents($path, false, null, 0, 65536);
 
-        return mb_check_encoding($sample, 'UTF-8') ? 'UTF-8' : 'Windows-1252';
+        // The sample is cut at a byte boundary, which can land inside a multi-byte character (an accented name) of a perfectly good
+        // UTF-8 file — so up to 3 trailing bytes are allowed to be an incomplete sequence.
+        if (mb_check_encoding($sample, 'UTF-8')) {
+            return 'UTF-8';
+        }
+        if (strlen($sample) === 65536) { // only a sample that was actually cut short can end mid-character
+            for ($trim = 1; $trim <= 3; $trim++) {
+                if (mb_check_encoding(substr($sample, 0, -$trim), 'UTF-8')) {
+                    return 'UTF-8';
+                }
+            }
+        }
+
+        return 'Windows-1252';
     }
 
     private function cellToString(mixed $cell): string
