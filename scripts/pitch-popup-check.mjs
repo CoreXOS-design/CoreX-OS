@@ -183,7 +183,7 @@ if (WALK) {
     await page.screenshot({ path: path.join(SHOTS, 'q-done-notice.png') });
     await wait(4000);
     ok(!(await page.$('[data-qa="pitch-popup"]')), 'the popup is closed and the agent is on the list');
-    const claimed = await page.evaluate(() => document.body.innerText.includes('Mine'));
+    let claimed = false; for (let i = 0; i < 30 && !claimed; i++) { claimed = await page.evaluate(() => /Mine · \d+ days left/.test(document.body.innerText) && !!document.querySelector('[data-qa="advert-card"]')); if (!claimed) await wait(500); }
     ok(claimed, 'the card on the list shows the claim ("Mine") without a reload');
     console.log('  ids for cleanup:', JSON.stringify({ propertyId, contactId }));
 
@@ -218,11 +218,14 @@ if (rtsBtn) {
     await page.$eval(sel, (b) => b.scrollIntoView({ block: 'center' }));
     await (await page.$(sel)).click();
     await page.waitForSelector('[data-qa="pitch-popup"]', { timeout: 15000 });
-    await wait(4500);
+    for (let i = 0; i < 60 && !/current/.test(await steps()); i++) await wait(500);
     await page.screenshot({ path: path.join(SHOTS, 'j-rts-popup.png') });
     s = await steps();
+    console.log('  rts frame:', (await frameOf()).url().replace(BASE, ''));
     console.log('  rts popup steps:', s);
-    ok(rtsBtn.tracked ? s.startsWith('property:current') : s.startsWith('property:todo,owner:current'), rtsBtn.tracked ? 'Road to Sold starts at step 1, the MIC card' : 'no advert on this row: starts at Owner, Property not ticked (never looked at)');
+    const rtsUrl = (await frameOf()).url();
+    const want = rtsBtn.tracked ? 'property:current' : (/\/contacts\/\d+\/outreach\/compose/.test(rtsUrl) ? 'property:todo,owner:todo,pitch:todo,contact:current' : 'property:todo,owner:current');
+    ok(s.startsWith(want), rtsBtn.tracked ? 'Road to Sold starts at step 1, the MIC card' : 'no advert on this row: the popup opens on the real step and ticks nothing it did not do: ' + s);
     await page.click('[data-qa="pitch-close"]');
     await wait(2500);
     ok(/road-to-sold/.test(page.url()) && !(await page.$('[data-qa="pitch-popup"]')), 'Close leaves the agent on Road to Sold');
