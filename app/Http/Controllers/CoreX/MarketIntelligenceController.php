@@ -551,6 +551,9 @@ class MarketIntelligenceController extends Controller
                 $query->where(fn ($q) => $q->whereIn('tracked_property_id', array_keys($hiddenCtx['by_file']) ?: [0])->orWhereIn('id', array_keys($hiddenCtx['by_listing']) ?: [0]));
             } else {
                 $wid = $this->buyerWishlistId;
+                // where this condition sits (and its bindings), so the tab counts can run the list's FINAL query with only this one swapped (one counting path)
+                $wlWhereIdx = count($query->getQuery()->wheres);
+                $wlBindFrom = count($query->getQuery()->bindings['where']);
                 $query->whereIn('id', function ($sub) use ($selectedBuyerId, $agencyId, $buyerFloor, $wid, $wishlistScore) {
                     $sub->from('prospecting_buyer_matches')
                         ->select('prospecting_listing_id')
@@ -560,6 +563,7 @@ class MarketIntelligenceController extends Controller
                     // that wishlist's own score for the advert (the cache holds one per wishlist); a buyer with none countable falls back to the best score
                     $wid ? $sub->whereRaw($wishlistScore($wid) . ' >= ?', [$buyerFloor]) : $sub->where('score', '>=', $buyerFloor);
                 });
+                $wlWhere = ['idx' => $wlWhereIdx, 'bind_from' => $wlBindFrom, 'bind_n' => count($query->getQuery()->bindings['where']) - $wlBindFrom];
             }
         }
 
@@ -758,6 +762,11 @@ class MarketIntelligenceController extends Controller
         // The Adverts view pages by the agency's own setting (mic-work-tab.md 13.2); the List keeps its 50.
         $perPage = ($micViewChoice ?? 'list') === 'adverts' ? \App\Models\MicAgencySetting::rowsPerPageFor((int) $agencyId) : 50;
         $pageResolver = app(\App\Services\Prospecting\ProspectingListingPageResolver::class);
+        // 13.20: each wishlist tab's count is the number the banner shows when that tab is selected - the list's final query (every filter on it), only the wishlist swapped, counted the way the list counts (one row per property group)
+        if ($selectedBuyerId && ! empty($wlWhere) && $this->buyerWishlistsOut && ! $request->filled('score_min') && ! $request->filled('score_max')) {
+            $this->buyerWishlistsOut = $this->wishlistTabCounts($query, $wlWhere, $this->buyerWishlistsOut, (int) $agencyId, $selectedBuyerId, $buyerFloor);
+            view()->share('buyerWishlists', $this->buyerWishlistsOut);
+        }
         $useFastPath = $pageResolver->canUseFastPath($request, $isProspectingManager, $selectedBuyerId);
         $injectedStockCountBySuburb = [];
 
@@ -1150,14 +1159,6 @@ class MarketIntelligenceController extends Controller
         if ($buyerBanner !== null) {
             $buyerBanner['wishlists'] = $this->buyerWishlistsOut; // 13.20: [{id, label, primary, selected, count}] for the selector
         }
-        // 13.14 addendum look check: until cc1 supplies $buyerBanner['wishlists'], ?wl_stub=1 builds the tabs from the buyer's real wishlists with made-up counts (not production); removed when the real data lands
-        if ($buyerBanner && empty($buyerBanner['wishlists']) && $request->boolean('wl_stub') && ! app()->environment('production')) {
-            $banner = app(\App\Services\Prospecting\MicWork\MicBuyerBanner::class);
-            $buyerBanner['wishlists'] = \App\Models\ContactMatch::withoutGlobalScopes()->where('agency_id', $agencyId)->where('contact_id', $selectedBuyer->id)->whereNull('deleted_at')
-                ->where('status', \App\Models\ContactMatch::STATUS_ACTIVE)->get()->filter(fn ($m) => $m->isCountable())->sortByDesc(fn ($m) => ($m->is_primary ? 10_000_000_000 : 0) + ($m->created_at?->timestamp ?? 0))->values()
-                ->map(fn ($m, $i) => ['id' => (int) $m->id, 'label' => implode(' · ', array_slice(array_map(fn ($c) => ucfirst(mb_strtolower($c[0])), $banner->chips($m)), 0, 3)), 'count' => [657, 1051, 64, 12][$i % 4], 'primary' => (bool) $m->is_primary])->all();
-        }
-
         // AT-239 region model (Johan-final) — the filter's value is the canonical
         // MDB municipality (towns.region); its LABEL is the agency alias where set
         // (Ray Nkonyeni → "Hibiscus Coast"), else the municipal name. One region
@@ -1612,6 +1613,44 @@ class MarketIntelligenceController extends Controller
      * hydrateGroups(), so this is the SAME code running on a ~50-150 row
      * input instead of the full matching set, not a second implementation.
      */
+    /**
+     * The count on each wishlist tab (13.20). Same query the list runs, with ONLY the selected wishlist's condition swapped for that wishlist's, and the rows counted the way the list
+     * counts them: adverts of one property group are ONE row (buildGroupedRows). So a tab shows exactly what the banner says once it is selected. Falls back to the counts it was
+     * given if the query is not the shape it expects.
+     *
+     * @param  array{idx:int, bind_from:int, bind_n:int}  $where  where the selected wishlist's condition sits in the query
+     * @param  list<array<string,mixed>>  $tabs
+     * @return list<array<string,mixed>>
+     */
+    private function wishlistTabCounts($query, array $where, array $tabs, int $agencyId, int $buyerId, int $floor): array
+    {
+        $base = clone $query;
+        $qb = $base->getQuery();
+        // a whereIn(id, <subquery>) is stored as an "In" clause whose one value is the subquery's SQL
+        $w = $qb->wheres[$where['idx']] ?? null;
+        if (! $w || ($w['type'] ?? null) !== 'In' || ($w['column'] ?? null) !== 'id' || count($w['values'] ?? []) !== 1 || ! ($w['values'][0] instanceof \Illuminate\Contracts\Database\Query\Expression)) {
+            return $tabs;
+        }
+        $wheres = $qb->wheres;
+        unset($wheres[$where['idx']]);
+        $qb->wheres = array_values($wheres);
+        $bind = $qb->bindings['where'];
+        array_splice($bind, $where['bind_from'], $where['bind_n']);
+        $qb->bindings['where'] = $bind;
+        $table = $base->getModel()->getTable();
+
+        foreach ($tabs as &$t) {
+            $rows = (clone $base)->whereIn("{$table}.id", function ($sub) use ($buyerId, $agencyId, $floor, $t) {
+                $sub->from('prospecting_buyer_matches')->select('prospecting_listing_id')->where('contact_id', $buyerId)->where('agency_id', $agencyId)->whereNull('dismissed_at')
+                    ->whereRaw("CAST(JSON_UNQUOTE(JSON_EXTRACT(matched_features, '\$.wishlists.\"" . (int) $t['id'] . "\"')) AS UNSIGNED) >= ?", [$floor]);
+            })->toBase()->reorder()->select(["{$table}.id", "{$table}.property_group_id"])->get();
+            $t['count'] = $rows->map(fn ($r) => $r->property_group_id ?? 'single_' . $r->id)->unique()->count();
+        }
+        unset($t);
+
+        return $tabs;
+    }
+
     private function buildGroupedRows(\Illuminate\Support\Collection $listings): \Illuminate\Support\Collection
     {
         $grouped = $listings->groupBy(function ($item) {

@@ -15,7 +15,7 @@
     $wls = array_values($bb['wishlists'] ?? []);
     $tabs = count($wls) > 1;
     $wantedWl = (int) request()->query('wishlist_id', 0);
-    $activeWl = collect($wls)->first(fn ($w) => !empty($w['active'])) ?? collect($wls)->first(fn ($w) => (int) $w['id'] === $wantedWl) ?? ($wls[0] ?? null);
+    $activeWl = collect($wls)->first(fn ($w) => !empty($w['active']) || !empty($w['selected'])) ?? collect($wls)->first(fn ($w) => (int) $w['id'] === $wantedWl) ?? ($wls[0] ?? null);
 @endphp
 @if($bb)
 <div x-data="micBuyerPop()" @keydown.escape.window="close()" @message.window="onMessage($event)" data-qa="buyer-banner"

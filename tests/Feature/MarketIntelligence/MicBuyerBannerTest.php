@@ -126,6 +126,44 @@ final class MicBuyerBannerTest extends TestCase
         $this->assertStringNotContainsString('>Office<', $h);
     }
 
+    public function test_each_wishlist_tab_counts_exactly_what_the_banner_says_when_that_tab_is_selected(): void
+    {
+        $a = $this->wishlist($this->buyer, ['is_primary' => true]);
+        $b = $this->wishlist($this->buyer, ['is_primary' => false, 'price_max' => 2_000_000, 'created_at' => now()->addDay()]);
+        $one = $this->advertFor($this->buyer);
+        $two = $this->advertFor($this->buyer);
+        $three = $this->advertFor($this->buyer);
+        // adverts one and two are the same property (one group = ONE row in the list); three is another
+        DB::table('prospecting_listings')->whereIn('id', [$one->id, $two->id])->update(['property_group_id' => 4242]);
+        $score = fn ($listing, $sa, $sb) => DB::table('prospecting_buyer_matches')->where('prospecting_listing_id', $listing->id)->where('contact_id', $this->buyer->id)
+            ->update(['score' => max($sa, $sb), 'matched_features' => json_encode(['rules' => \App\Services\Matching\BuyerMatchRules::VERSION, 'wishlists' => [(string) $a->id => $sa, (string) $b->id => $sb]])]);
+        $score($one, 90, 10);
+        $score($two, 90, 10);
+        $score($three, 90, 90);
+        // a filter that is applied AFTER the wishlist condition (bedrooms) takes one advert out of both wishlists: the tabs must carry it too
+        DB::table('prospecting_listings')->where('id', $three->id)->update(['bedrooms' => 5]);
+
+        $count = function (string $h): int {
+            $this->assertSame(1, preg_match('/data-qa="buyer-banner-count"[^>]*>\s*([\d,]+)\s+propert/', $h, $m), 'the banner count');
+
+            return (int) str_replace(',', '', $m[1]);
+        };
+        $tab = fn (string $h, int $id): int => (preg_match('/data-wishlist-id="' . $id . '"[^>]*>[^<]*\(([\d,]+)\)</', $h, $m) ? (int) str_replace(',', '', $m[1]) : -1);
+
+        foreach ([[], ['bedrooms_exact' => 2]] as $filters) {
+            $ha = $this->page($filters + ['wishlist_id' => $a->id]);
+            $hb = $this->page($filters + ['wishlist_id' => $b->id]);
+            $this->assertSame($count($ha), $tab($ha, $a->id), 'tab A = banner when A is selected ' . json_encode($filters));
+            $this->assertSame($count($hb), $tab($hb, $b->id), 'tab B = banner when B is selected ' . json_encode($filters));
+            $this->assertSame($tab($ha, $a->id), $tab($hb, $a->id), 'a tab shows the same number whichever tab is selected');
+            $this->assertSame($tab($ha, $b->id), $tab($hb, $b->id));
+        }
+        $plain = $this->page(['wishlist_id' => $a->id]);
+        $this->assertSame(2, $tab($plain, $a->id), 'two adverts of one property + another property = 2 rows, not 3 adverts');
+        $this->assertSame(1, $tab($this->page(['wishlist_id' => $b->id]), $b->id));
+        $this->assertSame(1, $tab($this->page(['bedrooms_exact' => 2, 'wishlist_id' => $a->id]), $a->id), 'the bedrooms filter is in the count');
+    }
+
     public function test_a_wishlist_with_no_suburb_says_any_suburb_and_long_lists_are_cut_with_the_full_text_in_the_title(): void
     {
         $this->wishlist($this->buyer, ['p24_suburb_ids' => [], 'property_types' => ['House', 'Apartment / Flat'], 'must_have_features' => ['pool', 'garden', 'braai', 'alarm', 'solar', 'fibre'], 'deal_breakers' => ['busy_road']]);
