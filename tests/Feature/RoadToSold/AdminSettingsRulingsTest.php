@@ -336,7 +336,7 @@ final class AdminSettingsRulingsTest extends TestCase
     public function test_the_targets_screen_shows_the_split_panel_and_the_per_agent_call_wording(): void
     {
         $this->actingAs($this->admin)->get(route('road-to-sold.settings.targets.index'))
-            ->assertOk()->assertSee('data-split', false)->assertSee('Calls per agent per day')->assertSee('Agency default: calls per agent per day')
+            ->assertOk()->assertSee('data-split', false)->assertSee('Stock loaded per agent per day')->assertSee('Agency default: stock loaded per agent per day')
             ->assertDontSee('Daily call targets')->assertDontSee('Agency default week');
     }
 

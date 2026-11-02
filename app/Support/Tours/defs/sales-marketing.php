@@ -24,7 +24,7 @@ return [
     'smk-rts-list' => [
         'key'         => 'smk-rts-list',
         'title'       => 'Working your Road to Sold list',
-        'description' => 'Your daily list of properties to phone, how to choose and search the list, and how to record each call.',
+        'description' => 'Your daily list of stock to work, the belt of tiles above it, how to filter and search the list, and how to record each contact.',
         'route'       => 'road-to-sold.index',
         'permission'  => 'access_road_to_sold',
         'setup'       => [['action' => 'scrollTop']],
@@ -33,12 +33,12 @@ return [
                 'element' => '[data-tour="smk-rts-banner"]',
                 'section' => 'Your daily list',
                 'title'   => 'Road to Sold',
-                'body'    => 'Every day CoreX gives you a list of properties to phone so you can win more stock. Your agency sets a target for each weekday, and this screen is where you work through that list and record how every call went.',
+                'body'    => 'Every day CoreX loads a list of stock for you to work so you can win more mandates. Your agency sets how much loads each weekday, and this screen is where you work through that list and record how every contact went.',
             ],
             [
-                'element' => '[data-tour="smk-rts-summary"]',
-                'title'   => 'How you are doing this month',
-                'body'    => 'Each block is one step on the road from a phone call to a sale. It shows what you have done this month against where you should be by today. Green means on track, amber slightly behind and red behind. Click a block to see the exact rows behind the number.',
+                'element' => '[data-tour="smk-rts-belt"]',
+                'title'   => 'The belt',
+                'body'    => 'Each tile is one station a property passes on its way to being sold: loaded, claimed, owner found, contacted and on. The number is how many are there now (or done today out of your target, where your agency set one). Click a tile to see just those properties; the small arrow on a tile compares you, your branch and the agency.',
             ],
             [
                 'element' => '[data-tour="smk-rts-view"]',
@@ -61,7 +61,7 @@ return [
             ],
             [
                 'element' => '[data-tour="smk-rts-list"]',
-                'title'   => 'The properties to phone',
+                'title'   => 'The properties on your list',
                 'body'    => 'One row per property: the address, asking price, days on the market, which agency has it listed, why CoreX suggested it, the owner and phone number if we have them, and the result of the last call. No owner on file? Use Find the owner.',
             ],
             [
@@ -158,7 +158,7 @@ return [
     'smk-rts-targets' => [
         'key'         => 'smk-rts-targets',
         'title'       => 'Setting Road to Sold targets',
-        'description' => 'Set how many properties each agent must phone on each weekday — an agency default, then personal numbers where they differ.',
+        'description' => 'Set how much stock loads on each agent\'s list each weekday — an agency default, then personal numbers where they differ.',
         'route'       => 'road-to-sold.settings.targets.index',
         'permission'  => 'road_to_sold.manage_targets',
         'setup'       => [['action' => 'scrollTop']],
@@ -167,7 +167,7 @@ return [
                 'element' => '[data-tour="smk-rt-default"]',
                 'section' => 'The agency default week',
                 'title'   => 'The default week',
-                'body'    => 'This is the number of properties an agent should phone on each weekday unless you give them their own numbers. Most agents will simply follow this week.',
+                'body'    => 'This is how many properties load on an agent\'s list each weekday unless you give them their own numbers. Most agents will simply follow this week.',
             ],
             [
                 'element'       => '[data-tour="smk-rt-default-save"]',
@@ -204,7 +204,7 @@ return [
                 'element' => '[data-tour="smk-rt-day"]',
                 'do'      => ['action' => 'fill', 'say' => 'Type a number of properties for this agent on this day.'],
                 'title'   => 'A day\'s target',
-                'body'    => 'Type how many properties this agent should phone on that weekday. Use 0 for a day they do not work the list.',
+                'body'    => 'Type how many properties should load on this agent\'s list on that weekday. Use 0 for a day they do not work the list.',
             ],
             [
                 'element' => '[data-tour="smk-rt-week"]',
