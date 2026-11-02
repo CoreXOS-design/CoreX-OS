@@ -153,8 +153,17 @@ final class BeltService
      */
     public function scopeFigures(User $agent, string $stationKey, string $track, CarbonInterface $date): array
     {
+        abort_if(self::station($stationKey) === null, 404);
+        // a minute is fresh enough for a compare popover (the recipe is read once per agent in the scope); tests never cache
+        $compute = fn () => $this->computeScopeFigures($agent, $stationKey, $track, $date);
+
+        return app()->runningUnitTests() ? $compute() : \Illuminate\Support\Facades\Cache::remember('rts-belt-scopes:' . $agent->id . ':' . $stationKey . ':' . $track . ':' . Carbon::instance($date)->toDateString(), 60, $compute);
+    }
+
+    /** @return array{station:string,label:string,period:string,scopes:list<array<string,mixed>>} */
+    private function computeScopeFigures(User $agent, string $stationKey, string $track, CarbonInterface $date): array
+    {
         $s = self::station($stationKey);
-        abort_if($s === null, 404);
         $agencyId = (int) ($agent->effectiveAgencyId() ?: 0);
         $day = Carbon::instance($date)->startOfDay();
         $people = fn (?int $branch) => User::query()->withoutGlobalScopes()->where('agency_id', $agencyId)->where('is_active', true)->whereNull('deleted_at')
@@ -189,7 +198,7 @@ final class BeltService
                 [$q] = $this->queryFor($s['key'] === 'held' ? 'owed' : $s['source'], $agencyId, $ids, '');
                 $row['now'] = (int) DB::query()->fromSub($q, 't')->count();
             }
-            if ($s['key'] !== 'loaded') {
+            if ($s['key'] !== 'loaded' && (array) ($s['tasks'] ?? []) !== []) {   // the recipe is read per agent: only for a station that has a recipe target
                 $t = 0; $d = 0; $per = null;
                 foreach ($users as $u) {
                     if (count($ids) > 60 && $key === 'agency') { break; }   // keep the agency figure cheap on a very large agency: the recipe read is per agent
