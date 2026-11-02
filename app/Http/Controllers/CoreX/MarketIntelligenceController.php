@@ -52,6 +52,12 @@ class MarketIntelligenceController extends Controller
     /** @var array{buyer_id:int,first_name:string,count:int,viewing:bool,by_file:array<int,int>,by_listing:array<int,int>}|null the selected buyer's hidden properties (spec 13.17), set while building the page */
     private ?array $buyerHiddenCtx = null;
 
+    /** the wishlist the selected buyer's list is scored against (spec 13.20): the primary unless ?wishlist_id= names another of his */
+    private ?int $buyerWishlistId = null;
+
+    /** @var list<array{id:int,label:string,primary:bool,selected:bool,count:int}> the selected buyer's wishlists with their match counts (banner selector) */
+    private array $buyerWishlistsOut = [];
+
     /**
      * Spec 13.15 (Johan, 2 Nov 05:21): the default floor for a buyer's list is the engine's STRONG tier (buyer_match_tiers.strong_min_score,
      * default 80) - his complaint is "it shows everything else". The banner count, the %-slider's default and the headline counts all
@@ -520,6 +526,19 @@ class MarketIntelligenceController extends Controller
             $this->buyerHiddenCtx = $hiddenCtx;
             view()->share('buyerHidden', $hiddenCtx);
 
+            // 13.20: ONE wishlist at a time. The list, the count, the "wants" line and the Fits chip are all this wishlist's (primary by default); the per-wishlist counts feed the banner's selector.
+            $wishlists = \App\Services\Prospecting\MicWork\BuyerWishlists::ordered((int) $agencyId, $selectedBuyerId);
+            $pickedWishlist = \App\Services\Prospecting\MicWork\BuyerWishlists::pick($wishlists, $request->filled('wishlist_id') ? (int) $request->query('wishlist_id') : null);
+            $this->buyerWishlistId = $pickedWishlist?->id ? (int) $pickedWishlist->id : null;
+            $wishlistScore = fn (int $id) => "CAST(JSON_UNQUOTE(JSON_EXTRACT(matched_features, '\$.wishlists.\"{$id}\"')) AS UNSIGNED)";
+            $this->buyerWishlistsOut = $wishlists->map(fn ($w) => [
+                'id' => (int) $w->id, 'label' => \App\Services\Prospecting\MicWork\BuyerWishlists::label($w), 'primary' => (bool) $w->is_primary, 'selected' => (int) $w->id === $this->buyerWishlistId,
+                'count' => (int) DB::table('prospecting_buyer_matches as m')->join('prospecting_listings as pl', 'pl.id', '=', 'm.prospecting_listing_id')
+                    ->where('m.agency_id', $agencyId)->where('m.contact_id', $selectedBuyerId)->whereNull('m.dismissed_at')->whereNull('pl.deleted_at')
+                    ->whereRaw(str_replace('matched_features', 'm.matched_features', $wishlistScore((int) $w->id)) . ' >= ?', [$buyerFloor])->count(),
+            ])->values()->all();
+            view()->share('buyerWishlists', $this->buyerWishlistsOut);
+
             // 13.15 addendum: his cache rows were built before the rules last changed -> rebuild HIM once before the list (the banner says so and the page reloads)
             $buyerUpdating = ! $hiddenCtx['viewing'] && app(\App\Services\Matching\BuyerMatchFreshness::class)->isStale((int) $agencyId, $selectedBuyerId);
             view()->share('buyerUpdating', $buyerUpdating ? ['buyer_id' => $selectedBuyerId, 'first_name' => $hiddenCtx['first_name'], 'url' => route('market-intelligence.buyer-refresh')] : null);
@@ -529,13 +548,15 @@ class MarketIntelligenceController extends Controller
             } elseif ($hiddenCtx['viewing']) {
                 $query->where(fn ($q) => $q->whereIn('tracked_property_id', array_keys($hiddenCtx['by_file']) ?: [0])->orWhereIn('id', array_keys($hiddenCtx['by_listing']) ?: [0]));
             } else {
-                $query->whereIn('id', function ($sub) use ($selectedBuyerId, $agencyId, $buyerFloor) {
+                $wid = $this->buyerWishlistId;
+                $query->whereIn('id', function ($sub) use ($selectedBuyerId, $agencyId, $buyerFloor, $wid, $wishlistScore) {
                     $sub->from('prospecting_buyer_matches')
                         ->select('prospecting_listing_id')
                         ->where('contact_id', $selectedBuyerId)
                         ->where('agency_id', $agencyId)
-                        ->whereNull('dismissed_at')
-                        ->where('score', '>=', $buyerFloor);
+                        ->whereNull('dismissed_at');
+                    // that wishlist's own score for the advert (the cache holds one per wishlist); a buyer with none countable falls back to the best score
+                    $wid ? $sub->whereRaw($wishlistScore($wid) . ' >= ?', [$buyerFloor]) : $sub->where('score', '>=', $buyerFloor);
                 });
             }
         }
@@ -650,7 +671,7 @@ class MarketIntelligenceController extends Controller
             abort_unless($fid > 0
                 ? (clone $query)->where('tracked_property_id', $fid)->exists()
                 : ($fid < 0 && (clone $query)->whereKey(-$fid)->whereNull('tracked_property_id')->exists()), 404);
-            $rec = app(\App\Services\Prospecting\MicWork\MicWorkList::class)->forFiles([$fid], (int) $agencyId, $request->filled('buyer_id') ? (int) $request->query('buyer_id') : null)[0] ?? abort(404);
+            $rec = app(\App\Services\Prospecting\MicWork\MicWorkList::class)->forFiles([$fid], (int) $agencyId, $request->filled('buyer_id') ? (int) $request->query('buyer_id') : null, $this->buyerWishlistId)[0] ?? abort(404);
 
             // "Show full ad" (13.16b item 5): the ad (left), our intelligence (right) and the window's title, as JSON
             if ($request->boolean('_ad')) {
@@ -1122,8 +1143,11 @@ class MarketIntelligenceController extends Controller
         $selectedBuyer = $activeBuyerId ? $micBuyers->firstWhere('id', $activeBuyerId) : null;
         // 13.14: the "Prospecting for" banner is built here (wishlist chips, pop-up links); the view only prints it.
         $buyerBanner = $selectedBuyer
-            ? app(\App\Services\Prospecting\MicWork\MicBuyerBanner::class)->forBuyer((int) $selectedBuyer->id, (int) $agencyId, $user->hasPermission('access_core_matches'))
+            ? app(\App\Services\Prospecting\MicWork\MicBuyerBanner::class)->forBuyer((int) $selectedBuyer->id, (int) $agencyId, $user->hasPermission('access_core_matches'), $this->buyerWishlistId)
             : null;
+        if ($buyerBanner !== null) {
+            $buyerBanner['wishlists'] = $this->buyerWishlistsOut; // 13.20: [{id, label, primary, selected, count}] for the selector
+        }
 
         // AT-239 region model (Johan-final) — the filter's value is the canonical
         // MDB municipality (towns.region); its LABEL is the agency alias where set
@@ -1492,7 +1516,7 @@ class MarketIntelligenceController extends Controller
             return [];
         }
         $byKey = [];
-        foreach (app(\App\Services\Prospecting\MicWork\MicWorkList::class)->forFiles(array_values(array_unique($keyOf)), $agencyId, $this->buyerHiddenCtx['buyer_id'] ?? null) as $row) {
+        foreach (app(\App\Services\Prospecting\MicWork\MicWorkList::class)->forFiles(array_values(array_unique($keyOf)), $agencyId, $this->buyerHiddenCtx['buyer_id'] ?? null, $this->buyerWishlistId) as $row) {
             $byKey[$row['key']] = $row;
         }
         $out = [];
@@ -1506,6 +1530,7 @@ class MarketIntelligenceController extends Controller
                     $out[$id]['buyer_first_name'] = $hc['first_name'];
                     $out[$id]['buyer_hidden'] = $exclusionId !== null;
                     $out[$id]['buyer_exclusion_id'] = $exclusionId;
+                    $out[$id]['buyer_wishlist_id'] = $this->buyerWishlistId;
                 }
             }
         }
@@ -1648,12 +1673,15 @@ class MarketIntelligenceController extends Controller
         if (empty($listingIds)) {
             return;
         }
+        // 13.20: the score is the SELECTED wishlist's (the cache keeps one per wishlist); the best score only when the row pre-dates that
+        $wid = $this->buyerWishlistId;
         $selectedBuyerScores = DB::table('prospecting_buyer_matches')
             ->whereIn('prospecting_listing_id', $listingIds)
             ->where('contact_id', $selectedBuyerId)
             ->where('agency_id', $agencyId)
             ->whereNull('dismissed_at')
-            ->pluck('score', 'prospecting_listing_id');
+            ->selectRaw('prospecting_listing_id, ' . ($wid ? "COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(matched_features, '\$.wishlists.\"{$wid}\"')) AS UNSIGNED), score)" : 'score') . ' as s')
+            ->pluck('s', 'prospecting_listing_id');
         foreach ($rows as $row) {
             $row->selected_buyer_score = isset($selectedBuyerScores[$row->id])
                 ? (int) $selectedBuyerScores[$row->id]

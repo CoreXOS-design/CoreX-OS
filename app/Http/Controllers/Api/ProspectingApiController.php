@@ -204,7 +204,7 @@ class ProspectingApiController extends Controller
                                      ? null : substr($addrRaw, 0, 255);
             $data['suburb']        = substr($data['suburb'] ?? '', 0, 100);
             $data['district']      = substr($data['district'] ?? '', 0, 100);
-            $data['property_type'] = substr($data['property_type'] ?? '', 0, 50);
+            $data['property_type'] = substr((string) \App\Services\Prospecting\PropertyTypeFromHeading::reconcile($data['property_type'] ?? '', $data['card_heading'] ?? null, (int) ($agencyId ?? 0) ?: null), 0, 50); // 13.19: the heading wins over a wrong substring-derived type
             $data['agent_name']    = substr($data['agent_name'] ?? '', 0, 100);
             $data['agency_name']   = substr($data['agency_name'] ?? '', 0, 100);
 

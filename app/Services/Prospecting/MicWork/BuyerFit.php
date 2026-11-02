@@ -25,7 +25,7 @@ final class BuyerFit
     }
 
     /** Null when there is no such buyer in this agency or he has no countable wishlist (nothing to compare against). */
-    public static function for(int $agencyId, ?int $buyerId): ?self
+    public static function for(int $agencyId, ?int $buyerId, ?int $wishlistId = null): ?self
     {
         if (! $buyerId) {
             return null;
@@ -34,11 +34,12 @@ final class BuyerFit
         if (! $buyer) {
             return null;
         }
-        $lists = ContactMatch::withoutGlobalScopes()->where('agency_id', $agencyId)->where('contact_id', $buyerId)->whereNull('deleted_at')
-            ->where('status', ContactMatch::STATUS_ACTIVE)->orderByDesc('is_primary')->orderBy('id')->get()->filter(fn (ContactMatch $m) => $m->isCountable())->values();
-        if ($lists->isEmpty()) {
+        // 13.20: ONE wishlist - the one the list is scored against (the primary unless the agent picked another)
+        $one = BuyerWishlists::pick(BuyerWishlists::ordered($agencyId, $buyerId), $wishlistId);
+        if (! $one) {
             return null;
         }
+        $lists = collect([$one]);
         $first = trim((string) $buyer->first_name) !== '' ? trim((string) $buyer->first_name) : trim((string) $buyer->last_name);
 
         return new self($agencyId, $first, $lists);

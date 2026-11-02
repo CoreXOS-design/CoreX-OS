@@ -26,7 +26,7 @@ class BuyerMatchRules
     public const SALE_PRICE_FLOOR = 10000;
 
     /** Stamped into every MIC cache row (matched_features.rules). Bump it whenever a matching rule changes: each buyer's stale rows are then rebuilt once, on demand (BuyerMatchFreshness). */
-    public const VERSION = '13.15.1';
+    public const VERSION = '13.15.2';
 
     /** type_key => the wishlist `category` it belongs to; land / farm / other are not mapped, so the category stays unverified. */
     private const CATEGORY_OF_TYPE = [

@@ -174,7 +174,7 @@ final class MicWorkList
      * @param  list<int>  $keys  tracked property ids (positive) or negated advert ids (single-advert rows)
      * @return list<array<string, mixed>>
      */
-    public function forFiles(array $keys, int $agencyId, ?int $buyerId = null): array
+    public function forFiles(array $keys, int $agencyId, ?int $buyerId = null, ?int $wishlistId = null): array
     {
         $tpIds = array_values(array_filter($keys, fn ($k) => $k > 0));
         $loneIds = array_values(array_map(fn ($k) => -$k, array_filter($keys, fn ($k) => $k < 0)));
@@ -300,7 +300,7 @@ final class MicWorkList
         $mandateWords = $mic->mandateWords();
         $mandateLength = \App\Models\MicAgencySetting::mandateLengthDaysFor($agencyId);
 
-        $buyerFit = BuyerFit::for($agencyId, $buyerId); // 13.18: only when a buyer is selected
+        $buyerFit = BuyerFit::for($agencyId, $buyerId, $wishlistId); // 13.18: only when a buyer is selected
 
         $out = [];
         foreach ($keys as $key) {
@@ -325,7 +325,8 @@ final class MicWorkList
                 : ($list->first(fn ($a) => trim((string) $a->address) !== '' && $a->address !== ProspectingListing::ADDRESS_PLACEHOLDER)?->address);
             $pid = $tp?->p24_suburb_id ?: $lead->p24_suburb_id;
             $suburb = $pid && $subNames->has($pid) ? $subNames[$pid] : self::titleSuburb($tp?->suburb ?: $lead->suburb);
-            $type = $tp?->property_type ?: $lead->property_type;
+            // 13.19: the file's type follows its LIVE LEAD advert (newest active), not the first-ever capture stored on the file
+            $type = $lead->property_type ?: $tp?->property_type;
             $beds = $tp?->bedrooms ?? $list->max('bedrooms');
             $baths = $tp?->bathrooms ?? $list->max('bathrooms');
             $garages = $tp?->garages ?? $list->max('garages');

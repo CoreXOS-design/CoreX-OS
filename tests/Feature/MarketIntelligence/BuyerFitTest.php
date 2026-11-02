@@ -130,14 +130,21 @@ final class BuyerFitTest extends TestCase
         $this->assertSame('unknown', $unknown['must_haves'][0]['state']);
     }
 
-    public function test_the_best_of_the_buyers_wishlists_is_the_one_shown(): void
+    public function test_the_fit_is_against_one_wishlist_the_primary_unless_another_is_picked(): void
     {
-        $this->wishlist(['beds_min' => 4]);                                  // misses
+        $first = $this->wishlist(['beds_min' => 4]);                          // misses
         $second = $this->wishlist(['is_primary' => false, 'beds_min' => 2]); // fits
+        DB::table('contact_matches')->where('id', $first->id)->update(['is_primary' => 1, 'created_at' => now()->subDay()]);
+        DB::table('contact_matches')->where('id', $second->id)->update(['is_primary' => 0, 'created_at' => now()]);
         [$file] = $this->advert();
-        $fit = $this->fit($file);
-        $this->assertSame($second->id, $fit['wishlist_id']);
-        $this->assertGreaterThanOrEqual(80, $fit['score']);
-        $this->assertSame('ok', $this->state($fit, 'beds')['state']);
+
+        $default = $this->fit($file);
+        $this->assertSame($first->id, $default['wishlist_id'], 'the primary, not the best of both (13.20)');
+        $this->assertSame(0, $default['score']);
+
+        $picked = app(MicWorkList::class)->forFiles([$file], $this->agency->id, $this->buyer->id, $second->id)[0]['buyer_fit'];
+        $this->assertSame($second->id, $picked['wishlist_id']);
+        $this->assertGreaterThanOrEqual(80, $picked['score']);
+        $this->assertSame('ok', $this->state($picked, 'beds')['state']);
     }
 }

@@ -201,6 +201,11 @@ final class MicAdvertFacts
         foreach ($facts['columns'] as $col => $val) {
             $l->{$col} = $val;
         }
+        // 13.19: the heading names the type (by whole word): an extension that sent "House" for a "Townhouse" cannot store it
+        $fixedType = PropertyTypeFromHeading::reconcile($l->property_type, $l->card_heading, $l->agency_id ? (int) $l->agency_id : null);
+        if ($fixedType !== $l->property_type) {
+            $l->property_type = $fixedType;
+        }
         if (($facts['columns']['advertiser_type'] ?? $l->advertiser_type) === 'owner') {
             $l->agency_name = null;
         }

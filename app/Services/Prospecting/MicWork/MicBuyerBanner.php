@@ -22,18 +22,15 @@ final class MicBuyerBanner
     /**
      * @return array<string,mixed>|null null when the buyer is not in this agency
      */
-    public function forBuyer(int $contactId, int $agencyId, bool $canOpenMatches): ?array
+    public function forBuyer(int $contactId, int $agencyId, bool $canOpenMatches, ?int $wishlistId = null): ?array
     {
         $contact = Contact::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->find($contactId);
         if (! $contact) {
             return null;
         }
 
-        $lists = ContactMatch::withoutGlobalScopes()->where('agency_id', $agencyId)->where('contact_id', $contactId)->whereNull('deleted_at')
-            ->where('status', ContactMatch::STATUS_ACTIVE)->with('createdBy:id,name')->get()
-            ->filter(fn (ContactMatch $m) => $m->isCountable())
-            ->sortByDesc(fn (ContactMatch $m) => ($m->is_primary ? 10_000_000_000 : 0) + ($m->created_at?->timestamp ?? 0))->values();
-        $shown = $lists->first();
+        $lists = BuyerWishlists::ordered($agencyId, $contactId);
+        $shown = BuyerWishlists::pick($lists, $wishlistId); // 13.20: the wishlist the list is scored against (the primary unless the agent picked another)
 
         $name = trim((string) ($contact->first_name ?? '') . ' ' . (string) ($contact->last_name ?? ''));
         $out = [

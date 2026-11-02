@@ -787,6 +787,7 @@ class PropertyMatchScoringService
     private function canonicalBestAcross(iterable $matches, Property $target, float $bandPct): ?array
     {
         $best = null;
+        $perWishlist = []; // 13.20: this advert's score against EACH wishlist (only the ones it is a match for), so MIC can list one wishlist at a time
         foreach ($matches as $m) {
             if (!$m->isCountable()) {
                 continue; // AT-71 gate — uncountable wishlists never match
@@ -798,6 +799,7 @@ class PropertyMatchScoringService
             if ($a['score'] <= 0) {
                 continue;
             }
+            $perWishlist[(int) $m->id] = $a['score'];
             if ($best === null || $a['score'] > $best['score']) {
                 $best = [
                     'score'            => $a['score'],
@@ -806,6 +808,9 @@ class PropertyMatchScoringService
                     'missing_features' => [],
                 ];
             }
+        }
+        if ($best !== null) {
+            $best['breakdown']['wishlists'] = $perWishlist;
         }
         return $best;
     }
