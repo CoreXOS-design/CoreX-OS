@@ -266,6 +266,9 @@ class SettingsController extends Controller
         if (RtsSetting::hasSourceForColleaguesColumn()) {
             $rules['source_for_colleagues'] = ['sometimes', 'string', \Illuminate\Validation\Rule::in(array_keys(RtsSetting::COLLEAGUE_SOURCES))];
         }
+        if (RtsSetting::hasOwnerRequiresDeedColumn()) {
+            $rules['owner_requires_deed'] = ['sometimes', 'boolean'];
+        }
         if (RtsSetting::hasClaimHoldColumns()) {
             $rules['claim_hold_days']          = ['sometimes', 'integer', 'min:1', 'max:365'];
             $rules['claim_warn_days']          = ['sometimes', 'integer', 'min:0', 'max:60'];
@@ -593,6 +596,7 @@ class SettingsController extends Controller
         'capture_needs_review'    => 'Captured tasks wait for a manager\'s approval',
         'agent_start_required'    => 'Agents press Start my Road to Sold before lists load',
         'source_for_colleagues'   => 'Whose buyers feed an agent\'s stock after their own',
+        'owner_requires_deed'     => 'The Owner found station needs a deed record as well as the owner contact',
         'claim_hold_days'         => 'Working days a claimed property is held while it is not worked',
         'claim_warn_days'         => 'Working days before the hold ends that the agent is told',
         'claim_extension_days'    => 'Working days one extension adds to a claim hold',

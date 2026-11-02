@@ -8,7 +8,7 @@
         <h1 class="text-xl font-bold text-white leading-tight">Property created · {{ count($sellers) }} {{ Str::plural('contact', count($sellers)) }} — pitch to sellers</h1>
         <p class="text-sm text-white/70 mt-1">
             {{ $property->address ?: $property->title ?: ('Property #' . $property->id) }}{{ !empty($property->suburb) ? ', ' . $property->suburb : '' }}
-            @if($__peek !== '')<span class="text-white" style="font-weight:600; margin-left:.5rem;">What is this property? ›</span>@endif
+            @if($__peek !== '')<span data-peek-hint class="text-white" style="font-weight:600; margin-left:.5rem;">What is this property? ▾</span>@endif
         </p>
     </div>
 
@@ -50,11 +50,13 @@
         @endforelse
     </div>
 
+    @unless(\App\Support\Embed::on())
     <div class="flex items-center gap-3">
         <a href="{{ route('corex.properties.show', ['property' => $property->id]) }}" class="text-sm" style="color: var(--text-muted);">Open the property</a>
         <span style="color: var(--text-muted);">·</span>
         <a href="{{ route('market-intelligence.work') }}" class="text-sm" style="color: var(--text-muted);">Back to Market Intelligence</a>
     </div>
+    @endunless
 </div>
 @include('layouts.partials._pitch-popup')
 @endsection

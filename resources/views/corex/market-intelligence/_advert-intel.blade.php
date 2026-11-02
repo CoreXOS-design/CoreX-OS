@@ -16,6 +16,11 @@
 
     // claim state, far right of line 1
     $claimState = $isCompanyStock ? 'Our stock' : ($claimedByMe ? 'Mine' : ($claimedByOther ? ($adv['claimed_by'] ?? 'Claimed') : 'Unclaimed'));
+    // v4 (road-to-sold.md 23.5): my claim is on a hold in working days; the state shows how long is left and the pop-up extends it once
+    $myHold = ($claimedByMe && !$isCompanyStock) ? ($adv['hold'] ?? null) : null;
+    if ($myHold && $myHold['days_left'] !== null) {
+        $claimState = 'Mine · ' . max(0, (int) $myHold['days_left']) . ' day' . ((int) $myHold['days_left'] === 1 ? '' : 's') . ' left';
+    }
 
     // Buyers
     $strong = (int) ($adv['buyers_strong'] ?? $adv['buyers'] ?? 0);
@@ -79,7 +84,31 @@
                 <span style="{{ $muted }}">No score yet</span>
             @endif
             @if(!empty($adv['pair_ids']))<span style="font-size:.625rem; font-weight:700; padding:0 5px; border:1px solid var(--ds-amber, #f59e0b); border-radius:8px; color: var(--text-primary); flex-shrink:0;">Possible match</span>@endif
+            @if($myHold)
+                <span style="margin-left:auto; flex-shrink:0;">
+                    <x-mic-pop align="right" content-classes="p-1">
+                        <x-slot name="trigger"><button type="button" data-qa="claim-state" title="Your hold on this property: {{ $myHold['days_left'] }} working days left, ends {{ $myHold['until'] }}. Click for details" style="background:none; border:none; padding:0; cursor:pointer; font-size:.75rem; font-weight:600; color: var(--text-primary); {{ ($myHold['days_left'] ?? 99) <= 5 ? 'text-decoration: underline; text-decoration-color: var(--ds-amber, #f59e0b);' : '' }}">{{ $claimState }}</button></x-slot>
+                        <x-slot name="content">
+                            <div data-qa="hold-pop" style="padding:6px 10px; width:17rem; font-size:.75rem; color: var(--text-primary);" @click.stop>
+                                <div style="font-weight:700; padding-bottom:4px;">Your hold on this property</div>
+                                <div style="{{ $muted }}">You keep it for {{ $myHold['days_left'] }} more working days (to {{ $myHold['until'] }}) unless you work it - every call, booking or step restarts the count.</div>
+                                @if($myHold['find_owner'])
+                                    <div data-qa="hold-find-owner" style="margin-top:6px; padding:4px 6px; border:1px dashed var(--ds-amber, #f59e0b); border-radius:5px;">Find the owner first: still needed - {{ $myHold['missing'] }}.</div>
+                                @endif
+                                @if($myHold['can_extend'])
+                                    <form method="POST" action="{{ route('market-intelligence.claims.extend-hold', $myHold['claim_id']) }}" style="margin:8px 0 0;">@csrf
+                                        <button type="submit" data-qa="hold-extend" style="{{ $btn }} color: var(--text-primary); border-color: var(--brand-icon);" title="Add working days to this hold. You can do this once; your manager can grant more.">Extend the hold</button>
+                                    </form>
+                                @else
+                                    <div style="margin-top:6px; {{ $muted }}">Already extended once. Ask your manager if it needs longer.</div>
+                                @endif
+                            </div>
+                        </x-slot>
+                    </x-mic-pop>
+                </span>
+            @else
             <span data-qa="claim-state" style="margin-left:auto; flex-shrink:0; font-weight:600; {{ $claimedByMe ? 'color: var(--text-primary);' : $muted }}">{{ $claimState }}</span>
+            @endif
         </div>
 
         @if($fitRow)
@@ -128,7 +157,7 @@
                 <span style="{{ $btnOff }}">Comment</span>
             @endif
             @if($linkHref)
-                <a href="{{ $linkHref }}" style="{{ $btn }}" title="Open the property file at its contacts, to link the owner or a contact">Link contact</a>
+                <a href="{{ $linkHref }}" style="{{ $btn }}{{ $myHold && $myHold['find_owner'] ? ' border-color: var(--ds-amber, #f59e0b);' : '' }}" title="{{ $myHold && $myHold['find_owner'] ? 'Find the owner first - still needed: ' . $myHold['missing'] . '. Opens the property file at its contacts.' : 'Open the property file at its contacts, to link the owner or a contact' }}" @if($myHold && $myHold['find_owner']) data-qa="find-owner" @endif>{{ $myHold && $myHold['find_owner'] ? 'Find owner' : 'Link contact' }}</a>
             @else
                 <span style="{{ $btnOff }}">Link contact</span>
             @endif

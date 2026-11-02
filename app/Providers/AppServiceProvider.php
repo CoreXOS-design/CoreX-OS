@@ -555,6 +555,9 @@ class AppServiceProvider extends ServiceProvider
         // Road to Sold v4 (23.5): a MIC claim IS station 2 of the prospect; ending the claim ends the belt record with it.
         Event::listen(\App\Events\Prospecting\ClaimCreated::class, [\App\Listeners\RoadToSold\BeltFollowsClaim::class, 'handleCreated']);
         Event::listen(\App\Events\Prospecting\ClaimReleased::class, [\App\Listeners\RoadToSold\BeltFollowsClaim::class, 'handleReleased']);
+        // Road to Sold v4 (23.6): the owner is linked / the deed arrives -> the belt record moves to Owner found.
+        Event::listen(\App\Events\Prospecting\OwnerLinkedToTrackedProperty::class, [\App\Listeners\RoadToSold\MoveToOwnerFound::class, 'handleOwnerLinked']);
+        Event::listen(\App\Events\Prospecting\TrackedPropertyEnriched::class, [\App\Listeners\RoadToSold\MoveToOwnerFound::class, 'handleEnriched']);
 
         // ─────────────────────────────────────────────────────────────────
         // Syndication Approval Gate (layer 3) — .ai/specs/syndication-approval-gate.md §8.

@@ -160,6 +160,8 @@ class ClaimHoldService
             app(ProspectService::class)->logHold($p, 'Claim hold extended to ' . $new->format('j M Y') . ($asManager ? ' (manager)' : '') . ($note ? ': ' . mb_substr($note, 0, 120) : ''), $actor, ['hold_until' => $new->toDateString()]);
         }
 
+        $this->raise('ClaimHoldExtended', fn () => new \App\Events\RoadToSold\ClaimHoldExtended((int) $c->id, (int) $c->agency_id, (int) $c->user_id, $p?->id, $new->toDateString(), (int) $actor->id));
+
         return ['ok' => true, 'message' => 'Hold extended to ' . $new->format('j M Y') . '.'];
     }
 
@@ -184,8 +186,14 @@ class ClaimHoldService
 
             return false;
         }
+        $this->raise('ClaimHoldEnded', fn () => new \App\Events\RoadToSold\ClaimHoldEnded((int) $c->id, (int) $c->agency_id, (int) $c->user_id, $c->rts_prospect_id ? (int) $c->rts_prospect_id : null, $c->hold_until?->toDateString(), null));
 
         return true;
+    }
+
+    private function raise(string $name, \Closure $make): void
+    {
+        \App\Support\Events\SafeRaise::dispatch($name, $make);
     }
 
     /**

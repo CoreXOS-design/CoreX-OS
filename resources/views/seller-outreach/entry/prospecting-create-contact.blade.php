@@ -14,9 +14,11 @@
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                @unless(\App\Support\Embed::on())
                 <a href="{{ url()->previous() }}" class="corex-btn-outline text-xs no-underline">
                     ← Back
                 </a>
+                @endunless
             </div>
         </div>
     </div>
@@ -49,7 +51,7 @@
         <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-qa="listing-header" {!! $__peek !!}>
             <div class="text-[10px] uppercase tracking-wider font-semibold mb-1 flex items-center justify-between" style="color: var(--text-muted);">
                 <span>Tracked Property</span>
-                @if($__peek !== '')<span style="color: var(--brand-icon, #0ea5e9); text-transform: none; letter-spacing: 0; font-size: .75rem;">What is this property? ›</span>@endif
+                @if($__peek !== '')<span data-peek-hint style="color: var(--brand-icon, #0ea5e9); text-transform: none; letter-spacing: 0; font-size: .75rem;">What is this property? ▾</span>@endif
             </div>
             <div class="font-semibold text-sm" style="color: var(--text-primary);">
                 {{ $trackedProperty->displayAddress() }}
@@ -67,7 +69,7 @@
         <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-qa="listing-header" {!! $__peek !!}>
             <div class="text-[10px] uppercase tracking-wider font-semibold mb-1 flex items-center justify-between" style="color: var(--text-muted);">
                 <span>Property — in agency stock</span>
-                @if($__peek !== '')<span style="color: var(--brand-icon, #0ea5e9); text-transform: none; letter-spacing: 0; font-size: .75rem;">What is this property? ›</span>@endif
+                @if($__peek !== '')<span data-peek-hint style="color: var(--brand-icon, #0ea5e9); text-transform: none; letter-spacing: 0; font-size: .75rem;">What is this property? ▾</span>@endif
             </div>
             <div class="font-semibold text-sm" style="color: var(--text-primary);">
                 {{ $property->address ?: $property->title ?: 'Property #' . $property->id }}{{ !empty($property->suburb) ? ', ' . $property->suburb : '' }}
@@ -87,7 +89,7 @@
         <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-qa="listing-header" {!! $__peek !!}>
             <div class="text-[10px] uppercase tracking-wider font-semibold mb-1 flex items-center justify-between" style="color: var(--text-muted);">
                 <span>Listing from {{ strtoupper((string) ($listing->portal_source ?? 'portal')) }}</span>
-                @if($__peek !== '')<span style="color: var(--brand-icon, #0ea5e9); text-transform: none; letter-spacing: 0; font-size: .75rem;">What is this property? ›</span>@endif
+                @if($__peek !== '')<span data-peek-hint style="color: var(--brand-icon, #0ea5e9); text-transform: none; letter-spacing: 0; font-size: .75rem;">What is this property? ▾</span>@endif
             </div>
             <div id="listing-header-address" class="font-semibold text-sm" style="color: var(--text-primary);"
                  data-original-address="{{ $listing->address ?? '(no address)' }}{{ !empty($listing->suburb) ? ', ' . $listing->suburb : '' }}">

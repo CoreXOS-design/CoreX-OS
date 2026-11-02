@@ -100,6 +100,11 @@ class OutcomeService
                 throw new RoadToSoldException("{$who} is working this property.");
             }
 
+            // v4 gate (23.6): no contact outcome until the owner is found; the outcomes that report an owner problem always go through.
+            if ($gate = app(OwnerStationService::class)->refusal($actor, (int) $tp->id, $def)) {
+                throw new RoadToSoldException($gate);
+            }
+
             [$nextAction, $nextAt, $listTag] = $this->resolveNextAction($def, $input, $tp, $wantsValuation, $appointmentAt);
 
             // N no-answers in a row (this agent, this property). A conversation, or any outcome that
