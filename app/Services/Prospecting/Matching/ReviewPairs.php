@@ -21,6 +21,11 @@ final class ReviewPairs
 
     public function vetoed(int $agencyId, int $a, int $b): bool
     {
+        // 13.12 "Not the same property": a pair an agent split apart is never put back on the review list
+        if ((new MatchExclusions())->filesConflict($agencyId, $a, $b) !== null) {
+            return true;
+        }
+
         return PropertyMatchDecision::queryWithoutAgencyScope()->where('agency_id', $agencyId)->where('subject_type', PropertyIdentityResolver::DECISION_SUBJECT)
             ->whereNotNull('rejected_at')
             ->where(fn ($q) => $q->where(fn ($w) => $w->where('matched_id', $b)->where('incoming_facts->incoming_tracked_property_id', $a))

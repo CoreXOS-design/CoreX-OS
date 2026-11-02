@@ -8671,6 +8671,9 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
             ->name('claims.release-as-manager');
 
         Route::get('/thumbnail/{listing}', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'thumbnail'])->name('thumbnail');
+        // mic-work-tab.md 13.12: "Not the same property" on the Listed-by popover (split one advert off its file) and its undo
+        Route::post('/adverts/{listing}/split', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'splitAdvert'])->whereNumber('listing')->name('adverts.split');
+        Route::post('/adverts/split/{split}/undo', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'undoSplitAdvert'])->whereNumber('split')->name('adverts.split-undo');
         Route::post('/{listing}/claim',    [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'claim'])->name('claim');
         Route::post('/{listing}/feedback', [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'feedback'])->name('feedback');
         Route::post('/{listing}/release',  [\App\Http\Controllers\CoreX\MarketIntelligenceController::class, 'release'])->name('release');

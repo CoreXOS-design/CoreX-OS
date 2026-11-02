@@ -48,4 +48,13 @@ return [
     */
     'suburb_sort_explicit_tiebreak' => (bool) env('PROSPECTING_SUBURB_SORT_EXPLICIT_TIEBREAK', false),
 
+    /*
+    |--------------------------------------------------------------------------
+    | "Not the same property" journal folder (mic-work-tab.md 13.12)
+    |--------------------------------------------------------------------------
+    | Every split an agent makes from the "Listed by N agencies" popover is appended to advert-split-agency<id>-journal-<date>.jsonl here. Falls back to
+    | storage/app/mic-unwind when the folder is not writable.
+    */
+    'split_journal_dir' => env('MIC_SPLIT_JOURNAL_DIR', '/mnt/HC_Volume_103099143/mic-unwind'),
+
 ];

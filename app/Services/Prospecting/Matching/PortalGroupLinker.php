@@ -54,7 +54,11 @@ final class PortalGroupLinker
             $ordered = $files->sortBy(fn ($m, $fid) => [-$this->rank($m->first()), (int) $fid])->keys()->map(fn ($k) => (int) $k)->all();
             $cluster = [array_shift($ordered)];
             foreach ($ordered as $fid) {
-                $why = $this->contradiction($files, $cluster, $fid, $spread);
+                $why = null;
+                foreach ($cluster as $cid) {
+                    $why ??= $this->guard->excludedFiles($agencyId, $cid, $fid);   // 13.12: an agent split these two apart
+                }
+                $why ??= $this->contradiction($files, $cluster, $fid, $spread);
                 if ($why === null) {
                     $cluster[] = $fid;
                     continue;

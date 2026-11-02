@@ -4037,6 +4037,49 @@ class MarketIntelligenceController extends Controller
         return back()->with('success', 'Feedback saved');
     }
 
+    /**
+     * mic-work-tab.md 13.12 - "Not the same property": split one advert off its property file onto a new file of its own (JSON; the Listed-by popover posts here).
+     * 403 another agency's advert, 404 unknown, 409 the advert is already alone on its file.
+     */
+    public function splitAdvert(int $listing, \App\Services\Prospecting\Matching\AdvertSplitService $splitter)
+    {
+        $user = auth()->user();
+        $agencyId = $user->effectiveAgencyId();
+        $row = ProspectingListing::withoutGlobalScopes()->find($listing);
+        if (! $row) {
+            return response()->json(['ok' => false, 'message' => 'That advert was not found.'], 404);
+        }
+        if ($agencyId === null || (int) $row->agency_id !== (int) $agencyId) {
+            return response()->json(['ok' => false, 'message' => 'That advert belongs to another agency.'], 403);
+        }
+        try {
+            return response()->json(['ok' => true] + $splitter->split($row, $user));
+        } catch (\App\Services\Prospecting\Matching\AdvertSplitException $e) {
+            return response()->json(['ok' => false, 'message' => $e->getMessage()], $e->status);
+        }
+    }
+
+    /** Undo of the above (the "Undo" in the popover note). 403 / 404 / 409 as above. */
+    public function undoSplitAdvert(int $split, \App\Services\Prospecting\Matching\AdvertSplitService $splitter)
+    {
+        $user = auth()->user();
+        $agencyId = $user->effectiveAgencyId();
+        $rec = DB::table('mic_match_exclusions')->where('id', $split)->first();
+        if (! $rec) {
+            return response()->json(['ok' => false, 'message' => 'That split was not found.'], 404);
+        }
+        if ($agencyId === null || (int) $rec->agency_id !== (int) $agencyId) {
+            return response()->json(['ok' => false, 'message' => 'That split belongs to another agency.'], 403);
+        }
+        try {
+            $r = $splitter->undo((int) $agencyId, $split, $user);
+
+            return response()->json(['ok' => true, 'file_id' => $r['file_id']]);
+        } catch (\App\Services\Prospecting\Matching\AdvertSplitException $e) {
+            return response()->json(['ok' => false, 'message' => $e->getMessage()], $e->status);
+        }
+    }
+
     public function release(ProspectingListing $listing)
     {
         $user = auth()->user();

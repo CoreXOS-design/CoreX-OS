@@ -111,6 +111,12 @@ final class MergeGuard
     public function conflictWithFile(int $agencyId, int $fileId, iterable $incoming): ?string
     {
         $s = $this->settings($agencyId);
+        $incoming = is_array($incoming) ? $incoming : iterator_to_array($incoming, false);
+        // 13.12 "Not the same property": an advert an agent split off this file never joins it again (and the reverse)
+        $marked = (new MatchExclusions())->advertConflict($agencyId, $fileId, array_map(fn ($a) => (string) ($a->ref ?? $a->canonical_ref ?? ''), $incoming));
+        if ($marked !== null) {
+            return $marked;
+        }
         $onFile = $this->advertsOf($agencyId, [$fileId])[$fileId] ?? collect();
         $key = $this->fileAddressKeys($agencyId, [$fileId])[$fileId] ?? null;
         foreach ($incoming as $a) {
@@ -129,9 +135,19 @@ final class MergeGuard
     }
 
     /** Whole-file test (a file merge): every advert of A against every advert of B. */
+    /** 13.12: why two files may not be put together because an agent split one off the other, or null (used by the portal-group rule before it clusters files) */
+    public function excludedFiles(int $agencyId, int $fileA, int $fileB): ?string
+    {
+        return (new MatchExclusions())->filesConflict($agencyId, $fileA, $fileB);
+    }
+
     public function fileVsFile(int $agencyId, int $fileA, int $fileB): ?string
     {
         $m = $this->advertsOf($agencyId, [$fileA, $fileB]);
+        $marked = (new MatchExclusions())->filesConflict($agencyId, $fileA, $fileB, ($m[$fileA] ?? collect())->pluck('ref')->all(), ($m[$fileB] ?? collect())->pluck('ref')->all());
+        if ($marked !== null) {
+            return $marked;
+        }
 
         return $this->conflictBetween($agencyId, $m[$fileA] ?? collect(), $m[$fileB] ?? collect());
     }

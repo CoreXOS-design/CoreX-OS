@@ -201,6 +201,9 @@ final class MicWorkList
         $deeds = $tpIds ? DB::table('tracked_property_external_refs')->where('agency_id', $agencyId)->where('source_type', 'deeds_capture')->whereNull('deleted_at')
             ->whereIn('tracked_property_id', $tpIds)->pluck('tracked_property_id')->flip() : collect();
 
+        // 13.12 the file's own history lines for the Full card: "Split from ... by ... on ..." / "Advert split off to ..." / "Advert split undone ..." (newest last)
+        $fileNotes = $tpIds ? DB::table('tracked_property_agency_work_events')->where('agency_id', $agencyId)->whereIn('tracked_property_id', $tpIds)->whereIn('kind', ['split_from', 'split_off', 'split_undone'])
+            ->orderBy('occurred_at')->orderBy('id')->get(['tracked_property_id', 'reason', 'occurred_at'])->groupBy('tracked_property_id') : collect();
         $work = $tpIds ? DB::table('tracked_property_agency_work as w')->leftJoin('users as u', 'u.id', '=', 'w.claimed_by_user_id')
             ->where('w.agency_id', $agencyId)->whereIn('w.tracked_property_id', $tpIds)
             ->get(['w.tracked_property_id', 'w.prospecting_status', 'w.prospecting_reason', 'w.is_own_stock', 'w.claimed_by_user_id', 'u.name as claimed_by'])->keyBy('tracked_property_id') : collect();
@@ -458,10 +461,15 @@ final class MicWorkList
                 'buyers' => (int) $list->sum(fn ($a) => (int) ($buyers[$a->id] ?? 0)),
                 'buyers_strong' => $st->buyers_strong ?? null,
                 'buyers_mid' => $st->buyers_mid ?? null,
+                'file_notes' => ($tp ? $fileNotes->get((int) $tp->id, collect()) : collect())->map(fn ($e) => ['text' => $e->reason, 'date' => substr((string) $e->occurred_at, 0, 10)])->values()->all(),
                 'claimed_by' => $w->claimed_by ?? null,
                 'work_status' => $w->prospecting_status ?? null,
                 'work_reason' => $w->prospecting_reason ?? null,
-                'adverts' => $list->map(fn ($a) => [
+                // 13.12: newest listed first (listed date, else first seen); `id` is what "Not the same property" posts; `can_split` is false for the only advert on a file
+                'adverts' => $list->sortByDesc(fn ($a) => ($a->listed_date ?? $a->first_seen_at)?->format('Y-m-d') ?? '')->values()->map(fn ($a) => [
+                    'id' => (int) $a->id, 'can_split' => $list->pluck('canonical_ref')->map(fn ($r) => $r ?: 'x')->unique()->count() > 1,
+                    'sole_mandate' => ($a->sole_mandate_wording !== null ? (bool) $a->sole_mandate_wording : (MicAdvertFilters::mentionsMandate($a->description_snippet, $mandateWords, $a->agency_name ?? null) || MicAdvertFilters::mentionsMandate($a->description, $mandateWords, $a->agency_name ?? null)))
+                        ? 'Sole mandate' . (($d = SoleMandateMatcher::daysSince($a->sole_mandate_first_seen_at)) !== null ? ' · ' . $d . ' d' : '') : null,
                     'portal' => strtoupper($a->portal_source), 'owner' => $a->advertiser_type === 'owner', 'ref' => $a->portal_ref, 'url' => $a->portal_url, 'agency' => $a->agency_name, 'agent' => $a->agent_name,
                     'price' => $a->price, 'listed' => $a->listed_date?->format('j M Y'), 'seen' => $a->first_seen_at?->format('j M Y'), 'active' => (bool) $a->is_active,
                     'status' => $a->portal_status,

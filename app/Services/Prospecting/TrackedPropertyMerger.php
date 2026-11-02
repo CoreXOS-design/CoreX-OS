@@ -156,6 +156,10 @@ final class TrackedPropertyMerger
         }
 
         $agencyId = (int) $winner->agency_id;
+        // 13.12 "Not the same property": an automatic merge never puts back together what an agent split apart (a person's own merge, with $byUserId, is theirs to make)
+        if ($byUserId === null && (new Matching\MatchExclusions())->filesConflict($agencyId, (int) $winner->id, (int) $loser->id) !== null) {
+            return ['merged' => false, 'reason' => 'an agent split these two apart (not the same property)', 'moved' => []];
+        }
         $moved = [];
         $primaryOnWinner = DB::table('tracked_property_addresses')->where('tracked_property_id', $winner->id)->where('is_primary', 1)->whereNull('deleted_at')->exists();
         // two work records (claim / status / reason / own stock) are ONE record afterwards; with only one of them, the generic move below carries it
@@ -315,14 +319,14 @@ final class TrackedPropertyMerger
      * Is this file now an empty shell — nothing left on it but its own row? (no adverts, no owner, no work, no deeds, no
      * promotion). Only such a file may be flagged duplicate after its adverts moved away.
      */
-    public function isEmptyShell(int $fileId): bool
+    public function isEmptyShell(int $fileId, array $ignoreTables = []): bool
     {
         $tp = DB::table('tracked_properties')->where('id', $fileId)->first(['promoted_to_property_id', 'capture_kind', 'owner_contact_id', 'status']);
         if ($tp === null || $tp->promoted_to_property_id || $tp->capture_kind || $tp->owner_contact_id || $tp->status !== TrackedProperty::STATUS_ACTIVE) {
             return false;
         }
         foreach (self::FILE_TABLES as $table) {
-            if ($table === 'tracked_property_addresses') {
+            if ($table === 'tracked_property_addresses' || in_array($table, $ignoreTables, true)) {
                 continue;
             }
             if (DB::table($table)->where('tracked_property_id', $fileId)->exists()) {
