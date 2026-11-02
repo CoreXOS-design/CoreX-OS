@@ -78,7 +78,7 @@ final class PitchContactStepTest extends TestCase
 
         $this->assertStringContainsString('data-qa="tab-phone"', $h, 'Phone call sits beside WhatsApp and Email');
         $this->assertStringContainsString('data-qa="phone-call"', $h);
-        foreach (['Moves it forward', 'Try again later', 'Off-ramps'] as $g) {
+        foreach (['Moves it forward', 'Try again later', 'Stops here (say why)'] as $g) {
             $this->assertStringContainsString($g, $h);
         }
         $this->assertStringContainsString('When was the call?', $h);
