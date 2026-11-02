@@ -7003,6 +7003,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             // v3 pitch path from a row (22.10, R8): the owner is known -> the composer, else Find owner; "No owner found" is an outcome.
             Route::get('/prospects/{prospect}/pitch-path', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'show'])
                 ->whereNumber('prospect')->name('prospects.pitch-path');
+            // v4 (23.8): "Prepare presentation" opens the generator on THAT property (the property page with its Generate Presentation window already open), not the index
+            Route::get('/prospects/{prospect}/presentation-path', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'presentation'])
+                ->whereNumber('prospect')->name('prospects.presentation-path');
             Route::post('/prospects/{prospect}/no-owner', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'noOwner'])
                 ->whereNumber('prospect')->name('prospects.no-owner');
 

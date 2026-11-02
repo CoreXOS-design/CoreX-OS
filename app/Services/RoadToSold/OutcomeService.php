@@ -171,6 +171,9 @@ class OutcomeService
                     'property_id' => $propertyId,
                     'contact_id'  => $contact?->id,
                     'attendees'   => array_map(fn (int $id) => ['id' => $id, 'type' => 'contact', 'role' => 'seller_contact'], $parties),
+                    // v4 A4 (23.8): the appointment carries the tracked property and (when the agent already has one) the belt record
+                    'tracked_property_id' => (int) $tp->id,
+                    'rts_prospect_id'     => ($owned && $owned->closed_at === null && $owned->released_at === null && (int) $owned->user_id === $agentId) ? (int) $owned->id : null,
                 ], $actor);
                 $eventId = $event->id;
             }
@@ -223,6 +226,10 @@ class OutcomeService
             ]);
             if ($prospect) {
                 $prospects->applyOutcome($prospect, $outcome, $def, $actor);
+                // the property was taken by this very outcome: the appointment it booked names the belt record too (23.8)
+                if ($eventId && BeltLinks::calendarColumns()) {
+                    DB::table('calendar_events')->where('id', $eventId)->whereNull('rts_prospect_id')->update(['rts_prospect_id' => (int) $prospect->id]);
+                }
             }
 
             if ($contact) {

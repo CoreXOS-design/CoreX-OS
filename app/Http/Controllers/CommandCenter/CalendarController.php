@@ -1166,6 +1166,8 @@ class CalendarController extends Controller
                     'date'  => $calendarEvent->event_date->format('D, j M Y H:i'),
                 ],
                 'feedback_mode' => 'per_property',
+                // v4 (road-to-sold.md 23.10): an evaluation asks what happened first (held / no show / rescheduled)
+                'is_evaluation' => $calendarEvent->category === 'property_evaluation',
                 // CX-103 (Johan, 2026-08-19) — per_property grouping now also
                 // covers viewing (multi-stop trips), not just listing
                 // presentations. This was hardcoded to 'listing_presentation'

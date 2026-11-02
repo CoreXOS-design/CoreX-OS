@@ -114,17 +114,15 @@ class AdvanceProspectsFromDomainEvent
         switch ($event::class) {
             case \App\Events\Evaluation\EvaluationBooked::class:
                 $this->move($agencyId, [(int) $event->userId], $base + [
-                    'stage' => S::APPOINTMENT_SET, 'property_id' => $event->propertyId,
+                    'stage' => S::APPOINTMENT_SET, 'property_id' => $event->propertyId, 'tracked_id' => $event->trackedPropertyId,
                     'next_at' => $event->startsAt ? Carbon::parse($event->startsAt)->startOfDay() : null, 'next_label' => 'Do the evaluation',
                 ]);
                 break;
             case \App\Events\Evaluation\EvaluationCompleted::class:
-                $this->move($agencyId, [(int) $event->userId], $base + ['stage' => S::EVALUATION_DONE, 'property_id' => $event->propertyId]);
+                $this->move($agencyId, [(int) $event->userId], $base + ['stage' => S::EVALUATION_DONE, 'property_id' => $event->propertyId, 'tracked_id' => $event->trackedPropertyId]);
                 break;
             case \App\Events\Presentation\PresentationPresented::class:
-                $this->move($agencyId, [(int) $event->userId], $base + [
-                    'stage' => S::PRESENTATION_GIVEN, 'property_id' => $event->propertyId, 'tracked_id' => $event->trackedPropertyId,
-                ]);
+                // v4 (23.4): the presentation is given AT the evaluation, so "presented" is no longer a station: the event is still raised and logged, it moves nothing
                 break;
             case \App\Events\Presentation\PresentationOutcomeRecorded::class:
                 $p = DB::table('presentations')->where('id', $event->presentationId)->first(['created_by_user_id', 'property_id', 'tracked_property_id']);

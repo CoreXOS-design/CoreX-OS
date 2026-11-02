@@ -23,6 +23,8 @@ final class EvaluationBooked extends AbstractDomainEvent
         public readonly ?int $contactId,
         public readonly ?string $startsAt,
         public readonly ?int $actorUserId = null,
+        public readonly ?int $trackedPropertyId = null,   // v4 A4: the tracked property and belt record the appointment carries (null = none matched)
+        public readonly ?int $prospectId = null,
         ?string $traceId = null,
     ) {
         parent::__construct($traceId);

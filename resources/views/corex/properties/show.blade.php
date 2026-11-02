@@ -561,7 +561,7 @@
                         hasListedPrice: {{ $property->price ? 'true' : 'false' }},
                         listedPrice: {{ $property->price ? (int) $property->price : 'null' }},
                     })"
-                    x-init="loadCoverage()"
+                    x-init="loadCoverage(); if (new URLSearchParams(window.location.search).get('generate_presentation')) { $nextTick(() => onClickGenerate()); }"
                     @corex:generate-presentation.window="onClickGenerate()"
                     class="space-y-2">
 
