@@ -484,4 +484,13 @@ final class AgencyReportDealStatusTicksTest extends TestCase
         $own = $this->get(route('performance.agency-report.agent', ['user' => $this->a1->id] + $q))->assertOk()->getContent();
         $this->assertStringContainsString('100', strip_tags($own), 'their own commission, Declined ticked in');
     }
+
+    public function test_previous_period_labels_name_the_previous_windows_own_dates(): void
+    {
+        $oct = app(PeriodResolver::class)->resolve('custom', '2026-10-01', '2026-10-31');
+        $prev = $oct->previous();
+        $this->assertSame('Previous: ' . $prev->start->toDateString() . ' → ' . $prev->end->toDateString(), $prev->label, 'the previous window\'s own dates, not a repeat of October');
+        $this->assertSame('2026-09-30', $prev->end->toDateString());
+        $this->assertSame('Same period last year: 2025-10-01 → 2025-10-31', $oct->sameLastYear()->label);
+    }
 }

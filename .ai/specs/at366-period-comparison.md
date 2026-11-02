@@ -209,4 +209,4 @@ to more than the company deal count on joint deals.
 ### Build log
 
 - 2026-11-02 — AT-535: rulings A–G built on QA1. See above.
-- 2026-11-02 — AT-535 follow-on: branch / agent pages + agent print follow the ticks; buyer-activity tiles show the previous figure; commission column headed "agent share" (basis unchanged).
+- 2026-11-02 — AT-535 follow-on: branch / agent pages + agent print follow the ticks; buyer-activity tiles show the previous figure; commission column headed "agent share" (basis unchanged); previous-period labels ("Previous: …", "Same period last year: …") now name that window's own dates (they repeated the current period's label).
