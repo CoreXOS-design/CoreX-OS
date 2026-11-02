@@ -480,7 +480,9 @@ class DeedsCaptureLinkService
                     $q->where(fn ($w) => $w->where('scheme_name', 'like', $like)->orWhere('complex_name', 'like', $like)->orWhere('street_name', 'like', $like)
                         ->orWhere('street_number', 'like', $like)->orWhere('suburb', 'like', $like)->orWhere('town', 'like', $like)->orWhere('erf_number', 'like', $like)
                         ->orWhereExists(fn ($e) => $e->selectRaw('1')->from('tracked_property_owners as o')->whereColumn('o.tracked_property_id', 'tracked_properties.id')
-                            ->where(fn ($x) => $x->where('o.name', 'like', $like)->orWhere('o.id_number', 'like', $like))));
+                            ->where(fn ($x) => $x->where('o.name', 'like', $like)->orWhere('o.id_number', 'like', $like)
+                                ->orWhereExists(fn ($c) => $c->selectRaw('1')->from('contacts as c')->whereColumn('c.id', 'o.contact_id')
+                                    ->where(fn ($y) => $y->where('c.first_name', 'like', $like)->orWhere('c.last_name', 'like', $like)->orWhere('c.entity_name', 'like', $like)->orWhere('c.id_number', 'like', $like))))));
                 }
             })
             ->orderByRaw("CASE WHEN capture_kind = 'deeds_capture' THEN 0 ELSE 1 END")
