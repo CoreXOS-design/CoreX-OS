@@ -356,4 +356,63 @@
         };
     };
 </script>
+{{-- mic-work-tab.md 13.12: the "Not the same property" button in the "Listed by N agencies" popover of an Adverts card. First press arms it (amber, "Confirm - not the same property", back to normal after 6 s or a click elsewhere); the second press splits that advert off; an Undo note shows for 10 s. No browser confirm(). --}}
+<script>
+(function () {
+    function register() {
+        window.Alpine.data('miSplit', function (cardId, count, ids, base) {
+            var st = {};
+            ids.forEach(function (id) { st[id] = { armed: false, busy: false, gone: false, msg: '' }; });
+            var post = function (url) {
+                var meta = document.querySelector('meta[name="csrf-token"]');
+                return fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': meta ? meta.content : '' } })
+                    .then(function (r) { return r.json().catch(function () { return { ok: false }; }); });
+            };
+            return {
+                n: count, st: st, note: null, noteAdvert: null, timers: {}, noteTimer: null,
+                // a hairline goes above an entry only when an entry above it is still showing (ids are in the popover's order, newest first)
+                rule: function (id) {
+                    for (var i = 0; i < ids.length; i++) { if (ids[i] === id) { return false; } if (!this.st[ids[i]].gone) { return true; } }
+                    return false;
+                },
+                label: function (id) {
+                    var s = this.st[id];
+                    return s.msg !== '' ? s.msg : (s.armed ? 'Confirm — not the same property' : 'Not the same property');
+                },
+                disarm: function () { var self = this; Object.keys(this.st).forEach(function (id) { self.st[id].armed = false; clearTimeout(self.timers[id]); }); },
+                press: function (id, ev) {
+                    ev.splitBtn = id;
+                    var s = this.st[id];
+                    if (s.busy) { return; }
+                    if (!s.armed) {
+                        this.disarm(); s.msg = ''; s.armed = true;
+                        this.timers[id] = setTimeout(function () { s.armed = false; }, 6000);
+                        return;
+                    }
+                    s.armed = false; clearTimeout(this.timers[id]); s.busy = true;
+                    var me = this;
+                    post(base + '/' + id + '/split').then(function (d) {
+                        s.busy = false;
+                        if (!d || !d.ok) { s.msg = (d && d.message) || 'Couldn’t split — try again'; return; }
+                        s.gone = true;
+                        me.n = (typeof d.adverts_left_on_file === 'number') ? d.adverts_left_on_file : me.n - 1;
+                        me.note = d.split_id; me.noteAdvert = id;
+                        clearTimeout(me.noteTimer);
+                        me.noteTimer = setTimeout(function () { me.note = null; }, 10000);
+                    }).catch(function () { s.busy = false; s.msg = 'Couldn’t split — try again'; });
+                },
+                undo: function () {
+                    var me = this, id = this.noteAdvert, splitId = this.note;
+                    if (!splitId) { return; }
+                    post(base + '/split/' + splitId + '/undo').then(function (d) {
+                        if (!d || !d.ok) { me.note = null; return; }
+                        me.st[id].gone = false; me.n = me.n + 1; me.note = null; clearTimeout(me.noteTimer);
+                    }).catch(function () { me.note = null; });
+                },
+            };
+        });
+    }
+    if (window.Alpine && window.Alpine.data) { register(); } else { document.addEventListener('alpine:init', register); }
+})();
+</script>
 @endsection

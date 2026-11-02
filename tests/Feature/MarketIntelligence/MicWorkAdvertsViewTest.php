@@ -119,6 +119,41 @@ final class MicWorkAdvertsViewTest extends TestCase
         $this->assertStringNotContainsString('cut R', $h);
     }
 
+    public function test_the_listed_by_popover_has_one_ruled_entry_per_advert_newest_first_with_the_not_the_same_property_button(): void
+    {
+        $tp = $this->file('P24-150100030');
+        $old = $this->advert('P24-150100030', 1_200_000, ['tracked_property_id' => $tp, 'agency_name' => 'Sea Realty', 'agent_name' => 'Anna Agent'], ['listed_date' => now()->subDays(60)->toDateString(), 'p24_group_id' => 888]);
+        foreach (['111', '222'] as $no) {
+            DB::table('p24_group_members')->insert(['p24_group_id' => 888, 'listing_number' => $no, 'group_size' => 2, 'first_seen_at' => now(), 'seen_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+        }
+        $new = $this->advert('PP-150100031', 1_150_000, ['portal_source' => 'pp', 'agency_name' => 'Other Agents', 'tracked_property_id' => $tp, 'is_active' => false, 'last_seen_at' => now()->subDays(9)], ['listed_date' => now()->subDays(5)->toDateString(), 'sole_mandate_wording' => 1]);
+        $h = $this->page(['view' => 'adverts']);
+
+        $this->assertStringContainsString('data-qa="listed-by"', $h);
+        $this->assertStringContainsString('miSplit(', $h, 'the pill carries the split state');
+        $this->assertStringContainsString('x-text="\'Listed by \' + n + \' agencies\'"', $h, 'the pill count is live');
+        $from = strpos($h, 'data-qa="listed-by"');
+        $pop = substr($h, $from, strpos($h, 'data-qa="photo-marks"', $from) - $from);
+        $this->assertSame(2, substr_count($pop, 'data-qa="pop-advert"'), 'one entry per advert');
+        $this->assertSame(2, substr_count($pop, 'data-qa="not-same"'));
+        $this->assertSame(2, substr_count($pop, '>Not the same property</button>'));
+        $this->assertLessThan(strpos($pop, '>Sea Realty</strong>'), strpos($pop, '>Other Agents</strong>'), 'newest listed first');
+        $this->assertStringContainsString('<strong>Sea Realty</strong> · Anna Agent', $pop, 'agency bold, then the agent');
+        $this->assertStringContainsString('data-advert-id="' . $new->id . '"', $pop);
+        $this->assertStringContainsString('Not seen since ' . now()->subDays(9)->format('j M'), $pop);
+        $this->assertStringContainsString('Sole mandate', $pop);
+        $this->assertSame(1, substr_count($pop, 'padding: 7px 8px; border-top: 1px solid var(--border);'), 'a hairline on every entry but the first');
+        $this->assertStringContainsString('data-qa="split-note"', $pop);
+        $this->assertStringContainsString('data-qa="split-undo"', $pop);
+        $this->assertStringNotContainsString('confirm(', $pop, 'no browser confirm dialog');
+        $this->assertDoesNotMatchRegularExpression('/<a [^>]*>[^<]*<button/', $pop, 'the button is never inside an advert link');
+        $this->assertStringContainsString('Confirm — not the same property', $h, 'the armed wording is in the page script');
+        // the Adverts line popover shows the same entries but no split button
+        $line = substr($h, strpos($h, 'data-qa="line-adverts"'));
+        $this->assertStringContainsString('data-qa="pop-advert"', $line);
+        $this->assertStringNotContainsString('data-qa="not-same"', substr($line, 0, strpos($line, 'data-qa="line-alerts"') ?: 6000));
+    }
+
     public function test_the_list_view_is_still_the_classic_list(): void
     {
         $this->advert('P24-150100002', 900_000);

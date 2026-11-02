@@ -61,10 +61,10 @@
             @endforeach
         </div>
         @if((int) ($adv['group_member_count'] ?? 0) >= 2)
-            <div style="position:absolute; bottom:8px; left:8px;" data-qa="listed-by">
-                <x-dropdown align="left" width="w-96 max-w-[90vw]" content-classes="p-1">
-                    <x-slot name="trigger"><button type="button" title="Every advert on this property" style="{{ $markStyle }} cursor:pointer; border:none;">Listed by {{ (int) $adv['group_member_count'] }} agencies</button></x-slot>
-                    <x-slot name="content">@include('corex.market-intelligence._advert-pop', ['kind' => 'adverts'])</x-slot>
+            <div style="position:absolute; bottom:8px; left:8px;" data-qa="listed-by" x-data="miSplit({{ $listing->id }}, {{ (int) $adv['group_member_count'] }}, @js(collect($adv['adverts'] ?? [])->sortByDesc(fn ($a) => $a['sort_date'] ?? '')->pluck('id')->filter()->values()->all()), '{{ url('/corex/market-intelligence/adverts') }}')" x-show="n >= 2 || note" @click.outside="disarm()">
+                <x-dropdown align="left" width="w-[22rem] max-w-[90vw]" content-classes="p-1">
+                    <x-slot name="trigger"><button type="button" title="Every advert on this property" style="{{ $markStyle }} cursor:pointer; border:none;" x-text="'Listed by ' + n + ' agencies'">Listed by {{ (int) $adv['group_member_count'] }} agencies</button></x-slot>
+                    <x-slot name="content">@include('corex.market-intelligence._advert-pop', ['kind' => 'adverts', 'split' => true])</x-slot>
                 </x-dropdown>
             </div>
         @endif

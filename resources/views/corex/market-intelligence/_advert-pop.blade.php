@@ -3,8 +3,10 @@
 @php
     $pt = 'font-size:.75rem; color: var(--text-primary); line-height:1.5;';
     $ph = 'font-weight:700; color: var(--text-primary); font-size:.75rem; margin-bottom:2px;';
+    $split = !empty($split);
 @endphp
-<div style="padding:4px 6px; max-height:22rem; overflow-y:auto; {{ $pt }}" @keydown.escape.window="$dispatch('close')">
+{{-- With the split button the popover stays open on a click inside it (the shared dropdown would close it); a click that is not on a split button turns an armed one back to normal --}}
+<div style="padding:4px 6px; max-height:22rem; overflow-y:auto; {{ $pt }}" @keydown.escape.window="$dispatch('close')" @if($split) @click.stop="if ($event.splitBtn === undefined) disarm()" @endif>
 @if($kind === 'buyers')
     <div style="{{ $ph }}">Matched buyers · {{ $adv['buyers_strong'] ?? $adv['buyers'] ?? 0 }} strong · {{ $adv['buyers_mid'] ?? 0 }} mid</div>
     @forelse($adv['buyer_names'] ?? [] as $b)
@@ -24,14 +26,39 @@
     @endforelse
     <div style="margin-top:4px; color: var(--text-secondary);">A cut counts only when the same advert was read at two prices, or the portal says Reduced.</div>
 @elseif($kind === 'adverts')
-    <div style="{{ $ph }}">Adverts on this property</div>
-    @foreach($adv['adverts'] ?? [] as $a)
-        <div>
-            {{ $a['portal'] }} · @if($a['url'])<a href="{{ $a['url'] }}" target="_blank" rel="noopener" title="{{ $a['active'] ? 'Open the advert' : 'Not seen since ' . ($a['last_seen'] ?? '-') . ' - the link may no longer work' }}" style="color: {{ $a['active'] ? 'var(--text-primary)' : 'var(--text-secondary)' }}; text-decoration: underline {{ $a['active'] ? 'solid' : 'dotted' }}; text-decoration-color: var(--brand-icon);">{{ $a['ref'] }}</a>@else{{ $a['ref'] }}@endif
-            · {{ $a['owner'] ? 'Owner (private)' : ($a['agency'] ?: '-') }}@if($a['agent']) · {{ $a['agent'] }}@endif
-            · {{ $a['price'] ? $money($a['price']) : '-' }}
-            · {{ !$a['active'] ? 'Not seen since ' . ($a['last_seen'] ?? '-') : (($a['status'] && $a['status'] !== 'active') ? ucfirst(str_replace('_', ' ', $a['status'])) : 'Active') }}
-            · first seen {{ $a['seen'] ?? '-' }}
+    {{-- 13.12: one entry per advert, newest listed first, a hairline between entries. `$split` (the "Listed by N agencies" pill only) adds the "Not the same property" button; the Alpine scope `miSplit` is on the pill's wrapper. --}}
+    @php
+        $entries = collect($adv['adverts'] ?? [])->sortByDesc(fn ($a) => $a['sort_date'] ?? '')->values();
+        $mark = 'padding:0 6px; font-size:.6875rem; font-weight:700; background: rgba(15,23,42,.82); color:#fff; border-radius:3px; text-decoration:none; line-height:1.5;';
+    @endphp
+    <div style="{{ $ph }} padding: 0 8px 4px;">Adverts on this property</div>
+    @if($split)
+        <div x-show="note" style="display:none; padding: 4px 8px; margin-bottom: 2px; background: var(--surface-2); border-radius: 4px;" data-qa="split-note" role="status">Split off as its own entry · <button type="button" @click="undo()" data-qa="split-undo" style="background:none; border:none; padding:0; font-size:.75rem; font-weight:700; color: var(--text-primary); text-decoration: underline; text-decoration-color: var(--brand-icon); cursor:pointer;">Undo</button></div>
+    @endif
+    @foreach($entries as $i => $a)
+        @php
+            $state = !$a['active'] ? 'Not seen since ' . ($a['last_seen'] ?? '-') : (($a['status'] && $a['status'] !== 'active') ? ucfirst(str_replace('_', ' ', $a['status'])) : 'Active');
+            $aid = (int) ($a['id'] ?? 0);
+        @endphp
+        <div data-qa="pop-advert" data-advert-id="{{ $aid }}" style="padding: 7px 8px; {{ $i > 0 ? 'border-top: 1px solid var(--border);' : '' }}"
+             @if($split && $aid) x-show="!st[{{ $aid }}].gone" :style="{ borderTop: rule({{ $aid }}) ? '1px solid var(--border)' : '0', opacity: st[{{ $aid }}].busy ? .45 : 1 }" @endif>
+            <div>
+                <strong>{{ $a['owner'] ? 'Owner (private)' : ($a['agency'] ?: 'Agency not shown') }}</strong>@if($a['agent']) · {{ $a['agent'] }}@endif
+                · @if($a['url'])<a href="{{ $a['url'] }}" target="_blank" rel="noopener" data-qa="pop-mark" title="{{ $a['active'] ? 'Open the advert' : 'Not seen since ' . ($a['last_seen'] ?? '-') . ' - the link may no longer work' }}" style="{{ $mark }}{{ $a['active'] ? '' : ' background: rgba(100,116,139,.85); text-decoration: line-through;' }}">{{ $a['portal'] }}</a>@else<span style="{{ $mark }}">{{ $a['portal'] }}</span>@endif
+            </div>
+            <div style="color: var(--text-secondary);">
+                {{ $a['price'] ? $money($a['price']) : '-' }}
+                · {{ $a['listed'] ? 'listed ' . $a['listed'] : 'first seen ' . ($a['seen'] ?? '-') }}
+                · {{ $state }}@if(!empty($a['sole_mandate'])) · Sole mandate @endif
+            </div>
+            @if($split && $aid)
+                <div style="text-align: right; margin-top: 3px;">
+                    <button type="button" data-qa="not-same" @click="press({{ $aid }}, $event)" :disabled="st[{{ $aid }}].busy"
+                            :style="{ background: st[{{ $aid }}].armed ? 'var(--ds-amber, #f59e0b)' : 'none', color: st[{{ $aid }}].armed ? '#111827' : 'var(--text-primary)', padding: st[{{ $aid }}].armed ? '1px 6px' : '0', borderRadius: '3px' }"
+                            style="border:none; font-size:.75rem; font-weight:600; text-decoration: underline; text-decoration-color: var(--brand-icon); cursor:pointer;"
+                            x-text="label({{ $aid }})">Not the same property</button>
+                </div>
+            @endif
         </div>
     @endforeach
 @elseif($kind === 'alerts')
