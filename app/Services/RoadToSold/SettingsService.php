@@ -393,6 +393,12 @@ class SettingsService
         return max(0, (int) $this->scalar('claim_extensions_allowed'));
     }
 
+    /** 23.7: working days ahead the call-back date of a Market Intelligence "contacted" feedback is set. */
+    public function defaultCallbackDays(): int
+    {
+        return max(1, (int) $this->scalar('default_callback_days'));
+    }
+
     /** 23.6: does the Owner station need a deed record as well as the linked owner contact? On by default. */
     public function ownerRequiresDeed(): bool
     {

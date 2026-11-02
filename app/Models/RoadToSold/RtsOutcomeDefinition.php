@@ -82,6 +82,61 @@ class RtsOutcomeDefinition extends Model
         return $this->kind === self::KIND_CONVERSATION;
     }
 
+    /** The outcomes that are an off-ramp in the seeded list (v4 23.11): the record leaves the forward path with a reason, a next action and a date. */
+    public const OFF_RAMP_KEYS = [
+        'wrong_number', 'no_owner_found', 'do_not_contact', 'spoke_not_interested', 'listed_other_agency_open',
+        'mandated_other_agency_sole', 'eval_chose_other', 'eval_selling_privately',
+    ];
+
+    public const GROUP_FORWARD  = 'forward';
+    public const GROUP_AGAIN    = 'again';
+    public const GROUP_OFF_RAMP = 'off_ramp';
+
+    /**
+     * Which part of the one vocabulary this outcome belongs to (v4 23.11 + the 2 Nov ruling): a FORWARD move (an evaluation is booked, the owner is met and
+     * the next station follows), an OFF-RAMP (not interested, wrong number, already listed ... - a reason, a next action and a date), or TRY AGAIN
+     * (no answer, call back). An agency's own outcome is an off-ramp when it parks or never calls again.
+     */
+    public function group(): string
+    {
+        if (in_array($this->key, self::OFF_RAMP_KEYS, true) || $this->park_reason_key || $this->records_do_not_contact || $this->next_action === self::ACTION_NEVER_AGAIN) {
+            return self::GROUP_OFF_RAMP;
+        }
+        if ($this->next_action === self::ACTION_APPOINTMENT || in_array($this->stage_after, ['appointment_set', 'presentation_prepared', 'evaluation_done', 'mandate_signed'], true)) {
+            return self::GROUP_FORWARD;
+        }
+
+        return self::GROUP_AGAIN;
+    }
+
+    /**
+     * The label as the agent should read it for the way they made contact (v4 23.7 "channel-aware labels"): "No answer" by phone is "No reply" on
+     * WhatsApp or email and "Not there" in person; "Spoke - ..." is "Replied - ..." in writing and "Met - ..." in person. An agency's own wording
+     * with none of those words is left exactly as it is.
+     */
+    public function labelFor(?string $channel): string
+    {
+        $label = (string) $this->label;
+        if ($channel === null || $channel === '' || $channel === 'phone') {
+            return $label;
+        }
+        $written = in_array($channel, ['whatsapp', 'email'], true);
+        $map = [
+            'No answer'  => $written ? 'No reply' : 'Not there',
+            'Wrong number' => $written ? 'Wrong number' : 'Wrong person',
+        ];
+        foreach ($map as $from => $to) {
+            if (strcasecmp($label, $from) === 0) {
+                return $to;
+            }
+        }
+        if (stripos($label, 'Spoke') === 0) {
+            return ($written ? 'Replied' : 'Met') . substr($label, 5);
+        }
+
+        return $label;
+    }
+
     /** Plain-English sentence describing what happens next (used under the label in settings). */
     public function nextActionSummary(): string
     {

@@ -4203,6 +4203,23 @@ class MarketIntelligenceController extends Controller
             }
         }
 
+        // v4 (road-to-sold.md 23.7.3): MIC feedback is the station-4 outcome. On a claim that is on the belt it is written through the one outcome
+        // service (channel phone), the claim's status follows the station, and nothing is stored in a second place. 'lost' keeps its old close below.
+        $adapter = app(\App\Services\RoadToSold\MicFeedbackAdapter::class);
+        if ($adapter->handles($claim, $newStatus)) {
+            $done = $adapter->apply($user, $claim, $listing, $newStatus, $request->notes);
+            if (! $done['ok']) {
+                return back()->with('error', $done['message']);
+            }
+            $claim->refresh()->update([
+                'notes'           => $request->notes ?? $claim->notes,
+                'feedback_at'     => $claim->feedback_at ?? now(),
+                'last_updated_at' => now(),
+            ]);
+
+            return back()->with('success', $done['message']);
+        }
+
         // First-feedback detection — the activity-points credit (mic.claim_feedback)
         // fires ONCE, when feedback_at transitions null→now. Re-editing the status
         // later keeps the original feedback_at and does NOT re-award.

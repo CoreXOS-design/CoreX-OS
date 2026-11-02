@@ -200,8 +200,9 @@ function rtsStepModal() {
             this.isOpen = false;
             this.$refs.frame.src = 'about:blank';
             if (this.opener && this.opener.focus) { this.opener.focus(); }
-            // closing returns to Road to Sold with the card refreshed (the step may have moved the prospect)
-            window.location.reload();
+            // closing returns to Road to Sold with the card refreshed IN PLACE (the step may have moved the prospect): no reload, so what the agent
+            // had open and their place on the page stay. rtsRefreshLive is defined by the page; without it, reload as before.
+            if (window.rtsRefreshLive) { window.rtsRefreshLive(); } else { window.location.reload(); }
         },
     };
 }

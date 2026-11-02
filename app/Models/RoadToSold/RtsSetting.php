@@ -54,7 +54,7 @@ class RtsSetting extends Model
         'levels_signoff_required', 'level_periods_required',
         'flag_min_sample', 'flag_below_pct', 'flag_window_days', 'suggest_window_weeks', 'suggest_growth_pct',
         'expired_competitor_lookback_days', 'prospect_stall_days', 'agent_start_required', 'source_for_colleagues',
-        'claim_hold_days', 'claim_warn_days', 'claim_extension_days', 'claim_extensions_allowed', 'owner_requires_deed',
+        'claim_hold_days', 'claim_warn_days', 'claim_extension_days', 'claim_extensions_allowed', 'owner_requires_deed', 'default_callback_days',
     ];
 
     protected $casts = [
@@ -100,6 +100,7 @@ class RtsSetting extends Model
         'claim_extension_days'         => 'integer',
         'claim_extensions_allowed'     => 'integer',
         'owner_requires_deed'          => 'boolean',
+        'default_callback_days'        => 'integer',
         'flag_min_sample'              => 'integer',
         'flag_below_pct'               => 'integer',
         'flag_window_days'             => 'integer',
@@ -145,6 +146,9 @@ class RtsSetting extends Model
         if (! self::hasOwnerRequiresDeedColumn()) {
             unset($out['owner_requires_deed']);
         }
+        if (! self::hasDefaultCallbackColumn()) {
+            unset($out['default_callback_days']);
+        }
         if (! self::hasClaimHoldColumns()) {
             foreach (['claim_hold_days', 'claim_warn_days', 'claim_extension_days', 'claim_extensions_allowed'] as $c) {
                 unset($out[$c]);
@@ -155,6 +159,14 @@ class RtsSetting extends Model
         }
 
         return $out;
+    }
+
+    /** v4 A3: the default call-back days is a column added by migration; until it exists the default of 3 applies. */
+    public static function hasDefaultCallbackColumn(): bool
+    {
+        static $has = null;
+
+        return $has ??= \Illuminate\Support\Facades\Schema::hasColumn((new static())->getTable(), 'default_callback_days');
     }
 
     /** v4 A2: the owner-needs-a-deed switch is a column added by migration; until it exists the rule is on. */
@@ -211,6 +223,7 @@ class RtsSetting extends Model
         'claim_extension_days'         => 30,      // length of the one extension, in working days
         'claim_extensions_allowed'     => 1,       // extensions an agent may take (a manager can grant more)
         'owner_requires_deed'          => true,    // 23.6: the Owner station needs a deed record as well as the owner contact
+        'default_callback_days'        => 3,       // 23.7: working days ahead the call-back date of a Market Intelligence "contacted" feedback is set
         'flag_min_sample'              => 20,
         'flag_below_pct'               => 60,
         'flag_window_days'             => 30,

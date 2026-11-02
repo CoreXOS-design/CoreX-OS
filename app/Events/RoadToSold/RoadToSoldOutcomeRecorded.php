@@ -28,6 +28,7 @@ final class RoadToSoldOutcomeRecorded extends AbstractDomainEvent
         public readonly bool $evaluationBooked = false,
         public readonly ?int $calendarEventId = null,
         public readonly ?int $actorUserId = null,
+        public readonly ?string $channel = null,   // v4 23.7: phone / whatsapp / email / in_person (null = not recorded)
         ?string $traceId = null,
     ) {
         parent::__construct($traceId);

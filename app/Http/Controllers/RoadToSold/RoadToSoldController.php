@@ -118,6 +118,10 @@ class RoadToSoldController extends Controller
             'needs_appointment' => $d->next_action === Def::ACTION_APPOINTMENT,
             'offers_valuation'  => $d->kind === Def::KIND_CONVERSATION
                 && ! in_array($d->next_action, [Def::ACTION_APPOINTMENT, Def::ACTION_NEVER_AGAIN], true),
+            // v4 (23.7 / 23.11): one vocabulary - forward moves, try-again and off-ramps - and the label as it reads for each way of making contact
+            'group'           => $d->group(),
+            'labels'          => collect(\App\Models\RoadToSold\RtsContactOutcome::CHANNELS)->map(fn ($l, $ch) => $d->labelFor($ch))->all(),
+            'owner_exempt'    => app(\App\Services\RoadToSold\OwnerStationService::class)->exempt($d),
         ])->values()->all();
 
         // v4 belt (spec 23): the tile row, the Start card and the manager's "Not started / Paused" panel
@@ -184,6 +188,11 @@ class RoadToSoldController extends Controller
             ] + Track::params($track)),
             'track'          => $track,
             'outcomeChoices' => $outcomes,
+            // v4 (23.6 / 23.7): which rows are still waiting for the owner to be found (property id => what is missing), and the channel this agent used last
+            'ownerBlocked'   => $viewingOwn && $agentUser ? app(\App\Services\RoadToSold\OwnerStationService::class)->blockedMany($agentUser, collect($data['rows']->items())->pluck('tracked_property_id')->all()) : [],
+            'lastChannel'    => ($agentUser && \App\Models\RoadToSold\RtsContactOutcome::hasChannelColumn())
+                ? (string) (\App\Models\RoadToSold\RtsContactOutcome::query()->where('track', $track)->where('user_id', $agentUser->id)->whereNotNull('channel')->orderByDesc('id')->value('channel') ?: '')
+                : '',
             'history'        => $this->outcomes->historyForPage($viewer, collect($data['rows']->items())->pluck('tracked_property_id')->all(), $track),
             'agents'         => $agents,
             'agentId'        => $agentId,
@@ -424,7 +433,9 @@ class RoadToSoldController extends Controller
             'valuation_booked'      => ['nullable', 'boolean'],
             'appointment_at'        => ['nullable', 'date'],
             'follow_up_months'      => ['nullable', 'integer', 'min:1', 'max:60'],
+            'channel'               => ['nullable', 'in:' . implode(',', array_keys(\App\Models\RoadToSold\RtsContactOutcome::CHANNELS))],
         ], [
+            'channel.in'                     => 'Pick how you contacted them: phone, WhatsApp, email or in person.',
             'tracked_property_id.required'   => 'Pick the property again.',
             'outcome_definition_id.required' => 'Pick an outcome.',
             'next_action_at.date'            => 'We could not read that date. Pick it again.',
@@ -438,6 +449,7 @@ class RoadToSoldController extends Controller
             'valuation_booked' => $request->boolean('valuation_booked'),
             'appointment_at'   => $data['appointment_at'] ?? null,
             'follow_up_months' => $data['follow_up_months'] ?? null,
+            'channel'          => $data['channel'] ?? null,
         ];
 
         if (! empty($data['list_item_id'])) {

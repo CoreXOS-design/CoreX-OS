@@ -66,9 +66,9 @@ return [
             ],
             [
                 'element' => '[data-tour="smk-rts-contact"]',
-                'do'      => ['action' => 'click', 'say' => 'Click Contacted client on a property you have just phoned.', 'until' => '[data-tour="smk-rts-contact-form"]'],
-                'title'   => 'Contacted client',
-                'body'    => 'After every call, press Contacted client and record what happened. That is what moves the numbers at the top, so do it for every call — even the ones nobody answered.',
+                'do'      => ['action' => 'click', 'say' => 'Click Log contact on a property you have just phoned.', 'until' => '[data-tour="smk-rts-contact-form"]'],
+                'title'   => 'Log contact',
+                'body'    => 'After every call, press Log contact and record what happened. That is what moves the numbers at the top, so do it for every call — even the ones nobody answered.',
             ],
             [
                 'element'       => '[data-tour="smk-rts-outcome-pick"]',

@@ -266,6 +266,9 @@ class SettingsController extends Controller
         if (RtsSetting::hasSourceForColleaguesColumn()) {
             $rules['source_for_colleagues'] = ['sometimes', 'string', \Illuminate\Validation\Rule::in(array_keys(RtsSetting::COLLEAGUE_SOURCES))];
         }
+        if (RtsSetting::hasDefaultCallbackColumn()) {
+            $rules['default_callback_days'] = ['sometimes', 'integer', 'min:1', 'max:30'];
+        }
         if (RtsSetting::hasOwnerRequiresDeedColumn()) {
             $rules['owner_requires_deed'] = ['sometimes', 'boolean'];
         }
@@ -596,6 +599,7 @@ class SettingsController extends Controller
         'capture_needs_review'    => 'Captured tasks wait for a manager\'s approval',
         'agent_start_required'    => 'Agents press Start my Road to Sold before lists load',
         'source_for_colleagues'   => 'Whose buyers feed an agent\'s stock after their own',
+        'default_callback_days'   => 'Working days ahead a call-back from a Market Intelligence feedback is set',
         'owner_requires_deed'     => 'The Owner found station needs a deed record as well as the owner contact',
         'claim_hold_days'         => 'Working days a claimed property is held while it is not worked',
         'claim_warn_days'         => 'Working days before the hold ends that the agent is told',

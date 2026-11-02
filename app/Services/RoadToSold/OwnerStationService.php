@@ -99,6 +99,48 @@ class OwnerStationService
         return $moved;
     }
 
+    /**
+     * The gate for many properties at once (the rows of a list): property id => what is still missing, for those the agent may NOT yet contact. A property
+     * that is not in the answer is open. Same rule as refusal(); two queries for the whole page.
+     *
+     * @param  int[]  $trackedIds
+     * @return array<int,list<string>>
+     */
+    public function blockedMany(User $actor, array $trackedIds): array
+    {
+        $agencyId = (int) ($actor->effectiveAgencyId() ?: 0);
+        $ids = array_values(array_unique(array_filter(array_map('intval', $trackedIds))));
+        if ($agencyId <= 0 || $ids === [] || ! config('road-to-sold-belt.enforce_owner_gate', true)) {
+            return [];
+        }
+        $needDeed = $this->requiresDeed($agencyId);
+        $tps = DB::table('tracked_properties')->where('agency_id', $agencyId)->whereIn('id', $ids)->get(['id', 'owner_contact_id', 'deeds_captured_at'])->keyBy('id');
+        $withDeedRef = $needDeed ? DB::table('tracked_property_external_refs')->where('agency_id', $agencyId)->whereIn('tracked_property_id', $ids)
+            ->whereIn('source_type', self::DEED_SOURCES)->whereNull('deleted_at')->pluck('tracked_property_id')->flip() : collect();
+        $mine = RtsProspect::withoutGlobalScopes()->where('agency_id', $agencyId)->where('track', 'sales')->whereIn('tracked_property_id', $ids)
+            ->where('user_id', (int) $actor->ownershipUserId())->whereNull('closed_at')->whereNull('released_at')->whereNull('deleted_at')->pluck('stage', 'tracked_property_id');
+        $out = [];
+        foreach ($ids as $id) {
+            $past = isset($mine[$id]) && ProspectStages::order((string) $mine[$id]) >= ProspectStages::order(ProspectStages::OWNER_FOUND);
+            if ($past) {
+                continue;
+            }
+            $tp = $tps[$id] ?? null;
+            $missing = [];
+            if (! $tp || ! $tp->owner_contact_id) {
+                $missing[] = 'the owner contact';
+            }
+            if ($needDeed && ! ($tp && ($tp->deeds_captured_at !== null || isset($withDeedRef[$id])))) {
+                $missing[] = 'the deed record';
+            }
+            if ($missing !== []) {
+                $out[$id] = $missing;
+            }
+        }
+
+        return $out;
+    }
+
     /** The outcomes that always pass: they exist to report that the owner is not known, or must not be contacted. */
     public function exempt(Def $def): bool
     {

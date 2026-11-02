@@ -22,7 +22,7 @@ use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
- * AT-454 (lane 3) - the Road to Sold page and the "Contacted client" capture over HTTP.
+ * AT-454 (lane 3) - the Road to Sold page and the "Log contact" capture over HTTP.
  * Spec: .ai/specs/road-to-sold.md section 10.5.
  *
  * Paths proven: the day's list renders (address, price, days on market, listing agency, why, owner +
@@ -126,7 +126,7 @@ final class RoadToSoldPageTest extends TestCase
         $res->assertSee('Seeff Margate')->assertSee('Price dropped 8% in 10 days')->assertSee('On the market 120 days');
         $res->assertSee('Pieter van der Merwe')->assertSee('0825512345');
         $res->assertSee('Find the owner')->assertSee(route('seller-outreach.entry.from-tracked-property', $noOwner->id), false);
-        $res->assertSee('0 of 2')->assertSee('Contacted client');
+        $res->assertSee('0 of 2')->assertSee('Log contact');
         $this->assertSame(2, substr_count($res->getContent(), 'data-tp='));
     }
 
@@ -194,9 +194,9 @@ final class RoadToSoldPageTest extends TestCase
         $page = $this->actingAs($this->agent)->get(route('road-to-sold.index', ['status' => 'all']));
         $page->assertSee('No answer')->assertSee('1 of 1');
 
-        // The "No answer" view finds it any day (owner phones back) and still offers Contacted client.
+        // The "No answer" view finds it any day (owner phones back) and still offers Log contact.
         $this->actingAs($this->agent)->get(route('road-to-sold.index', ['view' => 'no_answer', 'date' => '2026-11-30']))
-            ->assertSee('Marine Drive')->assertSee('Contacted client');
+            ->assertSee('Marine Drive')->assertSee('Log contact');
     }
 
     public function test_wrong_number_view_lists_the_tagged_property(): void
@@ -259,7 +259,7 @@ final class RoadToSoldPageTest extends TestCase
         PermissionService::clearCache();
         $res = $this->actingAs($manager)->get(route('road-to-sold.index', ['agent' => $this->other->id]));
         $res->assertOk()->assertSee('Marine Drive')->assertSee('Bheki Other');
-        $res->assertDontSee('data-tp=', false);   // looking at someone else's list is read-only: no Contacted client buttons
+        $res->assertDontSee('data-tp=', false);   // looking at someone else's list is read-only: no Log contact buttons
     }
 
     public function test_a_second_agencys_list_never_shows(): void

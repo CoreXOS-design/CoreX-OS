@@ -19,6 +19,8 @@ return [
     // the master switch for "Start my Road to Sold" (23.13). The agency setting `agent_start_required` decides per agency; tests written before Start existed switch this off.
     'enforce_start' => true,
     // v4 A2 (road-to-sold.md 23.6): no contact outcome / send until the owner is found. The test suite sets RTS_ENFORCE_OWNER_GATE=false (phpunit.xml) because the tests written before the gate record outcomes on properties with no owner; OwnerStationTest switches it on.
+    // v4 A3 (23.7): every contact outcome names its channel. The test suite sets RTS_REQUIRE_CHANNEL=false (phpunit.xml) for the tests written before channels; ChannelOutcomeTest switches it on.
+    'require_channel' => env('RTS_REQUIRE_CHANNEL', true),
     'enforce_owner_gate' => env('RTS_ENFORCE_OWNER_GATE', true),
 
     // working days an open claim may sit with no work before the tile shows it red (until Lane A1's claim hold, 23.5, takes over)

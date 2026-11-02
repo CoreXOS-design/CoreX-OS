@@ -299,7 +299,9 @@ final class CreditInstantActionListener
         // the MIC feedback controller, so re-editing the status later never
         // re-fires; InstantPointService idempotency (per agent/day/claim) is the
         // second guard. Credits the claiming agent (claim->user_id).
-        $this->safeCredit('mic.claim_feedback', $this->user((int) $event->claim->user_id), $event->claim);
+        // Road to Sold v4 (road-to-sold.md 23.2 / 23.16): mic.claim_feedback STOPS. MIC feedback is the station-4 outcome now and the outcome carries
+        // its own points, so one call is never paid twice. The event still fires (the recipe task engine reads it); only the credit is retired.
+        return;
     }
 
     // ───────────────────────────────────────────────────────────────────

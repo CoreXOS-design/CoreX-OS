@@ -354,6 +354,14 @@
                         </span>
                     </label>
                     @endif
+                    @if(\App\Models\RoadToSold\RtsSetting::hasDefaultCallbackColumn())
+                    <div data-qa="setting-default-callback">
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="default_callback_days">When a call is logged as "contacted" from Market Intelligence, call back in</label>
+                        <input id="default_callback_days" type="number" min="1" max="30" name="default_callback_days" value="{{ old('default_callback_days', $settings->defaultCallbackDays()) }}"
+                               class="w-28 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        <span class="text-xs ml-2" style="color:var(--text-muted);">working days (standard: {{ $defaults['default_callback_days'] }})</span>
+                    </div>
+                    @endif
                     @if(\App\Models\RoadToSold\RtsSetting::hasOwnerRequiresDeedColumn())
                     <label class="flex items-start gap-3 text-sm" style="color:var(--text-primary);" data-qa="setting-owner-requires-deed">
                         <input type="hidden" name="owner_requires_deed" value="0">

@@ -15,6 +15,9 @@
         'oldDate'  => old('next_action_at'),
         'oldValuation' => (bool) old('valuation_booked'),
         'oldAppointment' => old('appointment_at'),
+        'oldChannel' => old('channel'),
+        'lastChannel' => $lastChannel ?? '',
+        'channels' => \App\Models\RoadToSold\RtsContactOutcome::CHANNELS,
         'addresses' => $addresses,
         'history'   => $history,
         'captureTasks' => $captureTasks->map(fn ($t) => ['id' => $t->id, 'label' => $t->label, 'kind' => $t->capture_kind, 'evidence' => $t->evidence_required])->values()->all(),
@@ -315,9 +318,16 @@
                                 </span>
                             @endif
                             @if($viewingOwn && ($r['status'] === 'open' || in_array($filters['view'], ['no_answer', 'wrong_number'], true)))
-                                <button type="button" class="corex-btn-primary corex-btn-xs" @if($loop->first) data-tour="smk-rts-contact" @endif
+                                @php $ownerMissing = $ownerBlocked[(int) $r['tracked_property_id']] ?? null; @endphp
+                                @if($ownerMissing)
+                                    {{-- v4 gate (road-to-sold.md 23.6): no contact is logged until the owner is found; this turns into the Log contact button without a reload --}}
+                                    <span class="corex-btn-outline corex-btn-xs" style="opacity:.65; cursor:not-allowed;" data-qa="log-contact-blocked" data-blocked-tp="{{ $r['tracked_property_id'] }}"
+                                          title="Find the owner first - still needed: {{ implode(' and ', $ownerMissing) }}.">Find owner first</span>
+                                @else
+                                <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="log-contact" @if($loop->first) data-tour="smk-rts-contact" @endif
                                         data-tp="{{ $r['tracked_property_id'] }}" data-item="{{ $r['list_item_id'] }}" data-address="{{ $r['address'] }}"
-                                        @click="openContact($el.dataset)">Contacted client</button>
+                                        @click="openContact($el.dataset)">Log contact</button>
+                                @endif
                             @elseif($r['status'] !== 'open')
                                 <span style="color: var(--text-muted);">{{ ucfirst($r['status']) }}</span>
                             @endif
@@ -436,7 +446,7 @@
         </div>
     </div>
 
-    {{-- Contacted client popup --}}
+    {{-- Log contact popup (was "Contacted client") --}}
     <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @keydown.escape.window="open = false">
         <form method="POST" action="{{ route('road-to-sold.outcomes.record') }}" data-tour="smk-rts-contact-form" class="w-full max-w-lg rounded-md p-5 space-y-4 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border); max-height: 90vh;">
             @csrf
@@ -445,19 +455,39 @@
             <input type="hidden" name="list_item_id" :value="item">
 
             <div>
-                <h2 class="text-sm font-bold" style="color: var(--text-primary);">Contacted client</h2>
+                <h2 class="text-sm font-bold" style="color: var(--text-primary);">Log contact</h2>
                 <div class="text-xs mt-1" style="color: var(--text-muted);" x-text="address"></div>
             </div>
 
-            <div class="space-y-2" data-tour="smk-rts-outcome-pick">
-                <template x-for="c in choices" :key="c.id">
-                    <label class="flex items-start gap-2 text-xs cursor-pointer" style="color: var(--text-primary);">
-                        <input type="radio" name="outcome_definition_id" :value="c.id" x-model="chosen" class="mt-0.5">
-                        <span>
-                            <span class="font-semibold" x-text="c.label"></span>
-                            <span style="color: var(--text-muted);" x-text="' · ' + (c.kind === 'conversation' ? 'conversation' : 'attempt')"></span>
-                        </span>
-                    </label>
+            {{-- how the owner was contacted comes first (road-to-sold.md 23.7); the agent's last way is ticked --}}
+            <fieldset class="space-y-1" data-qa="channel-pick">
+                <legend class="text-xs font-semibold mb-1" style="color: var(--text-muted);">How did you contact them?</legend>
+                <div class="flex flex-wrap gap-3">
+                    <template x-for="(label, key) in channels" :key="key">
+                        <label class="flex items-center gap-1.5 text-xs cursor-pointer" style="color: var(--text-primary);">
+                            <input type="radio" name="channel" :value="key" x-model="channel" required>
+                            <span x-text="label"></span>
+                        </label>
+                    </template>
+                </div>
+            </fieldset>
+
+            <div class="space-y-3" data-tour="smk-rts-outcome-pick">
+                <template x-for="g in groups" :key="g.key">
+                    <div x-show="g.items.length">
+                        <div class="text-[0.6875rem] font-bold uppercase mb-1" style="color: var(--text-muted);" x-text="g.title"></div>
+                        <div class="space-y-2">
+                            <template x-for="c in g.items" :key="c.id">
+                                <label class="flex items-start gap-2 text-xs cursor-pointer" style="color: var(--text-primary);">
+                                    <input type="radio" name="outcome_definition_id" :value="c.id" x-model="chosen" class="mt-0.5">
+                                    <span>
+                                        <span class="font-semibold" x-text="labelOf(c)"></span>
+                                        <span style="color: var(--text-muted);" x-text="' · ' + (c.kind === 'conversation' ? 'conversation' : 'attempt')"></span>
+                                    </span>
+                                </label>
+                            </template>
+                        </div>
+                    </div>
                 </template>
             </div>
 
@@ -492,6 +522,23 @@
 </div>
 
 <script>
+// The page refreshes itself in place after a pop-up closes (the owner was found, a contact was logged): the tiles, the list and the line are fetched
+// again and swapped in, so nothing the agent had open is lost and the row "moves to Owner found" without a reload.
+window.__cxpNoReload = true;
+window.rtsRefreshLive = function () {
+    var sels = ['[data-qa="belt-tiles"]', '[data-qa="intake-table"]', '[data-qa="block-prospects"]'];
+    return fetch(window.location.href, { credentials: 'same-origin', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'text/html' } })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+        .then(function (html) {
+            var doc = new DOMParser().parseFromString(html, 'text/html');
+            sels.forEach(function (sel) {
+                var cur = document.querySelector(sel), fresh = doc.querySelector(sel);
+                if (cur && fresh) { cur.replaceWith(fresh); }
+            });
+        })
+        .catch(function () { window.location.reload(); });
+};
+window.addEventListener('corex-pitch-closed', function (e) { if (e.detail && e.detail.touched) { window.rtsRefreshLive(); } });
 function rtsPage(cfg) {
     return {
         open: false,
@@ -501,6 +548,8 @@ function rtsPage(cfg) {
         item: '',
         address: '',
         choices: cfg.choices || [],
+        channels: cfg.channels || {},
+        channel: cfg.oldChannel || cfg.lastChannel || '',
         chosen: '',
         nextDate: '',
         valuation: false,
@@ -549,6 +598,14 @@ function rtsPage(cfg) {
             this.capOpen = true;
             this.$nextTick(() => { const el = document.getElementById(id); if (el) { el.scrollIntoView({ block: 'center' }); el.focus(); } });
         },
+        // one vocabulary (road-to-sold.md 23.11): forward moves, try again, off-ramps; the owner-problem outcomes stay available to report it
+        get groups() {
+            const t = { forward: 'Moves it forward', again: 'Try again later', off_ramp: 'Off-ramps - why it stops here' };
+            return ['forward', 'again', 'off_ramp'].map(k => ({ key: k, title: t[k], items: this.choices.filter(c => (c.group || 'again') === k) }));
+        },
+        labelOf(c) {
+            return (this.channel && c.labels && c.labels[this.channel]) ? c.labels[this.channel] : c.label;
+        },
         get current() {
             return this.choices.find(c => String(c.id) === String(this.chosen)) || null;
         },
@@ -572,6 +629,7 @@ function rtsPage(cfg) {
                 this.item = r.item || '';
                 this.address = (cfg.addresses && cfg.addresses[r.tp]) || '';
                 this.chosen = cfg.oldOutcome || '';
+                this.channel = cfg.oldChannel || this.channel;
                 this.nextDate = cfg.oldDate || '';
                 this.valuation = !!cfg.oldValuation;
                 this.appointmentAt = cfg.oldAppointment || '';

@@ -61,7 +61,7 @@ final class NextActionService
                 'title'  => 'Call ' . $firstRow['address'],
                 'detail' => (int) $list['open'] > 1 ? ((int) $list['open'] - 1) . ' more on today\'s list' : null,
                 'action' => $canAct ? [
-                    'type' => 'contact', 'label' => 'Contacted client',
+                    'type' => 'contact', 'label' => 'Log contact',
                     'tp' => $firstRow['tracked_property_id'], 'item' => $firstRow['list_item_id'], 'address' => $firstRow['address'],
                 ] : null,
             ];

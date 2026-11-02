@@ -56,6 +56,17 @@ class OutcomeService
             throw new RoadToSoldException('That outcome is not available any more. Pick another one.');
         }
 
+        // v4 (23.7): how the owner was contacted. Required for every outcome that is a contact (the ones that only report an owner problem say nothing was
+        // contacted). Until the migration has run the column is not there and nothing is asked.
+        $channel = strtolower(trim((string) ($input['channel'] ?? '')));
+        if ($channel !== '' && ! array_key_exists($channel, RtsContactOutcome::CHANNELS)) {
+            throw new RoadToSoldException('Pick how you contacted them: phone, WhatsApp, email or in person.');
+        }
+        if ($channel === '' && RtsContactOutcome::hasChannelColumn() && config('road-to-sold-belt.require_channel', true) && ! app(OwnerStationService::class)->exempt($def)) {
+            throw new RoadToSoldException('Pick how you contacted them.');
+        }
+        $channel = $channel !== '' && RtsContactOutcome::hasChannelColumn() ? $channel : null;
+
         $note = trim((string) ($input['note'] ?? ''));
         if (mb_strlen($note) > 5000) {
             throw new RoadToSoldException('Keep the note under 5000 characters.');
@@ -76,7 +87,7 @@ class OutcomeService
             }
         }
 
-        $outcome = DB::transaction(function () use ($actor, $agencyId, $agentId, $trackedPropertyId, $def, $input, $track, $note, $occurredAt, $wantsValuation, $appointmentAt, $settings) {
+        $outcome = DB::transaction(function () use ($actor, $agencyId, $agentId, $trackedPropertyId, $def, $input, $track, $note, $occurredAt, $wantsValuation, $appointmentAt, $settings, $channel) {
             $tp = TrackedProperty::query()->where('agency_id', $agencyId)->lockForUpdate()->find($trackedPropertyId);
             if (! $tp) {
                 throw new RoadToSoldException('That property could not be found.');
@@ -183,8 +194,9 @@ class OutcomeService
                 'contact_id'             => $contact?->id,
                 'outcome_definition_id'  => $def->id,
                 'outcome_key'            => $def->key,
-                'outcome_label'          => $def->label,
+                'outcome_label'          => $def->labelFor($channel),
                 'kind'                   => $def->kind,
+                'channel'                => $channel,
                 'note'                   => $note !== '' ? $note : null,
                 'valuation_booked'       => $wantsValuation,
                 'calendar_event_id'      => $eventId,
@@ -235,6 +247,7 @@ class OutcomeService
             evaluationBooked: (bool) $outcome->valuation_booked,
             calendarEventId: $outcome->calendar_event_id ? (int) $outcome->calendar_event_id : null,
             actorUserId: (int) $actor->id,
+            channel: $outcome->channel ?: null,
         ));
 
         return $outcome;
