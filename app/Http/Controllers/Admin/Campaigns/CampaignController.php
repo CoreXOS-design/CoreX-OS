@@ -112,6 +112,23 @@ class CampaignController extends Controller
         return redirect()->route('admin.campaigns.show', ['campaign' => $campaign->id, 'tab' => 'steps'])->with('success', 'Campaign created. Add its email steps.');
     }
 
+    /** The email exactly as the first prospect of the list would receive it (spec 9.4). Shows the SAVED text. */
+    public function previewStep(Request $request, int $campaign, int $step, CampaignSendService $sends)
+    {
+        $this->guard($request);
+        $campaign = Campaign::withTrashed()->with(['list', 'sender'])->findOrFail($campaign);
+        $step = CampaignStep::where('campaign_id', $campaign->id)->findOrFail($step);
+        abort_if($campaign->sender === null, 404);
+        $lead = $campaign->list?->leads()->orderBy('id')->first();
+
+        return view('admin.campaigns.email-preview', $sends->previewEmail($campaign->sender, $step->subject, $step->body, $lead) + [
+            'back' => route('admin.campaigns.show', ['campaign' => $campaign->id, 'tab' => 'steps']),
+            'backLabel' => 'Back to the campaign',
+            'note' => ($lead ? 'Shown for the first person on the list (' . ($lead->fullName() ?: $lead->email) . ').' : 'The list has no one yet, so a made-up prospect is shown.')
+                . ' This is the saved text. Save your changes first to see them here.',
+        ]);
+    }
+
     public function show(Request $request, int $campaign): View
     {
         $this->guard($request);

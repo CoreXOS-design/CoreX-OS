@@ -24,7 +24,7 @@
             </div>
         @endif
         <input type="file" name="signature_image" accept="image/png,image/jpeg,image/gif" class="cmp-input">
-        <div class="text-xs cmp-muted mt-0.5">JPG, PNG or GIF, up to 1 MB and 1200 x 600 pixels. When a picture is set, emails from this address go out as a formatted email (your text, then the signature and picture) with a plain-text copy for mail programs that need one. Use <b>Test</b> to see how it looks.</div>
+        <div class="text-xs cmp-muted mt-0.5">JPG, PNG or GIF, up to 1 MB. When a picture is set, emails from this address go out as a formatted email (your text, then the signature and picture) with a plain-text copy for mail programs that need one. Use <b>Preview</b> to see how it looks.</div>
         @if($bag->has('signature_image'))<div class="cmp-err">{{ $bag->first('signature_image') }}</div>@endif</div>
     <div class="col-span-2"><label class="cmp-label">Outgoing server</label><input name="smtp_host" value="{{ $val('smtp_host', $defaultSmtpHost) }}" required class="cmp-input">
         @if($bag->has('smtp_host'))<div class="cmp-err">{{ $bag->first('smtp_host') }}</div>@endif</div>

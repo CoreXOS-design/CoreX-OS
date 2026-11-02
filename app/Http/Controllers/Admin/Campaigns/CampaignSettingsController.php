@@ -121,6 +121,25 @@ class CampaignSettingsController extends Controller
         return back()->with('success', 'Sending address saved.');
     }
 
+    /** Owner-only preview of a sending address: sample prospect, sample text, the real signature and picture (spec 9.4). */
+    public function previewSender(Request $request, int $sender, CampaignSendService $sends)
+    {
+        $this->guard($request);
+        $sender = CampaignSender::findOrFail($sender);
+        $mail = $sends->previewEmail(
+            $sender,
+            'A quick hello from CoreX',
+            "Hi {first_name},\n\nThis is sample text, so you can see how an email from this address will look.\n\nKind regards",
+            null,
+        );
+
+        return view('admin.campaigns.email-preview', $mail + [
+            'back' => route('admin.campaigns.settings'),
+            'backLabel' => 'Back to settings',
+            'note' => 'Sample text and a made-up prospect. Your real campaign text is previewed from the campaign\'s Steps tab.',
+        ]);
+    }
+
     /** Owner-only preview of the saved signature picture (the files are private; there is no public URL). */
     public function signatureImage(Request $request, int $sender)
     {
@@ -263,7 +282,7 @@ class CampaignSettingsController extends Controller
             'email' => ['required', 'email', 'max:254', Rule::unique('campaign_senders', 'email')->whereNull('deleted_at')->ignore($sender?->id)],
             'from_name' => ['required', 'string', 'max:150'],
             'signature' => ['nullable', 'string', 'max:2000'],
-            'signature_image' => ['nullable', 'file', 'mimes:jpg,jpeg,png,gif', 'max:1024', 'dimensions:max_width=1200,max_height=600'],
+            'signature_image' => ['nullable', 'file', 'mimes:jpg,jpeg,png,gif', 'max:1024'],
             'smtp_host' => ['required', 'string', 'max:255', 'regex:/^[A-Za-z0-9.\-]+$/'],
             'smtp_port' => ['required', 'integer', 'between:1,65535'],
             'smtp_encryption' => ['required', Rule::in(['tls', 'ssl', 'none'])],
@@ -283,7 +302,6 @@ class CampaignSettingsController extends Controller
             'password.required' => 'Enter the mailbox password.',
             'signature_image.mimes' => 'The signature picture must be a JPG, PNG or GIF file.',
             'signature_image.max' => 'The signature picture must be 1 MB or smaller.',
-            'signature_image.dimensions' => 'The signature picture must be no bigger than 1200 pixels wide and 600 pixels high.',
             'signature_image.uploaded' => 'The picture could not be uploaded. Use a JPG, PNG or GIF under 1 MB.',
         ]);
 

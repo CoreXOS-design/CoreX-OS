@@ -7,6 +7,7 @@ use App\Mail\Campaigns\CampaignStepMail;
 use App\Models\Campaigns\Campaign;
 use App\Models\Campaigns\CampaignLead;
 use App\Models\Campaigns\CampaignSend;
+use App\Models\Campaigns\CampaignSender;
 use App\Models\Campaigns\CampaignStep;
 use App\Models\Campaigns\CampaignSuppression;
 use App\Services\Communications\PerMailboxMailTransportBuilder;
@@ -376,6 +377,49 @@ class CampaignSendService
             (string) $this->settings->all()['opt_out_footer'],
             $this->unsubscribeUrl($send),
         );
+    }
+
+    /**
+     * What a recipient would see, built from the same pieces as a real send (spec 9.4). Nothing is saved or sent.
+     * $lead null = made-up sample details. The picture is shown through the owner-only preview route instead of being embedded.
+     *
+     * @return array{from:string,to:string,subject:string,html:?string,text:string,picture:bool}
+     */
+    public function previewEmail(CampaignSender $sender, string $subject, string $body, ?CampaignLead $lead): array
+    {
+        $lead ??= (new CampaignLead())->forceFill([
+            'first_name' => 'Thandi', 'last_name' => 'Naidoo', 'company' => 'Sample Estates', 'town' => 'Durban', 'email' => 'thandi@example.com',
+        ]);
+        $renderedBody = rtrim($this->renderer->render($body, $lead));
+        $renderedSubject = $this->renderer->renderSubject($subject, $lead);
+        $signature = trim((string) $sender->signature);
+        $footer = (string) $this->settings->all()['opt_out_footer'];
+        $link = '[a personal unsubscribe link is added for each person]';
+
+        $html = null;
+        if ($sender->signatureImageFullPath() !== null) {
+            $img = '<img src="' . e(route('admin.campaigns.senders.image', $sender->id)) . '" alt="" style="display:block;max-width:420px;height:auto;border:0;">';
+            $html = str_replace(
+                CampaignHtmlRenderer::IMAGE_TOKEN,
+                $img,
+                app(CampaignHtmlRenderer::class)->render($renderedBody, $signature !== '' ? $signature : null, $footer, $link),
+            );
+        }
+
+        $parts = [$renderedBody];
+        if ($signature !== '') {
+            $parts[] = $signature;
+        }
+        $parts[] = $footer . "\n" . $link;
+
+        return [
+            'from' => $sender->from_name . ' <' . $sender->email . '>',
+            'to' => trim($lead->fullName()) !== '' ? trim($lead->fullName()) . ' <' . $lead->email . '>' : (string) $lead->email,
+            'subject' => $renderedSubject,
+            'html' => $html,
+            'text' => implode("\n\n", $parts) . "\n",
+            'picture' => $html !== null,
+        ];
     }
 
     public function unsubscribeUrl(CampaignSend $send): string

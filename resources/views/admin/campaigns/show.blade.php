@@ -114,6 +114,7 @@
                         <div class="text-sm font-semibold mt-1" style="color: var(--text-primary);">{{ $step->subject }}</div>
                         <pre class="text-sm mt-1 whitespace-pre-wrap" style="font-family: inherit; color: var(--text-primary);">{{ $step->body }}</pre>
                     @endif
+                    <div class="mt-2"><a href="{{ route('admin.campaigns.steps.preview', [$campaign->id, $step->id]) }}" target="_blank" rel="noopener" class="corex-btn-outline text-xs" data-step-preview>Preview email</a></div>
                     @if($previewLead)
                         <details class="mt-2 text-xs"><summary class="cursor-pointer cmp-muted">As {{ $previewLead->fullName() ?: $previewLead->email }} sees it</summary>
                             @php $r = app(\App\Services\Campaigns\CampaignMergeRenderer::class); @endphp

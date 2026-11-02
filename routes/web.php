@@ -5654,6 +5654,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::put('/senders/{sender}',                        [$t, 'updateSender'])->whereNumber('sender')->name('senders.update');
         Route::delete('/senders/{sender}',                     [$t, 'archiveSender'])->whereNumber('sender')->name('senders.archive');
         Route::post('/senders/{sender}/restore',               [$t, 'restoreSender'])->whereNumber('sender')->name('senders.restore');
+        Route::get('/senders/{sender}/preview',                [$t, 'previewSender'])->whereNumber('sender')->name('senders.preview');
         Route::get('/senders/{sender}/signature-image',        [$t, 'signatureImage'])->whereNumber('sender')->name('senders.image');
         Route::post('/senders/{sender}/default',               [$t, 'makeDefault'])->whereNumber('sender')->name('senders.default');
         Route::post('/senders/{sender}/test',                  [$t, 'testSender'])->whereNumber('sender')->middleware('throttle:10,1')->name('senders.test');
@@ -5672,6 +5673,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{campaign}/steps',                       [$c, 'storeStep'])->whereNumber('campaign')->name('steps.store');
         Route::put('/{campaign}/steps/{step}',                 [$c, 'updateStep'])->whereNumber(['campaign', 'step'])->name('steps.update');
         Route::delete('/{campaign}/steps/{step}',              [$c, 'archiveStep'])->whereNumber(['campaign', 'step'])->name('steps.archive');
+        Route::get('/{campaign}/steps/{step}/preview',         [$c, 'previewStep'])->whereNumber(['campaign', 'step'])->name('steps.preview');
         Route::post('/{campaign}/steps/{step}/restore',        [$c, 'restoreStep'])->whereNumber(['campaign', 'step'])->name('steps.restore');
     });
 

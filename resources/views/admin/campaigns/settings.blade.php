@@ -62,6 +62,7 @@
                                 · last sent {{ $s->last_sent_at?->format('Y-m-d H:i') ?? '—' }}</div>
                         </div>
                         <div class="flex flex-wrap gap-2">
+                            <a href="{{ route('admin.campaigns.senders.preview', $s->id) }}" target="_blank" rel="noopener" class="corex-btn-outline text-xs" data-sender-preview>Preview</a>
                             <form method="POST" action="{{ route('admin.campaigns.senders.test', $s->id) }}">@csrf<button class="corex-btn-outline text-xs">Test</button></form>
                             @unless($s->is_default)
                                 <form method="POST" action="{{ route('admin.campaigns.senders.default', $s->id) }}">@csrf<button class="corex-btn-outline text-xs">Make default</button></form>

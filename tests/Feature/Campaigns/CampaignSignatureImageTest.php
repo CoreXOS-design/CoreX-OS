@@ -193,7 +193,7 @@ final class CampaignSignatureImageTest extends TestCase
         $this->get(route('admin.campaigns.senders.image', $sender->id))->assertNotFound();
     }
 
-    public function test_wrong_file_types_and_oversized_pictures_are_refused_with_plain_messages(): void
+    public function test_wrong_file_types_and_files_over_1mb_are_refused_but_pixel_size_is_not_limited(): void
     {
         $this->actingAs($this->owner);
         $fields = [
@@ -204,12 +204,57 @@ final class CampaignSignatureImageTest extends TestCase
         foreach ([
             UploadedFile::fake()->createWithContent('evil.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'),
             UploadedFile::fake()->createWithContent('notes.txt', 'hello'),
-            UploadedFile::fake()->createWithContent('huge.png', $this->png(2000, 900)),
+            UploadedFile::fake()->image('big.png', 100, 100)->size(1500),
         ] as $bad) {
             $this->post(route('admin.campaigns.senders.store'), $fields + ['signature_image' => $bad])->assertSessionHasErrors('signature_image', null, 'newSender');
         }
         $this->assertSame(0, CampaignSender::count(), 'nothing is saved when the picture is refused');
         $this->assertSame([], Storage::disk('local')->files('campaign-signatures'));
+
+        // a very large picture (in pixels) under 1 MB is accepted: no pixel limit any more
+        $this->post(route('admin.campaigns.senders.store'), $fields + ['signature_image' => UploadedFile::fake()->createWithContent('wide.png', $this->png(3000, 1500))])
+            ->assertSessionHasNoErrors();
+        $this->assertNotNull(CampaignSender::firstOrFail()->signature_image_path);
+    }
+
+    public function test_step_preview_shows_the_email_as_a_recipient_sees_it_with_and_without_a_picture(): void
+    {
+        $this->actingAs($this->owner);
+        Storage::disk('local')->put('campaign-signatures/sig.png', $this->png());
+        $campaign = $this->runningCampaign($this->senderWith('campaign-signatures/sig.png'), 'Thandi');
+        $step = CampaignStep::firstOrFail();
+
+        $this->get(route('admin.campaigns.show', ['campaign' => $campaign->id, 'tab' => 'steps']))->assertOk()->assertSee('data-step-preview', false);
+
+        $res = $this->get(route('admin.campaigns.steps.preview', [$campaign->id, $step->id]))->assertOk();
+        $res->assertSee('Hello Co1');                                   // subject with the merge field filled
+        $res->assertSee('Hi Thandi,');                                  // body merged for the first person on the list
+        $res->assertSee('Andre Roets', false);                          // signature text
+        $res->assertSee('can.assurance+1@gmail.com', false);            // To
+        $res->assertSee('Formatted email with your signature picture');
+        $res->assertSee(route('admin.campaigns.senders.image', $campaign->sender->id), false); // the picture itself
+        $res->assertSee('a personal unsubscribe link is added for each person');
+        $this->assertSame(0, CampaignSend::count(), 'previewing never sends or saves anything');
+
+        // no picture -> shown honestly as plain text
+        $campaign->sender->update(['signature_image_path' => null]);
+        $this->get(route('admin.campaigns.steps.preview', [$campaign->id, $step->id]))->assertOk()
+            ->assertSee('Plain text - no signature picture')->assertDontSee('Formatted email with your signature picture');
+    }
+
+    public function test_sender_preview_uses_sample_text_and_is_owner_only(): void
+    {
+        Storage::disk('local')->put('campaign-signatures/sig.png', $this->png());
+        $sender = $this->senderWith('campaign-signatures/sig.png');
+
+        $this->actingAs($this->owner)->get(route('admin.campaigns.settings'))->assertOk()->assertSee('data-sender-preview', false);
+        $this->get(route('admin.campaigns.senders.preview', $sender->id))->assertOk()
+            ->assertSee('Hi Thandi,')->assertSee('Formatted email with your signature picture');
+
+        $this->assertContains($this->actingAs(User::factory()->create())->get(route('admin.campaigns.senders.preview', $sender->id))->status(), [403, 404]);
+        $campaign = $this->runningCampaign($sender);
+        $step = CampaignStep::firstOrFail();
+        $this->assertContains($this->get(route('admin.campaigns.steps.preview', [$campaign->id, $step->id]))->status(), [403, 404]);
     }
 
     public function test_the_picture_is_owner_only(): void
