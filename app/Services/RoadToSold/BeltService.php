@@ -419,6 +419,8 @@ final class BeltService
         }
         if (! empty($r['next_label'])) {
             $parts[] = (string) $r['next_label'];
+        } elseif ($stage !== '' && ProspectStages::has($stage) && (string) ProspectStages::defaultNext($stage) !== '') {
+            $parts[] = (string) ProspectStages::defaultNext($stage);   // the stage's own standard next step when none was set on the record
         } elseif ($source === 'claims_open') {
             $parts[] = 'Find the owner';
         } elseif ($source === 'claims_owner') {
