@@ -55,6 +55,12 @@
     @endif
 </form>
 
+<style>
+    /* 23.24: the same row as the Loaded list, kept inside the box at 1366 wide: a narrower WHY, headings that wrap, the buttons together */
+    .rts-stbl th { white-space: normal !important; line-height: 1.15; vertical-align: bottom; }
+    .rts-stbl td[data-qa="intake-why"] { min-width: 0 !important; max-width: 10rem; }
+    .rts-stbl td[data-qa="station-due"] { max-width: 11rem; }
+</style>
 <div class="rounded-md rts-grow" style="background: var(--surface); border: 1px solid var(--border);" data-qa="station-list" data-filter="{{ $L['filter'] }}">
     <div class="px-3 py-2 text-xs font-semibold" style="color: var(--text-primary); border-bottom: 1px solid var(--border);">{{ $L['heading'] }} <span style="color: var(--text-muted); font-weight: 400;">· {{ number_format($rowsP->total()) }}</span></div>
     @if($rowsP->total() === 0)
@@ -75,7 +81,7 @@
             </tbody>
         </table>
     @else
-        <table class="w-full text-xs ds-table">
+        <table class="w-full text-xs ds-table rts-stbl">
             <thead>
                 <tr style="color: var(--text-muted);">
                     <th class="px-3 py-2 text-left">Why - start here</th>

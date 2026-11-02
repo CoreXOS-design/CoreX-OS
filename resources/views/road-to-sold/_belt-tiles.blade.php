@@ -17,16 +17,16 @@
 @endphp
 <style>
     .rts-belt-row { display: grid; grid-template-columns: repeat({{ max(1, count($belt)) }}, minmax(0, 1fr)); gap: 6px; }
-    .rts-tile { display: flex; flex-direction: column; justify-content: flex-start; gap: 0; min-width: 0; height: 100%; padding: 4px 8px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-primary); }
+    .rts-tile { display: flex; flex-direction: column; justify-content: flex-start; gap: 0; min-width: 0; height: 100%; padding: 4px 6px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-primary); }
     .rts-tile:hover { border-color: var(--brand-icon); }
     .rts-tile.is-lit { border-color: var(--brand-icon); background: color-mix(in srgb, var(--brand-icon) 10%, var(--surface)); }
     .rts-tile .nm { font-size: .625rem; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none; line-height: 1.2; padding-right: 14px; }
     .rts-tile .nm .full { display: none; }
     @media (min-width: 1700px) { .rts-tile .nm .full { display: inline; } .rts-tile .nm .short { display: none; } }
     /* the conveyor (23.24): three lines on every tile, the same size and place on all of them - 1 big, 2 and 3 small; line 3 keeps its place when there is nothing late */
-    .rts-tile .ln { display: block; font-size: .6875rem; line-height: 1.25; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-secondary); text-decoration: none; }
+    .rts-tile .ln { display: block; font-size: .625rem; line-height: 1.25; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-secondary); text-decoration: none; }
     .rts-tile a.ln:hover { text-decoration: underline; color: var(--text-primary); }
-    .rts-tile .ln.l1 { font-size: .6875rem; color: var(--text-muted); line-height: 1.2; }
+    .rts-tile .ln.l1 { font-size: .625rem; color: var(--text-muted); line-height: 1.2; }
     .rts-tile .ln.l1 .n { font-size: 1.05rem; font-weight: 700; color: var(--text-primary); }
     .rts-tile .ln.bad { color: var(--ds-red, #f87171); font-weight: 700; }
     .rts-tile .ln.ghost { visibility: hidden; }
