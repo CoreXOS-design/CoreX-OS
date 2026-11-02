@@ -371,6 +371,28 @@ class SettingsService
         return array_key_exists($v, RtsSetting::COLLEAGUE_SOURCES) ? $v : RtsSetting::SCALAR_DEFAULTS['source_for_colleagues'];
     }
 
+    // ── The claim hold (23.5): working days, all agency settings ──────────
+
+    public function claimHoldDays(): int
+    {
+        return max(1, (int) $this->scalar('claim_hold_days'));
+    }
+
+    public function claimWarnDays(): int
+    {
+        return max(0, (int) $this->scalar('claim_warn_days'));
+    }
+
+    public function claimExtensionDays(): int
+    {
+        return max(1, (int) $this->scalar('claim_extension_days'));
+    }
+
+    public function claimExtensionsAllowed(): int
+    {
+        return max(0, (int) $this->scalar('claim_extensions_allowed'));
+    }
+
     /** 23.13: must an agent press "Start my Road to Sold" before their list loads? On by default. */
     public function agentStartRequired(): bool
     {

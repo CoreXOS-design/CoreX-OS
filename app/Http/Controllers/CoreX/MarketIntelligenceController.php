@@ -91,6 +91,16 @@ class MarketIntelligenceController extends Controller
         abort_unless($agencyId !== null, 403);
         $isProspectingManager = $user?->hasPermission('prospecting_setup.manage') ?? false;
 
+        // The pitch popup's Property step and the clickable header (road-to-sold.md 23.23): ONE property's Adverts card, chrome-less. It runs the
+        // list's own pipeline for that one advert, so the card is the card MIC shows, but with the saved filters, the canvass-pool rules and the pitch
+        // lock out of the way (the property is the one the agent is working) and with nothing remembered about the viewer's filters.
+        $pitchCardId = null;
+        if ($request->hasAny(['_pitch_card', '_pitch_property', '_pitch_tracked'])) {
+            $pitchCardId = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->listingId($request, (int) $agencyId);
+            abort_if($pitchCardId === null, 404);
+            $request->query->replace(['view' => 'adverts', 'clear' => '1', 'is_active' => 'all', '_fragments' => '1', 'embed' => '1'] + ($request->boolean('peek') ? ['peek' => '1'] : []));
+        }
+
         // Tick refresh (cc6): an AJAX filter toggle requests ?_fragments=1 and is
         // answered with ONLY the listings + stats-strip + filter-rail + header-actions
         // fragments (JSON), not a full-page render — so a tick never reloads the page.
@@ -122,7 +132,9 @@ class MarketIntelligenceController extends Controller
         // AT-528 (mic-work-tab.md 13.2): the Adverts view's filters. The URL is the source of truth; a bare request falls back to this user's last set.
         $micPrefs = app(\App\Services\Prospecting\MicWork\MicUserPreferences::class);
         $micFilters = $micPrefs->filters($request->query(), $user, (int) $agencyId);
-        $micPrefs->remember($request->query(), $user, (int) $agencyId);
+        if ($pitchCardId === null) {
+            $micPrefs->remember($request->query(), $user, (int) $agencyId);
+        }
         $micViewChoice = $micPrefs->view($request->query(), $user, (int) $agencyId);
         view()->share(['micFilters' => $micFilters, 'micViewChoice' => $micViewChoice]);
 
@@ -162,6 +174,9 @@ class MarketIntelligenceController extends Controller
             ? 'all'
             : $configuredMicScope;
         $query = $query->visibleTo($user, $micScope);
+        if ($pitchCardId !== null) {
+            $query->where('prospecting_listings.id', $pitchCardId);
+        }
 
         // F.2: action preset URL param. Distinct from the legacy ?preset= (Smart
         // Filter Preset) — that one still works for stale_claims / new_today etc.
@@ -188,7 +203,9 @@ class MarketIntelligenceController extends Controller
             // pitch-locked hidden) would empty exactly the list the tile counted
             || in_array((string) $request->query('tile'), \App\Services\Prospecting\MicWork\MicWorkTiles::SHOW_EVERYTHING, true)
             // "Claimed: mine / others" is about claimed adverts, which the canvass list otherwise hides
-            || in_array((string) ($micFilters['claimed'] ?? ''), ['mine', 'others'], true);
+            || in_array((string) ($micFilters['claimed'] ?? ''), ['mine', 'others'], true)
+            // the pitch popup's card is the one property the agent is working, whatever its claim, stock or pitch state
+            || $pitchCardId !== null;
 
         // F.1: default to canvassing pool only (exclude already-mandated stock).
         // Manager toggle ?include_in_stock=1 bypasses for audit purposes.
@@ -1347,6 +1364,19 @@ class MarketIntelligenceController extends Controller
         // fragments as JSON — no full-page shell, no reload. Strip the _fragments
         // flag first so the links the partials render (and the pushState URL) carry
         // only real filter params.
+        if ($pitchCardId !== null) {
+            return response()->view('corex.market-intelligence.pitch-card', [
+                'listings' => $listings, 'listingStates' => $listingStates, 'sourceByListingId' => $sourceByListingId, 'micViewChoice' => 'adverts',
+                'suburbOptions' => $suburbOptions, 'rowExtras' => $rowExtras, 'fileRows' => $fileRows, 'buyerTiers' => $buyerTiers, 'tierConfig' => $tierConfig,
+                'suggestedActions' => $suggestedActions, 'selectedBuyer' => $selectedBuyer, 'buyerBanner' => $buyerBanner,
+                'isProspectingManager' => $isProspectingManager, 'companyStockMap' => $companyStockMap, 'agencyLogoUrl' => $agencyLogoUrl,
+                'commentCounts' => $commentCounts, 'canViewComments' => $canViewComments, 'users' => $users, 'includeInStock' => $includeInStock,
+                'activeBuyerId' => $activeBuyerId, 'micBuyers' => $micBuyers, 'micRegions' => $micRegions, 'buyerScope' => $buyerScope, 'buyerScopeOptions' => $buyerScopeOptions,
+                'actionPreset' => $actionPreset, 'snapshotKpis' => $snapshotKpis, 'actionPresetCounts' => $actionPresetCounts,
+                'filterRailAggregates' => $filterRailAggregates, 'demandPockets' => $demandPockets, 'prospectingSetupPriceBandsSale' => $prospectingSetupPriceBandsSale,
+            ]);
+        }
+
         if ($isFragment) {
             // _fragments was already stripped from the query bag right after capture
             // (see top of work()), so the partial links are clean. Build the canonical
@@ -1504,7 +1534,7 @@ class MarketIntelligenceController extends Controller
         $differs = $tile && $tile['count'] !== null && $files !== null && (int) $tile['count'] !== $files;
 
         return [
-            'title' => \App\Services\Prospecting\MicWork\MicWorkTiles::TILES[$n][1], 'rows' => $rows, 'files' => $files,
+            'title' => \App\Services\Prospecting\MicWork\MicWorkTiles::titleFor($n, (int) $agencyId), 'rows' => $rows, 'files' => $files,
             'tileCount' => $differs ? (int) $tile['count'] : null,
             'tileCounts' => $differs ? trim(explode(' · ', (string) $tile['reason'])[0]) : null,
             'asOf' => $stamp !== '' ? \Carbon\Carbon::parse($stamp)->timezone(config('app.timezone'))->format('j M H:i') : null,
@@ -4069,13 +4099,20 @@ class MarketIntelligenceController extends Controller
             ->active()->first();
 
         if ($existing) {
-            if ($existing->isExpired()) {
-                $existing->update([
-                    'is_active'   => false,
-                    'released_at' => now(),
-                ]);
-            } else {
+            // v4 (road-to-sold.md 23.5): a claim on the belt runs out by the claim hold (working days), any other by the old 48 hours.
+            if (! app(\App\Services\RoadToSold\ClaimHoldService::class)->releaseIfExpired($existing)) {
                 return back()->with('error', 'Already claimed by ' . $existing->user->name);
+            }
+        }
+
+        // v4 (23.5): one record per property file. Another agent's claim or belt record on ANY advert of this property file holds it.
+        $fileId = $listing->tracked_property_id ? (int) $listing->tracked_property_id : null;
+        if ($fileId !== null) {
+            $holderId = app(\App\Services\RoadToSold\ClaimBeltService::class)->holderOfFile((int) $agencyId, $fileId, (int) $user->id, (int) $user->ownershipUserId());
+            if ($holderId !== null) {
+                $holderName = \App\Models\User::withoutGlobalScopes()->whereKey($holderId)->value('name') ?: 'another agent';
+
+                return back()->with('error', 'Already held by ' . $holderName . ' - this property is on their Road to Sold.');
             }
         }
 

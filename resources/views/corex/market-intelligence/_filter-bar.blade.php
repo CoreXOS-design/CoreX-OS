@@ -69,7 +69,7 @@
         $chips[] = ['Buyer match ' . (int) request('score_min', $bmThreshold) . '–' . (int) request('score_max', 100) . '%', route('market-intelligence.work', request()->except(['page', 'score_min', 'score_max', 'sort']))];
     }
     if (request('action_preset')) { $chips[] = ['Preset · ' . str_replace('_', ' ', request('action_preset')), $urlWithout('action_preset')]; }
-    if (request('tile')) { $chips[] = ['Tile · ' . (\App\Services\Prospecting\MicWork\MicWorkTiles::TILES[\App\Services\Prospecting\MicWork\MicWorkTiles::numberForKey(request('tile'))][3] ?? request('tile')), $urlWithout('tile')]; }
+    if (request('tile')) { $chips[] = ['Tile · ' . \App\Services\Prospecting\MicWork\MicWorkTiles::chipLabel((string) request('tile'), (int) (auth()->user()->agency_id ?? 0)), $urlWithout('tile')]; }
 
     // the filters that live under "More filters" (they feed the count on its button)
     $moreKeys = ['address_filter', 'include_in_stock', 'region', 'buyer_id', 'buyer_scope', 'source', 'captured_by', 'date_from', 'agency_name', 'is_active', 'score_min', 'score_max', 'action_preset'];

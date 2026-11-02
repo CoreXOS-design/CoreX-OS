@@ -283,7 +283,7 @@ final class MicWorkAdvertsViewTest extends TestCase
         $h = $this->factsGrid($fit);
 
         $this->assertSame(1, substr_count($h, 'data-qa="advert-icons"'), 'it IS the facts line: one grid, not a second row of icons');
-        $this->assertSame(1, preg_match('/data-qa="fit-pill"[^>]*color:#fff[^>]*background: color-mix\(in srgb, var\(--brand-icon\) 65%, black\)[^>]*>Alex wants</', $h), '"Alex wants" is a filled pill in the buyer colour, white text');
+        $this->assertSame(1, preg_match('/data-qa="fit-pill"[^>]*color:#fff[^>]*background: color-mix\(in srgb, var\(--brand-icon\) 65%, black\)[^>]*>Alex<span class="mi-wants-word"> wants<\/span><\/span>/', $h), '"Alex wants" is a filled pill in the buyer colour, white text; the word " wants" drops in a narrow column, the name stays');
         $this->assertStringContainsString('background: color-mix(in srgb, var(--brand-icon) 13%, transparent)', $h, 'the wants row carries a faint tint of the buyer colour');
         preg_match_all('/data-col="([a-z]+)"/', $h, $cols);
         $this->assertSame(['beds', 'baths', 'garages', 'parking', 'erf', 'floor'], $cols[1], 'one column per fact, in the facts line order');
@@ -299,7 +299,10 @@ final class MicWorkAdvertsViewTest extends TestCase
         $this->assertStringNotContainsString('1.2m', $h, 'price, type and suburb are ticks on their own lines, not in this grid');
         // row 1 carries the property's figures with the card's own look (icon + number), the same partial as the plain facts line
         $this->assertStringContainsString('title="Bedrooms"', $h);
-        $this->assertStringContainsString('Floor 120 m²', $h);
+        $this->assertStringContainsString('title="Floor size"', $h);
+        $this->assertStringNotContainsString('Floor 120', $h, 'in the grid the icon says which size it is; the figure has no word');
+        $this->assertStringContainsString('120 m²</span>', $h);
+        $this->assertStringContainsString('container-type: inline-size', file_get_contents(resource_path('views/corex/market-intelligence/_advert-card.blade.php')), 'the pill shortens by the grid\'s own width, not the window\'s');
 
         $none = $this->fit(['fields' => array_map(fn ($f) => array_replace($f, ['state' => 'na', 'wants' => null]), $this->fit()['fields']), 'must_haves' => [], 'deal_breakers' => []]);
         $this->assertNull(\App\Services\Prospecting\MicWork\BuyerFitLabel::wantsRow($none), 'a wishlist that states none of it: no wants row, the facts line stays plain');

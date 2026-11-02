@@ -170,6 +170,17 @@
     .mi-advert-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; height: 14.0625rem; overflow: hidden; }
     .mi-clamp { display: -webkit-box; -webkit-line-clamp: var(--mi-lines, 4); -webkit-box-orient: vertical; overflow: hidden; }
     .mi-clamp.mi-unclamp { display: block; -webkit-line-clamp: unset; overflow: visible; }
+    .mi-fit-grid { container-type: inline-size; font-size: .875rem; }
+    .mi-fit-grid .mi-fc { padding: 0 3px; }
+    /* the middle column at 1366 wide is 236px: shorter pill, smaller figures and icons, 2px cells so beds .. floor stay on one pair of rows */
+    @container (max-width: 300px) {
+        .mi-fit-grid > div { font-size: .8rem; }
+        .mi-fit-grid [data-qa="fit-pill"] { padding: 0 2px !important; }
+        .mi-fit-grid .mi-wants-word { display: none; }
+        .mi-fit-grid .mi-fc { padding: 0 1px; }
+        .mi-fit-grid span[title="Erf size"], .mi-fit-grid span[title="Floor size"] { gap: 2px !important; }
+        .mi-fit-grid svg { width: 12px !important; height: 12px !important; }
+    }
     .mi-advert-body.mi-advert-body-fit { height: auto; min-height: calc(14.0625rem + 1.5rem); overflow: visible; } /* one line more than the photo; never clips when the column is narrow */
     .mi-advert-body.mi-advert-body-open { height: auto; min-height: 14.0625rem; overflow: visible; }
     [data-qa="row-wrap"] + [data-qa="row-wrap"] > .mi-advert { border-top: 1px solid var(--border); }

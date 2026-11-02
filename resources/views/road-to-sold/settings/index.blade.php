@@ -354,6 +354,23 @@
                         </span>
                     </label>
                     @endif
+                    @if(\App\Models\RoadToSold\RtsSetting::hasClaimHoldColumns())
+                    <div class="grid gap-3 sm:grid-cols-2" data-qa="setting-claim-hold">
+                        @foreach([
+                            ['claim_hold_days', 'A claimed property is held for', $settings->claimHoldDays(), 1, 365, 'working days of no work. Any move, outcome, booking or presentation restarts the count.'],
+                            ['claim_warn_days', 'The agent is told', $settings->claimWarnDays(), 0, 60, 'working days before the hold ends.'],
+                            ['claim_extension_days', 'One extension adds', $settings->claimExtensionDays(), 1, 365, 'working days.'],
+                            ['claim_extensions_allowed', 'An agent may extend a claim', $settings->claimExtensionsAllowed(), 0, 10, 'time(s). A manager can grant more.'],
+                        ] as [$name, $label, $value, $min, $max, $hint])
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="{{ $name }}">{{ $label }}</label>
+                                <input id="{{ $name }}" type="number" min="{{ $min }}" max="{{ $max }}" name="{{ $name }}" value="{{ old($name, $value) }}"
+                                       class="w-28 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <span class="text-xs ml-2" style="color:var(--text-muted);">{{ $hint }} (standard: {{ $defaults[$name] }})</span>
+                            </div>
+                        @endforeach
+                    </div>
+                    @endif
                     <label class="flex items-start gap-3 text-sm" style="color:var(--text-primary);">
                         <input type="hidden" name="capture_needs_review" value="0">
                         <input type="checkbox" name="capture_needs_review" value="1" class="mt-1" @checked(old('capture_needs_review', $settings->captureNeedsReview()))>

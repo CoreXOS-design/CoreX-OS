@@ -92,11 +92,11 @@ final class CaptureClaimTest extends TestCase
         $line = app(AgencyWorkService::class)->history($this->agency->id, $tp->id)->firstWhere('kind', 'claim');
         $this->assertSame('Claimed from a deeds capture', $line->reason);
 
-        // Road to Sold: a prospect for the agent at Found
+        // Road to Sold: a prospect for the agent at Claimed (v4: a capture claim IS a claim, road-to-sold.md 23.5)
         $p = app(ProspectService::class)->find($this->agency->id, $tp->id, 'sales');
         $this->assertNotNull($p, 'Road to Sold has the property');
         $this->assertSame($this->agent->id, (int) $p->user_id);
-        $this->assertSame('found', $p->stage);
+        $this->assertSame('claimed', $p->stage);
         $this->assertSame('claimed_deeds', $p->selection);
     }
 

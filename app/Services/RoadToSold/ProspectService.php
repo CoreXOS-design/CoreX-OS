@@ -210,6 +210,7 @@ class ProspectService
             if ($stage === ProspectStages::REGISTERED) {
                 $this->close($p, 'registered', $actor);
             }
+            $this->belt()->prospectMoved($p);
 
             return true;
         });
@@ -273,6 +274,7 @@ class ProspectService
         if ($def->records_do_not_contact) {
             $this->close($p, 'do_not_contact', $actor);
         }
+        $this->belt()->prospectWorked($p);
     }
 
     // ── parking, releasing, closing ──────────────────────────────────────
@@ -313,6 +315,7 @@ class ProspectService
             'next_action_key' => 'follow_up', 'next_action_label' => 'Follow up with the seller', 'next_action_at' => now()->startOfDay(),
         ])->save();
         $this->log($p, RtsProspectEvent::UNPARK, $p->stage, $p->stage, $actor);
+        $this->belt()->prospectWorked($p);
 
         return $p;
     }
@@ -403,7 +406,18 @@ class ProspectService
             ->orderByRaw('COALESCE(parked_until, next_action_at)')->orderBy('id')->get();
     }
 
+    private function belt(): ClaimBeltService
+    {
+        return app(ClaimBeltService::class);
+    }
+
     // ── history ──────────────────────────────────────────────────────────
+
+    /** A history line that is not a move (a claim hold started, extended or ended, 23.5). */
+    public function logHold(RtsProspect $p, string $note, ?User $actor = null, array $meta = []): void
+    {
+        $this->log($p, RtsProspectEvent::HOLD, $p->stage, $p->stage, $actor, ['note' => $note, 'meta' => $meta ?: null]);
+    }
 
     /**
      * One history line. Throws UniqueConstraintViolationException for a (prospect, kind, stage, subject) already written - the caller

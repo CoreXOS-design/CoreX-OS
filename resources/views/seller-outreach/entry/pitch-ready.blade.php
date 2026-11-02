@@ -3,10 +3,12 @@
 
 @section('corex-content')
 <div class="w-full max-w-2xl mx-auto space-y-5">
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    @php $__peek = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->peekAttributes(null, (int) $property->id); @endphp
+    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);" data-qa="listing-header" {!! $__peek !!}>
         <h1 class="text-xl font-bold text-white leading-tight">Property created · {{ count($sellers) }} {{ Str::plural('contact', count($sellers)) }} — pitch to sellers</h1>
         <p class="text-sm text-white/70 mt-1">
             {{ $property->address ?: $property->title ?: ('Property #' . $property->id) }}{{ !empty($property->suburb) ? ', ' . $property->suburb : '' }}
+            @if($__peek !== '')<span class="text-white" style="font-weight:600; margin-left:.5rem;">What is this property? ›</span>@endif
         </p>
     </div>
 
@@ -54,4 +56,5 @@
         <a href="{{ route('market-intelligence.work') }}" class="text-sm" style="color: var(--text-muted);">Back to Market Intelligence</a>
     </div>
 </div>
+@include('layouts.partials._pitch-popup')
 @endsection

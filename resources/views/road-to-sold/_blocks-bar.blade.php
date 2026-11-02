@@ -28,6 +28,8 @@
     .rts-col { display: flex; flex-direction: column; gap: .5rem; flex: 1 1 0; min-height: 0; }
     .rts-clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.25; }
     .rts-nw { white-space: nowrap; max-width: 15rem; overflow: hidden; text-overflow: ellipsis; }
+    /* the summary bar stays in view whatever block is open (Johan's ruling; the page itself never scrolls at laptop sizes, this holds it when a block does) */
+    .rts-top { position: sticky; top: 0; z-index: 5; background: var(--bg, transparent); }
     .rts-top .rts-long { display: none; }
     .rts-top .grid { grid-template-columns: repeat(auto-fit, minmax(6.2rem, 1fr)) !important; }
     .rts-block-body form select, .rts-block-body form input[type=text], .rts-block-body form input[type=date] { padding-top: .3rem !important; padding-bottom: .3rem !important; }
@@ -60,9 +62,9 @@
     .rts-card { padding: .4rem .6rem; }
     @media (max-width: 900px) { .rts-board { grid-template-columns: minmax(0, 1fr) !important; } }
 
-    /* THE PRODUCTION LINE (spec 22.24): 18 stations on one grid, the line pinned at the top of the one scrolling region, chips under their station */
+    /* THE PRODUCTION LINE (spec 22.24, v4 23.4): one grid column per station (--rts-n), the line pinned at the top of the one scrolling region, chips under their station */
     .rts-linebox { padding: 0; }
-    .rts-grid18 { display: grid; grid-template-columns: repeat(18, minmax(0, 1fr)); column-gap: .25rem; }
+    .rts-grid18 { display: grid; grid-template-columns: repeat(var(--rts-n, 21), minmax(0, 1fr)); column-gap: .25rem; }
     .rts-line { position: sticky; top: 0; z-index: 3; background: var(--surface); padding: .2rem 0 .3rem; border-bottom: 1px solid var(--border); }
     .rts-phase { display: flex; align-items: center; justify-content: space-between; gap: .25rem; min-width: 0; padding: 0 .2rem .1rem; border-bottom: 2px solid var(--brand-icon, #0ea5e9); font-size: .625rem; font-weight: 800; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; overflow: hidden; }
     .rts-phase-name { overflow: hidden; text-overflow: ellipsis; }
@@ -169,6 +171,11 @@ function rtsStepModal() {
         isOpen: false, label: '', opener: null, touched: false,
         open(d) {
             if (!d || !d.stepUrl) { return; }
+            // the pitch steps (find the owner, pitch) run in the ONE pitch popup, starting at the MIC card when the property has an advert (road-to-sold.md 23.23)
+            if (/\/prospects\/\d+\/step\/(pitch|find_owner)(\?|$)/.test(d.stepUrl) && window.CorexPitch) {
+                window.CorexPitch.open({ next: new URL(d.stepUrl, window.location.href).toString(), tracked: d.tracked || null, label: d.stepLabel || 'Pitch' });
+                return;
+            }
             this.label = d.stepLabel || 'Road to Sold step';
             this.opener = document.activeElement;
             this.isOpen = true; this.touched = false;
@@ -199,3 +206,4 @@ function rtsStepModal() {
     };
 }
 </script>
+@include('layouts.partials._pitch-popup')
