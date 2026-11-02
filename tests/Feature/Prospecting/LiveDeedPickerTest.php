@@ -92,8 +92,8 @@ final class LiveDeedPickerTest extends TestCase
         $r = $this->picker()->assertOk()->json();
         $groups = collect($r['deeds'])->pluck('group', 'tracked_property_id');
         $this->assertSame('just_now', $groups[$mine]);
-        $this->assertSame('other', $groups[$theirs], 'a colleague\'s capture is not "by you"');
-        $this->assertSame('other', $groups[$old], 'older than 24 h');
+        $this->assertSame('nearby', $groups[$theirs], 'a colleague\'s capture is not "by you" (Uvongo Beach is next to Uvongo)');
+        $this->assertSame('nearby', $groups[$old], 'older than 24 h');
         $this->assertSame(1, $r['today_count']);
         $this->assertSame($mine, $r['deeds'][0]['tracked_property_id'], 'mine first');
     }
@@ -134,5 +134,73 @@ final class LiveDeedPickerTest extends TestCase
         $outsider = User::factory()->create(['agency_id' => $otherAgency, 'branch_id' => $otherAgency, 'role' => 'agent']);
         $mine = $this->deed('Mine Road', 'MINE', '1', $this->me, now());
         $this->assertNotContains($mine, collect($this->picker([], $outsider)->json('deeds') ?? [])->pluck('tracked_property_id')->all(), 'another agency never sees this one\'s deeds');
+    }
+
+    /** A deed in another place: its own suburb and town, far away. */
+    private function farDeed(string $suburb, string $town, string $street = 'Far Road', $capturedAt = null): int
+    {
+        $capturedAt ??= now()->subDays(5);
+
+        return (int) DB::table('tracked_properties')->insertGetId([
+            'agency_id' => $this->agencyId, 'external_id' => 'deed-' . Str::random(8), 'street_number' => '3', 'street_name' => $street, 'suburb' => $suburb, 'town' => $town,
+            'capture_kind' => 'deeds_capture', 'deeds_captured_at' => $capturedAt, 'deeds_captured_by_user_id' => $this->mate->id, 'last_known_sold_date' => '2005-04-16 00:00:00',
+            'created_at' => $capturedAt, 'updated_at' => $capturedAt,
+        ]);
+    }
+
+    public function test_the_blank_picker_lists_deeds_from_the_properties_own_suburb_then_nearby_and_never_the_whole_agency(): void
+    {
+        $same = (int) DB::table('tracked_properties')->insertGetId([
+            'agency_id' => $this->agencyId, 'external_id' => 'deed-' . Str::random(8), 'street_number' => '9', 'street_name' => 'Same Street', 'suburb' => 'Uvongo', 'capture_kind' => 'deeds_capture',
+            'deeds_captured_at' => now()->subDays(9), 'deeds_captured_by_user_id' => $this->mate->id, 'last_known_sold_date' => '2005-04-16 00:00:00', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $beach = $this->deed('Beach Road', 'BEACH SCHEME', '1', $this->mate, now()->subDays(8));      // UVONGO BEACH: next door
+        $manaba = $this->farDeed('MANABA BEACH', 'Margate');
+        $trafalgar = $this->farDeed('TRAFALGAR', 'Southbroom');
+
+        $r = $this->picker()->assertOk()->json();
+        $groups = collect($r['deeds'])->pluck('group', 'tracked_property_id');
+
+        $this->assertSame('same_suburb', $groups[$same]);
+        $this->assertSame('nearby', $groups[$beach]);
+        $this->assertArrayNotHasKey($manaba, $groups->all(), 'a deed from another suburb and town is not offered');
+        $this->assertArrayNotHasKey($trafalgar, $groups->all());
+        $this->assertSame([$same, $beach], collect($r['deeds'])->pluck('tracked_property_id')->all(), 'own suburb first, then nearby');
+        $this->assertSame('Uvongo', $r['suburb_label']);
+    }
+
+    public function test_a_typed_search_still_reaches_the_whole_agency_and_says_so(): void
+    {
+        $far = $this->farDeed('MANABA BEACH', 'Margate', 'Tucker Avenue');
+
+        $this->assertNotContains($far, collect($this->picker()->json('deeds'))->pluck('tracked_property_id')->all());
+        $typed = collect($this->picker(['q' => 'tucker'])->assertOk()->json('deeds'));
+        $this->assertSame([$far], $typed->pluck('tracked_property_id')->all());
+        $this->assertSame('elsewhere', $typed->first()['group']);
+    }
+
+    public function test_dates_read_as_day_month_year_never_the_stored_timestamp(): void
+    {
+        $this->farDeed('UVONGO', 'Uvongo', 'Dated Road');
+        $row = collect($this->picker()->json('deeds'))->firstWhere('suburb', 'UVONGO');
+        $this->assertSame('16 Apr 2005', $row['sold_date']);
+        $this->assertStringNotContainsString('00:00:00', json_encode($this->picker(['q' => 'dated'])->json()));
+    }
+
+    public function test_nothing_on_file_says_what_it_looked_for_and_the_page_carries_the_capture_link(): void
+    {
+        $r = $this->picker()->assertOk()->json();
+        $this->assertSame([], $r['deeds']);
+        $this->assertSame('Colin Street', $r['for'], 'the property\'s street when nothing was typed');
+        $typed = $this->picker(['q' => 'Cycad'])->assertOk()->json();
+        $this->assertSame([], $typed['deeds']);
+        $this->assertSame('Cycad', $typed['for'], 'what was typed');
+
+        $html = $this->actingAs($this->me)->get(route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $this->listingId]))->assertOk()->getContent();
+        $this->assertStringContainsString('data-qa="deed-none"', $html);
+        $this->assertStringContainsString('No deed on file for', $html);
+        $this->assertStringContainsString('capture it from CMA Info', $html);
+        $this->assertStringContainsString('data-qa="deed-capture-link"', $html);
+        $this->assertStringNotContainsString('No deeds match', $html);
     }
 }

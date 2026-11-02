@@ -195,7 +195,7 @@ final class BeltService
                     ->distinct()->count('e.prospect_id');
             } elseif ($s['source'] === 'list_today') {
                 $row['now'] = (int) DB::table('rts_list_items')->where('agency_id', $agencyId)->where('track', $track)->whereIn('user_id', $ids)->whereDate('list_date', $day->toDateString())
-                    ->where('origin', '!=', RtsListItem::ORIGIN_FOLLOW_UP)->whereNull('deleted_at')->count();
+                    ->where('origin', '!=', RtsListItem::ORIGIN_FOLLOW_UP)->where('status', '<>', RtsListItem::STATUS_SWAPPED)->whereNull('deleted_at')->count();
                 $row['target'] = (int) $users->sum(fn ($u) => $this->workdays->targetFor($u, $day, $track));
                 $row['done'] = $row['now'];
                 $row['period'] = 'today';
@@ -386,7 +386,9 @@ final class BeltService
     {
         return RtsListItem::query()->withoutGlobalScopes()->where('rts_list_items.agency_id', (int) ($agent->effectiveAgencyId() ?: 0))
             ->where('rts_list_items.user_id', $agent->id)->where('rts_list_items.track', $track)
-            ->whereDate('rts_list_items.list_date', $day->toDateString())->whereNull('rts_list_items.deleted_at');
+            ->whereDate('rts_list_items.list_date', $day->toDateString())->whereNull('rts_list_items.deleted_at')
+            // a swapped-out row left the day (23.14: a swap replaces, it never adds): every count reads the same rows the page does
+            ->where('rts_list_items.status', '<>', RtsListItem::STATUS_SWAPPED);
     }
 
     /** @param array<string,mixed> $r */

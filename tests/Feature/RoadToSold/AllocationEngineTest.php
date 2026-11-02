@@ -352,6 +352,13 @@ final class AllocationEngineTest extends TestCase
         $this->assertNotContains($out->prospecting_listing_id, $day->pluck('prospecting_listing_id')->all());
         $this->assertSame(2, $builder->buildFor($this->agent, self::WED)->count(), 'a second build does not bring it back');
 
+        // every count of the day reads the same rows: the Loaded tile, the header and the compare figures leave the swapped-out row out ("6 / 5" bug)
+        $loaded = collect(app(\App\Services\RoadToSold\BeltService::class)->tiles($this->agent, $this->agent, 'sales', now()))->firstWhere('key', 'loaded');
+        $this->assertSame(2, $loaded['count'], 'the tile counts the day\'s 2 rows, not the 3 that were ever on it');
+        $this->assertSame(2, $loaded['done']);
+        $fig = app(\App\Services\RoadToSold\BeltService::class)->scopeFigures($this->agent, 'loaded', 'sales', now());
+        $this->assertSame(2, (int) collect($fig['scopes'])->firstWhere('scope', 'me')['now'] ?? 2);
+
         // never offered to this agent again, on any later day
         $this->assertNotContains($out->prospecting_listing_id, $builder->buildFor($this->agent, '2026-10-15')->pluck('prospecting_listing_id')->all());
         Carbon::setTestNow();

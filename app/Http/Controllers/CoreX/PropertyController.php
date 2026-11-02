@@ -849,6 +849,7 @@ class PropertyController extends Controller
         $this->authorizeProperty($property, forEdit: false);
         $property->load(['agent', 'branch', 'notes.user', 'files.user', 'contacts.type', 'activeLease']);
 
+        PropertySettingItem::provisionRentalStatusesFor((int) (auth()->user()?->effectiveAgencyId() ?: 0));   // To Let / Let Out / Rented in the Status dropdown for a rental agency
         $settingItems = [
             'categories'      => PropertySettingItem::group('category')->get(),
             'types'           => PropertySettingItem::group('property_type')->where('active', true)->get(),
@@ -1155,6 +1156,7 @@ class PropertyController extends Controller
             }
         }
 
+        PropertySettingItem::provisionRentalStatusesFor((int) (auth()->user()?->effectiveAgencyId() ?: 0));   // To Let / Let Out / Rented in the Status dropdown for a rental agency
         $settingItems = [
             'categories'      => PropertySettingItem::group('category')->get(),
             'types'           => PropertySettingItem::group('property_type')->where('active', true)->get(),

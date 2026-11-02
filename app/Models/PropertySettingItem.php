@@ -153,6 +153,9 @@ class PropertySettingItem extends Model
      *
      * @var array<string, list<array{name:string, title_type?:string, adjustment_pct?:float}>>
      */
+    /** The built-in rental statuses an agency with Rentals gets in its Property Statuses list (their slugs are to_let, let_out, rented). */
+    public const RENTAL_STATUS_NAMES = ['To Let', 'Let Out', 'Rented'];
+
     public const DEFAULT_ROWS = [
         self::GROUP_CATEGORY => [
             ['name' => 'Residential', 'title_type' => self::TITLE_FULL],
@@ -372,8 +375,52 @@ class PropertySettingItem extends Model
 
             \Illuminate\Support\Facades\DB::table('property_setting_items')->insert($payload);
             $inserted += count($payload);
+
+            // a Status list made fresh here (never a curated one) starts with the built-in rental statuses too, for an agency that has Rentals
+            if ($group === self::GROUP_STATUS) {
+                $inserted += self::provisionRentalStatusesFor($agencyId);
+            }
         }
 
         return $inserted;
+    }
+
+    /**
+     * The built-in rental statuses (slugs to_let / let_out / rented - what LeaseActivationService::flipPropertyToLeasedOut() and the P24 sync write). They
+     * are valid for every agency to WRITE (Property::systemStatuses()), but the property page's Status dropdown reads only the agency's own active list, so a
+     * rental agency could not pick one by hand. This puts them in that list - default on - for an agency that has Rentals, after the existing rows.
+     *
+     * Idempotent, and never undoes an agency's choice: a row that exists in ANY state (switched off, or archived) is left exactly as it is. An agency without
+     * Rentals gets nothing. Returns rows inserted.
+     */
+    public static function provisionRentalStatusesFor(int $agencyId): int
+    {
+        if ($agencyId <= 0) {
+            return 0;
+        }
+        $agency = \App\Models\Agency::query()->withoutGlobalScopes()->find($agencyId);
+        if (! $agency || ! app(\App\Services\Features\AgencyFeatureService::class)->enabled('rentals', $agency)) {
+            return 0;
+        }
+        $existing = \Illuminate\Support\Facades\DB::table('property_setting_items')->where('agency_id', $agencyId)->where('group', self::GROUP_STATUS)->get(['name', 'sort_order']);
+        if ($existing->isEmpty()) {
+            return 0;   // an agency with no status list yet gets the full defaults (provisionDefaultsFor) - and the rental ones with them
+        }
+        $have = $existing->map(fn ($r) => preg_replace('/[^a-z0-9]/', '', mb_strtolower((string) $r->name)))->all();
+        $next = (int) $existing->max('sort_order') + 1;
+        $now = now();
+        $payload = [];
+        foreach (self::RENTAL_STATUS_NAMES as $name) {
+            if (in_array(preg_replace('/[^a-z0-9]/', '', mb_strtolower($name)), $have, true)) {
+                continue;
+            }
+            $payload[] = ['agency_id' => $agencyId, 'group' => self::GROUP_STATUS, 'name' => $name, 'sort_order' => $next++, 'is_default' => 1, 'active' => 1, 'created_at' => $now, 'updated_at' => $now];
+        }
+        if ($payload !== []) {
+            \Illuminate\Support\Facades\DB::table('property_setting_items')->insert($payload);
+            \App\Models\Property::clearAllowedStatusCache();
+        }
+
+        return count($payload);
     }
 }

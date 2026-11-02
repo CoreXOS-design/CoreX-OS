@@ -430,7 +430,7 @@ class DeedsCaptureLinkService
      *
      * @return array<int, array{tracked_property_id:int, address:string, erf:?string, scheme:?string, suburb:?string, sold_price:?string, sold_date:?string, owner_names:string, owners:array<int,array<string,mixed>>, search:string}>
      */
-    public function availableDeeds(int $agencyId, int $limit = 500, array $tokens = []): array
+    public function availableDeeds(int $agencyId, int $limit = 500, array $tokens = [], ?\Closure $narrow = null): array
     {
         // CX-101 (2026-08-19, Johan — real property, blocked): a deed that is
         // already linked to a property on the books used to be hidden from
@@ -485,12 +485,13 @@ class DeedsCaptureLinkService
                                     ->where(fn ($y) => $y->where('c.first_name', 'like', $like)->orWhere('c.last_name', 'like', $like)->orWhere('c.entity_name', 'like', $like)->orWhere('c.id_number', 'like', $like))))));
                 }
             })
+            ->when($narrow !== null, $narrow)   // the blank picker: only the property's own area (pickerDeeds builds it)
             ->orderByRaw("CASE WHEN capture_kind = 'deeds_capture' THEN 0 ELSE 1 END")
             ->orderByDesc('updated_at')
             ->limit($limit)
             ->get(['id', 'erf_number', 'scheme_name', 'complex_name', 'street_number', 'street_name',
                 'suburb', 'town', 'last_known_sold_price', 'last_known_sold_date', 'promoted_to_property_id',
-                'section_number', 'deeds_captured_at', 'deeds_captured_by_user_id']);
+                'section_number', 'deeds_captured_at', 'deeds_captured_by_user_id', 'latitude', 'longitude']);
 
         if ($tps->isEmpty()) {
             return [];
@@ -547,6 +548,9 @@ class DeedsCaptureLinkService
                 'erf'                 => $tp->erf_number ? (string) $tp->erf_number : null,
                 'scheme'              => $scheme ?: null,
                 'suburb'              => $tp->suburb ? (string) $tp->suburb : null,
+                'town'                => $tp->town ? (string) $tp->town : null,
+                'lat'                 => $tp->latitude !== null && (float) $tp->latitude != 0.0 ? (float) $tp->latitude : null,
+                'lng'                 => $tp->longitude !== null && (float) $tp->longitude != 0.0 ? (float) $tp->longitude : null,
                 'sold_price'          => $tp->last_known_sold_price !== null ? (string) $tp->last_known_sold_price : null,
                 'sold_date'           => $tp->last_known_sold_date ? (string) $tp->last_known_sold_date : null,
                 'owner_names'         => $ownerNames,
@@ -576,12 +580,47 @@ class DeedsCaptureLinkService
      */
     public function pickerDeeds(int $agencyId, ?int $userId, ?string $q = null, ?array $property = null, int $limit = 80): array
     {
-        $q = mb_strtolower(trim((string) $q));
+        $typedText = trim((string) $q);
+        $q = mb_strtolower($typedText);
         $tokens = $q === '' ? [] : array_values(array_filter(preg_split('/\s+/', $q)));
-        $pool = $this->availableDeeds($agencyId, $q === '' ? 300 : 1000, $tokens);
         $since = now()->subDay();
+        $suburbRaw = mb_strtolower(trim((string) ($property['suburb'] ?? '')));
+        $townRaw = mb_strtolower(trim((string) ($property['town'] ?? '')));
+        $complexRaw = mb_strtolower(trim((string) ($property['complex'] ?? '')));
+        $lat = isset($property['lat']) ? (float) $property['lat'] : null;
+        $lng = isset($property['lng']) ? (float) $property['lng'] : null;
+        // Blank search: the query itself is narrowed to what the picker may show (the property's complex, suburb, town and a ~3 km box, plus the user's own
+        // captures of the last day) so the list is never the whole agency. A typed search goes through the whole agency on purpose.
+        $narrow = $tokens !== [] ? null : function ($w) use ($suburbRaw, $townRaw, $complexRaw, $lat, $lng, $userId, $since) {
+            $w->where(function ($o) use ($suburbRaw, $townRaw, $complexRaw, $lat, $lng, $userId, $since) {
+                $o->whereRaw('1 = 0');
+                if ($userId) {
+                    $o->orWhere(fn ($m) => $m->where('deeds_captured_by_user_id', $userId)->where('deeds_captured_at', '>=', $since));
+                }
+                if ($complexRaw !== '') {
+                    $like = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $complexRaw) . '%';
+                    $o->orWhereRaw('LOWER(scheme_name) LIKE ?', [$like])->orWhereRaw('LOWER(complex_name) LIKE ?', [$like]);
+                }
+                if ($suburbRaw !== '') {
+                    $like = '%' . str_replace(['%', '_'], ['\\%', '\\_'], $suburbRaw) . '%';
+                    $o->orWhereRaw('LOWER(suburb) LIKE ?', [$like])->orWhereRaw('? LIKE CONCAT(\'%\', LOWER(TRIM(suburb)), \'%\') AND TRIM(suburb) <> \'\'', [$suburbRaw]);
+                }
+                if ($townRaw !== '') {
+                    $o->orWhereRaw('LOWER(town) = ?', [$townRaw]);
+                }
+                if ($lat !== null && $lng !== null) {
+                    $o->orWhere(fn ($b) => $b->whereBetween('latitude', [$lat - 0.03, $lat + 0.03])->whereBetween('longitude', [$lng - 0.03, $lng + 0.03]));
+                }
+            });
+        };
+        $pool = $this->availableDeeds($agencyId, $q === '' ? 600 : 1000, $tokens, $narrow);
         $propScheme = self::schemeKey($property['complex'] ?? null);
         $propUnit = self::sectionKey($property['unit'] ?? null);
+        $propSuburb = self::areaKey($property['suburb'] ?? null);
+        $propTown = self::areaKey($property['town'] ?? null);
+        $plat = isset($property['lat']) ? (float) $property['lat'] : null;
+        $plng = isset($property['lng']) ? (float) $property['lng'] : null;
+        $typed = $tokens !== [];
 
         foreach ($pool as &$d) {
             $mine = $userId && $d['captured_by'] === $userId && $d['captured_at'] && \Illuminate\Support\Carbon::parse($d['captured_at'])->gte($since);
@@ -596,12 +635,21 @@ class DeedsCaptureLinkService
             } else {
                 $d['likely_match'] = false;
             }
+            if ($d['group'] === 'other') {
+                // "Other deeds" are the property's own suburb first, then its neighbours - never the whole agency (a typed search is the one way past that)
+                $d['group'] = $this->areaGroup($d, $propSuburb, $propTown, $plat, $plng) ?? ($typed ? 'elsewhere' : null);
+            }
             $d['captured_ago'] = $d['captured_at'] ? \Illuminate\Support\Carbon::parse($d['captured_at'])->diffForHumans() : null;
+            // a date the way the agent reads it, never the stored "2005-04-16 00:00:00"
+            $d['sold_date'] = $d['sold_date'] ? self::niceDate($d['sold_date']) : null;
         }
         unset($d);
 
-        $rank = ['just_now' => 0, 'likely' => 1, 'same_complex' => 2, 'other' => 3];
+        $rank = ['just_now' => 0, 'likely' => 1, 'same_complex' => 2, 'same_suburb' => 3, 'nearby' => 4, 'elsewhere' => 5];
         $pool = array_values(array_filter($pool, function (array $d) use ($tokens) {
+            if ($d['group'] === null) {
+                return false;
+            }
             foreach ($tokens as $t) {
                 if (! str_contains((string) $d['search'], $t)) {
                     return false;
@@ -617,7 +665,7 @@ class DeedsCaptureLinkService
         unset($d);
         usort($pool, fn ($a, $b) => ($rank[$a['group']] <=> $rank[$b['group']]) ?: (strcmp((string) $b['captured_at'], (string) $a['captured_at'])) ?: ($a['_i'] <=> $b['_i']));
         $pool = array_map(function (array $d) {
-            unset($d['_i']);
+            unset($d['_i'], $d['lat'], $d['lng']);
 
             return $d;
         }, $pool);
@@ -626,7 +674,54 @@ class DeedsCaptureLinkService
         $todayCount = $userId ? (int) TrackedProperty::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')
             ->where('deeds_captured_by_user_id', $userId)->where('deeds_captured_at', '>=', $since)->count() : 0;
 
-        return ['deeds' => array_slice($pool, 0, $limit), 'today_count' => $todayCount];
+        return [
+            'deeds' => array_slice($pool, 0, $limit), 'today_count' => $todayCount,
+            // what the screen names when nothing is on file: what was typed, else the property's street (or complex)
+            'for' => $typed ? $typedText : (string) ($property['label'] ?? ''),
+            'suburb_label' => (string) ($property['suburb'] ?? ''),
+        ];
+    }
+
+    /** same_suburb / nearby / null for a deed against the property's area. Nearby = within 3 km (both have GPS), the same town, or a suburb name that contains the other ("Margate" / "Margate Beach"). */
+    private function areaGroup(array $deed, string $propSuburb, string $propTown, ?float $plat, ?float $plng): ?string
+    {
+        $ds = self::areaKey($deed['suburb'] ?? null);
+        if ($propSuburb !== '' && $ds !== '' && $ds === $propSuburb) {
+            return 'same_suburb';
+        }
+        if ($plat !== null && $plng !== null && ($deed['lat'] ?? null) !== null && ($deed['lng'] ?? null) !== null) {
+            $r = 6371.0;
+            $dLat = deg2rad($deed['lat'] - $plat);
+            $dLng = deg2rad($deed['lng'] - $plng);
+            $h = sin($dLat / 2) ** 2 + cos(deg2rad($plat)) * cos(deg2rad($deed['lat'])) * sin($dLng / 2) ** 2;
+            if (2 * $r * asin(min(1.0, sqrt($h))) <= 3.0) {
+                return 'nearby';
+            }
+        }
+        $dt = self::areaKey($deed['town'] ?? null);
+        if ($propTown !== '' && $dt !== '' && $dt === $propTown) {
+            return 'nearby';
+        }
+        if ($propSuburb !== '' && $ds !== '' && (str_contains($ds, $propSuburb) || str_contains($propSuburb, $ds))) {
+            return 'nearby';
+        }
+
+        return null;
+    }
+
+    /** "MARGATE BEACH " -> "margatebeach" (lower case, letters and digits only). */
+    public static function areaKey(?string $name): string
+    {
+        return preg_replace('/[^a-z0-9]/', '', mb_strtolower((string) $name)) ?? '';
+    }
+
+    public static function niceDate(string $value): string
+    {
+        try {
+            return \Illuminate\Support\Carbon::parse($value)->format('j M Y');
+        } catch (\Throwable $e) {
+            return $value;
+        }
     }
 
     /** "Uvongo Cabanas B" / "SS UVONGO CABANAS B" -> "uvongocabanasb" (lower case, letters and digits only, a leading "SS" scheme prefix dropped). */

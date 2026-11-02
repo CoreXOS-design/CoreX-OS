@@ -42,8 +42,11 @@ final class PropertySettingDefaultsTest extends TestCase
                 ->where('group', $group)
                 ->count();
 
+            // an agency with Rentals (the default) also gets the built-in To Let / Let Out / Rented in its Status list
+            $expected = count(PropertySettingItem::DEFAULT_ROWS[$group])
+                + ($group === PropertySettingItem::GROUP_STATUS ? count(PropertySettingItem::RENTAL_STATUS_NAMES) : 0);
             $this->assertSame(
-                count(PropertySettingItem::DEFAULT_ROWS[$group]),
+                $expected,
                 $count,
                 "A new agency must receive the full [{$group}] default set."
             );
@@ -163,7 +166,7 @@ final class PropertySettingDefaultsTest extends TestCase
 
         // And no duplicates crept in.
         $this->assertSame(
-            count(PropertySettingItem::DEFAULT_ROWS['property_status']),
+            count(PropertySettingItem::DEFAULT_ROWS['property_status']) + count(PropertySettingItem::RENTAL_STATUS_NAMES),   // + the built-in rental statuses (the agency has Rentals)
             DB::table('property_setting_items')
                 ->where('agency_id', $agencyId)->where('group', 'property_status')->count()
         );
@@ -184,7 +187,7 @@ final class PropertySettingDefaultsTest extends TestCase
         $migration->up();
 
         $this->assertSame(
-            count(PropertySettingItem::DEFAULT_ROWS['property_status']),
+            count(PropertySettingItem::DEFAULT_ROWS['property_status']) + count(PropertySettingItem::RENTAL_STATUS_NAMES),
             DB::table('property_setting_items')
                 ->where('agency_id', $bare)->where('group', 'property_status')->count()
         );
@@ -192,7 +195,7 @@ final class PropertySettingDefaultsTest extends TestCase
         // Re-running the deploy changes nothing.
         $migration->up();
         $this->assertSame(
-            count(PropertySettingItem::DEFAULT_ROWS['property_status']),
+            count(PropertySettingItem::DEFAULT_ROWS['property_status']) + count(PropertySettingItem::RENTAL_STATUS_NAMES),
             DB::table('property_setting_items')
                 ->where('agency_id', $bare)->where('group', 'property_status')->count()
         );

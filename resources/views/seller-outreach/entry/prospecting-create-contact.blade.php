@@ -186,6 +186,8 @@
               deedsTodayCount: @js($deedsTodayCount ?? 0),
               deedsLoading: false,
               deedsFailed: false,
+              deedsFor: '',        // what the empty answer names: what was typed, else the property's street
+              deedsSuburb: '',
               _deedsSeq: 0,
               _deedsTimer: null,
               openDeedPicker() {
@@ -209,6 +211,8 @@
                       if (seq !== this._deedsSeq) return;
                       this.deeds = d.deeds || [];
                       this.deedsTodayCount = d.today_count || 0;
+                      this.deedsFor = d.for || '';
+                      this.deedsSuburb = d.suburb_label || '';
                       if (this.deeds.length) this.deedsAny = true;
                   } catch (e) {
                       if (seq === this._deedsSeq) this.deedsFailed = true;
@@ -217,7 +221,7 @@
                   }
               },
               deedGroupLabel(g) {
-                  return { just_now: 'Captured just now · by you', likely: 'Likely match for this property', same_complex: 'Same complex, another unit', other: 'Other deeds' }[g] || '';
+                  return { just_now: 'Captured just now · by you', likely: 'Likely match for this property', same_complex: 'Same complex, another unit', same_suburb: this.deedsSuburb ? 'Other deeds in ' + this.deedsSuburb : 'Other deeds in this suburb', nearby: 'Nearby deeds', elsewhere: 'Matches elsewhere in your agency' }[g] || '';
               },
               linkDeedUrl: @js($linkDeedUrl ?? null),
               // FIX 2 — live deed state (reactive), initialised from the server render and refreshed
@@ -1019,8 +1023,17 @@
                     </template>
                     <div x-show="deedsLoading && filteredDeeds().length === 0" class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">Looking for deeds…</div>
                     <div x-show="deedsFailed" class="px-3 py-3 text-center text-sm" style="color: var(--text-muted);">Could not load the deeds. <button type="button" @click="loadDeeds()" style="background:none;border:0;cursor:pointer;color:var(--brand-icon,#0ea5e9);text-decoration:underline;">Try again</button></div>
-                    <div x-show="!deedsLoading && !deedsFailed && filteredDeeds().length === 0" class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">
-                        No deeds match “<span x-text="deedSearch"></span>”.
+                    <div x-show="!deedsLoading && !deedsFailed && filteredDeeds().length === 0" class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);" data-qa="deed-none">
+                        No deed on file for <span x-text="deedSearch.trim() !== '' ? deedSearch.trim() : (deedsFor || 'this property')"></span> &mdash;
+                        @if(auth()->user()->hasPermission('deeds_capture.access'))
+                            @feature('deeds-capture')
+                            capture it from CMA Info: <a href="{{ route('corex.deeds-capture.index') }}" target="_blank" rel="noopener" class="font-semibold no-underline" style="color: var(--brand-icon, #0ea5e9);" data-qa="deed-capture-link">Open Deeds Capture &rarr;</a>
+                            @else
+                            capture it from CMA Info.
+                            @endfeature
+                        @else
+                            capture it from CMA Info.
+                        @endif
                     </div>
                 </div>
                 <div class="px-4 py-2 text-xs" style="border-top:1px solid var(--border); color: var(--text-muted);">

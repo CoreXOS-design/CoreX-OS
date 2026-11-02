@@ -1097,22 +1097,32 @@ final class EntryPointController extends Controller
     {
         try {
             $tpId = null;
+            $listing = null;
             if (isset($ref['listing'])) {
-                $tpId = DB::table('prospecting_listings')->where('id', $ref['listing'])->where('agency_id', $agencyId)->whereNull('deleted_at')->value('tracked_property_id');
+                $listing = DB::table('prospecting_listings')->where('id', $ref['listing'])->where('agency_id', $agencyId)->whereNull('deleted_at')->first(['tracked_property_id', 'suburb', 'address']);
+                $tpId = $listing?->tracked_property_id;
             } elseif (isset($ref['tp'])) {
                 $tpId = $ref['tp'];
             }
             $property = null;
-            if ($tpId) {
-                $row = DB::table('tracked_properties')->where('id', $tpId)->where('agency_id', $agencyId)->first(['complex_name', 'scheme_name', 'unit_number']);
-                $property = $row ? ['complex' => $row->complex_name ?: $row->scheme_name, 'unit' => $row->unit_number] : null;
+            $row = $tpId ? DB::table('tracked_properties')->where('id', $tpId)->where('agency_id', $agencyId)->first(['complex_name', 'scheme_name', 'unit_number', 'suburb', 'town', 'latitude', 'longitude', 'street_name']) : null;
+            if ($row || $listing) {
+                // The street the screen names when nothing is on file ("Lagoon Road"): the last part of a polluted street line, house number dropped; else the complex; else the advert's address.
+                $street = trim((string) preg_replace('/^[\d\s\/-]+/', '', trim((string) (($row->street_name ?? '') !== '' ? last(explode(',', (string) $row->street_name)) : ''))));
+                $property = [
+                    'complex' => $row ? ($row->complex_name ?: $row->scheme_name) : null, 'unit' => $row->unit_number ?? null,
+                    'suburb' => ($row->suburb ?? '') !== '' ? $row->suburb : ($listing->suburb ?? null), 'town' => $row->town ?? null,
+                    'lat' => isset($row->latitude) && (float) $row->latitude != 0.0 ? (float) $row->latitude : null,
+                    'lng' => isset($row->longitude) && (float) $row->longitude != 0.0 ? (float) $row->longitude : null,
+                    'label' => $street !== '' ? $street : (string) (($row->complex_name ?? '') ?: ($row->scheme_name ?? '') ?: trim((string) ($listing->address ?? ''))),
+                ];
             }
 
             return app(\App\Services\Prospecting\DeedsCaptureLinkService::class)->pickerDeeds($agencyId, $userId, $q, $property);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('Deed picker list failed (picker will be empty)', ['error' => $e->getMessage()]);
 
-            return ['deeds' => [], 'today_count' => 0];
+            return ['deeds' => [], 'today_count' => 0, 'for' => '', 'suburb_label' => ''];
         }
     }
 

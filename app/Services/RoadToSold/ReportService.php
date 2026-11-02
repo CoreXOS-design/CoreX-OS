@@ -2,6 +2,7 @@
 
 namespace App\Services\RoadToSold;
 
+use App\Models\RoadToSold\RtsListItem;
 use App\Models\RoadToSold\RtsOutcomeDefinition;
 use App\Models\User;
 use App\Services\Performance\Period;
@@ -169,7 +170,7 @@ class ReportService
 
         // The day's list.
         $items = DB::table('rts_list_items')
-            ->where('agency_id', $agencyId)->where('track', $track)->whereNull('deleted_at')
+            ->where('agency_id', $agencyId)->where('track', $track)->whereNull('deleted_at')->where('status', '<>', RtsListItem::STATUS_SWAPPED)   // a swapped-out row left the day
             ->whereIn('user_id', $ids)->whereBetween('list_date', [$period->start->toDateString(), $period->end->toDateString()])
             ->groupBy('user_id', 'origin', 'status')->selectRaw('user_id, origin, status, count(*) as n')->get();
         foreach ($items as $r) {
