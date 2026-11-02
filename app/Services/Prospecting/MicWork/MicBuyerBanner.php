@@ -80,7 +80,7 @@ final class MicBuyerBanner
         }
         $types = array_map(fn ($t) => $this->human((string) $t), $m->propertyTypeList());
         if ($types) {
-            $c[] = [implode(' / ', $types), 'default', null];
+            $c[] = [implode(', ', $types), 'default', null];
         }
         $subs = $m->suburbList();
         if ($subs) {

@@ -106,6 +106,7 @@ final class MicBuyerBannerTest extends TestCase
         foreach (['buyer-banner-core-match', 'buyer-banner-edit', 'buyer-banner-clear'] as $qa) {
             $this->assertMatchesRegularExpression('/class="corex-btn-outline text-xs no-underline inline-flex items-center flex-shrink-0" data-qa="' . $qa . '"/', $h, $qa);
         }
+        $this->assertStringContainsString('x-data="{ open: false }" @mic-more-toggle.window', $h, 'a chosen buyer does not open More filters by itself (the first advert stays in view)');
         $this->assertStringContainsString('function micBuyerPop()', $h, 'the pop-up script is on the page (outside the swapped fragment)');
         $this->assertSame(1, substr_count($h, 'function micBuyerPop()'));
     }
@@ -125,10 +126,11 @@ final class MicBuyerBannerTest extends TestCase
 
     public function test_a_wishlist_with_no_suburb_says_any_suburb_and_long_lists_are_cut_with_the_full_text_in_the_title(): void
     {
-        $this->wishlist($this->buyer, ['p24_suburb_ids' => [], 'must_have_features' => ['pool', 'garden', 'braai', 'alarm', 'solar', 'fibre'], 'deal_breakers' => ['busy_road']]);
+        $this->wishlist($this->buyer, ['p24_suburb_ids' => [], 'property_types' => ['House', 'Apartment / Flat'], 'must_have_features' => ['pool', 'garden', 'braai', 'alarm', 'solar', 'fibre'], 'deal_breakers' => ['busy_road']]);
         $chips = app(MicBuyerBanner::class)->forBuyer($this->buyer->id, $this->agency->id, true)['chips'];
         $labels = array_column($chips, 0);
         $this->assertContains('Any suburb', $labels);
+        $this->assertContains('House, Apartment / Flat', $labels, 'several types are comma-separated (a type can itself hold a slash)');
         $this->assertContains('Must have: Pool, Garden, Braai, Alarm +2', $labels);
         $this->assertContains('Avoid: Busy Road', $labels);
         $cut = collect($chips)->firstWhere(0, 'Must have: Pool, Garden, Braai, Alarm +2');

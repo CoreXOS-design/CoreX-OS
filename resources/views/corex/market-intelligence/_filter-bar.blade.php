@@ -73,7 +73,8 @@
     // "More filters" opens by itself when one of its filters is on
     $moreKeys = ['address_filter', 'include_in_stock', 'region', 'buyer_id', 'buyer_scope', 'source', 'captured_by', 'date_from', 'agency_name', 'is_active', 'score_min', 'score_max', 'action_preset'];
     $moreNew = collect(['show_status', 'owner_only', 'sole_mandate_only', 'claimed'])->filter(fn ($k) => !empty($F[$k]) && !($k === 'claimed' && $F[$k] === 'any'))->count();
-    $moreOn = $moreNew > 0 || collect($moreKeys)->contains(fn ($k) => request()->filled($k)) || !request()->boolean('p24', true) || !request()->boolean('pp', true);
+    // a chosen buyer does not open the panel by itself: the buyer banner under the bar already says who, and the panel would push the first advert down (13.14)
+    $moreOn = $moreNew > 0 || collect(array_diff($moreKeys, ['buyer_id', 'buyer_scope']))->contains(fn ($k) => request()->filled($k)) || !request()->boolean('p24', true) || !request()->boolean('pp', true);
     $moreCount = $moreNew + collect($moreKeys)->filter(fn ($k) => request()->filled($k))->count() + (!request()->boolean('p24', true) ? 1 : 0) + (!request()->boolean('pp', true) ? 1 : 0);
 
     $hidden = collect(request()->except(array_merge($keys, ['search', 'page', 'view', 'clear', 'reset', '_fragments'])))->filter(fn ($v) => !is_array($v));
