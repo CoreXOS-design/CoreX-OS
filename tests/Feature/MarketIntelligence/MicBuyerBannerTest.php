@@ -65,7 +65,7 @@ final class MicBuyerBannerTest extends TestCase
             'property_type' => 'Townhouse', 'price' => 900_000, 'bedrooms' => 2, 'captured_by_user_id' => $this->admin->id, 'first_seen_at' => now()->subDays(5), 'last_seen_at' => now(), 'is_active' => true,
         ]);
         // the listing observer may already have cached this buyer against the advert (a wishlist exists): either way the row is there at 90
-        DB::table('prospecting_buyer_matches')->updateOrInsert(['prospecting_listing_id' => $l->id, 'contact_id' => $c->id], ['agency_id' => $this->agency->id, 'score' => 90, 'tier' => 'strong', 'matched_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('prospecting_buyer_matches')->updateOrInsert(['prospecting_listing_id' => $l->id, 'contact_id' => $c->id], ['agency_id' => $this->agency->id, 'score' => 90, 'tier' => 'strong', 'matched_features' => json_encode(['rules' => \App\Services\Matching\BuyerMatchRules::VERSION]), 'matched_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
 
         return $l;
     }

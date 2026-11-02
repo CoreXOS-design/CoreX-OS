@@ -8520,6 +8520,7 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
 
         // 13.17 "Not for <buyer>": hide a property file for the selected buyer (all his wishlists) and put it back.
         Route::post('/buyer-hide', [\App\Http\Controllers\CoreX\MicBuyerHideController::class, 'store'])->name('buyer-hide.store');
+        Route::post('/buyer-refresh', [\App\Http\Controllers\CoreX\MicBuyerHideController::class, 'refresh'])->name('buyer-refresh');
         Route::post('/buyer-hide/{exclusion}/restore', [\App\Http\Controllers\CoreX\MicBuyerHideController::class, 'restore'])->whereNumber('exclusion')->name('buyer-hide.restore');
 
         // Phase G3 — feedback-template JSON for the claim slide-over.

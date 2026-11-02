@@ -31,6 +31,20 @@ class MicBuyerHideController extends Controller
         return $this->state($svc, $agencyId, $buyer, ['id' => $row->id]);
     }
 
+ /**
+     * 13.15 addendum: rebuild ONE buyer's MIC matches under the current rules (the banner's "Updating Jan's matches..."). 'busy' = another request is already doing it.
+     */
+    public function refresh(Request $request, \App\Services\Matching\BuyerMatchFreshness $freshness): JsonResponse
+    {
+        $data = $request->validate(['buyer_id' => ['required', 'integer']]);
+        $user = $request->user();
+        $agencyId = (int) ($user->effectiveAgencyId() ?? $user->agency_id);
+        $buyer = $this->buyer($agencyId, (int) $data['buyer_id']);
+        @set_time_limit(240);
+
+        return response()->json(['ok' => true, 'state' => $freshness->refresh($agencyId, (int) $buyer->id)]);
+    }
+
     public function restore(Request $request, int $exclusion, BuyerPropertyExclusions $svc): JsonResponse
     {
         $user = $request->user();

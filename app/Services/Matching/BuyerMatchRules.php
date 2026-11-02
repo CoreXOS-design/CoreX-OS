@@ -25,6 +25,9 @@ class BuyerMatchRules
     /** A sale price under this is a placeholder or a typo (R4, R1), not a price: treated as "no price captured". */
     public const SALE_PRICE_FLOOR = 10000;
 
+    /** Stamped into every MIC cache row (matched_features.rules). Bump it whenever a matching rule changes: each buyer's stale rows are then rebuilt once, on demand (BuyerMatchFreshness). */
+    public const VERSION = '13.15';
+
     /** type_key => the wishlist `category` it belongs to; land / farm / other are not mapped, so the category stays unverified. */
     private const CATEGORY_OF_TYPE = [
         'house' => 'residential', 'apartment' => 'residential', 'townhouse' => 'residential',

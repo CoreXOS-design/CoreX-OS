@@ -142,7 +142,9 @@
             $_micFilterKeys = ['town_id', 'property_type_slug', 'bedroom_segment_id', 'price_band_id', 'buyer_state', 'buyers_since', 'unmapped_only', 'sources', 'suburb_normalised', 'buyer_id'];
             $_micHasFilters = collect($_micFilterKeys)->contains(fn ($k) => request()->filled($k));
         @endphp
-        @if($_micHasFilters)
+        @if(!empty($buyerUpdating))
+            {{-- the buyer's matches are being rebuilt (banner says so); the page reloads with the list --}}
+        @elseif($_micHasFilters)
             @include('prospecting._empty-state', [
                 'kind'        => 'filtered_to_zero',
                 'filters'     => request()->only($_micFilterKeys),

@@ -802,7 +802,7 @@ class PropertyMatchScoringService
                 $best = [
                     'score'            => $a['score'],
                     'tier'             => $this->determineTier($a['score']),
-                    'breakdown'        => ['engine' => 'canonical', 'rules' => '13.15', 'price_tolerance_pct' => (int) round($bandPct * 100), 'unverified' => $a['unverified']],
+                    'breakdown'        => ['engine' => 'canonical', 'rules' => \App\Services\Matching\BuyerMatchRules::VERSION, 'price_tolerance_pct' => (int) round($bandPct * 100), 'unverified' => $a['unverified']],
                     'missing_features' => [],
                 ];
             }

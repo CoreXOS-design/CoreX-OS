@@ -520,7 +520,13 @@ class MarketIntelligenceController extends Controller
             $this->buyerHiddenCtx = $hiddenCtx;
             view()->share('buyerHidden', $hiddenCtx);
 
-            if ($hiddenCtx['viewing']) {
+            // 13.15 addendum: his cache rows were built before the rules last changed -> rebuild HIM once before the list (the banner says so and the page reloads)
+            $buyerUpdating = ! $hiddenCtx['viewing'] && app(\App\Services\Matching\BuyerMatchFreshness::class)->isStale((int) $agencyId, $selectedBuyerId);
+            view()->share('buyerUpdating', $buyerUpdating ? ['buyer_id' => $selectedBuyerId, 'first_name' => $hiddenCtx['first_name'], 'url' => route('market-intelligence.buyer-refresh')] : null);
+
+            if ($buyerUpdating) {
+                $query->whereRaw('1 = 0');
+            } elseif ($hiddenCtx['viewing']) {
                 $query->where(fn ($q) => $q->whereIn('tracked_property_id', array_keys($hiddenCtx['by_file']) ?: [0])->orWhereIn('id', array_keys($hiddenCtx['by_listing']) ?: [0]));
             } else {
                 $query->whereIn('id', function ($sub) use ($selectedBuyerId, $agencyId, $buyerFloor) {
