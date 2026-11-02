@@ -273,4 +273,20 @@ final class BeltLinksTest extends TestCase
 
         $this->assertNull(app(BeltLinks::class)->trackedOf((int) $property->id, (int) $b->id));
     }
+
+    public function test_a_booking_never_attaches_the_appointment_to_a_property_that_was_archived_since_the_file_was_promoted(): void
+    {
+        [$tp, $property, $p] = $this->file(ProspectStages::OWNER_FOUND);
+        $dead = Property::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'agent_id' => $this->agent->id, 'status' => 'prospecting',
+            'title' => 'Old promote', 'listing_type' => 'sale', 'property_type' => 'house', 'address' => 'Old promote', 'suburb' => 'Margate']);
+        $dead->delete();
+        DB::table('tracked_properties')->where('id', $tp->id)->update(['promoted_to_property_id' => $dead->id]);
+        $this->actingAs($this->agent);
+        $def = Def::withoutGlobalScopes()->where('agency_id', $this->agency->id)->where('key', 'spoke_evaluation_booked')->firstOrFail();
+
+        $o = app(OutcomeService::class)->record($this->agent, (int) $tp->id, $def->id, ['channel' => 'phone', 'appointment_at' => '2026-11-04 09:30']);
+
+        $event = CalendarEvent::withoutGlobalScopes()->findOrFail($o->calendar_event_id);
+        $this->assertNotSame((int) $dead->id, (int) $event->property_id, 'the calendar cannot open an appointment on an archived property');
+    }
 }

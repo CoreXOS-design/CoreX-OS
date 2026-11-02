@@ -98,8 +98,10 @@ class BeltLinks
         if (! self::calendarColumns()) {
             return null;
         }
+        // an appointment on an archived property is invisible to the calendar (its own live-property rule), so it is not one a feedback button can open
         $id = DB::table('calendar_events')->where('rts_prospect_id', $prospectId)->where('category', 'property_evaluation')->whereNull('deleted_at')
-            ->whereNotIn('status', ['cancelled', 'dismissed'])->orderByDesc('event_date')->value('id');
+            ->where(fn ($w) => $w->whereNull('property_id')->orWhereExists(fn ($e) => $e->selectRaw('1')->from('properties')->whereColumn('properties.id', 'calendar_events.property_id')->whereNull('properties.deleted_at')))
+            ->whereNotIn('status', ['cancelled', 'dismissed'])->orderByDesc('event_date')->orderByDesc('id')->value('id');
 
         return $id ? (int) $id : null;
     }

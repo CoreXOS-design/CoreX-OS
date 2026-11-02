@@ -372,4 +372,21 @@ final class BeltLeftoversTest extends TestCase
         $this->assertStringNotContainsString('Off-ramps - why it stops here', file_get_contents(resource_path('views/road-to-sold/index.blade.php')));
         $this->assertStringContainsString('Stops here (say why)', file_get_contents(resource_path('views/road-to-sold/index.blade.php')));
     }
+
+    public function test_an_appointment_on_an_archived_property_is_not_the_one_the_feedback_button_opens(): void
+    {
+        [$p, , , $tp] = $this->claimed(null, S::APPOINTMENT_SET);
+        $dead = \App\Models\Property::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'agent_id' => $this->agent->id, 'status' => 'prospecting',
+            'title' => 'Old', 'listing_type' => 'sale', 'property_type' => 'house', 'address' => 'Old', 'suburb' => 'Margate']);
+        $dead->delete();
+        $mk = fn ($pid) => \App\Models\CommandCenter\CalendarEvent::withoutGlobalScopes()->create([
+            'agency_id' => $this->agency->id, 'user_id' => $this->agent->id, 'event_type' => 'manual', 'title' => 'Evaluation', 'category' => 'property_evaluation',
+            'event_date' => '2026-11-03 10:00:00', 'status' => 'pending', 'rts_prospect_id' => $p->id, 'property_id' => $pid,
+        ]);
+        $live = $mk(null);
+        $mk($dead->id);   // the newer one sits on the archived property
+
+        $this->assertSame((int) $live->id, app(\App\Services\RoadToSold\BeltLinks::class)->latestEvaluationEvent((int) $p->id));
+        $this->assertStringContainsString('capture_feedback=' . $live->id, (string) app(\App\Services\RoadToSold\ProspectStepService::class)->urlFor($p, 'evaluation_feedback'));
+    }
 }

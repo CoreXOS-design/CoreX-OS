@@ -149,7 +149,12 @@ class OutcomeService
             // R10 (road-to-sold.md 22.11): an evaluation booked from a call attaches the PROPERTY. A prospect that is still only a tracked
             // property gets its property row here (the existing promote-to-stock path), with the owner linked, so the calendar entry carries
             // the property and the parties.
-            $propertyId = $input['property_id'] ?? ($tp->promoted_to_property_id ?: null);
+            // a property that was archived since the file was promoted is not a property to book against: the appointment would sit on a deleted record and the calendar
+            // could not open its feedback form (found walking Evaluation feedback on QA1)
+            $livePromoted = $tp->promoted_to_property_id
+                ? \App\Models\Property::query()->withoutGlobalScopes()->whereNull('deleted_at')->whereKey($tp->promoted_to_property_id)->value('id')
+                : null;
+            $propertyId = $input['property_id'] ?? ($livePromoted ?: null);
             if ($wantsValuation && ! $propertyId) {
                 // made by the belt for the agent, not captured by them: scores nothing (23.16)
                 $propertyId = \App\Models\Property::withoutActivityPoints(fn () => app(ProspectPropertyService::class)->ensureProperty($tp, $actor))?->id;
