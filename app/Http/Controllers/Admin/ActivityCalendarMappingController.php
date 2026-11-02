@@ -55,6 +55,7 @@ final class ActivityCalendarMappingController extends Controller
         'MIC / Prospecting',
         'Compliance & FICA',
         'Marketing',
+        'Road to Sold',
         'Other',
     ];
 
@@ -85,6 +86,15 @@ final class ActivityCalendarMappingController extends Controller
         'outreach.outcome_logged'           => 'Seller-outreach outcome logged',
         'mic.claim_taken'                   => 'MIC claim taken',
         'mic.claim_feedback'                => 'MIC claim feedback recorded',
+        'rts.deed_linked'                   => 'Road to Sold: deed linked',
+        'rts.owner_linked'                  => 'Road to Sold: owner linked',
+        'rts.outcome.phone'                 => 'Road to Sold: outcome by phone',
+        'rts.outcome.whatsapp'              => 'Road to Sold: outcome by WhatsApp',
+        'rts.outcome.email'                 => 'Road to Sold: outcome by email',
+        'rts.outcome.in_person'             => 'Road to Sold: outcome in person',
+        'rts.offramp_logged'                => 'Road to Sold: dead end logged',
+        'rts.evaluation_feedback'           => 'Road to Sold: evaluation feedback',
+        'rts.advertised'                    => 'Road to Sold: advertised',
         'map.prospect_launched'             => 'Map prospect launched',
         'tracked_property.promoted_to_stock'=> 'Tracked property promoted to stock',
         'fica.submitted'                    => 'FICA submitted',
@@ -294,6 +304,7 @@ final class ActivityCalendarMappingController extends Controller
                 || str_starts_with($slug, 'map.')                                           => 'MIC / Prospecting',
             str_starts_with($slug, 'fica.') || str_starts_with($slug, 'rcr.')               => 'Compliance & FICA',
             str_starts_with($slug, 'marketing.')                                            => 'Marketing',
+            str_starts_with($slug, 'rts.')                                                  => 'Road to Sold',
             default                                                                          => 'Other',
         };
     }

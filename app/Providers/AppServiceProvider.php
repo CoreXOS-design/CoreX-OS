@@ -558,6 +558,16 @@ class AppServiceProvider extends ServiceProvider
         // Road to Sold v4 (23.6): the owner is linked / the deed arrives -> the belt record moves to Owner found.
         Event::listen(\App\Events\Prospecting\OwnerLinkedToTrackedProperty::class, [\App\Listeners\RoadToSold\MoveToOwnerFound::class, 'handleOwnerLinked']);
         Event::listen(\App\Events\Prospecting\TrackedPropertyEnriched::class, [\App\Listeners\RoadToSold\MoveToOwnerFound::class, 'handleEnriched']);
+        // Road to Sold v4 belt points (23.16): owner linked, deed linked, the outcome by channel and a logged off-ramp are credited from the event;
+        // an outcome that is deleted (undone) takes its credits back.
+        Event::listen(\App\Events\Prospecting\OwnerLinkedToTrackedProperty::class, [\App\Listeners\RoadToSold\CreditBeltPoints::class, 'handleOwnerLinked']);
+        Event::listen(\App\Events\Prospecting\TrackedPropertyEnriched::class, [\App\Listeners\RoadToSold\CreditBeltPoints::class, 'handleEnriched']);
+        Event::listen(\App\Events\RoadToSold\RoadToSoldOutcomeRecorded::class, [\App\Listeners\RoadToSold\CreditBeltPoints::class, 'handleOutcome']);
+        \App\Models\RoadToSold\RtsContactOutcome::deleted(function (\App\Models\RoadToSold\RtsContactOutcome $o) {
+            foreach (array_merge(['rts.offramp_logged'], array_filter([\App\Services\RoadToSold\BeltPoints::channelSlug($o->channel)])) as $slug) {
+                app(\App\Services\RoadToSold\BeltPoints::class)->revoke($slug, $o, 'The outcome was removed');
+            }
+        });
 
         // ─────────────────────────────────────────────────────────────────
         // Syndication Approval Gate (layer 3) — .ai/specs/syndication-approval-gate.md §8.

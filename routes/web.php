@@ -6927,6 +6927,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/outcomes', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'recordOutcome'])->name('outcomes.record');
             Route::post('/add-to-day', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'addToDay'])->name('add-to-day');
             Route::post('/build-list', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'buildList'])->name('build-list');
+            // 23.16: why did I get these points - the agent's own belt points log
+            Route::get('/points', [\App\Http\Controllers\RoadToSold\BeltPointsController::class, 'log'])->name('points');
             // 23.14: swap a loaded property for the next one, with a reason
             Route::post('/list/{item}/swap', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'swap'])->whereNumber('item')->name('swap');
             // v4 belt (spec 23.13): "Start my Road to Sold", pause and resume - an agent's own, or another agent's with road_to_sold.pause_others
