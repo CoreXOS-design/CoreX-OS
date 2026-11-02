@@ -20,9 +20,11 @@ final class AllocationSource
     public const FILL_UP = 'fill_up';
     public const FOLLOW_UP = 'follow_up';
     public const FOUND_BY_YOU = 'found_by_you';
+    public const MY_CLAIM = 'my_claim';
 
     /** kind => the plain label the tile and the stats use */
     public const LABELS = [
+        self::MY_CLAIM => 'Your claims',
         self::MY_BUYERS => 'My buyers\' stock',
         self::COLLEAGUE_BUYERS => 'Colleagues\' buyers\' stock',
         self::HOT_POCKET => 'Hot pockets',
@@ -39,6 +41,7 @@ final class AllocationSource
             'hot_pockets' => self::HOT_POCKET,
             'follow_up' => self::FOLLOW_UP,
             'found_by_you' => self::FOUND_BY_YOU,
+            'my_claims' => self::MY_CLAIM,
             default => self::FILL_UP,
         };
     }

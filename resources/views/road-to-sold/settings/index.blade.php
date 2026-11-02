@@ -17,9 +17,9 @@
         'limits'   => ['new_on_market_days', 'long_on_market_days', 'owner_known_quantity', 'stuck_stock_min_days', 'stuck_stock_max_views', 'stuck_stock_max_leads', 'stuck_stock_lookback_days', 'hot_pocket_lookback_days', 'price_drop_lookback_days', 'expired_competitor_lookback_days', 'prospect_stall_days'],
         'matching' => ['buyer_match_tiers', 'active_buyer_states', 'on_market_statuses', 'add_to_day_max', 'hot_pocket_weight_buyers', 'hot_pocket_weight_leads', 'hot_pocket_weight_sales'],
         'starting' => ['agent_start_required'],
-        'claims'   => ['claim_hold_days', 'claim_warn_days', 'claim_extension_days', 'claim_extensions_allowed'],
-        'ownerfound' => ['owner_requires_deed'],
-        'aftercall' => ['no_answer_drop_after', 'hold_days', 'default_callback_days'],
+        'claims'   => ['claim_hold_days', 'claim_warn_days', 'claim_extension_days', 'claim_extensions_allowed', 'due_claimed_days', 'fill_from_claims_first'],
+        'ownerfound' => ['owner_requires_deed', 'due_owner_days'],
+        'aftercall' => ['no_answer_drop_after', 'hold_days', 'default_callback_days', 'due_contacted_days', 'due_held_days'],
         'colleagues' => ['source_for_colleagues'],
         'ontrack'  => ['summary_steps', 'summary_green_from_pct', 'summary_red_below_pct', 'summary_ahead_from_pct', 'capture_back_date_working_days', 'capture_needs_review'],
         'levels'   => ['levels_signoff_required', 'level_periods_required'],
@@ -336,6 +336,25 @@
                         @endforeach
                     </div>
                     @endif
+                    @if(\App\Models\RoadToSold\RtsSetting::hasConveyorColumns())
+                    <div class="grid gap-3 sm:grid-cols-2" data-qa="setting-conveyor-claims">
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="due_claimed_days">A claimed property is late when its owner is not found within</label>
+                            <input id="due_claimed_days" type="number" min="1" max="60" name="due_claimed_days" value="{{ old('due_claimed_days', $settings->dueClaimedDays()) }}"
+                                   class="w-28 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <span class="text-xs ml-2" style="color:var(--text-muted);">working days of the claim (standard: {{ $defaults['due_claimed_days'] }}). Shown as "late" on the Claimed tile when no date was set by hand.</span>
+                        </div>
+                    </div>
+                    <label class="flex items-start gap-3 text-sm" style="color:var(--text-primary);" data-qa="setting-fill-from-claims">
+                        <input type="hidden" name="fill_from_claims_first" value="0">
+                        <input type="checkbox" name="fill_from_claims_first" value="1" class="mt-1" @checked(old('fill_from_claims_first', $settings->fillFromClaimsFirst()))>
+                        <span>
+                            <span class="font-semibold">Fill my day from my claims first</span><br>
+                            <span style="color:var(--text-muted);">On: an agent's day list is filled from the properties they have claimed first (late ones first, then the ones closest to the end of the hold), then from buyers, hot pockets and fill-ups. Off: claims are not put on the day list.</span>
+                            @if($stdOnOff('fill_from_claims_first'))<br><span class="text-xs" style="color:var(--text-muted);" data-qa="std-fill_from_claims_first">Standard: {{ $stdOnOff('fill_from_claims_first') }}</span>@endif
+                        </span>
+                    </label>
+                    @endif
                     <div class="text-xs" style="color:var(--text-muted);" data-qa="hold-not-the-same">Not the same as <button type="button" class="underline" style="background:none; border:0; padding:0; cursor:pointer; color:var(--text-secondary);" @click="g = 'aftercall'">"Don't offer a contacted property to anyone for {{ $settings->holdDays() }} days"</button>, which is about a property that has already been contacted.</div>
                 </div>
             </div>
@@ -358,6 +377,14 @@
                         </span>
                     </label>
                     @endif
+                    @if(\App\Models\RoadToSold\RtsSetting::hasConveyorColumns())
+                    <div data-qa="setting-conveyor-owner">
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="due_owner_days">A property with its owner found is late when the first contact is not made within</label>
+                        <input id="due_owner_days" type="number" min="1" max="60" name="due_owner_days" value="{{ old('due_owner_days', $settings->dueOwnerDays()) }}"
+                               class="w-28 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        <span class="text-xs ml-2" style="color:var(--text-muted);">working days (standard: {{ $defaults['due_owner_days'] }}). Used when no date was set by hand.</span>
+                    </div>
+                    @endif
                 </div>
             </div>
         </div>
@@ -372,8 +399,10 @@
                         ['no_answer_drop_after', 'Drop off the list after this many no-answers in a row', $settings->noAnswerDropAfter(), 1, 20, 'calls', null],
                         ['hold_days', "Don't offer a contacted property to anyone for", $settings->holdDays(), 1, 365, 'days after the result is logged. The agent who logged it keeps it for that time.', 'hold_days'],
                         ['default_callback_days', 'When a call is logged as "contacted" from Market Intelligence, call back in', $settings->defaultCallbackDays(), 1, 30, 'working days', 'default_callback_days'],
+                        ['due_contacted_days', 'A contacted property is late when the evaluation is not booked within', $settings->dueContactedDays(), 1, 90, 'days of the contact. Used when no date was set by hand.', 'due_contacted_days'],
+                        ['due_held_days', 'An evaluation held is late when the result is not given within', $settings->dueHeldDays(), 1, 60, 'working days of the evaluation. Used when no date was set by hand.', 'due_held_days'],
                     ] as [$name, $label, $value, $min, $max, $unit, $col])
-                        @if($name !== 'default_callback_days' || \App\Models\RoadToSold\RtsSetting::hasDefaultCallbackColumn())
+                        @if(($name !== 'default_callback_days' || \App\Models\RoadToSold\RtsSetting::hasDefaultCallbackColumn()) && (! str_starts_with($name, 'due_') || \App\Models\RoadToSold\RtsSetting::hasConveyorColumns()))
                         <div @if($name === 'default_callback_days') data-qa="setting-default-callback" @endif>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="{{ $name }}">{{ $label }}</label>
                             <input id="{{ $name }}" type="number" min="{{ $min }}" max="{{ $max }}" name="{{ $name }}" value="{{ old($name, $value) }}"

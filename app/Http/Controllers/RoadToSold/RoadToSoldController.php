@@ -174,7 +174,11 @@ class RoadToSoldController extends Controller
             $captureChoices = $this->completionList->filterChoices($agencyId, $track);
         }
 
-        return view('road-to-sold.index', $data + $this->blocks($request, $viewer, $agentId, $agents, $viewingOwn, $track, $date, collect($data['rows']->items())->pluck('tracked_property_id')->all()) + [
+        $blocks = $this->blocks($request, $viewer, $agentId, $agents, $viewingOwn, $track, $date, collect($data['rows']->items())->pluck('tracked_property_id')->all());
+        // a station list (23.24) offers Log contact on its rows too: the outcomes that fit and the owner gate are read for those properties as well
+        $rowTracked = array_merge(collect($data['rows']->items())->pluck('tracked_property_id')->all(), isset($blocks['stationList']) ? collect($blocks['stationList']['rows']->items())->pluck('tracked_property_id')->all() : []);
+
+        return view('road-to-sold.index', $data + $blocks + [
             'belt'           => $belt,
             'activation'     => $activation,
             'roster'         => $roster,
@@ -206,9 +210,9 @@ class RoadToSoldController extends Controller
             'track'          => $track,
             'outcomeChoices' => $outcomes,
             // v4 (23.7a): per property, the outcomes that fit the record's station and owner (the pop-up shows only these)
-            'outcomeFit'     => $viewingOwn && $agentUser ? $this->outcomeFit($agentUser, collect($data['rows']->items())->pluck('tracked_property_id')->all(), $track) : [],
+            'outcomeFit'     => $viewingOwn && $agentUser ? $this->outcomeFit($agentUser, $rowTracked, $track) : [],
             // v4 (23.6 / 23.7): which rows are still waiting for the owner to be found (property id => what is missing), and the channel this agent used last
-            'ownerBlocked'   => $viewingOwn && $agentUser ? app(\App\Services\RoadToSold\OwnerStationService::class)->blockedMany($agentUser, collect($data['rows']->items())->pluck('tracked_property_id')->all()) : [],
+            'ownerBlocked'   => $viewingOwn && $agentUser ? app(\App\Services\RoadToSold\OwnerStationService::class)->blockedMany($agentUser, $rowTracked) : [],
             'lastChannel'    => ($agentUser && \App\Models\RoadToSold\RtsContactOutcome::hasChannelColumn())
                 ? (string) (\App\Models\RoadToSold\RtsContactOutcome::query()->where('track', $track)->where('user_id', $agentUser->id)->whereNotNull('channel')->orderByDesc('id')->value('channel') ?: '')
                 : '',
@@ -387,9 +391,11 @@ class RoadToSoldController extends Controller
             // a belt tile's list (spec 23.13): the stations that have no prospect stage yet
             $stationKey = (string) $request->query('station', '');
             abort_if(\App\Services\RoadToSold\BeltService::station($stationKey) === null, 404);
-            $sf = ['q' => (string) $request->query('s_q', ''), 'sort' => (string) $request->query('s_sort', 'age'), 'dir' => (string) $request->query('s_dir', 'asc'), 'page' => (int) $request->query('page', 1)];
+            // 23.24: the list opens late-first (oldest due after), filtered by line 1 / 2 / 3 of the tile that was clicked (?filter=)
+            $sf = ['q' => (string) $request->query('s_q', ''), 'sort' => (string) $request->query('s_sort', 'due'), 'dir' => (string) $request->query('s_dir', 'asc'), 'page' => (int) $request->query('page', 1),
+                'filter' => (string) $request->query('filter', ''), 'owed' => (bool) $request->query('owed'), 'date' => $date->toDateString()];
             $stationAgent = \App\Models\User::query()->withoutGlobalScopes()->where('agency_id', (int) ($viewer->effectiveAgencyId() ?: 0))->findOrFail($agentId);
-            $out += ['stationKey' => $stationKey, 'stationFilters' => $sf] + ['stationList' => app(\App\Services\RoadToSold\BeltService::class)->list($stationAgent, $stationKey, $sf)];
+            $out += ['stationKey' => $stationKey, 'stationFilters' => $sf] + ['stationList' => app(\App\Services\RoadToSold\BeltService::class)->list($stationAgent, $stationKey, $sf, $track)];
         } elseif ($block === 'parked') {
             $everyone = $request->query('who') === 'all' && $agents->count() > 1;
             $f = [

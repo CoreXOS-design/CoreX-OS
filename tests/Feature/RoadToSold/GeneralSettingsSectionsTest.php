@@ -84,4 +84,33 @@ final class GeneralSettingsSectionsTest extends TestCase
     {
         $this->assertStringContainsString('data-qa="link-stock-targets"', $this->html());
     }
+
+    /** 23.24: the conveyor's next-step windows and the claims-first switch sit in the existing sections, say their standard and save. */
+    public function test_the_conveyor_windows_and_the_claims_first_switch_are_settings(): void
+    {
+        if (! \App\Models\RoadToSold\RtsSetting::hasConveyorColumns()) {
+            $this->markTestSkipped('the conveyor settings migration (2026_11_02_170000) has not been applied yet - held for Johan\'s go');
+        }
+        $agency = Agency::create(['name' => 'Coastal Realty', 'slug' => 'coastal-' . uniqid()]);
+        $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Main']);
+        $admin = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin', 'is_active' => true]);
+        SettingsService::forget();
+        $h = $this->actingAs($admin)->get(route('road-to-sold.settings.index'))->assertOk()->getContent();
+
+        $this->assertStringContainsString('name="due_claimed_days"', $this->section($h, 'claims'));
+        $this->assertStringContainsString('name="fill_from_claims_first"', $this->section($h, 'claims'));
+        $this->assertStringContainsString('data-qa="std-fill_from_claims_first">Standard: on', $h);
+        $this->assertStringContainsString('name="due_owner_days"', $this->section($h, 'ownerfound'));
+        $after = $this->section($h, 'aftercall');
+        $this->assertStringContainsString('name="due_contacted_days"', $after);
+        $this->assertStringContainsString('name="due_held_days"', $after);
+
+        $this->put(route('road-to-sold.settings.general.update'), ['due_claimed_days' => 4, 'due_owner_days' => 2, 'due_contacted_days' => 10, 'due_held_days' => 3, 'fill_from_claims_first' => '0'])
+            ->assertRedirect(route('road-to-sold.settings.index'));
+        SettingsService::forget();
+        $s = SettingsService::forAgency($agency->id);
+        $this->assertSame([4, 2, 10, 3, false], [$s->dueClaimedDays(), $s->dueOwnerDays(), $s->dueContactedDays(), $s->dueHeldDays(), $s->fillFromClaimsFirst()]);
+
+        $this->put(route('road-to-sold.settings.general.update'), ['due_claimed_days' => 0])->assertSessionHasErrors('due_claimed_days');
+    }
 }

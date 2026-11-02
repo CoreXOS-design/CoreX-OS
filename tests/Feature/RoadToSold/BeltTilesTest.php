@@ -105,10 +105,11 @@ final class BeltTilesTest extends TestCase
         $fig = fn (string $k) => preg_match('/data-qa="belt-tile-' . $k . '".*?data-qa="belt-figure">([^<]*)/s', $html, $m) ? trim($m[1]) : null;
         $this->assertSame('1', $fig('claimed'), "the claim with no owner is at Claimed (v4 A1: a claim IS the prospect); a colleague's never counts");
         $this->assertSame('1', $fig('owner'), 'the claim whose owner and deed are on record is at Owner found (v4 A2)');
-        $this->assertSame('1', $fig('draft'));
+        // Draft and Active read "this month" (the funnel's rule): the record placed at Active also passed Draft, so Draft has 2 and Active 1
+        $this->assertSame('2', $fig('draft'));
         $this->assertSame('1', $fig('active'));
         $this->assertSame('0', $fig('advertised'));
-        $this->assertMatchesRegularExpression('/^\d+ \/ \d+$/', (string) $fig('loaded'), 'stock loaded reads done / target');
+        $this->assertMatchesRegularExpression('/^\d+$/', (string) $fig('loaded'), 'stock loaded reads how many are still to do (and "n of N worked" under it)');
         $this->assertStringNotContainsString('data-qa="belt-start-card"', $html, 'a started agent has no Start card');
     }
 
@@ -117,7 +118,9 @@ final class BeltTilesTest extends TestCase
         $p = app(ProspectService::class)->place($this->agent, $this->tp(['street_number' => '3', 'street_name' => 'Talk Road'])->id);
         $p->forceFill(['stage' => S::CONTACTED, 'next_action_at' => '2026-10-10'])->save();   // overdue
         $html = $this->page($this->agent)->getContent();
-        $this->assertMatchesRegularExpression('/data-qa="belt-tile-contacted".*?data-qa="belt-figure">1<span class="bad" data-qa="belt-alert">!1</s', str_replace("\n", ' ', $html), 'one at Contacted, one needs attention');
+        $flat = str_replace("\n", ' ', $html);
+        $this->assertMatchesRegularExpression('/data-qa="belt-tile-contacted".*?data-qa="belt-figure">1</s', $flat, 'one at Contacted');
+        $this->assertMatchesRegularExpression('/data-qa="belt-line-contacted-late"[^>]*>1 late</', $flat, 'and its call-back date is past: one late');
         $this->assertStringContainsString('station=contacted', $html, 'the tile opens the HOME list filtered to that station');
         foreach (['CLAIMED' => 'claimed', 'OWNER_FOUND' => 'owner_found', 'PRESENTATION_PREPARED' => 'presentation_prepared', 'DRAFT' => 'draft', 'ACTIVE' => 'active'] as $const => $key) {
             $this->assertSame($key, constant(S::class . '::' . $const));
@@ -167,7 +170,7 @@ final class BeltTilesTest extends TestCase
         $this->assertStringNotContainsString('Found Road', $l);
     }
 
-    public function test_evaluations_that_took_place_with_no_feedback_are_owed_and_show_on_the_held_tile(): void
+    public function test_evaluations_that_took_place_with_no_feedback_are_owed_and_one_click_from_the_held_list(): void
     {
         $base = ['agency_id' => $this->agency->id, 'user_id' => $this->agent->id, 'category' => 'property_evaluation', 'event_type' => 'meeting', 'status' => 'pending',
             'created_at' => now(), 'updated_at' => now()];
@@ -176,10 +179,11 @@ final class BeltTilesTest extends TestCase
         DB::table('calendar_event_feedback')->insert(['calendar_event_id' => $given, 'agency_id' => $this->agency->id, 'captured_at' => now(), 'captured_by_user_id' => $this->agent->id, 'created_at' => now(), 'updated_at' => now()]);
         DB::table('calendar_events')->insert($base + ['title' => 'Evaluation: 7 Future Road', 'event_date' => now()->addDays(2)]);
 
-        $html = $this->page($this->agent)->getContent();
-        $this->assertStringContainsString('1 owed', $html);
-        $this->assertStringContainsString('station=held', $html, 'the Held tile opens the owed list first');
-        $h = $this->page($this->agent, ['block' => 'station', 'station' => 'held'])->getContent();
+        // the Held tile is the conveyor tile now (to do / moved on / late); the owed list is one click inside the Held list
+        $held = $this->page($this->agent, ['block' => 'station', 'station' => 'held'])->getContent();
+        $this->assertStringContainsString('data-qa="held-owed"', $held);
+        $this->assertStringContainsString('1 evaluation owed feedback', $held);
+        $h = $this->page($this->agent, ['block' => 'station', 'station' => 'held', 'owed' => 1])->getContent();
         $this->assertStringContainsString('5 Owed Road', $h);
         $this->assertStringNotContainsString('6 Given Road', $h);
         $this->assertStringNotContainsString('7 Future Road', $h);
@@ -199,18 +203,17 @@ final class BeltTilesTest extends TestCase
         $this->assertSame([], $svc->tiles($this->agent, $this->agent, 'rentals', now()), 'Road to Rented has no belt yet');
     }
 
-    public function test_a_tile_shows_done_over_target_where_the_recipe_sets_one_and_the_count_where_it_does_not(): void
+    public function test_a_tile_keeps_the_recipe_target_in_its_hover_and_reads_the_conveyor_lines(): void
     {
         app(\App\Services\RoadToSold\RecipeService::class)->start($this->agency->id, 'sales');
+        $tiles = collect(app(BeltService::class)->tiles($this->agent, $this->agent, 'sales', now()))->keyBy('key');
+        $this->assertSame('0 / 10', $tiles['contacted']['figure'], 'a daily recipe target: calls recorded today / 10');
+        $this->assertSame('0 / 1', $tiles['booked']['figure'], 'a weekly target');
+        $this->assertSame('0 / 1', $tiles['won']['figure'], 'a monthly target');
         $html = str_replace("\n", ' ', $this->page($this->agent)->getContent());
-        $fig = fn (string $k) => preg_match('/data-qa="belt-tile-' . $k . '".*?data-qa="belt-figure">([^<]*)/', $html, $m) ? trim($m[1]) : null;
-        $this->assertSame('0 / 10', $fig('contacted'), 'a daily recipe target: calls recorded today / 10');
-        $this->assertSame('0 / 1', $fig('booked'), 'a weekly target');
-        $this->assertSame('0 / 1', $fig('won'), 'a monthly target');
-        $this->assertMatchesRegularExpression('/^\d+$/', (string) $fig('claimed'), 'no target for Claimed: the count');
-        $this->assertMatchesRegularExpression('/data-qa="belt-tile-booked".*?<span class="sub">this week<\/span>/', $html, 'the period is written under a figure that is not a day');
-        $this->assertMatchesRegularExpression('/data-qa="belt-tile-won".*?<span class="sub">this month<\/span>/', $html);
-        $this->assertDoesNotMatchRegularExpression('/data-qa="belt-tile-contacted".*?<span class="sub">today<\/span>/', $html, '"today" is the default and is not repeated');
+        $this->assertMatchesRegularExpression('/data-qa="belt-line-contacted-moved"[^>]*>0 moved on today</', $html);
+        $this->assertMatchesRegularExpression('/data-qa="belt-line-won-moved"[^>]*>0 today</', $html, 'the last four read "this month" and "today"');
+        $this->assertMatchesRegularExpression('/data-qa="belt-tile-won"[^>]*><span class="n" data-qa="belt-figure">0<\/span> this month</', $html);
     }
 
     public function test_the_compare_popover_gives_me_my_branch_and_the_agency_as_figures_only(): void
@@ -241,8 +244,8 @@ final class BeltTilesTest extends TestCase
         $this->assertStringContainsString('function beltCompare(', $html);
     }
 
-    /** Johan, 2 Nov: a tile list says where the record is and what comes next - not a list-item open / closed flag. */
-    public function test_a_tile_list_shows_the_station_and_the_next_step_of_the_record(): void
+    /** Johan, 2 Nov / 23.24: a tile list says where the record is, when its next step is due and what comes next - not a list-item open / closed flag. */
+    public function test_a_tile_list_shows_when_the_next_step_is_due_and_the_one_next_action(): void
     {
         $p = app(ProspectService::class)->place($this->agent, $this->tp(['street_number' => '73', 'street_name' => 'Marine Drive'])->id);
         $p->forceFill(['stage' => S::APPOINTMENT_SET, 'next_action_key' => 'evaluation_feedback', 'next_action_label' => 'Evaluation feedback', 'next_action_at' => '2026-10-15'])->save();
@@ -250,8 +253,9 @@ final class BeltTilesTest extends TestCase
             'event_date' => '2026-10-15 10:00:00', 'status' => 'scheduled', 'rts_prospect_id' => $p->id, 'tracked_property_id' => $p->tracked_property_id, 'created_at' => now(), 'updated_at' => now()]);
 
         $h = $this->page($this->agent, ['station' => 'booked'])->assertOk()->getContent();
-        $this->assertStringContainsString('Station · next step', $h);
-        $this->assertMatchesRegularExpression('/data-qa="station-where"[^>]*>Evaluation booked · 15 Oct 10:00 · Evaluation feedback</', $h);
+        $this->assertStringContainsString('>Due<', $h);
+        $this->assertMatchesRegularExpression('/data-qa="station-due"[^>]*>\s*<div[^>]*>Thu 15 Oct 10:00/', $h, 'a booked evaluation is due when the appointment is, with its time');
+        $this->assertMatchesRegularExpression('/data-qa="station-action"[^>]*data-action="Evaluation feedback"/', $h, 'Booked: Evaluation feedback');
         $this->assertStringNotContainsString('>Open</a>', $h, 'the row button is not a status');
     }
 }

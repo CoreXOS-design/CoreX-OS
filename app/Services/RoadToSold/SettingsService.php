@@ -393,6 +393,38 @@ class SettingsService
         return max(0, (int) $this->scalar('claim_extensions_allowed'));
     }
 
+    // ── The conveyor's next-step windows and the day feed (23.24) ──────────
+
+    /** Working days after the claim to find the owner. */
+    public function dueClaimedDays(): int
+    {
+        return max(1, (int) $this->scalar('due_claimed_days'));
+    }
+
+    /** Working days after the owner is found to make the first contact. */
+    public function dueOwnerDays(): int
+    {
+        return max(1, (int) $this->scalar('due_owner_days'));
+    }
+
+    /** Days (calendar) after the contact to book the evaluation. */
+    public function dueContactedDays(): int
+    {
+        return max(1, (int) $this->scalar('due_contacted_days'));
+    }
+
+    /** Working days after the evaluation to give the result. */
+    public function dueHeldDays(): int
+    {
+        return max(1, (int) $this->scalar('due_held_days'));
+    }
+
+    /** Fill the agent's day from their own claims before any other source? On by default. */
+    public function fillFromClaimsFirst(): bool
+    {
+        return (bool) $this->scalar('fill_from_claims_first');
+    }
+
     /** 23.12: the training flag fires when an agent's off-ramp rate at a station is this many percent above the branch (or agency) rate. */
     public function flagOffRampExcessPct(): int
     {

@@ -178,12 +178,37 @@ class CallListService
             'my_expired_stock'       => 'My expired stock',
             'my_stock_not_selling'   => 'My stock that is not selling',
             'follow_up'              => 'Follow-up due',
+            'my_claims'              => 'Your claims',
             null, ''                 => '',
             default                  => ucfirst(str_replace('_', ' ', (string) $key)),
         };
     }
 
     // ── Rows ────────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * The Loaded list's row fields (price, days on market, agency, owner, last outcome) for any set of properties - the station lists show the very same row (23.24).
+     *
+     * @param  int[]  $trackedIds
+     * @return array<int,array<string,mixed>> tracked property id => row
+     */
+    public function rowsForTracked(array $trackedIds, int $agencyId, string $track = 'sales'): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $trackedIds))));
+        if ($ids === []) {
+            return [];
+        }
+        $tps = TrackedProperty::query()->whereIn('id', $ids)
+            ->with(['ownerContact.primaryPhone', 'owners.contact.primaryPhone', 'prospectingListings'])->get()->keyBy('id');
+        $current = $this->outcomes->currentFor($agencyId, $ids, $track);
+        $out = [];
+        foreach ($ids as $id) {
+            $tp = $tps->get($id);
+            $out[$id] = $this->row($tp, $this->listingOf($tp), null, $current->get($id), ['tracked_property_id' => $id, 'why' => '', 'status' => 'open'], $agencyId);
+        }
+
+        return $out;
+    }
 
     /** @return array<string,mixed> */
     private function rowFromItem(RtsListItem $i, ?RtsContactOutcome $current, int $agencyId): array
@@ -197,7 +222,8 @@ class CallListService
             'prospecting_listing_id' => $i->prospecting_listing_id,
             'property_id'        => $i->property_id,
             'selection'          => $i->selection,
-            'why'                => $i->reason ?: $this->selectionLabel($i->selection),
+            // a claim on the day shows how long the hold has left (read live, so the number is today's)
+            'why'                => $i->selection === 'my_claims' && $i->prospect_id ? app(ConveyorService::class)->claimLine((int) $i->prospect_id) : ($i->reason ?: $this->selectionLabel($i->selection)),
             'why_facts'          => $i->reason_facts,
             'status'             => $i->status,
             'origin'             => $i->origin,
