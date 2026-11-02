@@ -18,6 +18,7 @@
         'oldChannel' => old('channel'),
         'lastChannel' => $lastChannel ?? '',
         'channels' => \App\Models\RoadToSold\RtsContactOutcome::CHANNELS,
+        'fit' => (object) ($outcomeFit ?? []),
         'addresses' => $addresses,
         'history'   => $history,
         'captureTasks' => $captureTasks->map(fn ($t) => ['id' => $t->id, 'label' => $t->label, 'kind' => $t->capture_kind, 'evidence' => $t->evidence_required])->values()->all(),
@@ -130,7 +131,9 @@
     {{-- What to do next and where the month stands stay in view on every block (the team view is about everyone, so not there). --}}
     @unless($isTeam)
         <div class="rts-top">
-            @include('road-to-sold._recipe', ['part' => 'next'])
+            @if($nextAction)
+                @include('road-to-sold._recipe', ['part' => 'next'])
+            @endif
 
             @include('road-to-sold._summary-bar')
         </div>
@@ -511,7 +514,7 @@
             <template x-for="(h, i) in historyRows" :key="i">
                 <div class="text-xs py-2" style="border-top: 1px solid var(--border); color: var(--text-primary);">
                     <div><span class="font-semibold" x-text="h.label"></span>
-                        <span style="color: var(--text-muted);" x-text="' · ' + (h.kind === 'conversation' ? 'conversation' : 'attempt') + (h.valuation ? ' · evaluation booked' : '')"></span></div>
+                        <span style="color: var(--text-muted);" x-text="(h.valuation ? ' · evaluation booked' : '')"></span></div>
                     <div style="color: var(--text-muted);" x-text="h.when + (h.by ? ' · ' + h.by : '') + (h.next ? ' · back on ' + h.next : '')"></div>
                     <div x-show="h.note" x-text="h.note"></div>
                 </div>
@@ -558,7 +561,7 @@
                                     <input type="radio" name="outcome_definition_id" :value="c.id" x-model="chosen" class="mt-0.5">
                                     <span>
                                         <span class="font-semibold" x-text="labelOf(c)"></span>
-                                        <span style="color: var(--text-muted);" x-text="' · ' + (c.kind === 'conversation' ? 'conversation' : 'attempt')"></span>
+                                        <span style="color: var(--text-muted);" x-show="c.summary" x-text="' - ' + c.summary"></span>
                                     </span>
                                 </label>
                             </template>
@@ -677,7 +680,9 @@ function rtsPage(cfg) {
         // one vocabulary (road-to-sold.md 23.11): forward moves, try again, off-ramps; the owner-problem outcomes stay available to report it
         get groups() {
             const t = { forward: 'Moves it forward', again: 'Try again later', off_ramp: 'Off-ramps - why it stops here' };
-            return ['forward', 'again', 'off_ramp'].map(k => ({ key: k, title: t[k], items: this.choices.filter(c => (c.group || 'again') === k) }));
+            var fit = (cfg.fit && cfg.fit[this.tp]) ? cfg.fit[this.tp].map(String) : null;   // only the outcomes that fit this record's station (23.7a)
+            var shown = fit ? this.choices.filter(c => fit.indexOf(String(c.id)) !== -1) : this.choices;
+            return ['forward', 'again', 'off_ramp'].map(k => ({ key: k, title: t[k], items: shown.filter(c => (c.group || 'again') === k) }));
         },
         labelOf(c) {
             return (this.channel && c.labels && c.labels[this.channel]) ? c.labels[this.channel] : c.label;

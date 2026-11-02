@@ -96,7 +96,7 @@
         document.body.appendChild(back);
         document.documentElement.style.overflow = 'hidden';
 
-        pop = {
+        var me = pop = {
             back: back, frame: frame, opener: document.activeElement, o: o, loads: 0, results: [],
             // the screen we are on is not known until it has loaded, except when we open the card ourselves
             current: startAtCard ? 'property' : null, visited: {}, urls: {},
@@ -145,6 +145,22 @@
         pop.repaint = paint;
         paint();
         frame.src = first;
+        // which screens exist for THIS record: every other pill is a control when it has one, a plain label when it has none
+        var prospect = o.prospect || ((String(o.next || '').match(/\/prospects\/(\d+)\//) || String(o.next || '').match(/rts_prospect=(\d+)/) || [])[1]) || '';
+        if (cfg.steps && (o.listing || o.tracked || prospect)) {
+            var q = new URLSearchParams();
+            if (o.listing) q.set('listing', o.listing);
+            if (o.tracked) q.set('tracked', o.tracked);
+            if (prospect) q.set('prospect', prospect);
+            fetch(cfg.steps + '?' + q.toString(), { credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } })
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (d) {
+                    if (!d || !d.steps || pop !== me) return;
+                    Object.keys(d.steps).forEach(function (k) { if (d.steps[k] && !pop.urls[k]) pop.urls[k] = d.steps[k]; });
+                    paint();
+                })
+                .catch(function () { /* the pills stay as they are: the screens still work */ });
+        }
         closeBtn.focus();
     }
 
@@ -227,6 +243,11 @@
 
     window.addEventListener('message', function (e) {
         if (e.origin !== window.location.origin || !e.data || !pop || e.source !== pop.frame.contentWindow) return;
+        if (e.data.pitch === 'go') {
+            var u = pop.urls[e.data.step];
+            if (u) { var x = new URL(u, window.location.href); if (e.data.need) x.searchParams.set('need', String(e.data.need)); pop.frame.src = x.toString(); }
+            return;
+        }
         if (e.data.pitch === 'book') { if (e.data.url && sameSite(e.data.url) && !pop.urls.evaluation) { pop.urls.evaluation = e.data.url; if (pop.repaint) pop.repaint(); } return; }
         if (e.data.pitch === 'result') { pop.results.push({ kind: ['logged', 'booked'].indexOf(e.data.kind) >= 0 ? e.data.kind : 'pitched', address: String(e.data.address || ''), detail: String(e.data.detail || '') }); return; }
         if (e.data.rts === 'done') close(true);

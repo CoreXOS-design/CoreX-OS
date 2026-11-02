@@ -7,7 +7,6 @@ namespace App\Http\Controllers\SellerOutreach;
 use App\Http\Controllers\Controller;
 use App\Models\CommandCenter\CalendarEvent;
 use App\Models\Property;
-use App\Models\Prospecting\TrackedProperty;
 use App\Services\RoadToSold\OutcomeService;
 use App\Services\RoadToSold\RoadToSoldException;
 use Illuminate\Http\Request;
@@ -19,6 +18,16 @@ use Illuminate\Http\Request;
  */
 final class PitchBookController extends Controller
 {
+    /** The screen behind each pill of the pitch popup for this record (JSON), asked once when the popup opens. */
+    public function steps(Request $request, \App\Services\SellerOutreach\PitchStepsService $steps)
+    {
+        $carry = array_filter($request->only(['rts_prospect', 'rts_stage']), fn ($v) => is_string($v) && $v !== '');
+
+        return response()->json(['steps' => $steps->plan(
+            $request->user(), (int) $request->query('listing') ?: null, (int) $request->query('prospect') ?: null, (int) $request->query('tracked') ?: null, $carry,
+        )]);
+    }
+
     public function done(Request $request, int $calendarEvent, OutcomeService $outcomes)
     {
         $user = $request->user();
@@ -35,10 +44,7 @@ final class PitchBookController extends Controller
         $problem = null;
         $outcomeId = (int) $request->query('pitch_outcome');
         if ($outcomeId > 0) {
-            $tpId = (int) ($property?->tracked_property_id ?: ($event->tracked_property_id ?? 0));
-            if ($tpId <= 0 && $property) {
-                $tpId = (int) TrackedProperty::query()->where('agency_id', $agencyId)->where('promoted_to_property_id', $property->id)->value('id');
-            }
+            $tpId = (int) (app(\App\Services\SellerOutreach\PitchBeltResolver::class)->trackedFor($user, $property, (int) $request->query('rts_prospect') ?: null) ?: ($event->tracked_property_id ?? 0));
             try {
                 if ($tpId <= 0) {
                     throw new RoadToSoldException('This property is not on your Road to Sold, so the call was not logged.');

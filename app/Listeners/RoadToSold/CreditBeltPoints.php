@@ -60,6 +60,26 @@ class CreditBeltPoints
         }
     }
 
+    /**
+     * A result that is a dead end or a "not now" is work done, so it pays the logged-off-ramp credit (23.16) - the same credit a logged off-ramp OUTCOME pays - once per
+     * result (the subject is the result's own history line). A win pays nothing here (the mandate has its own credit).
+     */
+    public function handleResult(\App\Events\RoadToSold\ProspectResultRecorded $e): void
+    {
+        try {
+            if ($e->resultClass === 'won') {
+                return;
+            }
+            $agent = User::query()->withoutGlobalScopes()->find($e->userId);
+            $line = \App\Models\RoadToSold\RtsProspectEvent::withoutGlobalScopes()->where('prospect_id', $e->prospectId)->where('kind', 'result')->orderByDesc('id')->first();
+            if ($agent && $line) {
+                $this->points->credit('rts.offramp_logged', $agent, $line);
+            }
+        } catch (Throwable $ex) {
+            Log::warning('Belt points: a result could not be credited (the save stands)', ['prospect_id' => $e->prospectId, 'message' => $ex->getMessage()]);
+        }
+    }
+
     public function handleOwnerLinked(OwnerLinkedToTrackedProperty $e): void
     {
         $this->forHolders((int) $e->agencyId, (int) $e->trackedPropertyId, 'rts.owner_linked');

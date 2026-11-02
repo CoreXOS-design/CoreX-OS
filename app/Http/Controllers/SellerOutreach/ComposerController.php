@@ -42,7 +42,8 @@ final class ComposerController extends Controller
     /** The owner gate (road-to-sold.md 23.6) for a pitch about this property; null = may send. A property off the belt is not gated here. */
     private function ownerGate(Request $request, ?Property $property): ?string
     {
-        $tpId = $property?->tracked_property_id;
+        // the same file the Road to Sold row judges (23.23 drop 5): the agent's own record first, not whatever the property row points at
+        $tpId = app(\App\Services\SellerOutreach\PitchBeltResolver::class)->trackedFor($request->user(), $property, (int) $request->input('rts_prospect') ?: null);
         if (! $tpId) {
             return null;
         }
@@ -147,7 +148,8 @@ final class ComposerController extends Controller
         // picker can surface collision badges. ≤2 linked properties per
         // contact (per loadLinkedProperties() comment), so calling resolve()
         // per row is cheap — no batching layer needed.
-        $propertyStatuses = $this->resolveStatusesForPicker(
+        // (the picker, which shows them, is not in the pitch popup: skip the address-matching lookups there - they cost about a third of a second)
+        $propertyStatuses = \App\Support\Embed::on() ? [] : $this->resolveStatusesForPicker(
             $linkedProperties,
             $agencyId,
             (int) $request->user()->id,

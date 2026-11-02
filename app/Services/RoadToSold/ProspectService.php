@@ -340,17 +340,25 @@ class ProspectService
         }
     }
 
-    /** End the allocation so the property can be offered again (a manager, or an agent who has gone). */
-    public function release(RtsProspect $p, ?User $actor = null, ?string $note = null): RtsProspect
+    /**
+     * End the allocation so the property can be offered again (a manager, or an agent who has gone).
+     *
+     * $closeTodaysRows: the agent's open list rows for it close as missed because they are no longer theirs to work. A claim the agent gave up (or whose hold ended)
+     * passes false: the property was LOADED on today's list, and a loaded property is not "missed" until the day ends - it stays open with its actions
+     * (Johan, 2 Nov); the roll-over setting decides what carries to the next working day.
+     */
+    public function release(RtsProspect $p, ?User $actor = null, ?string $note = null, bool $closeTodaysRows = true): RtsProspect
     {
         if ($p->released_at === null && $p->closed_at === null) {
             $p->forceFill(['released_at' => now(), 'released_by_user_id' => $actor?->id, 'next_action_key' => null, 'next_action_label' => null, 'next_action_at' => null])->save();
             $this->log($p, RtsProspectEvent::RELEASE, $p->stage, $p->stage, $actor, ['note' => $note]);
             $this->giveBackMarketIntelligence($p, $actor, $note);
             // the agent's open rows for it are no longer theirs to work
-            \App\Models\RoadToSold\RtsListItem::withoutGlobalScopes()->where('agency_id', $p->agency_id)->where('track', $p->track)
-                ->where('user_id', $p->user_id)->where('tracked_property_id', $p->tracked_property_id)->where('status', \App\Models\RoadToSold\RtsListItem::STATUS_OPEN)
-                ->update(['status' => \App\Models\RoadToSold\RtsListItem::STATUS_MISSED, 'status_changed_at' => now()]);
+            if ($closeTodaysRows) {
+                \App\Models\RoadToSold\RtsListItem::withoutGlobalScopes()->where('agency_id', $p->agency_id)->where('track', $p->track)
+                    ->where('user_id', $p->user_id)->where('tracked_property_id', $p->tracked_property_id)->where('status', \App\Models\RoadToSold\RtsListItem::STATUS_OPEN)
+                    ->update(['status' => \App\Models\RoadToSold\RtsListItem::STATUS_MISSED, 'status_changed_at' => now()]);
+            }
         }
 
         return $p;

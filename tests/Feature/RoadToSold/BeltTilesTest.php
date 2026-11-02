@@ -87,8 +87,9 @@ final class BeltTilesTest extends TestCase
         $this->claim($this->agent, 'Claimed Road', false);
         $this->claim($this->agent, 'Owner Road', true);
         $this->claim($this->mate, 'Colleague Road', false);   // a colleague's claim never counts for this agent
-        $this->property($this->agent->id, ['status' => 'draft']);
-        $this->property($this->agent->id, ['status' => 'active', 'address' => '2 Active Road']);
+        // v4 A7: Draft and Active read the stage count - the records the property's own state moved there
+        app(ProspectService::class)->place($this->agent, $this->tp(['street_number' => '1', 'street_name' => 'Draft Road'])->id, 'sales', ['stage' => S::DRAFT]);
+        app(ProspectService::class)->place($this->agent, $this->tp(['street_number' => '2', 'street_name' => 'Active Road'])->id, 'sales', ['stage' => S::ACTIVE]);
 
         $html = $this->page($this->agent)->assertOk()->getContent();
         $this->assertStringContainsString('data-qa="belt-tiles"', $html);
@@ -105,7 +106,7 @@ final class BeltTilesTest extends TestCase
         $this->assertSame('1', $fig('claimed'), "the claim with no owner is at Claimed (v4 A1: a claim IS the prospect); a colleague's never counts");
         $this->assertSame('1', $fig('owner'), 'the claim whose owner and deed are on record is at Owner found (v4 A2)');
         $this->assertSame('1', $fig('draft'));
-        $this->assertSame('1', $fig('active'), 'active and not on a portal yet');
+        $this->assertSame('1', $fig('active'));
         $this->assertSame('0', $fig('advertised'));
         $this->assertMatchesRegularExpression('/^\d+ \/ \d+$/', (string) $fig('loaded'), 'stock loaded reads done / target');
         $this->assertStringNotContainsString('data-qa="belt-start-card"', $html, 'a started agent has no Start card');
@@ -145,8 +146,8 @@ final class BeltTilesTest extends TestCase
         $this->page($this->agent, ['block' => 'station', 'station' => 'nonsense'])->assertNotFound();
 
         // draft / active / advertised read the agent's own stock
-        $this->property($this->agent->id, ['status' => 'draft', 'address' => '7 Draft Lane']);
-        $this->property($this->mate->id, ['status' => 'draft', 'address' => '8 Mates Lane']);
+        app(ProspectService::class)->place($this->agent, $this->tp(['street_number' => '7', 'street_name' => 'Draft Lane'])->id, 'sales', ['stage' => S::DRAFT]);
+        app(ProspectService::class)->place($this->mate, $this->tp(['street_number' => '8', 'street_name' => 'Mates Lane'])->id, 'sales', ['stage' => S::DRAFT]);
         $d = $this->page($this->agent, ['block' => 'station', 'station' => 'draft'])->getContent();
         $this->assertStringContainsString('7 Draft Lane', $d);
         $this->assertStringNotContainsString('8 Mates Lane', $d);

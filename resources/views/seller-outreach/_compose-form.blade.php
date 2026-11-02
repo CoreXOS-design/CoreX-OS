@@ -47,8 +47,8 @@
             To make a property-specific pitch, link or create a property on the contact first.
         </p>
     </div>
-    @elseif(! $inPopup || $linkedProperties->count() > 1)
-    {{-- Property picker (inside the pitch popup only when there is a real choice: the property is already named once, above) --}}
+    @elseif(! $inPopup)
+    {{-- Property picker (never inside the pitch popup: there the property is the one the popup is about, named once, above) --}}
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="oc-property"
          x-data="propertyPickerCollision({
             statuses: @js(collect($statuses)->map(fn ($s) => $s['status'] ?? 'available')),
@@ -182,8 +182,11 @@
     </div>
     @endif
 
+    {{-- Inside the pitch popup (23.23 drop 5) the agent first sees the message as the recipient will, with the send button under it; the editable text (which
+         holds the {tokens} the sender fills in) opens with "Edit message". On the page it is always open. --}}
+    <div x-data="{ editing: {{ $inPopup ? 'false' : 'true' }} }" class="space-y-4">
     {{-- Body editor --}}
-    <div>
+    <div x-show="editing" @if($inPopup) x-cloak @endif>
         <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
             <label class="block text-xs font-semibold" style="color: var(--text-secondary);">
                 Message body
@@ -206,9 +209,13 @@
         <div class="text-xs font-semibold mb-1" style="color: var(--text-secondary);">
             Preview — what the recipient sees
         </div>
-        <div class="w-full px-3 py-2 text-sm rounded-md whitespace-pre-wrap"
-             style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"
+        <div class="w-full px-3 py-2 text-sm rounded-md whitespace-pre-wrap" data-qa="message-preview"
+             style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);{{ $inPopup ? ' max-height: 11rem; overflow-y: auto;' : '' }}"
              x-text="previewBody()"></div>
+    </div>
+    @if($inPopup)
+        <div><button type="button" class="text-xs font-semibold underline" style="color: var(--text-secondary);" data-qa="edit-message" @click="editing = !editing" x-text="editing ? 'Done editing' : 'Edit message'"></button></div>
+    @endif
     </div>
 
     {{-- Validation issues (no phone / no email / no tracking link) --}}

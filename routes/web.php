@@ -5445,6 +5445,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'storeFromProspecting'])
                 ->where('prospectingListingId', '\d+')
                 ->name('store-from-prospecting');
+            // road-to-sold.md 23.23 drop 5 - the screen behind each pill of the pitch popup for this record (JSON).
+            Route::get('/outreach/pitch-steps',
+                [\App\Http\Controllers\SellerOutreach\PitchBookController::class, 'steps'])
+                ->name('pitch-steps');
             // road-to-sold.md 23.23 drop 4 - the page after the calendar's own form saved an evaluation inside the pitch popup.
             Route::get('/outreach/evaluation-booked/{calendarEvent}',
                 [\App\Http\Controllers\SellerOutreach\PitchBookController::class, 'done'])

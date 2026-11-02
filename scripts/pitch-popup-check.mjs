@@ -26,7 +26,8 @@ const cookie = { name: out.match(/COOKIE_NAME=(.+)/)[1].trim(), value: out.match
 
 const browser = await puppeteer.launch({ executablePath: '/usr/bin/chromium', headless: 'new', args: ['--no-sandbox', '--disable-gpu'] });
 const page = await browser.newPage();
-await page.setViewport({ width: 1500, height: 950 });
+const VP = (arg('vp', '1366x768')).split('x').map(Number);
+await page.setViewport({ width: VP[0], height: VP[1] });
 await page.setCookie({ name: cookie.name, value: cookie.value, domain: new URL(BASE).hostname, path: '/', httpOnly: true, secure: true });
 await page.setCacheEnabled(false);
 page.on('pageerror', (e) => { if (!/ViewTransition/.test(e.message)) console.log('  pageerror:', e.message); });
@@ -120,13 +121,36 @@ if (WALK) {
         tabs: [...document.querySelectorAll('[data-tour="oc-channel"] button')].map((b) => b.innerText.trim()),
         queue: !!document.querySelector('[data-tour="oc-queue"]'), side: !!document.querySelector('[data-tour="oc-facts"]'), templatePicker: !!document.querySelector('[data-tour="oc-template"]'),
         cancel: [...document.querySelectorAll('a')].some((a) => /^Cancel$/.test(a.innerText.trim())),
+        token: /\{opt_(out|in)_link\}|\{tracking_link\}/.test(document.body.innerText),
+        sendBottom: (() => { const b = [...document.querySelectorAll('button')].find((x) => /record send/.test(x.innerText)); return b ? Math.round(b.getBoundingClientRect().bottom) : null; })(), vh: window.innerHeight,
     }));
+    ok(!c1.token, 'no raw {token} in the message the agent sees');
+    ok(c1.sendBottom !== null && c1.sendBottom <= c1.vh - 56, 'the send button is visible without scrolling (' + c1.sendBottom + ' of ' + c1.vh + ')');
+    const pillState = await page.evaluate(() => [...document.querySelectorAll('[data-qa="pitch-steps"] .cxp-step')].map((b) => b.dataset.step + ':' + b.dataset.click).join());
+    ok(pillState === 'property:1,owner:1,pitch:1,contact:1,evaluation:1', 'every pill opens a screen: ' + pillState);
     ok(c1.tabs.join('|') === 'WhatsApp|Email|Phone call', 'three tabs: ' + c1.tabs.join(' | '));
     console.log('  contact flags:', JSON.stringify({ queue: c1.queue, cancel: c1.cancel, side: c1.side, templatePicker: c1.templatePicker }));
     ok(!c1.queue && !c1.cancel && !c1.side && !c1.templatePicker, 'no Add to queue, no Cancel, no demand/tracking panels, no template picker');
     ok((c1.text.match(/Salmon Drive/g) || []).length === 1, 'the address is shown once (' + (c1.text.match(/Salmon Drive/g) || []).length + ')');
     ok(!/No property linked/.test(c1.text), 'no wrong "No property linked" line');
     await page.screenshot({ path: path.join(SHOTS, 'k-contact-whatsapp.png') });
+
+    // ONE gate: the owner is linked but the deed is not on record -> the Phone call tab says so and the Owner step is the live deed picker
+    tinker(`$p = \\DB::table('properties')->where('id', ${propertyId})->first(); \\DB::table('tracked_properties')->where('id', $p->tracked_property_id)->update(['owner_contact_id' => ${contactId}, 'deeds_captured_at' => null]); echo 'owner linked, no deed';`);
+    await cur.evaluate(() => document.querySelector('[data-qa="tab-phone"]').click());
+    cur = await waitFrame(/channel=phone/, 60000);
+    await wait(1200);
+    const g = await cur.evaluate(() => ({ gate: !!document.querySelector('[data-qa="phone-gate"]'), text: (document.querySelector('[data-qa="phone-gate"]') || {}).innerText || '' }));
+    ok(g.gate && /deed record/.test(g.text), 'the Phone call tab says what is missing: ' + g.text.replace(/\s+/g, ' ').trim());
+    await page.screenshot({ path: path.join(SHOTS, 'w-phone-gate-deed.png') });
+    await cur.evaluate(() => document.querySelector('[data-qa="phone-gate-go"]').click());
+    cur = await waitFrame(/outreach\/compose.*need=deed/, 60000);
+    ok(!!cur, 'the button leads to the Owner step (the compose screen), not the pitch page');
+    const dp = await cur.evaluate(() => ({ banner: !!document.querySelector('[data-qa="need-deed"]'), picker: [...document.querySelectorAll('button')].some((b) => /Link a deed/.test(b.innerText)) }));
+    ok(dp.banner && dp.picker, 'it shows the live deed picker and says the deed is what is missing');
+    await page.screenshot({ path: path.join(SHOTS, 'x-owner-deed-picker.png') });
+    await page.click('[data-step="contact"]');
+    cur = await waitFrame(/\/contacts\/\d+\/outreach\/compose/, 60000);
 
     // the owner gate is the belt's: open it for this test property the way finding the owner and the deed would
     console.log('  ', tinker(`$p = \\DB::table('properties')->where('id', ${propertyId})->first(); \\DB::table('tracked_properties')->where('id', $p->tracked_property_id)->update(['owner_contact_id' => ${contactId}, 'deeds_captured_at' => now()]); echo 'owner opened on tracked ' . $p->tracked_property_id;`));

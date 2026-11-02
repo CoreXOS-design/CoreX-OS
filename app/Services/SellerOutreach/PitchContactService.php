@@ -30,8 +30,12 @@ use Throwable;
  */
 final class PitchContactService
 {
-    public function __construct(private readonly OutcomeService $outcomes, private readonly OutcomeDefinitionService $definitions, private readonly OwnerStationService $owner)
-    {
+    public function __construct(
+        private readonly OutcomeService $outcomes,
+        private readonly OutcomeDefinitionService $definitions,
+        private readonly OwnerStationService $owner,
+        private readonly PitchBeltResolver $belt,
+    ) {
     }
 
     /** The phone tab needs the Road to Sold outcome list: the agency has the feature and the person may use Road to Sold. */
@@ -43,18 +47,22 @@ final class PitchContactService
     /**
      * What the Phone call form shows for this property. `trackedPropertyId` null = nothing on the belt to log against (address-only pitch).
      *
-     * @return array{tracked_property_id:?int, refusal:?string, groups:list<array{key:string,title:string,items:list<array<string,mixed>>}>, phone:?string, now:string, book_url:?string}
+     * @return array{tracked_property_id:?int, refusal:?string, groups:list<array{key:string,title:string,items:list<array<string,mixed>>}>, phone:?string, now:string, book_url:?string, missing:list<string>}
      */
     public function phoneForm(User $actor, Contact $contact, ?Property $property, array $carry = []): array
     {
-        $tp = $property && $property->tracked_property_id ? (int) $property->tracked_property_id : null;
+        $tp = $this->belt->trackedFor($actor, $property, (int) ($carry['rts_prospect'] ?? 0) ?: null);
         $agencyId = (int) ($actor->effectiveAgencyId() ?: 0);
         $titles = [Def::GROUP_FORWARD => 'Moves it forward', Def::GROUP_AGAIN => 'Try again later', Def::GROUP_OFF_RAMP => 'Off-ramps - why it stops here'];
         $groups = [];
         foreach ($titles as $key => $title) {
             $groups[$key] = ['key' => $key, 'title' => $title, 'items' => []];
         }
-        foreach ($this->definitions->list($agencyId, 'sales') as $d) {
+        // v4 (23.7a): only the outcomes that fit the record's station and owner (the same rule as Log contact)
+        $stage = $tp ? \App\Models\RoadToSold\RtsProspect::withoutGlobalScopes()->where('agency_id', $agencyId)->where('track', 'sales')->where('tracked_property_id', $tp)
+            ->where('user_id', (int) $actor->ownershipUserId())->whereNull('closed_at')->whereNull('released_at')->whereNull('deleted_at')->value('stage') : null;
+        $ownerFound = $tp ? $this->owner->ownerFound($agencyId, $tp) : null;
+        foreach ($this->definitions->fitting($agencyId, 'sales', $stage, $ownerFound) as $d) {
             if (in_array($d->key, OutcomeDefinitionService::AFTER_EVALUATION_KEYS, true)) {
                 continue;
             }
@@ -71,6 +79,7 @@ final class PitchContactService
         return [
             'tracked_property_id' => $tp,
             'refusal' => $tp ? $this->owner->refusal($actor, $tp) : null,
+            'missing' => $tp ? $this->owner->missing($agencyId, $tp) : [],
             'groups' => array_values(array_filter($groups, fn ($g) => $g['items'] !== [])),
             'phone' => $phone !== '' ? $phone : null,
             'now' => now()->format('Y-m-d\TH:i'),
@@ -90,7 +99,7 @@ final class PitchContactService
         if (! $this->phoneTabAvailable($actor)) {
             return ['logged' => false, 'message' => null];   // the agency is not on Road to Sold: nothing to record against
         }
-        $tp = $property && $property->tracked_property_id ? (int) $property->tracked_property_id : null;
+        $tp = $this->belt->trackedFor($actor, $property);
         if (! $tp) {
             return ['logged' => false, 'message' => null];   // an address-only pitch has no property on the belt
         }

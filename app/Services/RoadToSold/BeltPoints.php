@@ -44,8 +44,8 @@ class BeltPoints
         'rts.outcome.email'       => ['Outcome captured - email', 10, 'Contacting the owner', 'You record the result of an email', true],
         'rts.outcome.in_person'   => ['Outcome captured - in person', 40, 'Contacting the owner', 'You record the result of a visit', true],
         'rts.offramp_logged'      => ['Dead end logged with a reason', 20, 'Contacting the owner', 'You log not now, not selling or lost, with the reason (work done, so no penalty)', true],
-        'rts.evaluation_feedback' => ['Evaluation feedback', 50, 'Evaluating', 'Feedback is saved on an evaluation that was held', false],
-        'rts.advertised'          => ['Advertised', 50, 'Listing', 'The property goes live on a portal (once per property)', false],
+        'rts.evaluation_feedback' => ['Evaluation feedback', 50, 'Evaluating', 'Feedback is saved on an evaluation that was held', true],
+        'rts.advertised'          => ['Advertised', 50, 'Listing', 'The property goes live on a portal (once per property)', true],
     ];
 
     public const SORT_BASE = 20000;

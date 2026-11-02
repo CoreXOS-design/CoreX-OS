@@ -274,6 +274,10 @@ class AdvanceProspectsFromDomainEvent
                 $source['next_label'] = $d['next_label'];
             }
             $moved = $this->prospects->advance($prospect, $d['stage'], $actor, $source, (bool) ($d['back'] ?? false));
+            // v4 (23.16): the property going live on a portal pays the agent once for the Advertised credit (BeltPoints keeps it to one per belt record)
+            if ($moved && $d['stage'] === S::LISTING_LIVE) {
+                app(\App\Services\RoadToSold\BeltPoints::class)->credit('rts.advertised', $agent, $prospect->refresh());
+            }
             if ($moved && ! empty($d['park'])) {
                 $this->prospects->park($prospect->refresh(), (string) $d['park'], null, null, $actor);
             }

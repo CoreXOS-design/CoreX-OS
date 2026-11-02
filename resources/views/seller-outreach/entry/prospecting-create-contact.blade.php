@@ -32,6 +32,14 @@
         </div>
     @endif
 
+    {{-- road-to-sold.md 23.23 drop 5: the owner is on the file but the deed record is not (the belt's one gate, 23.6): say what is missing and where to get it --}}
+    @if(request('need') === 'deed')
+        <div class="rounded-md px-4 py-3 text-sm" data-qa="need-deed"
+             style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 40%, var(--border)); color: var(--text-primary);">
+            <strong>The owner is on the file, but the deed record is not.</strong> Link a deed below (or capture it from the deeds office), then the pitch and the call log open.
+        </div>
+    @endif
+
     {{-- Blocking duplicate panel — shown when duplicateGate() found an existing
          contact at add time (parity with the Contacts screen / DR2 party-picker).
          The action URL matches the source: tracked-property or prospecting listing. --}}

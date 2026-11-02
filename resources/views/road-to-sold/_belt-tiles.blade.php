@@ -59,6 +59,13 @@
             @endif
         </div>
     @else
+        @php $firstList = $activation['first_list_date'] ?? null; @endphp
+        @if($aState === 'active' && $firstList && $firstList->copy()->startOfDay()->gt(\Illuminate\Support\Carbon::today()))
+            {{-- a standing line, not a one-time banner: it stays until the day the first list loads --}}
+            <div data-qa="belt-first-list" class="rounded-md px-3 py-2 text-xs" style="background: color-mix(in srgb, var(--brand-icon) 8%, var(--surface)); border: 1px solid var(--border); color: var(--text-primary);">
+                <strong>{{ $viewingOwn ? 'Your' : $agentName . '\'s' }} first list arrives on {{ $firstList->format('l j M') }}.</strong> Nothing loads before then; the tiles fill as it does.
+            </div>
+        @endif
         @if($aState === 'paused')
             <div data-qa="belt-paused" class="rounded-md px-3 py-2 text-xs flex items-center justify-between gap-3 flex-wrap" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 14%, var(--surface)); border: 1px solid var(--ds-amber, #f59e0b); color: var(--text-primary);">
                 <span><strong>{{ $viewingOwn ? 'Your Road to Sold is paused' : $agentName . ' is paused' }}</strong> until {{ $activation['paused_until']?->format('D j M Y') }}@if($activation['pause_reason']) ({{ $activation['pause_reason'] }})@endif. No lists load and these days do not count against targets.</span>

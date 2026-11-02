@@ -75,6 +75,28 @@ final class BeltActivationTest extends TestCase
         $this->assertSame(0, \Illuminate\Support\Facades\DB::table('rts_list_items')->where('user_id', $this->fresh->id)->count());
     }
 
+    /** Johan, 2 Nov: one tour (not over the Start card); the page itself says when the first list arrives; no "do this next" card for someone with nothing yet. */
+    public function test_a_new_agent_gets_no_tour_over_the_start_card_a_standing_first_list_line_and_no_pace_card(): void
+    {
+        $before = $this->actingAs($this->fresh)->get(route('road-to-sold.index'))->assertOk()->getContent();
+        $this->assertStringNotContainsString('id="rts-next-action"', $before, 'nothing to do next before Start');
+        if (str_contains($before, 'id="corex-tour-root"')) {
+            $this->assertStringContainsString('autoStart: false', $before, 'the first-visit tour waits until there is something to tour');
+        }
+
+        $this->actingAs($this->fresh)->post(route('road-to-sold.activation.start'))->assertRedirect();
+        $after = $this->actingAs($this->fresh)->get(route('road-to-sold.index'))->assertOk()->getContent();
+        $this->assertStringContainsString('data-qa="belt-first-list"', $after);
+        $this->assertStringContainsString('first list arrives on Thursday 15 Oct', $after);
+        $this->assertStringContainsString('data-empty-reason="first_list_pending"', $after, 'the empty list gives the real reason, not "nothing matches the rules"');
+        $this->assertStringNotContainsString('Nothing in your agency', $after);
+        $this->assertStringNotContainsString('id="rts-next-action"', $after);
+        $this->assertStringNotContainsString('should be done by today', $after);
+        if (str_contains($after, 'id="corex-tour-root"')) {
+            $this->assertStringNotContainsString('autoStart: false', $after);
+        }
+    }
+
     public function test_pressing_start_records_it_and_the_first_list_is_the_next_working_day(): void
     {
         $this->actingAs($this->fresh)->post(route('road-to-sold.activation.start'))->assertRedirect(route('road-to-sold.index'));

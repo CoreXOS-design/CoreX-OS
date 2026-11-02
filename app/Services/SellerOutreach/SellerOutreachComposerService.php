@@ -295,8 +295,7 @@ final class SellerOutreachComposerService
             // agency-wide active-buyer headline for this listing type.
             $townBuyerIds = null;
             $buyerCount = $this->intelligence
-                ->snapshot(['agency_id' => $agencyId] + $baseFilters)
-                ->activeBuyers;
+                ->activeBuyerCount(['agency_id' => $agencyId] + $baseFilters);
         }
 
         // AT-145 — the per-property active-buyer CLAIM count is now the
