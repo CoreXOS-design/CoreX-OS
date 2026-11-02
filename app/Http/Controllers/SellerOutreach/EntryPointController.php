@@ -1338,6 +1338,15 @@ final class EntryPointController extends Controller
 
         $listing = DB::table('prospecting_listings')->where('id', $prospectingListingId)->first();
 
+        // the deed is linked to this advert, whose file is the agent's record: the belt hears of it now (Owner found when the owner is on the file too)
+        if (! empty($listing->tracked_property_id)) {
+            try {
+                app(\App\Services\RoadToSold\OwnerStationService::class)->evaluate($agencyId, (int) $listing->tracked_property_id, $request->user(), 'TrackedPropertyEnriched');
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::info('Deed link: the belt could not be told', ['listing_id' => $listing->id, 'message' => $e->getMessage()]);
+            }
+        }
+
         return response()->json($svc->payload($agencyId, $listing));
     }
 

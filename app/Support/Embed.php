@@ -15,6 +15,17 @@ final class Embed
     {
         $request = request();
 
-        return $request->boolean('embed') || $request->header('Sec-Fetch-Dest') === 'iframe';
+        if ($request->boolean('embed') || $request->header('Sec-Fetch-Dest') === 'iframe') {
+            return true;
+        }
+
+        // A fetch()/XHR made BY a screen that is shown in the pop-up (the deed picker, "Link as seller", the number ticks): the browser calls it "empty", not
+        // "iframe", and it carries no ?embed - but the screen that made it was opened with ?embed=1, and says so in its Referer. Without this the deed link
+        // behaved as if on the full page and made a second property and file beside the record's own (road-to-sold.md 23.23 drop 7).
+        if ($request->header('Sec-Fetch-Dest') === 'empty' && ! $request->isMethodSafe()) {
+            return (bool) preg_match('/[?&]embed=1(?:&|$)/', (string) $request->headers->get('referer'));
+        }
+
+        return false;
     }
 }

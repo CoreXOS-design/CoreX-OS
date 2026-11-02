@@ -39,6 +39,11 @@ class OwnerStationService
         if ($tp->deeds_captured_at !== null) {
             return true;
         }
+        // a deed the agent LINKED to an advert of this file counts for the file (road-to-sold.md 23.23 drop 7): the link lives on the advert, the deed on the
+        // deed's own file, and the record is the advert's file - the gate must see it
+        if (DB::table('prospecting_listings')->where('agency_id', $agencyId)->where('tracked_property_id', $trackedPropertyId)->whereNotNull('linked_deed_tracked_property_id')->whereNull('deleted_at')->exists()) {
+            return true;
+        }
 
         return DB::table('tracked_property_external_refs')->where('agency_id', $agencyId)->where('tracked_property_id', $trackedPropertyId)
             ->whereIn('source_type', self::DEED_SOURCES)->whereNull('deleted_at')->exists();
@@ -116,7 +121,9 @@ class OwnerStationService
         $needDeed = $this->requiresDeed($agencyId);
         $tps = DB::table('tracked_properties')->where('agency_id', $agencyId)->whereIn('id', $ids)->get(['id', 'owner_contact_id', 'deeds_captured_at'])->keyBy('id');
         $withDeedRef = $needDeed ? DB::table('tracked_property_external_refs')->where('agency_id', $agencyId)->whereIn('tracked_property_id', $ids)
-            ->whereIn('source_type', self::DEED_SOURCES)->whereNull('deleted_at')->pluck('tracked_property_id')->flip() : collect();
+            ->whereIn('source_type', self::DEED_SOURCES)->whereNull('deleted_at')->pluck('tracked_property_id')
+            ->merge(DB::table('prospecting_listings')->where('agency_id', $agencyId)->whereIn('tracked_property_id', $ids)->whereNotNull('linked_deed_tracked_property_id')->whereNull('deleted_at')->pluck('tracked_property_id'))
+            ->flip() : collect();
         $mine = RtsProspect::withoutGlobalScopes()->where('agency_id', $agencyId)->where('track', 'sales')->whereIn('tracked_property_id', $ids)
             ->where('user_id', (int) $actor->ownershipUserId())->whereNull('closed_at')->whereNull('released_at')->whereNull('deleted_at')->pluck('stage', 'tracked_property_id');
         $out = [];

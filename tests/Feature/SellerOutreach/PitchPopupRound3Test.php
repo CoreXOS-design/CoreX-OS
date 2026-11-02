@@ -192,4 +192,66 @@ final class PitchPopupRound3Test extends TestCase
         $this->assertStringContainsString('value="2026-11-02"', $h, 'and posted as YYYY-MM-DD');
         $this->assertStringContainsString('title="Required"', $h);
     }
+
+    // ---- drop 7: the deed linked from the Owner step lands on the record's own file ------------------------------------------------------------------------
+
+    private function deedFile(): TrackedProperty
+    {
+        $deed = $this->tp(['street_name' => 'Faux Street', 'street_number' => '16']);
+        $deed->update(['deeds_captured_at' => now()->subDays(20)]);
+        DB::table('tracked_property_owners')->insert(['tracked_property_id' => $deed->id, 'agency_id' => $this->agency->id, 'name' => 'Pat Owner', 'id_number' => '7001015009087', 'is_primary' => 1, 'created_at' => now(), 'updated_at' => now()]);
+
+        return $deed;
+    }
+
+    public function test_a_fetch_made_by_a_screen_in_the_popup_counts_as_the_popup(): void
+    {
+        $r = fn (array $h, string $m = 'POST') => \Illuminate\Http\Request::create('/x', $m, [], [], [], $h);
+        $embedded = ['HTTP_REFERER' => 'https://qa.test/corex/prospecting/10/outreach/compose?embed=1&rts_prospect=5', 'HTTP_SEC_FETCH_DEST' => 'empty'];
+        app()->instance('request', $r($embedded));
+        $this->assertTrue(\App\Support\Embed::on(), 'the deed link / seller link / number ticks the popup screen makes');
+
+        app()->instance('request', $r(['HTTP_REFERER' => 'https://qa.test/corex/prospecting/10/outreach/compose', 'HTTP_SEC_FETCH_DEST' => 'empty']));
+        $this->assertFalse(\App\Support\Embed::on(), 'the full page is not the popup');
+
+        app()->instance('request', $r($embedded, 'GET'));
+        $this->assertFalse(\App\Support\Embed::on(), 'a plain GET made by script is not a screen change');
+    }
+
+    public function test_linking_a_deed_from_the_popup_makes_no_second_file_and_no_tasks_and_the_gate_sees_it(): void
+    {
+        config(['property-identity.link_on_create' => true]);
+        $this->claim();
+        $deed = $this->deedFile();
+        $files = TrackedProperty::query()->withoutGlobalScopes()->count();
+        $tasks = CommandTask::withoutGlobalScopes()->count();
+        $gate = app(\App\Services\RoadToSold\OwnerStationService::class);
+        $this->assertFalse($gate->hasDeedRecord($this->agency->id, (int) $this->tp->id), 'nothing linked yet');
+
+        $this->actingAs($this->agent)->postJson(route('seller-outreach.entry.link-deed-prospecting', ['prospectingListingId' => $this->listingId]), ['tracked_property_id' => $deed->id],
+            ['Sec-Fetch-Dest' => 'empty', 'Referer' => url('/corex/prospecting/' . $this->listingId . '/outreach/compose?embed=1&rts_prospect=' . $this->prospect->id)])->assertOk();
+
+        $this->assertSame((int) $deed->id, (int) DB::table('prospecting_listings')->find($this->listingId)->linked_deed_tracked_property_id);
+        $made = Property::withoutGlobalScopes()->where('external_id', 'prospecting:' . $this->listingId)->first();
+        $this->assertNotNull($made, 'the sellers hang on a property made for the advert');
+        $this->assertSame((int) $this->tp->id, (int) $made->tracked_property_id, "the property belongs to the RECORD'S file, not a new one");
+        $this->assertSame($files, TrackedProperty::query()->withoutGlobalScopes()->count(), 'no second tracked property beside the record\'s');
+        $this->assertSame($tasks, CommandTask::withoutGlobalScopes()->count(), 'no mandate chase tasks');
+        $this->assertTrue($gate->hasDeedRecord($this->agency->id, (int) $this->tp->id), "the gate sees the deed linked to the record's advert");
+        $this->assertSame(['the owner contact'], $gate->blockedMany($this->agent, [(int) $this->tp->id])[(int) $this->tp->id] ?? [], 'the row asks only for the owner now: the deed is not missing any more');
+    }
+
+    public function test_with_the_owner_on_the_file_the_linked_deed_opens_the_belts_owner_found(): void
+    {
+        $this->claim();
+        $owner = Contact::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id,
+            'agent_id' => $this->agent->id, 'first_name' => 'Pieter', 'last_name' => 'Owner', 'phone' => '0825512345']);
+        $this->tp->update(['owner_contact_id' => $owner->id]);
+        $deed = $this->deedFile();
+
+        $this->actingAs($this->agent)->postJson(route('seller-outreach.entry.link-deed-prospecting', ['prospectingListingId' => $this->listingId]), ['tracked_property_id' => $deed->id], ['Referer' => url('/x?embed=1')])->assertOk();
+
+        $this->assertSame('owner_found', RtsProspect::query()->find($this->prospect->id)->stage, 'the record moved the moment the deed was linked');
+        $this->assertNull(app(\App\Services\RoadToSold\OwnerStationService::class)->refusal($this->agent, (int) $this->tp->id));
+    }
 }

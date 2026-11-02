@@ -71,6 +71,22 @@
     // (it reloads that screen).
     function open(o) {
         if (pop) return;
+        // From a Road to Sold row the card comes FIRST (Johan 2 Nov): the row may not know its advert (a link, a card button), so ask the plan which advert the
+        // record has and open on that card; only Market Intelligence's own "Pitch now" opens straight at Owner (data-start="owner").
+        if (o.origin === 'rts' && !(o.listing || o.property || o.tracked) && cfg.steps) {
+            var nx = String(o.next || '');
+            var q0 = new URLSearchParams(), m;
+            if ((m = nx.match(/\/prospects\/(\d+)\//) || nx.match(/rts_prospect=(\d+)/))) q0.set('prospect', m[1]);
+            else if ((m = nx.match(/\/tracked-properties\/(\d+)\//))) q0.set('tracked', m[1]);
+            else if ((m = nx.match(/\/prospecting\/(\d+)\//))) q0.set('listing', m[1]);
+            if (q0.toString()) {
+                fetch(cfg.steps + '?' + q0.toString(), { credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } })
+                    .then(function (r) { return r.ok ? r.json() : null; })
+                    .then(function (d) { var lm = d && d.steps && d.steps.property ? String(d.steps.property).match(/_pitch_card=(\d+)/) : null; open(Object.assign({}, o, { origin: null, listing: lm ? lm[1] : null, prospect: q0.get('prospect') || o.prospect })); })
+                    .catch(function () { open(Object.assign({}, o, { origin: null })); });
+                return;
+            }
+        }
         var next = o.next && sameSite(o.next) ? o.next : null;
         var hasCard = !!(o.listing || o.property || o.tracked);
         var startAtCard = hasCard && o.start !== 'owner';
