@@ -132,12 +132,17 @@ class RoadToSoldController extends Controller
             ? app(\App\Services\RoadToSold\BeltService::class)->tiles($viewer, $agentUser, $track, $date, $beltBase) : [];
         $canPauseOthers = $viewer->hasPermission('road_to_sold.pause_others');
         $activationHistory = $agentUser ? $activationSvc->history($agentUser, $track) : [];
-        $roster = ($agents->count() > 1 && ($canPauseOthers || $viewer->hasPermission('road_to_sold.view')) && \App\Services\RoadToSold\ActivationService::tableReady())
+        $roster = ($agents->count() > 1 && ($canPauseOthers || \App\Services\RoadToSold\Scope::level($viewer) !== 'own') && \App\Services\RoadToSold\ActivationService::tableReady())
             ? $activationSvc->roster($agents, $track, $date) : [];
 
         $progress = $agentUser ? $this->progress->forAgent($agentUser, $track) : ['started' => false, 'level' => null, 'tasks' => [], 'steps' => [], 'met' => 0, 'counted' => 0, 'points' => 0.0, 'points_label' => ''];
         $bar = $agentUser ? $this->bar->forAgent($agentUser, $date, $track) : ['month' => $date->format('F Y'), 'steps' => []];
-        $nextAction = $this->nextAction->resolve($progress, $feeds, $this->todaysOpen($viewer, $agentId, $date, $track, $isCaptures, $listFilters, $data), $viewingOwn, $bar);
+        // one counter for the day: the "Property 2 of 5" on the card reads the Loaded tile's figure, not a count of its own
+        $loadedTile = collect($belt)->firstWhere('key', 'loaded');
+        $todaysOpen = $this->todaysOpen($viewer, $agentId, $date, $track, $isCaptures, $listFilters, $data, $agentUser);
+        $todaysOpen['loaded'] = $loadedTile ? (int) $loadedTile['count'] : null;
+        $todaysOpen['worked'] = (int) ($this->list->dayCounts($viewer, $agentId, $date, $track)['worked'] ?? 0);
+        $nextAction = $this->nextAction->resolve($progress, $feeds, $todaysOpen, $viewingOwn, $bar);
         $captureTasks = $viewingOwn && $agentUser ? $this->capture->capturableTasks($agentUser, $track) : collect();
         $captures = null;
         $teamTotals = [];
@@ -230,7 +235,7 @@ class RoadToSoldController extends Controller
      *
      * @return array{open:int,first:?array}
      */
-    private function todaysOpen($viewer, int $agentId, $date, string $track, bool $isCaptures, array $f, array $data): array
+    private function todaysOpen($viewer, int $agentId, $date, string $track, bool $isCaptures, array $f, array $data, ?\App\Models\User $agentUser = null): array
     {
         if ($isCaptures || ! $date->isToday()) {
             return ['open' => 0, 'first' => null];
@@ -248,7 +253,27 @@ class RoadToSoldController extends Controller
             : $this->list->page($viewer, $agentId, ['view' => 'today', 'status' => 'open', 'date' => $date->toDateString(), 'page' => 1], $track)['rows'];
         $first = collect($rows->items())->firstWhere('status', 'open');
 
-        return ['open' => $open, 'first' => $first ? ['tracked_property_id' => $first['tracked_property_id'], 'list_item_id' => $first['list_item_id'], 'address' => $first['street'] !== '' ? $first['street'] : $first['address']] : null];
+        if (! $first) {
+            return ['open' => $open, 'first' => null];
+        }
+        $tp = (int) $first['tracked_property_id'];
+        $card = [
+            'tracked_property_id' => $first['tracked_property_id'], 'list_item_id' => $first['list_item_id'], 'address' => $first['street'] !== '' ? $first['street'] : $first['address'],
+            'owner_missing' => false, 'find_owner' => null,
+        ];
+        // v4 gate (23.6): until the owner is found the card says "Find the owner of ..." with the one button that does it - never "Call" with a button that is refused
+        $blocked = $agentUser && (int) $viewer->ownershipUserId() === $agentId
+            ? (app(\App\Services\RoadToSold\OwnerStationService::class)->blockedMany($agentUser, [$tp])[$tp] ?? null) : null;
+        if ($blocked) {
+            $card['owner_missing'] = true;
+            $prospectId = RtsProspect::query()->visibleTo($viewer)->where('rts_prospects.track', $track)->where('rts_prospects.user_id', $agentId)->where('rts_prospects.tracked_property_id', $tp)->value('rts_prospects.id');
+            $hasCard = isset(app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->trackedWithCards((int) ($viewer->effectiveAgencyId() ?: 0), collect([$tp]))[$tp]);
+            $card['find_owner'] = $prospectId
+                ? ['kind' => 'step', 'url' => route('road-to-sold.prospects.step', [(int) $prospectId, 'find_owner']), 'tracked' => $hasCard ? $tp : '']
+                : (! empty($first['find_owner_url']) ? ['kind' => 'link', 'url' => $first['find_owner_url'], 'tracked' => ''] : null);
+        }
+
+        return ['open' => $open, 'first' => $card];
     }
 
     /**
@@ -260,7 +285,8 @@ class RoadToSoldController extends Controller
      */
     private function blocks(Request $request, $viewer, int $agentId, $agents, bool $viewingOwn, string $track, $date, array $intakeTrackedIds = []): array
     {
-        $block = in_array($request->query('block'), ['intake', 'prospects', 'parked', 'progress', 'station'], true) ? (string) $request->query('block') : 'intake';
+        // a tile click is the home list filtered to one station (?station=key): the list, the filters and the tabs stay where they are
+        $block = in_array($request->query('block'), ['intake', 'prospects', 'parked', 'progress', 'station'], true) ? (string) $request->query('block') : ((string) $request->query('station', '') !== '' ? 'station' : 'intake');
         $own = fn () => RtsProspect::query()->visibleTo($viewer)->where('rts_prospects.track', $track)->where('rts_prospects.user_id', $agentId);
         $out = [
             'block' => $block,

@@ -78,7 +78,7 @@
         @if($lineWho !== 'agent')
             <span class="text-xs ml-auto" style="color: var(--text-muted);" data-qa="line-scope">{{ $lineWho === 'branch' ? 'Whole branch - ' . $lineWhoOptions['branch'] : 'Whole agency' }} - read only</span>
         @elseif($pf['stage'] === '')
-            <span class="text-xs ml-auto" style="color: var(--text-muted);" data-qa="line-hint">Click a station to see just those properties, or a property for its card.</span>
+            <span class="text-xs ml-auto" style="color: var(--text-muted);" data-qa="line-hint">Click a property for its card. The tiles at the top show each station.</span>
         @endif
     </form>
 
@@ -100,24 +100,6 @@
                             @if($ph['out'] > 0)<a href="{{ $lineUrl(['p_flow' => 'out', 'p_flow_phase' => $ph['key']]) }}" title="{{ $outTitle }} - click to see them" data-flow="out" class="rts-out {{ $flowView && $flowView['kind'] === 'out' && $flowView['phase'] === $ph['key'] ? 'is-on' : '' }}">✕{{ $ph['out'] }}</a>@endif
                         </span>
                     </div>
-                @endforeach
-            </div>
-            <div class="rts-grid18 rts-stations" style="--rts-n: {{ $lineCols }};">
-                @foreach($linePhases as $ph)
-                    @foreach($ph['stations'] as $st)
-                        @php
-                            $on = $pf['stage'] === $st['stage'];
-                            $edge = match ($st['step_state']) { 'achieved', 'ahead', 'on_track' => 'var(--ds-green, #059669)', 'needs_a_push' => 'var(--ds-amber, #f59e0b)', 'behind' => 'var(--ds-red, #f87171)', default => 'var(--border)' };
-                            $tip = $st['label'] . ': ' . $st['now'] . ($st['now'] === 1 ? ' property' : ' properties') . ' now, ' . $st['entered'] . ' entered this month'
-                                . ($st['avg_days'] !== null ? ', ' . rtrim(rtrim(number_format($st['avg_days'], 1), '0'), '.') . ' days here on average' : '')
-                                . ($st['behind'] > 0 ? '. Needs attention: ' . $st['overdue'] . ' overdue, ' . $st['stalled'] . ' with no movement for a while' : '')
-                                . '. ' . ($st['step_state'] ? 'On track: ' . ucfirst(str_replace('_', ' ', $st['step_state'])) : 'No target set for this step') . '. Click to show only these.';
-                        @endphp
-                        <a href="{{ $lineUrl(['p_stage' => $on ? null : $st['stage']]) }}" class="rts-st {{ $on ? 'is-on' : '' }} {{ $st['now'] === 0 ? 'is-empty' : '' }}" style="border-top-color: {{ $edge }};" title="{{ $tip }}" data-station="{{ $st['stage'] }}" data-count="{{ $st['now'] }}" aria-pressed="{{ $on ? 'true' : 'false' }}">
-                            <span class="nm"><span class="rts-st-short">{{ $st['short'] }}</span><span class="rts-st-full">{{ $st['label'] }}</span></span>
-                            <span class="n">{{ $st['now'] }}@if($st['behind'] > 0)<span class="bad" data-qa="station-behind" title="{{ $st['overdue'] }} overdue, {{ $st['stalled'] }} stalled">!{{ $st['behind'] }}</span>@endif</span>
-                        </a>
-                    @endforeach
                 @endforeach
             </div>
         </div>

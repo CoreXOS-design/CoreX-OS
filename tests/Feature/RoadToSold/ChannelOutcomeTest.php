@@ -220,8 +220,9 @@ final class ChannelOutcomeTest extends TestCase
         $this->listRow($tp);
 
         $blocked = $this->pageAs($this->agent)->assertOk();
-        $blocked->assertSee('data-qa="log-contact-blocked"', false)->assertSee('Find owner first')->assertDontSee('data-qa="log-contact"', false);
-        $blocked->assertSee('the owner contact and the deed record');
+        // no greyed duplicate on the row, and the card says what the next step really is
+        $blocked->assertSee('Find the owner of 14 Marine Drive')->assertDontSee('Call 14 Marine Drive')->assertDontSee('Find owner first')
+            ->assertDontSee('data-qa="log-contact-blocked"', false)->assertDontSee('data-qa="log-contact"', false);
 
         $owner = Contact::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id,
             'agent_id' => $this->agent->id, 'first_name' => 'Pieter', 'last_name' => 'Owner', 'phone' => '0825512345']);

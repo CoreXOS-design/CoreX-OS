@@ -68,7 +68,7 @@ final class BeltActivationTest extends TestCase
         $html = $this->actingAs($this->fresh)->get(route('road-to-sold.index'))->assertOk()->getContent();
         $this->assertStringContainsString('data-qa="belt-start-card"', $html);
         $this->assertStringContainsString('Start my Road to Sold', $html);
-        $this->assertStringNotContainsString('data-qa="belt-tiles"', $html);
+        $this->assertStringNotContainsString('<div class="rts-belt-row" data-qa="belt-tiles"', $html, 'no tile row (the refresh script names the selector, so look for the element itself)');
         $this->assertSame(ActivationService::STATE_NOT_STARTED, $this->svc()->state($this->fresh)['state']);
         $this->assertFalse($this->svc()->mayBuild($this->fresh, self::WED));
         $this->assertCount(0, app(ListBuilderService::class)->buildFor($this->fresh, self::WED), 'nothing loads before Start');
@@ -218,8 +218,8 @@ final class BeltActivationTest extends TestCase
         $this->assertNull($by['conversations']['should_be'], 'no target for conversations: the actual only');
         $this->assertNotNull($by['calls_made']['should_be'], 'calls keep their weekday target');
 
+        // the v3 summary cards are gone from the page (Johan, 2 Nov: the tiles are the belt); the service still answers the next-action card
         $html = $this->actingAs($this->agent)->get(route('road-to-sold.index'))->getContent();
-        $this->assertMatchesRegularExpression('/Should be on 2 · Behind/', $html);
-        $this->assertStringNotContainsString('rts-long">Should be on', $html, 'the line is not in the hidden long text');
+        $this->assertStringNotContainsString('Should be on', $html);
     }
 }

@@ -6,8 +6,10 @@ namespace App\Http\Controllers\RoadToSold;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\RoadToSold\AllocationSource;
 use App\Services\RoadToSold\BeltService;
 use App\Services\RoadToSold\CallListService;
+use App\Services\RoadToSold\ListBuilderService;
 use App\Services\RoadToSold\Track;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -33,6 +35,15 @@ class BeltController extends Controller
         $agent = User::query()->withoutGlobalScopes()->where('agency_id', (int) $viewer->effectiveAgencyId())->findOrFail($agentId);
         $date = $this->list->resolveDate($request->query('date'));
 
-        return response()->json($this->belt->scopeFigures($agent, $station, $track, $date));
+        $out = $this->belt->scopeFigures($agent, $station, $track, $date);
+        // the Loaded tile also says where today's stock came from (my buyers / colleagues' buyers / hot pockets / fill-ups); the agent in view only
+        if ($station === 'loaded') {
+            $counts = app(ListBuilderService::class)->sourceCounts($agent, $date, $track);
+            $out['sources'] = collect([AllocationSource::MY_BUYERS, AllocationSource::COLLEAGUE_BUYERS, AllocationSource::HOT_POCKET, AllocationSource::FILL_UP, AllocationSource::FOUND_BY_YOU])
+                ->map(fn ($k) => ['kind' => $k, 'label' => AllocationSource::LABELS[$k], 'count' => (int) ($counts[$k] ?? 0)])
+                ->filter(fn ($r) => $r['count'] > 0 || in_array($r['kind'], [AllocationSource::MY_BUYERS, AllocationSource::COLLEAGUE_BUYERS, AllocationSource::HOT_POCKET, AllocationSource::FILL_UP], true))->values()->all();
+        }
+
+        return response()->json($out);
     }
 }

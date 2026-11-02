@@ -97,19 +97,18 @@ final class BeltService
             $alert = 0;
             $target = null;
             $note = null;
-            $url = ['block' => 'station', 'station' => $s['key']];
+            $url = ['station' => $s['key']];   // the home list, filtered to this station (the Loaded tile is the home list itself)
             switch ($source) {
                 case 'stage':
                     foreach ($s['stages'] as $k) {
                         $count += (int) ($byStage[$k]['now'] ?? 0);
                         $alert += (int) ($byStage[$k]['behind'] ?? 0);
                     }
-                    $url = ['block' => 'prospects', 'p_stage' => $stageKey];
                     break;
                 case 'list_today':
                     $count = (clone $this->listItems($agent, $day, $track))->where('rts_list_items.origin', '!=', RtsListItem::ORIGIN_FOLLOW_UP)->count();
                     $target = $this->workdays->targetFor($agent, $day, $track);
-                    $url = ['block' => 'intake'];
+                    $url = [];
                     break;
                 default:
                     [$count, $alert] = $this->countFor($source, $agent);
@@ -120,7 +119,7 @@ final class BeltService
                 $note = $owed > 0 ? $owed . ' owed' : null;
                 $alert += $owed;
                 if ($owed > 0) {
-                    $url = ['block' => 'station', 'station' => 'held'];   // the owed list first: "have you given feedback?"
+                    $url = ['station' => 'held'];   // the owed list first: "have you given feedback?"
                 }
             }
             // "done today / target" wherever the agency set a target for the station; the count otherwise (the Stock loaded tile keeps its weekday target)

@@ -151,7 +151,7 @@ final class ProspectScreenTest extends TestCase
         $only(['p_due' => 'overdue'], '5 Beta Road', '5 Alpha Road');
         $only(['p_suburb' => 'Uvongo'], '5 Alpha Road', '5 Beta Road');
         $only(['p_q' => 'zzz nothing'], 'Nothing matches this search.', '5 Alpha Road');
-        $this->assertStringContainsString('data-station="appointment_set"', $html, 'the line itself is the stage filter');
+        $this->assertStringNotContainsString('data-station=', $html, 'the 21-box station strip is gone: the belt tiles at the top are the stations (Johan, 2 Nov)');
     }
 
     public function test_an_empty_prospects_block_says_what_to_do(): void
@@ -343,9 +343,10 @@ final class ProspectScreenTest extends TestCase
         $this->prospects->advance($p->refresh(), S::LISTING_LIVE, $this->agent, ['subject_type' => 'x', 'subject_id' => 3, 'next_label' => 'Advertise the listing']);
 
         $html = $this->page($this->manager, ['block' => 'prospects', 'agent' => $this->agent->id])->assertOk()->getContent();
-        preg_match_all('/data-station="([a-z_]+)"/', $html, $m);
-
-        $this->assertSame(array_values(array_diff(S::keys(), S::LEGACY)), $m[1], 'Found first, Registered last, nothing moved up for having work in it (the two legacy presentation stages are not stations)');
+        $this->assertStringNotContainsString('data-station=', $html, 'the strip is gone: the belt tiles are the stations');
+        $phases = app(\App\Services\RoadToSold\PipelineLineService::class)->phases($this->manager, $this->agent->id, null, now()->startOfMonth(), now(), 'sales');
+        $keys = collect($phases)->flatMap(fn ($ph) => collect($ph['stations'])->pluck('stage'))->all();
+        $this->assertSame(array_values(array_diff(S::keys(), S::LEGACY)), $keys, 'Found first, Registered last, nothing moved up for having work in it (the two legacy presentation stages are not stations)');
     }
 
     public function test_the_page_turns_a_marked_link_into_a_pop_up_instead_of_leaving_the_page(): void
@@ -417,8 +418,8 @@ final class ProspectScreenTest extends TestCase
         $this->owned($this->agent, 'Alpha Road');
 
         $html = $this->page($this->manager, ['block' => 'prospects', 'agent' => $this->agent->id])->assertOk()->getContent();
-        $this->assertMatchesRegularExpression('/title="Found: 1 property now, \d+ entered this month, [\d.]+ days? here on average/u', $html);
         $this->assertStringNotContainsString('no target</div>', $html);
+        $this->assertStringNotContainsString('data-station=', $html);
     }
 
     private function normalise(?string $url): string

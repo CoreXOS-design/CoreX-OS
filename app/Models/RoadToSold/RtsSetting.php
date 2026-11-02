@@ -280,9 +280,9 @@ class RtsSetting extends Model
     public static function selectionCatalogue(string $track = self::TRACK_SALES): array
     {
         return [
-            'my_buyers_sourcing'     => 'My buyers\' stock sourcing',
-            'agency_buyers_sourcing' => 'Colleagues\' buyers\' stock sourcing',
-            'hot_pockets'            => 'Hottest sales pockets (stuck and reduced stock)',
+            'my_buyers_sourcing'     => 'My buyers need stock',
+            'agency_buyers_sourcing' => 'Colleagues\' buyers need stock',
+            'hot_pockets'            => 'Hottest pockets (long on market and reduced)',
             'price_drops'            => 'Price drops',
             'long_on_market'         => 'Long on market',
             'my_expired_stock'       => 'My expired stock',

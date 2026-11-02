@@ -111,21 +111,18 @@ final class ProductionLineTest extends TestCase
         foreach (['Get stock', 'Win the mandate', 'Market it', 'Sell it', 'Close it'] as $label) {
             $this->assertStringContainsString('>' . $label . '</span>', $html);
         }
-        preg_match_all('/data-station="([a-z_]+)"/', $html, $st);
-        // v4 (road-to-sold.md 23.4): the belt stations, in order; the two presentation stations are legacy (kept as stored keys, never a station)
-        $this->assertSame(array_merge(...array_column(S::PHASES, 'stages')), $st[1]);
-        $this->assertCount(21, $st[1]);
-        $this->assertSame(array_values(array_diff(S::keys(), S::LEGACY)), $st[1]);
+        // the 21-box station strip is gone (Johan, 2 Nov): the belt tiles are the stations. The stations are still the phases' own, in order
+        $this->assertSame(array_values(array_diff(S::keys(), S::LEGACY)), array_merge(...array_column(S::PHASES, 'stages')));
+        $this->assertStringNotContainsString('data-station=', $html);
         // phase membership is exactly the brief's
         $this->assertSame([S::FOUND, S::CLAIMED, S::OWNER_FOUND, S::CONTACTED, S::APPOINTMENT_SET, S::PRESENTATION_PREPARED, S::EVALUATION_DONE], S::PHASES['get_stock']['stages']);
         $this->assertSame([S::MANDATE_SIGNED], S::PHASES['win']['stages']);
         $this->assertSame([S::DRAFT, S::ACTIVE, S::LISTING_LIVE, S::ADVERTISING], S::PHASES['market']['stages']);
         $this->assertSame([S::LEAD, S::LEAD_CONTACTED, S::CORE_MATCH, S::VIEWING_SCHEDULED, S::VIEWING_PACK, S::VIEWING_FEEDBACK, S::OFFER], S::PHASES['sell']['stages']);
         $this->assertSame([S::DEAL, S::REGISTERED], S::PHASES['close']['stages']);
-        // every station has a short name for a narrow screen and its full name in the hover; nothing scrolls sideways (the line is a grid of one column per station)
+        // every station keeps a short name (the property card's line) and a label
         foreach (array_diff(S::keys(), S::LEGACY) as $k) {
             $this->assertNotSame('', S::short($k));
-            $this->assertStringContainsString('title="' . e(S::label($k)) . ':', $html);
         }
         $this->assertStringContainsString('--rts-n: 21;', $html);
     }
@@ -140,14 +137,14 @@ final class ProductionLineTest extends TestCase
         $this->prospects->setNextAction($c, 'Call again', Carbon::parse('2026-10-30'), $this->agent);
         DB::table('rts_prospects')->where('id', $c->id)->update(['updated_at' => now()->subDays(40)]);   // stalled, not overdue
 
-        $html = $this->page($this->agent)->getContent();
-        $this->assertSame(1, preg_match('/data-station="found" data-count="3"[^>]*>.*?data-qa="station-behind"[^>]*>!2</s', $html), 'three at Found, two of them need attention (counted once each)');
-        $this->assertSame(1, preg_match('/data-station="contacted" data-count="0"/', $html));
-        $this->assertStringContainsString('1 overdue, 1 stalled', $html);
-        // an agent with nothing wrong has no red figure
-        $x = $this->owned($this->mate, 'Delta Road');
-        $this->prospects->setNextAction($x, 'Call', Carbon::parse('2026-10-30'), $this->mate);
-        $this->assertStringNotContainsString('station-behind', $this->page($this->mate)->getContent());
+        // the figures behind a belt tile: three at Found, two of them need attention (counted once each); nothing at Contacted
+        $phases = app(\App\Services\RoadToSold\PipelineLineService::class)->phases($this->agent, $this->agent->id, null, Carbon::parse('2026-10-01'), Carbon::parse('2026-10-14'), 'sales');
+        $by = collect($phases)->flatMap(fn ($ph) => $ph['stations'])->keyBy('stage');
+        $this->assertSame(3, $by['found']['now']);
+        $this->assertSame(2, $by['found']['behind']);
+        $this->assertSame(1, $by['found']['overdue']);
+        $this->assertSame(1, $by['found']['stalled']);
+        $this->assertSame(0, $by['contacted']['now']);
     }
 
     public function test_a_chip_sits_under_its_station_with_address_days_next_action_and_due_date(): void
@@ -222,7 +219,6 @@ final class ProductionLineTest extends TestCase
         $this->assertStringContainsString('5 Alpha Road', $all);
         $this->assertStringContainsString('5 Beta Road', $all);
         $this->assertStringNotContainsString('data-qa="all-stations"', $all);
-        $this->assertStringContainsString(route('road-to-sold.index', ['block' => 'prospects', 'p_stage' => 'appointment_set']), html_entity_decode($all), 'the station is a link that filters');
 
         $one = $this->page($this->agent, ['p_stage' => 'appointment_set'])->getContent();
         $slice = substr($one, (int) strpos($one, 'data-qa="block-prospects"'));
@@ -231,7 +227,6 @@ final class ProductionLineTest extends TestCase
         $this->assertStringContainsString('class="rts-wide"', $slice, 'the chosen station gets wide chips with all the words');
         $this->assertStringContainsString('Margate', $slice, 'the suburb shows on the wide chip');
         $this->assertStringContainsString('data-qa="all-stations"', $slice);
-        $this->assertMatchesRegularExpression('/class="rts-st is-on[^"]*"[^>]*data-station="appointment_set"/', $slice, 'the chosen station is lit');
     }
 
     public function test_chips_are_sorted_inside_a_station_by_due_days_or_address_and_searched_and_filtered(): void
@@ -255,8 +250,6 @@ final class ProductionLineTest extends TestCase
         $this->assertStringNotContainsString('5 Alpha Road', $slice(['p_suburb' => 'Margate']));
         $this->assertStringNotContainsString('5 Alpha Road', $slice(['p_due' => 'overdue']) , 'nothing is overdue');
         $this->assertStringContainsString('Nothing matches this search.', $slice(['p_q' => 'zzz nothing']));
-        // the line's counts are the whole pile, a search only narrows the chips
-        $this->assertStringContainsString('data-station="found" data-count="2"', $slice(['p_q' => 'alpha']));
     }
 
     public function test_an_empty_line_says_how_prospects_start(): void
@@ -377,12 +370,10 @@ final class ProductionLineTest extends TestCase
         $this->assertStringContainsString('data-qa="line-who"', $one, 'the manager may switch to the branch');
         $this->assertStringContainsString('Whole branch - Main', $one);
         $this->assertStringNotContainsString('Whole agency', $one, 'a branch manager is not offered the agency');
-        $this->assertStringContainsString('!1', $one, 'stalled / overdue per station for a manager too');
 
         $branch = $this->page($this->manager, ['agent' => $this->agent->id, 'p_who' => 'branch'])->assertOk()->getContent();
         $this->assertStringContainsString('5 Alpha Road', $branch);
         $this->assertStringContainsString('5 Mate Road', $branch, 'the branch sum includes the colleague');
-        $this->assertStringContainsString('data-station="found" data-count="2"', $branch);
         $this->assertStringContainsString('Whole branch - Main - read only', $branch);
         foreach ([$one, $branch] as $h) {
             $this->assertStringNotContainsString('data-qa="prospect-step"', $h);

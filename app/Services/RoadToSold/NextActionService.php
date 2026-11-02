@@ -56,10 +56,29 @@ final class NextActionService
 
         $firstRow = $list['first'] ?? null;
         if ((int) ($list['open'] ?? 0) > 0 && $firstRow) {
+            // one counter for the day: the position reads the Loaded tile's figure (the page passes it), never a count of its own
+            $loaded = $list['loaded'] ?? null;
+            $detail = $loaded !== null && $loaded > 0
+                ? 'Property ' . min($loaded, (int) ($list['worked'] ?? 0) + 1) . ' of ' . $loaded . ' on today\'s list'
+                : ((int) $list['open'] > 1 ? ((int) $list['open'] - 1) . ' more on today\'s list' : null);
+            // v4 gate (23.6): no owner yet = the card names the real next step, with the one button for it
+            if (! empty($firstRow['owner_missing'])) {
+                $fo = $firstRow['find_owner'] ?? null;
+
+                return [
+                    'kind'   => self::KIND_CALL,
+                    'title'  => 'Find the owner of ' . $firstRow['address'],
+                    'detail' => $detail,
+                    'action' => $canAct && $fo ? ($fo['kind'] === 'step'
+                        ? ['type' => 'step', 'label' => 'Find owner', 'url' => $fo['url'], 'tracked' => $fo['tracked'], 'step_label' => 'Find the owner - ' . $firstRow['address']]
+                        : ['type' => 'link', 'label' => 'Find owner', 'url' => $fo['url']]) : null,
+                ];
+            }
+
             return [
                 'kind'   => self::KIND_CALL,
                 'title'  => 'Call ' . $firstRow['address'],
-                'detail' => (int) $list['open'] > 1 ? ((int) $list['open'] - 1) . ' more on today\'s list' : null,
+                'detail' => $detail,
                 'action' => $canAct ? [
                     'type' => 'contact', 'label' => 'Log contact',
                     'tp' => $firstRow['tracked_property_id'], 'item' => $firstRow['list_item_id'], 'address' => $firstRow['address'],

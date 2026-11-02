@@ -12,8 +12,7 @@
     $curStage = (string) request('p_stage', '');
     $curStation = (string) request('station', '');
     $lit = fn (array $t) => ($t['key'] === 'loaded' && $block === 'intake')
-        || ($block === 'station' && $curStation === $t['key'])
-        || ($block === 'prospects' && $t['stage'] !== null && $curStage === $t['stage']);
+        || ($block === 'station' && $curStation === $t['key']);
     $postBase = $viewingOwn ? [] : ['agent' => $agentId];
 @endphp
 <style>
@@ -21,15 +20,18 @@
     .rts-tile { display: flex; flex-direction: column; justify-content: center; gap: 1px; min-width: 0; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-primary); text-decoration: none; }
     .rts-tile:hover { border-color: var(--brand-icon); }
     .rts-tile.is-lit { border-color: var(--brand-icon); background: color-mix(in srgb, var(--brand-icon) 10%, var(--surface)); }
-    .rts-tile .nm { font-size: .625rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rts-tile .nm { font-size: .625rem; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .rts-tile .nm .full { display: none; }
     @media (min-width: 1700px) { .rts-tile .nm .full { display: inline; } .rts-tile .nm .short { display: none; } }
     .rts-tile .fg { font-size: 1.05rem; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; white-space: nowrap; }
     .rts-tile .fg .bad { font-size: .6875rem; font-weight: 700; margin-left: 6px; color: var(--ds-red, #f87171); }
     .rts-tile .sub { font-size: .625rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .rts-tilewrap .rts-cmp { position: absolute; top: 3px; right: 4px; width: 16px; height: 16px; padding: 0; line-height: 14px; font-size: .625rem; text-align: center; cursor: pointer; color: var(--text-muted); background: none; border: 0; border-radius: 3px; }
+    .rts-tilewrap .rts-cmp { position: absolute; bottom: 5px; right: 4px; width: 16px; height: 16px; padding: 0; line-height: 14px; font-size: .625rem; text-align: center; cursor: pointer; color: var(--text-muted); background: none; border: 0; border-radius: 3px; }
     .rts-tilewrap .rts-cmp:hover { color: var(--text-primary); background: var(--surface-2, rgba(128,128,128,.15)); }
     .rts-cmp-pop { width: 17rem; }
+    .rts-src { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
+    .rts-src-row { display: flex; justify-content: space-between; gap: 8px; font-size: .75rem; padding: 1px 0; color: var(--text-secondary); }
+    .rts-src-row strong { color: var(--text-primary); font-variant-numeric: tabular-nums; }
     .rts-cmp-row { padding: 6px 0; }
     .rts-belt-line { display: flex; align-items: center; gap: 12px; min-height: 22px; font-size: .75rem; color: var(--text-secondary); }
     .rts-pop { position: absolute; z-index: 40; top: 26px; right: 0; width: 20rem; max-width: 92vw; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); box-shadow: 0 6px 18px rgba(0,0,0,.18); }
@@ -94,6 +96,10 @@
                                     </div>
                                 </div>
                             </template>
+                            <div class="rts-src" x-show="sources.length" data-qa="compare-sources">
+                                <div class="text-xs" style="font-weight: 700; color: var(--text-primary);">Where today's stock came from</div>
+                                <template x-for="r in sources" :key="r.kind"><div class="rts-src-row"><span x-text="r.label"></span><strong x-text="r.count"></strong></div></template>
+                            </div>
                         </div>
                     </div>
                 @endforeach
@@ -130,7 +136,7 @@
                         @unless($viewingOwn)<input type="hidden" name="agent" value="{{ $agentId }}">@endunless
                         <div class="text-xs font-semibold" style="color: var(--text-primary);">Pause {{ $viewingOwn ? 'my' : $agentName . '\'s' }} Road to Sold</div>
                         <label class="text-xs" style="color: var(--text-muted);" for="rts-pause-until">Paused until (the next working day after it is the first day back)</label>
-                        <input id="rts-pause-until" type="date" name="until" required min="{{ now()->toDateString() }}" class="rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                        <x-dmy-date id="rts-pause-until" name="until" :required="true" :min="now()->toDateString()" />
                         <label class="text-xs" style="color: var(--text-muted);" for="rts-pause-reason">Why (training, leave, other)</label>
                         <input id="rts-pause-reason" type="text" name="reason" maxlength="120" class="rounded-md px-3 py-2 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                         <div class="flex justify-end gap-2"><button type="button" class="corex-btn-outline corex-btn-xs" @click="pause = false">Cancel</button><button type="submit" class="corex-btn-primary corex-btn-xs">Pause</button></div>
@@ -168,14 +174,14 @@
 // the compare popover behind a belt tile: me / my branch / the agency (spec 23.12), loaded when it is first opened
 function beltCompare(url) {
     return {
-        open: false, loading: false, failed: false, scopes: [], loaded: false,
+        open: false, loading: false, failed: false, scopes: [], sources: [], loaded: false,
         toggle() {
             this.open = !this.open;
             if (!this.open || this.loaded) { return; }
             this.loading = true; this.failed = false;
             fetch(url, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
                 .then((r) => { if (!r.ok) { throw new Error('bad'); } return r.json(); })
-                .then((d) => { this.scopes = d.scopes || []; this.loaded = true; })
+                .then((d) => { this.scopes = d.scopes || []; this.sources = d.sources || []; this.loaded = true; })
                 .catch(() => { this.failed = true; })
                 .finally(() => { this.loading = false; });
         },

@@ -469,7 +469,7 @@
          x-data @keydown.escape.window="window.location = '{{ $closeUrl }}'">
         <div class="w-full max-w-3xl rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border); max-height:88vh; display:flex; flex-direction:column;">
             <div class="flex items-center justify-between px-5 py-3" style="border-bottom:1px solid var(--border);">
-                <h3 class="text-sm font-bold" style="color:var(--text-primary);">{{ $panel === 'pockets' ? 'Hottest sales pockets' : 'Agency standards' }}</h3>
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">{{ $panel === 'pockets' ? 'Hottest pockets (long on market and reduced)' : 'Agency standards' }}</h3>
                 <a href="{{ $closeUrl }}" class="corex-btn-outline" data-qa="rts-view-close">Close</a>
             </div>
             <div class="overflow-auto">

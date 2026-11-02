@@ -170,7 +170,7 @@ class CallListService
         return match ($key) {
             'my_buyers_sourcing'     => 'My buyers need stock',
             'agency_buyers_sourcing' => 'Colleagues\' buyers need stock',
-            'hot_pockets'            => 'Hottest sales pockets',
+            'hot_pockets'            => 'Hottest pockets (long on market and reduced)',
             'price_drops'            => 'Price drops',
             'new_on_market'          => 'New on market',
             'long_on_market'         => 'Long on market',

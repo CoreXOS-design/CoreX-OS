@@ -28,7 +28,7 @@ final class HotPocketSelection extends MicPoolSelection
 
     public function label(): string
     {
-        return 'Hottest sales pockets';
+        return 'Hottest pockets (long on market and reduced)';
     }
 
     /** @return array<string,array> */

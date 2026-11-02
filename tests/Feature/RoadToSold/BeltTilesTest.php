@@ -117,7 +117,7 @@ final class BeltTilesTest extends TestCase
         $p->forceFill(['stage' => S::CONTACTED, 'next_action_at' => '2026-10-10'])->save();   // overdue
         $html = $this->page($this->agent)->getContent();
         $this->assertMatchesRegularExpression('/data-qa="belt-tile-contacted".*?data-qa="belt-figure">1<span class="bad" data-qa="belt-alert">!1</s', str_replace("\n", ' ', $html), 'one at Contacted, one needs attention');
-        $this->assertStringContainsString('p_stage=contacted', $html, 'the tile opens the existing prospects list at that stage');
+        $this->assertStringContainsString('station=contacted', $html, 'the tile opens the HOME list filtered to that station');
         foreach (['CLAIMED' => 'claimed', 'OWNER_FOUND' => 'owner_found', 'PRESENTATION_PREPARED' => 'presentation_prepared', 'DRAFT' => 'draft', 'ACTIVE' => 'active'] as $const => $key) {
             $this->assertSame($key, constant(S::class . '::' . $const));
             $this->assertTrue(S::has($key), "{$key} became a real stage in Lane A1");

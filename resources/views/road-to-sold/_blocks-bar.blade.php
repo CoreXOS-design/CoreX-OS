@@ -3,10 +3,12 @@
 @php
     $tabParams = fn (string $b) => array_filter(['block' => $b === 'intake' ? null : $b, 'agent' => $viewingOwn ? null : $agentId] + \App\Services\RoadToSold\Track::params($track));
     $agentName = $agents->firstWhere('id', $agentId)?->name;
-    $newOpen = max(0, (int) ($counts['target_items'] ?? 0) - (int) ($counts['worked'] ?? 0));
+    // one counter for the day: the tab reads the Loaded tile's figure (the header keeps "worked of target")
+    $loadedTile = collect($belt ?? [])->firstWhere('key', 'loaded');
+    $loadedNow = $loadedTile ? (int) $loadedTile['count'] : (int) ($counts['target_items'] ?? 0);
     $followOpen = max(0, (int) ($counts['followups'] ?? 0) - (int) ($counts['followups_worked'] ?? 0));
     $tabs = [
-        'intake'    => ["Today's intake", $newOpen . ' new' . ($followOpen > 0 ? ' · ' . $followOpen . ' follow-up' . ($followOpen === 1 ? '' : 's') : '')],
+        'intake'    => ["Today's intake", $loadedNow . ' loaded' . ($followOpen > 0 ? ' · ' . $followOpen . ' follow-up' . ($followOpen === 1 ? '' : 's') : '')],
         'prospects' => ['My prospects', (string) $blockCounts['prospects']],
         'parked'    => ['Parked', (string) $blockCounts['parked']],
         'progress'  => ['My progress', null],
@@ -56,6 +58,16 @@
     .rts-due-overdue { color: var(--ds-crimson, #dc2626); font-weight: 700; }
     .rts-due-today { color: var(--ds-amber, #d97706); font-weight: 700; }
     .rts-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: .6rem .75rem; }
+    /* 1366 wide: the list needs 1144px and has ~1076, so the least useful column (Last outcome - the History button has it) gives way and the actions stay whole */
+    @media (max-width: 1450px) { .rts-col-last { display: none; } }
+    /* the filter row wraps in even rows instead of leaving the Search button alone on a line */
+    @media (max-width: 1450px) {
+        .rts-block-body form.rts-filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .4rem .5rem !important; align-items: end; }
+        .rts-block-body form.rts-filters > div { min-width: 0; }
+        .rts-block-body form.rts-filters select, .rts-block-body form.rts-filters input[type=text] { width: 100% !important; min-width: 0 !important; }
+        .rts-block-body form.rts-filters .cx-dmy, .rts-block-body form.rts-filters .cx-dmy-txt { width: 100%; }
+        .rts-block-body form.rts-filters > button, .rts-block-body form.rts-filters > a { justify-self: start; }
+    }
     .rts-card.is-overdue { border-left: 4px solid var(--ds-crimson, #dc2626); }
     .rts-board { display: grid; gap: .75rem; align-items: start; }
     .rts-cards { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); }

@@ -29,6 +29,9 @@
         @elseif($act['type'] === 'contact')
             <button type="button" class="corex-btn-primary corex-btn-xs"
                     @click="openContact(@js(['tp' => (string) $act['tp'], 'item' => (string) $act['item'], 'address' => $act['address']]))">{{ $act['label'] }}</button>
+        @elseif($act['type'] === 'step')
+            <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="next-find-owner"
+                    @click="$dispatch('rts-step', @js(['stepUrl' => $act['url'], 'stepLabel' => $act['step_label'], 'tracked' => (string) $act['tracked']]))">{{ $act['label'] }}</button>
         @elseif($act['type'] === 'capture')
             <button type="button" class="corex-btn-primary corex-btn-xs" @click="openCapture({{ (int) $act['task_id'] }})">{{ $act['label'] }}</button>
         @endif

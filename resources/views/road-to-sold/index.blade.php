@@ -140,7 +140,7 @@
         @include('road-to-sold._block-station')
     @else
     {{-- Filters --}}
-    <form method="GET" class="flex items-end gap-3 flex-wrap" data-tour="smk-rts-filters">
+    <form method="GET" class="flex items-end gap-3 flex-wrap {{ $isCaptures ? '' : 'rts-filters' }}" data-tour="smk-rts-filters">
         @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
         @if(! $viewingOwn)<input type="hidden" name="agent" value="{{ $agentId }}">@endif
         <div data-tour="smk-rts-view">
@@ -215,7 +215,7 @@
             </div>
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-date">Day</label>
-                <input id="rts-date" type="date" name="date" value="{{ $date->toDateString() }}" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
+                <x-dmy-date id="rts-date" name="date" :value="$date->toDateString()" :required="true" :submit="true" />
             </div>
         @endif
         <div data-tour="smk-rts-sort">
@@ -250,14 +250,14 @@
                     <th class="px-3 py-2 text-left">Address</th>
                     <th class="px-3 py-2 text-left">Price · days on market · agency</th>
                     <th class="px-3 py-2 text-left">Owner</th>
-                    <th class="px-3 py-2 text-left">Last outcome</th>
+                    <th class="px-3 py-2 text-left rts-col-last">Last outcome</th>
                     <th class="px-3 py-2 text-right"></th>
                 </tr>
             </thead>
             <tbody>
             @php $__pitchCards = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->trackedWithCards((int) auth()->user()->effectiveAgencyId(), collect($rowsPage)->pluck('tracked_property_id')); @endphp
             @forelse($rowsPage as $r)
-                @php $lo = $r['last_outcome']; @endphp
+                @php $lo = $r['last_outcome']; $ownerMissing = $viewingOwn ? ($ownerBlocked[(int) $r['tracked_property_id']] ?? null) : null; @endphp
                 <tr style="border-top: 1px solid var(--border);">
                     <td class="px-3 py-2 font-semibold" style="color: var(--text-primary); min-width: 12rem;" data-qa="intake-why">
                         <div class="rts-clamp2" title="{{ $r['why'] }}">@if(($r['origin'] ?? null) === 'follow_up')<span class="rts-chip">Follow-up</span> @endif{{ $r['why'] ?: '-' }}</div>
@@ -283,7 +283,7 @@
                             -
                         @endif
                     </td>
-                    <td class="px-3 py-2" style="color: var(--text-primary);">
+                    <td class="px-3 py-2 rts-col-last" style="color: var(--text-primary);">
                         @if($lo)
                             <div title="{{ $lo['note'] }}">{{ $lo['label'] }}@if($lo['streak'] > 1) <span style="color: var(--text-muted);">({{ $lo['streak'] }} in a row)</span>@endif</div>
                             <div style="color: var(--text-muted);">{{ $lo['when']->format('j M') }}@if($lo['by']) · {{ $lo['by'] }}@endif</div>
@@ -298,7 +298,7 @@
                                         @click="openHistory($el.dataset)">History</button>
                             @endif
                             @if($viewingOwn && $r['status'] === 'open' && ! empty($intakeProspects[$r['tracked_property_id']]))
-                                @php $stepKey = $r['owner_name'] ? 'pitch' : 'find_owner'; @endphp
+                                @php $stepKey = ($r['owner_name'] && ! $ownerMissing) ? 'pitch' : 'find_owner'; @endphp
                                 <button type="button" class="corex-btn-outline corex-btn-xs" data-qa="intake-step" data-tracked="{{ isset($__pitchCards[(int) $r['tracked_property_id']]) ? $r['tracked_property_id'] : '' }}"
                                         data-step-url="{{ route('road-to-sold.prospects.step', [$intakeProspects[$r['tracked_property_id']], $stepKey]) }}"
                                         data-step-label="{{ \App\Services\RoadToSold\ProspectStepService::LABELS[$stepKey] }} - {{ $r['address'] }}"
@@ -318,12 +318,8 @@
                                 </span>
                             @endif
                             @if($viewingOwn && ($r['status'] === 'open' || in_array($filters['view'], ['no_answer', 'wrong_number'], true)))
-                                @php $ownerMissing = $ownerBlocked[(int) $r['tracked_property_id']] ?? null; @endphp
-                                @if($ownerMissing)
-                                    {{-- v4 gate (road-to-sold.md 23.6): no contact is logged until the owner is found; this turns into the Log contact button without a reload --}}
-                                    <span class="corex-btn-outline corex-btn-xs" style="opacity:.65; cursor:not-allowed;" data-qa="log-contact-blocked" data-blocked-tp="{{ $r['tracked_property_id'] }}"
-                                          title="Find the owner first - still needed: {{ implode(' and ', $ownerMissing) }}.">Find owner first</span>
-                                @else
+                                {{-- v4 gate (23.6): no owner yet = no Log contact here; the Find owner button on this row (and on the card above) is the one way forward --}}
+                                @if(! $ownerMissing)
                                 <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="log-contact" @if($loop->first) data-tour="smk-rts-contact" @endif
                                         data-tp="{{ $r['tracked_property_id'] }}" data-item="{{ $r['list_item_id'] }}" data-address="{{ $r['address'] }}"
                                         @click="openContact($el.dataset)">Log contact</button>
