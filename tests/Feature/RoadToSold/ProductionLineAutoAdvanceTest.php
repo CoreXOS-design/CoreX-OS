@@ -85,7 +85,7 @@ final class ProductionLineAutoAdvanceTest extends TestCase
         $this->assertSame('PresentationGenerated', class_basename((string) DB::table('rts_prospect_events')->where('prospect_id', $p->id)->where('to_stage', S::PRESENTATION_PREPARED)->value('event_class')));
     }
 
-    public function test_the_sellers_answer_moves_it_to_presentation_feedback_and_pending_does_not(): void
+    public function test_the_sellers_answer_is_a_result_won_takes_it_to_mandate_signed_and_pending_sets_it_aside_to_follow_up(): void
     {
         [$pid, $p] = $this->prospectOnProperty();
         $presentation = $this->presentation($pid);
@@ -94,13 +94,18 @@ final class ProductionLineAutoAdvanceTest extends TestCase
             agencyIdValue: $this->agency->id, actorUserIdValue: $this->agent->id,
         ));
 
+        // v4 (23.9): "still working it" is the Undecided result - set aside at its station with a follow-up date, not a station of its own
         $outcome('still_pending', 1);
-        $this->assertSame(S::FOUND, $p->refresh()->stage, 'still pending is neither active nor dead');
+        $p->refresh();
+        $this->assertSame(S::FOUND, $p->stage);
+        $this->assertSame('Not now', $p->park_reason_label);
+        $this->assertNotNull($p->parked_until);
 
+        // and a won answer later brings it back and takes it to Mandate signed (the presentation stations are legacy)
         $outcome('won_mandate', 2);
         $p->refresh();
-        $this->assertSame(S::PRESENTATION_FEEDBACK, $p->stage);
-        $this->assertSame('Get the mandate signed', $p->next_action_label);
+        $this->assertSame(S::MANDATE_SIGNED, $p->stage);
+        $this->assertSame('Take the mandate / get it signed', $p->next_action_label);
         $this->assertNull($p->parked_at, 'a won answer keeps it on the line');
     }
 
@@ -165,12 +170,12 @@ final class ProductionLineAutoAdvanceTest extends TestCase
         $source = file_get_contents(app_path('Listeners/RoadToSold/AdvanceProspectsFromDomainEvent.php'));
         $constants = [
             S::APPOINTMENT_SET => 'APPOINTMENT_SET', S::EVALUATION_DONE => 'EVALUATION_DONE',
-            S::PRESENTATION_FEEDBACK => 'PRESENTATION_FEEDBACK', S::MANDATE_SIGNED => 'MANDATE_SIGNED', S::LISTING_LIVE => 'LISTING_LIVE',
+            S::MANDATE_SIGNED => 'MANDATE_SIGNED', S::LISTING_LIVE => 'LISTING_LIVE',
             S::ADVERTISING => 'ADVERTISING', S::LEAD => 'LEAD', S::LEAD_CONTACTED => 'LEAD_CONTACTED', S::CORE_MATCH => 'CORE_MATCH',
             S::VIEWING_SCHEDULED => 'VIEWING_SCHEDULED', S::VIEWING_PACK => 'VIEWING_PACK', S::VIEWING_FEEDBACK => 'VIEWING_FEEDBACK',
             S::OFFER => 'OFFER', S::DEAL => 'DEAL', S::REGISTERED => 'REGISTERED',
         ];
-        $this->assertCount(15, $constants);   // the legacy Presentation given station has no way in any more (23.4)
+        $this->assertCount(14, $constants);   // the legacy Presentation given / feedback stations have no way in any more (23.4)
         foreach ($constants as $key => $name) {
             $this->assertStringContainsString('S::' . $name, $source, "no way into the {$key} station");
         }

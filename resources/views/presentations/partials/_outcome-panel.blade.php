@@ -161,24 +161,23 @@
                         </p>
                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
                             @php
-                                $cards = [
-                                    ['won_mandate',           'Won the mandate',          'Seller signed with us — listing live or about to be.'],
-                                    ['won_sale',              'Won mandate AND sale',     'Seller signed AND a buyer is locked in.'],
-                                    ['lost_to_competitor',    'Lost to another agency',   "They signed with someone else."],
-                                    ['lost_to_no_decision',   'Seller did not sell',      "Decided not to list — at least not now."],
-                                    ['lost_to_price_dispute', "Couldn't agree on price",  "We couldn't align on price or strategy."],
-                                    ['still_pending',         'Other / still working it', 'No final answer yet.'],
-                                ];
+                                // v4 (road-to-sold.md 23.10): the cards ARE the agency's one result list; each carries the old outcome value behind it so the
+                                // second step (reason, competitor ...) and every old reader keep working.
+                                $resultCards = collect(app(\App\Services\RoadToSold\ResultOptionService::class)->list((int) $presentation->agency_id))->map(fn ($o) => [
+                                    'key' => $o['key'], 'label' => $o['label'], 'enum' => \App\Services\RoadToSold\ResultOptionService::enumForKey($o['key']),
+                                    'hint' => match ($o['class']) { 'won' => 'Seller signed with us - listing live or about to be.', 'pending' => 'No final answer yet - we follow up.', 'lost' => 'They did not go with us this time.', default => 'The seller will not sell.' },
+                                ])->all();
                             @endphp
-                            @foreach($cards as [$val, $titleC, $descC])
+                            @foreach($resultCards as $card)
                                 <label style="cursor:pointer;display:flex;gap:10px;padding:12px;border:2px solid var(--border);border-radius:6px;align-items:flex-start;background:var(--surface-2);"
-                                       :style="form.outcome === '{{ $val }}' ? 'border-color: var(--brand-button); background: color-mix(in srgb, var(--brand-button) 8%, transparent);' : ''">
-                                    <input type="radio" name="outcome" value="{{ $val }}" x-model="form.outcome" required style="margin-top:3px;">
+                                       :style="form.result_key === '{{ $card['key'] }}' ? 'border-color: var(--brand-button); background: color-mix(in srgb, var(--brand-button) 8%, transparent);' : ''">
+                                    <input type="radio" name="result_key" value="{{ $card['key'] }}" x-model="form.result_key" @change="form.outcome = '{{ $card['enum'] }}'" required style="margin-top:3px;">
                                     <div>
-                                        <div style="font-weight:600;color:var(--text-primary);font-size:0.875rem;">{{ $titleC }}</div>
-                                        <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;line-height:1.3;">{{ $descC }}</div>
+                                        <div style="font-weight:600;color:var(--text-primary);font-size:0.875rem;">{{ $card['label'] }}</div>
+                                        <div style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;line-height:1.3;">{{ $card['hint'] }}</div>
                                     </div>
                                 </label>
+                            <input type="hidden" name="outcome" :value="form.outcome" x-bind:disabled="form.result_key !== '{{ $card['key'] }}'">
                             @endforeach
                         </div>
                     </div>
@@ -322,6 +321,7 @@ function presentationOutcome(presentationId, prefillOutcome) {
         submitting: false,
         form: {
             outcome: @json($outcome?->outcome ?? ''),
+            result_key: @json($outcome?->result_key ?? \App\Services\RoadToSold\ResultOptionService::keyForEnum($outcome?->outcome) ?? ''),
             cancellation_reason: @json($outcome?->cancellation_reason ?? ''),
             cancellation_competitor_agency: @json($outcome?->cancellation_competitor_agency ?? ''),
             cancellation_competitor_price:  @json($outcome?->cancellation_competitor_price ?? null),
@@ -371,6 +371,8 @@ function presentationOutcome(presentationId, prefillOutcome) {
         init() {
             if (prefillOutcome) {
                 this.form.outcome = prefillOutcome;
+                // the e-mail quick link names an old outcome value; the shared list's answer behind it is the one submitted
+                this.form.result_key = @json(collect(\App\Models\PresentationOutcome::ALL_OUTCOMES)->mapWithKeys(fn ($e) => [$e => \App\Services\RoadToSold\ResultOptionService::keyForEnum($e)])->all())[prefillOutcome] || '';
                 this.openModal();
                 // For non-pending outcomes, advance past Step 1 since
                 // they already picked from the email.

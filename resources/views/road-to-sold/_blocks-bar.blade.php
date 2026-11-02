@@ -60,14 +60,15 @@
     .rts-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: .6rem .75rem; }
     /* 1366 wide: the list needs 1144px and has ~1076, so the least useful column (Last outcome - the History button has it) gives way and the actions stay whole */
     @media (max-width: 1450px) { .rts-col-last { display: none; } }
-    /* the filter row wraps in even rows instead of leaving the Search button alone on a line */
-    @media (max-width: 1450px) {
-        .rts-block-body form.rts-filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .4rem .5rem !important; align-items: end; }
-        .rts-block-body form.rts-filters > div { min-width: 0; }
-        .rts-block-body form.rts-filters select, .rts-block-body form.rts-filters input[type=text] { width: 100% !important; min-width: 0 !important; }
-        .rts-block-body form.rts-filters .cx-dmy, .rts-block-body form.rts-filters .cx-dmy-txt { width: 100%; }
-        .rts-block-body form.rts-filters > button, .rts-block-body form.rts-filters > a { justify-self: start; }
-    }
+    /* the list's filter row: Search, Status and Search stay in view, the rest sit behind one Filters button (a floating panel, so it never pushes the list) */
+    .rts-block-body form.rts-filters { display: flex; align-items: center; gap: .5rem !important; flex-wrap: nowrap; }
+    .rts-fl { display: flex; align-items: center; gap: .4rem; min-width: 0; }
+    .rts-fl-q { width: 17rem; max-width: 100%; min-width: 7rem; }
+    .rts-fold-wrap { position: relative; margin-left: auto; }
+    .rts-fold-panel { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; width: 36rem; max-width: 92vw; padding: .6rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.2); }
+    .rts-fold-panel select, .rts-fold-panel .cx-dmy, .rts-fold-panel .cx-dmy-txt { width: 100% !important; }
+    /* a short window (laptop): the gaps between the header rows tighten so the list gets the height */
+    @media (max-height: 820px) { .rts-fit { gap: .4rem; } .rts-grow table td { padding-top: .25rem; padding-bottom: .25rem; } }
     .rts-card.is-overdue { border-left: 4px solid var(--ds-crimson, #dc2626); }
     .rts-board { display: grid; gap: .75rem; align-items: start; }
     .rts-cards { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); }

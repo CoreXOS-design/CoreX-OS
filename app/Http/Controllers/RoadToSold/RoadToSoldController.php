@@ -187,6 +187,8 @@ class RoadToSoldController extends Controller
             'canManageRecipe' => $viewer->hasPermission('road_to_sold.manage_recipe'),
             'levelStatus'    => $agentUser ? $this->levels->progress($agentUser, $track) : null,
             'bar'            => $bar,
+            // the header's points: the day and the month from the one rule every points screen reads (BeltPoints::totals); the figure links to the agent's own "why did I get these points" log
+            'pointsTotals'   => $agentUser ? app(\App\Services\RoadToSold\BeltPoints::class)->totals($agentUser, $date) : null,
             'drilldownBase'  => route('road-to-sold.drilldown', [
                 'agent_id' => $agentId, 'period' => 'custom',
                 'start' => $date->copy()->startOfMonth()->toDateString(), 'end' => $date->toDateString(),

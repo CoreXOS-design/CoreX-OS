@@ -18,6 +18,38 @@ use Illuminate\Support\Facades\Log;
 class ListingPropertyPromoter
 {
     /**
+     * The archived property that still holds this listing's source ref, restored for reuse, or null.
+     *
+     * Restorable = it is still a prospecting stub (an archived property that went on to become real stock is not revived for a MIC pitch) and the restore
+     * takes. Otherwise the key is freed (`released:<property id>`, char(36)) so a new one can be made, and null is returned.
+     */
+    private function restoreArchivedFor(int $agencyId, int $listingId): ?Property
+    {
+        $archived = Property::withoutGlobalScopes()->onlyTrashed()
+            ->where('agency_id', $agencyId)
+            ->where('external_id', 'prospecting:' . $listingId)
+            ->orderByDesc('id')
+            ->first();
+        if (! $archived) {
+            return null;
+        }
+
+        try {
+            if ((string) $archived->status === 'prospecting' && $archived->restore()) {
+                Log::info('Pitch now restored the archived prospecting property', ['property_id' => $archived->id, 'listing_id' => $listingId]);
+
+                return Property::withoutGlobalScopes()->find($archived->id);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Archived prospecting property could not be restored; freeing its key', ['property_id' => $archived->id, 'listing_id' => $listingId, 'error' => $e->getMessage()]);
+        }
+
+        DB::table('properties')->where('id', $archived->id)->update(['external_id' => 'released:' . $archived->id]);
+
+        return null;
+    }
+
+    /**
      * Promote a prospecting_listing to a real Property row.
      *
      * Idempotency: if a Property already exists for this agency with the
@@ -55,6 +87,13 @@ class ListingPropertyPromoter
             ->whereNull('deleted_at')
             ->where('external_id', 'prospecting:' . $listing->id)
             ->first();
+
+        // The source ref is a UNIQUE key per agency, so an ARCHIVED property made for this same listing still holds it: minting a new one 500s on
+        // properties_agency_ext_uq (found 2 Nov 2026: Pitch now on an advert whose prospecting property had been archived). Restore the archived
+        // one and reuse it (its seller links and history come back with it); only when it cannot be restored, free the key and create anew.
+        if (! $existing) {
+            $existing = $this->restoreArchivedFor($agencyId, (int) $listing->id);
+        }
 
         // Only when there is NO source-ref match AND we hold a REAL address may we
         // dedupe by address. An empty address must NEVER match — that empty-address

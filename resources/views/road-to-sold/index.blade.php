@@ -62,7 +62,23 @@
                     <span class="text-xs" style="color: var(--text-primary);"><strong>{{ $counts['worked'] }} of {{ $counts['target_items'] }}</strong> worked {{ $date->isToday() ? 'today' : 'on ' . $date->format('j M') }}@if($counts['added'] > 0)<span style="color: var(--text-muted);"> · {{ $counts['added_worked'] }} of {{ $counts['added'] }} added on top</span>@endif</span>
                 @endif
                 @if($progress['counted'] > 0)<span class="text-xs" style="color: var(--text-primary);"><strong>{{ $progress['met'] }} of {{ $progress['counted'] }}</strong> targets met</span>@endif
-                @if($progress['level'])<span class="text-xs inline-flex items-center gap-2" style="color: var(--text-primary);"><span><strong>{{ number_format($progress['points'], 0) }}</strong> points in {{ $progress['points_label'] }}</span><x-points-split-total :split="$progress['points_split']" split-only /></span>@endif
+                @if($progress['level'] || (($pointsTotals['month'] ?? 0) > 0))
+                    @php
+                        $pt = $pointsTotals ?? null;
+                        $ptMonth = $pt ? (float) $pt['month'] : (float) $progress['points'];
+                        $ptLabel = $pt ? \Illuminate\Support\Carbon::parse($pt['date'])->format('F') : $progress['points_label'];
+                    @endphp
+                    <span class="text-xs inline-flex items-center gap-2" style="color: var(--text-primary);" data-qa="header-points">
+                        {{-- the figure is the agent's own points log ("why did I get these points"); another agent's log is theirs to read --}}
+                        @if($viewingOwn && \Illuminate\Support\Facades\Route::has('road-to-sold.points'))
+                            <a href="{{ route('road-to-sold.points') }}" class="underline" style="color: inherit;" title="Why did I get these points?" data-qa="header-points-link"><strong>{{ number_format($ptMonth, 0) }}</strong> points in {{ $ptLabel }}</a>
+                        @else
+                            <span><strong>{{ number_format($ptMonth, 0) }}</strong> points in {{ $ptLabel }}</span>
+                        @endif
+                        @if($pt && (float) $pt['day'] > 0)<span style="color: var(--text-muted);" data-qa="header-points-day">{{ number_format((float) $pt['day'], 0) }} today</span>@endif
+                        @if($progress['level'])<x-points-split-total :split="$progress['points_split']" split-only />@endif
+                    </span>
+                @endif
             </div>
             <div class="flex items-center gap-2 flex-wrap">
                 @if($agents->count() > 1)
@@ -140,7 +156,70 @@
         @include('road-to-sold._block-station')
     @else
     {{-- Filters --}}
-    <form method="GET" class="flex items-end gap-3 flex-wrap {{ $isCaptures ? '' : 'rts-filters' }}" data-tour="smk-rts-filters">
+    @if(! $isCaptures)
+    {{-- Search, Status and "Add to my day" stay in view; Show / Selection / Day / Sort sit behind ONE "Filters" button (closed by default, never opens by itself) so the list gets the height. --}}
+    @php
+        $foldSet = collect([$filters['view'] !== 'today', $filters['selection'] !== '', $filters['sort'] !== 'order', $filters['dir'] === 'desc', ! $date->isToday()])->filter()->count();
+    @endphp
+    <form method="GET" class="rts-filters" x-data="{ f: false }" @keydown.escape="f = false" @click.outside="f = false" data-tour="smk-rts-filters" data-qa="list-filters">
+        @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
+        @if(! $viewingOwn)<input type="hidden" name="agent" value="{{ $agentId }}">@endif
+        <div class="rts-fl" data-tour="smk-rts-search">
+            <label class="text-xs font-semibold" style="color: var(--text-muted);" for="rts-q">Search</label>
+            <input id="rts-q" type="text" name="q" value="{{ $filters['q'] }}" placeholder="Address, suburb, owner or phone" class="rounded-md px-3 py-2 text-xs rts-fl-q" style="{{ $inputStyle }}">
+        </div>
+        @if($listView)
+            <div class="rts-fl" data-tour="smk-rts-status">
+                <label class="text-xs font-semibold" style="color: var(--text-muted);" for="rts-status">Status</label>
+                <select id="rts-status" name="status" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
+                    @foreach($statusLabels as $v => $l)<option value="{{ $v }}" @selected($filters['status'] === $v)>{{ $l }}</option>@endforeach
+                </select>
+            </div>
+        @endif
+        <button type="submit" class="corex-btn-outline corex-btn-xs" data-tour="smk-rts-search-btn">Search</button>
+        @if($filters['q'] !== '' || $filters['selection'] !== '' || $filters['status'] !== 'open' || $filters['view'] !== 'today')
+            <a href="{{ route('road-to-sold.index', ($viewingOwn ? [] : ['agent' => $agentId]) + \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Clear</a>
+        @endif
+        <div class="rts-fold-wrap">
+            <button type="button" class="corex-btn-outline corex-btn-xs" @click="f = !f" :aria-expanded="f ? 'true' : 'false'" data-qa="filters-toggle">Filters{{ $foldSet > 0 ? ' (' . $foldSet . ')' : '' }} &#9662;</button>
+            <div x-show="f" x-cloak class="rts-fold-panel" data-qa="filters-panel">
+                <div data-tour="smk-rts-view">
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-view">Show</label>
+                    <select id="rts-view" name="view" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
+                        @foreach($viewLabels as $v => $l)<option value="{{ $v }}" @selected($filters['view'] === $v)>{{ $l }}</option>@endforeach
+                    </select>
+                </div>
+                @if($listView)
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-sel">Selection</label>
+                        <select id="rts-sel" name="selection" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
+                            <option value="">All selections</option>
+                            @foreach($selections as $k => $l)<option value="{{ $k }}" @selected($filters['selection'] === $k)>{{ $l }}</option>@endforeach
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-date">Day</label>
+                        <x-dmy-date id="rts-date" name="date" :value="$date->toDateString()" :required="true" :submit="true" />
+                    </div>
+                @endif
+                <div data-tour="smk-rts-sort">
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-sort">Sort</label>
+                    <select id="rts-sort" name="sort" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
+                        @foreach($sortLabels as $v => $l)<option value="{{ $v }}" @selected($filters['sort'] === $v)>{{ $l }}</option>@endforeach
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-dir">Order</label>
+                    <select id="rts-dir" name="dir" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
+                        <option value="asc" @selected($filters['dir'] === 'asc')>Ascending</option>
+                        <option value="desc" @selected($filters['dir'] === 'desc')>Descending</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </form>
+    @else
+    <form method="GET" class="flex items-end gap-3 flex-wrap" data-tour="smk-rts-filters">
         @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
         @if(! $viewingOwn)<input type="hidden" name="agent" value="{{ $agentId }}">@endif
         <div data-tour="smk-rts-view">
@@ -236,6 +315,7 @@
             <a href="{{ route('road-to-sold.index', ($viewingOwn ? [] : ['agent' => $agentId]) + \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Clear</a>
         @endif
     </form>
+    @endif
 
 
     @if($isCaptures)

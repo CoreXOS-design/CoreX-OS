@@ -14,6 +14,10 @@
     $searching = $pf['q'] !== '' || $pf['due'] !== '' || $pf['suburb'] !== '';
     $byStage = collect($lineChips)->groupBy('stage');
     $lineCols = max(1, collect($linePhases)->sum(fn ($ph) => count($ph['stations'])));   // one grid column per station shown (v4: 21, the two presentation stages are legacy)
+    $resultOptionsForCard = collect(app(\App\Services\RoadToSold\ResultOptionService::class)->list((int) auth()->user()->effectiveAgencyId(), $track))->map(fn ($o) => [
+        'key' => $o['key'], 'label' => $o['label'], 'class' => $o['class'], 'days' => $o['revisit_days'],
+        'hint' => match ($o['class']) { 'won' => 'the property becomes a Draft', 'pending' => 'it comes back to you', 'lost' => 'set aside, the claim is given back', default => 'the property is marked Not selling' },
+    ])->values()->all();
     $stationList = collect($stageMeta)->reject(fn ($m, $k) => in_array($k, \App\Services\RoadToSold\ProspectStages::LEGACY, true))->map(fn ($m, $k) => ['key' => $k, 'label' => $m['label'], 'short' => \App\Services\RoadToSold\ProspectStages::short($k), 'phase' => \App\Services\RoadToSold\ProspectStages::phaseOf($k)])->values()->all();
     $withCards = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->trackedWithCards((int) auth()->user()->effectiveAgencyId(), collect($lineChips)->pluck('tracked_property_id'));
     $cards = collect($lineChips)->mapWithKeys(fn ($c) => [$c['id'] => [
@@ -181,7 +185,8 @@
                     @if($canWriteProspects)
                         <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="prospect-step" :data-step-url="card.step_url" :data-tracked="card.card ? card.tp : ''" :data-step-label="card.step_label + ' - ' + card.address"
                                 @click="cardId = null; $dispatch('rts-step', $el.dataset)" x-text="card.step_label"></button>
-                        <button type="button" class="corex-btn-outline corex-btn-xs" :data-tp="card.tp" :data-address="card.address" @click="cardId = null; openContact($el.dataset)">Record a result</button>
+                        <button type="button" class="corex-btn-outline corex-btn-xs" :data-tp="card.tp" :data-address="card.address" @click="cardId = null; openContact($el.dataset)">Log contact</button>
+                        <button type="button" class="corex-btn-outline corex-btn-xs" data-qa="prospect-result" @click="openResult(card.id, card.address)">Result</button>
                         <button type="button" class="corex-btn-outline corex-btn-xs" @click="openNext(card.id, card.next, card.next_at)">Next action</button>
                         <button type="button" class="corex-btn-outline corex-btn-xs" data-qa="prospect-move" @click="openMove()">Move to...</button>
                         <button type="button" class="corex-btn-outline corex-btn-xs" @click="openPark(card.id, card.address)">Set aside</button>
@@ -231,6 +236,29 @@
         </form>
     </div>
 
+    {{-- The result of the evaluation / presentation (road-to-sold.md 23.9): ONE answer sets the record, the claim and the property together --}}
+    <div x-show="resultOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @keydown.escape.window="resultOpen = false" data-qa="result-modal">
+        <form method="POST" :action="'{{ url('road-to-sold/prospects') }}/' + id + '/result'" class="w-full max-w-md rounded-md p-5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+            @csrf
+            @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
+            <h2 class="text-sm font-bold" style="color: var(--text-primary);">Result</h2>
+            <div class="text-xs" style="color: var(--text-muted);" x-text="address"></div>
+            <div class="space-y-1.5">
+                <template x-for="o in resultOptions" :key="o.key">
+                    <label class="flex items-start gap-2 text-xs cursor-pointer" style="color: var(--text-primary);">
+                        <input type="radio" name="result_key" :value="o.key" x-model="resultKey" required class="mt-0.5" @change="pickResult()">
+                        <span><span class="font-semibold" x-text="o.label"></span><span style="color: var(--text-muted);" x-text="' - ' + o.hint"></span></span>
+                    </label>
+                </template>
+            </div>
+            <div x-show="resultKey && resultNeedsDate"><label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rs-on">Bring it back on</label>
+                <input id="rs-on" type="date" name="revisit_on" x-model="resultDate" :disabled="!(resultKey && resultNeedsDate)" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}"></div>
+            <div><label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rs-note">Note</label>
+                <input id="rs-note" name="note" maxlength="255" class="w-full rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}"></div>
+            <div class="flex items-center justify-end gap-2"><button type="button" class="corex-btn-outline corex-btn-xs" @click="resultOpen = false">Cancel</button><button type="submit" class="corex-btn-primary corex-btn-xs" :disabled="!resultKey">Save result</button></div>
+        </form>
+    </div>
+
     {{-- Set aside (park) --}}
     <div x-show="parkOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @keydown.escape.window="parkOpen = false">
         <form method="POST" :action="'{{ url('road-to-sold/prospects') }}/' + id + '/park'" class="w-full max-w-md rounded-md p-5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
@@ -256,6 +284,10 @@ function rtsProspectActions(reasons, cards, stations) {
     return {
         reasons: reasons, cards: cards, stations: stations, cardId: null, moveOpen: false,
         id: null, address: '', label: '', at: '', reason: '', until: '', nextOpen: false, parkOpen: false,
+        resultOpen: false, resultKey: '', resultDate: '', resultOptions: @js($resultOptionsForCard),
+        get resultNeedsDate() { var o = this.resultOptions.find(x => x.key === this.resultKey); return !!o && o.class !== 'won'; },
+        openResult(id, address) { this.id = id; this.address = address; this.resultKey = ''; this.resultDate = ''; this.resultOpen = true; },
+        pickResult() { var o = this.resultOptions.find(x => x.key === this.resultKey); if (o && o.days) { var d = new Date(); d.setDate(d.getDate() + o.days); this.resultDate = d.toISOString().slice(0, 10); } },
         get card() { return this.cardId !== null ? (this.cards[this.cardId] || null) : null; },
         get laterStations() {
             var c = this.card; if (!c) return [];

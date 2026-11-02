@@ -125,4 +125,40 @@ final class HomeScreenRulingsTest extends TestCase
     {
         $this->assertStringNotContainsString('Not started', $this->page()->getContent(), 'an agent sees only themselves, so no panel about others');
     }
+
+    public function test_the_header_points_come_from_the_belt_points_totals_and_link_to_the_points_log(): void
+    {
+        app(\App\Services\RoadToSold\RecipeService::class)->start($this->agency->id, 'sales');   // a level, so the header shows points
+        $h = $this->page()->assertOk()->getContent();
+        $t = app(\App\Services\RoadToSold\BeltPoints::class)->totals($this->agent, now());
+        $this->assertMatchesRegularExpression('#data-qa="header-points-link"[^>]*>\s*<strong>' . number_format((float) $t['month'], 0) . '</strong> points in October#', $h);
+        $this->assertStringContainsString(route('road-to-sold.points'), $h);
+        // a manager looking at an agent does not get a link to their OWN log under the agent's figure
+        $this->assertStringNotContainsString('data-qa="header-points-link"', $this->actingAs($this->manager())->get(route('road-to-sold.index', ['agent' => $this->agent->id]))->getContent());
+    }
+
+    public function test_show_selection_day_and_sort_sit_behind_one_closed_filters_button(): void
+    {
+        $h = $this->page()->assertOk()->getContent();
+        $panel = strpos($h, 'data-qa="filters-panel"');
+        $this->assertNotFalse($panel);
+        $this->assertStringContainsString('x-data="{ f: false }"', $h, 'closed by default');
+        $this->assertLessThan($panel, strpos($h, 'name="q"'), 'Search stays in view');
+        $this->assertLessThan($panel, strpos($h, 'name="status"'), 'Status stays in view');
+        foreach (['name="view"', 'name="selection"', 'name="date"', 'name="sort"', 'name="dir"'] as $folded) {
+            $this->assertGreaterThan($panel, strpos($h, $folded), "{$folded} is inside the Filters panel");
+        }
+        $this->assertStringContainsString('data-qa="filters-toggle">Filters &#9662;', $h);
+        $this->assertStringContainsString('data-qa="filters-toggle">Filters (2) &#9662;', $this->page(['selection' => 'price_drops', 'sort' => 'address'])->getContent(), 'what is set shows as a count; it never opens by itself');
+    }
+
+    private function manager(): User
+    {
+        $m = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'branch_manager', 'is_active' => true]);
+        RolePermission::create(['role' => 'branch_manager', 'permission_key' => 'access_road_to_sold', 'agency_id' => $this->agency->id]);
+        RolePermission::create(['role' => 'branch_manager', 'permission_key' => 'road_to_sold.view', 'agency_id' => $this->agency->id, 'scope' => 'branch']);
+        PermissionService::clearCache();
+
+        return $m;
+    }
 }

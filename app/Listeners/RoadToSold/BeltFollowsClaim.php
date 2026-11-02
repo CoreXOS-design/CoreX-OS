@@ -47,6 +47,10 @@ class BeltFollowsClaim
             if (! $p || $p->released_at !== null || $p->closed_at !== null || (int) $p->user_id !== (int) $c->user_id) {
                 return;
             }
+            // a result (lost / not selling) closes the claim but keeps the belt record, set aside with its reason (23.9)
+            if (str_starts_with((string) $c->release_reason, 'result_')) {
+                return;
+            }
             $note = match ((string) $c->release_reason) {
                 'hold_ended' => 'Claim hold ended',
                 default      => in_array((string) $c->status, ['lost', 'not_interested'], true)

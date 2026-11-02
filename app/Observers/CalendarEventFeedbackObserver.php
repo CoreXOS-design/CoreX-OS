@@ -202,6 +202,8 @@ class CalendarEventFeedbackObserver
             if ($status !== 'held') {
                 return;
             }
+            // the answer given on the form IS the result (23.10): the one result service sets the record, the claim and the property (idempotent per day)
+            app(\App\Services\RoadToSold\BeltLinks::class)->resultFromFeedback($feedback, $event);
             $earlier = CalendarEventFeedback::withoutGlobalScopes()
                 ->where('calendar_event_id', $feedback->calendar_event_id)
                 ->where('id', '!=', $feedback->id)
