@@ -163,7 +163,46 @@
               // ── Manual 'Link a deed' modal ──
               showDeedModal: false,
               deedSearch: '',
+              // Spec 13.21 - the picker is LIVE: nothing baked into the page; fetched when it opens and on each keystroke (debounced).
               deeds: @js($deeds ?? []),
+              deedsUrl: @js($deedsUrl ?? null),
+              deedsAny: @js($deedsAny ?? false),
+              deedsTodayCount: @js($deedsTodayCount ?? 0),
+              deedsLoading: false,
+              deedsFailed: false,
+              _deedsSeq: 0,
+              _deedsTimer: null,
+              openDeedPicker() {
+                  this.showDeedModal = true;
+                  this.loadDeeds();
+              },
+              onDeedSearch() {
+                  clearTimeout(this._deedsTimer);
+                  this._deedsTimer = setTimeout(() => this.loadDeeds(), 250);
+              },
+              async loadDeeds() {
+                  if (!this.deedsUrl) return;
+                  const seq = ++this._deedsSeq;       // a slower, older answer never overwrites a newer one
+                  this.deedsLoading = true;
+                  this.deedsFailed = false;
+                  try {
+                      const url = this.deedsUrl + (this.deedsUrl.includes('?') ? '&' : '?') + 'q=' + encodeURIComponent(this.deedSearch.trim());
+                      const res = await fetch(url, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' });
+                      if (!res.ok) throw new Error('HTTP ' + res.status);
+                      const d = await res.json();
+                      if (seq !== this._deedsSeq) return;
+                      this.deeds = d.deeds || [];
+                      this.deedsTodayCount = d.today_count || 0;
+                      if (this.deeds.length) this.deedsAny = true;
+                  } catch (e) {
+                      if (seq === this._deedsSeq) this.deedsFailed = true;
+                  } finally {
+                      if (seq === this._deedsSeq) this.deedsLoading = false;
+                  }
+              },
+              deedGroupLabel(g) {
+                  return { just_now: 'Captured just now · by you', likely: 'Likely match for this property', same_complex: 'Same complex, another unit', other: 'Other deeds' }[g] || '';
+              },
               linkDeedUrl: @js($linkDeedUrl ?? null),
               // FIX 2 — live deed state (reactive), initialised from the server render and refreshed
               // by polling so a scrape auto-surfaces without a full reload (form state preserved).
@@ -198,7 +237,12 @@
                       if (this._stateSeq !== seqAtStart) return;
                       this.deed.owners = d.owners || [];
                       this.deed.candidates = d.candidates || [];
-                      if (Array.isArray(d.deeds)) this.deeds = d.deeds;
+                      if (typeof d.today_count === 'number') {
+                          // a scrape that lands while the tab is open: the banner says so, and an open picker refreshes itself
+                          const grew = d.today_count > this.deedsTodayCount;
+                          this.deedsTodayCount = d.today_count;
+                          if (grew) { this.deedsAny = true; if (this.showDeedModal) this.loadDeeds(); }
+                      }
                       // Multi-seller (Part A) + TVA (Part B) + reversibility (R1/R2) live state.
                       if (d.sellers) this.sellers = d.sellers;
                       if (d.tva) this.tva = d.tva;
@@ -375,9 +419,7 @@
                   } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
               },
               filteredDeeds() {
-                  const q = this.deedSearch.trim().toLowerCase();
-                  if (!q) return this.deeds;
-                  return this.deeds.filter(d => (d.search || '').includes(q));
+                  return this.deeds;   // already filtered by the server for the words typed
               },
               async pickDeed(deed) {
                   this.showDeedModal = false;
@@ -632,14 +674,17 @@
 
         {{-- Manual "Link a deed" fallback — ALWAYS available so the agent can pick the right deed
              when auto-match doesn't fire (P24 marketing address vs deeds-office scheme address). --}}
-        <div x-show="deeds.length" x-cloak class="flex items-center justify-between gap-3 flex-wrap mb-4 rounded-md p-3"
+        <div x-show="deedsAny" x-cloak class="flex items-center justify-between gap-3 flex-wrap mb-4 rounded-md p-3"
                  style="background: var(--surface); border: 1px dashed var(--border);">
                 <div class="text-xs" style="color: var(--text-muted);">
-                    <span x-show="!deed.owners.length && !deed.candidates.length">No deed auto-matched to this property — </span>
-                    <span x-show="deed.owners.length || deed.candidates.length">Not the right owner? </span>
-                    pick the scraped deed yourself.
+                    <span x-show="deedsTodayCount > 0" data-qa="deeds-today"><b x-text="deedsTodayCount"></b> <span x-text="deedsTodayCount === 1 ? 'deed' : 'deeds'"></span> captured today — pick one.</span>
+                    <span x-show="deedsTodayCount === 0">
+                        <span x-show="!deed.owners.length && !deed.candidates.length">No deed auto-matched to this property — </span>
+                        <span x-show="deed.owners.length || deed.candidates.length">Not the right owner? </span>
+                        pick the scraped deed yourself.
+                    </span>
                 </div>
-                <button type="button" @click="showDeedModal = true"
+                <button type="button" @click="openDeedPicker()"
                         class="shrink-0 px-3 py-1.5 text-xs font-semibold rounded-md border-0"
                         style="background: var(--brand-default, #0b2a4a); color:#fff; cursor:pointer;">
                     🔍 Link a deed
@@ -931,16 +976,20 @@
                             style="color: var(--text-muted); background:none;border:0;cursor:pointer;">✕</button>
                 </div>
                 <div class="px-4 py-3" style="border-bottom:1px solid var(--border);">
-                    <input type="text" x-model="deedSearch" placeholder="Search address, owner, erf, suburb…" autocomplete="off"
+                    <input type="text" x-model="deedSearch" @input="onDeedSearch()" placeholder="Search address, owner, erf, suburb…" autocomplete="off" data-qa="deed-search"
                            class="w-full px-3 py-2 text-sm rounded-md"
                            style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
                 </div>
                 <div class="overflow-y-auto px-2 py-2" style="min-height: 120px;">
-                    <template x-for="deed in filteredDeeds()" :key="deed.tracked_property_id">
+                    <template x-for="(deed, i) in filteredDeeds()" :key="deed.tracked_property_id">
+                      <div>
+                        <template x-if="i === 0 || filteredDeeds()[i - 1].group !== deed.group">
+                            <div class="px-2 pt-2 pb-1 text-xs font-semibold" style="color: var(--text-muted);" data-qa="deed-group" x-text="deedGroupLabel(deed.group)"></div>
+                        </template>
                         <button type="button" @click="pickDeed(deed)"
                                 class="w-full text-left px-3 py-2 rounded-md mb-1 block"
                                 style="background: var(--surface-2); border:1px solid var(--border); cursor:pointer;">
-                            <div class="text-sm font-semibold" style="color: var(--text-primary);" x-text="deed.address || '(no address)'"></div>
+                            <div class="text-sm font-semibold" style="color: var(--text-primary);"><span x-text="deed.address || '(no address)'"></span><template x-if="deed.likely_match"><span class="text-xs font-semibold" style="color: var(--brand-icon, #0ea5e9);" data-qa="deed-likely"> · likely match</span></template></div>
                             <div class="text-xs mt-0.5" style="color: var(--text-muted);">
                                 <template x-if="deed.erf"><span>Erf <span x-text="deed.erf"></span> · </span></template>
                                 <span x-text="deed.suburb || ''"></span>
@@ -948,9 +997,13 @@
                                 <template x-if="deed.sold_date"><span> · <span x-text="deed.sold_date"></span></span></template>
                             </div>
                             <div class="text-xs mt-0.5 font-medium" style="color: var(--brand-icon, #0ea5e9);" x-text="deed.owner_names"></div>
+                            <template x-if="deed.captured_ago"><div class="text-xs mt-0.5" style="color: var(--text-muted);">Captured <span x-text="deed.captured_ago"></span></div></template>
                         </button>
+                      </div>
                     </template>
-                    <div x-show="filteredDeeds().length === 0" class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">
+                    <div x-show="deedsLoading && filteredDeeds().length === 0" class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">Looking for deeds…</div>
+                    <div x-show="deedsFailed" class="px-3 py-3 text-center text-sm" style="color: var(--text-muted);">Could not load the deeds. <button type="button" @click="loadDeeds()" style="background:none;border:0;cursor:pointer;color:var(--brand-icon,#0ea5e9);text-decoration:underline;">Try again</button></div>
+                    <div x-show="!deedsLoading && !deedsFailed && filteredDeeds().length === 0" class="px-3 py-6 text-center text-sm" style="color: var(--text-muted);">
                         No deeds match “<span x-text="deedSearch"></span>”.
                     </div>
                 </div>

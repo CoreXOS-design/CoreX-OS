@@ -5445,6 +5445,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'storeFromProspecting'])
                 ->where('prospectingListingId', '\d+')
                 ->name('store-from-prospecting');
+            // Spec 13.21 - the "Link a deed" picker, live (fetched on open and on each keystroke; agency-scoped).
+            Route::get('/outreach/deeds',
+                [\App\Http\Controllers\SellerOutreach\EntryPointController::class, 'deedsPicker'])
+                ->name('deeds-picker');
             // MIC ↔ Deeds ↔ Contact loop (Part A, manual link) — remember the deed the agent
             // picks from the "Link a deed" modal so it auto-surfaces on later visits.
             Route::post('/prospecting/{prospectingListingId}/outreach/link-deed',

@@ -258,7 +258,11 @@ final class EntryPointController extends Controller
             'deedLink'     => $deedLink,
             // Manual "Link a deed" fallback — the full deeds list + the endpoint that remembers
             // the agent's choice on this listing.
-            'deeds'        => $this->safeAvailableDeeds($agencyId),
+            // The picker list is NOT baked into the page: it is fetched live when the picker opens and on each search keystroke (spec 13.21).
+            'deeds'        => [],
+            'deedsUrl'     => route('seller-outreach.entry.deeds-picker', ['listing' => $listing->id]),
+            'deedsAny'     => $this->anyDeeds($agencyId),
+            'deedsTodayCount' => $this->safePickerDeeds($agencyId, $request->user()?->id, null, ['listing' => $listing->id])['today_count'],
             'linkDeedUrl'  => route('seller-outreach.entry.link-deed-prospecting', ['prospectingListingId' => $listing->id]),
             // FIX 2 — poll endpoint so a deed/TVA scrape auto-surfaces while the screen is open.
             'deedPollUrl'  => route('seller-outreach.entry.deed-poll-prospecting', ['prospectingListingId' => $listing->id]),
@@ -705,7 +709,10 @@ final class EntryPointController extends Controller
             'deedLink'        => $deedLink,
             // Manual "Link a deed" modal is available here too (prefill only — no listing to
             // remember the link on; the T-pin flow persists the owner via storeFromTrackedProperty).
-            'deeds'           => $this->safeAvailableDeeds($agencyId),
+            'deeds'           => [],
+            'deedsUrl'        => route('seller-outreach.entry.deeds-picker', ['tp' => $trackedProperty->id]),
+            'deedsAny'        => $this->anyDeeds($agencyId),
+            'deedsTodayCount' => $this->safePickerDeeds($agencyId, $request->user()?->id, null, ['tp' => $trackedProperty->id])['today_count'],
             'linkDeedUrl'     => null,
         ]);
     }
@@ -1065,6 +1072,53 @@ final class EntryPointController extends Controller
     }
 
     /**
+     * Spec 13.21 - the "Link a deed" picker, live. GET ?q=&listing=<prospecting listing id>|tp=<tracked property id>: the agency's deeds, newest captures first
+     * ("Captured just now" = this user's own captures of the last 24 h on top, then a likely match for this property's complex and unit), filtered by the
+     * words typed. Agency-scoped (the user's agency; a listing or tracked property of another agency is simply not used for the likely match). Read-only.
+     */
+    public function deedsPicker(Request $request)
+    {
+        $agencyId = $this->resolveAgencyId($request);
+        $ref = $request->filled('listing') ? ['listing' => (int) $request->query('listing')] : ($request->filled('tp') ? ['tp' => (int) $request->query('tp')] : []);
+
+        return response()->json($this->safePickerDeeds($agencyId, $request->user()?->id, (string) $request->query('q', ''), $ref));
+    }
+
+    /**
+     * @param  array{listing?:int, tp?:int}  $ref
+     * @return array{deeds: array<int, array<string, mixed>>, today_count: int}
+     */
+    private function safePickerDeeds(int $agencyId, ?int $userId, ?string $q, array $ref = []): array
+    {
+        try {
+            $tpId = null;
+            if (isset($ref['listing'])) {
+                $tpId = DB::table('prospecting_listings')->where('id', $ref['listing'])->where('agency_id', $agencyId)->whereNull('deleted_at')->value('tracked_property_id');
+            } elseif (isset($ref['tp'])) {
+                $tpId = $ref['tp'];
+            }
+            $property = null;
+            if ($tpId) {
+                $row = DB::table('tracked_properties')->where('id', $tpId)->where('agency_id', $agencyId)->first(['complex_name', 'scheme_name', 'unit_number']);
+                $property = $row ? ['complex' => $row->complex_name ?: $row->scheme_name, 'unit' => $row->unit_number] : null;
+            }
+
+            return app(\App\Services\Prospecting\DeedsCaptureLinkService::class)->pickerDeeds($agencyId, $userId, $q, $property);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Deed picker list failed (picker will be empty)', ['error' => $e->getMessage()]);
+
+            return ['deeds' => [], 'today_count' => 0];
+        }
+    }
+
+    /** Does the agency hold any deed capture at all? (decides whether the "Link a deed" banner is shown) */
+    private function anyDeeds(int $agencyId): bool
+    {
+        return DB::table('tracked_properties')->where('agency_id', $agencyId)->whereNull('deleted_at')
+            ->where(fn ($q) => $q->where('capture_kind', 'deeds_capture')->orWhereNotNull('deeds_captured_at'))->exists();
+    }
+
+    /**
      * The agency's deeds list for the manual "Link a deed" modal, failure-isolated so a hiccup
      * never breaks the compose screen.
      *
@@ -1221,7 +1275,8 @@ final class EntryPointController extends Controller
         return response()->json([
             'owners'      => $deedLink['owners'],
             'candidates'  => $deedLink['candidates'],
-            'deeds'       => $this->safeAvailableDeeds($agencyId),
+            // the banner's "N deeds captured today" (the list itself is fetched live by the picker, spec 13.21)
+            'today_count' => $this->safePickerDeeds($agencyId, $request->user()?->id, null, ['listing' => $listing->id])['today_count'],
             'property_id' => $sellers['property_id'],
             'sellers'     => $sellers['sellers'],
             'tva'         => $sellers['tva'],

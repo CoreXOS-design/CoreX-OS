@@ -477,7 +477,8 @@ class DeedsCaptureLinkService
             ->orderByDesc('updated_at')
             ->limit($limit)
             ->get(['id', 'erf_number', 'scheme_name', 'complex_name', 'street_number', 'street_name',
-                'suburb', 'town', 'last_known_sold_price', 'last_known_sold_date', 'promoted_to_property_id']);
+                'suburb', 'town', 'last_known_sold_price', 'last_known_sold_date', 'promoted_to_property_id',
+                'section_number', 'deeds_captured_at', 'deeds_captured_by_user_id']);
 
         if ($tps->isEmpty()) {
             return [];
@@ -541,10 +542,96 @@ class DeedsCaptureLinkService
                 'search'              => $search,
                 'already_on_books_as' => $alreadyOnBooksAs,
                 'has_owner'           => !empty($owners),
+                // live picker (spec 13.21): when and by whom it was captured, and which section of the scheme it is
+                'captured_at'         => $tp->deeds_captured_at ? \Illuminate\Support\Carbon::parse($tp->deeds_captured_at)->toIso8601String() : null,
+                'captured_by'         => $tp->deeds_captured_by_user_id ? (int) $tp->deeds_captured_by_user_id : null,
+                'section'             => $tp->section_number ? (string) $tp->section_number : null,
+                'scheme_key'          => self::schemeKey($scheme),
             ];
         }
 
         return $out;
+    }
+
+    /**
+     * The deeds for the "Link a deed" picker, LIVE (spec 13.21): read fresh every time the picker opens and on each search keystroke - never a list baked into the page.
+     * Newest captures first. Groups (`group`): `just_now` = captured in the last 24 h by this user (their own scrape, shown first); `likely` = the deed's scheme is the
+     * property's complex (and its section is the property's unit, or one of them is unknown); `same_complex` = same scheme, a different unit; `other`.
+     * Agency-scoped like availableDeeds(). Read-only.
+     *
+     * @param  array{complex:?string, unit:?string}|null  $property  the property being composed (its complex name and unit number), for the likely match
+     * @return array{deeds: array<int, array<string, mixed>>, today_count: int}
+     */
+    public function pickerDeeds(int $agencyId, ?int $userId, ?string $q = null, ?array $property = null, int $limit = 80): array
+    {
+        $q = mb_strtolower(trim((string) $q));
+        $tokens = $q === '' ? [] : array_values(array_filter(preg_split('/\s+/', $q)));
+        $pool = $this->availableDeeds($agencyId, $q === '' ? 300 : 2000);
+        $since = now()->subDay();
+        $propScheme = self::schemeKey($property['complex'] ?? null);
+        $propUnit = self::sectionKey($property['unit'] ?? null);
+
+        $todayCount = 0;
+        foreach ($pool as &$d) {
+            $mine = $userId && $d['captured_by'] === $userId && $d['captured_at'] && \Illuminate\Support\Carbon::parse($d['captured_at'])->gte($since);
+            $todayCount += $mine ? 1 : 0;
+            $d['group'] = $mine ? 'just_now' : 'other';
+            if ($propScheme !== '' && $d['scheme_key'] !== '' && $d['scheme_key'] === $propScheme) {
+                $sec = self::sectionKey($d['section']);
+                $same = $sec === '' || $propUnit === '' || $sec === $propUnit;
+                $d['likely_match'] = $same;
+                if ($d['group'] === 'other') {
+                    $d['group'] = $same ? 'likely' : 'same_complex';
+                }
+            } else {
+                $d['likely_match'] = false;
+            }
+            $d['captured_ago'] = $d['captured_at'] ? \Illuminate\Support\Carbon::parse($d['captured_at'])->diffForHumans() : null;
+        }
+        unset($d);
+
+        $rank = ['just_now' => 0, 'likely' => 1, 'same_complex' => 2, 'other' => 3];
+        $pool = array_values(array_filter($pool, function (array $d) use ($tokens) {
+            foreach ($tokens as $t) {
+                if (! str_contains((string) $d['search'], $t)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }));
+        // groups first; inside a group newest capture first, then the list's own order (deeds captures first, most recently updated)
+        foreach ($pool as $i => &$d) {
+            $d['_i'] = $i;
+        }
+        unset($d);
+        usort($pool, fn ($a, $b) => ($rank[$a['group']] <=> $rank[$b['group']]) ?: (strcmp((string) $b['captured_at'], (string) $a['captured_at'])) ?: ($a['_i'] <=> $b['_i']));
+        $pool = array_map(function (array $d) {
+            unset($d['_i']);
+
+            return $d;
+        }, $pool);
+
+        return ['deeds' => array_slice($pool, 0, $limit), 'today_count' => $todayCount];
+    }
+
+    /** "Uvongo Cabanas B" / "SS UVONGO CABANAS B" -> "uvongocabanasb" (lower case, letters and digits only, a leading "SS" scheme prefix dropped). */
+    public static function schemeKey(?string $name): string
+    {
+        $n = mb_strtolower(trim((string) $name));
+        $n = (string) preg_replace('/^ss[\s.\-]+/u', '', $n);
+
+        return (string) preg_replace('/[^a-z0-9]+/u', '', $n);
+    }
+
+    /** "5", " 05 ", "Section 5", "Unit 5" -> "5" */
+    public static function sectionKey(?string $v): string
+    {
+        $v = mb_strtolower(trim((string) $v));
+        $v = (string) preg_replace('/^(section|sec|unit|door|flat|no\.?)\s*/u', '', $v);
+        $v = ltrim(preg_replace('/[^a-z0-9]+/u', '', $v) ?? '', '0');
+
+        return $v;
     }
 
     /**
