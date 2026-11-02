@@ -40,6 +40,8 @@ final class BeltService
         private readonly StageCountService $stages,
         private readonly WorkdayService $workdays,
         private readonly RecipeProgressService $recipe,
+        private readonly ConveyorService $conveyor,
+        private readonly CallListService $rows,
     ) {
     }
 
@@ -93,6 +95,8 @@ final class BeltService
         $day = Carbon::instance($date)->startOfDay();
         $byStage = collect($this->stages->forStages($viewer, (int) $agent->id, $day->copy()->startOfMonth(), $day, $track))->keyBy('stage');
         $progress = $this->recipe->forAgent($agent, $track, $day->isToday() ? now() : $day->copy()->endOfDay());
+        $figs = $this->conveyor->figures($agent, $track, $day);   // 23.24: to do / moved on / late / reached, from the same history the funnel reads
+        $when = $day->isToday() ? 'today' : $day->format('j M');
         $out = [];
         foreach (self::stations() as $s) {
             $stageKey = (string) ($s['stages'][0] ?? '');
@@ -124,9 +128,6 @@ final class BeltService
                 $owed = $this->owedCount($agent);
                 $note = $owed > 0 ? $owed . ' owed' : null;
                 $alert += $owed;
-                if ($owed > 0) {
-                    $url = ['station' => 'held'];   // the owed list first: "have you given feedback?"
-                }
             }
             // "done today / target" wherever the agency set a target for the station; the count otherwise (the Stock loaded tile keeps its weekday target)
             $period = $target !== null ? 'today' : null;
@@ -137,16 +138,73 @@ final class BeltService
                 $period = $rt['period'];
             }
             $subs = array_values(array_filter([$period !== null && $period !== 'today' ? $period : null, $note]));
+            $link = fn (array $extra) => array_filter($routeBase + $extra, fn ($v) => $v !== null && $v !== '');
+            $conv = $this->conveyorLines($s['key'], $figs[$s['key']] ?? ['todo' => 0, 'late' => 0, 'moved' => 0, 'today' => 0, 'month' => 0], $count, $agent, $day, $track, $when, $link);
             $out[] = [
                 'key' => $s['key'], 'label' => (string) $s['label'], 'short' => (string) $s['short'],
                 'figure' => $target !== null ? ($done ?? $count) . ' / ' . $target : (string) $count,
                 'count' => $count, 'target' => $target, 'done' => $done, 'period' => $period, 'alert' => $alert, 'note' => $subs === [] ? null : implode(' · ', $subs),
                 'url' => array_filter($routeBase + $url, fn ($v) => $v !== null && $v !== ''),
                 'stage' => $stageKey !== '' && $source === 'stage' ? $stageKey : null,
-            ];
+            ] + $conv;
         }
 
         return $out;
+    }
+
+    /**
+     * The three lines of a tile (road-to-sold.md 23.24). Backlog stations: "N to do", "N moved on today", "N late" (only when > 0). Loaded: "N to do", "n of N worked".
+     * The last four stations (Won, Draft, Active, Advertised): "N this month", "N today". Each line is a link to the station's list with that filter.
+     *
+     * @param array{todo:int,late:int,moved:int,today:int,month:int} $f
+     * @return array{kind:string,todo:int,moved:int,late:int,month:int,lines:list<array{key:string,text:string,n:int,url:array,bad:bool}>}
+     */
+    private function conveyorLines(string $key, array $f, int $tileCount, User $agent, Carbon $day, string $track, string $when, callable $link): array
+    {
+        if ($key === 'loaded') {
+            [$todo, $worked, $target] = $this->loadedFigures($agent, $day, $track);
+
+            return ['kind' => 'loaded', 'todo' => $todo, 'moved' => $worked, 'late' => 0, 'month' => 0, 'lines' => [
+                ['key' => 'todo', 'text' => $todo . ' to do', 'n' => $todo, 'url' => $link([]), 'bad' => false],
+                ['key' => 'moved', 'text' => $worked . ' of ' . $target . ' worked', 'n' => $worked, 'url' => $link(['status' => 'worked']), 'bad' => false],
+            ]];
+        }
+        if (in_array($key, ConveyorService::ARRIVAL, true)) {
+            return ['kind' => 'arrival', 'todo' => $f['todo'], 'moved' => $f['today'], 'late' => 0, 'month' => $f['month'], 'lines' => [
+                ['key' => 'month', 'text' => $f['month'] . ' this month', 'n' => $f['month'], 'url' => $link(['station' => $key, 'filter' => 'month']), 'bad' => false],
+                ['key' => 'moved', 'text' => $f['today'] . ' ' . $when, 'n' => $f['today'], 'url' => $link(['station' => $key, 'filter' => 'today']), 'bad' => false],
+            ]];
+        }
+        $lines = [
+            ['key' => 'todo', 'text' => $tileCount . ' to do', 'n' => $tileCount, 'url' => $link(['station' => $key]), 'bad' => false],
+            ['key' => 'moved', 'text' => $f['moved'] . ' moved on ' . $when, 'n' => $f['moved'], 'url' => $link(['station' => $key, 'filter' => 'moved']), 'bad' => false],
+        ];
+        if ($f['late'] > 0) {
+            $lines[] = ['key' => 'late', 'text' => $f['late'] . ' late', 'n' => $f['late'], 'url' => $link(['station' => $key, 'filter' => 'late']), 'bad' => true];
+        }
+
+        return ['kind' => 'backlog', 'todo' => $tileCount, 'moved' => $f['moved'], 'late' => $f['late'], 'month' => $f['month'], 'lines' => $lines];
+    }
+
+    /**
+     * Stock loaded, the conveyor way (23.24): what is still to do on the day's list, and how many of the day's load are worked. A loaded record that is already CLAIMED
+     * (the day feed puts the agent's claims first) is worked at its own station, so it is not counted twice as "to do" - it counts once, at Claimed - but it is part of the
+     * day's load, so it stays in "n of N worked", the same numbers as the header line.
+     *
+     * @return array{0:int,1:int,2:int} to do, worked, the day's load
+     */
+    public function loadedFigures(User $agent, Carbon $day, string $track): array
+    {
+        $items = $this->listItems($agent, $day, $track)->get(['rts_list_items.status', 'rts_list_items.origin', 'rts_list_items.prospect_id']);
+        $stages = $items->pluck('prospect_id')->filter()->isEmpty() ? collect()
+            : DB::table('rts_prospects')->whereIn('id', $items->pluck('prospect_id')->filter()->all())->pluck('stage', 'id');
+        $counting = $items->reject(fn ($i) => in_array($i->origin, [RtsListItem::ORIGIN_ADDED, RtsListItem::ORIGIN_FOLLOW_UP], true));
+        $todo = $items->filter(fn ($i) => $i->status === RtsListItem::STATUS_OPEN && $i->origin !== RtsListItem::ORIGIN_FOLLOW_UP
+            && ($i->prospect_id === null || ! isset($stages[$i->prospect_id]) || $stages[$i->prospect_id] === ProspectStages::FOUND))->count();
+        $worked = $counting->where('status', RtsListItem::STATUS_WORKED)->count();
+        $load = $counting->count() ?: $this->workdays->targetFor($agent, $day, $track);
+
+        return [$todo, $worked, (int) $load];
     }
 
     /**
@@ -218,39 +276,147 @@ final class BeltService
         return ['station' => $s['key'], 'label' => (string) $s['label'], 'period' => 'this month', 'scopes' => $out];
     }
 
+    /** The filters of a station list (23.24): the first seven stations read to do / moved on / late / all; the last four read at the station / today / this month / all. */
+    public static function filtersFor(string $stationKey): array
+    {
+        return in_array($stationKey, ConveyorService::ARRIVAL, true)
+            ? ['month' => 'Reached this month', 'today' => 'Reached today', 'todo' => 'At this station now', 'all' => 'All']
+            : ['todo' => 'To do', 'moved' => 'Moved on today', 'late' => 'Late', 'all' => 'All'];
+    }
+
+    /** The filter a station list opens on: line 1 of its tile. */
+    public static function defaultFilter(string $stationKey): string
+    {
+        return in_array($stationKey, ConveyorService::ARRIVAL, true) ? 'month' : 'todo';
+    }
+
     /**
-     * The list behind a tile (stations that have no prospect stage yet). Search (address / title), sort (oldest first by default), 25 a page.
+     * The list behind a tile (23.24): the agent's records at (or that moved on from, or reached) one station, each in the Loaded list's row layout. Search (address / suburb),
+     * sort (late first then oldest due by default; oldest first; address), filter (to do / moved on today / late / all), 25 a page. The evaluations owed feedback
+     * stay one click away (`owed`) from the Held list.
      *
-     * @param  array{q?:string,sort?:string,dir?:string,page?:int}  $f
-     * @return array{rows:LengthAwarePaginator,label:string,heading:string,empty:string,owed:bool}
+     * @param  array{q?:string,sort?:string,dir?:string,page?:int,filter?:string,owed?:bool,date?:?string}  $f
+     * @return array<string,mixed> rows (paginator of row arrays), label, heading, empty, owed, filter, filters (key => [label, n]), owed_count, kind
      */
-    public function list(User $agent, string $stationKey, array $f): array
+    public function list(User $agent, string $stationKey, array $f, string $track = RtsListItem::TRACK_SALES): array
     {
         $s = self::station($stationKey);
         abort_if($s === null, 404);
-        $source = $s['source'];
-        $stageKey = (string) ($s['stages'][0] ?? '');
-        if ($stationKey === 'held') {
-            $source = 'owed';
-        } elseif (! empty($s['prefer_stage']) && ProspectStages::has($stageKey) || $source === 'stage') {
-            $source = 'prospects';
+        $day = Carbon::instance(isset($f['date']) && $f['date'] ? Carbon::parse($f['date']) : now())->startOfDay();
+        if ($stationKey === 'held' && ! empty($f['owed'])) {
+            return $this->owedList($agent, $s, $f);
         }
-        [$q, $titleExpr, $heading, $empty] = $this->query($source, $agent, (string) $s['label']);
-        if ($source === 'prospects') {
-            $q->whereIn('rp.stage', $s['stages']);   // a station read from the stage count lists only the properties AT that stage
-        }
+        $filters = self::filtersFor($stationKey);
+        $filter = array_key_exists((string) ($f['filter'] ?? ''), $filters) ? (string) $f['filter'] : self::defaultFilter($stationKey);
+        $label = (string) $s['label'];
+        $figs = $this->conveyor->figures($agent, $track, $day);
+        $mine = $figs[$stationKey] ?? ['todo' => 0, 'late' => 0, 'moved' => 0, 'today' => 0, 'month' => 0];
 
+        $here = $this->conveyor->records($agent, $track, $day)->where('station', $stationKey)->values();
+        $ids = fn (string $kind) => $this->conveyor->idsFor($agent, $track, $day, $stationKey, $kind);
+        $byId = fn (array $want) => $this->conveyor->recordsByIds($agent, $track, $day, $want);
+        $recs = match ($filter) {
+            'late' => $here->where('late', true)->values(),
+            'moved' => $byId($ids('moved')),
+            'today' => $byId($ids('today')),
+            'month' => $byId($ids('month')),
+            'all' => $here->concat($byId(in_array($stationKey, ConveyorService::ARRIVAL, true) ? $ids('month') : $ids('moved')))->unique('id')->values(),
+            default => $here,
+        };
+        // counts for the filter chips: the same figures the tile shows
+        $chips = in_array($stationKey, ConveyorService::ARRIVAL, true)
+            ? ['month' => $mine['month'], 'today' => $mine['today'], 'todo' => $mine['todo']]
+            : ['todo' => $mine['todo'], 'moved' => $mine['moved'], 'late' => $mine['late']];
+
+        $term = mb_strtolower(trim((string) ($f['q'] ?? '')));
+        if ($term !== '') {
+            $recs = $recs->filter(fn ($r) => str_contains(mb_strtolower($r['title'] . ' ' . ($r['suburb'] ?? '')), $term))->values();
+        }
+        $dir = ($f['dir'] ?? 'asc') === 'desc' ? -1 : 1;
+        $sort = in_array($f['sort'] ?? '', ['due', 'age', 'address'], true) ? $f['sort'] : 'due';
+        $recs = $recs->sort(function ($a, $b) use ($sort, $dir) {
+            $cmp = match ($sort) {
+                'address' => strcmp(mb_strtolower($a['title']), mb_strtolower($b['title'])),
+                'age' => strcmp((string) $a['since'], (string) $b['since']),
+                // late first, then the oldest due date; no date last
+                default => [(int) ! $a['late'], $a['due']?->timestamp ?? PHP_INT_MAX, (string) $a['since']] <=> [(int) ! $b['late'], $b['due']?->timestamp ?? PHP_INT_MAX, (string) $b['since']],
+            };
+
+            return $cmp === 0 ? $a['id'] <=> $b['id'] : $cmp * $dir;
+        })->values();
+
+        $page = max(1, (int) ($f['page'] ?? 1));
+        $paginator = new \Illuminate\Pagination\LengthAwarePaginator($recs->forPage($page, self::PER_PAGE)->values(), $recs->count(), self::PER_PAGE, $page, ['path' => request()->url(), 'query' => request()->query()]);
+        $agencyId = (int) ($agent->effectiveAgencyId() ?: 0);
+        $rich = $this->rows->rowsForTracked($paginator->getCollection()->pluck('tracked_property_id')->all(), $agencyId, $track);
+        $paginator->setCollection($paginator->getCollection()->map(fn ($r) => $this->conveyorRow($r, $rich[$r['tracked_property_id']] ?? [], $stationKey, $day)));
+
+        $headings = ['todo' => $label . ' - to do', 'moved' => 'Moved on from ' . $label . ' today', 'late' => $label . ' - late', 'all' => $label . ' - everything',
+            'today' => 'Reached ' . $label . ' today', 'month' => 'Reached ' . $label . ' this month'];
+        $empties = ['todo' => 'Nothing is waiting at this station.', 'moved' => 'Nothing has moved on from this station today.', 'late' => 'Nothing is late here. Well done.', 'all' => 'Nothing at this station.',
+            'today' => 'Nothing has reached this station today.', 'month' => 'Nothing has reached this station this month.'];
+
+        return [
+            'rows' => $paginator, 'label' => $label, 'heading' => $headings[$filter] ?? $label, 'empty' => $empties[$filter] ?? 'Nothing at this station.', 'owed' => false,
+            'filter' => $filter, 'filters' => collect($filters)->map(fn ($l, $k) => ['label' => $l, 'n' => $chips[$k] ?? null])->all(),
+            'owed_count' => $stationKey === 'held' ? $this->owedCount($agent) : 0, 'kind' => in_array($stationKey, ConveyorService::ARRIVAL, true) ? 'arrival' : 'backlog',
+        ];
+    }
+
+    /** One row of a station list: the Loaded list's fields (why, address, price, days on market, agency, owner, last outcome) + when it is due and its ONE next action. */
+    private function conveyorRow(array $rec, array $rich, string $listStation, Carbon $day): array
+    {
+        $at = $rec['station'];
+        $stationLabel = (string) (self::station((string) $at)['label'] ?? '');
+        $due = $rec['due'];
+        $r = $rich + ['address' => $rec['title'] ?: 'Address not captured', 'street' => '', 'suburb' => $rec['suburb'], 'price' => null, 'dom' => null, 'agency_name' => null,
+            'owner_name' => null, 'owner_phone' => null, 'find_owner_url' => null, 'last_outcome' => null];
+        $apptTimed = $due !== null && in_array($at, ['booked', 'prepared'], true) && ! empty($rec['appt_at']) ? Carbon::parse($rec['appt_at']) : null;
+        $why = $at === 'claimed' && $rec['live'] ? $this->conveyor->claimLine($rec['id']) : (trim((string) $rec['reason']) !== '' ? (string) $rec['reason'] : '');
+
+        return array_merge($r, [
+            'prospect_id' => $rec['id'], 'tracked_property_id' => $rec['tracked_property_id'], 'station' => $at, 'station_label' => $stationLabel, 'at_station' => $at === $listStation,
+            'live' => $rec['live'], 'why' => $why, 'since' => $rec['since'], 'late' => (bool) $rec['late'], 'due' => $due,
+            'due_label' => $due === null ? null : (($apptTimed && $apptTimed->format('H:i') !== '00:00') ? $apptTimed->format('D j M H:i') : $due->format('D j M')),
+            'action' => $rec['live'] ? $this->actionFor((string) $at, (int) $rec['id'], $r['owner_name'] !== null) : null,
+            'view_url' => route('road-to-sold.index', array_filter(['block' => 'prospects', 'p_q' => $rec['title']])),
+        ]);
+    }
+
+    /**
+     * The ONE next action a record's row offers (23.12, the card's mapping): Loaded / Claimed - Find owner; Owner found - Log contact; Contacted - Book evaluation;
+     * Booked / Prepared - Evaluation feedback; Held - Result. Nothing from Won on.
+     *
+     * @return array{kind:string,label:string,step_url:?string,step_label:?string}|null
+     */
+    private function actionFor(string $station, int $prospectId, bool $hasOwner): ?array
+    {
+        $step = fn (string $key) => ['kind' => 'step', 'label' => ProspectStepService::LABELS[$key], 'step_url' => route('road-to-sold.prospects.step', [$prospectId, $key]), 'step_label' => ProspectStepService::LABELS[$key]];
+
+        return match ($station) {
+            'claimed' => $step($hasOwner ? 'pitch' : 'find_owner'),
+            'owner' => ['kind' => 'log_contact', 'label' => 'Log contact', 'step_url' => null, 'step_label' => null],
+            'contacted' => $step('evaluation'),
+            'booked', 'prepared' => $step('evaluation_feedback'),
+            'held' => ['kind' => 'result', 'label' => 'Result', 'step_url' => null, 'step_label' => null],
+            default => null,
+        };
+    }
+
+    /** The evaluations whose time has passed with no feedback: the Held station's "owed" list (23.10), one click from the Held list. */
+    private function owedList(User $agent, array $s, array $f): array
+    {
+        [$q, $titleExpr, $heading, $empty] = $this->query('owed', $agent, (string) $s['label']);
         $term = trim((string) ($f['q'] ?? ''));
         if ($term !== '') {
             $q->whereRaw("({$titleExpr}) LIKE ?", ['%' . str_replace(['%', '_'], ['\\%', '\\_'], $term) . '%']);
         }
         $dir = ($f['dir'] ?? 'asc') === 'desc' ? 'desc' : 'asc';
         ($f['sort'] ?? 'age') === 'address' ? $q->orderByRaw("({$titleExpr}) {$dir}") : $q->orderBy('since', $dir === 'asc' ? 'asc' : 'desc');
-        $page = max(1, (int) ($f['page'] ?? 1));
-        $paginator = $q->paginate(self::PER_PAGE, ['*'], 'page', $page);
-        $paginator->getCollection()->transform(fn ($r) => $this->decorate((array) $r, $source, (string) $s['label']));
+        $paginator = $q->paginate(self::PER_PAGE, ['*'], 'page', max(1, (int) ($f['page'] ?? 1)));
+        $paginator->getCollection()->transform(fn ($r) => $this->decorate((array) $r, 'owed', (string) $s['label']));
 
-        return ['rows' => $paginator, 'label' => (string) $s['label'], 'heading' => $heading, 'empty' => $empty, 'owed' => $source === 'owed'];
+        return ['rows' => $paginator, 'label' => (string) $s['label'], 'heading' => $heading, 'empty' => $empty, 'owed' => true, 'filter' => 'owed', 'filters' => [], 'owed_count' => $this->owedCount($agent), 'kind' => 'owed'];
     }
 
     // ── counts (today's data) ─────────────────────────────────────────────────────────────────────────────────
@@ -365,7 +531,7 @@ final class BeltService
                 $q = DB::table('rts_prospects as rp')->join('tracked_properties as tp', 'tp.id', '=', 'rp.tracked_property_id')
                     ->leftJoin('contacts as o', fn ($j) => $j->on('o.id', '=', 'tp.owner_contact_id')->whereNull('o.deleted_at'))
                     ->where('rp.agency_id', $agencyId)->whereIn('rp.user_id', $ids)->whereNull('rp.deleted_at')->whereNull('rp.closed_at')->whereNull('rp.released_at')->whereNull('rp.parked_at')
-                    ->selectRaw("rp.id as id, TRIM(COALESCE(NULLIF(tp.address_raw, ''), CONCAT_WS(' ', tp.street_number, tp.street_name))) as title, tp.suburb as suburb, " . self::OWNER_NAME_SQL . " as owner, rp.stage_entered_at as since, rp.stage as stage, rp.next_action_label as next_label, rp.next_action_at as next_at" . $this->appointmentSql());
+                    ->selectRaw("rp.id as id, TRIM(COALESCE(NULLIF(tp.address_raw, ''), CONCAT_WS(' ', tp.street_number, tp.street_name))) as title, tp.suburb as suburb, " . self::OWNER_NAME_SQL . " as owner, rp.stage_entered_at as since, rp.stage as stage, rp.next_action_label as next_label, rp.next_action_at as next_at" . ConveyorService::appointmentSql());
 
                 return [$q, "TRIM(COALESCE(NULLIF(tp.address_raw, ''), CONCAT_WS(' ', tp.street_number, tp.street_name)))", $label, 'Nothing at this station.'];
         }
@@ -389,17 +555,6 @@ final class BeltService
             ->whereDate('rts_list_items.list_date', $day->toDateString())->whereNull('rts_list_items.deleted_at')
             // a swapped-out row left the day (23.14: a swap replaces, it never adds): every count reads the same rows the page does
             ->where('rts_list_items.status', '<>', RtsListItem::STATUS_SWAPPED);
-    }
-
-    /** The record's next evaluation / presentation appointment (with its time), when the calendar carries the link (belt A4). */
-    private function appointmentSql(): string
-    {
-        static $has = null;
-        $has ??= \Illuminate\Support\Facades\Schema::hasColumn('calendar_events', 'rts_prospect_id');
-
-        return $has
-            ? ", (SELECT MIN(ce.event_date) FROM calendar_events ce WHERE ce.rts_prospect_id = rp.id AND ce.deleted_at IS NULL AND ce.status NOT IN ('dismissed', 'cancelled') AND ce.category IN ('property_evaluation', 'listing_presentation')) as appt_at"
-            : ', NULL as appt_at';
     }
 
     /**

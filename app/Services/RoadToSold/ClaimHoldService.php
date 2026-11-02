@@ -56,7 +56,29 @@ class ClaimHoldService
         return $this->workdays->addWorkdays($from ?? now(), $days, $this->settings($agencyId)->holidayCountry(), $agent);
     }
 
-    /** Put the claim on the clock from today. */
+    /**
+     * Where a claim's hold ends: the agency's claim hold days in working days from the day the claim was TAKEN ($from, default the claim's own date, never
+     * later than now). A claim whose hold would already have run out is not released by being put on the clock: it gets the whole hold from today
+     * instead (ruling 2 Nov 2026 - nobody loses a claim to the belt catching up). Returns the end date and whether the fresh hold was given.
+     *
+     * @return array{0:Carbon,1:bool} end date, fresh-from-today
+     */
+    public function holdEnd(ProspectingClaim $c, ?Carbon $from = null): array
+    {
+        $agencyId = (int) $c->agency_id;
+        $agent = $this->agentOf($c);
+        $days = $this->settings($agencyId)->claimHoldDays();
+        $from ??= $c->claimed_at ? Carbon::instance($c->claimed_at) : now();
+        $from = $from->gt(now()) ? now() : $from;
+        $until = $this->addWorkdays($agencyId, $agent, $days, $from);
+        if ($until->lt(now()->startOfDay())) {
+            return [$this->addWorkdays($agencyId, $agent, $days), true];
+        }
+
+        return [$until, false];
+    }
+
+    /** Put the claim on the clock, counted from the day it was taken (a claim taken today starts today). */
     public function start(ProspectingClaim $c, ?RtsProspect $p = null): void
     {
         if (! $this->available()) {
@@ -64,7 +86,7 @@ class ClaimHoldService
         }
         $c->forceFill([
             'rts_prospect_id' => $p?->id ?? $c->rts_prospect_id,
-            'hold_until'      => $this->addWorkdays((int) $c->agency_id, $this->agentOf($c), $this->settings((int) $c->agency_id)->claimHoldDays())->toDateString(),
+            'hold_until'      => $this->holdEnd($c)[0]->toDateString(),
             'warned_at'       => null,
         ])->saveQuietly();
     }

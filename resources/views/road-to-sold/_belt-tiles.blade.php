@@ -16,16 +16,20 @@
     $postBase = $viewingOwn ? [] : ['agent' => $agentId];
 @endphp
 <style>
-    .rts-belt-row { display: grid; grid-template-columns: repeat({{ max(1, count($belt)) }}, minmax(0, 1fr)); gap: 6px; }
-    .rts-tile { display: flex; flex-direction: column; justify-content: center; gap: 1px; min-width: 0; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-primary); text-decoration: none; }
+    .rts-belt-row { display: grid; grid-template-columns: repeat({{ max(1, count($belt)) }}, minmax(0, 1fr)); gap: 3px; }
+    .rts-tile { display: flex; flex-direction: column; justify-content: flex-start; gap: 0; min-width: 0; height: 100%; padding: 4px 4px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-primary); }
     .rts-tile:hover { border-color: var(--brand-icon); }
     .rts-tile.is-lit { border-color: var(--brand-icon); background: color-mix(in srgb, var(--brand-icon) 10%, var(--surface)); }
-    .rts-tile .nm { font-size: .625rem; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rts-tile .nm { font-size: .625rem; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none; line-height: 1.2; padding-right: 14px; }
     .rts-tile .nm .full { display: none; }
     @media (min-width: 1700px) { .rts-tile .nm .full { display: inline; } .rts-tile .nm .short { display: none; } }
-    .rts-tile .fg { font-size: 1.05rem; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .rts-tile .fg .bad { font-size: .6875rem; font-weight: 700; margin-left: 6px; color: var(--ds-red, #f87171); }
-    .rts-tile .sub { font-size: .625rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* the conveyor (23.24): three lines on every tile, the same size and place on all of them - 1 big, 2 and 3 small; line 3 keeps its place when there is nothing late */
+    .rts-tile .ln { display: block; font-size: .625rem; line-height: 1.25; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-secondary); text-decoration: none; }
+    .rts-tile a.ln:hover { text-decoration: underline; color: var(--text-primary); }
+    .rts-tile .ln.l1 { font-size: .625rem; color: var(--text-muted); line-height: 1.2; }
+    .rts-tile .ln.l1 .n { font-size: 1.05rem; font-weight: 700; color: var(--text-primary); }
+    .rts-tile .ln.bad { color: var(--ds-red, #f87171); font-weight: 700; }
+    .rts-tile .ln.ghost { visibility: hidden; }
     .rts-tilewrap .rts-cmp { position: absolute; bottom: 5px; right: 4px; width: 16px; height: 16px; padding: 0; line-height: 14px; font-size: .625rem; text-align: center; cursor: pointer; color: var(--text-muted); background: none; border: 0; border-radius: 3px; }
     .rts-tilewrap .rts-cmp:hover { color: var(--text-primary); background: var(--surface-2, rgba(128,128,128,.15)); }
     .rts-cmp-pop { width: 17rem; }
@@ -83,12 +87,20 @@
             <div class="rts-belt-row" data-qa="belt-tiles" data-tour="smk-rts-belt" role="list">
                 @foreach($belt as $i => $t)
                     <div class="rts-tilewrap" x-data="beltCompare('{{ route('road-to-sold.belt.scopes', ['station' => $t['key']] + $postBase + \App\Services\RoadToSold\Track::params($track)) }}')" @keydown.escape.window="open = false" @click.outside="open = false" style="position: relative; min-width: 0;" role="listitem">
-                        <a href="{{ route('road-to-sold.index', $t['url']) }}" data-qa="belt-tile-{{ $t['key'] }}" class="rts-tile {{ $lit($t) ? 'is-lit' : '' }}" style="height: 100%;"
-                           title="{{ $t['label'] }}: {{ $t['target'] !== null ? ($t['done'] ?? $t['count']) . ' of ' . $t['target'] . ' ' . ($t['period'] ?? '') : $t['count'] . ' now' }}{{ $t['alert'] > 0 ? '. ' . $t['alert'] . ' need attention' : '' }}{{ $t['note'] ? '. ' . $t['note'] : '' }}">
-                            <span class="nm"><span class="short">{{ $t['short'] }}</span><span class="full">{{ $t['label'] }}</span></span>
-                            <span class="fg" data-qa="belt-figure">{{ $t['figure'] }}@if($t['alert'] > 0)<span class="bad" data-qa="belt-alert">!{{ $t['alert'] }}</span>@endif</span>
-                            @if($t['note'])<span class="sub">{{ $t['note'] }}</span>@endif
-                        </a>
+                        @php
+                            $ls = collect($t['lines']);
+                            $tip = $t['label'] . ': ' . $ls->pluck('text')->implode(', ') . ($t['kind'] === 'arrival' ? ' (' . $t['count'] . ' there now)' : '');
+                            $l1 = $ls->first();
+                            [$n1, $w1] = array_pad(explode(' ', $l1['text'], 2), 2, '');
+                        @endphp
+                        <div class="rts-tile {{ $lit($t) ? 'is-lit' : '' }}" data-kind="{{ $t['kind'] }}" title="{{ $tip }}">
+                            <a href="{{ route('road-to-sold.index', $t['url']) }}" class="nm" data-qa="belt-name-{{ $t['key'] }}"><span class="short">{{ $t['short'] }}</span><span class="full">{{ $t['label'] }}</span></a>
+                            <a href="{{ route('road-to-sold.index', $l1['url']) }}" data-qa="belt-tile-{{ $t['key'] }}" class="ln l1"><span class="n" data-qa="belt-figure">{{ $n1 }}</span> {{ $w1 }}</a>
+                            @foreach($ls->slice(1) as $ln)
+                                <a href="{{ route('road-to-sold.index', $ln['url']) }}" class="ln {{ $ln['bad'] ? 'bad' : '' }}" data-qa="belt-line-{{ $t['key'] }}-{{ $ln['key'] }}">{{ $ln['text'] }}</a>
+                            @endforeach
+                            @if($ls->count() < 3)<span class="ln ghost" aria-hidden="true">&nbsp;</span>@endif
+                        </div>
                         <button type="button" class="rts-cmp" data-qa="belt-compare-{{ $t['key'] }}" aria-label="Compare {{ $t['label'] }}: me, my branch, the agency" :aria-expanded="open ? 'true' : 'false'" @click.prevent="toggle()">&#9662;</button>
                         <div x-show="open" x-cloak class="rts-pop rts-cmp-pop" data-qa="belt-compare-pop-{{ $t['key'] }}" style="{{ $i >= count($belt) / 2 ? 'right: 0; left: auto;' : 'left: 0; right: auto;' }} top: 100%;">
                             <div class="text-xs font-semibold mb-1" style="color: var(--text-primary);">{{ $t['label'] }} - compare</div>

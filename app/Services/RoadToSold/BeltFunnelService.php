@@ -63,12 +63,13 @@ class BeltFunnelService
      *
      * @return array<int,array{reached:array<string,int>,off:array<string,array<string,int>>,lost:array<string,int>}>
      */
-    public function figures(int $agencyId, Period $period, string $track = 'sales'): array
+    public function figures(int $agencyId, Period $period, string $track = 'sales', ?array $userIds = null): array
     {
         $from = $period->start->toDateTimeString();
         $to = $period->end->toDateTimeString();
         $reached = [];
         $moves = DB::table('rts_prospect_events')->where('agency_id', $agencyId)->where('track', $track)->whereIn('kind', ['placed', 'stage'])
+            ->when($userIds !== null, fn ($q) => $q->whereIn('user_id', array_map('intval', $userIds)))
             ->whereBetween('occurred_at', [$from, $to])->get(['prospect_id', 'user_id', 'kind', 'from_stage', 'to_stage']);
         foreach ($moves as $m) {
             foreach ($this->stationsReached($m->kind, $m->from_stage, $m->to_stage) as $st) {
@@ -79,6 +80,7 @@ class BeltFunnelService
         $off = [];
         $lost = [];
         $outs = DB::table('rts_prospect_events')->where('agency_id', $agencyId)->where('track', $track)->whereIn('kind', ['park', 'release', 'close'])
+            ->when($userIds !== null, fn ($q) => $q->whereIn('user_id', array_map('intval', $userIds)))
             ->whereBetween('occurred_at', [$from, $to])->get(['prospect_id', 'user_id', 'kind', 'to_stage', 'note']);
         foreach ($outs as $o) {
             $st = self::stationOfStage($o->to_stage);
@@ -109,6 +111,40 @@ class BeltFunnelService
         }
 
         return $out;
+    }
+
+    /**
+     * The properties that reached $station in the period, for these agents only: prospect id => when (the first time in the period). The SAME rule `figures()` counts with
+     * (stationsReached), so a tile's "moved on today" and the list behind it can never disagree with the funnel (road-to-sold.md 23.24).
+     *
+     * @param  int[]  $userIds
+     * @return array<int,string>
+     */
+    public function reachedProspects(int $agencyId, Period $period, string $track, array $userIds, string $station): array
+    {
+        if ($userIds === [] || ! isset(self::STATIONS[$station])) {
+            return [];
+        }
+        $found = [];
+        $q = DB::table('rts_prospect_events')->where('agency_id', $agencyId)->where('track', $track)->whereIn('kind', ['placed', 'stage'])
+            ->whereIn('user_id', array_map('intval', $userIds))
+            ->whereBetween('occurred_at', [$period->start->toDateTimeString(), $period->end->toDateTimeString()])->orderBy('occurred_at');
+        foreach ($q->get(['prospect_id', 'kind', 'from_stage', 'to_stage', 'occurred_at']) as $e) {
+            if (! isset($found[(int) $e->prospect_id]) && in_array($station, $this->stationsReached($e->kind, $e->from_stage, $e->to_stage), true)) {
+                $found[(int) $e->prospect_id] = (string) $e->occurred_at;
+            }
+        }
+
+        return $found;
+    }
+
+    /** The station after $station on the belt (null at the end). */
+    public static function nextStation(string $station): ?string
+    {
+        $keys = array_keys(self::STATIONS);
+        $i = array_search($station, $keys, true);
+
+        return $i === false ? null : ($keys[$i + 1] ?? null);
     }
 
     /** @return list<string> the stations one history row reaches or crosses (a "placed" row reaches only the station it was placed at) */
