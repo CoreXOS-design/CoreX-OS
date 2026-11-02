@@ -158,7 +158,7 @@ final class HotPocketsTest extends TestCase
 
         $fresh   = $this->listing(['suburb' => 'Uvongo', 'is_reduced' => 0]);                                                    // new, not cut: not worth the call
         $reduced = $this->listing(['suburb' => 'Uvongo', 'is_reduced' => 1]);                                                    // the portal says reduced
-        $stuck   = $this->listing(['suburb' => 'Uvongo', 'is_reduced' => 0, 'first_seen_at' => now()->subDays(120)]);            // on the market past the stuck days (60)
+        $stuck   = $this->listing(['suburb' => 'Uvongo', 'is_reduced' => 0, 'first_seen_at' => now()->subDays(120)]);            // on the market past the agency's long-on-market days (90)
         $cut     = $this->listing(['suburb' => 'Uvongo', 'is_reduced' => 0]);                                                    // a price cut inside the look-back
         DB::table('prospecting_price_history')->insert(['prospecting_listing_id' => $cut, 'old_price' => 1_600_000, 'new_price' => 1_500_000, 'changed_at' => now()->subDays(5), 'created_at' => now(), 'updated_at' => now()]);
         $oldCut  = $this->listing(['suburb' => 'Uvongo', 'is_reduced' => 0]);                                                    // a cut, but long ago
@@ -169,6 +169,18 @@ final class HotPocketsTest extends TestCase
         $this->assertEqualsCanonicalizing([$reduced, $stuck, $cut], $ids);
         $this->assertNotContains($fresh, $ids);
         $this->assertNotContains($oldCut, $ids);
+    }
+
+    public function test_the_long_on_market_window_in_a_pocket_is_the_one_agency_setting(): void
+    {
+        $this->lead($this->property($this->agent->id, ['suburb' => 'Uvongo']));
+        $fifty = $this->listing(['suburb' => 'Uvongo', 'is_reduced' => 0, 'first_seen_at' => now()->subDays(50)]);
+
+        $at90 = $this->listingIds((new HotPocketSelection($this->svc))->candidates($this->ctx(settings: ['longOnMarketDays' => 90]), 50));
+        $at30 = $this->listingIds((new HotPocketSelection($this->svc))->candidates($this->ctx(settings: ['longOnMarketDays' => 30]), 50));
+
+        $this->assertNotContains($fifty, $at90, '50 days is not long on market when the agency says more than 90');
+        $this->assertContains($fifty, $at30, 'the same advert is long on market when the agency says more than 30');
     }
 
     public function test_the_selection_is_empty_when_there_are_no_pockets(): void

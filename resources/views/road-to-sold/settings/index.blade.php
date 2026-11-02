@@ -224,6 +224,9 @@
                             <input id="{{ $name }}" type="number" min="{{ $min }}" max="{{ $max }}" name="{{ $name }}" value="{{ old($name, $value) }}"
                                    class="w-28 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             <span class="text-xs ml-2" style="color:var(--text-muted);">{{ $unit }} (standard: {{ $defaults[$name] }})</span>
+                            @if($name === 'long_on_market_days')
+                                <p class="text-xs mt-1" style="color:var(--text-muted);" data-qa="long-on-market-note">One window for the whole agency: it also sets the Long on market tile in Market Intelligence.</p>
+                            @endif
                         </div>
                     @endforeach
                 </div>

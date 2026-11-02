@@ -99,10 +99,10 @@ final class MicWorkTiles
         return null;
     }
 
-    /** "+90 DOM": the agency's long-on-market window in days on market (MIC Settings, default 90; 30 reads "+30 DOM"). */
+    /** "+90 DOM": the agency's long-on-market window in days on market (the one Road to Sold setting, standard 90; 30 reads "+30 DOM"). */
     public static function longOnMarketLabel(int $agencyId): string
     {
-        return class_exists(self::CC5_SETTINGS) ? '+' . app(self::CC5_SETTINGS)::for($agencyId)->stuckDomDays() . ' DOM' : '';
+        return class_exists(self::CC5_SETTINGS) ? '+' . app(self::CC5_SETTINGS)::for($agencyId)->longOnMarketDays() . ' DOM' : '';
     }
 
     /** What the filter chip says for a tile ("Tile · +90 DOM" for tile 1; the short label for the rest). */
@@ -154,7 +154,7 @@ final class MicWorkTiles
     {
         $shown ??= $this->shownFor($agencyId);
 
-        return 'mic-work:tiles:v' . self::CACHE_VERSION . ':' . $agencyId . ':' . $this->statsStamp($agencyId) . ':' . $user->id . ':' . md5(json_encode($shown) . (class_exists(self::CC5_SETTINGS) ? json_encode(app(self::CC5_SETTINGS)::for($agencyId)->areas()) : '') . count($this->tiles) . count($this->panels) . (class_exists(self::CC5_SERVICE) ? 'c5' : ''));
+        return 'mic-work:tiles:v' . self::CACHE_VERSION . ':' . $agencyId . ':' . $this->statsStamp($agencyId) . ':' . $user->id . ':' . md5(json_encode($shown) . (class_exists(self::CC5_SETTINGS) ? 'lom' . app(self::CC5_SETTINGS)::for($agencyId)->longOnMarketDays() : '') . (class_exists(self::CC5_SETTINGS) ? json_encode(app(self::CC5_SETTINGS)::for($agencyId)->areas()) : '') . count($this->tiles) . count($this->panels) . (class_exists(self::CC5_SERVICE) ? 'c5' : ''));
     }
 
     /** @return list<array<string, mixed>> */

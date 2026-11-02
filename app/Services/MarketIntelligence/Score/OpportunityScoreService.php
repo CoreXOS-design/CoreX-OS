@@ -111,7 +111,7 @@ final class OpportunityScoreService
             ->groupBy('tracked_property_id')->selectRaw('tracked_property_id as tp, MAX(first_seen_at) as newest')->pluck('newest', 'tp');
 
         $w = $ctx['weights'];
-        $stuckDom = $settings->stuckDomDays();
+        $stuckDom = $settings->longOnMarketDays();
         $rows = [];
         foreach ($files as $id => $f) {
             // Our own stock is not a prospect: it carries no prospecting score (the list excludes it by default).

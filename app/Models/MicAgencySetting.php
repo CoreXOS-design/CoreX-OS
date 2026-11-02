@@ -25,7 +25,6 @@ class MicAgencySetting extends Model
         'fast_sale_days'          => 45,
         'stale_active_days'       => 14,
         'min_sales_for_pocket'    => 3,
-        'stuck_dom_days'          => 90,
         'detail_pages_per_session' => 40,
         'context_min_sales'       => 3,
         'trusted_sales_after'     => '2026-06-26',
@@ -120,7 +119,17 @@ class MicAgencySetting extends Model
 
     public function minSalesForPocket(): int { return $this->positiveInt('min_sales_for_pocket'); }
 
-    public function stuckDomDays(): int { return $this->positiveInt('stuck_dom_days'); }
+    /**
+     * "Long on market: more than N days" - ONE agency setting, owned by Road to Sold (Settings > General > Limits, `long_on_market_days`, standard 90) and
+     * read here for the Long on market tile, its "+N DOM" line, its count and the opportunity score. MIC no longer keeps a window of its own
+     * (Johan, 2 Nov: "if the agency sets it to 30 then it shows +30 DOM"). A value stored under the old `stuck_dom_days` key is ignored.
+     */
+    public function longOnMarketDays(): int
+    {
+        $days = (int) \App\Services\RoadToSold\SettingsService::forAgency((int) $this->agency_id)->longOnMarketDays();
+
+        return $days > 0 ? $days : (int) \App\Models\RoadToSold\RtsSetting::SCALAR_DEFAULTS['long_on_market_days'];
+    }
 
     /** 5.9: below this many sales a suburb figure on the record card is null (no guessing). */
     public function contextMinSales(): int { return $this->positiveInt('context_min_sales'); }

@@ -53,9 +53,12 @@ final class MicWorkTilesTest extends TestCase
         $this->assertSame('+90 DOM', $tile['threshold']);
         $this->assertSame('Long on market (+90 DOM)', $tile['title']);
         $this->assertSame('Long on market (+90 DOM)', MicWorkTiles::titleFor(1, $this->agency->id));
-        \App\Models\MicAgencySetting::saveValues($this->agency->id, ['stuck_dom_days' => 30]);
+        // ONE setting, owned by Road to Sold (Settings > General > Long on market: more than N days); MIC has no window of its own
+        \App\Models\RoadToSold\RtsSetting::updateOrCreate(['agency_id' => $this->agency->id, 'track' => 'sales'], ['long_on_market_days' => 30]);
+        \App\Services\RoadToSold\SettingsService::forget();
         $this->assertSame('+30 DOM', MicWorkTiles::longOnMarketLabel($this->agency->id), 'the agency\'s own days setting');
-        \App\Models\MicAgencySetting::saveValues($this->agency->id, ['stuck_dom_days' => 90]);
+        \App\Models\RoadToSold\RtsSetting::updateOrCreate(['agency_id' => $this->agency->id, 'track' => 'sales'], ['long_on_market_days' => 90]);
+        \App\Services\RoadToSold\SettingsService::forget();
         $this->assertSame('Owner selling privately', MicWorkTiles::titleFor(2, $this->agency->id), 'only tile 1 carries a window');
         $this->actingAs($this->admin)->get(route('market-intelligence.work', ['tile' => 'stuck']))->assertOk()->assertSee('Tile · +90 DOM', false)->assertDontSee('Tile · Stuck', false);
         $this->assertStringContainsString('data-qa="tile-threshold"', file_get_contents(resource_path('views/corex/market-intelligence/partials/_work-tiles.blade.php')));

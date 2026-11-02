@@ -110,16 +110,16 @@ final class HotPocketSelection extends MicPoolSelection
         }
         $q->whereRaw($terms === [] ? '1 = 0' : '(' . implode(' OR ', $terms) . ')', $bind);
 
-        // 23.14 source 3: in a hot pocket it is the STUCK and PRICE-REDUCED stock that is worth a call - on the market longer than the agency's "stuck" days, or marked
+        // 23.14 source 3: in a hot pocket it is the STUCK and PRICE-REDUCED stock that is worth a call - on the market longer than the agency's one "Long on market: more than N days" setting, or marked
         // reduced by the portal, or with a price cut inside the price-drop look-back.
         $day = \Carbon\Carbon::instance($ctx->date)->startOfDay();
-        $stuckBefore = $day->copy()->subDays(max(0, $ctx->settings->stuckStockMinDaysOnMarket));
+        $longBefore = $day->copy()->subDays(max(0, $ctx->settings->longOnMarketDays));
         $cutSince = $day->copy()->subDays(max(1, $ctx->settings->priceDropLookbackDays))->toDateTimeString();
         $q->whereRaw(
             '(pl.is_reduced = 1'
             . ' OR COALESCE(pl.listed_date, DATE(pl.first_seen_at)) < ?'
             . ' OR EXISTS (SELECT 1 FROM prospecting_price_history phr WHERE phr.prospecting_listing_id = pl.id AND phr.changed_at >= ? AND phr.new_price < phr.old_price AND phr.old_price > 0))',
-            [$stuckBefore->toDateString(), $cutSince]
+            [$longBefore->toDateString(), $cutSince]
         );
     }
 

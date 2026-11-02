@@ -82,7 +82,7 @@ final class TileService
 
         $q = match ($key) {
             'stuck' => $this->files((int) $agencyId, $viewer, $scope)->where('f.has_active_advert', 1)->where('f.own_stock', 0)
-                ->where(fn ($w) => $w->where('f.cuts_any', '>', 0)->orWhere('f.relisted', 1)->orWhere('f.dom_days', '>=', $settings->stuckDomDays())->orWhere('f.sole_mandate_ending', 1)),
+                ->where(fn ($w) => $w->where('f.cuts_any', '>', 0)->orWhere('f.relisted', 1)->orWhere('f.dom_days', '>=', $settings->longOnMarketDays())->orWhere('f.sole_mandate_ending', 1)),
             'our_stock' => DB::table('properties as f')->where('f.agency_id', $agencyId)->whereNull('f.deleted_at')->where('f.listing_type', 'sale')
                 ->whereIn(DB::raw('LOWER(f.status)'), self::ON_MARKET)->whereNotNull('f.tracked_property_id')
                 ->when($scope !== 'all', fn ($w) => $w->whereIn('f.id', Property::query()->visibleTo($viewer)->select('id')->toBase())),
@@ -160,17 +160,17 @@ final class TileService
         $row = $this->files($agencyId, $viewer)->where('f.has_active_advert', 1)->where('f.own_stock', 0)->selectRaw(
             'COUNT(*) as market, SUM(f.cuts_any > 0) as with_cut, SUM(f.cuts_30d > 0) as cut_30d, SUM(f.cuts_count >= 2) as cut_2plus, '
             . 'SUM(f.relisted) as relisted, SUM(f.dom_days >= ?) as long_dom, SUM(f.sole_mandate_ending) as mandate_ending, '
-            . 'SUM(f.cuts_any > 0 OR f.relisted = 1 OR f.dom_days >= ? OR f.sole_mandate_ending = 1) as stuck', [$settings->stuckDomDays(), $settings->stuckDomDays()]
+            . 'SUM(f.cuts_any > 0 OR f.relisted = 1 OR f.dom_days >= ? OR f.sole_mandate_ending = 1) as stuck', [$settings->longOnMarketDays(), $settings->longOnMarketDays()]
         )->first();
 
         $meta = ['with_cut' => (int) $row->with_cut, 'cut_30d' => (int) $row->cut_30d, 'cut_2plus' => (int) $row->cut_2plus,
-            'relisted' => (int) $row->relisted, 'long_dom' => (int) $row->long_dom, 'mandate_ending' => (int) $row->mandate_ending, 'long_dom_days' => $settings->stuckDomDays(), 'market_files' => (int) $row->market];
+            'relisted' => (int) $row->relisted, 'long_dom' => (int) $row->long_dom, 'mandate_ending' => (int) $row->mandate_ending, 'long_dom_days' => $settings->longOnMarketDays(), 'market_files' => (int) $row->market];
         if ((int) $row->market === 0) {
             return new TileResult(1, 'stuck', null, 'No live adverts yet', $this->filter('stuck'), true, 'No portal stock read yet', $meta);
         }
 
         return new TileResult(1, 'stuck', (int) $row->stuck,
-            sprintf('%s price cut%s · %s re-listed · %s on the market %d+ days', $this->n($row->with_cut), (int) $row->with_cut === 1 ? '' : 's', $this->n($row->relisted), $this->n($row->long_dom), $settings->stuckDomDays())
+            sprintf('%s price cut%s · %s re-listed · %s on the market %d+ days', $this->n($row->with_cut), (int) $row->with_cut === 1 ? '' : 's', $this->n($row->relisted), $this->n($row->long_dom), $settings->longOnMarketDays())
             . ((int) $row->mandate_ending > 0 ? sprintf(' · %s mandate may be ending', $this->n($row->mandate_ending)) : ''),
             $this->filter('stuck'), false, null, $meta);
     }
