@@ -67,6 +67,29 @@ class Property extends Model
     /** How many withoutNewListingSideEffects() calls are open right now (they may nest). */
     private static int $suppressNewListingSideEffects = 0;
 
+    /** How many withoutActivityPoints() calls are open right now (they may nest). */
+    private static int $suppressActivityPoints = 0;
+
+    /**
+     * Road to Sold v4 (23.16): run $callback with every Property CREATED inside it scoring nothing (skipActivityPoints) while everything else
+     * about a new property stays as it is. For a property the belt makes FOR the agent from a MIC address (opening a row / Pitch now): the agent
+     * did not capture it, so `property.captured` is not credited; a property the agent captures themselves still is. Scoped to the callback and
+     * restored even when it throws.
+     *
+     * @template T
+     * @param callable():T $callback
+     * @return T
+     */
+    public static function withoutActivityPoints(callable $callback): mixed
+    {
+        self::$suppressActivityPoints++;
+        try {
+            return $callback();
+        } finally {
+            self::$suppressActivityPoints--;
+        }
+    }
+
     /**
      * AT-479 — run $callback with every Property CREATED inside it marked as imported stock: no new-listing chase tasks
      * (skipNewListingAutomation, AutoEventService::onPropertyCreated) and no activity points (skipActivityPoints). The
@@ -1339,6 +1362,9 @@ class Property extends Model
             if (self::$suppressNewListingSideEffects > 0) {
                 $property->skipNewListingAutomation = true;
                 $property->skipActivityPoints = true;
+            }
+            if (self::$suppressActivityPoints > 0) {
+                $property->skipActivityPoints = true;   // made by the belt for the agent, not captured by them
             }
         });
 

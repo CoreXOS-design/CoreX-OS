@@ -277,13 +277,14 @@ class BeltPoints
     {
         $agencyId = (int) ($agent->effectiveAgencyId() ?: 0);
         $userId = (int) $agent->ownershipUserId();
-        $addr = "COALESCE(NULLIF(TRIM(CONCAT_WS(', ', NULLIF(TRIM(CONCAT_WS(' ', tp.street_number, tp.street_name)), ''), NULLIF(tp.suburb, ''))), ''), NULLIF(tp.address_raw, ''), pl.address)";
+        $addr = "COALESCE(NULLIF(TRIM(CONCAT_WS(', ', NULLIF(TRIM(CONCAT_WS(' ', tp.street_number, tp.street_name)), ''), NULLIF(tp.suburb, ''))), ''), NULLIF(tp.address_raw, ''), pl.address, NULLIF(pp.address, ''), NULLIF(pp.title, ''))";
         $q = DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
             ->leftJoin('activity_definition_calendar_classes as m', fn ($j) => $j->on('m.activity_definition_id', '=', 'd.id')->where('m.trigger_kind', 'instant')->where('m.agency_id', $agencyId)->whereNull('m.deleted_at'))
             ->leftJoin('rts_prospects as rp', fn ($j) => $j->on('rp.id', '=', 'e.subject_id')->where('e.subject_type', \App\Models\RoadToSold\RtsProspect::class))
             ->leftJoin('rts_contact_outcomes as ro', fn ($j) => $j->on('ro.id', '=', 'e.subject_id')->where('e.subject_type', \App\Models\RoadToSold\RtsContactOutcome::class))
             ->leftJoin('prospecting_claims as pc', fn ($j) => $j->on('pc.id', '=', 'e.subject_id')->where('e.subject_type', \App\Models\ProspectingClaim::class))
+            ->leftJoin('properties as pp', fn ($j) => $j->on('pp.id', '=', 'e.subject_id')->where('e.subject_type', \App\Models\Property::class))
             ->leftJoin('tracked_properties as tp', 'tp.id', '=', DB::raw('COALESCE(rp.tracked_property_id, ro.tracked_property_id)'))
             ->leftJoin('prospecting_listings as pl', 'pl.id', '=', DB::raw('COALESCE(pc.prospecting_listing_id, rp.prospecting_listing_id, ro.prospecting_listing_id)'))
             ->where('e.agency_id', $agencyId)->where('e.user_id', $userId)

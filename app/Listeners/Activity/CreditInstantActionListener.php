@@ -277,7 +277,34 @@ final class CreditInstantActionListener
 
     public function handleClaimCreated(ClaimCreated $event): void
     {
+        // Road to Sold v4 (23.16): the claim is station 2 of the belt and pays ONCE per prospect. A later claim row for the same agent and property
+        // (the Pitch now / Owner screen opening again, a re-claim after a lock) is the same prospect and pays nothing more.
+        if ($this->alreadyPaidClaimFor($event->claim)) {
+            return;
+        }
         $this->safeCredit('mic.claim_taken', $this->user($event->claim->user_id), $event->claim);
+    }
+
+    /** Has this agent already been paid mic.claim_taken for another (not taken back) claim on the same tracked property? */
+    private function alreadyPaidClaimFor(ProspectingClaim $claim): bool
+    {
+        try {
+            $trackedId = (int) \Illuminate\Support\Facades\DB::table('prospecting_listings')->where('id', $claim->prospecting_listing_id)->value('tracked_property_id');
+            if ($trackedId <= 0) {
+                return false;
+            }
+            $others = \Illuminate\Support\Facades\DB::table('prospecting_claims as c')->join('prospecting_listings as l', 'l.id', '=', 'c.prospecting_listing_id')
+                ->where('c.user_id', $claim->user_id)->where('l.tracked_property_id', $trackedId)->where('c.id', '<>', $claim->id)->pluck('c.id');
+            if ($others->isEmpty()) {
+                return false;
+            }
+            $defIds = \App\Models\ActivityDefinitionCalendarClass::query()->withoutGlobalScopes()->instant()->where('slug', 'mic.claim_taken')->pluck('activity_definition_id');
+
+            return \App\Models\DailyActivityEntry::query()->withoutGlobalScopes()->where('user_id', $claim->user_id)->whereIn('activity_definition_id', $defIds)
+                ->where('subject_type', ProspectingClaim::class)->whereIn('subject_id', $others)->where('point_state', '<>', \App\Models\DailyActivityEntry::STATE_REVOKED)->exists();
+        } catch (Throwable $e) {
+            return false;   // when in doubt the old behaviour stands: pay
+        }
     }
 
     public function handleClaimReleased(ClaimReleased $event): void

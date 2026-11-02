@@ -146,7 +146,8 @@ class OutcomeService
             // the property and the parties.
             $propertyId = $input['property_id'] ?? ($tp->promoted_to_property_id ?: null);
             if ($wantsValuation && ! $propertyId) {
-                $propertyId = app(ProspectPropertyService::class)->ensureProperty($tp, $actor)?->id;
+                // made by the belt for the agent, not captured by them: scores nothing (23.16)
+                $propertyId = \App\Models\Property::withoutActivityPoints(fn () => app(ProspectPropertyService::class)->ensureProperty($tp, $actor))?->id;
                 $input['property_id'] = $propertyId;
             }
 

@@ -94,10 +94,14 @@ class PitchPathService
             return null;
         }
 
-        $property = $prospect->prospecting_listing_id
-            ? $this->fromListing($prospect, $tp, $actor)
-            : null;
-        $property ??= $this->properties->ensureProperty($tp, $actor);
+        // The belt makes this property FOR the agent from a MIC address: it is not something they captured, so it scores nothing (23.16).
+        $property = Property::withoutActivityPoints(function () use ($prospect, $tp, $actor) {
+            $made = $prospect->prospecting_listing_id
+                ? $this->fromListing($prospect, $tp, $actor)
+                : null;
+
+            return $made ?? $this->properties->ensureProperty($tp, $actor);
+        });
         if (! $property) {
             return null;
         }

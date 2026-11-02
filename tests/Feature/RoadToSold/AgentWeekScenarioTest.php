@@ -102,6 +102,8 @@ final class AgentWeekScenarioTest extends TestCase
         SettingsService::forget();
         OutcomeDefinitionService::forgetMemo();
         Cache::flush();
+        // v4 belt (23.13): this scenario predates "Start my Road to Sold", the owner gate and the channel question; it exercises the list and the outcomes, not those.
+        config(['road-to-sold-belt.enforce_start' => false, 'road-to-sold-belt.enforce_owner_gate' => false, 'road-to-sold-belt.require_channel' => false]);
 
         Carbon::setTestNow(self::FRI_BEFORE . ' 08:00:00');
         $this->agency = Agency::create(['name' => 'Scenario Realty ' . uniqid(), 'slug' => 'scn-' . uniqid()]);
@@ -366,14 +368,16 @@ final class AgentWeekScenarioTest extends TestCase
         // ...and nothing Ben has parked, dropped or booked comes back as "new": B01 dropped, B02 evaluation, B04 back on 20 Oct.
         $this->assertSame([], array_values(array_intersect($this->ids('B01', 'B02', 'B04'), $ben->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all())));
 
-        // Anna: 6 on Tuesday - her own U01-U04 she never reached are offered to her again (and to nobody else), then U10-U11;
+        // Anna: 6 on Tuesday - v4 allocation (road-to-sold.md 23.14): nothing she was already shown on an earlier day comes back as NEW stock (U01-U10 were on
+        // Monday's list or added to it; the unreached ones carry over by the roll-over setting, tested below), so the next six of her area, U11-U16;
         // never Ben's, never hers-and-parked, never do-not-contact, never another agent's stock.
         $this->assertCount(6, $anna);
-        $this->assertSame($this->ids('U01', 'U02', 'U03', 'U04', 'U10', 'U11'), $anna->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all());
+        $this->assertSame($this->ids('U11', 'U12', 'U13', 'U14', 'U15', 'U16'), $anna->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all());
         $this->assertSame(['auto'], $anna->pluck('origin')->unique()->values()->all());
 
-        // Cara: M01 was "no answer, try again in 7 days" - parked until 19 Oct, so the day is M02, R01, R02.
-        $this->assertSame($this->ids('M02', 'R01', 'R02'), $cara->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all());
+        // Cara: M01 was "no answer, try again in 7 days" - parked until 19 Oct; M02 and R01 were shown on Monday and not reached (nothing shown on an earlier day comes
+        // back as new stock, 23.14), so the day is the next three of hers: R02, R03, R04.
+        $this->assertSame($this->ids('R02', 'R03', 'R04'), $cara->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all());
 
         // The held, do-not-contact and other-agent properties are on nobody's list.
         $all = collect([$ben, $anna, $cara])->flatten(1)->pluck('tracked_property_id')->map(fn ($v) => (int) $v)->all();
@@ -514,9 +518,8 @@ final class AgentWeekScenarioTest extends TestCase
 
             // the same figures on the page the agent actually sees (the agent opens their own, the admin opens the rest)
             $page = $this->visible($this->actingAs($agent)->get(route('road-to-sold.index'))->assertOk()->getContent());
-            $this->assertMatchesRegularExpression('/Calls made\s+' . count($mine) . '\s+of\s+' . $bar['calls_made']['should_be'] . '\b/', $page, "{$name}: the page shows the same calls made");
-            $this->assertMatchesRegularExpression('/Conversations\s+' . count(array_filter($mine, fn ($e) => $e['kind'] === 'conversation')) . '\b/', $page);
-            $this->assertMatchesRegularExpression('/Evaluations booked\s+' . count(array_filter($mine, fn ($e) => $e['valuation'])) . '\b/', $page);
+            // The v3 summary cards (Calls made / Conversations / Evaluations booked) left the page on 2 Nov (Johan: one counter, the belt tiles are those figures);
+            // the figures stay proved above against the ledger and below through the drill-down.
             $this->assertDoesNotMatchRegularExpression(self::OLD_WORD, $page, "{$name}: the list page never says the old word");
 
             // click a step -> the rows behind it: the drill-down total is the figure
