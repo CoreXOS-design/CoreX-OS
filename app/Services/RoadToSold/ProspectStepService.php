@@ -21,6 +21,7 @@ final class ProspectStepService
         'find_owner' => 'Find owner',
         'pitch'      => 'Pitch',
         'evaluation' => 'Book evaluation',
+        'evaluation_feedback' => 'Evaluation feedback',
         'presentation' => 'Presentation',
         'mandate'    => 'Mandate',
         'listing'    => 'Listing',
@@ -38,7 +39,8 @@ final class ProspectStepService
     private const NEXT = [
         'found'                 => 'pitch',
         'contacted'             => 'evaluation',
-        'appointment_set'       => 'evaluation',
+        'appointment_set'       => 'evaluation_feedback',
+        'presentation_prepared' => 'evaluation_feedback',
         'evaluation_done'       => 'presentation',
         'presentation_given'    => 'presentation',
         'presentation_feedback' => 'mandate',
@@ -63,7 +65,7 @@ final class ProspectStepService
      */
     public function primary(array $row, bool $hasOwner): array
     {
-        $key = (! $hasOwner && ($row['stage'] ?? 'found') === 'found') ? 'find_owner' : (self::NEXT[$row['stage'] ?? 'found'] ?? 'property');
+        $key = (! $hasOwner && in_array($row['stage'] ?? 'found', ['found', 'claimed'], true)) ? 'find_owner' : (self::NEXT[$row['stage'] ?? 'found'] ?? 'property');
         if ($key === 'pitch' && ! $hasOwner) {
             $key = 'find_owner';
         }
@@ -103,6 +105,11 @@ final class ProspectStepService
             'find_owner', 'pitch' => $r('road-to-sold.prospects.pitch-path', $p->id),
             // v4 drop 4 (23.23): the calendar's own evaluation form, prefilled with the property and the owner, inside the pitch popup
             'evaluation' => $r('road-to-sold.prospects.evaluation-path', $p->id),
+            // v4 (23.10): once it is booked, the next thing is saying how it went - the calendar's own feedback form (held / no-show / moved) on THAT appointment.
+            // No live appointment to answer for (it was cancelled): the booking form instead, so the button never dead-ends.
+            'evaluation_feedback' => ($eventId = app(BeltLinks::class)->latestEvaluationEvent((int) $p->id))
+                ? $r('command-center.calendar', [], ['capture_feedback' => $eventId])
+                : $r('road-to-sold.prospects.evaluation-path', $p->id),
             'viewing' => $r('command-center.calendar', [], $property ? ['property_id' => $property] : []),
             // v4 (23.8): the real generator, on this property - never the presentations list (presentations.create only redirects there)
             'presentation' => $r('road-to-sold.prospects.presentation-path', $p->id),

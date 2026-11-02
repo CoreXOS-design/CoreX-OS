@@ -1,0 +1,195 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Feature\SellerOutreach;
+
+use App\Models\CommandCenter\CommandTask;
+use App\Models\Contact;
+use App\Models\Property;
+use App\Models\Prospecting\TrackedProperty;
+use App\Models\ProspectingClaim;
+use App\Models\RoadToSold\RtsProspect;
+use App\Models\RolePermission;
+use App\Services\PermissionService;
+use App\Services\RoadToSold\OutcomeDefinitionService;
+use App\Services\RoadToSold\PitchPathService;
+use App\Services\RoadToSold\SettingsService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Tests\Feature\RoadToSold\Concerns\RtsFixtures;
+use Tests\TestCase;
+
+/** road-to-sold.md 23.23 drop 6: the Owner step saves the owner and nothing else, on the record's own file; the claim is said; one heading per step; dd/mm/yyyy. */
+final class PitchPopupRound3Test extends TestCase
+{
+    use RefreshDatabase, RtsFixtures;
+
+    private $tp;
+    private int $listingId;
+    private RtsProspect $prospect;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Carbon::setTestNow('2026-11-02 09:00:00');
+        SettingsService::forget();
+        OutcomeDefinitionService::forgetMemo();
+        Cache::flush();
+        $this->setUpAgency();
+        config(['road-to-sold-belt.require_channel' => true, 'road-to-sold-belt.enforce_owner_gate' => true]);
+        app(OutcomeDefinitionService::class)->ensureDefaults($this->agency->id);
+        foreach (['agent', 'admin'] as $role) {
+            foreach (['access_road_to_sold', 'outreach.compose', 'command_center.calendar.view', 'market_intelligence.view', 'access_prospecting'] as $perm) {
+                RolePermission::updateOrCreate(['role' => $role, 'permission_key' => $perm, 'agency_id' => $this->agency->id], in_array($perm, ['command_center.calendar.view', 'market_intelligence.view'], true) ? ['scope' => 'all'] : []);
+            }
+        }
+        PermissionService::clearCache();
+
+        $this->tp = $this->tp(['street_name' => 'Cycad Court', 'street_number' => '1']);
+        $this->listingId = $this->listing(['address' => '1 Ss Cycad Court', 'suburb' => 'Margate'], $this->tp);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
+    }
+
+    private function claim(): RtsProspect
+    {
+        ProspectingClaim::create(['agency_id' => $this->agency->id, 'prospecting_listing_id' => $this->listingId, 'user_id' => $this->agent->id, 'status' => 'claimed', 'claimed_at' => now(), 'last_updated_at' => now()]);
+
+        return $this->prospect = RtsProspect::query()->where('tracked_property_id', $this->tp->id)->firstOrFail();
+    }
+
+    private function saveOwner(array $extra = [])
+    {
+        return $this->actingAs($this->agent)->post(route('seller-outreach.entry.store-from-prospecting', ['prospectingListingId' => $this->listingId]), [
+            'first_name' => 'Pieter', 'last_name' => 'Owner', 'phone' => '0825512345', 'email' => 'pieter@example.test', 'embed' => 1, 'rts_prospect' => $this->prospect->id,
+        ] + $extra);
+    }
+
+    public function test_the_owner_step_saves_the_owner_on_the_records_own_file_and_nothing_else(): void
+    {
+        $this->claim();
+        $before = ['tp' => TrackedProperty::query()->withoutGlobalScopes()->count(), 'props' => Property::withoutGlobalScopes()->count(), 'tasks' => CommandTask::withoutGlobalScopes()->count(),
+            'sends' => DB::table('seller_outreach_sends')->count(), 'claimStatus' => ProspectingClaim::query()->value('status')];
+
+        $r = $this->saveOwner();
+
+        $r->assertRedirect();
+        $tp = TrackedProperty::query()->withoutGlobalScopes()->find($this->tp->id);
+        $this->assertNotNull($tp->owner_contact_id, 'the owner is on the record\'s own file: the row and the tiles read this');
+        $this->assertSame('Pieter', Contact::withoutGlobalScopes()->find($tp->owner_contact_id)->first_name);
+        $this->assertSame($before['tp'], TrackedProperty::query()->withoutGlobalScopes()->count(), 'no second tracked property');
+        $this->assertSame($before['props'], Property::withoutGlobalScopes()->count(), 'no property made at the Owner step');
+        $this->assertSame($before['tasks'], CommandTask::withoutGlobalScopes()->count(), 'no mandate chase tasks');
+        $this->assertSame($before['sends'], DB::table('seller_outreach_sends')->count(), 'nothing "sent"');
+        $this->assertSame($before['claimStatus'], ProspectingClaim::query()->value('status'), 'the claim is not turned into "contacted"');
+        $this->assertNull(DB::table('prospecting_listings')->where('id', $this->listingId)->value('pitched_at'), 'not stamped pitched');
+        $this->assertSame(0, DB::table('contact_property')->count(), 'no property, so no seller link was invented');
+    }
+
+    public function test_after_the_owner_the_next_screen_is_the_belts_single_answer(): void
+    {
+        $this->claim();
+        // no deed on record: the deed picker, with the reason
+        $r = $this->saveOwner();
+        $to = (string) $r->headers->get('Location');
+        $this->assertStringContainsString('/outreach/compose', $to);
+        $this->assertStringContainsString('need=deed', $to);
+
+        // the deed is on record (and the owner is on the file now): the pitch, on the record's own file, with the property made then and only then
+        $this->tp->update(['deeds_captured_at' => now()]);
+        $props = Property::withoutGlobalScopes()->count();
+        $r2 = $this->saveOwner(['first_name' => 'Anna', 'last_name' => 'Verster', 'phone' => '0829990000', 'email' => 'anna@example.test', 'bypass_duplicate_check' => 1]);
+        $this->assertStringContainsString('/outreach/compose', (string) $r2->headers->get('Location'));
+        $this->assertStringContainsString('/contacts/', (string) $r2->headers->get('Location'), 'the composer on the owner');
+        $this->assertSame($props + 1, Property::withoutGlobalScopes()->count(), 'one property, for the record, when the pitch opens');
+        $this->assertSame((int) $this->tp->id, (int) RtsProspect::query()->find($this->prospect->id)->tracked_property_id);
+    }
+
+    public function test_a_property_the_belt_makes_belongs_to_the_records_file_and_spawns_no_chores(): void
+    {
+        config(['property-identity.link_on_create' => true]);
+        $this->claim();
+        $this->tp->update(['owner_contact_id' => Contact::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id,
+            'agent_id' => $this->agent->id, 'first_name' => 'Pieter', 'last_name' => 'Owner', 'phone' => '0825512345'])->id]);
+        $files = TrackedProperty::query()->withoutGlobalScopes()->count();
+        $tasks = CommandTask::withoutGlobalScopes()->count();
+
+        $property = app(PitchPathService::class)->ensureProperty($this->prospect, $this->agent);
+
+        $this->assertNotNull($property);
+        $this->assertSame((int) $this->tp->id, (int) Property::withoutGlobalScopes()->find($property->id)->tracked_property_id, "the record's own file");
+        $this->assertSame($files, TrackedProperty::query()->withoutGlobalScopes()->count(), 'no duplicate file');
+        $this->assertSame($tasks, CommandTask::withoutGlobalScopes()->count(), 'no "Upload signed mandate / owner ID / proof of ownership"');
+    }
+
+    public function test_the_first_open_says_it_claimed_the_property_and_for_how_long(): void
+    {
+        $url = route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $this->listingId, 'embed' => 1, 'fresh' => 1]);
+        $first = $this->actingAs($this->agent)->get($url)->assertOk()->getContent();
+        $this->assertStringContainsString("corexPitchResult('claimed'", $first);
+        $this->assertStringContainsString('1 Ss Cycad Court', $first);
+        $this->assertStringContainsString('30 working days', $first);
+
+        $again = $this->actingAs($this->agent)->get($url)->assertOk()->getContent();
+        $this->assertStringNotContainsString("corexPitchResult('claimed'", $again, 'only the first time: it is already theirs');
+    }
+
+    public function test_each_step_has_one_heading_inside_the_popup(): void
+    {
+        $this->claim();
+        $owner = Contact::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id,
+            'agent_id' => $this->agent->id, 'first_name' => 'Pieter', 'last_name' => 'Owner', 'phone' => '0825512345']);
+        $propertyId = $this->property($this->agent->id, ['address' => '1 Ss Cycad Court', 'tracked_property_id' => $this->tp->id]);
+        DB::table('prospecting_listings')->where('id', $this->listingId)->update(['matched_property_id' => $propertyId]);
+        DB::table('contact_property')->insert(['contact_id' => $owner->id, 'property_id' => $propertyId, 'role' => 'seller', 'created_at' => now(), 'updated_at' => now()]);
+
+        $get = fn (string $url) => $this->actingAs($this->agent)->get($url)->assertOk()->getContent();
+        $h = $get(route('seller-outreach.entry.from-tracked-property', ['trackedProperty' => $this->tp->id, 'embed' => 1]));
+        $this->assertStringContainsString('data-qa="step-heading">Owner<', $h);
+        $this->assertStringNotContainsString('Compose pitch about this property', $h);
+
+        $h = $get(route('seller-outreach.entry.pitch-ready-prospecting', ['prospectingListingId' => $this->listingId, 'embed' => 1]));
+        $this->assertStringContainsString('data-qa="step-heading">Pitch<', $h);
+        $this->assertStringNotContainsString('pitch to sellers', $h);
+        $this->assertStringNotContainsString('Property created', $h);
+
+        $h = $get(route('seller-outreach.composer.show', ['contact' => $owner->id, 'property_id' => $propertyId, 'embed' => 1]));
+        $this->assertStringContainsString('data-qa="step-heading">Contact<', $h);
+
+        $admin = \App\Models\User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin', 'is_admin' => true, 'is_active' => true]);
+        $h = $this->actingAs($admin)->get(route('market-intelligence.work', ['_pitch_card' => $this->listingId, 'embed' => 1]))->assertOk()->getContent();
+        $this->assertStringContainsString('data-qa="step-heading">Property<', $h);
+        $this->assertStringContainsString('[data-qa="pitch-card"] [data-qa="line-buttons"] { display: none', $h, 'the card\'s own action buttons are the popup\'s job');
+
+        $h = $get(route('command-center.calendar', ['embed' => 1, 'pitch_book' => 1, 'prefill_contact_id' => $owner->id, 'prefill_class' => 'property_evaluation']));
+        $this->assertStringContainsString("'Evaluation'", $h);
+        $this->assertStringNotContainsString("'New Event'</h2>", $h);
+    }
+
+    public function test_the_phone_tab_dates_are_dd_mm_yyyy_and_marked_required(): void
+    {
+        $this->claim();
+        $owner = Contact::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id,
+            'agent_id' => $this->agent->id, 'first_name' => 'Pieter', 'last_name' => 'Owner', 'phone' => '0825512345']);
+        $this->tp->update(['owner_contact_id' => $owner->id, 'deeds_captured_at' => now()]);
+        $propertyId = $this->property($this->agent->id, ['address' => '1 Ss Cycad Court', 'tracked_property_id' => $this->tp->id]);
+        DB::table('contact_property')->insert(['contact_id' => $owner->id, 'property_id' => $propertyId, 'role' => 'seller', 'created_at' => now(), 'updated_at' => now()]);
+
+        $h = $this->actingAs($this->agent)->get(route('seller-outreach.composer.show', ['contact' => $owner->id, 'property_id' => $propertyId, 'channel' => 'phone', 'embed' => 1]))->assertOk()->getContent();
+
+        $this->assertStringContainsString('data-qa="phone-call"', $h, substr(strip_tags($h), 0, 300));
+        $this->assertStringNotContainsString('datetime-local', $h, 'no bare browser date box');
+        $this->assertGreaterThanOrEqual(2, substr_count($h, 'data-dmy-date'), 'the call date and the bring-back date');
+        $this->assertStringContainsString('placeholder="dd/mm/yyyy"', $h);
+        $this->assertMatchesRegularExpression('#02\\\\?/11\\\\?/2026#', $h, 'today, shown as dd/mm/yyyy');
+        $this->assertStringContainsString('value="2026-11-02"', $h, 'and posted as YYYY-MM-DD');
+        $this->assertStringContainsString('title="Required"', $h);
+    }
+}

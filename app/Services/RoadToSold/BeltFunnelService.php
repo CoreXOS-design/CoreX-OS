@@ -118,9 +118,23 @@ class BeltFunnelService
             return [];
         }
         if ($kind === 'placed' || $from === null) {
-            $st = self::stationOfStage($to);
+            // a property that came onto the belt at a later station (a claim straight from Market Intelligence starts at Claimed) was on the stations before it too:
+            // it counts there as well, so "to next" can never read above 100% because MIC claims outnumber loaded stock (road-to-sold.md 23.12)
+            $hi = ProspectStages::order($to);
+            if (self::stationOfStage($to) === null) {
+                return [];
+            }
+            $out = [];
+            foreach (self::STATIONS as $key => [, , $stages]) {
+                foreach ($stages as $stage) {
+                    if (ProspectStages::order($stage) <= $hi) {
+                        $out[] = $key;
+                        break;
+                    }
+                }
+            }
 
-            return $st ? [$st] : [];
+            return $out;
         }
         $lo = ProspectStages::order($from);
         $hi = ProspectStages::order($to);
@@ -173,7 +187,10 @@ class BeltFunnelService
             $next = $keys[$i + 1] ?? null;
             $rows[] = [
                 'key' => $key, 'label' => self::STATIONS[$key][0], 'short' => self::STATIONS[$key][1], 'reached' => $reached[$key],
-                'to_next_pct' => ($next && $reached[$key] > 0) ? round($reached[$next] / $reached[$key] * 100, 1) : null,
+                // never above 100%: more at the next station than here happens only when they got here in an earlier period (they reached this station before the dates
+                // asked for), so the share is shown as 100% and the page says why
+                'to_next_pct' => ($next && $reached[$key] > 0) ? min(100.0, round($reached[$next] / $reached[$key] * 100, 1)) : null,
+                'to_next_capped' => $next && $reached[$key] > 0 && $reached[$next] > $reached[$key],
                 'lost' => $lost[$key], 'lost_pct' => $reached[$key] > 0 ? round($lost[$key] / $reached[$key] * 100, 1) : null,
                 'reasons' => collect($reasons[$key] ?? [])->sortDesc()->all(),
             ];

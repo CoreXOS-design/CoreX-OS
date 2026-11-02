@@ -28,6 +28,14 @@
             $b = app(\App\Services\RoadToSold\BlockerService::class)->firstBlocker(\App\Models\RoadToSold\RtsProspect::withoutGlobalScopes()->findOrFail($c['id']));
             return $b ? (collect(\App\Services\RoadToSold\ParkReasonService::stationDefaults())->firstWhere('key', $b['key'])['label'] ?? $b['key']) . ($b['detail'] ? ' - ' . $b['detail'] : '') : null;
         })() : null, 'due_state' => $c['due_state'], 'due_words' => $c['due_words'], 'next_at' => $c['next_action_at'], 'days' => $c['days_in_stage'], 'reason' => $c['reason'], 'journey' => (object) $c['journey'],
+        // v4 (23.12): ONE next action per station - Loaded / Claimed: Find owner; Owner found: Log contact; Contacted: Book evaluation; Booked / Prepared: Evaluation
+        // feedback; Held: Result (it is never offered before the evaluation happened). Everything else sits behind "More".
+        'primary_kind' => match (true) {
+            $c['stage'] === 'owner_found' => 'log_contact',
+            in_array($c['stage'], ['evaluation_done', 'presentation_given', 'presentation_feedback'], true) => 'result',
+            default => 'step',
+        },
+        'show_log' => in_array($c['stage'], ['found', 'claimed', 'owner_found', 'contacted', 'appointment_set', 'presentation_prepared'], true),
         'card' => isset($withCards[(int) $c['tracked_property_id']]), 'step_url' => route('road-to-sold.prospects.step', [$c['id'], $c['primary']['key']]), 'step_label' => $c['primary']['label'],
         'history_url' => route('road-to-sold.prospects.history', [$c['id'], 'embed' => 1]),
     ]]);
@@ -163,7 +171,7 @@
     {{-- The property's card: the whole line with its place lit, then where it is and what happens next --}}
     <template x-if="card">
         <div class="fixed inset-0 z-40 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @click.self="cardId = null" @keydown.escape.window="cardId = null" data-qa="prospect-card" role="dialog" aria-modal="true">
-            <div class="w-full rounded-md p-4 space-y-3" style="max-width: 58rem; background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+            <div class="w-full rounded-md p-4 space-y-3" style="max-width: min(54rem, calc(100vw - 17rem)); background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                 <div class="flex items-start justify-between gap-3">
                     <div class="min-w-0">
                         <div class="text-sm font-bold truncate" x-text="card.address + (card.suburb ? ' - ' + card.suburb : '')"></div>
@@ -186,20 +194,40 @@
                 </div>
                 <div class="text-xs" style="color: var(--text-muted);" x-show="card.reason" x-text="card.reason ? 'Started: ' + card.reason : ''"></div>
                 <div class="text-xs" style="color: var(--text-primary);" x-show="card.blocker" data-qa="card-blocker" x-text="card.blocker ? 'Stuck: ' + card.blocker : ''"></div>
-                <div class="flex items-center gap-1 flex-wrap">
+                <div class="flex items-center gap-2 flex-wrap" data-qa="card-actions">
                     @if($canWriteProspects)
-                        <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="prospect-step" :data-step-url="card.step_url" :data-tracked="card.card ? card.tp : ''" :data-step-label="card.step_label + ' - ' + card.address"
-                                @click="cardId = null; $dispatch('rts-step', $el.dataset)" x-text="card.step_label"></button>
-                        <button type="button" class="corex-btn-outline corex-btn-xs" :data-tp="card.tp" :data-address="card.address" @click="cardId = null; openContact($el.dataset)">Log contact</button>
-                        <button type="button" class="corex-btn-outline corex-btn-xs" data-qa="prospect-result" @click="openResult(card.id, card.address)">Result</button>
-                        <button type="button" class="corex-btn-outline corex-btn-xs" @click="openNext(card.id, card.next, card.next_at)">Next action</button>
-                        <button type="button" class="corex-btn-outline corex-btn-xs" data-qa="prospect-move" @click="openMove()">Move to...</button>
-                        <button type="button" class="corex-btn-outline corex-btn-xs" @click="openPark(card.id, card.address)">Set aside</button>
+                        <template x-if="card.primary_kind === 'step'">
+                            <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="prospect-step" :data-step-url="card.step_url" :data-tracked="card.card ? card.tp : ''" :data-step-label="card.step_label + ' - ' + card.address"
+                                    @click="cardId = null; $dispatch('rts-step', $el.dataset)" x-text="card.step_label"></button>
+                        </template>
+                        <template x-if="card.primary_kind === 'log_contact'">
+                            <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="prospect-log-contact" :data-tp="card.tp" :data-address="card.address" @click="cardId = null; openContact($el.dataset)">Log contact</button>
+                        </template>
+                        <template x-if="card.primary_kind === 'result'">
+                            <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="prospect-result" @click="openResult(card.id, card.address)">Result</button>
+                        </template>
                     @endif
-                    <button type="button" class="corex-btn-outline corex-btn-xs" :data-step-url="card.history_url" :data-step-label="'History - ' + card.address" @click="cardId = null; $dispatch('rts-step', $el.dataset)">History</button>
-                    @if($canRelease ?? false)
-                        <button type="button" class="corex-btn-outline corex-btn-xs" data-qa="prospect-release" @click="$dispatch('rts-release', { id: card.id, address: card.address }); cardId = null">Release</button>
-                    @endif
+                    <div class="relative" @click.outside="more = false" @keydown.escape="more = false">
+                        <button type="button" class="corex-btn-outline corex-btn-xs" data-qa="card-more" :aria-expanded="more" @click="more = !more">More &#9662;</button>
+                        <div x-show="more" x-cloak class="absolute left-0 z-10 mt-1 flex flex-col gap-1 rounded-md p-2" style="top: 100%; min-width: 11rem; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 6px 18px rgba(0,0,0,.35);" data-qa="card-more-menu">
+                            @if($canWriteProspects)
+                                <template x-if="card.primary_kind !== 'step'">
+                                    <button type="button" class="corex-btn-outline corex-btn-xs text-left" data-qa="prospect-step" :data-step-url="card.step_url" :data-tracked="card.card ? card.tp : ''" :data-step-label="card.step_label + ' - ' + card.address"
+                                            @click="cardId = null; more = false; $dispatch('rts-step', $el.dataset)" x-text="card.step_label"></button>
+                                </template>
+                                <template x-if="card.show_log && card.primary_kind !== 'log_contact'">
+                                    <button type="button" class="corex-btn-outline corex-btn-xs text-left" :data-tp="card.tp" :data-address="card.address" @click="cardId = null; more = false; openContact($el.dataset)">Log contact</button>
+                                </template>
+                                <button type="button" class="corex-btn-outline corex-btn-xs text-left" @click="more = false; openNext(card.id, card.next, card.next_at)">Next action</button>
+                                <button type="button" class="corex-btn-outline corex-btn-xs text-left" data-qa="prospect-move" @click="more = false; openMove()">Move to...</button>
+                                <button type="button" class="corex-btn-outline corex-btn-xs text-left" @click="more = false; openPark(card.id, card.address)">Set aside</button>
+                            @endif
+                            <button type="button" class="corex-btn-outline corex-btn-xs text-left" :data-step-url="card.history_url" :data-step-label="'History - ' + card.address" @click="cardId = null; more = false; $dispatch('rts-step', $el.dataset)">History</button>
+                            @if($canRelease ?? false)
+                                <button type="button" class="corex-btn-outline corex-btn-xs text-left" data-qa="prospect-release" @click="$dispatch('rts-release', { id: card.id, address: card.address }); more = false; cardId = null">Release</button>
+                            @endif
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -207,7 +235,7 @@
 
     {{-- Move to a later station by hand (only for work CoreX has no screen for): what happened, the next action and its date are all required --}}
     <div x-show="moveOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @keydown.escape.window="moveOpen = false" data-qa="move-modal">
-        <form method="POST" :action="'{{ url('road-to-sold/prospects') }}/' + (card ? card.id : 0) + '/capture'" class="w-full max-w-md rounded-md p-5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <form method="POST" :action="'{{ dirname(dirname(route('road-to-sold.prospects.result', 0))) }}/' + (card ? card.id : 0) + '/capture'" class="w-full max-w-md rounded-md p-5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
             @csrf
             @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
             <h2 class="text-sm font-bold" style="color: var(--text-primary);">Move to a later station</h2>
@@ -229,7 +257,7 @@
 
     {{-- Change next action --}}
     <div x-show="nextOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @keydown.escape.window="nextOpen = false">
-        <form method="POST" :action="'{{ url('road-to-sold/prospects') }}/' + id + '/next-action'" class="w-full max-w-md rounded-md p-5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <form method="POST" :action="'{{ dirname(dirname(route('road-to-sold.prospects.result', 0))) }}/' + id + '/next-action'" class="w-full max-w-md rounded-md p-5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
             @csrf @method('PUT')
             @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
             <h2 class="text-sm font-bold" style="color: var(--text-primary);">Next action</h2>
@@ -243,7 +271,7 @@
 
     {{-- The result of the evaluation / presentation (road-to-sold.md 23.9): ONE answer sets the record, the claim and the property together --}}
     <div x-show="resultOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @keydown.escape.window="resultOpen = false" data-qa="result-modal">
-        <form method="POST" :action="'{{ url('road-to-sold/prospects') }}/' + id + '/result'" class="w-full max-w-md rounded-md p-5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <form method="POST" :action="'{{ dirname(dirname(route('road-to-sold.prospects.result', 0))) }}/' + id + '/result'" class="w-full max-w-md rounded-md p-5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
             @csrf
             @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
             <h2 class="text-sm font-bold" style="color: var(--text-primary);">Result</h2>
@@ -266,7 +294,7 @@
 
     {{-- Set aside (park) --}}
     <div x-show="parkOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @keydown.escape.window="parkOpen = false">
-        <form method="POST" :action="'{{ url('road-to-sold/prospects') }}/' + id + '/park'" class="w-full max-w-md rounded-md p-5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <form method="POST" :action="'{{ dirname(dirname(route('road-to-sold.prospects.result', 0))) }}/' + id + '/park'" class="w-full max-w-md rounded-md p-5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
             @csrf
             @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
             <h2 class="text-sm font-bold" style="color: var(--text-primary);">Set aside</h2>
@@ -287,7 +315,7 @@
 <script>
 function rtsProspectActions(reasons, cards, stations) {
     return {
-        reasons: reasons, cards: cards, stations: stations, cardId: null, moveOpen: false,
+        reasons: reasons, cards: cards, stations: stations, cardId: null, moveOpen: false, more: false,
         id: null, address: '', label: '', at: '', reason: '', until: '', nextOpen: false, parkOpen: false,
         resultOpen: false, resultKey: '', resultDate: '', resultOptions: @js($resultOptionsForCard),
         get resultNeedsDate() { var o = this.resultOptions.find(x => x.key === this.resultKey); return !!o && o.class !== 'won'; },
@@ -305,7 +333,7 @@ function rtsProspectActions(reasons, cards, stations) {
             var i = this.stations.findIndex(s => s.key === c.stage);
             return this.stations.slice(i + 1);
         },
-        openCard(id) { this.cardId = id; },
+        openCard(id) { this.cardId = id; this.more = false; },
         openMove() { this.moveOpen = true; },
         openNext(id, label, at) { this.id = id; this.label = label || ''; this.at = at || ''; this.nextOpen = true; },
         openPark(id, address) { this.id = id; this.address = address; this.reason = ''; this.until = ''; this.parkOpen = true; },

@@ -314,6 +314,12 @@ class RoadToSoldController extends Controller
             ? $own()->whereIn('rts_prospects.tracked_property_id', $intakeTrackedIds)->pluck('rts_prospects.id', 'rts_prospects.tracked_property_id')->map(fn ($v) => (int) $v)->all()
             : [];
 
+        // v4 (23.14): a row the agent has already started (its record is past Stock loaded) cannot be swapped, so it does not offer Swap at all
+        $out['startedTracked'] = $block === 'intake' && $intakeTrackedIds !== []
+            ? $own()->whereIn('rts_prospects.tracked_property_id', $intakeTrackedIds)->where('rts_prospects.stage', '!=', \App\Services\RoadToSold\ProspectStages::FOUND)
+                ->pluck('rts_prospects.tracked_property_id')->map(fn ($v) => (int) $v)->all()
+            : [];
+
         $steps = app(\App\Services\RoadToSold\ProspectStepService::class);
         if ($block === 'prospects') {
             // the production line (22.24): one agent, the agent's whole branch, or everyone the viewer may see (sums, read only)

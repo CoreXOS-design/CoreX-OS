@@ -234,12 +234,21 @@ final class EntryPointController extends Controller
         // compose screen, so the agent can leave to scrape CMA/TVA and return with it still theirs
         // (held for the agency stale window, not the 30-min temp lock). Anti-poaching correctness:
         // this is what actually closes the duplication window between Pitch Now and submit.
+        $claimedNotice = null;
         try {
-            app(ProspectingClaimService::class)->claimOnPitchNow(
+            $claim = app(ProspectingClaimService::class)->claimOnPitchNow(
                 listingId: $prospectingListingId,
                 userId: (int) $request->user()->id,
                 agencyId: $agencyId,
             );
+            // The first time this opens the property it is CLAIMED (station 2): say so, with what it means, instead of doing it silently (23.23 drop 6).
+            if ($claim->wasRecentlyCreated && \App\Support\Embed::on()) {
+                $tpAddr = ! empty($listing->tracked_property_id) ? DB::table('tracked_properties')->where('id', (int) $listing->tracked_property_id)->first() : null;
+                $claimedNotice = [
+                    'address' => trim((string) ($listing->address ?? '')) !== '' ? trim((string) $listing->address) : trim((string) (($tpAddr->street_number ?? '') . ' ' . ($tpAddr->street_name ?? ''))),
+                    'days'    => \App\Services\RoadToSold\SettingsService::forAgency($agencyId)->claimHoldDays(),
+                ];
+            }
         } catch (\App\Services\Prospecting\ClaimOwnershipConflictException $e) {
             $ownerName = DB::table('users')->where('id', $e->currentOwnerUserId)->value('name') ?? 'another agent';
             return redirect()
@@ -255,6 +264,7 @@ final class EntryPointController extends Controller
             ->ownersForListing($agencyId, $listing));
 
         return view('seller-outreach.entry.prospecting-create-contact', [
+            'claimedNotice' => $claimedNotice,
             'listing'      => $listing,
             // #3 Address-first: when the listing carries no street address, the
             // capture form shows a required address field so we land one before
@@ -311,12 +321,17 @@ final class EntryPointController extends Controller
         // replaying it directly). Fixed at the guard's own fact-check, not by loosening
         // it: a property already carrying the deed's address now satisfies "has an
         // address" exactly as much as the listing's own address column would.
-        $linkedPropertyHasAddress = ! empty($listing->matched_property_id) && Property::withoutGlobalScopes()
+        // In the pitch popup (23.23 drop 6) the record's own tracked property may already hold the address: no property is made at the Owner step, so the
+        // address is only asked for when neither the advert, the property nor the file has one.
+        $fileHasAddress = \App\Support\Embed::on() && ! empty($listing->tracked_property_id) && DB::table('tracked_properties')
+            ->where('id', (int) $listing->tracked_property_id)->where('agency_id', $agencyId)
+            ->whereNotNull('street_name')->where('street_name', '<>', '')->exists();
+        $linkedPropertyHasAddress = $fileHasAddress || (! empty($listing->matched_property_id) && Property::withoutGlobalScopes()
             ->whereKey((int) $listing->matched_property_id)
             ->where(function ($q) {
                 $q->whereNotNull('street_name')->orWhereNotNull('address');
             })
-            ->exists();
+            ->exists());
         if (trim((string) ($listing->address ?? '')) === '' && ! $linkedPropertyHasAddress) {
             $sa = $request->validate([
                 'street_number'          => 'nullable|string|max:100',
@@ -432,6 +447,12 @@ final class EntryPointController extends Controller
         // the agent immediately instead of leaving them to discover it later on
         // the composer screen.
         $isOptedOut = $formEngaged && $existing !== null && $existing->communicationStatus() !== Contact::COMM_OPTED_IN;
+
+        // The pitch popup's Owner step (road-to-sold.md 23.23 drop 6) saves the owner and NOTHING else: on the record's own file, no second property or
+        // tracked property, no claim turned into "contacted", no "Sent pitch", no mandate chase tasks. Those belong to actually sending or logging.
+        if (\App\Support\Embed::on()) {
+            return $this->saveOwnerOnly($request, $agencyId, $listing, null, $validated, $existing, $idNumber, $formEngaged, $isNew, $isDeadEnd, $deadEndReason, $isOptedOut);
+        }
 
         $result = DB::transaction(function () use ($request, $agencyId, $listing, $validated, $existing, $idNumber, $captureAddress, $structuredAddress, $isOptedOut, $isDeadEnd, $deadEndReason, $formEngaged) {
             // Branch context is mandatory on Contact rows in CoreX schema.
@@ -838,8 +859,13 @@ final class EntryPointController extends Controller
         // (the promote-to-stock path) and the contact is its seller, so the composer opens on contact + property - never the dead end.
         $pitchPath = app(\App\Services\RoadToSold\PitchPathService::class);
         $carry = $pitchPath->carry($request);
-        $prospect = $pitchPath->prospectFor($request, $request->user(), (int) $trackedProperty->id);
+        $prospect = $pitchPath->prospectFor($request, $request->user(), (int) $trackedProperty->id)
+            ?? (\App\Support\Embed::on() ? app(\App\Services\SellerOutreach\PitchBeltResolver::class)->openProspectFor($request->user(), (int) $trackedProperty->id) : null);
         $propertyId = null;
+        // inside the popup the next step is whatever the one gate says (the deed picker while the deed is missing, else the pitch)
+        if ($prospect && \App\Support\Embed::on()) {
+            return redirect()->to($pitchPath->next($prospect, $request->user(), $carry)['url'])->with('status', $statusMessage);
+        }
         if ($prospect) {
             $propertyId = $pitchPath->ready($prospect, $contact, $request->user())?->id;
             if (! $propertyId) {
@@ -854,6 +880,118 @@ final class EntryPointController extends Controller
                 'property_id' => $propertyId,
             ]) + $carry)
             ->with('status', $statusMessage);
+    }
+
+    /**
+     * road-to-sold.md 23.23 drop 6 - the pitch popup's Owner step: save the owner (and the deed link, which has its own route) and nothing else.
+     *
+     * The owner goes onto the record's OWN property file (the agent's open Road to Sold record, else the advert's file): `tracked_properties.owner_contact_id`,
+     * which is what the belt's gate and the row read, and - when that record already has its CoreX property - the seller link on it. No property is made here,
+     * no second tracked property, no claim consumed, nothing stamped "pitched", no chase tasks. The next screen is the one the belt's single rule gives.
+     */
+    private function saveOwnerOnly(Request $request, int $agencyId, ?object $listing, ?\App\Models\Prospecting\TrackedProperty $tracked, array $validated, ?Contact $existing, ?string $idNumber, bool $formEngaged, bool $isNew, bool $isDeadEnd, ?string $deadEndReason, bool $isOptedOut)
+    {
+        $actor = $request->user();
+        $belt = app(\App\Services\SellerOutreach\PitchBeltResolver::class);
+        $pitchPath = app(\App\Services\RoadToSold\PitchPathService::class);
+
+        $tpId = $tracked?->id ?: ($listing && ! empty($listing->tracked_property_id) ? (int) $listing->tracked_property_id : null);
+        $prospect = $tpId ? ($pitchPath->prospectFor($request, $actor, (int) $tpId) ?? $belt->openProspectFor($actor, (int) $tpId)) : null;
+        if ($prospect) {
+            $tpId = (int) $prospect->tracked_property_id;   // the record's own file wins
+        }
+        if (! $tpId && $listing) {
+            // an advert with no file at all: match first, create only if nothing matches (the universal rule) - the one file
+            $tp = app(\App\Services\Prospecting\TrackedPropertyMatchOrCreateService::class)->matchOrCreate(
+                agencyId: $agencyId,
+                facts: array_filter(['address' => $listing->address ?? null, 'suburb' => $listing->suburb ?? null, 'property_type' => $listing->property_type ?? null], fn ($v) => $v !== null && $v !== ''),
+                source: ['type' => 'manual_prospect_entry', 'ref' => 'listing_' . $listing->id, 'payload' => ['prospecting_listing_id' => $listing->id]],
+                actorUserId: (int) $actor->id,
+            );
+            $tpId = $tp?->id;
+        }
+        abort_if(! $tpId, 422, 'This property has no file to save the owner on.');
+
+        $contact = DB::transaction(function () use ($request, $agencyId, $listing, $validated, $existing, $idNumber, $formEngaged, $isDeadEnd, $deadEndReason, $tpId, $actor) {
+            $contact = null;
+            if ($formEngaged) {
+                $branchId = $this->resolveBranchId($request, $agencyId, $listing->branch_id ?? null);
+                $contact = $existing ?: Contact::create(array_merge(
+                    array_filter([
+                        'agency_id'             => $agencyId,
+                        'branch_id'             => $branchId,
+                        'first_name'            => $validated['first_name'],
+                        'email'                 => $validated['email'] ?? null,
+                        'created_by_user_id'    => $actor->id,
+                        'id_number'             => $idNumber,
+                        'id_number_captured_at' => $idNumber ? now() : null,
+                        'id_number_source'      => $idNumber ? 'seller_outreach_entry' : null,
+                    ] + $this->naturalPersonIdAttributes($validated), static fn ($v) => $v !== null && $v !== ''),
+                    ['last_name' => $validated['last_name'] ?? '', 'phone' => $validated['phone'] ?? ''],
+                ));
+                if ($existing && $idNumber && empty($existing->id_number)) {
+                    $existing->update(['id_number' => $idNumber, 'id_number_captured_at' => now(), 'id_number_source' => 'seller_outreach_entry']);
+                }
+            }
+            // a seller already linked from the deed ("+ Link as seller") is the owner too when the form brought none
+            $owner = $contact;
+            $file = \App\Models\Prospecting\TrackedProperty::query()->withoutGlobalScopes()->where('agency_id', $agencyId)->find($tpId);
+            if ($file) {
+                if (! $owner && ! $file->owner_contact_id) {
+                    $propertyId = ! empty($listing->matched_property_id) ? (int) $listing->matched_property_id : (int) ($file->promoted_to_property_id ?: 0);
+                    $sellerId = $propertyId ? (int) DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')->whereNull('deleted_at')->orderBy('id')->value('contact_id') : 0;
+                    $owner = $sellerId ? Contact::query()->withoutGlobalScopes()->find($sellerId) : null;
+                }
+                // the agent chose this person: the file's owner is theirs (an update through the model, so the belt hears of it)
+                if ($owner && (int) $file->owner_contact_id !== (int) $owner->id) {
+                    $file->update(['owner_contact_id' => $owner->id]);
+                }
+                // and the seller of the record's CoreX property, when it already has one (none is made here)
+                $propertyId = ! empty($listing->matched_property_id) ? (int) $listing->matched_property_id : (int) ($file->promoted_to_property_id ?: 0);
+                $property = $propertyId ? Property::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->find($propertyId) : null;
+                if ($owner && $property) {
+                    try {
+                        \App\Services\RoadToSold\PitchPathService::linkSellerIfNone((int) $owner->id, $property);
+                    } catch (\Throwable $e) {
+                        \Illuminate\Support\Facades\Log::info('Owner step: the contact was not linked to the property', ['property_id' => $property->id, 'message' => $e->getMessage()]);
+                    }
+                }
+                if ($isDeadEnd && $contact) {
+                    if ($property) {
+                        \App\Models\ContactDeadEndFlag::updateOrCreate(['contact_id' => $contact->id], [
+                            'agency_id' => $agencyId, 'property_id' => $property->id, 'reason' => $deadEndReason, 'source' => 'seller_outreach', 'created_by_user_id' => $actor->id,
+                        ]);
+                    }
+                    ContactNote::create(['contact_id' => $contact->id, 'user_id' => $actor->id, 'body' => 'Marked as a dead-end - no contact details available ('
+                        . \App\Models\ContactDeadEndFlag::reasonLabel($deadEndReason) . '). Captured from the deed; nothing to reach.']);
+                }
+            }
+
+            return $owner;
+        });
+
+        $carry = $pitchPath->carry($request);
+        $back = $listing
+            ? route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $listing->id] + $carry)
+            : route('seller-outreach.entry.from-tracked-property', ['trackedProperty' => $tpId] + $carry);
+        if (! $contact) {
+            return redirect()->to($back)->with('error', 'Capture the owner (or link a seller from the deed) first.');
+        }
+        $name = trim($contact->first_name . ' ' . (string) $contact->last_name);
+        if ($isOptedOut) {
+            return redirect()->to($back)->with('warning', "{$name} has opted out of marketing: they are saved as the owner, but no pitch can go to them.");
+        }
+        if ($isDeadEnd) {
+            return redirect()->to($back)->with('status', "{$name} is saved as the owner and marked as a dead end: nothing to reach.");
+        }
+
+        $status = ($isNew ? 'Owner saved: new contact ' : 'Owner saved: ') . $name . '.';
+        if ($prospect) {
+            // the next screen is the belt's single answer: the deed picker while the deed is missing, otherwise the pitch (the property is made then, for the record)
+            return redirect()->to($pitchPath->next($prospect->fresh(), $actor, $carry)['url'])->with('status', $status);
+        }
+
+        return redirect()->to($back)->with('status', $status);
     }
 
     /**
@@ -1032,7 +1170,15 @@ final class EntryPointController extends Controller
     /** The listing route lives in ListingPropertyPromoter (shared with the Road to Sold pitch path, road-to-sold.md 22.10). */
     private function promoteListingToProperty(int $agencyId, $listing, $actor, ?string $overrideAddress = null, ?array $structuredAddress = null): Property
     {
-        return app(\App\Services\SellerOutreach\ListingPropertyPromoter::class)->promote($agencyId, $listing, $actor, $overrideAddress, $structuredAddress);
+        $make = fn () => app(\App\Services\SellerOutreach\ListingPropertyPromoter::class)->promote($agencyId, $listing, $actor, $overrideAddress, $structuredAddress);
+
+        // Inside the pitch popup (23.23 drop 6) a property made for the advert (to hang a seller or a deed on) is the record's property: it belongs to the
+        // record's own file (never a second one beside it), spawns no mandate chase tasks and scores nothing - it is not a mandate the agent captured.
+        if (\App\Support\Embed::on() && ! empty($listing->tracked_property_id)) {
+            return \App\Observers\PropertyIdentityLinkObserver::bindingTo((int) $listing->tracked_property_id, fn () => Property::withoutNewListingSideEffects($make));
+        }
+
+        return $make();
     }
 
     private function composeAddress(array $a): string

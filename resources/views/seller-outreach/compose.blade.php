@@ -85,6 +85,10 @@
         </div>
     @else
 
+        @if($inPopup)
+            <h1 class="text-base font-bold" style="color: var(--text-primary);" data-qa="step-heading">Contact</h1>
+        @endif
+
         {{-- The property this pitch is about; a click shows its MIC card (road-to-sold.md 23.23) --}}
         @if(!empty($property))
             @php $__peek = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->peekAttributes(null, (int) $property->id); @endphp

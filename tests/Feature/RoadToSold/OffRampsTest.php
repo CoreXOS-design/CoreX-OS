@@ -132,14 +132,14 @@ final class OffRampsTest extends TestCase
         $a = $this->at($this->agent);                                        // placed at Found -> Loaded
         $this->prospects->advance($a, S::CONTACTED, $this->agent, ['event_class' => 't']);   // skipped Claimed and Owner
         $this->prospects->advance($a, S::APPOINTMENT_SET, $this->agent, ['event_class' => 't']);
-        $b = $this->at($this->agent, S::CLAIMED);                            // placed directly at Claimed: not Loaded
+        $b = $this->at($this->agent, S::CLAIMED);                            // placed directly at Claimed: it was on Loaded too
 
         $f = app(BeltFunnelService::class);
         $fig = $f->figures($this->agency->id, $this->period());
         $mine = $f->funnelOf([$this->agent->id], $fig);
         $reach = collect($mine['stations'])->pluck('reached', 'key');
 
-        $this->assertSame(1, $reach['loaded'], 'only the property that was loaded counts as loaded');
+        $this->assertSame(2, $reach['loaded'], 'the one that was loaded, and the one that came onto the belt at Claimed (it was on Stock loaded too)');
         $this->assertSame(2, $reach['claimed'], 'one skipped through it, one was placed there');
         $this->assertSame(1, $reach['owner'], 'skipped through');
         $this->assertSame(1, $reach['contacted']);

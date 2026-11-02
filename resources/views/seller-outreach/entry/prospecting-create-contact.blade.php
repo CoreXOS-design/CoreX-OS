@@ -8,10 +8,16 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
+                @if(\App\Support\Embed::on())
+                {{-- the pitch popup's one heading for this step (23.23 drop 6) --}}
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);" data-qa="step-heading">Owner</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Who owns this property? Link the deed and capture the owner. Nothing is sent from this step.</p>
+                @else
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Compose pitch about this property</h1>
                 <p class="text-xs" style="color: var(--text-muted);">
                     Capture the seller's contact info first. We'll dedupe against existing contacts before creating a new one.
                 </p>
+                @endif
             </div>
             <div class="flex flex-wrap items-center gap-2">
                 @unless(\App\Support\Embed::on())
@@ -1044,4 +1050,8 @@
     </form>
 </div>
 @include('layouts.partials._pitch-popup')
+@include('layouts.partials._pitch-result')
+@if(!empty($claimedNotice))
+<script>window.addEventListener('load', function () { if (window.corexPitchResult) { window.corexPitchResult('claimed', @js($claimedNotice['address']), @js($claimedNotice['days'] . ' working days')); } });</script>
+@endif
 @endsection

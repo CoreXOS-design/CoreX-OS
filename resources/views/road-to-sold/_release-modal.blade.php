@@ -2,7 +2,7 @@
      buttons dispatch "rts-release" with the prospect and its address. Drawn only for someone who holds road_to_sold.release_prospects. --}}
 <div x-data="{ open: false, id: null, address: '', reason: '' }" @rts-release.window="id = $event.detail.id; address = $event.detail.address; reason = ''; open = true" data-qa="release-modal">
     <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @keydown.escape.window="open = false">
-        <form method="POST" :action="'{{ url('road-to-sold/prospects') }}/' + id + '/release'" class="w-full max-w-md rounded-md p-5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <form method="POST" :action="'{{ dirname(dirname(route('road-to-sold.prospects.result', 0))) }}/' + id + '/release'" class="w-full max-w-md rounded-md p-5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
             @csrf
             @if(($track ?? 'sales') !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
             <div>

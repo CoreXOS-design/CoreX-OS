@@ -388,12 +388,12 @@
                                         data-step-label="{{ \App\Services\RoadToSold\ProspectStepService::LABELS[$stepKey] }} - {{ $r['address'] }}"
                                         @click="$dispatch('rts-step', $el.dataset)">{{ \App\Services\RoadToSold\ProspectStepService::LABELS[$stepKey] }}</button>
                             @endif
-                            @if($viewingOwn && $r['status'] === 'open' && ! empty($r['list_item_id']) && ($r['origin'] ?? '') !== 'follow_up')
+                            @if($viewingOwn && $r['status'] === 'open' && ! empty($r['list_item_id']) && ($r['origin'] ?? '') !== 'follow_up' && ! in_array((int) $r['tracked_property_id'], $startedTracked ?? [], true))
                                 {{-- 23.14: swap this loaded property for the next one, with a reason --}}
                                 <span x-data="{ open: false }" class="relative" data-qa="intake-swap">
                                     <button type="button" class="corex-btn-outline corex-btn-xs" @click="open = !open" title="Swap this property for the next one">Swap</button>
                                     <form x-show="open" x-cloak method="POST" action="{{ route('road-to-sold.swap', $r['list_item_id']) }}" @click.outside="open = false" @keydown.escape="open = false"
-                                          x-data="{ key: '' }" class="absolute right-0 z-20 flex items-center gap-2 p-2 rounded-md" style="background: var(--surface); border: 1px solid var(--border); top: 100%; white-space: nowrap;">
+                                          x-data="{ key: '' }" class="absolute flex items-center gap-2 p-2 rounded-md" style="z-index: 40; right: calc(100% + 6px); top: 50%; transform: translateY(-50%); white-space: nowrap; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 22px rgba(0,0,0,.4);">
                                         @csrf
                                         {{-- v4 (23.11): the Stock loaded off-ramp - the agency's own reasons for it; "other" asks for a few words --}}
                                         <select name="reason_key" required x-model="key" aria-label="Why swap it?" class="px-2 py-1 text-xs rounded-md"
@@ -402,7 +402,7 @@
                                             @foreach($swapReasons as $sr)<option value="{{ $sr->key }}">{{ $sr->label }}</option>@endforeach
                                         </select>
                                         <input type="text" name="note" x-show="key === 'not_for_me_other'" :required="key === 'not_for_me_other'" minlength="3" maxlength="200" placeholder="A few words" autocomplete="off" class="px-2 py-1 text-xs rounded-md"
-                                               style="background: var(--surface-2, var(--surface)); border: 1px solid var(--border); color: var(--text-primary); width: 11rem;">
+                                               style="background: var(--surface-2, var(--surface)); border: 1px solid var(--border); color: var(--text-primary); width: 10rem;">
                                         <button type="submit" class="corex-btn-primary corex-btn-xs">Swap</button>
                                     </form>
                                 </span>
@@ -686,7 +686,7 @@ function rtsPage(cfg) {
         },
         // one vocabulary (road-to-sold.md 23.11): forward moves, try again, off-ramps; the owner-problem outcomes stay available to report it
         get groups() {
-            const t = { forward: 'Moves it forward', again: 'Try again later', off_ramp: 'Off-ramps - why it stops here' };
+            const t = { forward: 'Moves it forward', again: 'Try again later', off_ramp: 'Stops here (say why)' };
             var fit = (cfg.fit && cfg.fit[this.tp]) ? cfg.fit[this.tp].map(String) : null;   // only the outcomes that fit this record's station (23.7a)
             var shown = fit ? this.choices.filter(c => fit.indexOf(String(c.id)) !== -1) : this.choices;
             return ['forward', 'again', 'off_ramp'].map(k => ({ key: k, title: t[k], items: shown.filter(c => (c.group || 'again') === k) }));

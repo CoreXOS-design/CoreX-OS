@@ -5,14 +5,19 @@
 <div class="w-full max-w-2xl mx-auto space-y-5">
     @php $__peek = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->peekAttributes(null, (int) $property->id); @endphp
     <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);" data-qa="listing-header" {!! $__peek !!}>
+        @if(\App\Support\Embed::on())
+        <h1 class="text-xl font-bold text-white leading-tight" data-qa="step-heading">Pitch</h1>
+        <p class="text-sm text-white/80 mt-1">Choose who to pitch to ({{ count($sellers) }} {{ Str::plural('contact', count($sellers)) }}).</p>
+        @else
         <h1 class="text-xl font-bold text-white leading-tight">Property created · {{ count($sellers) }} {{ Str::plural('contact', count($sellers)) }} — pitch to sellers</h1>
+        @endif
         <p class="text-sm text-white/70 mt-1">
             {{ $property->address ?: $property->title ?: ('Property #' . $property->id) }}{{ !empty($property->suburb) ? ', ' . $property->suburb : '' }}
             @if($__peek !== '')<span data-peek-hint class="text-white" style="font-weight:600; margin-left:.5rem;">What is this property? ▾</span>@endif
         </p>
     </div>
 
-    @if(session('status'))
+    @if(session('status') && ! \App\Support\Embed::on())
         <div class="rounded-md px-4 py-3 text-sm"
              style="background: color-mix(in srgb, #10b981 10%, transparent); border:1px solid color-mix(in srgb, #10b981 30%, transparent); color: var(--text-primary);">
             {{ session('status') }}

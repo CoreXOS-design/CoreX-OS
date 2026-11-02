@@ -24,6 +24,14 @@ use Illuminate\Support\Facades\DB;
  */
 final class PitchBeltResolver
 {
+    /** The agent's own open Road to Sold record on this tracked property (sales), or null. */
+    public function openProspectFor(User $actor, int $trackedPropertyId): ?RtsProspect
+    {
+        return RtsProspect::withoutGlobalScopes()->where('agency_id', (int) ($actor->effectiveAgencyId() ?: 0))->where('track', 'sales')
+            ->where('user_id', (int) $actor->ownershipUserId())->where('tracked_property_id', $trackedPropertyId)
+            ->whereNull('closed_at')->whereNull('released_at')->whereNull('deleted_at')->orderByDesc('id')->first();
+    }
+
     public function trackedFor(User $actor, ?Property $property, ?int $rtsProspectId = null): ?int
     {
         if (! $property) {

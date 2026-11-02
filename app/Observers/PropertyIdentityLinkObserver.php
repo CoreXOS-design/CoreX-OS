@@ -32,6 +32,25 @@ final class PropertyIdentityLinkObserver
     /** Set by a caller that has already decided the property file (promoteToStock). */
     public static bool $suppressed = false;
 
+    /** road-to-sold.md 23.23 drop 6: the property file a property created right now belongs to (the agent's own Road to Sold record), or null. */
+    public static ?int $bindTo = null;
+
+    /**
+     * Run $fn so that every Property CREATED inside it is attached to THIS property file instead of being resolved by its address. A property the belt makes
+     * for a record is that record's property: resolving it by address (a different spelling of the same street) minted a second, owner-less file beside the
+     * record's own (73 Marine Drive), and the row and the popup then disagreed. Restored even when $fn throws.
+     */
+    public static function bindingTo(int $trackedPropertyId, callable $fn): mixed
+    {
+        $before = self::$bindTo;
+        self::$bindTo = $trackedPropertyId;
+        try {
+            return $fn();
+        } finally {
+            self::$bindTo = $before;
+        }
+    }
+
     /** Run $fn with the create hook off (a caller that has already decided the property file); always restored. */
     public static function suppress(callable $fn): mixed
     {
@@ -46,6 +65,14 @@ final class PropertyIdentityLinkObserver
 
     public function propertyCreated(Property $property): void
     {
+        if (self::$bindTo !== null) {
+            DB::table('properties')->where('id', $property->id)->update(['tracked_property_id' => self::$bindTo, 'identity_confidence' => 'exact', 'identity_method' => 'belt_record']);
+            $property->setAttribute('tracked_property_id', self::$bindTo);
+            $property->syncOriginalAttribute('tracked_property_id');
+
+            return;
+        }
+
         $this->guard(fn () => app(PropertyIdentityResolver::class)->linkProperty($property, true), 'property', $property->getKey());
     }
 
