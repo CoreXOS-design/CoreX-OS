@@ -164,7 +164,7 @@
     .mi-advert { display: grid; grid-template-columns: 18.75rem minmax(0, 1fr) minmax(24rem, 28rem); gap: 16px; padding: 12px 14px; align-items: start; }
     .mi-advert-photo { position: relative; width: 18.75rem; max-width: 100%; aspect-ratio: 4 / 3; }
     .mi-advert-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; height: 14.0625rem; overflow: hidden; }
-    .mi-advert-body.mi-advert-body-fit { height: calc(14.0625rem + 1.5rem); }
+    .mi-advert-body.mi-advert-body-fit { height: auto; min-height: calc(14.0625rem + 1.5rem); overflow: visible; } /* one line more than the photo; never clips when the column is narrow */
     .mi-advert-body.mi-advert-body-open { height: auto; min-height: 14.0625rem; overflow: visible; }
     [data-qa="row-wrap"] + [data-qa="row-wrap"] > .mi-advert { border-top: 1px solid var(--border); }
     @media (max-width: 64rem) {

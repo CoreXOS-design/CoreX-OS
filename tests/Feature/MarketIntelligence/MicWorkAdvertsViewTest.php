@@ -240,7 +240,7 @@ final class MicWorkAdvertsViewTest extends TestCase
     {
         $B = \App\Services\Prospecting\MicWork\BuyerFitLabel::class;
         $sum = $B::summary($this->fit());
-        $this->assertSame('Fits Alex · 4 of 9 · misses type, floor, sea view · check bathrooms, pet friendly', $sum['text'], 'na fields are not counted');
+        $this->assertSame('Fits Alex · 4 of 9 · misses type, floor +1 · check bathrooms, pet friendly', $sum['text'], 'na fields are not counted');
         $this->assertSame('miss', $sum['tone']);
         $allOk = $this->fit(['fields' => [['key' => 'price', 'label' => 'Price', 'wants' => '≤ R1.0m', 'has' => 'R 1', 'state' => 'ok']], 'must_haves' => [['label' => 'Pool', 'state' => 'ok']]]);
         $this->assertSame(['text' => 'Fits Alex · 2 of 2', 'tone' => 'ok', 'ok' => 2, 'total' => 2], $B::summary($allOk));

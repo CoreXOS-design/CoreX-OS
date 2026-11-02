@@ -18,7 +18,7 @@
     }
 @endphp
 @if($bits)
-    <div data-qa="fit-line" style="display:flex; align-items:center; gap:2px 14px; font-size:.875rem; line-height:1.3; color: var(--text-primary); white-space:nowrap; overflow:hidden;">
+    <div data-qa="fit-line" style="display:flex; align-items:center; gap:2px 14px; font-size:.875rem; line-height:1.3; color: var(--text-primary); flex-wrap:wrap;">
         <span style="font-weight:600;">{{ $fit['first_name'] ?? 'Buyer' }} wants</span>
         @foreach($bits as $b)
             <span data-qa="fit-{{ $b['key'] }}" title="{{ $b['title'] }}" style="display:inline-flex; align-items:center; gap:4px; font-weight:600; color: {{ $b['color'] }};">

@@ -85,7 +85,8 @@ final class BuyerFitLabel
             }
         }
         $by = fn (string $st) => array_values(array_filter($items, fn ($it) => self::state($it['state'] ?? null) === $st));
-        $labels = fn (array $list) => implode(', ', array_slice(array_map(fn ($it) => mb_strtolower((string) ($it['label'] ?? '')), $list), 0, 3));
+        // the badge is one short line: at most two names, then "+N" (the popover lists every one)
+        $labels = fn (array $list) => implode(', ', array_slice(array_map(fn ($it) => mb_strtolower((string) ($it['label'] ?? '')), $list), 0, 2)) . (count($list) > 2 ? ' +' . (count($list) - 2) : '');
         $ok = count($by('ok'));
         $miss = $by('miss');
         $unknown = $by('unknown');
