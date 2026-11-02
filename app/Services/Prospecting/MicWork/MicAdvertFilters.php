@@ -144,7 +144,7 @@ final class MicAdvertFilters
      */
     public function suburbOptions(int $agencyId): array
     {
-        return MicWorkList::remember('suburb-options:' . $agencyId, 300, function () use ($agencyId) {
+        return MicWorkList::remember('suburb-options-az:' . $agencyId, 300, function () use ($agencyId) {
             $counts = DB::table('prospecting_listings')->where('agency_id', $agencyId)->whereNull('deleted_at')->where('is_active', 1)->whereNotNull('p24_suburb_id')
                 ->groupBy('p24_suburb_id')->selectRaw('p24_suburb_id as id, COUNT(*) as n')->pluck('n', 'id');
             $working = array_keys(app(WorkingSuburbs::class)->ids($agencyId));
