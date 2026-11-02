@@ -17,7 +17,8 @@
         $bits[] = ['key' => $key, 'label' => $f['label'] ?? ucfirst($key), 'wants' => $wants . ($st === 'unknown' ? ' ?' : ''), 'color' => $B::color($st), 'title' => $B::fieldTitle($fit, $f)];
     }
 @endphp
-@if($bits)
+{{-- a buyer who has not stated any of these has nothing to mirror: no line of dashes --}}
+@if($bits && $B::hasMirror($fit))
     <div data-qa="fit-line" style="display:flex; align-items:center; gap:2px 14px; font-size:.875rem; line-height:1.3; color: var(--text-primary); flex-wrap:wrap;">
         <span style="font-weight:600;">{{ $fit['first_name'] ?? 'Buyer' }} wants</span>
         @foreach($bits as $b)

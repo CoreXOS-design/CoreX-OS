@@ -42,6 +42,19 @@ final class BuyerFitLabel
         return null;
     }
 
+    /** true when the buyer stated at least one of the facts the mirror line shows (beds, baths, garages, parking, erf, floor) */
+    public static function hasMirror(array $fit): bool
+    {
+        foreach (['beds', 'baths', 'garages', 'parking', 'erf', 'floor'] as $key) {
+            $f = self::field($fit, $key);
+            if ($f && self::state($f['state'] ?? null) !== 'na') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** the small chip after the price / the type: "≤ R1.0m ✓"; null when the engine gave no such field or it does not apply */
     public static function chip(array $fit, string $key): ?array
     {

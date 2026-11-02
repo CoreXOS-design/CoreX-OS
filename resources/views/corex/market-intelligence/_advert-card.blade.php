@@ -18,7 +18,7 @@
     $fit = !empty($adv['buyer_fit']) ? $adv['buyer_fit'] : null;
     $fitChips = $fit && (count($fit['must_haves'] ?? []) + count($fit['deal_breakers'] ?? [])) > 0;
     $fitChip = fn (string $key) => $fit ? \App\Services\Prospecting\MicWork\BuyerFitLabel::chip($fit, $key) : null;
-    $chipStyle = 'font-size:.6875rem; font-weight:700; line-height:1.4; padding:0 6px; border:1px solid currentColor; border-radius:8px; white-space:nowrap; vertical-align:middle;';
+    $chipStyle = 'display:inline-block; max-width:100%; overflow:hidden; text-overflow:ellipsis; font-size:.6875rem; font-weight:700; line-height:1.4; padding:0 6px; border:1px solid currentColor; border-radius:8px; white-space:nowrap; vertical-align:middle;';
     $ownerSale = !empty($adv['is_owner']);
     $status = $adv['portal_status'] ?? null;
     // ribbons on the photo, in the spec's order
@@ -91,7 +91,7 @@
     </div>
 
     {{-- Column 2: the advert's text, sized like a P24 result card --}}
-    <div class="mi-advert-body {{ $fit ? 'mi-advert-body-fit' : '' }}" data-qa="advert-left" x-data="{ more: false }" :class="more ? 'mi-advert-body-open' : ''">
+    <div class="mi-advert-body {{ $fit && ($fitChips || \App\Services\Prospecting\MicWork\BuyerFitLabel::hasMirror($fit)) ? 'mi-advert-body-fit' : '' }}" data-qa="advert-left" x-data="{ more: false }" :class="more ? 'mi-advert-body-open' : ''">
         <div style="display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;" data-qa="advert-price">
             <span style="font-size:1.5rem; line-height:1.2; font-weight:800; color: var(--text-primary);">{{ !empty($adv['price']) ? $money($adv['price']) : '—' }}</span>
             @if($pc = $fitChip('price'))<span data-qa="fit-chip-price" title="{{ $pc['title'] }}" style="{{ $chipStyle }} color: {{ $pc['color'] }};">{{ $pc['text'] }}</span>@endif

@@ -268,6 +268,8 @@ final class MicWorkAdvertsViewTest extends TestCase
         $this->assertSame(1, preg_match('/data-qa="fit-garages"[^>]*color: #166534/', $line), 'garages has its own place after baths');
         $this->assertLessThan(strpos($line, 'data-qa="fit-garages"'), strpos($line, 'data-qa="fit-baths"'));
 
+        $this->assertSame('', trim(view('corex.market-intelligence._buyer-fit-line', ['fit' => $this->fit(['fields' => array_map(fn ($f) => array_replace($f, ['state' => 'na', 'wants' => null]), $fit['fields'])])])->render()), 'a buyer who stated none of these gets no line of dashes');
+
         $chips = view('corex.market-intelligence._buyer-fit-chips', ['fit' => $fit])->render();
         $this->assertStringContainsString('>Pool ✓</span>', $chips);
         $this->assertStringContainsString('>Pet friendly ?</span>', $chips);

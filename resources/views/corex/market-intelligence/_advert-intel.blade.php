@@ -73,7 +73,7 @@
         <div data-qa="line-score" style="display:flex; align-items:center; gap:8px; white-space:nowrap; overflow:{{ $fs ? 'visible' : 'hidden' }}; height:1.5rem; font-size:.75rem;">
             @if($adv['score'] !== null)
                 <span style="font-size:.8125rem; font-weight:800; color: var(--text-primary); flex-shrink:0;">Score {{ number_format($adv['score'], 0) }}</span>
-                <span style="display:flex; gap:6px; min-width:0; overflow:hidden; text-overflow:ellipsis; {{ $muted }}">@foreach(array_slice($adv['reasons'] ?? [], 0, 3) as $rc)<span style="white-space:nowrap;">· {{ \App\Services\Prospecting\MicWork\MicWorkList::REASON_LABELS[$rc] ?? ucfirst(str_replace('_', ' ', $rc)) }}</span>@endforeach</span>
+                <span style="display:flex; gap:6px; min-width:0; flex-shrink:{{ $fs ? 8 : 1 }}; overflow:hidden; text-overflow:ellipsis; {{ $muted }}">@foreach(array_slice($adv['reasons'] ?? [], 0, 3) as $rc)<span style="white-space:nowrap;">· {{ \App\Services\Prospecting\MicWork\MicWorkList::REASON_LABELS[$rc] ?? ucfirst(str_replace('_', ' ', $rc)) }}</span>@endforeach</span>
             @else
                 <span style="{{ $muted }}">No score yet</span>
             @endif
