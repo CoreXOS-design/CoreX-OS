@@ -64,8 +64,9 @@ for (const [w, h] of VIEWPORTS) {
 
   // 2. a source tile opens its station list; a stage tile opens the prospects line
   const clickTile = async (key) => { await Promise.all([page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }), page.click(`[data-qa="belt-tile-${key}"]`)]); };
-  await clickTile('claimed');
-  check(/block=station/.test(page.url()) && /station=claimed/.test(page.url()), 'Claimed opens its station list');
+  // a station whose count still comes from its own source opens its list; one read from the prospect stage (Claimed since A1) opens the prospects line
+  await clickTile('owner');
+  check(/block=station/.test(page.url()) && /station=owner/.test(page.url()), 'Owner opens its station list');
   const hasList = await page.$('[data-qa="station-list"]') !== null;
   check(hasList, 'the station list is on the page');
   const f2 = await fit(page);
