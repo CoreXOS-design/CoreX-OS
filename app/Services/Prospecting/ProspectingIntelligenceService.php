@@ -93,6 +93,18 @@ final class ProspectingIntelligenceService
     }
 
     /**
+     * The headline "active buyers" figure alone - exactly `snapshot($filters)->activeBuyers` without building the rest of the snapshot (every listing of the
+     * agency loaded and cut into segments, the funnel, the stock gap). The pitch composer only wants this one number when a suburb is not mapped to a town;
+     * building the whole snapshot for it took about 7 seconds on QA1 (road-to-sold.md 23.23 drop 5).
+     */
+    public function activeBuyerCount(array $filters): int
+    {
+        $this->assertAgencyId($filters);
+
+        return $this->loadActiveBuyers((int) $filters['agency_id'], $filters)->count();
+    }
+
+    /**
      * Drill-down: contact IDs for a clicked buyer segment.
      *
      * @return Collection<int, int>

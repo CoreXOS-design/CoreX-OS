@@ -30,8 +30,12 @@ use Throwable;
  */
 final class PitchContactService
 {
-    public function __construct(private readonly OutcomeService $outcomes, private readonly OutcomeDefinitionService $definitions, private readonly OwnerStationService $owner)
-    {
+    public function __construct(
+        private readonly OutcomeService $outcomes,
+        private readonly OutcomeDefinitionService $definitions,
+        private readonly OwnerStationService $owner,
+        private readonly PitchBeltResolver $belt,
+    ) {
     }
 
     /** The phone tab needs the Road to Sold outcome list: the agency has the feature and the person may use Road to Sold. */
@@ -47,7 +51,7 @@ final class PitchContactService
      */
     public function phoneForm(User $actor, Contact $contact, ?Property $property, array $carry = []): array
     {
-        $tp = $property && $property->tracked_property_id ? (int) $property->tracked_property_id : null;
+        $tp = $this->belt->trackedFor($actor, $property, (int) ($carry['rts_prospect'] ?? 0) ?: null);
         $agencyId = (int) ($actor->effectiveAgencyId() ?: 0);
         $titles = [Def::GROUP_FORWARD => 'Moves it forward', Def::GROUP_AGAIN => 'Try again later', Def::GROUP_OFF_RAMP => 'Off-ramps - why it stops here'];
         $groups = [];
@@ -90,7 +94,7 @@ final class PitchContactService
         if (! $this->phoneTabAvailable($actor)) {
             return ['logged' => false, 'message' => null];   // the agency is not on Road to Sold: nothing to record against
         }
-        $tp = $property && $property->tracked_property_id ? (int) $property->tracked_property_id : null;
+        $tp = $this->belt->trackedFor($actor, $property);
         if (! $tp) {
             return ['logged' => false, 'message' => null];   // an address-only pitch has no property on the belt
         }
