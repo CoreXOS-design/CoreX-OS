@@ -259,29 +259,50 @@ final class MicWorkAdvertsViewTest extends TestCase
         $this->assertNull($B::factColor($this->fit(), 'erf'), 'na: the fact keeps its normal colour');
     }
 
-    public function test_the_wants_line_is_one_coloured_line_of_only_what_the_wishlist_states(): void
+    private function factsGrid(array $fit): string
+    {
+        $B = \App\Services\Prospecting\MicWork\BuyerFitLabel::class;
+
+        return view('corex.market-intelligence._buyer-fit-facts', [
+            'fit' => $fit, 'f' => ['beds' => 3, 'baths' => 2, 'garages' => 1], 'adv' => ['parking' => 2, 'erf_size_m2' => 500, 'floor_size_m2' => 120],
+            'fc' => fn (string $k) => ($c = $B::factColor($fit, $k)) ? ' color: ' . $c . '; font-weight:700;' : '', 'fcv' => fn (string $k) => $B::factColor($fit, $k),
+            'factKeys' => ['beds', 'baths', 'garages', 'parking', 'erf', 'floor'], 'factsMt' => 'auto',
+        ])->render();
+    }
+
+    public function test_the_facts_and_the_wants_are_one_two_row_grid_one_column_per_fact(): void
     {
         $fit = $this->fit(['fields' => [
             ['key' => 'price', 'label' => 'Price', 'wants' => '≤ R1.2m', 'has' => 'R 950,000', 'state' => 'ok'],
-            ['key' => 'type', 'label' => 'Type', 'wants' => 'Apartment / Flat · Townhouse', 'has' => 'Townhouse', 'state' => 'ok'],
-            ['key' => 'suburb', 'label' => 'Suburb', 'wants' => 'Margate · Uvongo', 'has' => 'Uvongo', 'state' => 'ok'],
             ['key' => 'beds', 'label' => 'Bedrooms', 'wants' => '2+', 'has' => '3', 'state' => 'ok'],
-            ['key' => 'baths', 'label' => 'Bathrooms', 'wants' => null, 'has' => '2', 'state' => 'na'],
+            ['key' => 'baths', 'label' => 'Bathrooms', 'wants' => '3+', 'has' => '2', 'state' => 'miss'],
+            ['key' => 'garages', 'label' => 'Garages', 'wants' => '1+', 'has' => null, 'state' => 'unknown'],
+            ['key' => 'parking', 'label' => 'Parking', 'wants' => null, 'has' => '2', 'state' => 'na'],
             ['key' => 'floor', 'label' => 'Floor', 'wants' => '150+ m²', 'has' => '120 m²', 'state' => 'miss'],
         ], 'must_haves' => [['label' => 'Pets', 'state' => 'unknown']], 'deal_breakers' => [['label' => 'Complex', 'state' => 'ok']]]);
-        $line = view('corex.market-intelligence._buyer-fit-line', ['fit' => $fit])->render();
-        $text = trim(preg_replace('/\s+/', ' ', strip_tags($line)));
-        $this->assertSame('Alex wants · 2+ beds ✓ · ≤ R1.2m ✓ · Apartment / Flat or Townhouse ✓ · Margate, Uvongo ✓ · floor 150+ m² ✗ · Pets ? · no Complex ✓', $text, 'no dashes, na left out, one line');
-        $this->assertSame(1, substr_count($line, 'data-qa="fit-line"'));
-        $this->assertStringContainsString('white-space:nowrap; overflow:hidden; text-overflow:ellipsis', $line, 'one line, ellipsis when long');
-        $this->assertSame(1, preg_match('/data-qa="fit-label"[^>]*color-mix\(in srgb, var\(--brand-icon\) 60%, black\)/', $line), 'the label is in the buyer teal');
-        $this->assertSame(1, preg_match('/data-state="ok"[^>]*color: #166534[^>]*>2\+ beds ✓/', $line), 'ok is green on the text');
-        $this->assertSame(1, preg_match('/data-state="miss"[^>]*color: #b91c1c[^>]*>floor 150\+ m² ✗/', $line), 'miss is red on the text');
-        $this->assertSame(1, preg_match('/data-state="unknown"[^>]*color: #92400e[^>]*>Pets \?/', $line), 'unknown is amber on the text');
-        $this->assertLessThan(strpos($line, '≤ R1.2m'), strpos($line, '2+ beds'), 'beds first, then price');
+        $h = $this->factsGrid($fit);
+
+        $this->assertSame(1, substr_count($h, 'data-qa="advert-icons"'), 'it IS the facts line: one grid, not a second row of icons');
+        $this->assertSame(1, preg_match('/data-qa="fit-pill"[^>]*color:#fff[^>]*background: color-mix\(in srgb, var\(--brand-icon\) 65%, black\)[^>]*>Alex wants</', $h), '"Alex wants" is a filled pill in the buyer colour, white text');
+        $this->assertStringContainsString('background: color-mix(in srgb, var(--brand-icon) 13%, transparent)', $h, 'the wants row carries a faint tint of the buyer colour');
+        preg_match_all('/data-col="([a-z]+)"/', $h, $cols);
+        $this->assertSame(['beds', 'baths', 'garages', 'parking', 'erf', 'floor'], $cols[1], 'one column per fact, in the facts line order');
+        $this->assertSame(1, preg_match('/data-qa="fit-fig-beds"[^>]*>\s*<span data-state="ok"[^>]*color: #166534[^>]*>2\+ ✓</', $h), 'row 2, under beds: the buyer\'s figure, green when it fits');
+        $this->assertSame(1, preg_match('/data-qa="fit-fig-baths"[^>]*>\s*<span data-state="miss"[^>]*color: #b91c1c[^>]*>3\+ ✗</', $h));
+        $this->assertSame(1, preg_match('/data-qa="fit-fig-garages"[^>]*>\s*<span data-state="unknown"[^>]*color: #92400e[^>]*>1\+ \?</', $h));
+        $this->assertSame(1, preg_match('/data-qa="fit-fig-parking"[^>]*>\s*<span style="color: var\(--text-secondary\);">–</', $h), 'not stated: a grey dash under the same column');
+        $this->assertSame(1, preg_match('/data-qa="fit-fig-erf"[^>]*>\s*<span style="color: var\(--text-secondary\);">–</', $h), 'the property has an erf size, so the column is there');
+        $this->assertSame(1, preg_match('/data-qa="fit-fig-floor"[^>]*>\s*<span data-state="miss"[^>]*>150\+ m² ✗</', $h));
+        $this->assertSame(2, substr_count($h, 'data-qa="fit-chip"'), 'must-haves and deal-breakers trail as chips');
+        $this->assertStringContainsString('>Pets ?</span>', $h);
+        $this->assertStringContainsString('>no Complex ✓</span>', $h);
+        $this->assertStringNotContainsString('1.2m', $h, 'price, type and suburb are ticks on their own lines, not in this grid');
+        // row 1 carries the property's figures with the card's own look (icon + number), the same partial as the plain facts line
+        $this->assertStringContainsString('title="Bedrooms"', $h);
+        $this->assertStringContainsString('Floor 120 m²', $h);
 
         $none = $this->fit(['fields' => array_map(fn ($f) => array_replace($f, ['state' => 'na', 'wants' => null]), $this->fit()['fields']), 'must_haves' => [], 'deal_breakers' => []]);
-        $this->assertSame('', trim(view('corex.market-intelligence._buyer-fit-line', ['fit' => $none])->render()), 'a wishlist that states none of it gets no line');
+        $this->assertNull(\App\Services\Prospecting\MicWork\BuyerFitLabel::wantsRow($none), 'a wishlist that states none of it: no wants row, the facts line stays plain');
 
         $pop = view('corex.market-intelligence._advert-pop', ['kind' => 'fit', 'adv' => ['buyer_fit' => $this->fit()], 'listing' => (object) ['id' => 1], 'money' => fn ($v) => 'R ' . number_format($v)])->render();
         $this->assertSame(12, substr_count($pop, 'data-qa="pop-entry"'), 'nine fields, three must-haves, one line each');
@@ -311,7 +332,7 @@ final class MicWorkAdvertsViewTest extends TestCase
     {
         $this->advert('P24-150100060', 1_100_000, ['tracked_property_id' => $this->file('P24-150100060')], ['description_snippet' => 'A lovely family home close to the beach with a big garden.']);
         $h = $this->page(['view' => 'adverts']);
-        foreach (['fit-line', 'fit-chips', 'fit-badge', 'line-fit', 'fit-tick-price', 'fit-tick-type', 'mi-advert-body mi-advert-body-fit', 'mi-advert-right mi-advert-right-fit'] as $k) {
+        foreach (['fit-line', 'fit-chips', 'fit-badge', 'line-fit', 'fit-tick-price', 'fit-tick-type', 'fit-tick-suburb', 'fit-pill', 'mi-advert-body mi-advert-body-fit', 'mi-advert-right mi-advert-right-fit'] as $k) {
             $this->assertStringNotContainsString($k, $h, $k);
         }
         $this->assertStringContainsString('class="mi-clamp" style="--mi-lines: 4;"', $h, 'the description keeps its four lines, as plain CSS (no Alpine needed)');

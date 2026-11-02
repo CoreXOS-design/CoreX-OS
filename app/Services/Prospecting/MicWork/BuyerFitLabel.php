@@ -63,41 +63,35 @@ final class BuyerFitLabel
     }
 
     /**
-     * The items of the "Jan wants" line: only what the wishlist states (state not na, something to say), in the order beds, baths, garages, parking, price, type,
-     * suburb, erf, floor, then the must-haves and deal-breakers. Each: text (with its tick), state, colour, hover title.
+     * The buyer's row of the facts grid (13.18): the figures he stated for beds, baths, garages, parking, erf and floor (state not na, something to say), each with its tick, state and colour,
+     * and his must-haves / deal-breakers as chips. Price, type and suburb are NOT here - they are ticks on their own lines. Null when he stated none of it.
      *
-     * @return list<array{key: string, text: string, state: string, color: string, title: string}>
+     * @return array{figures: array<string, array{text: string, state: string, color: string, title: string}>, chips: list<array{text: string, state: string, color: string, title: string}>}|null
      */
-    public static function wantsItems(array $fit): array
+    public static function wantsRow(array $fit): ?array
     {
-        $out = [];
-        foreach (['beds', 'baths', 'garages', 'parking', 'price', 'type', 'suburb', 'erf', 'floor'] as $key) {
+        $figures = [];
+        foreach (['beds', 'baths', 'garages', 'parking', 'erf', 'floor'] as $key) {
             $f = self::field($fit, $key);
             $wants = trim((string) ($f['wants'] ?? ''));
             if (! $f || self::state($f['state'] ?? null) === 'na' || $wants === '') {
                 continue;
             }
-            $text = match ($key) {
-                'beds' => $wants . ' beds', 'baths' => $wants . ' baths', 'garages' => $wants . ' garages', 'parking' => $wants . ' parking',
-                'erf' => 'erf ' . $wants, 'floor' => 'floor ' . $wants,
-                'type' => str_replace(' · ', ' or ', $wants),
-                'suburb' => str_replace(' · ', ', ', $wants),
-                default => $wants,
-            };
             $st = self::state($f['state']);
-            $out[] = ['key' => $key, 'text' => trim($text . ' ' . self::mark($st)), 'state' => $st, 'color' => self::color($st), 'title' => self::fieldTitle($fit, $f)];
+            $figures[$key] = ['text' => trim($wants . ' ' . self::mark($st)), 'state' => $st, 'color' => self::color($st), 'title' => self::fieldTitle($fit, $f)];
         }
+        $chips = [];
         foreach (['must_haves' => '', 'deal_breakers' => 'no '] as $group => $prefix) {
             foreach ($fit[$group] ?? [] as $it) {
                 $st = self::state($it['state'] ?? null);
                 if ($st === 'na' || trim((string) ($it['label'] ?? '')) === '') {
                     continue;
                 }
-                $out[] = ['key' => $group, 'text' => trim($prefix . $it['label'] . ' ' . self::mark($st)), 'state' => $st, 'color' => self::color($st), 'title' => ($group === 'must_haves' ? 'Must-have: ' : 'Deal-breaker: ') . $it['label']];
+                $chips[] = ['text' => trim($prefix . $it['label'] . ' ' . self::mark($st)), 'state' => $st, 'color' => self::color($st), 'title' => ($group === 'must_haves' ? 'Must-have: ' : 'Deal-breaker: ') . $it['label']];
             }
         }
 
-        return $out;
+        return $figures || $chips ? ['figures' => $figures, 'chips' => $chips] : null;
     }
 
     /** "Alex wants 3 bedrooms or more - this has 2" style hover text, from the parts the row gives */

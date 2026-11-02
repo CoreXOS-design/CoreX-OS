@@ -17,7 +17,7 @@
     // 13.18 Buyer wants vs property has: only when a buyer is selected (the row then carries buyer_fit, from the match engine); no buyer, nothing changes
     $fit = !empty($adv['buyer_fit']) ? $adv['buyer_fit'] : null;
     $B = \App\Services\Prospecting\MicWork\BuyerFitLabel::class;
-    $fitLine = $fit && $B::wantsItems($fit) !== [];
+    $fitLine = $fit && $B::wantsRow($fit) !== null;
     $tick = fn (string $key) => $fit ? $B::tick($fit, $key) : null;
     $fc = fn (string $key) => $fit && ($c = $B::factColor($fit, $key)) ? ' color: ' . $c . '; font-weight:700;' : '';
     $fcv = fn (string $key) => $fit ? $B::factColor($fit, $key) : null;
@@ -103,7 +103,7 @@
             @endif
         </div>
         <div style="font-size:1rem; line-height:1.3; font-weight:600; color: var(--text-primary);" data-qa="advert-heading">{{ $heading }}@if($tk = $tick('type')) <span data-qa="fit-tick-type" title="{{ $tk['title'] }}" style="font-weight:800; color: {{ $tk['color'] }};">{{ $tk['mark'] }}</span>@endif</div>
-        <div style="font-size:.875rem; line-height:1.3; font-weight:700; color: var(--text-primary);" data-qa="advert-place">{{ $adv['suburb'] ?? $listing->suburb }}@if($hasAddress) · {{ \Illuminate\Support\Str::limit($displayAddress, 80) }}@endif</div>
+        <div style="font-size:.875rem; line-height:1.3; font-weight:700; color: var(--text-primary);" data-qa="advert-place">{{ $adv['suburb'] ?? $listing->suburb }}@if($hasAddress) · {{ \Illuminate\Support\Str::limit($displayAddress, 80) }}@endif @if($tk = $tick('suburb'))<span data-qa="fit-tick-suburb" title="{{ $tk['title'] }}" style="font-weight:800; color: {{ $tk['color'] }};">{{ $tk['mark'] }}</span>@endif</div>
 
         @php
             // No wording captured: the listing page's feature rows and rates / levies fill the description space (nothing when there are none).
@@ -137,15 +137,18 @@
             </div>
         @endif
 
-        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:2px 14px; margin-top:{{ ($text !== '' || $featBits || $costBits) ? 'auto' : '4px' }}; font-size:.875rem; color: var(--text-primary);" data-qa="advert-icons">
-            @if(!empty($f['beds']))<span title="Bedrooms" style="display:inline-flex; align-items:center; gap:4px;{{ $fc('beds') }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px; height:15px; color: {{ $fcv('beds') ?? 'var(--text-secondary)' }};"><path d="M3 18v-7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7M3 14h18M3 18v2M21 18v2M7 9V6h10v3"/></svg>{{ $f['beds'] }}</span>@endif
-            @if(!empty($f['baths']))<span title="Bathrooms" style="display:inline-flex; align-items:center; gap:4px;{{ $fc('baths') }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px; height:15px; color: {{ $fcv('baths') ?? 'var(--text-secondary)' }};"><path d="M4 12h16v3a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4v-3zM6 12V6a2 2 0 0 1 4 0M7 19l-1 2M17 19l1 2"/></svg>{{ $f['baths'] }}</span>@endif
-            @if(!empty($f['garages']))<span title="Garages" style="display:inline-flex; align-items:center; gap:4px;{{ $fc('garages') }}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px; height:15px; color: {{ $fcv('garages') ?? 'var(--text-secondary)' }};"><path d="M5 17h14M6 17l1.5-6h9L18 17M7 17v2M17 17v2"/></svg>{{ $f['garages'] }}</span>@endif
-            @if(!empty($adv['parking']))<span title="Parking bays" style="display:inline-flex; align-items:center; gap:4px;{{ $fc('parking') }}"><span style="font-weight:800; color: {{ $fcv('parking') ?? 'var(--text-secondary)' }};">P</span>{{ $adv['parking'] }}</span>@endif
-            @if(!empty($adv['erf_size_m2']))<span title="Erf size" style="white-space:nowrap;{{ $fc('erf') }}">Erf {{ number_format((float) $adv['erf_size_m2']) }} m²</span>@endif
-            @if(!empty($adv['floor_size_m2']))<span title="Floor size" style="white-space:nowrap;{{ $fc('floor') }}">Floor {{ number_format((float) $adv['floor_size_m2']) }} m²</span>@endif
-        </div>
-        @if($fitLine)@include('corex.market-intelligence._buyer-fit-line', ['fit' => $fit])@endif
+        @php
+            $factKeys = ['beds', 'baths', 'garages', 'parking', 'erf', 'floor'];
+            $factsMt = ($text !== '' || $featBits || $costBits) ? 'auto' : '4px';
+        @endphp
+        @if($fitLine)
+            {{-- 13.18: facts line + the buyer's wants line as one two-row grid (one column per fact) --}}
+            @include('corex.market-intelligence._buyer-fit-facts', ['fit' => $fit])
+        @else
+            <div style="display:flex; flex-wrap:wrap; align-items:center; gap:2px 14px; margin-top:{{ $factsMt }}; font-size:.875rem; color: var(--text-primary);" data-qa="advert-icons">
+                @foreach($factKeys as $k)@include('corex.market-intelligence._advert-fact', ['k' => $k])@endforeach
+            </div>
+        @endif
         <div style="font-size:.8125rem; line-height:1.3; color: var(--text-primary); display:flex; align-items:baseline; gap:6px; min-width:0;" data-qa="advert-source">
             <span style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ implode(' · ', array_filter([$who, $adv['agent_name'] ?? null])) }}@if($lead && !empty($lead['ref']))@if($who || !empty($adv['agent_name'])) · @endif<span style="{{ $muted }}">{{ $lead['ref'] }}</span>@endif</span>
             @include('corex.market-intelligence._advert-fetch')
