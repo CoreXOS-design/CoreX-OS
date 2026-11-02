@@ -27,7 +27,7 @@
                 <div class="mt-1">Still missing: {{ implode(' and ', $phoneCall['missing']) }}.</div>
             @endif
             @if(\App\Support\Embed::on())
-                <button type="button" class="corex-btn-outline text-sm mt-3" data-qa="phone-gate-go" onclick="window.corexPitchGo && corexPitchGo('owner', {{ in_array('the deed record', $phoneCall['missing'] ?? [], true) ? "'deed'" : 'null' }})">Go to the Owner step</button>
+                <button type="button" class="corex-btn-outline text-sm mt-3" data-qa="phone-gate-go" onclick="window.corexPitchGo && corexPitchGo('owner', {!! in_array('the deed record', $phoneCall['missing'] ?? [], true) ? "'deed'" : 'null' !!})">Go to the Owner step</button>
             @endif
         </div>
     @else
