@@ -184,10 +184,12 @@ final class ActivationService
     }
 
     /**
-     * The manager's "Not started / Paused" panel: one row per agent in $agents who has not started or is paused.
+     * The manager's Agents panel: one row per agent in $agents - every agent on Road to Sold, not only those with a start row. `pressed` = the agent (or a
+     * manager for them) pressed Start; an agent already working Road to Sold before Start existed counts as active but has not pressed it, so the panel
+     * still offers Start for them. Not started first, then paused, then the rest; by name.
      *
      * @param  Collection<int,User>  $agents  already limited to the viewer's breadth
-     * @return list<array{id:int,name:string,branch:?int,state:string,since:?string,until:?string,reason:?string,by:?string}>
+     * @return list<array{id:int,name:string,branch:?int,state:string,pressed:bool,started:?string,since:?string,until:?string,reason:?string,by:?string}>
      */
     public function roster(Collection $agents, string $track = RtsSetting::TRACK_SALES, ?CarbonInterface $today = null): array
     {
@@ -197,18 +199,18 @@ final class ActivationService
         $names = $people->pluck('name', 'id');
         foreach ($people as $a) {
             $s = $this->state($a, $track, $today);
-            if ($s['state'] === self::STATE_ACTIVE) {
-                continue;
-            }
             $out[] = [
                 'id' => (int) $a->id, 'name' => (string) ($names[$a->id] ?? $a->name), 'branch' => $a->branch_id ? (int) $a->branch_id : null, 'state' => $s['state'],
+                'pressed' => $s['started_at'] !== null,
+                'started' => $s['started_at']?->format('j M'),
                 'since' => $s['state'] === self::STATE_PAUSED ? $s['paused_from']?->format('j M') : null,
                 'until' => $s['paused_until']?->format('j M'),
                 'reason' => $s['pause_reason'],
                 'by' => $s['paused_by'] ? (string) ($names[$s['paused_by']] ?? User::query()->withoutGlobalScopes()->whereKey($s['paused_by'])->value('name')) : null,
             ];
         }
-        usort($out, fn ($x, $y) => [$x['state'] === self::STATE_PAUSED ? 1 : 0, $x['name']] <=> [$y['state'] === self::STATE_PAUSED ? 1 : 0, $y['name']]);
+        $rank = fn ($r) => $r['state'] === self::STATE_NOT_STARTED ? 0 : ($r['state'] === self::STATE_PAUSED ? 1 : 2);
+        usort($out, fn ($x, $y) => [$rank($x), $x['name']] <=> [$rank($y), $y['name']]);
 
         return $out;
     }

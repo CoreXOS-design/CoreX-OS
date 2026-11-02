@@ -35,6 +35,7 @@
     .rts-cmp-row { padding: 6px 0; }
     .rts-belt-line { display: flex; align-items: center; gap: 12px; min-height: 22px; font-size: .75rem; color: var(--text-secondary); }
     .rts-pop { position: absolute; z-index: 40; top: 26px; right: 0; width: 20rem; max-width: 92vw; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); box-shadow: 0 6px 18px rgba(0,0,0,.18); }
+    .rts-agents { left: 0; right: auto; width: 34rem; max-height: 22rem; overflow-y: auto; }
 </style>
 
 <div data-qa="belt" class="rts-belt" style="display: flex; flex-direction: column; gap: 4px;">
@@ -72,7 +73,7 @@
         @endif
 
         @if(count($belt) > 0)
-            <div class="rts-belt-row" data-qa="belt-tiles" role="list">
+            <div class="rts-belt-row" data-qa="belt-tiles" data-tour="smk-rts-belt" role="list">
                 @foreach($belt as $i => $t)
                     <div class="rts-tilewrap" x-data="beltCompare('{{ route('road-to-sold.belt.scopes', ['station' => $t['key']] + $postBase + \App\Services\RoadToSold\Track::params($track)) }}')" @keydown.escape.window="open = false" @click.outside="open = false" style="position: relative; min-width: 0;" role="listitem">
                         <a href="{{ route('road-to-sold.index', $t['url']) }}" data-qa="belt-tile-{{ $t['key'] }}" class="rts-tile {{ $lit($t) ? 'is-lit' : '' }}" style="height: 100%;"
@@ -124,9 +125,9 @@
                     </div>
                 @endif
                 @if(count($roster ?? []) > 0)
-                    @php $ns = collect($roster)->where('state', 'not_started')->count(); $ps = collect($roster)->where('state', 'paused')->count(); @endphp
-                    <button type="button" class="underline" style="background: none; border: 0; padding: 0; cursor: pointer; color: var(--text-secondary);" @click="roster = !roster; pause = false" data-qa="belt-roster-open">
-                        Not started {{ $ns }} · Paused {{ $ps }}
+                    @php $ns = collect($roster)->where('pressed', false)->count(); $ps = collect($roster)->where('state', 'paused')->count(); @endphp
+                    <button type="button" class="underline" style="background: none; border: 0; padding: 0; cursor: pointer; color: var(--text-secondary);" @click="roster = !roster; pause = false; hist = false" data-qa="belt-roster-open">
+                        Agents · {{ $ns }} not started · {{ $ps }} paused
                     </button>
                 @endif
 
@@ -144,21 +145,45 @@
                 </div>
 
                 @if(count($roster ?? []) > 0)
-                    <div x-show="roster" x-cloak class="rts-pop" data-qa="belt-roster" style="left: 0; right: auto; width: 26rem; max-height: 18rem; overflow-y: auto;">
-                        <div class="text-xs font-semibold mb-2" style="color: var(--text-primary);">Not started / Paused</div>
+                    <div x-show="roster" x-cloak class="rts-pop rts-agents" data-qa="belt-roster" x-data="{ pausing: null }">
+                        <div class="text-xs font-semibold" style="color: var(--text-primary);">Agents</div>
+                        @if($startRequired ?? false)
+                            <div class="text-xs mb-2" style="color: var(--text-muted);" data-qa="agents-start-line">Agents press Start my Road to Sold before their lists load - or start them from this list.</div>
+                        @endif
                         @foreach($roster as $r)
-                            <div class="flex items-center justify-between gap-2 py-1 text-xs" style="border-top: 1px solid var(--border);" data-qa="roster-row">
-                                <span style="min-width: 0;">
-                                    <strong>{{ $r['name'] }}</strong>
-                                    <span style="color: var(--text-muted);">
-                                        @if($r['state'] === 'paused') paused until {{ $r['until'] }}@if($r['reason']) - {{ $r['reason'] }}@endif @if($r['by']) (set by {{ $r['by'] }})@endif
-                                        @else has not started @endif
+                            @php $paused = $r['state'] === 'paused'; @endphp
+                            <div class="py-1 text-xs" style="border-top: 1px solid var(--border);" data-qa="roster-row" data-agent="{{ $r['id'] }}">
+                                <div class="flex items-center justify-between gap-2">
+                                    <span style="min-width: 0;">
+                                        <strong>{{ $r['name'] }}</strong>
+                                        <span style="color: var(--text-muted);" data-qa="roster-state">
+                                            @if($paused) paused until {{ $r['until'] }}@if($r['reason']) - {{ $r['reason'] }}@endif @if($r['by']) (set by {{ $r['by'] }})@endif
+                                            @elseif($r['state'] === 'not_started') has not started
+                                            @elseif(! $r['pressed']) working - has not pressed Start
+                                            @else started {{ $r['started'] }}
+                                            @endif
+                                        </span>
                                     </span>
-                                </span>
-                                @if($canPauseOthers ?? false)
-                                    <form method="POST" action="{{ route($r['state'] === 'paused' ? 'road-to-sold.activation.resume' : 'road-to-sold.activation.start', \App\Services\RoadToSold\Track::params($track)) }}">
+                                    @if($canPauseOthers ?? false)
+                                        <span class="flex items-center gap-1" style="flex-shrink: 0;">
+                                            @if(! $r['pressed'])
+                                                <form method="POST" action="{{ route('road-to-sold.activation.start', \App\Services\RoadToSold\Track::params($track)) }}">@csrf<input type="hidden" name="agent" value="{{ $r['id'] }}"><button type="submit" class="corex-btn-outline corex-btn-xs" data-qa="roster-start">Start</button></form>
+                                            @endif
+                                            @if($paused)
+                                                <form method="POST" action="{{ route('road-to-sold.activation.resume', \App\Services\RoadToSold\Track::params($track)) }}">@csrf<input type="hidden" name="agent" value="{{ $r['id'] }}"><button type="submit" class="corex-btn-outline corex-btn-xs" data-qa="roster-resume">Resume</button></form>
+                                            @elseif($r['state'] === 'active')
+                                                <button type="button" class="corex-btn-outline corex-btn-xs" @click="pausing = pausing === {{ $r['id'] }} ? null : {{ $r['id'] }}" data-qa="roster-pause">Pause</button>
+                                            @endif
+                                        </span>
+                                    @endif
+                                </div>
+                                @if(($canPauseOthers ?? false) && $r['state'] === 'active')
+                                    <form x-show="pausing === {{ $r['id'] }}" x-cloak method="POST" action="{{ route('road-to-sold.activation.pause', \App\Services\RoadToSold\Track::params($track)) }}" class="rts-agents-pause flex items-center gap-2 mt-1" data-qa="roster-pause-form">
                                         @csrf<input type="hidden" name="agent" value="{{ $r['id'] }}">
-                                        <button type="submit" class="corex-btn-outline corex-btn-xs">{{ $r['state'] === 'paused' ? 'Resume' : 'Start for them' }}</button>
+                                        <label class="text-xs" style="color: var(--text-muted);">Until</label>
+                                        <x-dmy-date name="until" :required="true" :min="now()->toDateString()" />
+                                        <input type="text" name="reason" maxlength="120" placeholder="Why (training, leave, other)" class="rounded-md px-2 py-1 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); min-width: 0; flex: 1 1 8rem;">
+                                        <button type="submit" class="corex-btn-primary corex-btn-xs">Pause</button>
                                     </form>
                                 @endif
                             </div>

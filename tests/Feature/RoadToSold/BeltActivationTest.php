@@ -148,6 +148,40 @@ final class BeltActivationTest extends TestCase
         $this->assertSame(ActivationService::STATE_ACTIVE, $this->svc()->state($this->agent)['state']);
     }
 
+    /** Johan, 2 Nov: ONE Agents panel for a manager - every agent on Road to Sold with Start / Pause / Resume on the row; "not started" counts everyone who never pressed Start. */
+    public function test_the_agents_panel_lists_every_agent_with_start_pause_and_resume_and_counts_everyone_who_never_pressed_start(): void
+    {
+        app(ProspectService::class)->place($this->agent, $this->tp(['street_number' => '1', 'street_name' => 'Old Road'])->id);   // working before Start existed: active, but never pressed it
+        $pressed = $this->makeAgent();
+        $this->actingAs($pressed)->post(route('road-to-sold.activation.start'))->assertRedirect();
+        $paused = $this->makeAgent();
+        $this->actingAs($paused)->post(route('road-to-sold.activation.start'))->assertRedirect();
+        $this->actingAs($this->manager)->post(route('road-to-sold.activation.pause'), ['agent' => $paused->id, 'until' => '2026-10-20', 'reason' => 'Leave'])->assertRedirect();
+
+        $rows = collect($this->svc()->roster(app(\App\Services\RoadToSold\CallListService::class)->viewableAgents($this->manager)))->keyBy('id');
+        $this->assertTrue($rows->has($this->agent->id) && $rows->has($this->fresh->id) && $rows->has($pressed->id) && $rows->has($paused->id), 'every agent is a row, not only the ones with a start row');
+        $this->assertFalse($rows[$this->agent->id]['pressed']);
+        $this->assertSame('active', $rows[$this->agent->id]['state']);
+        $this->assertFalse($rows[$this->fresh->id]['pressed']);
+        $this->assertTrue($rows[$pressed->id]['pressed']);
+        $this->assertSame('paused', $rows[$paused->id]['state']);
+
+        $html = $this->actingAs($this->manager)->get(route('road-to-sold.index', ['agent' => $this->agent->id]))->getContent();
+        $never = $rows->where('pressed', false)->count();
+        $this->assertStringContainsString("Agents · {$never} not started · 1 paused", $html);
+        $this->assertStringContainsString('data-qa="agents-start-line"', $html);
+        $this->assertStringContainsString('Agents press Start my Road to Sold before their lists load', $html);
+        $row = fn (int $id) => (string) (preg_match('#data-qa="roster-row" data-agent="' . $id . '".*?(?=data-qa="roster-row"|</div>\s*</div>\s*</div>\s*</div>)#s', $html, $m) ? $m[0] : '');
+        $this->assertStringContainsString('data-qa="roster-start"', $row($this->fresh->id));
+        $this->assertStringContainsString('data-qa="roster-start"', $row($this->agent->id), 'a working agent who never pressed Start can still be started from the panel');
+        $this->assertStringContainsString('working - has not pressed Start', $row($this->agent->id));
+        $this->assertStringContainsString('data-qa="roster-pause"', $row($this->agent->id));
+        $this->assertStringNotContainsString('data-qa="roster-start"', $row($pressed->id));
+        $this->assertStringContainsString('data-qa="roster-pause"', $row($pressed->id));
+        $this->assertStringContainsString('data-qa="roster-resume"', $row($paused->id));
+        $this->assertStringNotContainsString('data-qa="roster-pause"', $row($paused->id));
+    }
+
     public function test_an_agent_cannot_start_or_pause_a_colleague_and_a_manager_cannot_reach_outside_their_breadth(): void
     {
         $this->actingAs($this->agent)->post(route('road-to-sold.activation.start'), ['agent' => $this->fresh->id])->assertForbidden();

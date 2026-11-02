@@ -16,12 +16,18 @@
         'calllist' => ['selections'],
         'limits'   => ['new_on_market_days', 'long_on_market_days', 'owner_known_quantity', 'stuck_stock_min_days', 'stuck_stock_max_views', 'stuck_stock_max_leads', 'stuck_stock_lookback_days', 'hot_pocket_lookback_days', 'price_drop_lookback_days', 'expired_competitor_lookback_days', 'prospect_stall_days'],
         'matching' => ['buyer_match_tiers', 'active_buyer_states', 'on_market_statuses', 'add_to_day_max', 'hot_pocket_weight_buyers', 'hot_pocket_weight_leads', 'hot_pocket_weight_sales'],
-        'aftercall' => ['no_answer_drop_after', 'hold_days'],
+        'starting' => ['agent_start_required'],
+        'claims'   => ['claim_hold_days', 'claim_warn_days', 'claim_extension_days', 'claim_extensions_allowed'],
+        'ownerfound' => ['owner_requires_deed'],
+        'aftercall' => ['no_answer_drop_after', 'hold_days', 'default_callback_days'],
+        'colleagues' => ['source_for_colleagues'],
         'ontrack'  => ['summary_steps', 'summary_green_from_pct', 'summary_red_below_pct', 'summary_ahead_from_pct', 'capture_back_date_working_days', 'capture_needs_review'],
         'levels'   => ['levels_signoff_required', 'level_periods_required'],
     ];
-    $groupLabels = ['areas' => 'Areas', 'targets' => 'Targets and missed items', 'calllist' => 'Where the call list comes from', 'limits' => 'Limits for those sources',
-        'matching' => 'Matching and list size', 'aftercall' => 'After a call', 'ontrack' => 'On-track bar and capture', 'levels' => 'Levels and sign-off'];
+    $groupLabels = ['areas' => 'Areas', 'targets' => 'Targets and missed items', 'calllist' => 'Where the call list comes from', 'colleagues' => 'Colleagues\' buyers', 'limits' => 'Limits for those sources',
+        'matching' => 'Matching and list size', 'starting' => 'Starting', 'claims' => 'Claims', 'ownerfound' => 'Owner found', 'aftercall' => 'After contact', 'ontrack' => 'On-track bar and capture', 'levels' => 'Levels and sign-off'];
+    // "(standard: on / off)" under a switch, the way the numbers say "(standard: N)"
+    $stdOnOff = fn (string $k) => array_key_exists($k, $defaults) ? ($defaults[$k] ? 'on' : 'off') : null;
     $open = array_key_exists((string) request('section'), $groupLabels) ? request('section') : (($panel ?? null) ? 'calllist' : 'areas');
     foreach ($errors->keys() as $errKey) {
         foreach ($groupOf as $g => $fields) {
@@ -99,6 +105,7 @@
                         <span>
                             <span class="font-semibold">Lock agents to their areas</span><br>
                             <span style="color:var(--text-muted);">On: agents only get their own suburbs. Off: own suburbs first, then the agency's others.</span>
+                            @if($stdOnOff('lock_agents_to_areas'))<br><span class="text-xs" style="color:var(--text-muted);" data-qa="std-lock_agents_to_areas">Standard: {{ $stdOnOff('lock_agents_to_areas') }}</span>@endif
                         </span>
                     </label>
                     <div>
@@ -144,8 +151,16 @@
                         <span>
                             <span class="font-semibold">Half-day leave halves the target</span><br>
                             <span style="color:var(--text-muted);">On: half-day leave halves that day's target. Off: the full target still applies.</span>
+                            @if($stdOnOff('half_day_leave_halves_target'))<br><span class="text-xs" style="color:var(--text-muted);" data-qa="std-half_day_leave_halves_target">Standard: {{ $stdOnOff('half_day_leave_halves_target') }}</span>@endif
                         </span>
                     </label>
+                    @if(\Illuminate\Support\Facades\Route::has($rb . 'targets.index'))
+                        <div class="text-sm" style="color:var(--text-primary);" data-qa="link-stock-targets">
+                            <span class="font-semibold">Stock loaded per agent per day</span><br>
+                            <span style="color:var(--text-muted);">How many properties load on each agent's list each weekday is set on the Targets page.</span>
+                            <a href="{{ route($rb . 'targets.index') }}" class="underline ml-1" style="color:var(--brand-icon);">Open Targets</a>
+                        </div>
+                    @endif
                     <div>
                         <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="public_holiday_country">Public holidays of</label>
                         <select id="public_holiday_country" name="public_holiday_country" class="w-56 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
@@ -277,24 +292,118 @@
             </div>
         </div>
 
-        <div x-show="g === 'aftercall'" x-cloak>
-            {{-- Outcomes --}}
+        <div x-show="g === 'starting'" x-cloak>
             <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
                 <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
-                    <h3 class="text-sm font-bold" style="color:var(--text-primary);">After a call</h3>
+                    <h3 class="text-sm font-bold" style="color:var(--text-primary);">Starting</h3>
+                </div>
+                <div class="p-5 space-y-4">
+                    @if(\App\Models\RoadToSold\RtsSetting::hasAgentStartColumn())
+                    <label class="flex items-start gap-3 text-sm" style="color:var(--text-primary);" data-qa="setting-agent-start">
+                        <input type="hidden" name="agent_start_required" value="0">
+                        <input type="checkbox" name="agent_start_required" value="1" class="mt-1" @checked(old('agent_start_required', $settings->agentStartRequired()))>
+                        <span>
+                            <span class="font-semibold">Agents press "Start my Road to Sold" before their lists load</span><br>
+                            <span style="color:var(--text-muted);">On: nothing loads for an agent until they press Start (or a manager starts them from the Agents list on the Road to Sold page); their first list arrives the next working day. Off: lists load for everyone.</span>
+                            @if($stdOnOff('agent_start_required'))<br><span class="text-xs" style="color:var(--text-muted);" data-qa="std-agent_start_required">Standard: {{ $stdOnOff('agent_start_required') }}</span>@endif
+                        </span>
+                    </label>
+                    @endif
+                </div>
+            </div>
+        </div>
+
+        <div x-show="g === 'claims'" x-cloak>
+            <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+                <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
+                    <h3 class="text-sm font-bold" style="color:var(--text-primary);">Claims</h3>
+                </div>
+                <div class="p-5 space-y-4">
+                    @if(\App\Models\RoadToSold\RtsSetting::hasClaimHoldColumns())
+                    <div class="grid gap-3 sm:grid-cols-2" data-qa="setting-claim-hold">
+                        @foreach([
+                            ['claim_hold_days', 'A claimed property with no work on it goes back to the pool after', $settings->claimHoldDays(), 1, 365, 'working days. Any call, move, booking or presentation starts the count again.'],
+                            ['claim_warn_days', 'The agent is warned', $settings->claimWarnDays(), 0, 60, 'working days before that happens.'],
+                            ['claim_extension_days', 'One extension adds', $settings->claimExtensionDays(), 1, 365, 'working days.'],
+                            ['claim_extensions_allowed', 'An agent may extend a claim', $settings->claimExtensionsAllowed(), 0, 10, 'time(s). A manager can allow more.'],
+                        ] as [$name, $label, $value, $min, $max, $hint])
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="{{ $name }}">{{ $label }}</label>
+                                <input id="{{ $name }}" type="number" min="{{ $min }}" max="{{ $max }}" name="{{ $name }}" value="{{ old($name, $value) }}"
+                                       class="w-28 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <span class="text-xs ml-2" style="color:var(--text-muted);">{{ $hint }} (standard: {{ $defaults[$name] }})</span>
+                            </div>
+                        @endforeach
+                    </div>
+                    @endif
+                    <div class="text-xs" style="color:var(--text-muted);" data-qa="hold-not-the-same">Not the same as <button type="button" class="underline" style="background:none; border:0; padding:0; cursor:pointer; color:var(--text-secondary);" @click="g = 'aftercall'">"Don't offer a contacted property to anyone for {{ $settings->holdDays() }} days"</button>, which is about a property that has already been contacted.</div>
+                </div>
+            </div>
+        </div>
+
+        <div x-show="g === 'ownerfound'" x-cloak>
+            <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+                <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
+                    <h3 class="text-sm font-bold" style="color:var(--text-primary);">Owner found</h3>
+                </div>
+                <div class="p-5 space-y-4">
+                    @if(\App\Models\RoadToSold\RtsSetting::hasOwnerRequiresDeedColumn())
+                    <label class="flex items-start gap-3 text-sm" style="color:var(--text-primary);" data-qa="setting-owner-requires-deed">
+                        <input type="hidden" name="owner_requires_deed" value="0">
+                        <input type="checkbox" name="owner_requires_deed" value="1" class="mt-1" @checked(old('owner_requires_deed', $settings->ownerRequiresDeed()))>
+                        <span>
+                            <span class="font-semibold">A property counts as "Owner found" only once its deed is on record too</span><br>
+                            <span style="color:var(--text-muted);">On: the owner's contact and the property's deed record must both be there before an agent may contact the owner. Off: the owner's contact alone is enough.</span>
+                            @if($stdOnOff('owner_requires_deed'))<br><span class="text-xs" style="color:var(--text-muted);" data-qa="std-owner_requires_deed">Standard: {{ $stdOnOff('owner_requires_deed') }}</span>@endif
+                        </span>
+                    </label>
+                    @endif
+                </div>
+            </div>
+        </div>
+
+        <div x-show="g === 'aftercall'" x-cloak>
+            <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+                <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
+                    <h3 class="text-sm font-bold" style="color:var(--text-primary);">After contact</h3>
                 </div>
                 <div class="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
                     @foreach([
-                        ['no_answer_drop_after', 'Drop off the list after this many no-answers in a row', $settings->noAnswerDropAfter(), 1, 20, 'calls'],
-                        ['hold_days', 'Agent keeps a property after logging an outcome for', $settings->holdDays(), 1, 365, 'days'],
-                    ] as [$name, $label, $value, $min, $max, $unit])
-                        <div>
+                        ['no_answer_drop_after', 'Drop off the list after this many no-answers in a row', $settings->noAnswerDropAfter(), 1, 20, 'calls', null],
+                        ['hold_days', "Don't offer a contacted property to anyone for", $settings->holdDays(), 1, 365, 'days after the result is logged. The agent who logged it keeps it for that time.', 'hold_days'],
+                        ['default_callback_days', 'When a call is logged as "contacted" from Market Intelligence, call back in', $settings->defaultCallbackDays(), 1, 30, 'working days', 'default_callback_days'],
+                    ] as [$name, $label, $value, $min, $max, $unit, $col])
+                        @if($name !== 'default_callback_days' || \App\Models\RoadToSold\RtsSetting::hasDefaultCallbackColumn())
+                        <div @if($name === 'default_callback_days') data-qa="setting-default-callback" @endif>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="{{ $name }}">{{ $label }}</label>
                             <input id="{{ $name }}" type="number" min="{{ $min }}" max="{{ $max }}" name="{{ $name }}" value="{{ old($name, $value) }}"
                                    class="w-28 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             <span class="text-xs ml-2" style="color:var(--text-muted);">{{ $unit }} (standard: {{ $defaults[$name] }})</span>
                         </div>
+                        @endif
                     @endforeach
+                    <div class="text-xs sm:col-span-2" style="color:var(--text-muted);" data-qa="hold-not-the-same">Not the same as <button type="button" class="underline" style="background:none; border:0; padding:0; cursor:pointer; color:var(--text-secondary);" @click="g = 'claims'">the claim hold</button>: "a claimed property with no work on it goes back to the pool after {{ $settings->claimHoldDays() }} working days".</div>
+                </div>
+            </div>
+        </div>
+
+        <div x-show="g === 'colleagues'" x-cloak>
+            <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+                <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
+                    <h3 class="text-sm font-bold" style="color:var(--text-primary);">Colleagues' buyers</h3>
+                </div>
+                <div class="p-5 space-y-4">
+                    @if(\App\Models\RoadToSold\RtsSetting::hasSourceForColleaguesColumn())
+                    <div class="text-sm" data-qa="setting-source-for-colleagues" style="color:var(--text-primary);">
+                        <label class="block font-semibold mb-1" for="source_for_colleagues">Stock for other agents' buyers</label>
+                        <select id="source_for_colleagues" name="source_for_colleagues" class="rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            @foreach(\App\Models\RoadToSold\RtsSetting::COLLEAGUE_SOURCES as $v => $label)
+                                <option value="{{ $v }}" @selected(old('source_for_colleagues', $settings->sourceForColleagues()) === $v)>{{ $label }}</option>
+                            @endforeach
+                        </select>
+                        <div style="color:var(--text-muted);" class="mt-1">After stock for an agent's own buyers, the list can carry stock for a colleague's buyer. The colleague is named on the row. (Standard: {{ \App\Models\RoadToSold\RtsSetting::COLLEAGUE_SOURCES[\App\Models\RoadToSold\RtsSetting::SCALAR_DEFAULTS['source_for_colleagues']] }}.)</div>
+                    </div>
+                    @endif
                 </div>
             </div>
         </div>
@@ -336,68 +445,13 @@
                         <span class="text-xs ml-2" style="color:var(--text-muted);" title="Weekends and the public holidays above do not count.">working days (standard: {{ $defaults['capture_back_date_working_days'] }})</span>
                     </div>
                     </div>
-                    @if(\App\Models\RoadToSold\RtsSetting::hasSourceForColleaguesColumn())
-                    <div class="text-sm" data-qa="setting-source-for-colleagues" style="color:var(--text-primary);">
-                        <label class="block font-semibold mb-1" for="source_for_colleagues">Stock for other agents' buyers</label>
-                        <select id="source_for_colleagues" name="source_for_colleagues" class="rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                            @foreach(\App\Models\RoadToSold\RtsSetting::COLLEAGUE_SOURCES as $v => $label)
-                                <option value="{{ $v }}" @selected(old('source_for_colleagues', $settings->sourceForColleagues()) === $v)>{{ $label }}</option>
-                            @endforeach
-                        </select>
-                        <div style="color:var(--text-muted);" class="mt-1">After an agent's own buyers' stock, the list can carry stock for a colleague's buyer (the colleague is named on the row). Standard: {{ \App\Models\RoadToSold\RtsSetting::COLLEAGUE_SOURCES[\App\Models\RoadToSold\RtsSetting::SCALAR_DEFAULTS['source_for_colleagues']] }}.</div>
-                    </div>
-                    @endif
-                    @if(\App\Models\RoadToSold\RtsSetting::hasAgentStartColumn())
-                    <label class="flex items-start gap-3 text-sm" style="color:var(--text-primary);" data-qa="setting-agent-start">
-                        <input type="hidden" name="agent_start_required" value="0">
-                        <input type="checkbox" name="agent_start_required" value="1" class="mt-1" @checked(old('agent_start_required', $settings->agentStartRequired()))>
-                        <span>
-                            <span class="font-semibold">Agents press "Start my Road to Sold" before their lists load</span><br>
-                            <span style="color:var(--text-muted);">On: switching Road to Sold on loads nothing for anyone; each agent presses Start and the first list arrives the next working day. Off: lists load for everyone, as before.</span>
-                        </span>
-                    </label>
-                    @endif
-                    @if(\App\Models\RoadToSold\RtsSetting::hasDefaultCallbackColumn())
-                    <div data-qa="setting-default-callback">
-                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="default_callback_days">When a call is logged as "contacted" from Market Intelligence, call back in</label>
-                        <input id="default_callback_days" type="number" min="1" max="30" name="default_callback_days" value="{{ old('default_callback_days', $settings->defaultCallbackDays()) }}"
-                               class="w-28 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                        <span class="text-xs ml-2" style="color:var(--text-muted);">working days (standard: {{ $defaults['default_callback_days'] }})</span>
-                    </div>
-                    @endif
-                    @if(\App\Models\RoadToSold\RtsSetting::hasOwnerRequiresDeedColumn())
-                    <label class="flex items-start gap-3 text-sm" style="color:var(--text-primary);" data-qa="setting-owner-requires-deed">
-                        <input type="hidden" name="owner_requires_deed" value="0">
-                        <input type="checkbox" name="owner_requires_deed" value="1" class="mt-1" @checked(old('owner_requires_deed', $settings->ownerRequiresDeed()))>
-                        <span>
-                            <span class="font-semibold">A property counts as "Owner found" only once its deed is on record too</span><br>
-                            <span style="color:var(--text-muted);">On: the owner contact and a deeds or CMA Info capture are both needed before an agent may contact the owner. Off: the linked owner contact alone is enough.</span>
-                        </span>
-                    </label>
-                    @endif
-                    @if(\App\Models\RoadToSold\RtsSetting::hasClaimHoldColumns())
-                    <div class="grid gap-3 sm:grid-cols-2" data-qa="setting-claim-hold">
-                        @foreach([
-                            ['claim_hold_days', 'A claimed property is held for', $settings->claimHoldDays(), 1, 365, 'working days of no work. Any move, outcome, booking or presentation restarts the count.'],
-                            ['claim_warn_days', 'The agent is told', $settings->claimWarnDays(), 0, 60, 'working days before the hold ends.'],
-                            ['claim_extension_days', 'One extension adds', $settings->claimExtensionDays(), 1, 365, 'working days.'],
-                            ['claim_extensions_allowed', 'An agent may extend a claim', $settings->claimExtensionsAllowed(), 0, 10, 'time(s). A manager can grant more.'],
-                        ] as [$name, $label, $value, $min, $max, $hint])
-                            <div>
-                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="{{ $name }}">{{ $label }}</label>
-                                <input id="{{ $name }}" type="number" min="{{ $min }}" max="{{ $max }}" name="{{ $name }}" value="{{ old($name, $value) }}"
-                                       class="w-28 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                <span class="text-xs ml-2" style="color:var(--text-muted);">{{ $hint }} (standard: {{ $defaults[$name] }})</span>
-                            </div>
-                        @endforeach
-                    </div>
-                    @endif
                     <label class="flex items-start gap-3 text-sm" style="color:var(--text-primary);">
                         <input type="hidden" name="capture_needs_review" value="0">
                         <input type="checkbox" name="capture_needs_review" value="1" class="mt-1" @checked(old('capture_needs_review', $settings->captureNeedsReview()))>
                         <span>
                             <span class="font-semibold">Captured tasks wait for a manager's approval</span><br>
                             <span style="color:var(--text-muted);">On: a captured task counts once a manager approves it. Off: it counts as soon as it is saved. Managers can send any captured task back either way.</span>
+                            @if($stdOnOff('capture_needs_review'))<br><span class="text-xs" style="color:var(--text-muted);" data-qa="std-capture_needs_review">Standard: {{ $stdOnOff('capture_needs_review') }}</span>@endif
                         </span>
                     </label>
                 </div>
@@ -417,6 +471,7 @@
                         <span>
                             <span class="font-semibold">A manager signs off each level</span><br>
                             <span style="color:var(--text-muted);">On: an agent moves up only when their manager approves it. Off: they move up by themselves as soon as they have met the level for the weeks below.</span>
+                            @if($stdOnOff('levels_signoff_required'))<br><span class="text-xs" style="color:var(--text-muted);" data-qa="std-levels_signoff_required">Standard: {{ $stdOnOff('levels_signoff_required') }}</span>@endif
                         </span>
                     </label>
                     <div>
