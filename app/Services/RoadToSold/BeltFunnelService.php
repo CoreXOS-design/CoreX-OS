@@ -114,15 +114,16 @@ class BeltFunnelService
     }
 
     /**
-     * The properties that reached $station in the period, for these agents only: prospect id => when (the first time in the period). The SAME rule `figures()` counts with
+     * The properties that reached $station (one station, or ANY of several) in the period, for these agents only: prospect id => when (the first time in the period). The SAME rule `figures()` counts with
      * (stationsReached), so a tile's "moved on today" and the list behind it can never disagree with the funnel (road-to-sold.md 23.24).
      *
      * @param  int[]  $userIds
      * @return array<int,string>
      */
-    public function reachedProspects(int $agencyId, Period $period, string $track, array $userIds, string $station): array
+    public function reachedProspects(int $agencyId, Period $period, string $track, array $userIds, string|array $station): array
     {
-        if ($userIds === [] || ! isset(self::STATIONS[$station])) {
+        $stations = array_values(array_filter((array) $station, fn ($k) => isset(self::STATIONS[$k])));
+        if ($userIds === [] || $stations === []) {
             return [];
         }
         $found = [];
@@ -130,7 +131,7 @@ class BeltFunnelService
             ->whereIn('user_id', array_map('intval', $userIds))
             ->whereBetween('occurred_at', [$period->start->toDateTimeString(), $period->end->toDateTimeString()])->orderBy('occurred_at');
         foreach ($q->get(['prospect_id', 'kind', 'from_stage', 'to_stage', 'occurred_at']) as $e) {
-            if (! isset($found[(int) $e->prospect_id]) && in_array($station, $this->stationsReached($e->kind, $e->from_stage, $e->to_stage), true)) {
+            if (! isset($found[(int) $e->prospect_id]) && array_intersect($stations, $this->stationsReached($e->kind, $e->from_stage, $e->to_stage)) !== []) {
                 $found[(int) $e->prospect_id] = (string) $e->occurred_at;
             }
         }

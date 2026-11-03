@@ -197,6 +197,19 @@ final class ConveyorService
     }
 
     /**
+     * "Moved along" in the header line: how many DISTINCT records moved on today. A record counts once however many stations it passed (a record that goes Held -> Won
+     * is one move, not the two the tiles' lines add up to). A record moves along when it reaches any station from Owner found onwards today - which is leaving
+     * Claimed, Owner found, ... Held, or arriving at Won, Draft, Active or Advertised. The per-tile lines are unchanged.
+     */
+    public function movedAlong(User $agent, string $track, CarbonInterface $day): int
+    {
+        $dayStart = CarbonImmutable::instance($day)->startOfDay();
+        $after = array_slice(array_keys(BeltFunnelService::STATIONS), 2);   // everything after Loaded and Claimed
+
+        return count($this->funnel->reachedProspects((int) ($agent->effectiveAgencyId() ?: 0), new Period($dayStart, $dayStart->endOfDay(), 'day', 'day'), $track, [(int) $agent->id], $after));
+    }
+
+    /**
      * The ids behind a figure: `moved` = the properties that left the station in the day; `today` / `month` = the ones that reached it.
      *
      * @return int[]

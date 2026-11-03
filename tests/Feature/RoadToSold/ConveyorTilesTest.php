@@ -291,7 +291,7 @@ final class ConveyorTilesTest extends TestCase
         $b = $this->at(S::CLAIMED, 'Header Owner', '2026-10-13');
         app(ProspectService::class)->advance($b, S::OWNER_FOUND, $this->agent, ['event_class' => 'test']);
         $t = $this->tiles();
-        $moved = (int) $t->where('key', '!=', 'loaded')->sum('moved');
+        $moved = app(ConveyorService::class)->movedAlong($this->agent, 'sales', now());
         $late = (int) $t->sum('late');
         $this->assertGreaterThan(0, $moved);
         $this->assertSame(1, $late);
@@ -300,6 +300,30 @@ final class ConveyorTilesTest extends TestCase
         $this->assertMatchesRegularExpression('/data-qa="today-line">Today: <strong>\d+ of \d+<\/strong> worked/', $h);
         $this->assertMatchesRegularExpression('/data-qa="today-moved">' . $moved . '<\/strong> moved along/', $h);
         $this->assertMatchesRegularExpression('/data-qa="today-late"[^>]*>' . $late . '<\/strong> late/', $h);
+    }
+
+    public function test_moved_along_counts_a_record_once_however_many_stations_it_passed(): void
+    {
+        $svc = app(ProspectService::class);
+        $a = $svc->place($this->agent, $this->tp(['street_number' => '1', 'street_name' => 'Fast Road'])->id, 'sales', ['stage' => S::FOUND]);
+        $svc->advance($a, S::EVALUATION_DONE, $this->agent, ['event_class' => 'test']);   // passes Claimed .. Held in one move
+        $svc->advance($a->fresh(), S::MANDATE_SIGNED, $this->agent, ['event_class' => 'test']);   // Held -> Won: leaves Held AND reaches Won
+        $b = $svc->place($this->agent, $this->tp(['street_number' => '2', 'street_name' => 'Slow Road'])->id, 'sales', ['stage' => S::FOUND]);
+        $svc->advance($b, S::OWNER_FOUND, $this->agent, ['event_class' => 'test']);
+
+        $t = $this->tiles();
+        $lines = (int) $t->where('key', '!=', 'loaded')->sum('moved');
+        $this->assertGreaterThan(2, $lines, 'the tiles\' lines count a record at every station it left or reached');
+        $this->assertSame(2, app(ConveyorService::class)->movedAlong($this->agent, 'sales', now()), 'two records moved today, each once');
+        $this->assertSame(1, $t['held']['moved'], 'the per-tile line is unchanged');
+        $this->assertSame(1, $t['won']['moved']);
+
+        $h = $this->actingAs($this->agent)->get(route('road-to-sold.index'))->assertOk()->getContent();
+        $this->assertMatchesRegularExpression('/data-qa="today-moved">2<\/strong> moved along/', $h);
+        // another agent's moves are never in this agent's header
+        $c = $svc->place($this->mate, $this->tp(['street_number' => '3', 'street_name' => 'Mates Road'])->id, 'sales', ['stage' => S::FOUND]);
+        $svc->advance($c, S::OWNER_FOUND, $this->mate, ['event_class' => 'test']);
+        $this->assertSame(2, app(ConveyorService::class)->movedAlong($this->agent, 'sales', now()));
     }
 
     // ── E: the day feed ───────────────────────────────────────────────────

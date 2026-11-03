@@ -180,6 +180,8 @@ class RoadToSoldController extends Controller
 
         return view('road-to-sold.index', $data + $blocks + [
             'belt'           => $belt,
+            // 23.24 header: distinct records that moved on today (a record counts once however many stations it passed)
+            'movedAlong'     => $belt !== [] && $agentUser ? app(\App\Services\RoadToSold\ConveyorService::class)->movedAlong($agentUser, $track, $date) : 0,
             'activation'     => $activation,
             'roster'         => $roster,
             'beltBase'       => $beltBase,

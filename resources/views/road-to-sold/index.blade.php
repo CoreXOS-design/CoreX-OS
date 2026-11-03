@@ -63,7 +63,7 @@
                 @php
                     // 23.24: the day in one line - the same three figures the tiles show (moved along = line 2 of every tile but Loaded; late = line 3)
                     $beltTiles = collect($belt ?? []);
-                    $movedAlong = (int) $beltTiles->where('key', '!=', 'loaded')->sum('moved');
+                    $movedAlong = (int) ($movedAlong ?? 0);   // distinct records that moved on today (ConveyorService::movedAlong), not the sum of the tiles' lines
                     $lateAll = (int) $beltTiles->sum('late');
                     $loadedT = $beltTiles->firstWhere('key', 'loaded');
                 @endphp
