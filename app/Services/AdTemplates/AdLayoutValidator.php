@@ -458,7 +458,7 @@ final class AdLayoutValidator
         }
 
         if ($layoutMode === self::MODE_PROPERTY) {
-            $this->checkTextFit($elements, $errors, $repair, $repairs);
+            $this->checkTextFit($elements, $errors, $repair, $repairs, $cw, $ch);
         }
         if ($repair) {
             // Nudge words that run over a shape's edge back onto it, then pull apart boxes that sit on top of each other, before
@@ -1739,14 +1739,15 @@ final class AdLayoutValidator
 
     /**
      * Words must fit the box they are drawn in, for the longest realistic listing. A box that is too small is repaired by shrinking
-     * the font (never below the minimum, and never by more than 30%); if even that does not fit, the design is refused with the
-     * numbers the AI needs to enlarge the box. Skips the elements the page draws itself (logo, QR, pills, ribbon, photos, blocks).
+     * the font (never below the minimum, and never by more than 30%); when that is not enough the BOX is grown into the free space
+     * beside it (growBoxToFit), and only if that fails too is the design refused with the numbers the AI needs to enlarge the box.
+     * Skips the elements the page draws itself (logo, QR, pills, ribbon, photos, blocks).
      *
      * @param array<int, array<string, mixed>> $elements  Updated in place when $repair shrinks a font.
      * @param array<int, string>               $errors
      * @param array<int, string>               $repairs
      */
-    private function checkTextFit(array &$elements, array &$errors, bool $repair, array &$repairs): void
+    private function checkTextFit(array &$elements, array &$errors, bool $repair, array &$repairs, int $cw, int $ch): void
     {
         foreach ($elements as $idx => $el) {
             if (! $this->isTextField($el['field']) || in_array($el['field'], ['watermark', 'ribbon', 'feature_pills'], true)) {
@@ -1767,6 +1768,18 @@ final class AdLayoutValidator
                         continue 2;
                     }
                 }
+                // A reference picture has small, tight footer and header lines whose boxes the AI sizes by eye: shrinking alone cannot
+                // make the longest agency name fit there. Grow the box into free space instead, keeping the biggest font that fits.
+                for ($fs = (float) $el['fontSize']; $fs >= $floor; $fs--) {
+                    $box = $this->growBoxToFit($elements, $idx, $text, $fs, $cw, $ch);
+                    if ($box === null) {
+                        continue;
+                    }
+                    $repairs[] = "{$tag}: the longest realistic value (\"" . mb_substr($text, 0, 40) . "\") did not fit its {$el['w']} x {$el['h']} box, so the box was made "
+                        . $box['w'] . ' x ' . $box['h'] . ($fs < (float) $el['fontSize'] ? " and fontSize {$el['fontSize']} was reduced to " . (int) $fs : '') . '.';
+                    $elements[$idx] = array_merge($elements[$idx], $box, ['fontSize' => (int) $fs]);
+                    continue 2;
+                }
             }
 
             $single = in_array($el['field'], self::SINGLE_LINE_FIELDS, true);
@@ -1774,6 +1787,195 @@ final class AdLayoutValidator
                 . ' box at fontSize ' . $el['fontSize'] . ' - ' . ($single ? 'it must stay on ONE line' : 'words that do not fit are cut off')
                 . '. Make the box wider' . ($single ? '' : ' or taller') . ' or lower the fontSize (but not below ' . self::MIN_FONT_SIZE . ').';
         }
+    }
+
+    /**
+     * The smallest bigger box, grown only into free space, in which the copy fits at $fontSize - or null when there is none.
+     * Free space is bounded by the canvas (with a small margin), the nearest word/picture box beside or below it, and the shapes
+     * behind it: a grown box that would run over a shape's edge (or onto a neighbour) is never offered, so growing can never create
+     * a new overlap or edge problem for the later checks to refuse. The box grows away from the side the words are anchored to
+     * (a right-aligned line grows leftwards) and only reaches to the other side when that is not enough.
+     *
+     * @param  array<int, array<string, mixed>> $elements
+     * @return array{x: int, y: int, w: int, h: int}|null
+     */
+    private function growBoxToFit(array $elements, int $idx, string $text, float $fontSize, int $cw, int $ch): ?array
+    {
+        $el  = $elements[$idx];
+        $tol = (float) self::OVERLAP_TOLERANCE;
+        [$x0, $y0, $w0, $h0] = [(float) $el['x'], (float) $el['y'], (float) $el['w'], (float) $el['h']];
+        $margin = 12.0;
+        $single = in_array($el['field'], self::SINGLE_LINE_FIELDS, true);
+
+        $boxes = [];
+        foreach ($elements as $k => $o) {
+            if ($k === $idx || in_array($o['field'], self::OVERLAP_EXEMPT_FIELDS, true)) {
+                continue;
+            }
+            $boxes[] = [(float) $o['x'], (float) $o['y'], (float) $o['x'] + (float) $o['w'], (float) $o['y'] + (float) $o['h']];
+        }
+        $hit = fn (array $a, array $b): bool => min($a[2], $b[2]) - max($a[0], $b[0]) > $tol && min($a[3], $b[3]) - max($a[1], $b[1]) > $tol;
+        foreach ($boxes as $b) {
+            if ($hit([$x0, $y0, $x0 + $w0, $y0 + $h0], $b)) {
+                return null;   // already sitting on something: that is separateOverlaps()'s job, not a reason to grow into it
+            }
+        }
+
+        // Free room on each side, across the rows (for width) or columns (for height) the box already occupies.
+        $left = min($margin, $x0);
+        $right = max($cw - $margin, $x0 + $w0);
+        $top = min($margin, $y0);
+        $bottom = max($ch - $margin, $y0 + $h0);
+        foreach ($boxes as $b) {
+            if (min($b[3], $y0 + $h0) - max($b[1], $y0) > $tol) {
+                if ($b[2] <= $x0 + $tol) {
+                    $left = max($left, min($b[2], $x0));
+                } elseif ($b[0] >= $x0 + $w0 - $tol) {
+                    $right = min($right, max($b[0], $x0 + $w0));
+                }
+            }
+            if (min($b[2], $x0 + $w0) - max($b[0], $x0) > $tol) {
+                if ($b[3] <= $y0 + $tol) {
+                    $top = max($top, min($b[3], $y0));
+                } elseif ($b[1] >= $y0 + $h0 - $tol) {
+                    $bottom = min($bottom, max($b[1], $y0 + $h0));
+                }
+            }
+        }
+        $availL = $x0 - $left;
+        $availR = $right - ($x0 + $w0);
+        $availU = $y0 - $top;
+        $availD = $bottom - ($y0 + $h0);
+
+        $fits = function (float $w, float $h) use ($el, $text, $fontSize): bool {
+            $probe = $el;
+            $probe['w'] = $w;
+            $probe['h'] = $h;
+
+            return $this->copyFits($probe, $text, $fontSize);
+        };
+
+        // Width first (a line that needs more room almost always needs it sideways), then height for copy that may wrap, then both.
+        $newW = null;
+        $newH = $h0;
+        for ($w = $w0 + 2; $w <= $w0 + $availL + $availR; $w += 2) {
+            if ($fits($w, $h0)) {
+                $newW = $w;
+                break;
+            }
+        }
+        if ($newW === null && ! $single) {
+            $maxW = $w0 + $availL + $availR;
+            for ($h = $h0 + 2; $h <= $h0 + $availU + $availD; $h += 2) {
+                if ($fits($w0, $h)) {
+                    $newW = $w0;
+                    $newH = $h;
+                    break;
+                }
+            }
+            if ($newW === null) {
+                for ($h = $h0 + 2; $h <= $h0 + $availU + $availD; $h += 2) {
+                    if ($fits($maxW, $h)) {
+                        $newW = $maxW;
+                        $newH = $h;
+                        break;
+                    }
+                }
+            }
+        }
+        if ($newW === null) {
+            return null;
+        }
+
+        // Spread the extra width / height: away from the anchored side first, spilling to the other only when that side runs out.
+        $extraW = $newW - $w0;
+        $align  = (string) $el['textAlign'];
+        if ($align === 'center') {
+            $dl = min($extraW / 2, $availL);
+            $dr = min($extraW - $dl, $availR);
+            $dl = $extraW - $dr;
+        } elseif ($align === 'right') {
+            $dl = min($extraW, $availL);
+            $dr = $extraW - $dl;
+        } else {
+            $dr = min($extraW, $availR);
+            $dl = $extraW - $dr;
+        }
+        $extraH = $newH - $h0;
+        $v      = (string) $el['verticalAlign'];
+        if ($v === 'middle') {
+            $du = min($extraH / 2, $availU);
+            $dd = min($extraH - $du, $availD);
+            $du = $extraH - $dd;
+        } elseif ($v === 'bottom') {
+            $du = min($extraH, $availU);
+            $dd = $extraH - $du;
+        } else {
+            $dd = min($extraH, $availD);
+            $du = $extraH - $dd;
+        }
+
+        $box = ['x' => (int) round($x0 - $dl), 'y' => (int) round($y0 - $du), 'w' => (int) ceil($newW), 'h' => (int) ceil($newH)];
+        // Rounding must not nudge the box out of the room found for it, or off a shape it sat wholly on / off.
+        if ($box['x'] < 0 || $box['y'] < 0 || $box['x'] + $box['w'] > $cw || $box['y'] + $box['h'] > $ch) {
+            return null;
+        }
+        $grown = [$box['x'], $box['y'], $box['x'] + $box['w'], $box['y'] + $box['h']];
+        foreach ($boxes as $b) {
+            if ($hit($grown, $b)) {
+                return null;
+            }
+        }
+        foreach ($elements as $k => $b) {
+            // Wholly on a panel stays wholly on it, wholly off stays wholly off: growing never changes what the words sit on.
+            if ($k === $idx) {
+                continue;
+            }
+            $before = $this->shapeRelation($el, $b);
+            if ($before !== 'over' && $before !== $this->shapeRelation($box + ['zIndex' => $el['zIndex']], $b)) {
+                return null;
+            }
+        }
+
+        return $box;
+    }
+
+    /**
+     * How a text box relates to a shape / colour block drawn beneath it: 'off' (clear of it), 'on' (wholly inside the part of it
+     * that words may use - the same safe area checkShapeEdges() applies), or 'over' (half on / half off it, or swallowing it). Null
+     * when $b is not a solid block beneath the text, so it does not matter. $t needs x, y, w, h and zIndex.
+     *
+     * @param array<string, mixed> $t
+     * @param array<string, mixed> $b
+     */
+    private function shapeRelation(array $t, array $b): ?string
+    {
+        if (! in_array($b['field'], ['shape', 'color_block'], true) || (float) $b['opacity'] < self::BACKDROP_MIN_ALPHA || (int) $b['zIndex'] >= (int) $t['zIndex']) {
+            return null;
+        }
+        $kind = $b['field'] === 'shape' ? (string) $b['shapeType'] : 'rectangle';
+        if (! isset(self::SHAPE_SAFE_AREA[$kind])) {
+            return null;
+        }
+        $tol = (float) self::OVERLAP_TOLERANCE;
+        $tl  = (float) $t['x'];
+        $tt  = (float) $t['y'];
+        $tr  = $tl + (float) $t['w'];
+        $tb  = $tt + (float) $t['h'];
+        $bl  = (float) $b['x'];
+        $bt  = (float) $b['y'];
+        $br  = $bl + (float) $b['w'];
+        $bb  = $bt + (float) $b['h'];
+        if (min($tr, $br) - max($tl, $bl) <= $tol || min($tb, $bb) - max($tt, $bt) <= $tol) {
+            return 'off';
+        }
+        [$fx, $fy] = self::SHAPE_SAFE_AREA[$kind];
+        $sw = ($br - $bl) * $fx;
+        $sh = ($bb - $bt) * $fy;
+        $sl = $bl + (($br - $bl) - $sw) / 2;
+        $st = $bt + (($bb - $bt) - $sh) / 2;
+
+        return $tl >= $sl - $tol && $tr <= $sl + $sw + $tol && $tt >= $st - $tol && $tb <= $st + $sh + $tol ? 'on' : 'over';
     }
 
     /**

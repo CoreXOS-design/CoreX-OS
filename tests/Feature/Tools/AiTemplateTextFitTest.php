@@ -74,6 +74,63 @@ final class AiTemplateTextFitTest extends TestCase
         $this->assertStringContainsString('fontSize 48 was reduced', implode(' | ', $r['repairs'] ?? []));
     }
 
+    /** Reference-picture posters: small tight header/footer lines whose boxes shrinking alone cannot rescue (Johan 2026-11-03). */
+    public function test_repair_grows_a_box_into_free_space_when_shrinking_alone_cannot_fit_the_longest_name(): void
+    {
+        $option = $this->option([
+            ['field' => 'agency_name', 'x' => 60, 'y' => 330, 'w' => 224, 'h' => 48, 'fontSize' => 22, 'fontFamily' => 'Montserrat'],
+            ['field' => 'website', 'x' => 60, 'y' => 390, 'w' => 224, 'h' => 28, 'fontSize' => 16, 'fontFamily' => 'Montserrat'],
+        ]);
+
+        $this->assertFalse((new AdLayoutValidator())->validate($option, 'facebook')['ok']);
+
+        $r = (new AdLayoutValidator())->validateAndRepair($option, 'facebook');
+        $this->assertTrue($r['ok'], implode(' | ', $r['errors']));
+        $els = collect($r['layout']['elements']);
+        $website = $els->firstWhere('field', 'website');
+        $this->assertGreaterThan(224, $website['w'], 'the one-line website box was widened');
+        $this->assertSame(60, $website['x'], 'a left-aligned line grows to the right, its left edge stays');
+        $this->assertLessThanOrEqual(1200, $website['x'] + $website['w']);
+        $this->assertStringContainsString('the box was made', implode(' | ', $r['repairs']));
+    }
+
+    public function test_a_right_aligned_box_grows_leftwards_and_keeps_its_right_edge(): void
+    {
+        $r = (new AdLayoutValidator())->validateAndRepair($this->option([
+            ['field' => 'website', 'x' => 900, 'y' => 330, 'w' => 240, 'h' => 30, 'fontSize' => 18, 'fontFamily' => 'Montserrat', 'textAlign' => 'right'],
+        ]), 'facebook');
+
+        $this->assertTrue($r['ok'], implode(' | ', $r['errors']));
+        $website = collect($r['layout']['elements'])->firstWhere('field', 'website');
+        $this->assertSame(1140, $website['x'] + $website['w'], 'right edge unchanged');
+        $this->assertLessThan(900, $website['x']);
+    }
+
+    public function test_growing_never_runs_into_a_neighbour_so_a_boxed_in_line_is_still_refused(): void
+    {
+        // The website is wedged between two other text boxes: there is no free room, so the design is refused as before.
+        $r = (new AdLayoutValidator())->validateAndRepair($this->option([
+            ['field' => 'agent_phone', 'x' => 20, 'y' => 330, 'w' => 250, 'h' => 40, 'fontSize' => 20],
+            ['field' => 'website', 'x' => 270, 'y' => 330, 'w' => 200, 'h' => 40, 'fontSize' => 18, 'fontFamily' => 'Montserrat'],
+            ['field' => 'agency_phone', 'x' => 470, 'y' => 330, 'w' => 250, 'h' => 40, 'fontSize' => 20],
+        ]), 'facebook');
+
+        $this->assertFalse($r['ok']);
+        $this->assertStringContainsString('ONE line', implode(' | ', $r['errors']));
+    }
+
+    public function test_growing_never_pushes_text_off_the_panel_it_sits_on(): void
+    {
+        // The website sits wholly on a narrow band. Widening it past the band would leave it half on / half off, so it is refused.
+        $r = (new AdLayoutValidator())->validateAndRepair($this->option([
+            ['field' => 'shape', 'x' => 60, 'y' => 440, 'w' => 240, 'h' => 50, 'zIndex' => 5, 'shapeType' => 'rectangle', 'bg' => '#f4d58d'],
+            ['field' => 'website', 'x' => 60, 'y' => 440, 'w' => 240, 'h' => 50, 'fontSize' => 20, 'fontFamily' => 'Montserrat', 'color' => '#0b2a4a'],
+        ]), 'facebook');
+
+        $this->assertFalse($r['ok']);
+        $this->assertStringContainsString('ONE line', implode(' | ', $r['errors']));
+    }
+
     public function test_a_price_half_on_and_half_off_a_circle_is_refused(): void
     {
         $r = (new AdLayoutValidator())->validate($this->option([
