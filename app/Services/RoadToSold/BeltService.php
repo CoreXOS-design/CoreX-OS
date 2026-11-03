@@ -100,6 +100,9 @@ final class BeltService
         $when = $day->isToday() ? 'today' : $day->format('j M');
         $out = [];
         foreach (self::stations() as $s) {
+            if (! empty($s['no_tile'])) {
+                continue;   // Belt v2: a Won result passes through the won station straight to Draft - no tile (the funnel still counts it, and ?station=won still lists it)
+            }
             $stageKey = (string) ($s['stages'][0] ?? '');
             $useStage = ! empty($s['prefer_stage']) && $stageKey !== '' && ProspectStages::has($stageKey);
             $source = $useStage || $s['source'] === 'stage' ? 'stage' : $s['source'];
@@ -408,8 +411,9 @@ final class BeltService
     }
 
     /**
-     * The ONE next action a record's row offers (23.12, the card's mapping): Loaded / Claimed - Find owner; Owner found - Log contact; Contacted - Book evaluation;
-     * Booked - Appointment feedback; Prepared - Presentation results; Held - Result; Won - Move to Draft; Draft - Make active.
+     * The ONE button a record's row offers, named for the NEXT step (Belt v2, 3 Nov 2026): Claimed - Find owner; Owner found - Contact (the popup's Contact step; Log contact lives
+     * inside it); Contacted - Book appointment; Booked - Prepare presentation; Prepared - Appointment results; Held - Record result; Won - Move to Draft; Draft - Make active.
+     * The Today's work (Loaded) rows have their own list, with Find owner + Swap.
      *
      * @return array{kind:string,label:string,step_url:?string,step_label:?string}|null
      */
@@ -418,15 +422,14 @@ final class BeltService
         $step = fn (string $key) => ['kind' => 'step', 'label' => ProspectStepService::LABELS[$key], 'step_url' => route('road-to-sold.prospects.step', [$prospectId, $key]), 'step_label' => ProspectStepService::LABELS[$key]];
 
         return match ($station) {
-            'claimed' => $step($hasOwner ? 'pitch' : 'find_owner'),
-            'owner' => ['kind' => 'log_contact', 'label' => 'Log contact', 'step_url' => null, 'step_label' => null],
+            'loaded', 'claimed' => $step('find_owner'),
+            'owner' => $step('contact'),
             'contacted' => $step('evaluation'),
-            'booked' => $step('evaluation_feedback'),
-            // 23.25 (new stations only; the other buttons are Johan's to remap, 23.28 Q13): Prepared asks how the presentation went, Won moves the property to Draft, Draft makes it Active
+            'booked' => $step('presentation'),
             'prepared' => $step('results'),
             'won' => $step('draft'),
             'draft' => $step('active'),
-            'held' => ['kind' => 'result', 'label' => 'Result', 'step_url' => null, 'step_label' => null],
+            'held' => ['kind' => 'result', 'label' => 'Record result', 'step_url' => null, 'step_label' => null],
             default => null,
         };
     }

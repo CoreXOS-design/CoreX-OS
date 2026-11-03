@@ -30,8 +30,8 @@ use Illuminate\Support\Facades\DB;
  */
 final class PitchStepsService
 {
-    /** The nine steps the popup draws, in order (23.25.2). */
-    private const STEPS = ['property', 'owner', 'pitch', 'contact', 'evaluation', 'presentation', 'results', 'draft', 'active'];
+    /** The seven steps the popup draws, in order (23.30): Owner · Contact · Appointment · Presentation · Results · Draft · Active. The property card is the popup's header, not a step; choosing the seller is the top of Contact. */
+    private const STEPS = ['owner', 'contact', 'evaluation', 'presentation', 'results', 'draft', 'active'];
 
     public function __construct(private readonly PitchBeltResolver $belt, private readonly PitchBookService $book)
     {
@@ -44,7 +44,7 @@ final class PitchStepsService
     public function plan(User $actor, ?int $listingId, ?int $prospectId, ?int $trackedId, array $carry = []): array
     {
         $agencyId = (int) ($actor->effectiveAgencyId() ?: 0);
-        $out = ['property' => null, 'owner' => null, 'pitch' => null, 'contact' => null, 'evaluation' => null, 'presentation' => null, 'results' => null, 'draft' => null, 'active' => null, 'address' => null, 'reached' => array_fill_keys(self::STEPS, false)];
+        $out = ['property' => null, 'owner' => null, 'contact' => null, 'evaluation' => null, 'presentation' => null, 'results' => null, 'draft' => null, 'active' => null, 'address' => null, 'start' => 'owner', 'card' => null, 'reached' => array_fill_keys(self::STEPS, false)];
         if ($agencyId <= 0) {
             return $out;
         }
@@ -84,8 +84,9 @@ final class PitchStepsService
         $propertyId = $prospect?->property_id ?: ($listing?->matched_property_id ?: ($tp?->promoted_to_property_id));
         $property = $propertyId ? Property::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->find((int) $propertyId) : null;
 
+        // Contact: the composer on the owner; with the advert's property but no owner of record yet, the seller list (inside the popup it goes straight to the composer on the primary seller)
         if ($listing && $listing->matched_property_id && $property) {
-            $out['pitch'] = route('seller-outreach.entry.pitch-ready-prospecting', ['prospectingListingId' => $listing->id] + $carry);
+            $out['contact'] = route('seller-outreach.entry.pitch-ready-prospecting', ['prospectingListingId' => $listing->id] + $carry);
         }
 
         $ownerId = $tp?->owner_contact_id;
@@ -99,7 +100,8 @@ final class PitchStepsService
             $out['evaluation'] = route('road-to-sold.prospects.step', ['prospect' => $prospect->id, 'step' => 'evaluation'] + $carry);
         }
 
-        $out['reached'] = $this->reached($actor, $agencyId, $prospect, $propertyId ? (int) $propertyId : null);
+        $out['reached'] = $this->reached($prospect);
+        $out['card'] = $listing ? $this->card($agencyId, $listing) : null;
 
         if ($prospect && ProspectStages::has((string) $prospect->stage)) {
             $at = ProspectStages::order((string) $prospect->stage);
@@ -122,7 +124,74 @@ final class PitchStepsService
             }
         }
 
+        // where the popup opens when nobody names a step: the record's OWN stage (23.30); a step with no screen falls back to the nearest one before it
+        $out['start'] = $this->startFor($prospect, $out);
+
         return $out;
+    }
+
+    /** Today's work / Claimed -> Owner; Owner found -> Contact; Contacted -> Appointment; Booked -> Presentation; Prepared / Held -> Results; Won / Draft -> Draft; Active -> Active. */
+    private function startFor(?RtsProspect $prospect, array $plan): string
+    {
+        if (! $prospect || ! ProspectStages::has((string) $prospect->stage)) {
+            return 'owner';
+        }
+        $at = ProspectStages::order((string) $prospect->stage);
+        $want = match (true) {
+            $at >= ProspectStages::order(ProspectStages::ACTIVE) => 'active',
+            $at >= ProspectStages::order(ProspectStages::MANDATE_SIGNED) => 'draft',
+            $at >= ProspectStages::order(ProspectStages::PRESENTATION_PREPARED) => 'results',
+            $at >= ProspectStages::order(ProspectStages::APPOINTMENT_SET) => 'presentation',
+            $at >= ProspectStages::order(ProspectStages::CONTACTED) => 'evaluation',
+            $at >= ProspectStages::order(ProspectStages::OWNER_FOUND) => 'contact',
+            default => 'owner',
+        };
+        $i = array_search($want, self::STEPS, true);
+        for (; $i >= 0; $i--) {
+            if (! empty($plan[self::STEPS[$i]])) {
+                return self::STEPS[$i];
+            }
+        }
+
+        return 'owner';
+    }
+
+    /**
+     * The popup's header, folded to one line (23.30): photo, price, address, beds / baths / erf, listing agency, days on market, score. The same file record the advert card reads
+     * (MicWorkList::forFiles), so the line and the card unfolded under it can never disagree. Null when the advert cannot be read: the header is then not shown.
+     *
+     * @return array<string,mixed>|null
+     */
+    private function card(int $agencyId, ProspectingListing $listing): ?array
+    {
+        try {
+            $key = $listing->tracked_property_id ? (int) $listing->tracked_property_id : -(int) $listing->id;
+            $rec = app(\App\Services\Prospecting\MicWork\MicWorkList::class)->forFiles([$key], $agencyId, null, null)[0] ?? null;
+            if (! $rec) {
+                return null;
+            }
+            $f = $rec['facts'] ?? [];
+            $bits = array_values(array_filter([
+                ! empty($f['beds']) ? $f['beds'] . ' bed' : null,
+                ! empty($f['baths']) ? $f['baths'] . ' bath' : null,
+                ! empty($f['erf']) ? number_format((float) $f['erf']) . ' m² erf' : null,
+            ]));
+            $photos = is_array($rec['photo_urls'] ?? null) ? array_values(array_filter($rec['photo_urls'], 'is_string')) : [];
+            $since = ! empty($rec['listed_date']) ? \Carbon\Carbon::parse($rec['listed_date']) : ($listing->first_seen_at ?? null);
+
+            return [
+                'listing' => (int) $listing->id,
+                'photo' => $photos[0] ?? null,
+                'price' => ! empty($rec['price']) ? 'R ' . number_format((float) $rec['price'], 0, '.', ' ') : null,
+                'address' => trim((string) ($rec['address'] ?? '') . (! empty($rec['address']) && ! empty($rec['suburb']) ? ', ' : '') . (string) ($rec['suburb'] ?? '')),
+                'facts' => implode(' · ', $bits),
+                'agency' => ! empty($rec['agencies'][0]) ? (string) $rec['agencies'][0] : null,
+                'dom' => $since ? (int) \Carbon\Carbon::parse($since)->diffInDays(now()) . ' days' : null,
+                'score' => isset($rec['score']) && $rec['score'] !== null ? (int) round((float) $rec['score']) : null,
+            ];
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     /**
@@ -132,7 +201,7 @@ final class PitchStepsService
      *
      * @return array<string,bool>
      */
-    private function reached(User $actor, int $agencyId, ?RtsProspect $prospect, ?int $propertyId): array
+    private function reached(?RtsProspect $prospect): array
     {
         $none = array_fill_keys(self::STEPS, false);
         if (! $prospect || ! ProspectStages::has((string) $prospect->stage)) {
@@ -140,13 +209,9 @@ final class PitchStepsService
         }
         $at = ProspectStages::order((string) $prospect->stage);
         $atLeast = fn (string $stage): bool => $at >= ProspectStages::order($stage);
-        $pitched = $atLeast(ProspectStages::CONTACTED) || ($propertyId && DB::table('seller_outreach_sends')->where('agency_id', $agencyId)->where('property_id', $propertyId)
-            ->whereIn('agent_id', array_unique([(int) $actor->id, (int) $actor->ownershipUserId()]))->whereNull('deleted_at')->exists());
 
         return [
-            'property' => $atLeast(ProspectStages::FOUND),
             'owner' => $atLeast(ProspectStages::OWNER_FOUND),
-            'pitch' => (bool) $pitched,
             'contact' => $atLeast(ProspectStages::CONTACTED),
             'evaluation' => $atLeast(ProspectStages::APPOINTMENT_SET),
             'presentation' => $atLeast(ProspectStages::PRESENTATION_PREPARED),

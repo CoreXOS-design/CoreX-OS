@@ -39,7 +39,7 @@ final class ThisWeekTileBuilder
     private const URGENCY_ORDER = ['red' => 0, 'orange' => 1, 'blue' => 2, 'green' => 3, 'neutral' => 4];
 
     private const TILE_META = [
-        'matches'      => ['emoji' => '🔥', 'urgency' => 'red',     'action_label' => 'Pitch now'],
+        'matches'      => ['emoji' => '🔥', 'urgency' => 'red',     'action_label' => 'Claim'],
         'expiring'     => ['emoji' => '⏰', 'urgency' => 'orange',  'action_label' => 'Log feedback'],
         'pocket'       => ['emoji' => '🎯', 'urgency' => 'green',   'action_label' => 'Open pocket'],
         'new_listings' => ['emoji' => '📈', 'urgency' => 'neutral', 'action_label' => 'Browse'],

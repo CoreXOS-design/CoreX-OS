@@ -82,12 +82,12 @@ final class PitchPopupTicksTest extends TestCase
     public static function stages(): array
     {
         return [
-            'claimed: only Property' => ['claimed', ['property']],
-            'owner found: Property and Owner' => ['owner_found', ['property', 'owner']],
-            'contacted: up to Contact (Pitch is behind it)' => ['contacted', ['property', 'owner', 'pitch', 'contact']],
-            'appointment set: the first five' => ['appointment_set', ['property', 'owner', 'pitch', 'contact', 'evaluation']],
-            'presentation prepared: Presentation too' => ['presentation_prepared', ['property', 'owner', 'pitch', 'contact', 'evaluation', 'presentation']],
-            'a later station counts the earlier ones' => ['evaluation_done', ['property', 'owner', 'pitch', 'contact', 'evaluation', 'presentation', 'results']],
+            'claimed: nothing yet' => ['claimed', []],
+            'owner found: Owner' => ['owner_found', ['owner']],
+            'contacted: Owner and Contact' => ['contacted', ['owner', 'contact']],
+            'appointment set: the first three' => ['appointment_set', ['owner', 'contact', 'evaluation']],
+            'presentation prepared: Presentation too' => ['presentation_prepared', ['owner', 'contact', 'evaluation', 'presentation']],
+            'a later station counts the earlier ones' => ['evaluation_done', ['owner', 'contact', 'evaluation', 'presentation', 'results']],
         ];
     }
 
@@ -101,18 +101,17 @@ final class PitchPopupTicksTest extends TestCase
 
         $this->assertSame($expected, $this->ticked($row), 'a Road to Sold row');
         $this->assertSame($row, $mic, 'MIC Pitch now on the same property shows the same ticks');
-        $this->assertSame(['property', 'owner', 'pitch', 'contact', 'evaluation', 'presentation', 'results', 'draft', 'active'], array_keys($row), 'one answer for every step the bar draws');
+        $this->assertSame(['owner', 'contact', 'evaluation', 'presentation', 'results', 'draft', 'active'], array_keys($row), 'one answer for every step the bar draws (seven, 23.30)');
     }
 
-    public function test_a_record_at_owner_found_shows_1_and_2_ticked_and_4_and_5_plain(): void
+    public function test_a_record_at_owner_found_shows_owner_ticked_and_the_rest_plain(): void
     {
         $this->stage('owner_found');
 
         $r = $this->reached('rts');
 
-        $this->assertTrue($r['property'] && $r['owner']);
-        $this->assertFalse($r['pitch'], 'the step the agent is on is "current", not ticked');
-        $this->assertFalse($r['contact']);
+        $this->assertTrue($r['owner']);
+        $this->assertFalse($r['contact'], 'the step the agent is on is "current", not ticked');
         $this->assertFalse($r['evaluation']);
     }
 
@@ -136,21 +135,7 @@ final class PitchPopupTicksTest extends TestCase
         $this->stage('contacted');
         DB::table('rts_prospects')->where('id', $this->prospect->id)->update(['parked_at' => now()]);
 
-        $this->assertSame(['property', 'owner', 'pitch', 'contact'], $this->ticked($this->reached('rts')));
-    }
-
-    public function test_a_pitch_already_sent_by_this_agent_ticks_pitch_before_any_contact_is_recorded(): void
-    {
-        $this->stage('owner_found');
-        $send = fn (int $agentId, string $code) => DB::table('seller_outreach_sends')->insert([
-            'agency_id' => $this->agency->id, 'contact_id' => $this->owner->id, 'property_id' => $this->propertyId, 'agent_id' => $agentId, 'channel' => 'whatsapp',
-            'body_snapshot' => 'Hi', 'facts_snapshot' => '[]', 'tracking_short_code' => $code, 'sent_at' => now(), 'created_at' => now(), 'updated_at' => now(),
-        ]);
-        $send($this->makeAgent()->id, 'AAA111');
-        $this->assertFalse($this->reached('rts')['pitch'], "another agent's pitch is not mine");
-
-        $send($this->agent->id, 'BBB222');
-        $this->assertSame(['property', 'owner', 'pitch'], $this->ticked($this->reached('rts')));
+        $this->assertSame(['owner', 'contact'], $this->ticked($this->reached('rts')));
     }
 
     public function test_an_advert_nobody_has_claimed_has_nothing_reached(): void
@@ -160,7 +145,7 @@ final class PitchPopupTicksTest extends TestCase
 
         $r = $this->actingAs($this->agent)->getJson(route('seller-outreach.entry.pitch-steps', ['listing' => $listing2]))->assertOk()->json('steps.reached');
 
-        $this->assertSame([], $this->ticked($r), 'a MIC advert not yet on the belt: no ticks, not even Property');
+        $this->assertSame([], $this->ticked($r), 'a MIC advert not yet on the belt: no ticks');
     }
 
     public function test_another_agents_record_is_never_read_for_the_ticks(): void
@@ -176,6 +161,7 @@ final class PitchPopupTicksTest extends TestCase
         $js = (string) file_get_contents(public_path('js/pitch-popup.js'));
 
         $this->assertStringContainsString("['evaluation', 'Appointment']", $js);
+        $this->assertStringNotContainsString("['pitch', 'Pitch']", $js);
         $this->assertStringContainsString("pop.reached[s[0]] === true ? 'done'", $js, 'done comes from the server answer');
         $this->assertStringNotContainsString('visited', $js, 'opening a screen ticks nothing');
         $this->assertStringContainsString('Appointment booked', $js);

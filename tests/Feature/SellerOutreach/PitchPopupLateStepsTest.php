@@ -220,11 +220,12 @@ final class PitchPopupLateStepsTest extends TestCase
         $belt = app(BeltService::class);
         $label = fn (string $station) => ($action->invoke($belt, $station, 7, true)['label'] ?? null);
 
-        $this->assertSame('Log contact', $label('owner'), 'unchanged');
-        $this->assertSame('Book evaluation', $label('contacted'), 'unchanged (spec Q13 is not ruled)');
-        $this->assertSame('Appointment feedback', $label('booked'), 'relabelled only');
-        $this->assertSame('Result', $label('held'), 'unchanged');
-        $this->assertSame('Presentation results', $label('prepared'));
+        // Belt v2 (3 Nov): one button per row, named for the next step
+        $this->assertSame('Contact', $label('owner'));
+        $this->assertSame('Book appointment', $label('contacted'));
+        $this->assertSame('Prepare presentation', $label('booked'));
+        $this->assertSame('Record result', $label('held'));
+        $this->assertSame('Appointment results', $label('prepared'));
         $this->assertSame('Move to Draft', $label('won'));
         $this->assertSame('Make active', $label('draft'));
         $this->assertNull($label('active'));
@@ -236,11 +237,11 @@ final class PitchPopupLateStepsTest extends TestCase
         $this->assertStringContainsString('/property-step/active', (string) $steps->urlFor($this->prospect->fresh(), 'active'));
     }
 
-    public function test_the_popup_draws_nine_steps_and_knows_the_screens_of_6_to_9(): void
+    public function test_the_popup_draws_seven_steps_and_knows_the_screens_of_6_to_9(): void
     {
         $js = (string) file_get_contents(public_path('js/pitch-popup.js'));
 
-        $this->assertStringContainsString("['presentation', 'Presentation'], ['results', 'Presentation results'], ['draft', 'Draft'], ['active', 'Active']", $js);
+        $this->assertStringContainsString("['presentation', 'Presentation'], ['results', 'Results'], ['draft', 'Draft'], ['active', 'Active']", $js);
         foreach (['generate_presentation', 'capture_feedback', 'result-form', 'property-step'] as $needle) {
             $this->assertStringContainsString($needle, $js, 'stepOf knows ' . $needle);
         }
@@ -285,5 +286,126 @@ final class PitchPopupLateStepsTest extends TestCase
         $plain = $this->actingAs($admin)->get($url)->assertOk()->getContent();
         $this->assertStringNotContainsString('body > *:not([data-qa="presentation-modal"])', $plain);
         $this->assertStringContainsString('popup: false,', $plain, 'the property page itself is unchanged');
+    }
+
+    public function test_the_result_form_keeps_only_the_positive_answers_and_the_route_still_takes_the_old_ones(): void
+    {
+        $this->stage('evaluation_done');
+
+        $h = $this->actingAs($this->agent)->get(route('road-to-sold.prospects.result-form', ['prospect' => $this->prospect->id, 'embed' => 1]))->assertOk()->getContent();
+
+        $this->assertStringContainsString('Won - mandate agreed', $h);
+        $this->assertStringContainsString('Undecided - follow up', $h);
+        foreach (['Lost to another agency', 'Price too far apart', 'Not ready to sell yet', 'Not selling'] as $lost) {
+            $this->assertStringNotContainsString($lost, $h, $lost . ' is the Stops here control now');
+        }
+
+        $r = $this->actingAs($this->agent)->post(route('road-to-sold.prospects.result', $this->prospect->id), ['result_key' => 'lost_price']);
+        $r->assertSessionHasNoErrors();   // an old value is still understood by the route
+    }
+
+    public function test_step_6_never_creates_a_property_on_a_click_and_the_button_does_exactly_that(): void
+    {
+        $this->stage('contacted');
+        DB::table('rts_prospects')->where('id', $this->prospect->id)->update(['property_id' => null]);
+        $before = DB::table('properties')->count();
+
+        $h = $this->actingAs($this->agent)->get(route('road-to-sold.prospects.presentation-path', ['prospect' => $this->prospect->id, 'embed' => 1]))->assertOk()->getContent();
+
+        $this->assertStringContainsString('Create the property file to prepare a presentation', $h);
+        $this->assertStringContainsString('action="' . route('road-to-sold.prospects.create-property', $this->prospect->id) . '"', $h);
+        $this->assertSame($before, DB::table('properties')->count(), 'opening the step made nothing');
+        $this->assertNull(DB::table('rts_prospects')->where('id', $this->prospect->id)->value('property_id'));
+
+        $to = $this->actingAs($this->agent)->post(route('road-to-sold.prospects.create-property', $this->prospect->id), ['embed' => 1])->assertRedirect()->headers->get('Location');
+        $this->assertStringContainsString('/presentation-path', $to);
+        $this->assertNotNull(DB::table('rts_prospects')->where('id', $this->prospect->id)->value('property_id'), 'the button made the file');
+
+        $go = $this->actingAs($this->agent)->get($to)->assertRedirect()->headers->get('Location');
+        $this->assertStringContainsString('generate_presentation=1', $go, 'with a property the Generate window opens as before');
+
+        $this->actingAs($this->makeAgent())->post(route('road-to-sold.prospects.create-property', $this->prospect->id))->assertForbidden();
+    }
+
+    public function test_the_popup_mutes_a_step_with_no_screen_and_step_5_says_appointment_everywhere(): void
+    {
+        $js = (string) file_get_contents(public_path('js/pitch-popup.js'));
+        $this->assertStringContainsString('.cxp-step[data-click="0"]:not([data-state="current"])', $js);
+        $this->assertStringContainsString("'Not yet'", $js);
+        $this->assertStringContainsString('pop.planned', $js, 'nothing is muted before the plan has answered');
+
+        $this->assertSame('Book appointment', ProspectStepService::LABELS['evaluation']);
+        $done = view('layouts.partials._embed-done')->render();
+        $this->assertStringContainsString('Done - back to Road to Sold', $done);
+    }
+
+    /** @return array<string,array{0:string,1:string}> */
+    public static function starts(): array
+    {
+        return ['claimed' => ['claimed', 'owner'], 'owner found' => ['owner_found', 'contact'], 'contacted' => ['contacted', 'evaluation'], 'booked' => ['appointment_set', 'presentation'],
+            'prepared' => ['presentation_prepared', 'results'], 'held' => ['evaluation_done', 'results'], 'won' => ['mandate_signed', 'draft'], 'draft' => ['draft', 'draft'], 'active' => ['active', 'active']];
+    }
+
+    /** @dataProvider starts */
+    public function test_both_entry_points_open_at_the_records_own_stage(string $stage, string $step): void
+    {
+        $this->stage($stage);
+
+        foreach (['rts', 'mic'] as $entry) {
+            $this->assertSame($step, $this->plan($entry)['start'], $entry . ' at ' . $stage);
+        }
+    }
+
+    public function test_the_plan_has_seven_steps_a_header_line_and_no_pitch_step(): void
+    {
+        $this->stage('owner_found');
+        $p = $this->plan('mic');
+
+        $this->assertArrayNotHasKey('pitch', $p);
+        $this->assertSame(['owner', 'contact', 'evaluation', 'presentation', 'results', 'draft', 'active'], array_keys($p['reached']));
+        $this->assertSame((int) $this->listingId, (int) ($p['card']['listing'] ?? 0), 'the header line is the advert of the record');
+        $this->assertSame($this->plan('rts')['card'], $p['card'], 'the same line from either entry point');
+        $this->assertStringContainsString('/contacts/' . $this->owner->id . '/outreach/compose', (string) $p['contact']);
+    }
+
+    public function test_contact_starts_with_the_seller_chooser_one_line_for_one_seller_a_list_for_more(): void
+    {
+        $this->stage('owner_found');
+        $url = route('seller-outreach.composer.show', ['contact' => $this->owner->id, 'property_id' => $this->propertyId, 'embed' => 1]);
+
+        $h = $this->actingAs($this->agent)->get($url)->assertOk()->getContent();
+        $this->assertStringContainsString('data-qa="seller-chooser" data-count="1"', $h);
+        $this->assertStringContainsString('data-selected="1"', $h, 'one seller: a single preselected line');
+        $this->assertStringNotContainsString('data-selected="0"', $h);
+        $this->assertStringNotContainsString('data-pitch-peek', $h, 'the fold-out is the popup\'s header, not a second one on the screen');
+
+        $second = Contact::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id,
+            'agent_id' => $this->agent->id, 'first_name' => 'Pieter', 'last_name' => 'Co-owner', 'phone' => '0825599999']);
+        DB::table('contact_property')->insert(['contact_id' => $second->id, 'property_id' => $this->propertyId, 'role' => 'seller', 'created_at' => now(), 'updated_at' => now()]);
+
+        $h = $this->actingAs($this->agent)->get($url)->assertOk()->getContent();
+        $this->assertStringContainsString('data-qa="seller-chooser" data-count="2"', $h);
+        $this->assertStringContainsString('data-selected="0"', $h);
+        $this->assertStringContainsString('/contacts/' . $second->id . '/outreach/compose', $h, 'one click selects the other seller');
+    }
+
+    public function test_the_old_pitch_screen_goes_straight_to_contact_inside_the_popup_only(): void
+    {
+        $this->stage('owner_found');
+
+        $to = $this->actingAs($this->agent)->get(route('seller-outreach.entry.pitch-ready-prospecting', ['prospectingListingId' => $this->listingId, 'embed' => 1]))->assertRedirect()->headers->get('Location');
+        $this->assertStringContainsString('/contacts/' . $this->owner->id . '/outreach/compose', $to);
+
+        $this->actingAs($this->agent)->get(route('seller-outreach.entry.pitch-ready-prospecting', ['prospectingListingId' => $this->listingId]))->assertOk();   // the page itself is unchanged
+    }
+
+    public function test_the_popup_shell_has_the_folded_header_and_opens_at_the_plans_start(): void
+    {
+        $js = (string) file_get_contents(public_path('js/pitch-popup.js'));
+
+        $this->assertStringContainsString("data-qa': 'pitch-header'", $js);
+        $this->assertStringContainsString("'data-pitch-peek': ''", $js, 'the one fold-out component');
+        $this->assertStringContainsString('d.steps[d.steps.start]', $js);
+        $this->assertStringNotContainsString("['property', 'Property']", $js);
     }
 }

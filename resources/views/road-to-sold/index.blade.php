@@ -358,37 +358,26 @@
                         <div class="flex items-center justify-end gap-2">
                             @if(! empty($history[$r['tracked_property_id']]))
                                 <button type="button" class="corex-btn-outline corex-btn-xs" data-tp="{{ $r['tracked_property_id'] }}" data-address="{{ $r['address'] }}" @if($loop->first) data-tour="smk-rts-history" @endif
-                                        @click="openHistory($el.dataset)">History</button>
+                                        @click="openHistory($el.dataset)">View</button>
                             @endif
                             @if($viewingOwn && $r['status'] === 'open' && ! empty($intakeProspects[$r['tracked_property_id']]))
-                                @php $stepKey = ($r['owner_name'] && ! $ownerMissing) ? 'pitch' : 'find_owner'; @endphp
+                                @php $stepKey = 'find_owner'; /* Belt v2: Today's work - Find owner (claims, opens the popup at Owner) */ @endphp
                                 <button type="button" class="corex-btn-outline corex-btn-xs" data-qa="intake-step" data-tracked="{{ isset($__pitchCards[(int) $r['tracked_property_id']]) ? $r['tracked_property_id'] : '' }}"
                                         data-step-url="{{ route('road-to-sold.prospects.step', [$intakeProspects[$r['tracked_property_id']], $stepKey]) }}"
                                         data-step-label="{{ \App\Services\RoadToSold\ProspectStepService::LABELS[$stepKey] }} - {{ $r['address'] }}"
                                         @click="$dispatch('rts-step', $el.dataset)">{{ \App\Services\RoadToSold\ProspectStepService::LABELS[$stepKey] }}</button>
                             @endif
                             @if($viewingOwn && $r['status'] === 'open' && ! empty($r['list_item_id']) && ($r['origin'] ?? '') !== 'follow_up' && ! in_array((int) $r['tracked_property_id'], $startedTracked ?? [], true))
-                                {{-- 23.14: swap this loaded property for the next one, with a reason --}}
-                                <span x-data="{ open: false }" class="relative" data-qa="intake-swap">
-                                    <button type="button" class="corex-btn-outline corex-btn-xs" @click="open = !open" title="Swap this property for the next one">Swap</button>
-                                    <form x-show="open" x-cloak method="POST" action="{{ route('road-to-sold.swap', $r['list_item_id']) }}" @click.outside="open = false" @keydown.escape="open = false"
-                                          x-data="{ key: '' }" class="absolute flex items-center gap-2 rounded-md" style="padding: 3px; z-index: 40; right: calc(100% + 6px); top: 50%; transform: translateY(-50%); white-space: nowrap; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 22px rgba(0,0,0,.4);">
-                                        @csrf
-                                        {{-- v4 (23.11): the Stock loaded off-ramp - the agency's own reasons for it; "other" asks for a few words --}}
-                                        <select name="reason_key" required x-model="key" aria-label="Why swap it?" class="px-2 py-1 text-xs rounded-md"
-                                                style="background: var(--surface-2, var(--surface)); border: 1px solid var(--border); color: var(--text-primary); width: 13rem;">
-                                            <option value="">Why swap it?</option>
-                                            @foreach($swapReasons as $sr)<option value="{{ $sr->key }}">{{ $sr->label }}</option>@endforeach
-                                        </select>
-                                        <input type="text" name="note" x-show="key === 'not_for_me_other'" :required="key === 'not_for_me_other'" minlength="3" maxlength="200" placeholder="A few words" autocomplete="off" class="px-2 py-1 text-xs rounded-md"
-                                               style="background: var(--surface-2, var(--surface)); border: 1px solid var(--border); color: var(--text-primary); width: 10rem;">
-                                        <button type="submit" class="corex-btn-primary corex-btn-xs">Swap</button>
-                                    </form>
+                                {{-- 23.14 + Belt v2: swap this loaded property for the next one - the Stops here control (public/js/pitch-offramp.js), the step 1 "Not for me" reasons, counted at Today's work --}}
+                                <span class="relative" data-qa="intake-swap">
+                                    <button type="button" class="corex-btn-outline corex-btn-xs" data-qa="swap-open" title="Swap this property for the next one"
+                                            data-item="{{ $r['list_item_id'] }}" data-address="{{ $r['address'] }}"
+                                            @click="rtsSwap($el.dataset)">Swap</button>
                                 </span>
                             @endif
                             @if($viewingOwn && ($r['status'] === 'open' || in_array($filters['view'], ['no_answer', 'wrong_number'], true)))
                                 {{-- v4 gate (23.6): no owner yet = no Log contact here; the Find owner button on this row (and on the card above) is the one way forward --}}
-                                @if(! $ownerMissing)
+                                @if(! $ownerMissing && (($r['origin'] ?? '') === 'follow_up' || in_array($filters['view'], ['no_answer', 'wrong_number'], true)))
                                 <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="log-contact" @if($loop->first) data-tour="smk-rts-contact" @endif
                                         data-tp="{{ $r['tracked_property_id'] }}" data-item="{{ $r['list_item_id'] }}" data-address="{{ $r['address'] }}"
                                         @click="openContact($el.dataset)">Log contact</button>
@@ -512,6 +501,14 @@
     </div>
 
     {{-- Log contact popup (was "Contacted client") --}}
+    {{-- Belt v2: Swap = the Stops here control for step 1 ("Not for me") --}}
+    <div x-show="swapOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @keydown.escape.window="swapOpen = false" data-qa="swap-modal">
+        <div class="w-full rounded-md p-4 space-y-2" style="max-width: 44rem; background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+            <div class="text-xs" style="color: var(--text-muted);">Swap this property for the next one - <span x-text="swapAddress"></span></div>
+            <div x-ref="swapHost" class="cxo-fold" style="max-height: 60vh;"></div>
+        </div>
+    </div>
+
     <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @keydown.escape.window="open = false">
         <form method="POST" action="{{ route('road-to-sold.outcomes.record') }}" data-tour="smk-rts-contact-form" class="w-full max-w-lg rounded-md p-5 space-y-4 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border); max-height: 90vh;">
             @csrf
@@ -606,6 +603,13 @@ window.rtsRefreshLive = function () {
 window.addEventListener('corex-pitch-closed', function (e) { if (e.detail && e.detail.touched) { window.rtsRefreshLive(); } });
 function rtsPage(cfg) {
     return {
+        swapOpen: false, swapAddress: '',
+        // Belt v2: the Swap on a Today's work row is the Stops here control (step 1 reasons); the swap itself is the one swap route (JSON when asked), counted at Today's work
+        rtsSwap(ds) {
+            var self = this; this.swapOpen = true; this.swapAddress = ds.address || '';
+            var q = new URLSearchParams(); q.set('item', String(ds.item));
+            this.$nextTick(function () { if (window.CorexOffRamp) { window.CorexOffRamp.mount(self.$refs.swapHost, { url: @js(route('road-to-sold.offramp')), post: @js(route('road-to-sold.swap', 0)).replace('/0/', '/' + ds.item + '/'), query: q, step: 1, onCancel: function () { self.swapOpen = false; }, onDone: function () { window.location.reload(); } }); } });
+        },
         open: false,
         historyOpen: false,
         historyRows: [],

@@ -13,9 +13,9 @@
     'use strict';
     if (window.CorexPitch) return;
     var cfg = window.CorexPitchConfig || {};
-    var STEPS = [['property', 'Property'], ['owner', 'Owner'], ['pitch', 'Pitch'], ['contact', 'Contact'], ['evaluation', 'Appointment'],
-        ['presentation', 'Presentation'], ['results', 'Presentation results'], ['draft', 'Draft'], ['active', 'Active']];
-    var NEXT_LABEL = { property: 'Next: find the owner', owner: '', pitch: '', contact: '', evaluation: '', presentation: '', results: '', draft: '', active: '' };
+    // the seven steps (road-to-sold.md 23.30): the property card is the popup's header, and choosing the seller is the top of Contact
+    var STEPS = [['owner', 'Owner'], ['contact', 'Contact'], ['evaluation', 'Appointment'], ['presentation', 'Presentation'], ['results', 'Results'], ['draft', 'Draft'], ['active', 'Active']];
+    var NEXT_LABEL = { owner: '', contact: '', evaluation: '', presentation: '', results: '', draft: '', active: '' };
     var LATE = ['presentation', 'results', 'draft', 'active'];   // steps 6-9: their pill always opens the plan's one-hop address (it decides from the record's station when clicked), never the screen last shown
     var pop = null;   // the open popup, or null
 
@@ -32,13 +32,13 @@
     }
     function stepOf(href) {
         var u; try { u = new URL(href, window.location.href); } catch (e) { return null; }
-        if (u.searchParams.has('_pitch_card') || u.searchParams.has('_pitch_property') || u.searchParams.has('_pitch_tracked')) return 'property';
         // steps 6-9 (road-to-sold.md 23.25): the property's Generate Presentation window, the calendar feedback form / the Result form, the property's draft and active gates
         if (u.searchParams.has('generate_presentation')) return 'presentation';
         if ((/\/command-center\/calendar$/.test(u.pathname) && u.searchParams.has('capture_feedback')) || /\/road-to-sold\/prospects\/\d+\/result-form$/.test(u.pathname)) return 'results';
         var ps = u.pathname.match(/\/road-to-sold\/prospects\/\d+\/property-step\/(draft|active)$/);
         if (ps) return ps[1];
-        if (/\/outreach\/pitch-ready$/.test(u.pathname)) return 'pitch';
+        if (/\/road-to-sold\/prospects\/\d+\/presentation-path$/.test(u.pathname)) return 'presentation';   // a record with no property file: the one-line "create the file" screen
+        if (/\/outreach\/pitch-ready$/.test(u.pathname)) return 'contact';   // the seller list is the top of Contact now (it goes straight to the composer when there is a seller)
         if (/\/outreach\/evaluation-booked\//.test(u.pathname) || (/\/command-center\/calendar$/.test(u.pathname) && u.searchParams.has('pitch_book'))) return 'evaluation';
         if (/\/contacts\/\d+\/outreach\//.test(u.pathname)) return 'contact';
         if (/\/outreach\/compose$/.test(u.pathname)) return 'owner';
@@ -56,7 +56,14 @@
         '.cxp-step[data-state="current"]{background:var(--brand-button,#0ea5e9);border-color:var(--brand-button,#0ea5e9);color:#fff}' +
         '.cxp-step[data-state="done"]{color:var(--text-primary,#0f172a)}' +
         '.cxp-step[data-click="1"]{cursor:pointer}' +
+        '.cxp-step[data-click="0"]:not([data-state="current"]){opacity:.5;color:var(--text-muted,#94a3b8);cursor:default}' +
         '.cxp-step[data-click="1"]:hover{border-color:var(--brand-button,#0ea5e9)}' +
+        '.cxp-headwrap{padding:6px 14px;border-bottom:1px solid var(--border,#cbd5e1);max-height:50vh;overflow:auto}' +
+        '.cxp-head{display:flex;align-items:center;gap:10px;font-size:.8125rem;cursor:pointer;min-width:0}' +
+        '.cxp-head img{width:44px;height:33px;object-fit:cover;border-radius:4px;flex:none}' +
+        '.cxp-head span{white-space:nowrap}' +
+        '.cxp-head .cxp-addr{overflow:hidden;text-overflow:ellipsis;min-width:0;font-weight:700}' +
+        '.cxp-head .cxp-hint{margin-left:auto;color:var(--brand-icon,#0ea5e9);font-weight:600}' +
         '.cxp-body{position:relative;flex:1;min-height:0;display:flex}' +
         '.cxp-frame{flex:1;width:100%;border:0;background:var(--bg,#f8fafc)}' +
         '.cxp-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg,#f8fafc);color:var(--text-secondary,#475569);font-size:.9375rem;font-weight:600}' +
@@ -78,27 +85,13 @@
     // property has an advert, the current one (it reloads that screen). The step key 'evaluation' is a stored name; the agent reads "Appointment".
     function open(o) {
         if (pop) return;
-        // From a Road to Sold row the card comes FIRST (Johan 2 Nov): the row may not know its advert (a link, a card button), so ask the plan which advert the
-        // record has and open on that card; only Market Intelligence's own "Pitch now" opens straight at Owner (data-start="owner").
-        if (o.origin === 'rts' && !(o.listing || o.property || o.tracked) && cfg.steps) {
-            var nx = String(o.next || '');
-            var q0 = new URLSearchParams(), m;
-            if ((m = nx.match(/\/prospects\/(\d+)\//) || nx.match(/rts_prospect=(\d+)/))) q0.set('prospect', m[1]);
-            else if ((m = nx.match(/\/tracked-properties\/(\d+)\//))) q0.set('tracked', m[1]);
-            else if ((m = nx.match(/\/prospecting\/(\d+)\//))) q0.set('listing', m[1]);
-            if (q0.toString()) {
-                fetch(cfg.steps + '?' + q0.toString(), { credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } })
-                    .then(function (r) { return r.ok ? r.json() : null; })
-                    .then(function (d) { var lm = d && d.steps && d.steps.property ? String(d.steps.property).match(/_pitch_card=(\d+)/) : null; open(Object.assign({}, o, { origin: null, listing: lm ? lm[1] : null, prospect: q0.get('prospect') || o.prospect })); })
-                    .catch(function () { open(Object.assign({}, o, { origin: null })); });
-                return;
-            }
-        }
         var next = o.next && sameSite(o.next) ? o.next : null;
-        var hasCard = !!(o.listing || o.property || o.tracked);
-        var startAtCard = hasCard && o.start !== 'owner';
-        var first = startAtCard ? cardUrl(o) : (next ? withEmbed(next) : null);
-        if (!first) return;
+        // which record: the plan is asked for it (the screens that exist, the ticks, the header) and, when nobody names a step, says where the record's own stage opens (23.30)
+        var prospect = o.prospect || ((String(o.next || '').match(/\/prospects\/(\d+)\//) || String(o.next || '').match(/rts_prospect=(\d+)/) || [])[1]) || '';
+        var canPlan = !!(cfg.steps && (o.listing || o.tracked || prospect));
+        var auto = canPlan && !o.step;
+        var first = auto ? null : (next ? withEmbed(next) : null);
+        if (!first && !auto) return;
 
         var steps = el('div', { 'class': 'cxp-steps', 'data-qa': 'pitch-steps' });
         var stepEls = {};
@@ -114,17 +107,32 @@
         var frame = el('iframe', { 'class': 'cxp-frame', title: 'Pitch', 'data-qa': 'pitch-frame' });
         var loading = el('div', { 'class': 'cxp-loading', role: 'status', 'data-qa': 'pitch-loading', text: 'Opening…' });
         var body = el('div', { 'class': 'cxp-body' }, [frame, loading]);
-        var win = el('div', { 'class': 'cxp-win' }, [el('div', { 'class': 'cxp-bar' }, [title, steps, nextBtn, closeBtn]), body]);
+        // the advert card, folded to one line under the title and unfolding in place on every step (one component: the same "What is this property?" fold-out)
+        var line = el('div', { 'class': 'cxp-head', 'data-qa': 'pitch-header', 'data-pitch-peek': '', role: 'button', tabindex: '0', 'aria-expanded': 'false', title: 'Show me this property' });
+        var headWrap = el('div', { 'class': 'cxp-headwrap', 'data-qa': 'pitch-header-wrap', style: 'display:none' }, [line]);
+        var win = el('div', { 'class': 'cxp-win' }, [el('div', { 'class': 'cxp-bar' }, [title, steps, nextBtn, closeBtn]), headWrap, body]);
         var back = el('div', { 'class': 'cxp-back', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Pitch', 'data-qa': 'pitch-popup' }, [win]);
         document.body.appendChild(back);
         document.documentElement.style.overflow = 'hidden';
 
         var me = pop = {
             back: back, frame: frame, opener: document.activeElement, o: o, loads: 0, results: [],
-            // the screen we are on is not known until it has loaded, except when we open the card ourselves
-            current: startAtCard ? 'property' : null, reached: {}, urls: {}, planSeq: 0,
+            // the screen we are on is not known until it has loaded
+            current: null, reached: {}, urls: {}, planSeq: 0, started: !auto,
         };
-        if (hasCard) { pop.urls.property = cardUrl(o); }
+        function paintHeader(c) {
+            if (!c || !c.listing) { headWrap.style.display = 'none'; return; }
+            headWrap.style.display = '';
+            if (line.getAttribute('data-listing') === String(c.listing)) return;
+            line.setAttribute('data-listing', String(c.listing));
+            while (line.firstChild) line.removeChild(line.firstChild);
+            if (c.photo) { var im = el('img', { src: c.photo, alt: '', referrerpolicy: 'no-referrer' }); line.appendChild(im); }
+            [c.price, null, c.facts, c.agency, c.dom, c.score !== null && c.score !== undefined ? 'score ' + c.score : null].forEach(function (t, i) {
+                if (i === 1) { line.appendChild(el('span', { 'class': 'cxp-addr', text: c.address || '' })); return; }
+                if (t) line.appendChild(el('span', { text: t, style: 'color:var(--text-secondary,#475569)' }));
+            });
+            line.appendChild(el('span', { 'class': 'cxp-hint', 'data-peek-hint': '', text: 'What is this property? \u25BE' }));
+        }
 
         function go(url) { loading.style.display = ''; frame.src = url; }
         function paint() {
@@ -138,6 +146,10 @@
                 var clickable = !!pop.urls[s[0]];
                 b.setAttribute('data-click', clickable ? '1' : '0');
                 b.style.cursor = clickable ? 'pointer' : 'default';
+                // a step with no screen for THIS record is muted and says so (the plan already knows which have one); not before the plan has answered
+                var muted = !clickable && state !== 'current' && (pop.planned || !pop.plan);
+                b.setAttribute('data-click', clickable ? '1' : (muted ? '0' : '2'));
+                if (muted) { b.setAttribute('title', 'Not yet'); } else { b.removeAttribute('title'); }
             });
             var label = pop.current ? NEXT_LABEL[pop.current] : '';
             nextBtn.style.display = label && next ? '' : 'none';
@@ -167,10 +179,9 @@
         document.addEventListener('keydown', pop.keydown);
         pop.repaint = paint;
         paint();
-        frame.src = first;
+        if (first) frame.src = first;
         // which screens exist for THIS record: every other pill is a control when it has one, a plain label when it has none
-        var prospect = o.prospect || ((String(o.next || '').match(/\/prospects\/(\d+)\//) || String(o.next || '').match(/rts_prospect=(\d+)/) || [])[1]) || '';
-        if (cfg.steps && (o.listing || o.tracked || prospect)) {
+        if (canPlan) {
             var q = new URLSearchParams();
             if (o.listing) q.set('listing', o.listing);
             if (o.tracked) q.set('tracked', o.tracked);
@@ -179,10 +190,16 @@
             pop.plan = function () { var seq = ++pop.planSeq; return fetch(cfg.steps + '?' + pop.planQuery, { credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } })
                 .then(function (r) { return r.ok ? r.json() : null; })
                 .then(function (d) {
-                    if (!d || !d.steps || pop !== me || seq !== pop.planSeq) return;
+                    if (pop !== me) return;
+                    if ((!d || !d.steps) && !pop.started) { pop.started = true; if (next) go(withEmbed(next)); else close(false); return; }
+                    if (!d || !d.steps || seq !== pop.planSeq) return;
                     // one title for every step: the property's address, not the label of the button that opened it ("Find the owner - ..." stayed on the Pitch step)
                     if (d.steps.address) { title.textContent = 'Pitch · ' + d.steps.address; }
                     Object.keys(d.steps).forEach(function (k) { if (typeof d.steps[k] === 'string' && k !== 'address' && (!pop.urls[k] || LATE.indexOf(k) >= 0)) pop.urls[k] = d.steps[k]; });
+                    pop.planned = true;
+                    paintHeader(d.steps.card);
+                    // nobody named a step: open on the record's own stage (the plan's start), else where the caller pointed
+                    if (!pop.started) { pop.started = true; var su = d.steps[d.steps.start] || (next ? withEmbed(next) : null); if (su) go(su); else close(false); }
                     pop.reached = d.steps.reached && typeof d.steps.reached === 'object' ? d.steps.reached : {};
                     paint();
                 })

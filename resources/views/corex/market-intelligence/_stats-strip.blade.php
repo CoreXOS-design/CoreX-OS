@@ -59,7 +59,7 @@
          // "rows shown" (which dedupes). The "(raw)" suffix on the tile makes that
          // visible at a glance, not just on hover.
          'tip'=>'Canvass listings matched to a buyer at '.$micThreshold.'%+ (the headline number) · and the distinct buyers behind those matches. Counted per listing row, RAW (pre-dedupe) — a property scraped under two rotating refs can count twice, so this can be higher than "rows shown". Click to filter the worklist to this band.'],
-        ['type'=>'preset',   'key'=>'pitch_now_high',   'label'=>'Pitch now · high',            'value'=>$presets['pitch_now_high'], 'accent'=>'var(--ds-green, #10b981)','tip'=>'Listings with 3+ strong-tier buyers and no recent pitch — your highest-conversion opportunities. Click to filter.'],
+        ['type'=>'preset',   'key'=>'pitch_now_high',   'label'=>'Claim · high',            'value'=>$presets['pitch_now_high'], 'accent'=>'var(--ds-green, #10b981)','tip'=>'Listings with 3+ strong-tier buyers and no recent pitch — your highest-conversion opportunities. Click to filter.'],
         ['type'=>'preset',   'key'=>'my_claims',        'label'=>'My claims',                    'value'=>$presets['my_claims'],      'accent'=>'var(--brand-icon, #0ea5e9)','tip'=>'Listings you have claimed and are working. Click to filter.'],
         ['type'=>'preset',   'key'=>'expiring',         'label'=>'Expiring',                     'value'=>$presets['expiring'],       'accent'=>'var(--ds-amber, #f59e0b)','tip'=>'Your claims that auto-release in under 6 hours unless you log feedback. Click to filter.'],
         ['type'=>'snapshot', 'label'=>'New today',      'value'=>$kpis['new_today'],            'accent'=>'var(--text-primary)',     'tip'=>'New listings captured today.'],

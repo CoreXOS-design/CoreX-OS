@@ -155,13 +155,13 @@ final class PitchPopupRound3Test extends TestCase
         $this->assertStringContainsString('data-qa="step-heading">Owner<', $h);
         $this->assertStringNotContainsString('Compose pitch about this property', $h);
 
-        $h = $get(route('seller-outreach.entry.pitch-ready-prospecting', ['prospectingListingId' => $this->listingId, 'embed' => 1]));
-        $this->assertStringContainsString('data-qa="step-heading">Pitch<', $h);
-        $this->assertStringNotContainsString('pitch to sellers', $h);
-        $this->assertStringNotContainsString('Property created', $h);
+        // 23.30: there is no Pitch step inside the popup - the seller list is the top of Contact, so the old Pitch address goes straight to the composer on the seller
+        $to = $this->actingAs($this->agent)->get(route('seller-outreach.entry.pitch-ready-prospecting', ['prospectingListingId' => $this->listingId, 'embed' => 1]))->assertRedirect()->headers->get('Location');
+        $this->assertStringContainsString('/contacts/' . $owner->id . '/outreach/compose', $to);
 
         $h = $get(route('seller-outreach.composer.show', ['contact' => $owner->id, 'property_id' => $propertyId, 'embed' => 1]));
         $this->assertStringContainsString('data-qa="step-heading">Contact<', $h);
+        $this->assertStringContainsString('data-qa="seller-chooser"', $h);
 
         $admin = \App\Models\User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin', 'is_admin' => true, 'is_active' => true]);
         $h = $this->actingAs($admin)->get(route('market-intelligence.work', ['_pitch_card' => $this->listingId, 'embed' => 1]))->assertOk()->getContent();

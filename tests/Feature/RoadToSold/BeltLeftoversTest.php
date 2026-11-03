@@ -287,9 +287,11 @@ final class BeltLeftoversTest extends TestCase
         $this->assertSame('find_owner', $steps->primary(['stage' => S::CLAIMED], false)['key']);
         $this->assertSame('find_owner', $steps->primary(['stage' => S::FOUND], false)['key']);
         $this->assertSame('evaluation', $steps->primary(['stage' => S::CONTACTED], true)['key']);
-        $this->assertSame('evaluation_feedback', $steps->primary(['stage' => S::APPOINTMENT_SET], true)['key']);
-        $this->assertSame('Appointment feedback', $steps->primary(['stage' => S::APPOINTMENT_SET], true)['label']);
+        $this->assertSame('contact', $steps->primary(['stage' => S::OWNER_FOUND], true)['key']);
+        $this->assertSame('presentation', $steps->primary(['stage' => S::APPOINTMENT_SET], true)['key'], 'Belt v2: Booked - Prepare presentation');
+        $this->assertSame('Prepare presentation', $steps->primary(['stage' => S::APPOINTMENT_SET], true)['label']);
         $this->assertSame('results', $steps->primary(['stage' => S::PRESENTATION_PREPARED], true)['key']);
+        $this->assertSame('Appointment results', $steps->primary(['stage' => S::PRESENTATION_PREPARED], true)['label']);
     }
 
     public function test_the_evaluation_feedback_step_opens_the_calendar_feedback_form_on_that_appointment(): void
@@ -328,9 +330,9 @@ final class BeltLeftoversTest extends TestCase
 
         $html = $this->actingAs($this->agent)->get(route('road-to-sold.index'))->assertOk()->getContent();
 
-        $this->assertSame(1, substr_count($html, 'data-qa="intake-swap"'), 'only the row nobody has started offers Swap');
-        $this->assertStringContainsString(route('road-to-sold.swap', $fresh->id), $html);
-        $this->assertStringNotContainsString(route('road-to-sold.swap', $started->id), $html);
+        $this->assertSame(1, substr_count($html, 'data-qa="swap-open"'), 'only the row nobody has started offers Swap');
+        $this->assertStringContainsString('data-item="' . $fresh->id . '"', $html);
+        $this->assertStringNotContainsString('data-item="' . $started->id . '"', $html);
     }
 
     public function test_a_property_that_came_onto_the_belt_at_claimed_counts_as_loaded_and_the_ratio_never_passes_100(): void

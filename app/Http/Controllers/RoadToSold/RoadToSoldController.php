@@ -630,6 +630,7 @@ class RoadToSoldController extends Controller
     }
 
     /** "Swap" on a loaded property (23.14): it leaves the list with the reason, the property is released, and the next candidate takes its place. Own list only. */
+<<<<<<< HEAD
     /**
      * "Find owner" on a loaded row (23.30.3): the first action on the row is the claim - out of the Market Intelligence pool, hold clock started, record moved
      * Loaded -> Claimed in one transaction. The button is built on the screen (cc4); this is the action behind it.
@@ -653,6 +654,9 @@ class RoadToSoldController extends Controller
     }
 
     public function swap(Request $request, int $item): RedirectResponse
+=======
+    public function swap(Request $request, int $item): RedirectResponse|\Illuminate\Http\JsonResponse
+>>>>>>> origin/QA1
     {
         // v4 (road-to-sold.md 23.11): a swap is the Stock loaded off-ramp - the agency's own reason for that station (wrong area, no address, I already know it, other),
         // plus a few words when it is "other". The old free-text box still works (the words become an "other" with that note), so an old tab or the API is not broken.
@@ -661,16 +665,21 @@ class RoadToSoldController extends Controller
             'note.max'   => 'Keep the note under 200 characters.',
         ]);
         $agencyId = (int) ($request->user()->effectiveAgencyId() ?: 0);
-        $stockReasons = app(\App\Services\RoadToSold\ParkReasonService::class)->choices($agencyId, 'sales', 'found')->filter(fn ($r) => $r->station === 'found' || $r->station === null);
+        // Belt v2: ONE list - the step 1 reasons the Stops here control shows (the swap and the popup's Property step share it); before the step columns exist, the Stock loaded station list
+        $reasonSvc = app(\App\Services\RoadToSold\ParkReasonService::class);
+        $stockReasons = \App\Models\RoadToSold\RtsParkReason::hasStepColumns() ? $reasonSvc->forStep($agencyId, 'sales', 1) : $reasonSvc->choices($agencyId, 'sales', 'found')->filter(fn ($r) => $r->station === 'found' || $r->station === null);
+        $fail = fn (string $m) => $request->expectsJson() ? response()->json(['ok' => false, 'message' => $m], 422) : back()->with('rts_error', $m);
         $key = (string) ($data['reason_key'] ?? '');
         $note = trim((string) ($data['note'] ?? ''));
         if ($key !== '') {
             $picked = $stockReasons->firstWhere('key', $key);
             if (! $picked) {
-                return back()->with('rts_error', 'Pick one of the reasons shown for swapping it.');
+                return $fail('Pick one of the reasons shown for swapping it.');
             }
-            if ($key === 'not_for_me_other' && mb_strlen($note) < 3) {
-                return back()->with('rts_error', 'Say in a few words why you are swapping it.');
+            if (! empty($picked->is_other) || $key === 'not_for_me_other') {
+                if (mb_strlen($note) < 3) {
+                    return $fail('Say in a few words why you are swapping it.');
+                }
             }
             $label = (string) $picked->label;
         } else {
@@ -688,14 +697,21 @@ class RoadToSoldController extends Controller
         try {
             $r = app(ListBuilderService::class)->swap($request->user(), (int) $row->id, $reasonText, $key, $label, $note !== '' ? $note : null);
         } catch (\InvalidArgumentException $e) {
-            return back()->with('rts_error', $e->getMessage());
+            return $fail($e->getMessage());
         } catch (Throwable $e) {
             report($e);
 
-            return back()->with('rts_error', 'We could not swap that just now. Try again.');
+            return $fail('We could not swap that just now. Try again.');
         }
 
-        return back()->with('status', $r['replacement'] ? 'Swapped. Next up: ' . ($r['replacement']->reason ?: 'the next property') . '.' : 'Swapped. Nothing else is available to take its place right now.');
+        $message = $r['replacement'] ? 'Swapped. Next up: ' . ($r['replacement']->reason ?: 'the next property') . '.' : 'Swapped. Nothing else is available to take its place right now.';
+        if ($request->expectsJson()) {
+            $request->session()->flash('status', $message);
+
+            return response()->json(['ok' => true, 'message' => $message]);
+        }
+
+        return back()->with('status', $message);
     }
 
     private function doneMessage($o): string

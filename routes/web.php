@@ -7037,6 +7037,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::get('/prospects/{prospect}/presentation-path', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'presentation'])
                 ->whereNumber('prospect')->name('prospects.presentation-path');
             // v4 (23.25 steps 7-9): the popup's Presentation results, Draft and Active screens - the existing feedback / Result form and the property's gates
+            Route::post('/prospects/{prospect}/create-property', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'createProperty'])
+                ->whereNumber('prospect')->name('prospects.create-property');
             Route::get('/prospects/{prospect}/results-path', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'results'])
                 ->whereNumber('prospect')->name('prospects.results-path');
             Route::get('/prospects/{prospect}/result-form', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'resultForm'])

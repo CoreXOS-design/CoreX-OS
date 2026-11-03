@@ -126,8 +126,10 @@ final class RoadToSoldPageTest extends TestCase
         $res->assertSee('Seeff Margate')->assertSee('Price dropped 8% in 10 days')->assertSee('On the market 120 days');
         $res->assertSee('Pieter van der Merwe')->assertSee('0825512345');
         $res->assertSee('Find the owner')->assertSee(route('seller-outreach.entry.from-tracked-property', $noOwner->id), false);
-        $res->assertSee('0 of 2')->assertSee('Log contact');
-        $this->assertSame(2, substr_count($res->getContent(), 'data-tp='));
+        // Belt v2 (3 Nov): a Today's work row has ONE button (Find owner) + Swap; Log contact is inside the popup's Contact step
+        $res->assertSee('0 of 2');
+        $this->assertSame(0, substr_count($res->getContent(), 'data-qa="log-contact"'));
+        $this->assertSame(2, substr_count($res->getContent(), 'data-qa="swap-open"'), 'each loaded row can be swapped');
     }
 
     public function test_search_status_and_view_filters(): void

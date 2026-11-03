@@ -200,8 +200,7 @@ final class MicBuyerBannerTest extends TestCase
         $this->assertFalse($res->headers->has('X-Frame-Options'), 'no X-Frame-Options');
         $this->assertStringNotContainsString('frame-ancestors', (string) $res->headers->get('Content-Security-Policy'));
         $html = $res->getContent();
-        $this->assertStringContainsString('data-embed-done>Done</button>', $html);
-        $this->assertStringNotContainsString('back to Road to Sold', $html);
+        $this->assertStringContainsString('data-embed-done>Done - back to Road to Sold</button>', $html, 'one label everywhere (23.25 audit)');
         $rts = $this->actingAs($this->admin)->get(route('corex.contacts.matches.results', [$this->buyer, $w]) . '?embed=1&rts_stage=3')->assertOk()->getContent();
         $this->assertStringContainsString('Done - back to Road to Sold', $rts, 'the Road to Sold pop-up keeps its wording');
     }
