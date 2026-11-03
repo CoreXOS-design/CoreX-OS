@@ -387,6 +387,34 @@ final class CampaignsTest extends TestCase
         $this->assertCount(1, $this->sent, 'step 2 never goes to an unsubscribed lead');
     }
 
+    public function test_short_unsubscribe_link_is_short_forgery_proof_and_works_like_the_signed_one(): void
+    {
+        $campaign = $this->campaign(1, 2);
+        $this->travelTo(Carbon::parse('2027-01-04 09:00'));
+        $this->service()->runBatch($campaign, now());
+        $send = CampaignSend::firstOrFail();
+
+        $url = $this->service()->unsubscribeUrl($send);
+        $this->assertStringContainsString('/u/' . $send->id . '-', $url);
+        $this->assertStringNotContainsString('signature=', $url);
+        $this->assertLessThan(60, strlen($url) - strlen(config('app.url')) + 30, 'short link');
+        $this->assertStringContainsString($url, $send->body, 'the short link is the one in the email body');
+
+        $this->get($url)->assertOk()->assertSee('data-unsubscribe-state="confirm"', false);
+        $this->assertNull($send->fresh()->unsubscribed_at, 'GET never writes');
+
+        $bad = '/u/' . $send->id . '-' . str_repeat('0', 12);
+        $this->get($bad)->assertNotFound();
+        $this->post($bad)->assertNotFound();
+        $this->get('/u/' . $send->id)->assertNotFound();
+        $this->assertNull($send->fresh()->unsubscribed_at);
+
+        $this->post($url)->assertOk()->assertSee('data-unsubscribe-state="unsubscribed"', false);
+        $this->post($url)->assertOk()->assertSee('data-unsubscribe-state="done"', false);
+        $this->assertNotNull($send->fresh()->unsubscribed_at);
+        $this->assertSame('stopped', CampaignLead::first()->status);
+    }
+
     // ── replies / bounces (§6.6) ────────────────────────────────────────────────────────────
 
     public function test_replies_stop_replies_and_bounces_are_recognised(): void

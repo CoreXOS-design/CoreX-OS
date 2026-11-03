@@ -255,6 +255,16 @@ Route::post('/campaign-unsubscribe/{send}', [\App\Http\Controllers\Campaigns\Pub
     ->middleware(['signed', 'throttle:10,1'])
     ->name('campaigns.public.unsubscribe.confirm');
 
+// Short form of the same link (the long signed URL looked suspicious to recipients): /u/{id}-{12-hex HMAC}. The HMAC is the credential.
+Route::get('/u/{token}', [\App\Http\Controllers\Campaigns\PublicUnsubscribeController::class, 'showShort'])
+    ->where('token', '[0-9]+-[a-f0-9]{12}')
+    ->middleware('throttle:30,1')
+    ->name('campaigns.public.u');
+Route::post('/u/{token}', [\App\Http\Controllers\Campaigns\PublicUnsubscribeController::class, 'confirmShort'])
+    ->where('token', '[0-9]+-[a-f0-9]{12}')
+    ->middleware('throttle:10,1')
+    ->name('campaigns.public.u.confirm');
+
 // ── Presentations V2 Phase 4 — public snapshot share links (no auth).
 //    Token is the credential; controller checks revoked_at + expires_at.
 //    Track endpoint is rate-limited 60req/min/IP to stop beacon abuse.

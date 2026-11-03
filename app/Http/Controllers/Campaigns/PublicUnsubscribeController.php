@@ -15,9 +15,30 @@ use Illuminate\View\View;
  */
 class PublicUnsubscribeController extends Controller
 {
+    /** Short link /u/{token} — the token's HMAC is the credential (see CampaignSendService::unsubscribeToken). */
+    public function showShort(Request $request, string $token, CampaignSendService $sends): View|Response
+    {
+        return $this->renderConfirm($request, $sends->sendForUnsubscribeToken($token));
+    }
+
+    public function confirmShort(Request $request, string $token, CampaignSendService $sends): View|Response
+    {
+        return $this->doConfirm($sends->sendForUnsubscribeToken($token), $sends);
+    }
+
+    /** Long signed link — kept so emails already sent keep working. */
     public function show(Request $request, int $send): View|Response
     {
-        $row = CampaignSend::find($send);
+        return $this->renderConfirm($request, CampaignSend::find($send));
+    }
+
+    public function confirm(Request $request, int $send, CampaignSendService $sends): View|Response
+    {
+        return $this->doConfirm(CampaignSend::find($send), $sends);
+    }
+
+    private function renderConfirm(Request $request, ?CampaignSend $row): View|Response
+    {
         if (! $row) {
             return response()->view('campaigns.public.unsubscribe', ['state' => 'missing'], 404);
         }
@@ -29,9 +50,8 @@ class PublicUnsubscribeController extends Controller
         ]);
     }
 
-    public function confirm(Request $request, int $send, CampaignSendService $sends): View|Response
+    private function doConfirm(?CampaignSend $row, CampaignSendService $sends): View|Response
     {
-        $row = CampaignSend::find($send);
         if (! $row) {
             return response()->view('campaigns.public.unsubscribe', ['state' => 'missing'], 404);
         }

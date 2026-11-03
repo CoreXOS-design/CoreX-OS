@@ -424,7 +424,29 @@ class CampaignSendService
 
     public function unsubscribeUrl(CampaignSend $send): string
     {
-        return URL::signedRoute('campaigns.public.unsubscribe', ['send' => $send->id]);
+        return route('campaigns.public.u', ['token' => $this->unsubscribeToken($send->id)]);
+    }
+
+    /**
+     * Short unsubscribe token "<send id>-<12 hex>" — the HMAC of the id under the app key is the credential, so the link is
+     * ~40 characters instead of a 64-character signature (long query-string links look like phishing to recipients).
+     */
+    public function unsubscribeToken(int $sendId): string
+    {
+        return $sendId . '-' . substr(hash_hmac('sha256', 'campaign-unsubscribe:' . $sendId, (string) config('app.key')), 0, 12);
+    }
+
+    /** The send a short token belongs to, or null when the token is malformed or its signature does not match. */
+    public function sendForUnsubscribeToken(string $token): ?CampaignSend
+    {
+        if (! preg_match('/^(\d{1,12})-([a-f0-9]{12})$/', $token, $m)) {
+            return null;
+        }
+        if (! hash_equals($this->unsubscribeToken((int) $m[1]), $token)) {
+            return null;
+        }
+
+        return CampaignSend::find((int) $m[1]);
     }
 
     public function messageIdFor(int $sendId, string $fromEmail): string
