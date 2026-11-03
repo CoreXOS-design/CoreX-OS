@@ -6,7 +6,8 @@
 (function () {
     'use strict';
     var cfg = window.CorexPitchConfig || {};
-    var NAMES = ['Property', 'Owner', 'Pitch', 'Contact', 'Appointment', 'Presentation', 'Presentation results', 'Draft', 'Active'];
+    // Today's work (the Swap list) then the seven popup steps, by the stored step number (3, the retired Pitch, reads as Contact)
+    var NAMES = { 1: "Today's work", 2: 'Owner', 3: 'Contact', 4: 'Contact', 5: 'Appointment', 6: 'Presentation', 7: 'Results', 8: 'Draft', 9: 'Active' };
 
     var css = document.createElement('style');
     css.textContent =
@@ -56,7 +57,7 @@
             host.appendChild(el('div', { 'class': 'cxo-row' }, [no]));
             return;
         }
-        host.appendChild(el('div', { 'class': 'cxo-title', text: (o.title ? o.title : 'Stops here - ' + (NAMES[d.step - 1] || '')) + '. Why?' }));
+        host.appendChild(el('div', { 'class': 'cxo-title', text: (o.title ? o.title : 'Stops here - ' + (NAMES[d.step] || '')) + '. Why?' }));
         var list = el('div', { 'class': 'cxo-list', role: 'radiogroup', 'aria-label': 'Why does it stop here?', 'data-qa': 'offramp-reasons' });
         var name = 'cxo-reason-' + Math.random().toString(36).slice(2, 7);
         d.reasons.forEach(function (r, i) {
@@ -98,7 +99,7 @@
 
     // ---- the pitch popup: the control is added to the popup's own bar, the reasons unfold INSIDE the popup (never a floating panel) ------------------
     // the popup's pills are keyed (owner, contact, evaluation, presentation, results, draft, active); the reasons are keyed by the nine-step numbers (Property = 1)
-    var STEP_OF_PILL = { property: 1, owner: 2, pitch: 3, contact: 4, evaluation: 5, presentation: 6, results: 7, draft: 8, active: 9 };
+    var STEP_OF_PILL = { property: 1, owner: 2, pitch: 4, contact: 4, evaluation: 5, presentation: 6, results: 7, draft: 8, active: 9 };
     function stepNow(back) {
         var cur = back.querySelector('[data-qa="pitch-steps"] [data-step][data-state="current"]');
         if (cur && STEP_OF_PILL[cur.getAttribute('data-step')]) return STEP_OF_PILL[cur.getAttribute('data-step')];
@@ -127,11 +128,17 @@
         bar.insertBefore(wrap, close || null);
         bar.appendChild(fold);   // the bar wraps: the fold takes its own full-width row inside the popup
         function shut() { fold.hidden = true; btn.setAttribute('aria-expanded', 'false'); }
+        function open() {
+            var step = stepNow(back); fold._step = step;
+            mount(fold, { url: cfg.offramp, query: identity(), step: step, onCancel: shut, onDone: function () { if (window.CorexPitch) window.CorexPitch.close(false); window.location.reload(); } });
+        }
         btn.addEventListener('click', function () {
             if (!fold.hidden) { shut(); return; }
             fold.hidden = false; btn.setAttribute('aria-expanded', 'true');
-            mount(fold, { url: cfg.offramp, query: identity(), step: stepNow(back), onCancel: shut, onDone: function () { if (window.CorexPitch) window.CorexPitch.close(false); window.location.reload(); } });
+            open();
         });
+        // the title and the reasons are the step ON SCREEN: when the popup moves to another step (a pill clicked, the next screen loaded) while the fold is open, it is drawn again for that step
+        new MutationObserver(function () { if (!fold.hidden && fold._step !== stepNow(back)) open(); }).observe(bar, { attributes: true, attributeFilter: ['data-state'], subtree: true });
         back.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !fold.hidden) { e.stopPropagation(); shut(); } }, true);
     }
 

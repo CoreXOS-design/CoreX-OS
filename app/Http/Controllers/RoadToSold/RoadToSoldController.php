@@ -133,8 +133,8 @@ class RoadToSoldController extends Controller
         // 23.31 page layout v2: three belts, exactly one open - the one asked for (?belt=), else the one this user left open (per user), else the one with the most late items
         $beltPrefs = app(\App\Services\RoadToSold\BeltPreferenceService::class);
         $beltAsked = in_array((string) $request->query('belt'), \App\Services\RoadToSold\BeltPreferenceService::KEYS, true) ? (string) $request->query('belt') : null;
-        // a station list always shows its own belt open (a Maintain / Sell list under a closed strip would be lost); that is not a choice, so it is not remembered
-        $stationBelt = \App\Services\RoadToSold\BeltsService::station((string) $request->query('station', ''))['belt'] ?? null;
+        // a station list always shows its own belt open (a list under a closed strip would be lost, and a Get-stock list under the Sell tiles is wrong); that is not a choice, so it is not remembered
+        $stationBelt = \App\Services\RoadToSold\BeltsService::beltOfStation((string) $request->query('station', ''));
         $beltSet = $belt !== [] && $agentUser
             ? app(\App\Services\RoadToSold\BeltsService::class)->belts($agentUser, $belt, $beltBase, $beltAsked ?? $stationBelt, $beltPrefs->get($viewer), \Illuminate\Support\Carbon::instance($date))
             : ['belts' => [], 'open' => 'get'];

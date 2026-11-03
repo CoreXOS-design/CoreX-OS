@@ -20,7 +20,7 @@
     .rts-tile { display: flex; flex-direction: column; justify-content: flex-start; gap: 0; min-width: 0; height: 100%; padding: 4px 4px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-primary); }
     .rts-tile:hover { border-color: var(--brand-icon); }
     /* page layout v2 (23.31): four lines on every tile, each line its own link with room to click; the three belts' headings */
-    .rts-tile.m4 a.ln { padding: 2px 3px; margin: 0 -3px; border-radius: 3px; }
+    .rts-tile.m4 .ln { padding: 2px 3px; margin: 0 -3px; border-radius: 3px; }
     .rts-tile.m4 a.ln:hover { background: var(--surface-2, rgba(128,128,128,.15)); text-decoration: none; color: var(--text-primary); }
     .rts-belts { display: flex; flex-direction: column; gap: 2px; }
     .rts-bhead { display: flex; align-items: center; gap: 10px; min-height: 22px; min-width: 0; font-size: .75rem; color: var(--text-secondary); }

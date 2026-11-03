@@ -72,7 +72,7 @@ class OffRampSettingsController extends Controller
     {
         return [
             'label' => ['required', 'string', 'max:120'],
-            'step' => ['nullable', 'integer', 'min:1', 'max:9'],
+            'step' => ['nullable', 'integer', Rule::in(array_keys(ParkReasonService::STEPS))],
             'counts_as' => ['required', Rule::in(array_keys(RtsParkReason::COUNTS_AS))],
             'revisit_days' => ['nullable', 'integer', 'min:0', 'max:730'],
         ];
@@ -84,7 +84,7 @@ class OffRampSettingsController extends Controller
         $track = Track::fromRequest($request);
         abort_unless(RtsParkReason::hasStepColumns(), 503, 'The reason list is not switched on yet.');
         app(ParkReasonService::class)->ensureStepReasons($agencyId, $track);
-        $data = $request->validate($this->rules() + ['step' => ['required', 'integer', 'min:1', 'max:9']], ['label.required' => 'Give the reason a name.', 'step.required' => 'Pick the step it belongs to.']);
+        $data = $request->validate($this->rules() + ['step' => ['required', 'integer', Rule::in(array_keys(ParkReasonService::STEPS))]], ['label.required' => 'Give the reason a name.', 'step.required' => 'Pick the step it belongs to.']);
         $key = 'custom_' . substr(md5($data['label'] . microtime()), 0, 8);
         RtsParkReason::withoutAgencyStamping(fn () => RtsParkReason::create([
             'agency_id' => $agencyId, 'track' => $track, 'station' => 'popup', 'step' => (int) $data['step'], 'kind' => RtsParkReason::KIND_OFF_RAMP, 'counts_as' => $data['counts_as'], 'is_other' => false,

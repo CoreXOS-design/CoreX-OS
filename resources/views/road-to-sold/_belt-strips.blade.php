@@ -40,7 +40,11 @@
                                 <a href="{{ route('road-to-sold.index', $t['url']) }}" class="nm" data-qa="belt-name-{{ $t['key'] }}"><span class="short">{{ $t['short'] }}</span><span class="full">{{ $t['label'] }}</span></a>
                                 <a href="{{ route('road-to-sold.index', $l1['url']) }}" data-qa="belt-tile-{{ $t['key'] }}" class="ln l1"><span class="n" data-qa="belt-figure">{{ $n1 }}</span> {{ $w1 }}</a>
                                 @foreach($ls->slice(1) as $ln)
-                                    <a href="{{ route('road-to-sold.index', $ln['url']) }}" class="ln {{ $ln['bad'] ? 'bad' : '' }}" data-qa="belt-line-{{ $t['key'] }}-{{ $ln['key'] }}">{{ $ln['text'] }}</a>
+                                    @if($ln['url'] === null)
+                                        <span class="ln {{ $ln['bad'] ? 'bad' : '' }}" data-qa="belt-line-{{ $t['key'] }}-{{ $ln['key'] }}">{{ $ln['text'] }}</span>
+                                    @else
+                                        <a href="{{ route('road-to-sold.index', $ln['url']) }}" class="ln {{ $ln['bad'] ? 'bad' : '' }}" data-qa="belt-line-{{ $t['key'] }}-{{ $ln['key'] }}">{{ $ln['text'] }}</a>
+                                    @endif
                                 @endforeach
                             </div>
                             @if($isGet)

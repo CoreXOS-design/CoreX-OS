@@ -368,7 +368,7 @@ final class TargetsService
     /**
      * The one line on the Road to Sold page: "To list 1 property: you need X from MIC · branch avg Y · agency avg Z".
      *
-     * @return array{me:int,branch:?int,agency:int,estimate:bool,text:string}
+     * @return array{short:string,me:int,branch:?int,agency:int,estimate:bool,plain:string,text:string}
      */
     public function perListingLine(User $agent, CarbonInterface $day, string $track = 'sales'): array
     {
@@ -380,6 +380,9 @@ final class TargetsService
         $plain = 'To list 1 property: you need ' . $n($me['need']) . ' from MIC'
             . ($branch !== null ? ' · branch avg ' . $n($branch['need']) : '') . ' · agency avg ' . $n($agency['need']);
 
-        return ['me' => $n($me['need']), 'branch' => $branch !== null ? $n($branch['need']) : null, 'agency' => $n($agency['need']), 'estimate' => $est, 'plain' => $plain, 'text' => $plain . ($est ? ' (estimate)' : '')];
+        // the heading-line version (23.31): the same figures in a sentence that fits one line at 1366; `text` stays the full wording (the hover)
+        $short = 'To list 1: you need ' . $n($me['need']) . ' from MIC' . ($branch !== null ? ' · branch ' . $n($branch['need']) : '') . ' · agency ' . $n($agency['need']) . ($est ? ' (est.)' : '');
+
+        return ['short' => $short, 'me' => $n($me['need']), 'branch' => $branch !== null ? $n($branch['need']) : null, 'agency' => $n($agency['need']), 'estimate' => $est, 'plain' => $plain, 'text' => $plain . ($est ? ' (estimate)' : '')];
     }
 }

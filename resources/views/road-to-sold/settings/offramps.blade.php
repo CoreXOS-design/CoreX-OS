@@ -1,7 +1,7 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
-{{-- Road to Sold v4 (road-to-sold.md 23.25 / 23.11): the agency's off-ramp reasons for "Stops here (say why)" on every step of the pitch popup. Excel-style rows, same layout as the results list. --}}
+{{-- Road to Sold v4 (road-to-sold.md 23.25 / 23.11): the agency's off-ramp reasons for "Stops here (say why)" on every step. Excel-style rows, same layout as the results list. --}}
 @extends('layouts.corex-app')
-@section('title', 'Road to Sold off-ramp reasons')
+@section('title', 'Stops here - reasons per step')
 
 @section('corex-content')
 @php
@@ -12,8 +12,8 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex items-center justify-between flex-wrap gap-3">
             <div>
-                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Stops here - the reasons</h1>
-                <p class="text-xs mt-1" style="color: var(--text-muted);">What an agent can say when a property stops at a step of the pitch popup. "Other" ends every step's list and always asks for a few words. A reason that counts as <strong>Not selling</strong> takes the property off everyone's daily lists and marks it Not selling; one that counts as <strong>Lost</strong> closes the claim as lost to another agency. "Back in" is the days until it comes back; 0 means never.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Stops here - reasons per step</h1>
+                <p class="text-xs mt-1" style="color: var(--text-muted);">What an agent can say when a property stops: on Today's work (Swap, "Not for me") or at one of the steps - Owner, Contact, Appointment, Presentation, Results, Draft, Active. "Other" ends every step's list and always asks for a few words. A reason that counts as <strong>Not selling</strong> takes the property off everyone's daily lists and marks it Not selling; one that counts as <strong>Lost</strong> closes the claim as lost to another agency. "Back in" is the days until it comes back; 0 means never.</p>
             </div>
             <div class="flex items-center gap-2">
                 <a href="{{ route('road-to-sold.settings.results.index', $trackParams) }}" class="corex-btn-outline corex-btn-xs">Results</a>
@@ -38,7 +38,7 @@
         <div><label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="ost">Step</label>
             <select id="ost" name="step" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
                 <option value="0">All steps</option>
-                @foreach($steps as $n => $l)<option value="{{ $n }}" @selected($stepFilter === $n)>{{ $n }} {{ $l }}</option>@endforeach
+                @foreach($steps as $n => $l)<option value="{{ $n }}" @selected($stepFilter === $n)>{{ $l }}</option>@endforeach
                 <option value="-1" @selected($stepFilter === -1)>Not in the popup</option>
             </select></div>
         <div><label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="os">Show</label>
@@ -62,8 +62,8 @@
                     <td class="px-3 py-2" style="color: var(--text-muted);"><code>{{ $r->key }}</code>@if($r->is_other) <span title="Every step's list ends with this one">(Other)</span>@endif</td>
                     <td class="px-3 py-2"><input form="{{ $fid }}" name="label" value="{{ $r->label }}" maxlength="120" required class="w-full rounded-md px-2 py-1 text-xs" style="{{ $inputStyle }}" @disabled($locked)></td>
                     <td class="px-3 py-2">
-                        @if($r->is_other || $locked)<span>{{ $r->step ? $r->step . ' ' . ($steps[$r->step] ?? '') : 'Not in the popup' }}</span><input form="{{ $fid }}" type="hidden" name="step" value="{{ $r->step }}">
-                        @else<select form="{{ $fid }}" name="step" class="rounded-md px-2 py-1 text-xs" style="{{ $inputStyle }}"><option value="">Not in the popup</option>@foreach($steps as $n => $l)<option value="{{ $n }}" @selected((int) $r->step === $n)>{{ $n }} {{ $l }}</option>@endforeach</select>@endif
+                        @if($r->is_other || $locked)<span>{{ $r->step ? ($steps[$r->step] ?? ($steps[4] ?? '')) : 'Not in the popup' }}</span><input form="{{ $fid }}" type="hidden" name="step" value="{{ $r->step }}">
+                        @else<select form="{{ $fid }}" name="step" class="rounded-md px-2 py-1 text-xs" style="{{ $inputStyle }}"><option value="">Not in the popup</option>@foreach($steps as $n => $l)<option value="{{ $n }}" @selected((int) $r->step === $n)>{{ $l }}</option>@endforeach</select>@endif
                     </td>
                     <td class="px-3 py-2"><select form="{{ $fid }}" name="counts_as" class="rounded-md px-2 py-1 text-xs" style="{{ $inputStyle }}" @disabled($locked)>@foreach($countsAs as $v => $l)<option value="{{ $v }}" @selected(($r->counts_as ?? 'lost') === $v)>{{ $l }}</option>@endforeach</select></td>
                     <td class="px-3 py-2"><input form="{{ $fid }}" name="revisit_days" type="number" min="0" max="730" value="{{ $r->default_revisit_days }}" class="w-20 rounded-md px-2 py-1 text-xs" style="{{ $inputStyle }}" @disabled($locked)></td>
@@ -94,7 +94,7 @@
         <div class="grow"><label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="nl">Add a reason</label>
             <input id="nl" name="label" required maxlength="120" placeholder="e.g. Seller emigrating" class="w-full rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}"></div>
         <div><label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="ns">Step</label>
-            <select id="ns" name="step" required class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}"><option value="">Pick a step</option>@foreach($steps as $n => $l)<option value="{{ $n }}">{{ $n }} {{ $l }}</option>@endforeach</select></div>
+            <select id="ns" name="step" required class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}"><option value="">Pick a step</option>@foreach($steps as $n => $l)<option value="{{ $n }}">{{ $l }}</option>@endforeach</select></div>
         <div><label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="nc">Counts as</label>
             <select id="nc" name="counts_as" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}">@foreach($countsAs as $v => $l)<option value="{{ $v }}">{{ $l }}</option>@endforeach</select></div>
         <div><label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="nd">Back in (days)</label>

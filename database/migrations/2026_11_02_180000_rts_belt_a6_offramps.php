@@ -15,6 +15,9 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // rts_park_reasons is created by 2026_12_20_100000 (future-dated: it sorts AFTER this file on a from-scratch build, which creates it with these columns already);
+        // here it exists only on an environment that ran that file first, and then it needs the columns added
+        if (Schema::hasTable('rts_park_reasons')) {
         Schema::table('rts_park_reasons', function (Blueprint $t) {
             if (! Schema::hasColumn('rts_park_reasons', 'station')) {
                 $t->string('station', 30)->nullable()->after('track');
@@ -23,6 +26,7 @@ return new class extends Migration
                 $t->string('kind', 12)->default('off_ramp')->after('station');
             }
         });
+        }
         if (! Schema::hasColumn('rts_settings', 'flag_offramp_excess_pct')) {
             Schema::table('rts_settings', function (Blueprint $t) {
                 $t->unsignedSmallInteger('flag_offramp_excess_pct')->default(25);
@@ -32,13 +36,15 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::table('rts_park_reasons', function (Blueprint $t) {
-            foreach (['station', 'kind'] as $c) {
-                if (Schema::hasColumn('rts_park_reasons', $c)) {
-                    $t->dropColumn($c);
+        if (Schema::hasTable('rts_park_reasons')) {
+            Schema::table('rts_park_reasons', function (Blueprint $t) {
+                foreach (['station', 'kind'] as $c) {
+                    if (Schema::hasColumn('rts_park_reasons', $c)) {
+                        $t->dropColumn($c);
+                    }
                 }
-            }
-        });
+            });
+        }
         if (Schema::hasColumn('rts_settings', 'flag_offramp_excess_pct')) {
             Schema::table('rts_settings', function (Blueprint $t) {
                 $t->dropColumn('flag_offramp_excess_pct');

@@ -41,6 +41,10 @@ class RentalInspectionAuditLog extends Model
     public const EVENT_FINDING_SUPERSEDED = 'finding_superseded';
     public const EVENT_FINDING_RECORDED = 'finding_recorded';
     public const EVENT_COPIES_SENT = 'report_copies_sent';
+    // bulk photo actions (photo manager) - one row per action, the photo ids in `after`
+    public const EVENT_PHOTOS_ARCHIVED = 'photos_archived';
+    public const EVENT_PHOTOS_RESTORED = 'photos_restored';
+    public const EVENT_PHOTOS_MOVED = 'photos_moved';
     // §46 — signing by personal link.
     public const EVENT_SIGNING_LINK_SENT = 'signing_link_sent';
     public const EVENT_SIGNING_LINK_REVOKED = 'signing_link_revoked';
@@ -76,6 +80,9 @@ class RentalInspectionAuditLog extends Model
         self::EVENT_REOPENED => 'Report reopened for editing',
         self::EVENT_REPLACED => 'Replaced / replaces',
         self::EVENT_SIGNING_REMINDER => 'Signing reminder to the agent',
+        self::EVENT_PHOTOS_ARCHIVED => 'Photos deleted',
+        self::EVENT_PHOTOS_RESTORED => 'Photos restored',
+        self::EVENT_PHOTOS_MOVED => 'Photos moved',
     ];
 
     protected $fillable = [

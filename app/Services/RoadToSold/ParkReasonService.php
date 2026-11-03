@@ -138,17 +138,19 @@ class ParkReasonService
     }
 
     /** The nine popup steps (road-to-sold.md 23.25.2), for the list screen and the popup. */
-    public const STEPS = [1 => 'Property', 2 => 'Owner', 3 => 'Pitch', 4 => 'Contact', 5 => 'Appointment', 6 => 'Presentation', 7 => 'Presentation results', 8 => 'Draft', 9 => 'Active'];
+    // Today's work (the swap / "Not for me" list) then the seven popup steps. The stored numbers keep the nine-step numbering (1 Today's work, 2 Owner, 4 Contact, 5 Appointment, 6 Presentation,
+    // 7 Results, 8 Draft, 9 Active) so reasons and history rows written before the popup lost its Pitch step still read right; 3 (Pitch) is retired and its rows are Contact (4).
+    public const STEPS = [1 => "Today's work", 2 => 'Owner', 4 => 'Contact', 5 => 'Appointment', 6 => 'Presentation', 7 => 'Results', 8 => 'Draft', 9 => 'Active'];
 
     /** A step with no list of its own shows another step's: Pitch is not a station (Owner's list), Presentation's reasons live at Presentation results. */
-    public const STEP_BORROWS = [3 => 2, 6 => 7];
+    public const STEP_BORROWS = [3 => 4, 6 => 7];   // a stray 3 (Pitch, retired) reads as Contact; Presentation shows the Results list
 
     /** The popup step a record at this stage is working on (the step whose screen completes into the NEXT station), so an off-ramp there is counted where the record sat. */
     public static function stepOfStage(?string $stage): int
     {
         return match (true) {
             $stage === null, $stage === 'found', $stage === 'claimed' => 2,
-            $stage === 'owner_found' => 3,
+            $stage === 'owner_found' => 4,
             $stage === 'contacted' => 5,
             in_array($stage, ['appointment_set'], true) => 6,
             in_array($stage, ['presentation_prepared'], true) => 7,
@@ -246,6 +248,8 @@ class ParkReasonService
         }
         $this->ensureDefaults($agencyId, $track);
         $this->ensureStationReasons($agencyId, $track);
+        // the popup has no Pitch step any more: a reason filed at 3 (Pitch) is a Contact (4) reason - once, by data, no migration
+        RtsParkReason::withoutGlobalScopes()->where('agency_id', $agencyId)->where('track', $track)->where('step', 3)->update(['step' => 4]);
         $have = RtsParkReason::withoutGlobalScopes()->withTrashed()->where('agency_id', $agencyId)->where('track', $track)->get()->keyBy('key');
         $order = (int) RtsParkReason::withoutGlobalScopes()->where('agency_id', $agencyId)->where('track', $track)->max('sort_order');
         RtsParkReason::withoutAgencyStamping(function () use ($agencyId, $track, $have, &$order) {

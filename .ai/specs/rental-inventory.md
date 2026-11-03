@@ -3169,3 +3169,34 @@ Full list: `rental-inspections.md` section 69.
 - **L7 - archiving the inventory's reference revokes its links.** A reference's signed link is guarded by the reference row and the inventory (and, while draft, the source photo and its inspection); archiving the reference stops links already handed out when they are served.
 - **L4 - the AGENT's move-out sign-off is the logged-in user.** `recordMoveOutSignOff` stores the signed-in user's name on the agent row whatever was typed (read-only field on the comparison screen). Tenant and landlord rows are still the agent's record of that person's sign-off.
 - Tests: `RentalInspectionAuditFixes1020Test`.
+
+
+## 29. Bulk photo manager - select, move, delete, restore (3 Nov 2026; Johan's ruling: "add bulk delete - get away from scripts and let agents sort it out: bulk select, delete, delete all")
+
+**Why.** On a live property agents had uploaded 258+ photos to the INVENTORY that belonged on an inspection; fixing that meant 258 single "Archive this photo?" confirms. Agents can now sort it out themselves, on both photo screens.
+
+**Where it lives (nav).** No new page and no new menu entry - an expandable panel on two existing screens:
+- **Inventory:** Property -> Inventory (`/corex/properties/{id}/inventory`), panel **"All photos of this inventory"** above the room list (draft inventories only, the same rule as every edit control there).
+- **Inspection:** the inspection's own page (`/corex/rental-inspections/{id}`), panel **"All photos of this inspection"** at the top of the main column.
+
+**What an agent does.** Open the panel; filter by room, date range, order; tick photos, or **Select all on this page (48)**, or **Select all N** (every photo the filter matches, across pages). The actions bar then offers:
+- **Delete selected** - one confirm with the count. Soft delete (archive).
+- **Delete all N...** - confirm with the count typed back. Same soft delete, over everything the current filter matches.
+- **Move selected to inspection...** (inventory screen) / **Move selected...** (inspection screen) - picker: the property's inspections newest first (a signed or closed one is listed but cannot be chosen), or on the inspection screen the property's draft inventories, or **another room here**; plus the room: **keep each photo's own room**, **all into one room**, or **Unassigned** (the inspection's untagged tray).
+- **Show deleted (N)** + **Restore selected** - the deleted photos list under a toggle; restoring puts a photo back exactly as it was (inventory line tags included).
+
+**The move rule.** An inventory photo and an inspection photo name their picture by the same stored file on the private disk, and the signed link is guarded by the photo ROW and its parent, not by the folder. So a move is a **new row on the other side holding the SAME stored file** (no copy, no re-upload; the capture time stays the original upload time) and the source row is **soft-deleted**. Both sides use the one `property_rooms` table, so a photo keeps its room. What does not carry: tags to inventory lines (inventory) and filing to an inspection item (inspection) - the photo lands at room level, or unassigned, and the agent files it to an item afterwards. A photo an inventory merely SHARES from an inspection (section 27; no file of its own) is not moved - it is already an inspection photo - and the result says how many stayed. Moving is in one transaction per action; a refused move (signed target, other property) changes nothing.
+
+**Rules and gates.**
+- Soft delete only, never a hard delete. `archived_by_user_id` is stamped. Deleting from the inspection side archives through the existing `RentalInspectionPhoto::archive()` (match-group membership and photo note go with it, as for a single archive).
+- Gating reuses the existing keys - no new permission key, so **nothing to add in the Role Manager**: viewing the panel needs `rental_inventories.view` / `rental_inspections.view`; every change needs `rental_inventories.create` / `rental_inspections.create` (the same keys as uploading and archiving a single photo); a move into the OTHER module needs that module's `create` too (otherwise the picker offers nothing). A user with view only sees the photos without tick boxes or actions.
+- Scoping at the query layer: the bound inventory/inspection must pass its own `scopeVisibleTo()` (own / branch / agency; anything else answers 404 by direct URL too); every photo query is limited to that one inventory/inspection, so another record's or agency's photo id can never be named; a move target must be the same property and agency and visible to the user.
+- A signed / completed / cancelled inventory or inspection answers 409 on every change (the existing not-editable exceptions); the panel then shows the reason and no actions.
+- "Select all N" sends the filter, not ids; the server re-counts and refuses (409, nothing changed) if the count changed since the screen showed it. One action handles at most 2,000 photos; press again for the rest.
+- Audit: one line per bulk action with the photo ids - the property history (`inventory_photos_deleted / _restored / _moved / _moved_in`) and, on the inspection, the inspection history (`Photos deleted / restored / moved`).
+
+**Search / sort / filters / empty states (the list standard).** Filters: room (incl. "No room"), created from/to; sort: newest / oldest first (default newest); status: live / Show deleted; pagination 48 per page; empty states "No photos match." / "No deleted photos.".
+
+**Not built (deliberate).** Moving into a specific inspection ITEM (needs an observation per photo - file it to the item in the inspection tray); moving between two inspections; a hard "empty the bin". Item filing and line tags are re-done by hand after a move.
+
+**Files.** `app/Services/Rentals/RentalPhotoBulkService.php`, `app/Http/Controllers/CoreX/RentalPhotoBulkController.php`, `resources/views/corex/partials/photo-bulk-manager.blade.php` (included from `corex/rental-inventories/capture.blade.php` and `corex/rental-inspections/show.blade.php`), six routes `corex.rental-inventories.photo-manager.*` / `corex.rental-inspections.photo-manager.*`, three `RentalInspectionAuditLog` events. Tests: `RentalPhotoBulkTest`.

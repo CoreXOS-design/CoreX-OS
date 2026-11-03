@@ -41,6 +41,16 @@ final class BeltsService
         return null;
     }
 
+    /** The belt a station key belongs to ('get' for a Get-stock station, 'maintain' / 'sell' for the others), null for an unknown key. */
+    public static function beltOfStation(string $key): ?string
+    {
+        if ($key === '') {
+            return null;
+        }
+
+        return self::station($key)['belt'] ?? (BeltService::station($key) !== null ? 'get' : null);
+    }
+
     public static function label(string $belt): string
     {
         return (string) (config('road-to-sold-belt.belts.' . $belt . '.label') ?? ucfirst($belt) . ' stock');
@@ -111,7 +121,8 @@ final class BeltsService
         $lines = $t['lines'] ?? [];
         if (! collect($lines)->contains('key', 'late')) {
             $key = (string) $t['key'];
-            $url = $key === 'loaded' ? array_filter($routeBase + ['status' => 'missed']) : array_filter($routeBase + ['station' => $key, 'filter' => in_array($t['kind'] ?? '', ['arrival'], true) ? 'todo' : 'late']);
+            // Draft / Active / Advertised have no late rule (23.24: nothing is late at an end station), so their "0 late" is plain text - never a link to a list that is not the late list
+            $url = $key === 'loaded' ? array_filter($routeBase + ['status' => 'missed']) : (($t['kind'] ?? '') === 'arrival' ? null : array_filter($routeBase + ['station' => $key, 'filter' => 'late']));
             $lines[] = ['key' => 'late', 'text' => '0 late', 'n' => 0, 'url' => $url, 'bad' => false];
         }
         $t['lines'] = $lines;
