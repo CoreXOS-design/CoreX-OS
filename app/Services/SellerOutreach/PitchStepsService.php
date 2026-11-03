@@ -44,7 +44,7 @@ final class PitchStepsService
     public function plan(User $actor, ?int $listingId, ?int $prospectId, ?int $trackedId, array $carry = []): array
     {
         $agencyId = (int) ($actor->effectiveAgencyId() ?: 0);
-        $out = ['property' => null, 'owner' => null, 'contact' => null, 'evaluation' => null, 'presentation' => null, 'results' => null, 'draft' => null, 'active' => null, 'address' => null, 'start' => 'owner', 'card' => null, 'reached' => array_fill_keys(self::STEPS, false)];
+        $out = ['property' => null, 'owner' => null, 'contact' => null, 'evaluation' => null, 'presentation' => null, 'results' => null, 'draft' => null, 'active' => null, 'address' => null, 'deed' => null, 'start' => 'owner', 'card' => null, 'reached' => array_fill_keys(self::STEPS, false)];
         if ($agencyId <= 0) {
             return $out;
         }
@@ -67,7 +67,7 @@ final class PitchStepsService
         }
 
         // the property's address, for the popup's title (the same wording on every step)
-        $out['address'] = trim((string) ($listing?->address ?? '')) !== '' ? trim((string) $listing->address) : (trim((string) $tp?->displayAddress()) ?: null);
+        $out['address'] = AdvertAddress::of($listing, $tp);
 
         // the MIC card (the same one-card page the popup builds for itself when it knows the advert)
         if ($listing) {
@@ -100,6 +100,8 @@ final class PitchStepsService
             $out['evaluation'] = route('road-to-sold.prospects.step', ['prospect' => $prospect->id, 'step' => 'evaluation'] + $carry);
         }
 
+        // the linked property's own (deed) wording of the address, only when it differs from the advert's - one small line under the header
+        $out['deed'] = AdvertAddress::deedLine($property, $out['address']);
         $out['reached'] = $this->reached($prospect);
         $out['card'] = $listing ? $this->card($agencyId, $listing) : null;
 

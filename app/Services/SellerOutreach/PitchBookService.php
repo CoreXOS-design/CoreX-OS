@@ -22,6 +22,10 @@ final class PitchBookService
     public function url(Property $property, Contact $seller, array $carry = [], array $call = []): string
     {
         $address = trim((string) $property->composeAddressFromParts()) ?: trim((string) $property->address) ?: ('Property #' . $property->id);
+        // inside the popup the appointment is named for the advert the agent is working on (23.30), not the deed's wording of the property
+        $rts = ! empty($carry['rts_prospect']) ? \App\Models\RoadToSold\RtsProspect::withoutGlobalScopes()->where('agency_id', $property->agency_id)->find((int) $carry['rts_prospect']) : null;
+        $advert = $rts ? AdvertAddress::forProspect($rts) : null;
+        $address = $advert && ! AdvertAddress::same($address, $advert) ? $advert : $address;
         $name = trim(($seller->first_name ?? '') . ' ' . ($seller->last_name ?? '')) ?: 'Owner';
 
         $query = array_filter($carry + ['embed' => '1'], fn ($v) => $v !== null && $v !== '') + [

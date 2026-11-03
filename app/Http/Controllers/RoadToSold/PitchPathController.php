@@ -110,6 +110,27 @@ class PitchPathController extends Controller
     }
 
     /**
+     * Road to Sold 23.25 step 7, the ONE form: the popup's appointment feedback form (held / no-show / moved + Won or Undecided) saves the feedback first, then posts
+     * the chosen answer here. Same ResultService as the belt card's Result; the agent lands on the result screen with the answer (or the refusal) in plain words.
+     */
+    public function saveResult(Request $request, int $prospect): RedirectResponse
+    {
+        $row = $this->own($request, $prospect);
+        $keys = array_column(app(\App\Services\RoadToSold\ResultOptionService::class)->list((int) $row->agency_id, (string) $row->track), 'key');
+        $data = $request->validate([
+            'result_key' => ['required', 'string', 'in:' . implode(',', $keys ?: ['none'])],
+            'revisit_on' => ['nullable', 'date', 'after:today'],
+            'note'       => ['nullable', 'string', 'max:255'],
+        ], ['result_key.required' => 'Pick the result.', 'result_key.in' => 'Pick one of the results shown.', 'revisit_on.after' => 'Pick a day after today for it to come back.']);
+        $r = app(\App\Services\RoadToSold\ResultService::class)->record(
+            $row, $data['result_key'], ! empty($data['revisit_on']) ? \Illuminate\Support\Carbon::parse($data['revisit_on']) : null, $data['note'] ?? null, $request->user(), 'belt_card'
+        );
+
+        return redirect()->to(route('road-to-sold.prospects.result-form', ['prospect' => $row->id] + $this->path->carry($request) + ['embed' => 1]))
+            ->with($r['ok'] ? 'status' : 'rts_error', $r['message']);
+    }
+
+    /**
      * Road to Sold 23.25 steps 8 and 9 (Draft, Active): the property's own gates, read from the property exactly as the belt reads them (BlockerService, the readiness
      * service, the two Active events), with the existing actions beside them. Draft: the checklist and "Move to Draft" (the property page's own move, Prospecting -> Draft).
      * Active: the compliance gate and the syndication gate, and the existing publish. Nothing is decided here; the record moves when the property does (BeltLinks).
@@ -141,7 +162,8 @@ class PitchPathController extends Controller
         $property ??= $row->property_id ? \App\Models\Property::query()->withoutGlobalScopes()->find((int) $row->property_id) : null;
         $tp = \App\Models\Prospecting\TrackedProperty::query()->withoutGlobalScopes()->find((int) $row->tracked_property_id);
 
-        return trim((string) ($property?->address ?: $tp?->displayAddress())) ?: 'This property';
+        // the advert's address first (23.30: the popup says the same address on every step); the property's own wording only when the record has no advert to read
+        return \App\Services\SellerOutreach\AdvertAddress::forProspect($row) ?: (trim((string) ($property?->address ?: $tp?->displayAddress())) ?: 'This property');
     }
 
     /**

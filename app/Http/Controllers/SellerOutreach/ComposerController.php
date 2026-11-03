@@ -155,8 +155,16 @@ final class ComposerController extends Controller
             (int) $request->user()->id,
         );
 
+        // inside the pitch popup the address is the advert's, on every step (23.30); the property's own (deed) wording shows once, under the popup header
+        $advertAddress = null;
+        if (\App\Support\Embed::on() && $request->filled('rts_prospect')) {
+            $rts = \App\Models\RoadToSold\RtsProspect::withoutGlobalScopes()->where('agency_id', $agencyId)->where('user_id', (int) $request->user()->ownershipUserId())->find((int) $request->query('rts_prospect'));
+            $advertAddress = $rts ? \App\Services\SellerOutreach\AdvertAddress::forProspect($rts) : null;
+        }
+
         return view('seller-outreach.compose', [
             'contact'            => $contact,
+            'advertAddress'      => $advertAddress,
             'property'           => $property,
             'linkedProperties'   => $linkedProperties,
             'channel'            => $channel,

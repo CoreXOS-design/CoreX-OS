@@ -12,6 +12,7 @@
     <p class="text-sm mt-1" style="color: var(--text-muted);">{{ $address }} - how did it go?</p>
     @if(session('status'))<div class="mt-3 rounded-md px-4 py-3 text-sm" data-qa="result-saved" style="background: color-mix(in srgb, var(--ds-green, #10b981) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green, #10b981) 35%, transparent); color: var(--text-primary);" role="status">{{ session('status') }}</div>@endif
     @if(session('rts_error') || $errors->any())<div class="mt-3 rounded-md px-4 py-3 text-sm" data-qa="result-problem" style="background: color-mix(in srgb, var(--ds-crimson, #dc2626) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 35%, transparent); color: var(--text-primary);" role="alert">{{ session('rts_error') ?: $errors->first() }}</div>@endif
+    @unless(session('status') && ! session('rts_error'))
     <form method="POST" action="{{ route('road-to-sold.prospects.result', $prospect->id) }}" class="mt-4 space-y-3 rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         @csrf
         @if($prospect->track !== 'sales')<input type="hidden" name="track" value="{{ $prospect->track }}">@endif
@@ -29,5 +30,6 @@
             <input id="pr-note" name="note" maxlength="255" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $inputStyle }}"></div>
         <div class="flex justify-end"><button type="submit" class="corex-btn-primary" :disabled="!key" data-qa="result-save">Save result</button></div>
     </form>
+    @endunless
 </div>
 @endsection

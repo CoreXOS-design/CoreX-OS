@@ -256,7 +256,8 @@
         </div>{{-- /environment column --}}
 
         {{-- Global toast notifications --}}
-        <x-toast-notifications />
+        {{-- a screen that prints its own flash banner (the pitch popup's Contact step) says so, so the same line is not shown twice --}}
+        <x-toast-notifications :flash="! \Illuminate\Support\Facades\View::hasSection('suppress-flash-toast')" />
 
         {{-- Combined Help Widget (Ellie + Feedback) — header-mounted panel --}}
         @unless($__embed)

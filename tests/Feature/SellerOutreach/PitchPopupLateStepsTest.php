@@ -408,4 +408,115 @@ final class PitchPopupLateStepsTest extends TestCase
         $this->assertStringContainsString('d.steps[d.steps.start]', $js);
         $this->assertStringNotContainsString("['property', 'Property']", $js);
     }
+
+    // ---- 3 Nov 13:02 audit: ONE results form, the advert's address everywhere, wording ---------------------------------------------------------------------
+
+    private function evaluationEvent(): CalendarEvent
+    {
+        // the seeded global default of an evaluation: grouped by property, answered by the seller-facing list (the test database does not carry the seed)
+        if (! \App\Models\CommandCenter\CalendarEventClassSetting::withoutGlobalScopes()->whereNull('agency_id')->where('event_class', 'property_evaluation')->exists()) {
+            \App\Models\CommandCenter\CalendarEventClassSetting::withoutGlobalScopes()->create(['agency_id' => null, 'event_class' => 'property_evaluation', 'feedback_mode' => 'per_property', 'actor_role' => 'seller_action', 'green_days' => 1, 'amber_days' => 2, 'red_days' => 3,
+                'green_visibility' => [], 'amber_visibility' => [], 'red_visibility' => [], 'green_notifications' => [], 'amber_notifications' => [], 'red_notifications' => [], 'label' => 'Property evaluation']);
+            \App\Models\CommandCenter\CalendarEventClassSetting::flushResolveCache();
+        }
+        return CalendarEvent::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'user_id' => $this->agent->id, 'event_type' => 'manual', 'title' => 'Evaluation: 25 Shepstone Avenue',
+            'category' => 'property_evaluation', 'event_date' => '2026-11-03 10:00:00', 'status' => 'pending', 'rts_prospect_id' => $this->prospect->id]);
+    }
+
+    public function test_the_feedback_form_offers_only_won_and_undecided_inside_the_popup_and_everything_outside_it(): void
+    {
+        $this->stage('appointment_set');
+        $event = $this->evaluationEvent();
+
+        $popup = $this->actingAs($this->agent)->getJson(route('command-center.calendar.feedback.show', $event) . '?embed=1&rts_prospect=' . $this->prospect->id)->assertOk()->json();
+        $this->assertTrue($popup['is_evaluation']);
+        $this->assertEqualsCanonicalizing(['Won - mandate agreed', 'Undecided - follow up'], $popup['lp_outcomes'], 'lost / not selling is the Stops here control');
+        $this->assertEqualsCanonicalizing(['won_mandate'], array_column(array_filter($popup['result_options'], fn ($o) => $o['label'] === 'Won - mandate agreed'), 'key'));
+        $this->assertSame([false, true], array_values(array_map(fn ($o) => $o['needs_date'], $popup['result_options'])), 'Undecided comes back on a day');
+
+        $plain = $this->actingAs($this->agent)->getJson(route('command-center.calendar.feedback.show', $event))->assertOk()->json();
+        $this->assertContains('Price too far apart', $plain['lp_outcomes'], 'the calendar page itself is unchanged');
+        $this->assertSame([], $plain['result_options']);
+
+        $other = $this->actingAs($this->agent)->getJson(route('command-center.calendar.feedback.show', $event) . '?embed=1&rts_prospect=999999')->assertOk()->json();
+        $this->assertSame([], $other['result_options'], 'a record that is not the agent\'s own never filters or reads anything');
+    }
+
+    public function test_the_popup_feedback_form_saves_the_answer_with_it_and_the_result_screen_is_a_confirmation_not_a_second_form(): void
+    {
+        $this->stage('appointment_set');
+        $event = $this->evaluationEvent();
+        $q = ['capture_feedback' => $event->id, 'rts_prospect' => $this->prospect->id, 'rts_stage' => 'appointment_set', 'embed' => 1];
+
+        $h = $this->actingAs($this->agent)->get(route('command-center.calendar', $q))->assertOk()->getContent();
+        $this->assertStringContainsString('prospects\/' . $this->prospect->id . '\/popup-result?embed=1', $h, 'the same Save posts the answer');
+        $this->assertStringContainsString('data-qa="feedback-save"', $h);
+        $this->assertStringContainsString('resultReady()', $h, 'Save waits for the answer once the appointment was held');
+        $this->assertStringContainsString('data-qa="feedback-revisit"', $h);
+        $plain = $this->actingAs($this->agent)->get(route('command-center.calendar', ['capture_feedback' => $event->id]))->assertOk()->getContent();
+        $this->assertStringNotContainsString('popup-result', $plain);
+
+        $this->stage('evaluation_done');
+        $r = $this->actingAs($this->agent)->post(route('road-to-sold.prospects.popup-result', ['prospect' => $this->prospect->id, 'embed' => 1]), ['result_key' => 'won_mandate']);
+        $r->assertRedirect();
+        $this->assertStringContainsString('/prospects/' . $this->prospect->id . '/result-form', $r->headers->get('Location'));
+        $r->assertSessionHas('status');
+        $this->assertSame('mandate_signed', DB::table('rts_prospects')->where('id', $this->prospect->id)->value('stage'), 'the answer is recorded by the one result service');
+
+        $h = $this->actingAs($this->agent)->withSession(['status' => 'Won.'])->get(route('road-to-sold.prospects.result-form', ['prospect' => $this->prospect->id, 'embed' => 1]))->assertOk()->getContent();
+        $this->assertStringContainsString('data-qa="result-saved"', $h);
+        $this->assertStringNotContainsString('name="result_key"', $h, 'no second form after the answer');
+
+        $bad = $this->actingAs($this->agent)->post(route('road-to-sold.prospects.popup-result', ['prospect' => $this->prospect->id]), ['result_key' => 'nonsense']);
+        $bad->assertSessionHasErrors('result_key');
+
+        $other = \App\Models\User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent', 'is_active' => true]);
+        $this->actingAs($other)->post(route('road-to-sold.prospects.popup-result', ['prospect' => $this->prospect->id]), ['result_key' => 'won_mandate'])->assertForbidden();
+    }
+
+    public function test_the_advert_address_is_the_one_the_popup_says_and_the_deed_wording_is_one_small_line_when_it_differs(): void
+    {
+        DB::table('prospecting_listings')->where('id', $this->listingId)->update(['address' => '3541 James Street']);
+        DB::table('properties')->where('id', $this->propertyId)->update(['address' => '26 Windsor Avenue']);
+        $this->stage('owner_found');
+
+        foreach (['rts', 'mic'] as $entry) {
+            $p = $this->plan($entry);
+            $this->assertSame('3541 James Street', $p['address']);
+            $this->assertSame('26 Windsor Avenue', $p['deed'], 'one small "Deed:" line when the deed wording differs');
+        }
+
+        $url = route('seller-outreach.composer.show', ['contact' => $this->owner->id, 'property_id' => $this->propertyId, 'embed' => 1, 'rts_prospect' => $this->prospect->id]);
+        $h = $this->actingAs($this->agent)->withSession(['status' => 'Owner saved: Belinda Owner.'])->get($url)->assertOk()->getContent();
+        $this->assertStringContainsString('>About<', $h);
+        $this->assertStringNotContainsString('Pitching about', $h);
+        $this->assertStringContainsString('3541 James Street', $h, 'Contact says the advert\'s address');
+        $this->assertStringNotContainsString('26 Windsor Avenue', $h);
+        $this->assertSame(1, substr_count($h, 'Owner saved: Belinda Owner.'), 'the saved line shows once, not as a banner and a toast');
+
+        $plain = $this->actingAs($this->agent)->withSession(['status' => 'Owner saved: Belinda Owner.'])
+            ->get(route('seller-outreach.composer.show', ['contact' => $this->owner->id, 'property_id' => $this->propertyId]))->assertOk()->getContent();
+        $this->assertStringContainsString('Compose Seller Pitch', $plain);
+        $this->assertGreaterThan(1, substr_count($plain, 'Owner saved: Belinda Owner.'), 'outside the popup nothing changed');
+
+        // the booking form is named for the advert, and the same address on the result screen
+        $this->assertStringContainsString(rawurlencode('Appointment: 3541 James Street'), (string) $this->plan('rts')['evaluation']);
+        $rf = $this->actingAs($this->agent)->get(route('road-to-sold.prospects.result-form', ['prospect' => $this->prospect->id, 'embed' => 1]))->assertOk()->getContent();
+        $this->assertStringContainsString('3541 James Street', $rf);
+        $this->assertStringNotContainsString('26 Windsor Avenue', $rf);
+
+        DB::table('properties')->where('id', $this->propertyId)->update(['address' => '3541 James St']);
+        $this->assertNull($this->plan('rts')['deed'], 'the same address in other words is not a second address');
+    }
+
+    public function test_the_popup_title_is_the_address_alone(): void
+    {
+        $js = (string) file_get_contents(public_path('js/pitch-popup.js'));
+
+        $this->assertStringNotContainsString("'Pitch \u00b7 '", $js);
+        $this->assertStringNotContainsString("'Pitch · '", $js);
+        $this->assertStringContainsString("title.textContent = d.steps.address", $js);
+        $this->assertStringContainsString("'data-qa': 'pitch-deed'", $js);
+        $this->assertStringContainsString("'Deed: '", $js);
+    }
 }

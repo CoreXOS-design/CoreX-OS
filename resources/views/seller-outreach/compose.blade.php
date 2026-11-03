@@ -1,6 +1,7 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
+@if(\App\Support\Embed::on())@section('suppress-flash-toast', '1')@endif
 @section('corex-content')
 <div class="w-full space-y-5"
      x-data="composerState({
@@ -99,11 +100,11 @@
             @php $__peek = app(\App\Services\Prospecting\MicWork\PitchCardResolver::class)->peekAttributes(null, (int) $property->id); @endphp
             <div class="rounded-md {{ $inPopup ? 'p-3' : 'p-4' }}" style="background: var(--surface); border: 1px solid var(--border);" data-qa="listing-header" {!! $__peek !!}>
                 <div class="text-[10px] uppercase tracking-wider font-semibold mb-1 flex items-center justify-between" style="color: var(--text-muted);">
-                    <span>Pitching about</span>
+                    <span>About</span>
                     @if($__peek !== '')<span data-peek-hint style="color: var(--brand-icon, #0ea5e9); text-transform: none; letter-spacing: 0; font-size: .75rem;">What is this property? ▾</span>@endif
                 </div>
                 <div class="font-semibold text-sm" style="color: var(--text-primary);">
-                    {{ $property->address ?: $property->title ?: ('Property #' . $property->id) }}{{ !empty($property->suburb) ? ', ' . $property->suburb : '' }}
+                    @if(!empty($advertAddress)){{ $advertAddress }}@else{{ $property->address ?: $property->title ?: ('Property #' . $property->id) }}{{ !empty($property->suburb) ? ', ' . $property->suburb : '' }}@endif
                 </div>
                 <div class="text-xs mt-1" style="color: var(--text-muted);">
                     @if(!empty($property->price))R {{ number_format((float) $property->price, 0, '.', ',') }} · @endif

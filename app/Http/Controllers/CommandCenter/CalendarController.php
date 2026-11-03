@@ -1163,6 +1163,17 @@ class CalendarController extends Controller
             ->orderBy('sort_order')
             ->get(['id', 'label']);
 
+        // Inside the pitch popup (own record, seller-facing evaluation) the Outcome list is the Result form's positive answers only; null everywhere else.
+        $popupResults = null;
+        if ($isSellerFacing && $calendarEvent->category === 'property_evaluation' && request()->filled('rts_prospect') && \App\Support\Embed::on()) {
+            $rts = \App\Models\RoadToSold\RtsProspect::query()->whereKey((int) request('rts_prospect'))->where('user_id', $user->ownershipUserId())->first();
+            if ($rts) {
+                $popupResults = collect(app(\App\Services\RoadToSold\ResultOptionService::class)->list((int) $rts->agency_id, (string) $rts->track))
+                    ->filter(fn ($o) => in_array($o['class'] ?? '', ['won', 'pending'], true))
+                    ->map(fn ($o) => ['key' => $o['key'], 'label' => $o['label'], 'needs_date' => $o['class'] !== 'won', 'days' => $o['revisit_days'] ?? null])->values()->all();
+            }
+        }
+
         // Per-property mode (listing_presentation): iterate properties, not contacts
         if ($feedbackMode === 'per_property') {
             $existing = \App\Models\CommandCenter\CalendarEventFeedback::query()
@@ -1204,9 +1215,11 @@ class CalendarController extends Controller
                 // v4 (road-to-sold.md 23.10): a seller-facing appointment (evaluation / listing presentation) answers from the ONE result list, the same one the
                 // presentation panel and the belt card use; a buyer-facing viewing keeps its own list. An answer saved in the old wording stays selectable.
                 'lp_outcomes' => $isSellerFacing
-                    ? collect(array_column(app(\App\Services\RoadToSold\ResultOptionService::class)->list((int) $agencyId), 'label'))
+                    ? collect(array_column($popupResults ?? app(\App\Services\RoadToSold\ResultOptionService::class)->list((int) $agencyId), 'label'))
                         ->merge($properties->map(fn ($p) => ($existing->get($p->id)?->kind_specific_data['outcome'] ?? null))->filter())->unique()->values()
                     : $outcomes->pluck('label')->values(),
+                // the pitch popup's ONE form (road-to-sold.md 23.25 step 7): only Won and Undecided here, with what the form needs to post the answer; lost / not selling is the popup's Stops here
+                'result_options' => $popupResults ?? [],
                 // Mandate type has no meaning for a buyer-facing appointment
                 // (a viewing) — empty list, and the "Mandate type" field hides
                 // itself client-side when this is empty (see the x-show gate

@@ -63,6 +63,7 @@
         '.cxp-head img{width:44px;height:33px;object-fit:cover;border-radius:4px;flex:none}' +
         '.cxp-head span{white-space:nowrap}' +
         '.cxp-head .cxp-addr{overflow:hidden;text-overflow:ellipsis;min-width:0;font-weight:700}' +
+        '.cxp-deed{padding:2px 14px 4px;font-size:11px;color:var(--text-muted,#64748b)}' +
         '.cxp-head .cxp-hint{margin-left:auto;color:var(--brand-icon,#0ea5e9);font-weight:600}' +
         '.cxp-body{position:relative;flex:1;min-height:0;display:flex}' +
         '.cxp-frame{flex:1;width:100%;border:0;background:var(--bg,#f8fafc)}' +
@@ -101,7 +102,7 @@
             b.appendChild(el('span', { text: s[1] }));
             stepEls[s[0]] = b; steps.appendChild(b);
         });
-        var title = el('div', { 'class': 'cxp-title', text: 'Pitch' + (o.label && /\s-\s/.test(o.label) ? ' · ' + o.label.replace(/^.*?\s-\s/, '') : '') });
+        var title = el('div', { 'class': 'cxp-title', text: o.label && /\s-\s/.test(o.label) ? o.label.replace(/^.*?\s-\s/, '') : '' });
         var nextBtn = el('button', { type: 'button', 'class': 'cxp-btn cxp-primary', 'data-qa': 'pitch-next' });
         var closeBtn = el('button', { type: 'button', 'class': 'cxp-btn', 'aria-label': 'Close and go back', 'data-qa': 'pitch-close', text: 'Close' });
         var frame = el('iframe', { 'class': 'cxp-frame', title: 'Pitch', 'data-qa': 'pitch-frame' });
@@ -110,7 +111,9 @@
         // the advert card, folded to one line under the title and unfolding in place on every step (one component: the same "What is this property?" fold-out)
         var line = el('div', { 'class': 'cxp-head', 'data-qa': 'pitch-header', 'data-pitch-peek': '', role: 'button', tabindex: '0', 'aria-expanded': 'false', title: 'Show me this property' });
         var headWrap = el('div', { 'class': 'cxp-headwrap', 'data-qa': 'pitch-header-wrap', style: 'display:none' }, [line]);
-        var win = el('div', { 'class': 'cxp-win' }, [el('div', { 'class': 'cxp-bar' }, [title, steps, nextBtn, closeBtn]), headWrap, body]);
+        // the linked property's own (deed) wording of the address, only when it differs from the advert's - the popup says the advert's address everywhere else
+        var deedEl = el('div', { 'class': 'cxp-deed', 'data-qa': 'pitch-deed', style: 'display:none' });
+        var win = el('div', { 'class': 'cxp-win' }, [el('div', { 'class': 'cxp-bar' }, [title, steps, nextBtn, closeBtn]), headWrap, deedEl, body]);
         var back = el('div', { 'class': 'cxp-back', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Pitch', 'data-qa': 'pitch-popup' }, [win]);
         document.body.appendChild(back);
         document.documentElement.style.overflow = 'hidden';
@@ -120,6 +123,7 @@
             // the screen we are on is not known until it has loaded
             current: null, reached: {}, urls: {}, planSeq: 0, started: !auto,
         };
+        function paintDeed(t) { deedEl.textContent = t ? 'Deed: ' + t : ''; deedEl.style.display = t ? '' : 'none'; }
         function paintHeader(c) {
             if (!c || !c.listing) { headWrap.style.display = 'none'; return; }
             headWrap.style.display = '';
@@ -194,8 +198,9 @@
                     if ((!d || !d.steps) && !pop.started) { pop.started = true; if (next) go(withEmbed(next)); else close(false); return; }
                     if (!d || !d.steps || seq !== pop.planSeq) return;
                     // one title for every step: the property's address, not the label of the button that opened it ("Find the owner - ..." stayed on the Pitch step)
-                    if (d.steps.address) { title.textContent = 'Pitch · ' + d.steps.address; }
-                    Object.keys(d.steps).forEach(function (k) { if (typeof d.steps[k] === 'string' && k !== 'address' && (!pop.urls[k] || LATE.indexOf(k) >= 0)) pop.urls[k] = d.steps[k]; });
+                    if (d.steps.address) { title.textContent = d.steps.address; }
+                    paintDeed(d.steps.deed);
+                    Object.keys(d.steps).forEach(function (k) { if (typeof d.steps[k] === 'string' && k !== 'address' && k !== 'deed' && (!pop.urls[k] || LATE.indexOf(k) >= 0)) pop.urls[k] = d.steps[k]; });
                     pop.planned = true;
                     paintHeader(d.steps.card);
                     // nobody named a step: open on the record's own stage (the plan's start), else where the caller pointed

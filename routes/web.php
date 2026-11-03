@@ -7043,6 +7043,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 ->whereNumber('prospect')->name('prospects.results-path');
             Route::get('/prospects/{prospect}/result-form', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'resultForm'])
                 ->whereNumber('prospect')->name('prospects.result-form');
+            Route::post('/prospects/{prospect}/popup-result', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'saveResult'])
+                ->whereNumber('prospect')->name('prospects.popup-result');
             Route::get('/prospects/{prospect}/property-step/{step}', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'propertyStep'])
                 ->whereNumber('prospect')->where('step', 'draft|active')->name('prospects.property-step');
             Route::post('/prospects/{prospect}/no-owner', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'noOwner'])
