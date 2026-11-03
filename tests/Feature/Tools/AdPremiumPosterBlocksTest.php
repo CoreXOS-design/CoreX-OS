@@ -6,6 +6,7 @@ namespace Tests\Feature\Tools;
 
 use App\Services\AdTemplates\AdLayoutValidator;
 use App\Services\AdTemplates\AdTemplateDemoPhotos;
+use App\Services\AdTemplates\AdTemplateMustIncludes;
 use App\Services\AdTemplates\AdTemplateStyles;
 use Tests\TestCase;
 
@@ -106,5 +107,12 @@ final class AdPremiumPosterBlocksTest extends TestCase
             $this->assertCount(8, $set, $category);
             $this->assertCount(8, array_unique($set), "{$category}: no photo may repeat inside one demo listing.");
         }
+    }
+
+    public function test_a_reference_picture_allows_every_extra(): void
+    {
+        $this->assertSame([], AdTemplateMustIncludes::forbiddenFields([AdTemplateMustIncludes::ALL_EXTRAS]));
+        $this->assertSame('', AdTemplateMustIncludes::notTickedBlock([AdTemplateMustIncludes::ALL_EXTRAS]));
+        $this->assertNotSame([], AdTemplateMustIncludes::forbiddenFields([]), 'without a picture the unticked extras are still forbidden');
     }
 }
