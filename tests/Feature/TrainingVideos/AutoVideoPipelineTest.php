@@ -265,4 +265,23 @@ final class AutoVideoPipelineTest extends TestCase
         $this->assertStringNotContainsString('TROUBLESHOOTING', $why);
         $this->assertLessThanOrEqual(200, mb_strlen($why));
     }
+
+    public function test_every_session_the_recorder_is_given_really_exists_even_when_one_worker_makes_several_videos_in_a_row(): void
+    {
+        // 3 Nov: a long-lived queue worker reuses one database session handler, which remembers "my row exists" - the SECOND video's session was written as an UPDATE of
+        // a row that was never inserted, so the recorder was sent to the login page ("the training user could not sign in").
+        config(['session.driver' => 'database']);
+        app('session')->forgetDrivers();
+        $r = app(TrainingAgencySeeder::class)->seed();
+        $sessions = app(TrainingSessionService::class);
+
+        $first = $sessions->issue($r['users']['agent']);
+        $this->assertTrue(DB::table('sessions')->where('id', $first['session_id'])->exists());
+        $sessions->revoke($first['session_id']);
+
+        $second = $sessions->issue($r['users']['agent']);
+        $this->assertTrue(DB::table('sessions')->where('id', $second['session_id'])->exists(), 'the second session in the same process is inserted too');
+        $third = $sessions->issue($r['users']['manager']);
+        $this->assertTrue(DB::table('sessions')->where('id', $third['session_id'])->exists());
+    }
 }
