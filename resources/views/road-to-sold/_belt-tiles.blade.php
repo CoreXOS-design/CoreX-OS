@@ -24,7 +24,7 @@
     .rts-tile.m4 a.ln:hover { background: var(--surface-2, rgba(128,128,128,.15)); text-decoration: none; color: var(--text-primary); }
     .rts-belts { display: flex; flex-direction: column; gap: 2px; }
     .rts-bhead { display: flex; align-items: center; gap: 10px; min-height: 22px; min-width: 0; font-size: .75rem; color: var(--text-secondary); }
-    .rts-bhead .rts-bname { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; font-size: .8125rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--text-primary); text-decoration: none; white-space: nowrap; }
+    .rts-bhead .rts-bname { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; font-size: .9375rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--text-primary); text-decoration: none; white-space: nowrap; }
     .rts-bhead .rts-bname .car { color: var(--text-muted); font-size: .75rem; }
     .rts-bhead .rts-bsub { flex-shrink: 0; color: var(--text-muted); white-space: nowrap; }
     .rts-bhead .rts-bcount { margin-left: auto; flex-shrink: 0; white-space: nowrap; color: var(--text-secondary); }
