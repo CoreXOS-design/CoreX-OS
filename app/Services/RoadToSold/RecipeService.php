@@ -47,6 +47,7 @@ class RecipeService
         DB::table('rts_steps')->where('agency_id', $agencyId)->where('track', $track)->where('key', 'evaluation_booked')->where('label', 'Evaluation')->update(['label' => 'Appointment']);
         DB::table('rts_tasks')->where('agency_id', $agencyId)->where('track', $track)->where('label', 'Book an evaluation')->update(['label' => 'Book an appointment']);
         DB::table('rts_tasks')->where('agency_id', $agencyId)->where('track', $track)->where('label', 'Do an evaluation')->update(['label' => 'Hold an appointment']);
+        DB::table('rts_tasks')->where('agency_id', $agencyId)->where('track', $track)->where('label', 'Rts evaluation feedback')->update(['label' => 'Appointment feedback']);   // a migrated daily-activity task named from its slug
     }
 
     public function start(int $agencyId, string $track = 'sales', bool $withDefaultTasks = true): array
