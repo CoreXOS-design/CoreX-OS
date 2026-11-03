@@ -194,6 +194,32 @@ final class MicComposeMultiSellerTest extends TestCase
             ->assertRedirectContains('/properties/');
     }
 
+    /** road-to-sold.md 23.25 / 23.11: when NO seller can be reached, the dead-end tick IS the Owner step's off-ramp "No contact details" - the flag stays, the record stops, the property is marked. */
+    public function test_the_dead_end_tick_on_the_last_reachable_seller_is_the_owner_step_off_ramp(): void
+    {
+        [$agencyId, $userId] = $this->seedAgency();
+        $listingId = $this->seedListing($agencyId, '1486 Beaumont Drive');
+        $user = User::find($userId);
+        $this->actingAs($user)->postJson(route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $listingId]),
+            ['first_name' => 'Marcelle', 'last_name' => 'Petersen', 'id_number' => '8001015009087'])->assertOk();
+        $contact = Contact::withoutGlobalScopes()->where('id_number', '8001015009087')->first();
+        $tpId = (int) \App\Models\Prospecting\TrackedProperty::withoutAgencyStamping(fn () => \App\Models\Prospecting\TrackedProperty::create([
+            'agency_id' => $agencyId, 'suburb' => 'Ramsgate', 'suburb_normalised' => 'ramsgate', 'status' => 'active', 'source_chain' => [], 'street_name' => 'Beaumont Drive', 'street_number' => '1486',
+        ]))->id;
+        DB::table('prospecting_listings')->where('id', $listingId)->update(['tracked_property_id' => $tpId]);
+        $record = app(\App\Services\RoadToSold\ProspectService::class)->place($user, $tpId, 'sales', ['stage' => \App\Services\RoadToSold\ProspectStages::CLAIMED]);
+
+        $json = $this->actingAs($user)->postJson(route('seller-outreach.entry.dead-end-seller-prospecting', ['prospectingListingId' => $listingId]),
+            ['contact_id' => $contact->id, 'reason' => 'not_in_tva'])->assertOk()->json();
+
+        $this->assertDatabaseHas('contact_dead_end_flags', ['contact_id' => $contact->id, 'reason' => 'not_in_tva']);   // the flag, exactly as before
+        $this->assertNotEmpty($json['offramp'] ?? null, 'the answer says the record stopped');
+        $record->refresh();
+        $this->assertNotNull($record->parked_at);
+        $this->assertSame('No contact details', $record->park_reason_label);
+        $this->assertSame('not_selling', \App\Models\Prospecting\TrackedPropertyAgencyWork::withoutGlobalScopes()->where('tracked_property_id', $tpId)->value('prospecting_status'));
+    }
+
     /** Click-to-make-primary persists on contact_property. */
     public function test_set_primary_persists(): void
     {
