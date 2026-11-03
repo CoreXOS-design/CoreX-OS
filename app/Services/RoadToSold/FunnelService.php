@@ -32,8 +32,8 @@ class FunnelService
     public const METRICS = [
         'calls_made'          => 'Calls made',
         'conversations'       => 'Conversations',
-        'evaluations_booked'  => 'Evaluations booked',
-        'evaluations_done'    => 'Evaluations done',
+        'evaluations_booked'  => 'Appointments booked',
+        'evaluations_done'    => 'Appointments held',
         'presentations_given' => 'Presentations given',
         'mandates_signed'     => 'Mandates signed',
         'listings_live'       => 'Listings live',
@@ -50,7 +50,7 @@ class FunnelService
         'calls_to_conversations'          => ['Calls to conversations',          'contact_outcome',   'conversations',       'calls_made',          'getting owners talking'],
         'conversations_to_evaluations'    => ['Conversations to evaluations',    'evaluation_booked', 'evaluations_booked',  'conversations',       'the evaluation pitch'],
         'evaluations_booked_to_done'      => ['Evaluations booked to done',      'evaluation_booked', 'evaluations_done',    'evaluations_booked',  'keeping evaluation appointments'],
-        'evaluations_to_presentations'    => ['Evaluations to presentations',    'presentation',      'presentations_given', 'evaluations_done',    'presenting after an evaluation'],
+        'evaluations_to_presentations'    => ['Appointments to presentations',    'presentation',      'presentations_given', 'evaluations_done',    'presenting after an evaluation'],
         'presentations_to_mandates'       => ['Presentations to mandates',       'mandate',           'mandates_signed',     'presentations_given', 'winning the mandate'],
         'mandates_to_listings'            => ['Mandates to listings live',       'listing_live',      'listings_live',       'mandates_signed',     'getting the listing live'],
         'listings_to_viewings'            => ['Listings live to viewings',       'viewings',          'viewings_held',       'listings_live',       'getting viewings on listings'],
@@ -66,9 +66,9 @@ class FunnelService
     public const OFFRAMPS = [
         'offramp_claimed'   => ['Loses properties after claiming',        'find',              null, null, 'working a claim through to the owner'],
         'offramp_owner'     => ['Loses properties at Owner found',        'find_owner',        null, null, 'finding and linking the owner'],
-        'offramp_contacted' => ['Loses properties at Contacted',          'contact_outcome',   null, null, 'turning a first contact into an evaluation'],
+        'offramp_contacted' => ['Loses properties at Contacted',          'contact_outcome',   null, null, 'turning a first contact into an appointment'],
         'offramp_booked'    => ['Loses properties at Evaluation booked',  'evaluation_booked', null, null, 'keeping evaluation appointments'],
-        'offramp_held'      => ['Loses properties after the evaluation',  'presentation',      null, null, 'winning the seller after the evaluation'],
+        'offramp_held'      => ['Loses properties after the appointment',  'presentation',      null, null, 'winning the seller after the appointment'],
     ];
 
     /** A flag key's meaning: a funnel ratio or an off-ramp flag. @return array{0:string,1:string,2:?string,3:?string,4:string}|null */

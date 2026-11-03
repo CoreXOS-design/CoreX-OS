@@ -50,7 +50,7 @@
         @if($isOwed)
             <a href="{{ route('road-to-sold.index', $keep) }}" class="text-xs underline ml-auto" style="color: var(--brand-icon);" data-qa="held-back">Back to the Held list</a>
         @elseif(($L['owed_count'] ?? 0) > 0)
-            <a href="{{ route('road-to-sold.index', $keep + ['owed' => 1]) }}" class="text-xs underline ml-auto" style="color: var(--ds-red, #f87171);" data-qa="held-owed">{{ $L['owed_count'] }} evaluation{{ $L['owed_count'] === 1 ? '' : 's' }} owed feedback - have you given it?</a>
+            <a href="{{ route('road-to-sold.index', $keep + ['owed' => 1]) }}" class="text-xs underline ml-auto" style="color: var(--ds-red, #f87171);" data-qa="held-owed">{{ $L['owed_count'] }} appointment{{ $L['owed_count'] === 1 ? '' : 's' }} owed feedback - have you given it?</a>
         @endif
     @endif
 </form>
@@ -82,7 +82,7 @@
         </table>
     @elseif($isOwed)
         <table class="w-full text-xs ds-table">
-            <thead><tr><th class="text-left">Evaluation</th><th class="text-left">Station · next step</th><th class="text-left">Evaluation date</th><th class="text-left">Days</th><th></th></tr></thead>
+            <thead><tr><th class="text-left">Appointment</th><th class="text-left">Station · next step</th><th class="text-left">Appointment date</th><th class="text-left">Days</th><th></th></tr></thead>
             <tbody>
             @foreach($rowsP as $r)
                 <tr data-qa="station-row">
@@ -125,8 +125,8 @@
                                         data-step-url="{{ $act['step_url'] }}" data-step-label="{{ $act['step_label'] }} - {{ $r['address'] }}"
                                         @click="$dispatch('rts-step', $el.dataset)">{{ $act['label'] }}</button>
                             @elseif($act && $act['kind'] === 'log_contact' && ! ($ownerBlocked[(int) $r['tracked_property_id']] ?? null))
-                                <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="station-action" data-action="Log contact" data-tp="{{ $r['tracked_property_id'] }}" data-item="" data-address="{{ $r['address'] }}"
-                                        @click="openContact($el.dataset)">Log contact</button>
+                                <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="station-action" data-action="Contact" data-tp="{{ $r['tracked_property_id'] }}" data-item="" data-address="{{ $r['address'] }}"
+                                        @click="openContact($el.dataset)">Contact</button>
                             @elseif($act && $act['kind'] === 'result')
                                 <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="station-action" data-action="Record result" @click="openResult({{ (int) $r['prospect_id'] }}, @js($r['address']))">Record result</button>
                             @endif

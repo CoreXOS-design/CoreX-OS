@@ -159,7 +159,7 @@ final class ProspectListsAndCommandsTest extends TestCase
         $this->assertSame(1, $rows[S::PRESENTATION_GIVEN]['entered']);
         $this->assertSame(1, $rows[S::EVALUATION_DONE]['stalled'], 'idle longer than the agency\'s stall days (14)');
         $this->assertSame(20.0, $rows[S::EVALUATION_DONE]['avg_days']);
-        $this->assertSame('Evaluation done', $rows[S::EVALUATION_DONE]['label']);
+        $this->assertSame('Held', $rows[S::EVALUATION_DONE]['label']);
 
         $none = collect(app(StageCountService::class)->forStages($this->agent, $this->mate->id, Carbon::parse('2026-10-01'), Carbon::parse('2026-11-30')))->keyBy('stage');
         $this->assertSame(0, $none[S::EVALUATION_DONE]['entered'], 'an agent reads no colleague\'s counts');

@@ -38,10 +38,10 @@ class MicFeedbackAdapter
     public function apply(User $actor, ProspectingClaim $claim, ProspectingListing $listing, string $status, ?string $notes): array
     {
         if ($status === ProspectingClaim::STATUS_MEETING_SET) {
-            return ['ok' => false, 'message' => 'Book the evaluation from Road to Sold - it needs a date and a time.'];
+            return ['ok' => false, 'message' => 'Book the appointment from Road to Sold - it needs a date and a time.'];
         }
         if ($status === ProspectingClaim::STATUS_LISTING) {
-            return ['ok' => false, 'message' => 'Record the result from Road to Sold - it needs the result of the evaluation.'];
+            return ['ok' => false, 'message' => 'Record the result from Road to Sold - it needs the result of the appointment.'];
         }
         $trackedId = (int) $listing->tracked_property_id;
         $agencyId = (int) $claim->agency_id;
@@ -53,7 +53,7 @@ class MicFeedbackAdapter
         app(OutcomeDefinitionService::class)->ensureDefaults($agencyId, 'sales');
         $def = Def::query()->where('agency_id', $agencyId)->where('track', 'sales')->where('key', $key)->where('is_active', true)->whereNull('deleted_at')->first();
         if (! $def) {
-            return ['ok' => false, 'message' => 'This agency has switched that outcome off. Use Log contact in Road to Sold.'];
+            return ['ok' => false, 'message' => 'This agency has switched that outcome off. Use Contact in Road to Sold.'];
         }
 
         $input = ['channel' => 'phone', 'note' => $notes ?: null, 'prospecting_listing_id' => (int) $listing->id];

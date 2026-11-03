@@ -41,7 +41,7 @@ class ProspectService
         Def::ACTION_EXPIRY_ELSE_DAYS  => 'Check the mandate expiry',
         Def::ACTION_AFTER_MONTHS      => 'Follow up with the seller',
         Def::ACTION_FIND_OWNER        => 'Find the owner',
-        Def::ACTION_APPOINTMENT       => 'Do the evaluation',
+        Def::ACTION_APPOINTMENT       => 'Do the appointment',
         Def::ACTION_MOVE_TO_LIST      => 'Find the right contact',
     ];
 

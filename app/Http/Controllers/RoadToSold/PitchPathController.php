@@ -180,7 +180,7 @@ class PitchPathController extends Controller
         $owner = $ownerId ? \App\Models\Contact::query()->withoutGlobalScopes()->where('agency_id', $row->agency_id)->whereNull('deleted_at')->find($ownerId) : null;
         if (! $property || ! $owner) {
             return redirect()->to($this->path->next($row, $request->user(), $carry)['url'])
-                ->with('error', 'Find the owner first - an evaluation needs the property and the person who owns it.');
+                ->with('error', 'Find the owner first - an appointment needs the property and the person who owns it.');
         }
 
         return redirect()->to(app(\App\Services\SellerOutreach\PitchBookService::class)->url($property, $owner, $carry + ['rts_prospect' => (string) $row->id]));

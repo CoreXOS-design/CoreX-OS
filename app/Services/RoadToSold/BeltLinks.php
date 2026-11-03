@@ -130,7 +130,7 @@ class BeltLinks
                 return false;
             }
             $actor = $actorId ? \App\Models\User::query()->withoutGlobalScopes()->find($actorId) : null;
-            app(ProspectService::class)->park($p, 'other', now()->addDays(14)->startOfDay(), 'Evaluation no-show', $actor);
+            app(ProspectService::class)->park($p, 'other', now()->addDays(14)->startOfDay(), 'Appointment no-show', $actor);
 
             return true;
         } catch (\Throwable $e) {

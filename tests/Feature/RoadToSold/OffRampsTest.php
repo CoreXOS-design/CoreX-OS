@@ -238,7 +238,7 @@ final class OffRampsTest extends TestCase
 
         $res = $this->actingAs($this->agent)->get(route('road-to-sold.belt-funnel', ['period' => 'this_month', 'compare' => 'previous']));
 
-        $res->assertOk()->assertSee('data-qa="belt-funnel-table"', false)->assertSee('Stock loaded')->assertSee('data-qa="belt-offramps"', false);
+        $res->assertOk()->assertSee('data-qa="belt-funnel-table"', false)->assertSee("Today's work")->assertSee('data-qa="belt-offramps"', false);
         $res->assertDontSee('data-qa="belt-agents"', false);
         $this->actingAs($this->agent)->get(route('road-to-sold.belt-funnel', ['period' => 'custom', 'start' => '2026-10-31', 'end' => '2026-10-01']))->assertOk()->assertSee('Showing the last 30 days instead');
     }

@@ -33,7 +33,7 @@ class ReportService
         'conversations'     => ['Conversations', 'higher_is_better'],
     ];
     public const TAIL = [
-        'evaluations_booked' => ['Evaluations booked', 'higher_is_better'],
+        'evaluations_booked' => ['Appointments booked', 'higher_is_better'],
         'added_worked'      => ['Extra over target', 'higher_is_better'],
         'missed'            => ['Missed / rolled over', 'lower_is_better'],
         'dropped'           => ['Dropped after no-answers', 'lower_is_better'],

@@ -26,7 +26,7 @@ class OutcomeDefinitionService
         return [
             ['key' => 'no_answer', 'label' => 'No answer', 'kind' => Def::KIND_ATTEMPT,
              'next_action' => Def::ACTION_AFTER_DAYS, 'delay_days' => 7, 'counts_as_no_answer' => true],
-            ['key' => 'spoke_evaluation_booked', 'label' => 'Spoke - evaluation booked', 'kind' => Def::KIND_CONVERSATION,
+            ['key' => 'spoke_evaluation_booked', 'label' => 'Spoke - appointment booked', 'kind' => Def::KIND_CONVERSATION,
              'next_action' => Def::ACTION_APPOINTMENT, 'stage_after' => 'appointment_set'],
             ['key' => 'spoke_call_back', 'label' => 'Spoke - call back', 'kind' => Def::KIND_CONVERSATION,
              'next_action' => Def::ACTION_PICKED_DATE, 'stage_after' => 'contacted'],
@@ -45,7 +45,7 @@ class OutcomeDefinitionService
             ['key' => 'do_not_contact', 'label' => 'Do not contact', 'kind' => Def::KIND_CONVERSATION,
              'next_action' => Def::ACTION_NEVER_AGAIN, 'records_do_not_contact' => true],
             // after the evaluation (road-to-sold.md 22.7)
-            ['key' => 'eval_undecided', 'label' => 'Evaluation done - seller undecided', 'kind' => Def::KIND_CONVERSATION,
+            ['key' => 'eval_undecided', 'label' => 'Appointment held - seller undecided', 'kind' => Def::KIND_CONVERSATION,
              'next_action' => Def::ACTION_AFTER_DAYS, 'delay_days' => 7, 'stage_after' => 'evaluation_done'],
             ['key' => 'eval_chose_other', 'label' => 'Seller chose another agency', 'kind' => Def::KIND_CONVERSATION,
              'next_action' => Def::ACTION_AFTER_DAYS, 'delay_days' => 90, 'park_reason_key' => 'chose_other_agency'],
@@ -184,6 +184,9 @@ class OutcomeDefinitionService
                 ]);
             }
         }
+        // Belt v2 wording (3 Nov): the belt says "appointment"; a row still carrying the old seeded wording is reworded once (an agency's own wording is never touched; the key is unchanged)
+        Def::withTrashed()->where('agency_id', $agencyId)->where('track', $track)->where('key', 'spoke_evaluation_booked')->where('label', 'Spoke - evaluation booked')
+            ->update(['label' => 'Spoke - appointment booked']);
         self::$seeded[$memo] = true;
     }
 

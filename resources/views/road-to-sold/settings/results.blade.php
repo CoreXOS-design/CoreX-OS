@@ -12,7 +12,7 @@
         <div class="flex items-center justify-between flex-wrap gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Road to Sold results</h1>
-                <p class="text-xs mt-1" style="color: var(--text-muted);">One list of answers to "what happened at the evaluation or presentation?". The evaluation feedback form, the presentation panel and the card on Road to Sold all use it, so a result is recorded once and agrees everywhere.</p>
+                <p class="text-xs mt-1" style="color: var(--text-muted);">One list of answers to "what happened at the appointment or presentation?". The evaluation feedback form, the presentation panel and the card on Road to Sold all use it, so a result is recorded once and agrees everywhere.</p>
             </div>
             <div class="flex items-center gap-2">
                 <a href="{{ route('road-to-sold.settings.offramps.index', $trackParams) }}" class="corex-btn-outline corex-btn-xs">Stops here</a>

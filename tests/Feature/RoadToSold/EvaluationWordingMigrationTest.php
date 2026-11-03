@@ -55,7 +55,7 @@ final class EvaluationWordingMigrationTest extends TestCase
 
         $row = $this->def($a, 'spoke_evaluation_booked');
         $this->assertNotNull($row);
-        $this->assertSame('Spoke - evaluation booked', $row->label);
+        $this->assertSame('Spoke - appointment booked', $row->label);
         $this->assertNull($this->def($a, 'spoke_valuation_booked'));
     }
 

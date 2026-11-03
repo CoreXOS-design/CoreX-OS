@@ -54,7 +54,7 @@ final class OutcomeSettingsTest extends TestCase
     public function test_the_list_shows_the_seeded_eight_and_filters_search_and_sort(): void
     {
         $r = $this->actingAs($this->admin)->get(route('road-to-sold.settings.outcomes.index'));
-        $r->assertOk()->assertSee('No answer')->assertSee('Spoke - evaluation booked')->assertSee('Do not contact')->assertSee('Wrong number');
+        $r->assertOk()->assertSee('No answer')->assertSee('Spoke - appointment booked')->assertSee('Do not contact')->assertSee('Wrong number');
         $r->assertSee('Comes back after 7 days')->assertSee('Moves to the list');
 
         $this->actingAs($this->admin)->get(route('road-to-sold.settings.outcomes.index', ['q' => 'wrong']))

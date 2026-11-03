@@ -177,9 +177,9 @@ final class ChannelOutcomeTest extends TestCase
         [$tp, , $listing] = $this->ready();
 
         $this->actingAs($this->agent)->post(route('market-intelligence.feedback', $listing), ['status' => 'meeting_set'])
-            ->assertSessionHas('error', 'Book the evaluation from Road to Sold - it needs a date and a time.');
+            ->assertSessionHas('error', 'Book the appointment from Road to Sold - it needs a date and a time.');
         $this->actingAs($this->agent)->post(route('market-intelligence.feedback', $listing), ['status' => 'listing'])
-            ->assertSessionHas('error', 'Record the result from Road to Sold - it needs the result of the evaluation.');
+            ->assertSessionHas('error', 'Record the result from Road to Sold - it needs the result of the appointment.');
 
         $this->assertSame(0, RtsContactOutcome::withoutGlobalScopes()->where('tracked_property_id', $tp->id)->count());
     }

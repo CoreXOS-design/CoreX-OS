@@ -468,8 +468,8 @@
                         ['no_answer_drop_after', 'Drop off the list after this many no-answers in a row', $settings->noAnswerDropAfter(), 1, 20, 'calls', null],
                         ['hold_days', "Don't offer a contacted property to anyone for", $settings->holdDays(), 1, 365, 'days after the result is logged. The agent who logged it keeps it for that time.', 'hold_days'],
                         ['default_callback_days', 'When a call is logged as "contacted" from Market Intelligence, call back in', $settings->defaultCallbackDays(), 1, 30, 'working days', 'default_callback_days'],
-                        ['due_contacted_days', 'A contacted property is late when the evaluation is not booked within', $settings->dueContactedDays(), 1, 90, 'days of the contact. Used when no date was set by hand.', 'due_contacted_days'],
-                        ['due_held_days', 'An evaluation held is late when the result is not given within', $settings->dueHeldDays(), 1, 60, 'working days of the evaluation. Used when no date was set by hand.', 'due_held_days'],
+                        ['due_contacted_days', 'A contacted property is late when the appointment is not booked within', $settings->dueContactedDays(), 1, 90, 'days of the contact. Used when no date was set by hand.', 'due_contacted_days'],
+                        ['due_held_days', 'A held appointment is late when the result is not given within', $settings->dueHeldDays(), 1, 60, 'working days of the evaluation. Used when no date was set by hand.', 'due_held_days'],
                     ] as [$name, $label, $value, $min, $max, $unit, $col])
                         @if(($name !== 'default_callback_days' || \App\Models\RoadToSold\RtsSetting::hasDefaultCallbackColumn()) && (! str_starts_with($name, 'due_') || \App\Models\RoadToSold\RtsSetting::hasConveyorColumns()))
                         <div @if($name === 'default_callback_days') data-qa="setting-default-callback" @endif>

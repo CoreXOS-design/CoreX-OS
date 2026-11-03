@@ -36,7 +36,7 @@
     .rts-belt-tools .rts-perlist { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; color: var(--text-secondary); }
     .rts-belt-tools > button { flex-shrink: 0; white-space: nowrap; }
     .rts-tile.is-lit { border-color: var(--brand-icon); background: color-mix(in srgb, var(--brand-icon) 10%, var(--surface)); }
-    .rts-tile .nm { font-size: .625rem; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none; line-height: 1.2; }
+    .rts-tile .nm { font-size: .625rem; font-weight: 700; letter-spacing: 0; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none; line-height: 1.2; }
     .rts-tile .nm .full { display: none; }
     @media (min-width: 1700px) { .rts-tile .nm .full { display: inline; } .rts-tile .nm .short { display: none; } }
     /* the conveyor (23.24): three lines on every tile, the same size and place on all of them - 1 big, 2 and 3 small; line 3 keeps its place when there is nothing late */

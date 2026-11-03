@@ -221,8 +221,8 @@ final class RecipeSettingsTest extends TestCase
         $this->started();
         $list = fn (array $q = []) => $this->actingAs($this->admin)->get(route('road-to-sold.settings.recipe.index', ['section' => 'tasks'] + $q));
 
-        $list()->assertOk()->assertSee('Book an evaluation')->assertSee('Take a listing live');
-        $list(['q' => 'mandate'])->assertSee('File a signed mandate')->assertDontSee('Book an evaluation');
+        $list()->assertOk()->assertSee('Book an appointment')->assertSee('Take a listing live');
+        $list(['q' => 'mandate'])->assertSee('File a signed mandate')->assertDontSee('Book an appointment');
         $list(['q' => 'Marketing'])->assertSee('Publish a marketing post')->assertDontSee('File a signed mandate');   // search by step name
         $list(['type' => 'custom'])->assertSee('No tasks match those filters');
         $list(['unit' => 'day'])->assertSee('Record a result for each call')->assertDontSee('Take a listing live');
@@ -307,7 +307,7 @@ final class RecipeSettingsTest extends TestCase
         $this->assertSame(1, RtsLevelTask::withoutGlobalScopes()->withTrashed()->where('level_id', $level->id)->where('task_id', $b->id)->count(), 'restored, not duplicated');
         $this->assertSame(5, (int) RtsLevelTask::withoutGlobalScopes()->where('level_id', $level->id)->where('task_id', $b->id)->value('target'));
 
-        $found = collect($this->actingAs($this->admin)->get(route('road-to-sold.settings.recipe.index', ['section' => 'levels', 'q' => 'Book an evaluation']))->viewData('rows')->items())->pluck('name')->all();
+        $found = collect($this->actingAs($this->admin)->get(route('road-to-sold.settings.recipe.index', ['section' => 'levels', 'q' => 'Book an appointment']))->viewData('rows')->items())->pluck('name')->all();
         $this->assertSame(['Level 1'], $found, 'a level is found by the name of a task inside it');
         $this->actingAs($this->admin)->get(route('road-to-sold.settings.recipe.levels.edit', $level->id))->assertOk()->assertSee('Senior agent');
 

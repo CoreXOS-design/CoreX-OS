@@ -322,7 +322,7 @@
                                 @if(! $ownerMissing && (($r['origin'] ?? '') === 'follow_up' || in_array($filters['view'], ['no_answer', 'wrong_number'], true)))
                                 <button type="button" class="corex-btn-primary corex-btn-xs" data-qa="log-contact" @if($loop->first) data-tour="smk-rts-contact" @endif
                                         data-tp="{{ $r['tracked_property_id'] }}" data-item="{{ $r['list_item_id'] }}" data-address="{{ $r['address'] }}"
-                                        @click="openContact($el.dataset)">Log contact</button>
+                                        @click="openContact($el.dataset)">Contact</button>
                                 @endif
                             @elseif($r['status'] !== 'open')
                                 <span style="color: var(--text-muted);">{{ ucfirst($r['status']) }}</span>
@@ -431,7 +431,7 @@
             <template x-for="(h, i) in historyRows" :key="i">
                 <div class="text-xs py-2" style="border-top: 1px solid var(--border); color: var(--text-primary);">
                     <div><span class="font-semibold" x-text="h.label"></span>
-                        <span style="color: var(--text-muted);" x-text="(h.valuation ? ' · evaluation booked' : '')"></span></div>
+                        <span style="color: var(--text-muted);" x-text="(h.valuation ? ' · appointment booked' : '')"></span></div>
                     <div style="color: var(--text-muted);" x-text="h.when + (h.by ? ' · ' + h.by : '') + (h.next ? ' · back on ' + h.next : '')"></div>
                     <div x-show="h.note" x-text="h.note"></div>
                 </div>
@@ -459,7 +459,7 @@
             <input type="hidden" name="list_item_id" :value="item">
 
             <div>
-                <h2 class="text-sm font-bold" style="color: var(--text-primary);">Log contact</h2>
+                <h2 class="text-sm font-bold" style="color: var(--text-primary);">Contact</h2>
                 <div class="text-xs mt-1" style="color: var(--text-muted);" x-text="address"></div>
             </div>
 
@@ -504,11 +504,11 @@
 
             <label class="flex items-center gap-2 text-xs" style="color: var(--text-primary);" x-show="current && current.offers_valuation">
                 <input type="checkbox" name="valuation_booked" value="1" x-model="valuation">
-                Evaluation booked
+                Appointment booked
             </label>
 
             <div x-show="needsAppointment">
-                <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-appt">Evaluation date and time</label>
+                <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-appt">Appointment date and time</label>
                 <input id="rts-appt" type="datetime-local" name="appointment_at" x-model="appointmentAt" :required="needsAppointment" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}">
             </div>
 
@@ -550,7 +550,7 @@ function rtsPage(cfg) {
         rtsSwap(ds) {
             var self = this; this.swapOpen = true; this.swapAddress = ds.address || '';
             var q = new URLSearchParams(); q.set('item', String(ds.item));
-            this.$nextTick(function () { if (window.CorexOffRamp) { window.CorexOffRamp.mount(self.$refs.swapHost, { url: @js(route('road-to-sold.offramp')), post: @js(route('road-to-sold.swap', 0)).replace('/0/', '/' + ds.item + '/'), query: q, step: 1, onCancel: function () { self.swapOpen = false; }, onDone: function () { window.location.reload(); } }); } });
+            this.$nextTick(function () { if (window.CorexOffRamp) { window.CorexOffRamp.mount(self.$refs.swapHost, { url: @js(route('road-to-sold.offramp')), post: @js(route('road-to-sold.swap', 0)).replace('/0/', '/' + ds.item + '/'), query: q, step: 1, title: 'Not for me', goLabel: 'Swap', onCancel: function () { self.swapOpen = false; }, onDone: function () { window.location.reload(); } }); } });
         },
         open: false,
         historyOpen: false,

@@ -183,7 +183,7 @@ final class BeltTilesTest extends TestCase
         // the Held tile is the conveyor tile now (to do / moved on / late); the owed list is one click inside the Held list
         $held = $this->page($this->agent, ['block' => 'station', 'station' => 'held'])->getContent();
         $this->assertStringContainsString('data-qa="held-owed"', $held);
-        $this->assertStringContainsString('1 evaluation owed feedback', $held);
+        $this->assertStringContainsString('1 appointment owed feedback', $held);
         $h = $this->page($this->agent, ['block' => 'station', 'station' => 'held', 'owed' => 1])->getContent();
         $this->assertStringContainsString('5 Owed Road', $h);
         $this->assertStringNotContainsString('6 Given Road', $h);

@@ -206,7 +206,7 @@ final class AgentWeekScenarioTest extends TestCase
             $res->assertDontSee($s);
         }
         $res->assertSee('0 of 8');
-        $this->assertSame(8, substr_count($res->getContent(), 'data-tp='));
+        $this->assertSame(0, substr_count($res->getContent(), 'data-qa="log-contact"'), 'Belt v2: no Log contact button on a Today\'s work row');
 
         // The assistant sees the AGENT's list - the same eight - and can work it.
         $asst = $this->actingAs($this->asha)->get(route('road-to-sold.index'))->assertOk();
@@ -214,7 +214,7 @@ final class AgentWeekScenarioTest extends TestCase
             $asst->assertSee($s);
         }
         $asst->assertSee('0 of 8');
-        $this->assertSame(8, substr_count($asst->getContent(), 'data-tp='));
+        $this->assertSame(0, substr_count($asst->getContent(), 'data-qa="log-contact"'), 'Belt v2: the assistant sees the list without Log contact buttons');
 
         // The branch manager opens Anna's list read-only (no "Contacted client" buttons), and the other agents' lists.
         $bm = $this->actingAs($this->mo)->get(route('road-to-sold.index', ['agent' => $this->anna->id]))->assertOk();
@@ -253,7 +253,7 @@ final class AgentWeekScenarioTest extends TestCase
         $this->assertSame('2026-10-19', $m1->next_action_at->toDateString());
         $this->assertNull($this->owner['M01']->fresh()?->last_contacted_at);
 
-        // 2. Spoke - evaluation booked: a calendar appointment is created and the property leaves the list.
+        // 2. Spoke - appointment booked: a calendar appointment is created and the property leaves the list.
         $val = $row($this->tpid('B02'), 'spoke_evaluation_booked');
         $this->assertTrue((bool) $val->valuation_booked);
         $this->assertSame('calendar_appointment', $val->next_action);
@@ -262,7 +262,7 @@ final class AgentWeekScenarioTest extends TestCase
         $this->assertSame('property_evaluation', $event->category);
         $this->assertSame('2026-10-20 10:00:00', (string) $event->event_date);
         $this->assertStringStartsWith('Evaluation: ', $event->title, 'the appointment title says evaluation');
-        $this->assertSame('Spoke - evaluation booked', $val->outcome_label);
+        $this->assertSame('Spoke - appointment booked', $val->outcome_label);
         $this->assertSame($this->ben->id, (int) $event->user_id);
 
         // 3-6. The conversation outcomes that come back: their dates, and the owner's "last contacted" moved.

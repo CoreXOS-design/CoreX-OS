@@ -22,7 +22,7 @@ final class RecipeCatalogue
         'find'               => [RtsStep::GROUP_GET_STOCK,  'Find'],
         'find_owner'         => [RtsStep::GROUP_GET_STOCK,  'Find the owner'],
         'contact_outcome'    => [RtsStep::GROUP_GET_STOCK,  'Contact and outcome'],
-        'evaluation_booked'  => [RtsStep::GROUP_GET_STOCK,  'Evaluation'],
+        'evaluation_booked'  => [RtsStep::GROUP_GET_STOCK,  'Appointment'],
         'presentation'       => [RtsStep::GROUP_GET_STOCK,  'Presentation'],
         'mandate'            => [RtsStep::GROUP_GET_STOCK,  'Mandate'],
         'listing_live'       => [RtsStep::GROUP_GET_STOCK,  'Listing live'],
@@ -58,10 +58,10 @@ final class RecipeCatalogue
             'filters' => ['kind' => 'The kind of outcome (attempt or conversation)', 'outcomeKey' => 'The outcome picked'],
         ],
         \App\Events\Evaluation\EvaluationBooked::class => [
-            'label' => 'An evaluation is booked', 'credit' => ['userId'], 'recorded_by' => [], 'filters' => [],
+            'label' => 'An appointment is booked', 'credit' => ['userId'], 'recorded_by' => [], 'filters' => [],
         ],
         \App\Events\Evaluation\EvaluationCompleted::class => [
-            'label' => 'An evaluation is done', 'credit' => ['userId'], 'recorded_by' => [], 'filters' => [],
+            'label' => 'An appointment is held', 'credit' => ['userId'], 'recorded_by' => [], 'filters' => [],
         ],
         \App\Events\Presentation\PresentationPresented::class => [
             'label' => 'A presentation reaches the seller', 'credit' => [], 'recorded_by' => [],
@@ -184,8 +184,8 @@ final class RecipeCatalogue
         return [
             ['key' => 'owner-found',        'step' => 'find_owner',        'label' => 'Find the owner of a property',        'event' => \App\Events\Prospecting\OwnerLinkedToTrackedProperty::class, 'filter' => [], 'unit' => 'week',  'level1' => null],
             ['key' => 'call-outcome',       'step' => 'contact_outcome',   'label' => 'Record a result for each call',       'event' => \App\Events\RoadToSold\RoadToSoldOutcomeRecorded::class,     'filter' => [], 'unit' => 'day',   'level1' => [10, 1.0]],
-            ['key' => 'evaluation-booked',  'step' => 'evaluation_booked', 'label' => 'Book an evaluation',                  'event' => \App\Events\Evaluation\EvaluationBooked::class,              'filter' => [], 'unit' => 'week',  'level1' => [1, 5.0]],
-            ['key' => 'evaluation-done',    'step' => 'evaluation_booked', 'label' => 'Do an evaluation',                    'event' => \App\Events\Evaluation\EvaluationCompleted::class,           'filter' => [], 'unit' => 'week',  'level1' => null],
+            ['key' => 'evaluation-booked',  'step' => 'evaluation_booked', 'label' => 'Book an appointment',                  'event' => \App\Events\Evaluation\EvaluationBooked::class,              'filter' => [], 'unit' => 'week',  'level1' => [1, 5.0]],
+            ['key' => 'evaluation-done',    'step' => 'evaluation_booked', 'label' => 'Hold an appointment',                  'event' => \App\Events\Evaluation\EvaluationCompleted::class,           'filter' => [], 'unit' => 'week',  'level1' => null],
             ['key' => 'presentation-given', 'step' => 'presentation',      'label' => 'Present to a seller',                 'event' => \App\Events\Presentation\PresentationPresented::class,       'filter' => [], 'unit' => 'month', 'level1' => null],
             ['key' => 'mandate-filed',      'step' => 'mandate',           'label' => 'File a signed mandate',               'event' => \App\Events\Document\DocumentFiledToProperty::class,         'filter' => ['documentTypeSlug' => 'mandate'], 'unit' => 'month', 'level1' => [1, 10.0]],
             ['key' => 'listing-live',       'step' => 'listing_live',      'label' => 'Take a listing live',                 'event' => \App\Events\Property\PropertyWentLiveOnPortal::class,        'filter' => [], 'unit' => 'month', 'level1' => null],

@@ -28,14 +28,14 @@ class BeltFunnelService
 {
     /** Belt stations, in order: key => [label, short, the stage keys that count as being there]. */
     public const STATIONS = [
-        'loaded'     => ['Stock loaded',         'Loaded',     ['found']],
+        'loaded'     => ["Today's work",         'Loaded',     ['found']],
         'claimed'    => ['Claimed',              'Claimed',    ['claimed']],
         'owner'      => ['Owner found',          'Owner',      ['owner_found']],
         'contacted'  => ['Contacted',            'Contacted',  ['contacted']],
-        'booked'     => ['Evaluation booked',    'Booked',     ['appointment_set']],
-        'prepared'   => ['Presentation prepared', 'Prepared',  ['presentation_prepared']],
-        'held'       => ['Evaluation held',      'Held',       ['evaluation_done']],
-        'won'        => ['Result: won',          'Won',        ['mandate_signed']],
+        'booked'     => ['Booked',               'Booked',     ['appointment_set']],
+        'prepared'   => ['Prepared',             'Prepared',  ['presentation_prepared']],
+        'held'       => ['Held',                 'Held',       ['evaluation_done']],
+        'won'        => ['Won',                  'Won',        ['mandate_signed']],
         'draft'      => ['Draft',                'Draft',      ['draft']],
         'active'     => ['Active',               'Active',     ['active']],
         'advertised' => ['Advertised',           'Advertised', ['listing_live', 'advertising']],

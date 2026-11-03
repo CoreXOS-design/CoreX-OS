@@ -218,7 +218,7 @@ class ResultService
         $sync->closeOpenClaims($property, $matched);
         PropertyNote::create([
             'agency_id' => $property->agency_id, 'property_id' => $property->id, 'user_id' => $actor->id,
-            'content' => 'Marked Not selling on ' . now()->format('j M Y, H:i') . ' by ' . $actor->name . ' (result of the evaluation). Reason: ' . ($note ?: 'No reason given.'),
+            'content' => 'Marked Not selling on ' . now()->format('j M Y, H:i') . ' by ' . $actor->name . ' (result of the appointment). Reason: ' . ($note ?: 'No reason given.'),
         ]);
     }
 

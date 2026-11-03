@@ -56,7 +56,7 @@
             host.appendChild(el('div', { 'class': 'cxo-row' }, [no]));
             return;
         }
-        host.appendChild(el('div', { 'class': 'cxo-title', text: 'Stops here - ' + (NAMES[d.step - 1] || '') + '. Why?' }));
+        host.appendChild(el('div', { 'class': 'cxo-title', text: (o.title ? o.title : 'Stops here - ' + (NAMES[d.step - 1] || '')) + '. Why?' }));
         var list = el('div', { 'class': 'cxo-list', role: 'radiogroup', 'aria-label': 'Why does it stop here?', 'data-qa': 'offramp-reasons' });
         var name = 'cxo-reason-' + Math.random().toString(36).slice(2, 7);
         d.reasons.forEach(function (r, i) {
@@ -66,7 +66,7 @@
         var noteLab = el('label', { 'class': 'cxo-lab', 'for': name + '-note', text: 'Note (optional)' });
         var note = el('input', { type: 'text', id: name + '-note', maxlength: '255', autocomplete: 'off', 'data-qa': 'offramp-note' });
         var err = el('div', { 'class': 'cxo-msg cxo-err', 'data-qa': 'offramp-error', role: 'alert' });
-        var go = el('button', { type: 'button', 'class': 'cxp-btn cxp-primary', 'data-qa': 'offramp-go', text: 'Stop here' });
+        var go = el('button', { type: 'button', 'class': 'cxp-btn cxp-primary', 'data-qa': 'offramp-go', text: o.goLabel || 'Stop here' });
         function chosen() { return host.querySelector('input[type=radio]:checked'); }
         list.addEventListener('change', function () {
             var c = chosen(); var other = c && c.getAttribute('data-other') === '1';

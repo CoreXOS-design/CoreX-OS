@@ -80,7 +80,7 @@ final class NextActionService
                 'title'  => 'Call ' . $firstRow['address'],
                 'detail' => $detail,
                 'action' => $canAct ? [
-                    'type' => 'contact', 'label' => 'Log contact',
+                    'type' => 'contact', 'label' => 'Contact',
                     'tp' => $firstRow['tracked_property_id'], 'item' => $firstRow['list_item_id'], 'address' => $firstRow['address'],
                 ] : null,
             ];

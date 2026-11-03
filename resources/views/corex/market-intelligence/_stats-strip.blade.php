@@ -89,7 +89,7 @@
         @if($tile['type'] === 'buyer_matched')
             <a href="{{ $href }}" title="{{ $tipText }}" style="text-decoration: none; {{ $bandNow }}"><span style="{{ $nm }} {{ $bandNow }}">{{ $tile['label'] }}</span> <span style="{{ $nb }}">{{ number_format($tile['properties']) }}</span> <span style="{{ $nm }}">· {{ number_format($tile['buyers']) }} {{ \Illuminate\Support\Str::plural('buyer', $tile['buyers']) }}</span></a>
         @elseif($href)
-            <a href="{{ $href }}" title="{{ $tipText }}" style="text-decoration: none;"><span style="{{ $nm }} {{ $isActive ? 'color: var(--brand-icon);' : '' }}" title="{{ $tile['label'] }}">{{ ($tile['key'] ?? '') === 'pitch_now_high' ? 'To pitch' : str_replace(' · high', '', $tile['label']) }}</span> <span style="{{ $nb }}">{{ number_format($tile['value']) }}</span></a>
+            <a href="{{ $href }}" title="{{ $tipText }}" style="text-decoration: none;"><span style="{{ $nm }} {{ $isActive ? 'color: var(--brand-icon);' : '' }}" title="{{ $tile['label'] }}">{{ ($tile['key'] ?? '') === 'pitch_now_high' ? 'To claim' : str_replace(' · high', '', $tile['label']) }}</span> <span style="{{ $nb }}">{{ number_format($tile['value']) }}</span></a>
         @else
             <span title="{{ $tipText }}"><span style="{{ $nm }}">{{ $tile['label'] }}</span> <span style="{{ $nb }}">{{ number_format($tile['value']) }}</span></span>
         @endif

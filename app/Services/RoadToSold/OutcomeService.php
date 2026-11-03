@@ -83,12 +83,12 @@ class OutcomeService
         if ($preBooked) {
             $appointmentAt = \Illuminate\Support\Carbon::parse($preBooked->event_date);
         } elseif ($wantsValuation) {
-            $appointmentAt = $this->parseDateTime($input['appointment_at'] ?? null, 'the evaluation');
+            $appointmentAt = $this->parseDateTime($input['appointment_at'] ?? null, 'the appointment');
             if (! $appointmentAt) {
-                throw new RoadToSoldException('Pick the date and time of the evaluation.');
+                throw new RoadToSoldException('Pick the date and time of the appointment.');
             }
             if ($appointmentAt->lt(now()->startOfMinute())) {
-                throw new RoadToSoldException('The evaluation cannot be booked in the past. Pick a date and time from now on.');
+                throw new RoadToSoldException('The appointment cannot be booked in the past. Pick a date and time from now on.');
             }
         }
 
@@ -430,7 +430,7 @@ class OutcomeService
         }
         $event = \App\Models\CommandCenter\CalendarEvent::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->find($id);
         if (! $event || (string) $event->category !== 'property_evaluation' || ! in_array((int) $event->user_id, [(int) $actor->id, (int) $actor->ownershipUserId()], true)) {
-            throw new RoadToSoldException('That evaluation could not be found. Book it again.');
+            throw new RoadToSoldException('That appointment could not be found. Book it again.');
         }
 
         return $event;

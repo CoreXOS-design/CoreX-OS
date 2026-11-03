@@ -91,13 +91,13 @@
             <x-dmy-date id="pc-next" name="pc_next" :required="true" :min="now()->toDateString()" />
         </div>
         <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);" x-show="current && current.offers_valuation">
-            <input type="checkbox" x-model="valuation"> Evaluation booked
+            <input type="checkbox" x-model="valuation"> Appointment booked
         </label>
         <div x-show="deferBooking" x-cloak data-qa="phone-book-hint" class="rounded-md p-4 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">
             You pick the date and time of the appointment next, in the calendar. The call is logged once it is booked.
         </div>
         <div x-show="!bookUrl && current && (current.needs_appointment || valuation)" class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);" for="pc-appt">Evaluation date and time <span style="color: var(--ds-crimson, #dc2626);" title="Required">*</span></label>
+            <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);" for="pc-appt">Appointment date and time <span style="color: var(--ds-crimson, #dc2626);" title="Required">*</span></label>
             <div class="flex items-center gap-2 flex-wrap">
                 <x-dmy-date id="pc-appt" name="pc_appt_date" :required="true" :min="now()->toDateString()" />
                 <input id="pc-appt-time" type="time" required value="09:00" class="px-3 py-2 text-xs rounded-md" style="{{ $inputStyle }}" aria-label="Time of the evaluation">
@@ -115,7 +115,7 @@
             <button type="button" data-qa="phone-save" @click="save()" :disabled="saving || !chosen"
                     class="px-6 py-2.5 text-sm font-semibold rounded-md"
                     :style="chosen ? 'background: var(--brand-button, #0ea5e9); color:#fff;' : 'background: var(--surface-2); color: var(--text-muted); cursor:not-allowed;'">
-                <span x-show="!saving" x-text="deferBooking ? 'Next: book the appointment →' : 'Log this call'"></span><span x-show="saving" x-cloak>Saving…</span>
+                <span x-show="!saving" x-text="deferBooking ? 'Next: book the appointment →' : 'Save call'"></span><span x-show="saving" x-cloak>Saving…</span>
             </button>
         </div>
     </div>
@@ -154,7 +154,7 @@ function phoneCallForm(cfg) {
             if (!when) { this.error = 'Enter the date (dd/mm/yyyy) and the time of the call.'; return; }
             if (new Date(when) > new Date(Date.now() + 60000)) { this.error = 'The time of the call cannot be in the future. Use now, or an earlier time.'; return; }
             if (c.needs_date && !next) { this.error = 'Pick the date to bring it back on (dd/mm/yyyy).'; return; }
-            if (!this.bookUrl && (c.needs_appointment || this.valuation) && !appt) { this.error = 'Pick the evaluation date (dd/mm/yyyy) and time.'; return; }
+            if (!this.bookUrl && (c.needs_appointment || this.valuation) && !appt) { this.error = 'Pick the appointment date (dd/mm/yyyy) and time.'; return; }
             if (this.deferBooking) { this.goBook(true); return; }
             this.error = ''; this.saving = true;
             var body = new URLSearchParams({ tracked_property_id: cfg.tp, outcome_definition_id: c.id, channel: 'phone', occurred_at: when, note: this.note || '' });

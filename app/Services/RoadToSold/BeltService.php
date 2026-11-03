@@ -533,7 +533,7 @@ final class BeltService
                 $title = "TRIM(COALESCE(NULLIF(e.title, ''), 'Evaluation'))";
 
                 return [$this->owedQueryFor($agencyId, $ids)->selectRaw("e.id as id, {$title} as title, NULL as suburb, NULL as owner, e.event_date as since, e.property_id as property_id"), $title,
-                    'Evaluations that took place - have you given feedback?', 'Nothing is waiting for feedback. Well done.'];
+                    'Appointments that took place - have you given feedback?', 'Nothing is waiting for feedback. Well done.'];
 
             case 'properties_draft':
             case 'properties_active':

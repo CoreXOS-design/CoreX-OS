@@ -149,7 +149,7 @@ final class PitchBookStepTest extends TestCase
         $this->assertStringContainsString($when->format('j M H:i'), $page);
         $this->assertStringContainsString('12 Pitch Road', $page);
         $this->assertStringNotContainsString('booked-problem', $page, trim(strip_tags(substr($page, (int) strpos($page, 'booked-problem'), 400))));
-        $this->assertStringContainsString('Spoke - evaluation booked', $page, 'the call is logged');
+        $this->assertStringContainsString('Spoke - appointment booked', $page, 'the call is logged');
 
         $this->assertSame(1, CalendarEvent::withoutGlobalScopes()->where('category', 'property_evaluation')->count(), 'ONE appointment: the outcome used the one just made');
         $row = RtsContactOutcome::query()->firstOrFail();
