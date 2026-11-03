@@ -63,7 +63,8 @@ final class AiTemplateOverlapGuardTest extends TestCase
         // Johan 2026-10-30: the repairing check pulls the two apart instead of refusing the whole design.
         $fixed = (new AdLayoutValidator())->validateAndRepair($option, 'facebook');
         $this->assertTrue($fixed['ok'], implode(' | ', $fixed['errors']));
-        $this->assertNotEmpty(array_filter($fixed['repairs'], fn ($x) => str_contains($x, 'sat on top of')));
+        // Settled either by trimming the oversized box or by moving one of the two (§22.11): both are logged.
+        $this->assertNotEmpty(array_filter($fixed['repairs'], fn ($x) => str_contains($x, 'sat on top of') || str_contains($x, 'was trimmed')));
     }
 
     public function test_the_same_two_facts_side_by_side_or_one_under_the_other_pass(): void

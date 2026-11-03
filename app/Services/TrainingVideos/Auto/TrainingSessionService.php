@@ -21,6 +21,12 @@ class TrainingSessionService
     {
         $this->assertTrainingUser($user);
         $store = app('session')->driver();
+        // A long-lived queue worker reuses ONE session handler. The database handler remembers "my row exists" after the first save, so the next job's brand-new session
+        // id was written as an UPDATE of a row that was never inserted - the cookie then pointed at nothing and the recorder was sent to the login page ("the training
+        // user could not sign in"), but only for the second video a worker made. Forget it so every session is inserted.
+        if ($store->getHandler() instanceof \Illuminate\Session\DatabaseSessionHandler) {
+            $store->getHandler()->setExists(false);
+        }
         $id = Str::random(40);
         $store->setId($id);
         $store->start();

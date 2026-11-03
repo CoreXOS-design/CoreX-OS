@@ -4,6 +4,7 @@ namespace App\Services\TrainingVideos\Auto;
 
 use App\Models\TrainingVideo;
 use App\Services\TrainingVideos\Tts\TtsManager;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -85,7 +86,7 @@ class TrainingVideoGenerator
                 'out' => $work . '/raw.mp4', 'timeline' => $work . '/timeline.json',
                 'intro' => $introClip ? ['title' => $script->title(), 'subtitle' => 'A CoreX how-to', 'seconds' => round(max((float) config('training-videos.auto.intro_seconds', 3), $introClip['seconds'] + 1.0), 2)] : null,
                 'outro' => $outroClip ? ['title' => 'That is it', 'subtitle' => $this->relatedLine($script), 'seconds' => round(max((float) config('training-videos.auto.outro_seconds', 4), $outroClip['seconds'] + 1.0), 2)] : null,
-                'steps' => $steps, 'probe' => false,
+                'steps' => $steps, 'probe' => false, 'sessionId' => $session['session_id'],
             ];
             $timeline = $recorder ? $recorder($job) : $this->runRecorder($job);
             $video->update(['progress_percent' => 70]);
@@ -176,6 +177,18 @@ class TrainingVideoGenerator
         return $r ? 'Watch next: ' . implode(', ', array_map(fn ($k) => str_replace('-', ' ', $k), $r)) : 'More how-to videos are in the Training library.';
     }
 
+    /** For a refused sign-in: was the session's row still in the database when the browser was turned away? Tells "it was deleted" from "it was there but not accepted". */
+    private function sessionState(array $job): string
+    {
+        $id = (string) ($job['sessionId'] ?? '');
+        if ($id === '') {
+            return '';
+        }
+        $row = DB::table((string) config('session.table', 'sessions'))->where('id', $id)->first(['user_id', 'last_activity']);
+
+        return $row ? ' (its session was still stored, last used ' . max(0, time() - (int) $row->last_activity) . ' s ago, for user ' . ($row->user_id ?? 'none') . ')' : ' (its session had been deleted)';
+    }
+
     /** The START of the recorder's error (what went wrong), without the stack trace and the "troubleshooting" link - the tail hid the cause on 31 Oct. */
     private function recorderErrorSummary(string $output): string
     {
@@ -193,7 +206,7 @@ class TrainingVideoGenerator
         $p->setTimeout((float) config('training-videos.auto.recorder.timeout', 600));
         $p->run();
         if (! $p->isSuccessful() || ! is_file($job['timeline'])) {
-            $why = $p->getExitCode() === 3 ? 'the training user could not sign in' : $this->recorderErrorSummary($p->getErrorOutput() . "\n" . $p->getOutput());
+            $why = $p->getExitCode() === 3 ? 'the training user could not sign in' . $this->sessionState($job) : $this->recorderErrorSummary($p->getErrorOutput() . "\n" . $p->getOutput());
             throw new \RuntimeException('The recorder failed: ' . $why);
         }
         $t = json_decode((string) file_get_contents($job['timeline']), true);

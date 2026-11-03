@@ -52,7 +52,7 @@
                             <span class="aitp-hint" x-text="idea.length + ' / 1000'"></span>
                         </label>
 
-                        <label style="display:block;">
+                        <label style="display:block;" x-show="!file">
                             <span class="aitp-lbl">Ad size</span>
                             <select x-model="size" :disabled="loading" class="aitp-field">
                                 @foreach($aiPanel['sizes'] as $sz)
@@ -61,7 +61,7 @@
                             </select>
                         </label>
 
-                        <label style="display:block;">
+                        <label style="display:block;" x-show="!file">
                             <span class="aitp-lbl">Style</span>
                             <select x-model="style" :disabled="loading" class="aitp-field">
                                 <option value="auto">Let the AI choose</option>
@@ -72,12 +72,20 @@
                             <span class="aitp-hint" x-text="styleHint()"></span>
                         </label>
 
-                        <label style="display:block;">
+                        {{-- With a picture chosen, size and style are hidden: this row then takes the whole width (the form is a 3-column grid, and a long note in one narrow column ran together). --}}
+                        <label style="display:block;" :class="{ 'aitp-full': file }">
                             <span class="aitp-lbl">Reference image (optional)</span>
                             <input type="file" accept="image/jpeg,image/png" :disabled="loading" @change="pickFile($event)" class="aitp-field" style="padding:6px 8px; font-size:12px;">
-                            <span class="aitp-hint">JPG or PNG, up to 5 MB. Used for inspiration only and deleted after 7 days.</span>
+                            <span class="aitp-hint">JPG or PNG, up to 5 MB. The design is matched to the picture as closely as possible; the picture is deleted after 7 days.</span>
                             <span class="aitp-hint" style="display:block; color:var(--ds-crimson,#c41e3a);" x-show="fileError" x-text="fileError"></span>
                         </label>
+
+                        {{-- Standalone full-width block (not inside the label): explicit line height so the words never run together. --}}
+                        <div class="aitp-full aitp-note" x-show="file" data-aitp="reference-note"
+                             style="display:block; width:100%; box-sizing:border-box; padding:14px 16px; font-size:13px; line-height:1.55; white-space:normal; overflow-wrap:anywhere; min-height:64px;">
+                            <strong style="display:block; margin-bottom:4px;">Matching your picture</strong>
+                            The ad size (<strong x-text="canvas().w + ' × ' + canvas().h"></strong>, taken from the picture's shape), the style and the design extras all come from the picture, so those choices are hidden. Its words, names and photos are never copied — your own listing details are used.
+                        </div>
 
                         {{-- Property types: the agency's OWN list (never a built-in one). --}}
                         <fieldset class="aitp-full" style="border:0; padding:0; margin:0; min-width:0;" data-aitp="types">
@@ -102,7 +110,7 @@
                         </fieldset>
 
                         {{-- Must-include options --}}
-                        <fieldset class="aitp-full" style="border:0; padding:0; margin:0; min-width:0;" data-aitp="must-include">
+                        <fieldset class="aitp-full" style="border:0; padding:0; margin:0; min-width:0;" data-aitp="must-include" x-show="!file">
                             <legend class="aitp-lbl" style="padding:0;">Make sure every design includes (optional)</legend>
                             <div class="aitp-groups">
                                 @foreach($aiPanel['mustIncludes'] as $group)
@@ -135,7 +143,7 @@
 
                         {{-- Only offered when the agency has at least one saved, non-archived template (ticked by default then). --}}
                         @if(($aiPanel['templateCount'] ?? 0) > 0)
-                            <div class="aitp-full">
+                            <div class="aitp-full" x-show="!file">
                                 <span class="aitp-lbl">Your own look</span>
                                 <label class="aitp-check">
                                     <input type="checkbox" x-model="match" :disabled="loading">
@@ -183,7 +191,7 @@
                                             </template>
                                         </div>
 
-                                        <div class="aitp-small">Style: <strong x-text="opt.style_name || 'not named'"></strong></div>
+                                        <div class="aitp-small">Style: <strong x-text="opt.style_name || (usedPicture ? 'matched to your picture' : 'not named')"></strong></div>
                                         <template x-for="(note, t) in opt.variant_notes" :key="t">
                                             <div class="aitp-small" x-text="note"></div>
                                         </template>
@@ -234,7 +242,7 @@
 <script>
 function aiTemplatePanel(cfg) {
     return Object.assign(corexAiDialogShell(), {
-        open: false, idea: '', size: 'facebook', file: null, fileError: '',
+        open: false, idea: '', size: 'facebook', file: null, fileError: '', sizeBeforePicture: null, usedPicture: false,
         style: 'auto', styles: cfg.styles || [],
         types: [], maxTypes: cfg.maxTypes || 5, must: [], ribbon: '',
         hasTemplates: (cfg.templateCount || 0) > 0, match: (cfg.templateCount || 0) > 0,
@@ -243,30 +251,44 @@ function aiTemplatePanel(cfg) {
 
         canvas() { return (cfg.sizes || []).find(s => s.key === this.size) || { w: 1200, h: 628 }; },
         styleHint() {
-            if (this.style === 'auto') return 'The AI picks the best of our eight styles for each design, and tells you which.';
+            if (this.style === 'auto') return 'The AI picks the best of our nine styles for each design, and tells you which.';
             const s = this.styles.find(x => x.key === this.style);
             return s ? s.summary : '';
         },
         pickFile(e) {
             this.fileError = ''; this.file = null;
+            if (this.sizeBeforePicture) { this.size = this.sizeBeforePicture; this.sizeBeforePicture = null; }   // picture removed: back to the size they had chosen
             const f = e.target.files && e.target.files[0];
             if (!f) return;
             if (!/^image\/(jpeg|png)$/.test(f.type)) { this.fileError = 'Please choose a JPG or PNG image.'; e.target.value = ''; return; }
             if (f.size > 5 * 1024 * 1024) { this.fileError = 'That image is larger than 5 MB.'; e.target.value = ''; return; }
             this.file = f;
+            // The picture decides the size: pick the ad size whose shape is closest (the server does the same, this keeps the skeleton the right shape).
+            const url = URL.createObjectURL(f), img = new Image();
+            img.onload = () => {
+                URL.revokeObjectURL(url);
+                const r = img.naturalWidth / img.naturalHeight;
+                let best = null, bestD = Infinity;
+                (cfg.sizes || []).forEach(s => { const d = Math.abs(Math.log(r / (s.w / s.h))); if (d < bestD) { bestD = d; best = s.key; } });
+                if (best) { this.sizeBeforePicture = this.sizeBeforePicture || this.size; this.size = best; }
+            };
+            img.onerror = () => URL.revokeObjectURL(url);
+            img.src = url;
         },
         async generate() {
             if (this.loading) return;
-            if (this.must.includes('ribbon') && this.ribbon.trim() === '') { this.error = 'Type the words you want on the corner ribbon, for example JUST LISTED.'; return; }
+            if (!this.file && this.must.includes('ribbon') && this.ribbon.trim() === '') { this.error = 'Type the words you want on the corner ribbon, for example JUST LISTED.'; return; }
             this.closeViewer(false);
             this.loading = true; this.error = ''; this.options = []; this.generationId = null;
+            this.usedPicture = !!this.file;
             const body = new FormData();
             body.append('idea', this.idea); body.append('ad_size', this.size);
             this.types.forEach(t => body.append('property_types[]', t));
-            this.must.forEach(k => body.append('must_include[]', k));
-            if (this.must.includes('ribbon')) body.append('ribbon_text', this.ribbon.trim());
-            body.append('style', this.style);
-            body.append('match_existing', (this.hasTemplates && this.match) ? '1' : '0');
+            // With a reference picture the extras, style and "match our templates" are not sent (the picture decides).
+            if (!this.file) this.must.forEach(k => body.append('must_include[]', k));
+            if (!this.file && this.must.includes('ribbon')) body.append('ribbon_text', this.ribbon.trim());
+            body.append('style', this.file ? 'auto' : this.style);
+            body.append('match_existing', (!this.file && this.hasTemplates && this.match) ? '1' : '0');
             if (this.file) body.append('reference_image', this.file);
             try {
                 // window.CoreX.api.fetch adds the CSRF token + JSON headers and throws on a non-2xx (error.status / error.data).

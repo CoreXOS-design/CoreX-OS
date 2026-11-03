@@ -243,6 +243,18 @@ Route::post('/unsubscribe/{agency}', [\App\Http\Controllers\SellerOutreach\Unsub
     ->middleware('throttle:10,1')
     ->name('seller-outreach.public.unsubscribe.submit');
 
+// ── Campaigns unsubscribe (no auth) — AT-534, .ai/specs/campaigns.md §6.4 ──
+// The signed URL is the credential. GET only shows the confirm page (mail scanners pre-open links); POST unsubscribes —
+// the same URL serves RFC 8058 one-click (List-Unsubscribe-Post), so it is CSRF-excepted in bootstrap/app.php.
+Route::get('/campaign-unsubscribe/{send}', [\App\Http\Controllers\Campaigns\PublicUnsubscribeController::class, 'show'])
+    ->whereNumber('send')
+    ->middleware(['signed', 'throttle:30,1'])
+    ->name('campaigns.public.unsubscribe');
+Route::post('/campaign-unsubscribe/{send}', [\App\Http\Controllers\Campaigns\PublicUnsubscribeController::class, 'confirm'])
+    ->whereNumber('send')
+    ->middleware(['signed', 'throttle:10,1'])
+    ->name('campaigns.public.unsubscribe.confirm');
+
 // ── Presentations V2 Phase 4 — public snapshot share links (no auth).
 //    Token is the credential; controller checks revoked_at + expires_at.
 //    Track endpoint is rate-limited 60req/min/IP to stop beacon abuse.
@@ -984,6 +996,8 @@ Route::middleware('auth')->group(function () {
     // Legacy users.ffc_certificate_path read path — see UserDocumentDownloadController::downloadFfcCertificate().
     Route::get('/admin/users/{user}/ffc-certificate/download', [\App\Http\Controllers\UserDocumentDownloadController::class, 'downloadFfcCertificate'])
         ->middleware(['permission:manage_users', 'deny_assistant_download'])->name('admin.users.ffc-certificate.download');
+    Route::get('/admin/users/{user}/qr-code/download', [\App\Http\Controllers\UserDocumentDownloadController::class, 'downloadQr'])
+        ->middleware('permission:manage_users')->name('admin.users.qr-code.download');
     // PP Agent ownership
     Route::post('/admin/users/{user}/pp/sync', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'sync'])->middleware('permission:manage_users')->name('admin.users.pp.sync');
     Route::post('/admin/users/{user}/pp/update-id', [\App\Http\Controllers\PrivateProperty\AgentPpController::class, 'updateId'])->middleware('permission:manage_users')->name('admin.users.pp.update-id');
@@ -5722,6 +5736,64 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/send', [\App\Http\Controllers\Admin\PushTestLabController::class, 'send'])->middleware('throttle:20,1')->name('send');
     });
 
+    // AT-534 — Campaigns (System Developer): CoreX's own outbound email sequences. owner_only and DELIBERATELY no permission key
+    // (a grantable key could let an agency admin email the outside world as CoreX). Every action ALSO aborts unless isOwnerRole().
+    // Spec: .ai/specs/campaigns.md.
+    Route::middleware('owner_only')->prefix('admin/campaigns')->name('admin.campaigns.')->group(function () {
+        $c = \App\Http\Controllers\Admin\Campaigns\CampaignController::class;
+        $l = \App\Http\Controllers\Admin\Campaigns\CampaignListController::class;
+        $s = \App\Http\Controllers\Admin\Campaigns\CampaignSuppressionController::class;
+        $t = \App\Http\Controllers\Admin\Campaigns\CampaignSettingsController::class;
+
+        Route::get('/lists',                                   [$l, 'index'])->name('lists.index');
+        Route::post('/lists',                                  [$l, 'store'])->name('lists.store');
+        Route::get('/lists/{list}',                            [$l, 'show'])->whereNumber('list')->name('lists.show');
+        Route::put('/lists/{list}',                            [$l, 'update'])->whereNumber('list')->name('lists.update');
+        Route::delete('/lists/{list}',                         [$l, 'archive'])->whereNumber('list')->name('lists.archive');
+        Route::post('/lists/{list}/restore',                   [$l, 'restore'])->whereNumber('list')->name('lists.restore');
+        Route::post('/lists/{list}/import',                    [$l, 'upload'])->whereNumber('list')->middleware('throttle:20,1')->name('lists.import.upload');
+        Route::get('/lists/{list}/import',                     [$l, 'mapColumns'])->whereNumber('list')->name('lists.import.map');
+        Route::post('/lists/{list}/import/run',                [$l, 'runImport'])->whereNumber('list')->middleware('throttle:20,1')->name('lists.import.run');
+        Route::post('/lists/{list}/leads',                     [$l, 'storeLead'])->whereNumber('list')->name('leads.store');
+        Route::put('/leads/{lead}',                            [$l, 'updateLead'])->whereNumber('lead')->name('leads.update');
+        Route::delete('/leads/{lead}',                         [$l, 'archiveLead'])->whereNumber('lead')->name('leads.archive');
+        Route::post('/leads/{lead}/restore',                   [$l, 'restoreLead'])->whereNumber('lead')->name('leads.restore');
+        Route::post('/leads/{lead}/reset',                     [$l, 'resetLead'])->whereNumber('lead')->name('leads.reset');
+
+        Route::get('/suppressed',                              [$s, 'index'])->name('suppressions.index');
+        Route::post('/suppressed',                             [$s, 'store'])->name('suppressions.store');
+        Route::delete('/suppressed/{suppression}',             [$s, 'archive'])->whereNumber('suppression')->name('suppressions.archive');
+        Route::post('/suppressed/{suppression}/restore',       [$s, 'restore'])->whereNumber('suppression')->name('suppressions.restore');
+
+        Route::get('/settings',                                [$t, 'index'])->name('settings');
+        Route::put('/settings',                                [$t, 'update'])->name('settings.update');
+        Route::post('/senders',                                [$t, 'storeSender'])->name('senders.store');
+        Route::put('/senders/{sender}',                        [$t, 'updateSender'])->whereNumber('sender')->name('senders.update');
+        Route::delete('/senders/{sender}',                     [$t, 'archiveSender'])->whereNumber('sender')->name('senders.archive');
+        Route::post('/senders/{sender}/restore',               [$t, 'restoreSender'])->whereNumber('sender')->name('senders.restore');
+        Route::get('/senders/{sender}/preview',                [$t, 'previewSender'])->whereNumber('sender')->name('senders.preview');
+        Route::get('/senders/{sender}/signature-image',        [$t, 'signatureImage'])->whereNumber('sender')->name('senders.image');
+        Route::post('/senders/{sender}/default',               [$t, 'makeDefault'])->whereNumber('sender')->name('senders.default');
+        Route::post('/senders/{sender}/test',                  [$t, 'testSender'])->whereNumber('sender')->middleware('throttle:10,1')->name('senders.test');
+
+        Route::get('/',                                        [$c, 'index'])->name('index');
+        Route::get('/create',                                  [$c, 'create'])->name('create');
+        Route::post('/',                                       [$c, 'store'])->name('store');
+        Route::get('/{campaign}',                              [$c, 'show'])->whereNumber('campaign')->name('show');
+        Route::get('/{campaign}/edit',                         [$c, 'edit'])->whereNumber('campaign')->name('edit');
+        Route::put('/{campaign}',                              [$c, 'update'])->whereNumber('campaign')->name('update');
+        Route::post('/{campaign}/start',                       [$c, 'start'])->whereNumber('campaign')->name('start');
+        Route::post('/{campaign}/pause',                       [$c, 'pause'])->whereNumber('campaign')->name('pause');
+        Route::post('/{campaign}/resume',                      [$c, 'resume'])->whereNumber('campaign')->name('resume');
+        Route::delete('/{campaign}',                           [$c, 'archive'])->whereNumber('campaign')->name('archive');
+        Route::post('/{campaign}/restore',                     [$c, 'restore'])->whereNumber('campaign')->name('restore');
+        Route::post('/{campaign}/steps',                       [$c, 'storeStep'])->whereNumber('campaign')->name('steps.store');
+        Route::put('/{campaign}/steps/{step}',                 [$c, 'updateStep'])->whereNumber(['campaign', 'step'])->name('steps.update');
+        Route::delete('/{campaign}/steps/{step}',              [$c, 'archiveStep'])->whereNumber(['campaign', 'step'])->name('steps.archive');
+        Route::get('/{campaign}/steps/{step}/preview',         [$c, 'previewStep'])->whereNumber(['campaign', 'step'])->name('steps.preview');
+        Route::post('/{campaign}/steps/{step}/restore',        [$c, 'restoreStep'])->whereNumber(['campaign', 'step'])->name('steps.restore');
+    });
+
     // AT-URGENT-2026-09-09 — the outbound-mail kill switch's capture log.
     // View + count + per-message .eml export only, owner_only (same
     // boundary as the toggle itself on settings.email-setup.mail-intercept).
@@ -5950,6 +6022,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/create',        [\App\Http\Controllers\Admin\AgencyController::class, 'create'])->name('create');
         Route::post('/',             [\App\Http\Controllers\Admin\AgencyController::class, 'store'])->name('store');
         Route::post('/{agency}/toggle-active', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleActive'])->name('toggle-active');
+        // Agency suspension — .ai/specs/agency-suspension.md
+        Route::post('/{agency}/toggle-suspend', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleSuspend'])->name('toggle-suspend');
         // Per-agency maintenance mode (AT-93). Owner-only; owners bypass the
         // gate so they can always lift it. Spec: .ai/specs/maintenance-mode.md
         Route::post('/{agency}/toggle-maintenance', [\App\Http\Controllers\Admin\AgencyController::class, 'toggleMaintenance'])->name('toggle-maintenance');

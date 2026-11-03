@@ -3970,6 +3970,10 @@ class Property extends Model
             'image_3'           => $img(2),
             'image_4'           => $img(3),
             'image_5'           => $img(4),
+            // §22 - photos 6-8, used only by the 6/7/8-photo collage mosaics.
+            'image_6'           => $img(5),
+            'image_7'           => $img(6),
+            'image_8'           => $img(7),
             'price'             => $this->formattedPrice(),
             'title'             => strtoupper((string) $this->title),
             'suburb'            => strtoupper((string) $this->suburb) . ($this->city ? ', ' . strtoupper((string) $this->city) : ''),
