@@ -47,7 +47,9 @@ class PitchOffRampController extends Controller
 
     private function step(Request $request): int
     {
-        return max(1, min(9, (int) $request->input('step', 1)));
+        $n = max(1, min(9, (int) $request->input('step', 1)));
+
+        return $n === 3 ? 4 : $n;   // the popup has no Pitch step any more (stored 3 = Contact)
     }
 
     public function choices(Request $request): JsonResponse

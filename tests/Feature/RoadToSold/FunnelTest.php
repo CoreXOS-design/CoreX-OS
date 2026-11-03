@@ -334,7 +334,7 @@ final class FunnelTest extends TestCase
         $p = app(FunnelService::class)->windowPeriod(30, Carbon::parse('2026-10-21 10:00:00'));
         $this->assertSame('2026-09-22', $p->start->toDateString());
         $this->assertSame('2026-10-21', $p->end->toDateString());
-        $this->assertSame('Needs training: the appointment pitch', FunnelService::flagText('conversations_to_evaluations'));
+        $this->assertSame('Needs training: the appointment', FunnelService::flagText('conversations_to_evaluations'));
     }
 
     // ── the screens ──────────────────────────────────────────────────────

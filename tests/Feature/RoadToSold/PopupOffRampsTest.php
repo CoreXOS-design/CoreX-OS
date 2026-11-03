@@ -98,7 +98,7 @@ final class PopupOffRampsTest extends TestCase
             $this->assertTrue((bool) $list->last()->is_other, "step $step ends with Other");
             $this->assertSame(1, $list->where('is_other', true)->count());
         }
-        $this->assertSame($this->svc()->forStep($this->agency->id, 'sales', 2)->pluck('key')->all(), $this->svc()->forStep($this->agency->id, 'sales', 3)->pluck('key')->all(), 'Pitch shows the Owner list');
+        $this->assertSame($this->svc()->forStep($this->agency->id, 'sales', 4)->pluck('key')->all(), $this->svc()->forStep($this->agency->id, 'sales', 3)->pluck('key')->all(), 'a stray Pitch (3) reads as the Contact list');
         $this->assertSame($this->svc()->forStep($this->agency->id, 'sales', 7)->pluck('key')->all(), $this->svc()->forStep($this->agency->id, 'sales', 6)->pluck('key')->all(), 'Presentation shows the results list');
     }
 
@@ -142,6 +142,39 @@ final class PopupOffRampsTest extends TestCase
         $this->actingAs($this->agent)->getJson(route('road-to-sold.offramp', ['prospect' => $p->id, 'step' => 5]))->assertOk()->assertJsonPath('record.id', $p->id);
         $this->actingAs($this->agent)->postJson(route('road-to-sold.offramp.store'), ['prospect' => $p->id, 'step' => 5, 'reason' => 'seller_cannot_be_met'])->assertOk();
         $this->assertNotNull($p->fresh()->parked_at);
+    }
+
+    public function test_the_steps_read_todays_work_and_the_seven_popup_steps_and_an_old_pitch_row_becomes_contact(): void
+    {
+        $this->assertSame(["Today's work", 'Owner', 'Contact', 'Appointment', 'Presentation', 'Results', 'Draft', 'Active'], array_values(ParkReasonService::STEPS));
+
+        $this->svc()->ensureStepReasons($this->agency->id);
+        $mine = RtsParkReason::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'track' => 'sales', 'station' => 'popup', 'step' => 3, 'kind' => 'off_ramp', 'counts_as' => 'not_selling',
+            'key' => 'custom_old_pitch', 'label' => 'Seller would not take the pitch', 'default_revisit_days' => 30, 'is_system' => false, 'is_active' => true, 'sort_order' => 999]);
+        ParkReasonService::forgetMemo();
+        $this->svc()->ensureStepReasons($this->agency->id);
+        $this->assertSame(4, (int) $mine->fresh()->step, 'a reason filed at the retired Pitch step is a Contact reason, once, by data');
+        $this->assertContains('custom_old_pitch', $this->svc()->forStep($this->agency->id, 'sales', 4)->pluck('key')->all());
+
+        $admin = $this->admin();
+        $page = $this->actingAs($admin)->get(route('road-to-sold.settings.offramps.index'))->assertOk()->getContent();
+        $this->assertStringContainsString('Stops here - reasons per step', $page);
+        $this->assertStringNotContainsString('pitch popup', $page);
+        foreach (['Pitch', '9 Active', '1 Property', '4 Contact'] as $old) {
+            $this->assertStringNotContainsString('>' . $old . '<', $page, "no \"$old\" step");
+        }
+        $this->assertMatchesRegularExpression('#<option value="2"[^>]*>Owner</option>#', $page);
+        $this->assertMatchesRegularExpression('#<option value="1"[^>]*>Today\'s work</option>#', str_replace('&#039;', "'", $page));
+        $this->actingAs($admin)->post(route('road-to-sold.settings.offramps.store'), ['label' => 'X', 'step' => 3, 'counts_as' => 'lost'])->assertSessionHasErrors('step');
+    }
+
+    public function test_the_panel_title_follows_the_step_on_screen_and_the_flag_text_says_the_appointment(): void
+    {
+        $js = (string) file_get_contents(public_path('js/pitch-offramp.js'));
+        $this->assertStringContainsString("NAMES[d.step]", $js);
+        $this->assertStringContainsString("attributeFilter: ['data-state']", $js, 'the fold is drawn again when the popup moves to another step');
+        $this->assertStringNotContainsString("'Presentation results', 'Draft'", $js);
+        $this->assertSame('Needs training: the appointment', \App\Services\RoadToSold\FunnelService::flagText('conversations_to_evaluations'));
     }
 
     public function test_the_defaults_per_step_are_the_rulings(): void
@@ -188,7 +221,7 @@ final class PopupOffRampsTest extends TestCase
                 $this->assertNotNull($ev);
                 if ($ev->kind === 'park') {
                     $this->assertSame((string) $reason->label, (string) $ev->note, 'the history line carries the reason');
-                    $this->assertSame($step, (int) (json_decode((string) $ev->meta, true)['step'] ?? 0), 'and the step it was said at');
+                    $this->assertSame($step === 3 ? 4 : $step, (int) (json_decode((string) $ev->meta, true)['step'] ?? 0), 'and the step it was said at (the retired Pitch 3 is Contact)');
                 }
             }
         }

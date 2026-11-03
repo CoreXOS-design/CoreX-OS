@@ -48,7 +48,7 @@ class FunnelService
      */
     public const RATIOS = [
         'calls_to_conversations'          => ['Calls to conversations',          'contact_outcome',   'conversations',       'calls_made',          'getting owners talking'],
-        'conversations_to_evaluations'    => ['Conversations to appointments',   'evaluation_booked', 'evaluations_booked',  'conversations',       'the appointment pitch'],
+        'conversations_to_evaluations'    => ['Conversations to appointments',   'evaluation_booked', 'evaluations_booked',  'conversations',       'the appointment'],
         'evaluations_booked_to_done'      => ['Appointments booked to held',    'evaluation_booked', 'evaluations_done',    'evaluations_booked',  'keeping appointments'],
         'evaluations_to_presentations'    => ['Appointments to presentations',    'presentation',      'presentations_given', 'evaluations_done',    'presenting after an appointment'],
         'presentations_to_mandates'       => ['Presentations to mandates',       'mandate',           'mandates_signed',     'presentations_given', 'winning the mandate'],
