@@ -176,6 +176,8 @@ final class PageLayoutV2Test extends TestCase
         $sell = $this->actingAs($this->agent)->get(route('road-to-sold.index', ['station' => 'lead']))->assertOk()->getContent();
         $this->assertStringContainsString('data-qa="station-empty"', $sell);
         $this->assertStringContainsString('not tracked per buyer yet', $sell);
+        $this->assertSame('sell', $this->heads($sell)['open'], 'a Sell-stock list opens with the Sell belt open');
+        $this->assertSame('maintain', $this->heads($list)['open'], 'a Maintain-stock list opens with the Maintain belt open');
         $this->actingAs($this->agent)->get(route('road-to-sold.index', ['station' => 'nonsense']))->assertNotFound();
     }
 

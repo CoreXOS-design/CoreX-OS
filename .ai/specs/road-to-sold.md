@@ -3238,7 +3238,7 @@ flowchart LR
 Johan, on mockup C (verbatim): "Like C... make the Get stock / Maintain stock / Sell stock bigger as headings... reduce the waste between the red blocks and we can fit a decent amount of properties at the bottom." The mockups (real page as user 127, 1366x768) decided it: three full rows of tiles leave **0px** for the list; one open row plus two one-line strips leaves 1.5 rows; with the page tightened (mockup C) the list is back above today's. This section is what was built; the numbers are in 23.31.5.
 
 **23.31.1 Three belts, exactly one open.** Order: **Get stock** (the ten tiles of 23.30), **Maintain stock** (23.26: Syndicated to portals · Shared on social · Seller live link sent), **Sell stock** (23.27: Lead · Core Match updated · Wish list shared · Moved in pipeline · Appointment · Viewing pack · Appointment feedback · Deal registered · Bond granted · Transfer registered). The open belt shows its heading line and its tiles; the other two are ONE-line strips "MAINTAIN STOCK · 3 stations · N to do · N late" that open on a click and collapse the belt that was open. The heading is bigger than a tile label (uppercase, 13px, heavy, left); the counts sit on the right of the same line.
-- **Which belt is open:** the belt asked for (`?belt=get|maintain|sell`, the click) > the belt this user left open last time > the belt with the most late items > Get stock.
+- **Which belt is open:** the belt asked for (`?belt=get|maintain|sell`, the click) > the belt of the station list being shown (a Maintain / Sell list always sits under its own open belt; that is not a choice, so it is not remembered) > the belt this user left open last time > the belt with the most late items > Get stock.
 - **Remembered per USER, not per browser:** setting `belt_open` in the new table `rts_user_preferences` (one row per user: `user_id`, `belt_open`; `BeltPreferenceService`). **The migration (`create_rts_user_preferences_table`: `id`, `user_id` unique + foreign key, `belt_open` varchar(16) null, timestamps) is written and HELD for Johan's go** (migrations only on an explicit go; `scripts/qa-deploy.sh` runs `migrate --force`, so the file is NOT in the repo yet - cc3 keeps it ready; the test creates the table itself); until it runs the page works and opens on the default belt each time - the service checks the table exists, nothing breaks. It is a personal viewing choice, not an agency setting, so it is not in the Setup Wizard (non-negotiable 10a does not apply).
 - A click is a plain link (`?belt=`), kept with the current query (the list the agent is on stays), so it works without script and the choice is saved by the request itself. The live refresh after a popup closes replaces the whole belts block (`[data-qa="belts"]`).
 
@@ -3252,7 +3252,18 @@ Johan, on mockup C (verbatim): "Like C... make the Get stock / Maintain stock / 
 3. **ONE toolbar row** replaces three: tabs on the left, search + Status + Filters in the middle, **More** on the right. More is a floating panel (never pushes the list) holding Report, Funnel, Outcomes, Recipe, Settings and **Add to my day** (it did not fit the row at 1366; the form and its reply are unchanged).
 4. The summary bar (the recipe's step tiles) stays, and is drawn only when the agency set targets (it used to leave an empty gap otherwise).
 
-**23.31.5 Measurements** (user 127, Chromium, QA1): filled in the build log below.
+**23.31.5 Measurements** (user 127, Chromium on QA1, pixels; before = the page as it was at 12:47, mockup C = 13:08, built = QA1 `7eb8c9000`):
+
+| 1366 x 768 | Before | Mockup A (3 rows) | Mockup B | Mockup C | **Built** |
+|---|---|---|---|---|---|
+| Tiles / belts block | 67 (+ 22 pause line) | 301 | 147 | 147 | **155** (open heading 24 + tiles 79 + two 24px strips + gaps) |
+| Toolbar (tabs + search + More) | 3 rows ~ 100 | - | - | - | **36**, one row |
+| List top edge | 514 | 748 (off screen) | 594 | 500 | **392** |
+| **List height** | **190** | **0** | **110** | **204** | **312** (room for ~6.5 rows; test agent has 5 rows) |
+| Tile | 59 | 79 | 79 | 79 | **79** x 105 wide, 0 labels clipped |
+| Page scroll | none | - | - | - | none |
+
+At 1920 x 1080: belts block 155, tile 79 x 161, list top 382, **list 634px**. The Get belt's standing line ("To list 1 property...") is cut with an ellipsis at 1366 (full text on hover), whole at 1920. Screenshots (before / after pairs): `real.png`, `mockup-C.png` and `after/get-1366.png`, `after/maintain-1366.png`, `after/more-1366.png`, `after/lead-list-1366.png` in cc3's scratchpad `mock/` folder, also on QA1 under `/mockups/`.
 
 **23.31.6 Files and tests.** `config/road-to-sold-belt.php` (`belts`), `BeltsService`, `BeltPreferenceService`, migration (held), `RoadToSoldController` (belts, `?belt=`, Maintain / Sell station lists), views `_belt-tiles` (styles, state cards), `_belt-strips` (new), `_belt-tools` (new: the standing lines), `_list-search` (new: moved from the page), `_blocks-bar` (the toolbar row, More), `_row-cells` (Next marker), `_block-station` (simple Maintain list), `index`. `tests/Feature/RoadToSold/PageLayoutV2Test.php` (strips open / collapse, remembered choice and opening rule, tile links and filters, toolbar row, banner gone + Next marker, Maintain / Sell config render and counts); `ChannelOutcomeTest` no longer asserts the removed banner text.
 
