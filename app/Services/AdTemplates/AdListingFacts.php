@@ -26,6 +26,8 @@ use Illuminate\Support\Carbon;
  *   show_day        "Sat 25 Oct · 10:00–13:00"  the next upcoming show day of THIS listing
  *   auction_date    "12 Nov 2026 · 11:00"       from Property::currentAuctionLot()
  *   auction_venue   "Venue name, address"
+ *   tagline         the agency's own tagline (branch tagline, else agencies.tagline - Company settings); '' when it has none
+ *   listing_note    always '' here - the agent types it per ad in the generator
  *
  * Times are shown in the owning agency's timezone (the app timezone until agencies carry their own).
  * Money is formatted like Property::formattedPrice() ("R 2 450 000").
@@ -61,6 +63,9 @@ final class AdListingFacts
             'show_day'       => self::showDay($property, $now, $tz),
             'auction_date'   => $auction['date'],
             'auction_venue'  => $auction['venue'],
+            // §22: the agency's own tagline (Company settings, branch first); the per-ad note is typed by the agent in the generator, never stored here.
+            'tagline'        => trim((string) ($property->branch?->tagline ?: $property->agency?->tagline ?: '')),
+            'listing_note'   => '',
         ];
     }
 

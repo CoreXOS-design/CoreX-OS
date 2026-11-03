@@ -115,7 +115,7 @@
         'logo', 'watermark', 'color_block', 'gradient', 'line', 'shape',
         'custom_image', 'custom_video',
         // AT-456 §B.9-1 — elements that draw something other than one run of text.
-        'collage', 'ribbon', 'qr', 'feature_pills'
+        'collage', 'ribbon', 'qr', 'feature_pills', 'feature_strip'
     ]);
 
     /* ── AT-456 §B.9-1 — building blocks ─────────────────────────────────────
@@ -135,7 +135,12 @@
         arc:          'M0 100 A50 100 0 0 1 100 100 Z',
         blob_1:       'M50 3 C78 2 97 25 96 52 C95 80 72 98 47 96 C20 94 3 74 4 48 C5 22 24 4 50 3 Z',
         blob_2:       'M62 4 C85 10 98 34 92 58 C86 84 60 98 36 92 C12 86 3 62 8 40 C14 16 40 2 62 4 Z',
-        blob_3:       'M30 8 C52 2 84 6 94 30 C100 54 88 80 64 92 C40 99 14 90 6 66 C2 42 10 18 30 8 Z'
+        blob_3:       'M30 8 C52 2 84 6 94 30 C100 54 88 80 64 92 C40 99 14 90 6 66 C2 42 10 18 30 8 Z',
+        // §22 premium poster: a painted brush stroke (two looks) and a panel with one slanted edge. Plain SVG paths, so the export draws them.
+        brush_stroke_1: 'M2 30 C10 16 30 24 50 15 S90 10 98 22 L96 34 C99 41 94 46 97 54 L99 65 C80 75 60 69 40 80 S12 86 3 75 L5 62 C1 54 5 44 2 30 Z',
+        brush_stroke_2: 'M0 22 L8 12 L16 20 L26 9 L38 18 L50 8 L62 16 L74 9 L86 18 L100 11 L97 40 L100 60 L92 71 L82 63 L70 77 L58 67 L46 81 L34 70 L22 79 L10 68 L0 75 L4 50 Z',
+        cut_panel_left:  'M0 0 H100 L90 100 H0 Z',
+        cut_panel_right: 'M0 0 H100 V100 H10 Z'
     };
     var DECOR_SHAPE_LIST = [
         { type: 'wave',         label: 'Wave' },
@@ -144,7 +149,11 @@
         { type: 'arc',          label: 'Arc (dome)' },
         { type: 'blob_1',       label: 'Blob 1' },
         { type: 'blob_2',       label: 'Blob 2' },
-        { type: 'blob_3',       label: 'Blob 3' }
+        { type: 'blob_3',       label: 'Blob 3' },
+        { type: 'brush_stroke_1', label: 'Brush stroke 1' },
+        { type: 'brush_stroke_2', label: 'Brush stroke 2' },
+        { type: 'cut_panel_left',  label: 'Slanted panel (right edge)' },
+        { type: 'cut_panel_right', label: 'Slanted panel (left edge)' }
     ];
 
     var LINE_STYLES = ['solid', 'dashed', 'dotted'];
@@ -173,7 +182,10 @@
         { key: '3_hero_left', label: '3 photos, big one on the left', count: 3 },
         { key: '3_hero_top',  label: '3 photos, big one on top',      count: 3 },
         { key: '4_grid',      label: '4 photos, grid',         count: 4 },
-        { key: '5_hero',      label: '5 photos, one big and four small', count: 5 }
+        { key: '5_hero',      label: '5 photos, one big and four small', count: 5 },
+        { key: '6_mosaic',    label: '6 photos, mosaic',       count: 6 },
+        { key: '7_mosaic',    label: '7 photos, mosaic',       count: 7 },
+        { key: '8_mosaic',    label: '8 photos, mosaic',       count: 8 }
     ];
 
     /** Elements that can take a photo mask / photo effect. */
@@ -187,7 +199,7 @@
      * value; `el.showLabel === false` prints the bare value (for use with an icon).
      */
     var FACT_FIELDS = ['erf_size', 'levy', 'rates_taxes', 'price_per_m2', 'pet_friendly', 'available_from',
-                       'rent_per_month', 'show_day', 'auction_date', 'auction_venue'];
+                       'rent_per_month', 'show_day', 'auction_date', 'auction_venue', 'tagline', 'listing_note'];
     var FACT_LABELS = {
         erf_size: 'Erf', levy: 'Levy', rates_taxes: 'Rates & taxes',
         show_day: 'Show day', auction_date: 'Auction', auction_venue: 'Venue'
@@ -256,12 +268,17 @@
         show_day:         { w: 340, h: 36, fontSize: 14, fontWeight: '700', color: '#ffffff', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 6, preview: 'Sat 25 Oct · 10:00–13:00' },
         auction_date:     { w: 340, h: 36, fontSize: 14, fontWeight: '700', color: '#ffffff', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 6, preview: '12 Nov 2026 · 11:00' },
         auction_venue:    { w: 340, h: 36, fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.8)', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 6, preview: 'Sample Venue, Sample Town' },
+        // §22 — the agency's own tagline (Company settings), and a one-line note the agent types when making the ad.
+        tagline:          { w: 360, h: 40, fontSize: 20, fontWeight: '600', color: '#ffffff', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 6, preview: 'Your agency tagline' },
+        listing_note:     { w: 420, h: 40, fontSize: 16, fontWeight: '700', color: '#ffffff', textTransform: 'uppercase', textAlign: 'left', letterSpacing: 0.02, padding: 6, preview: 'A line you type for each ad' },
 
         // ── AT-456 §B.9-1 — new elements ──
         collage:          { w: 560, h: 380, objectFit: 'cover', borderRadius: 0, collagePreset: '3_hero_left', collageGap: 8, collageFirst: 1 },
         ribbon:           { w: 200, h: 200, fontSize: 18, fontWeight: '800', color: '#ffffff', textTransform: 'uppercase', textAlign: 'center', letterSpacing: 0.08, padding: 6, bgColor: '#e63946', bgOpacity: 1, text: 'JUST LISTED', ribbonCorner: 'tl' },
         qr:               { w: 160, h: 160, qrDark: '#000000', qrLight: '#ffffff' },
-        feature_pills:    { w: 520, h: 48, fontSize: 15, fontWeight: '700', color: '#ffffff', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 8, bgColor: '#00b4d8', bgOpacity: 1, borderRadius: 999, pillCount: 4, pillDirection: 'row', pillGap: 10 }
+        feature_pills:    { w: 520, h: 48, fontSize: 15, fontWeight: '700', color: '#ffffff', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 8, bgColor: '#00b4d8', bgOpacity: 1, borderRadius: 999, pillCount: 4, pillDirection: 'row', pillGap: 10 },
+        // §22 — icon-over-label strip of the listing's own details/features.
+        feature_strip:    { w: 960, h: 120, fontSize: 14, fontWeight: '700', color: '#ffffff', textTransform: 'uppercase', textAlign: 'center', letterSpacing: 0.02, padding: 8, stripCount: 8, iconColor: '#d4af37', iconRingColor: '#d4af37', dividerColor: '#d4af37' }
     };
 
     /* ── The draggable field catalogue (left rail of the builder) ────────── */
@@ -298,6 +315,9 @@
         { type: 'address',       group: 'property', label: 'Address',      iconBg: '#475569' },
         { type: 'status_badge',  group: 'property', label: 'Status Badge', iconBg: '#e63946' },
         { type: 'feature_pills', group: 'property', label: 'Feature Pills', iconBg: '#b45309' },
+        { type: 'feature_strip', group: 'property', label: 'Feature Icon Strip', iconBg: '#b45309' },
+        { type: 'listing_note',  group: 'property', label: 'Note for this ad', iconBg: '#475569' },
+        { type: 'tagline',       group: 'branding', label: 'Agency Tagline', iconBg: '#0b2a4a' },
         { type: 'erf_size',      group: 'property', label: 'Erf Size',     iconBg: '#065f46' },
         { type: 'price_per_m2',  group: 'property', label: 'Price per m²', iconBg: '#e63946' },
         { type: 'rent_per_month', group: 'property', label: 'Rent per Month', iconBg: '#e63946' },
@@ -509,7 +529,7 @@
     function isClipShape(el) { return el.field === 'shape' && (!!SHAPE_CLIPS[el.shapeType] || !!DECOR_SHAPES[el.shapeType]); }
     function canShadow(el) {
         if (isClipShape(el)) return false;
-        if (el.field === 'ribbon' || el.field === 'feature_pills') return false;   // the shadow would wrap the whole box, not the artwork
+        if (el.field === 'ribbon' || el.field === 'feature_pills' || el.field === 'feature_strip') return false;   // the shadow would wrap the whole box, not the artwork
         if (el.field === 'line' && (el.lineStyle === 'dashed' || el.lineStyle === 'dotted')) return false;
         return true;
     }
@@ -1030,7 +1050,10 @@
         if (available <= 1) return 'single';
         if (available === 2) return (preset === '2_stack' || preset === '3_hero_top') ? '2_stack' : '2_side';
         if (available === 3) return preset === '3_hero_top' ? '3_hero_top' : '3_hero_left';
-        return '4_grid';
+        if (available === 4) return '4_grid';
+        if (available === 5) return '5_hero';
+        if (available === 6) return '6_mosaic';
+        return '7_mosaic';
     }
 
     /** Pixel rectangles {x,y,w,h} for a preset inside a w×h box with `gap` px between photos. */
@@ -1056,6 +1079,14 @@
         } else if (preset === '4_grid') {
             box(0, 0, half, halfH); box(half + gap, 0, w, halfH);
             box(0, halfH + gap, half, h); box(half + gap, halfH + gap, w, h);
+        } else if (preset === '6_mosaic' || preset === '7_mosaic' || preset === '8_mosaic') {
+            // A wide hero row (2 photos) then rows of equal photos: 6 = 2 + 4, 7 = 2 + 2 + 3 (poster look: 2 big, 2 big, 3), 8 = 2 + 3 + 3.
+            var rows = preset === '6_mosaic' ? [2, 4] : (preset === '7_mosaic' ? [2, 2, 3] : [2, 3, 3]);
+            var rh = (h - gap * (rows.length - 1)) / rows.length;
+            rows.forEach(function (n, r) {
+                var cw = (w - gap * (n - 1)) / n, y0 = r * (rh + gap);
+                for (var k = 0; k < n; k++) box(k * (cw + gap), y0, k * (cw + gap) + cw, y0 + rh);
+            });
         } else if (preset === '5_hero') {
             var hh = (h - gap) * 0.6, q = (w - 3 * gap) / 4;
             box(0, 0, w, hh);
@@ -1071,7 +1102,7 @@
     function collagePhotos(el, prop) {
         var first = Math.max(1, Math.min(5, parseInt(el.collageFirst, 10) || 1));
         var out = [];
-        for (var i = first; i <= 5; i++) { if (prop['image_' + i]) out.push(prop['image_' + i]); }
+        for (var i = first; i <= 8; i++) { if (prop['image_' + i]) out.push(prop['image_' + i]); }
         return out;
     }
 
@@ -1186,6 +1217,73 @@
         return '<div style="' + box + '">' + list.map(function (t) { return '<span style="' + pill + '">' + esc(t) + '</span>'; }).join('') + '</div>';
     }
 
+    /* ── §22 feature icon strip ────────────────────────────────────────────── */
+
+    var STRIP_SAMPLE = ['2 Bedrooms', 'Bathroom', 'Fitted Kitchen', 'Spacious Lounge', 'Balcony', 'Parking Bay', 'Fitted Blinds', 'Secure Complex'];
+
+    /** Feature wording -> the icon that says it (first match wins); a feature with no icon of its own gets a tick. */
+    var STRIP_ICON_RULES = [
+        [/bed/i, 'bed'], [/bath|shower|toilet/i, 'bath'], [/garage/i, 'garage'], [/park|carport|bay/i, 'parking'],
+        [/kitchen/i, 'kitchen'], [/balcon|patio|terrace|stoep/i, 'balcony'], [/cctv|camera/i, 'cctv'], [/alarm/i, 'alarm'],
+        [/secur|complex|gated|estate|boom|fenc/i, 'security'], [/pool|swim/i, 'pool'], [/garden|lawn/i, 'garden'], [/braai|bbq/i, 'braai'],
+        [/fireplace|fire place/i, 'fireplace'], [/air.?con/i, 'air_con'], [/solar/i, 'solar'], [/borehole|jojo|water tank/i, 'borehole'],
+        [/backup|generator|inverter|ups\b/i, 'backup_power'], [/lift|elevator/i, 'lift'], [/gym/i, 'gym'], [/study|office/i, 'study'],
+        [/laundry|scullery/i, 'laundry'], [/sea|ocean/i, 'sea_view'], [/mountain/i, 'mountain_view'], [/pet/i, 'pet_friendly'],
+        [/wifi|fibre|fiber|internet/i, 'wifi'], [/lounge|living|room|house|home/i, 'house'], [/size|floor|m²|m2|erf/i, 'ruler']
+    ];
+    function stripIconFor(label) {
+        for (var i = 0; i < STRIP_ICON_RULES.length; i++) if (STRIP_ICON_RULES[i][0].test(label)) return STRIP_ICON_RULES[i][1];
+        return 'check';
+    }
+
+    /** The cells to draw: the listing's beds/baths/garages, then its own features - de-duplicated, at most stripCount (3-8). */
+    function stripCells(el, prop, opts) {
+        prop = prop || {};
+        var n = Math.max(3, Math.min(8, parseInt(el.stripCount, 10) || 8));
+        var out = [], seen = {};
+        function add(label) {
+            var k = String(label).toLowerCase().replace(/s$/, '');
+            if (label && !seen[k]) { seen[k] = 1; out.push(label); }
+        }
+        function count(v, one, many) { var c = parseInt(v, 10); return c > 0 ? (c === 1 ? '1 ' + one : c + ' ' + many) : ''; }
+        add(count(prop.beds, 'Bedroom', 'Bedrooms'));
+        add(count(prop.baths, 'Bathroom', 'Bathrooms'));
+        add(count(prop.garages, 'Garage', 'Garages'));
+        var all = Array.isArray(prop.features_list) ? prop.features_list : [];
+        var chosen = (el.selectedFeatures === null || el.selectedFeatures === undefined)
+            ? all : all.filter(function (x) { return el.selectedFeatures.indexOf(x) !== -1; });
+        chosen.forEach(add);
+        if (!out.length && opts && opts.placeholders) out = STRIP_SAMPLE.slice();
+        return out.slice(0, n);
+    }
+
+    function stripHtml(el, prop, opts) {
+        var cells = stripCells(el, prop, opts);
+        if (!cells.length) return '';
+        var w = +el.w || 960, h = +el.h || 120, n = cells.length;
+        var cw = w / n, fs = +el.fontSize || 14, pad = def(el.padding, 8);
+        var ring = Math.max(24, Math.min(Math.round(h * 0.5), Math.round(cw * 0.62)));
+        var rcol = safeColor(el.iconRingColor, '#d4af37'), icol = safeColor(el.iconColor, '#d4af37'), dcol = safeColor(el.dividerColor, '#d4af37');
+        var html = '<div style="position:relative;width:100%;height:100%;">';
+        cells.forEach(function (label, i) {
+            var ic = ICONS[stripIconFor(label)] || ICONS.check || '';
+            var inner = Math.round(ring * 0.5);
+            html += '<div style="position:absolute;left:' + Math.round(i * cw) + 'px;top:0;width:' + Math.round(cw) + 'px;height:' + h + 'px;'
+                  + 'display:flex;flex-direction:column;align-items:center;justify-content:center;padding:' + pad + 'px 4px;box-sizing:border-box;">'
+                  + '<div style="flex:none;width:' + ring + 'px;height:' + ring + 'px;border-radius:50%;border:2px solid ' + rcol + ';'
+                  + 'display:flex;align-items:center;justify-content:center;color:' + icol + ';">'
+                  + '<span style="display:block;width:' + inner + 'px;height:' + inner + 'px;">' + ic + '</span></div>'
+                  + '<div style="margin-top:' + Math.round(fs * 0.45) + 'px;max-width:100%;text-align:center;line-height:1.15;'
+                  + 'font-family:' + fontStack(el.fontFamily) + ';font-size:' + fs + 'px;font-weight:' + (el.fontWeight || '700') + ';'
+                  + 'color:' + safeColor(el.color, '#ffffff') + ';text-transform:' + (el.textTransform || 'uppercase') + ';letter-spacing:' + def(el.letterSpacing, 0.02) + 'em;">'
+                  + esc(label) + '</div></div>';
+            if (i < n - 1) {
+                html += '<div style="position:absolute;left:' + Math.round((i + 1) * cw) + 'px;top:' + Math.round(h * 0.18) + 'px;width:1px;height:' + Math.round(h * 0.64) + 'px;background:' + dcol + ';opacity:0.5;"></div>';
+            }
+        });
+        return html + '</div>';
+    }
+
     /* ── §B.9-1 decorative shapes + line styles ───────────────────────────── */
 
     /** triangle / diamond / pentagon / hexagon / star / chevron: a filled SVG polygon stretched to the box. */
@@ -1203,8 +1301,18 @@
     }
 
     function decorShapeHtml(el) {
-        return '<svg viewBox="0 0 100 100" preserveAspectRatio="none" width="100%" height="100%" style="display:block;">'
-             + '<path d="' + DECOR_SHAPES[el.shapeType] + '" fill="' + safeColor(el.bg, '#00b4d8') + '" fill-opacity="' + def(el.opacity, 1) + '"/></svg>';
+        // §22: a shape may carry a two-stop gradient fill (gradFrom -> gradTo at gradAngle) - used for the gold metallic look.
+        // Only when the element asks for it (shapeGradient), so every shape saved before this keeps its flat colour.
+        var fill = safeColor(el.bg, '#00b4d8'), defs = '';
+        if (el.shapeGradient) {
+            var gid = 'cxg' + String(el.id).replace(/[^a-zA-Z0-9]/g, '');
+            var a = (def(el.gradAngle, 180) - 90) * Math.PI / 180, dx = Math.cos(a) / 2, dy = Math.sin(a) / 2;
+            defs = '<defs><linearGradient id="' + gid + '" x1="' + (0.5 - dx) + '" y1="' + (0.5 - dy) + '" x2="' + (0.5 + dx) + '" y2="' + (0.5 + dy) + '">'
+                 + '<stop offset="0" stop-color="' + safeColor(el.gradFrom, '#f6e27a') + '"/><stop offset="1" stop-color="' + safeColor(el.gradTo, '#b8860b') + '"/></linearGradient></defs>';
+            fill = 'url(#' + gid + ')';
+        }
+        return '<svg viewBox="0 0 100 100" preserveAspectRatio="none" width="100%" height="100%" style="display:block;">' + defs
+             + '<path d="' + DECOR_SHAPES[el.shapeType] + '" fill="' + fill + '" fill-opacity="' + def(el.opacity, 1) + '"/></svg>';
     }
 
     /** A little picture of any shape type for the builder's picker (works for the plain and the decorative ones). */
@@ -1238,6 +1346,7 @@
         var f = el.field;
         if (FACT_FIELDS.indexOf(f) !== -1) return textValue(el, prop, opts) === '';
         if (f === 'feature_pills') return pillsFor(el, prop, opts).length === 0;
+        if (f === 'feature_strip') return stripCells(el, prop, opts).length === 0;
         if (f === 'qr')            return qrHtml(el, prop, opts) === '';
         if (f === 'collage')       return collagePhotos(el, prop).length === 0;
         if (f === 'ribbon')        return String(el.text || '').trim() === '';
@@ -1834,6 +1943,7 @@
         if (f === 'ribbon')        return ribbonHtml(el);
         if (f === 'qr')            return qrHtml(el, prop, opts);
         if (f === 'feature_pills') return pillsHtml(el, prop, opts);
+        if (f === 'feature_strip') return stripHtml(el, prop, opts);
 
         if (f === 'logo') {
             var inner = prop.logo
@@ -2033,6 +2143,11 @@
             pillCount:     d.pillCount || 4,
             pillDirection: d.pillDirection || 'row',
             pillGap:       def(d.pillGap, 10),
+            stripCount:    d.stripCount || 8,
+            iconColor:     d.iconColor || '#d4af37',
+            iconRingColor: d.iconRingColor || '#d4af37',
+            dividerColor:  d.dividerColor || '#d4af37',
+            shapeGradient: false,           // shape (decorative types): fill with gradFrom -> gradTo instead of the flat colour
             showLabel:     true             // listing facts: print the label ("Levy: …") before the value
         };
     }

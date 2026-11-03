@@ -95,7 +95,7 @@ section('Decorative shapes (SVG, so the export matches) and line styles');
         const h = K.contentHtml(el({ field: 'shape', shapeType: t, bg: '#2a9d8f', opacity: 0.5 }), prop, {});
         ok(t + ' draws an inline SVG path in the fill colour and opacity', h.startsWith('<svg') && h.includes('d="') && h.includes('fill="#2a9d8f"') && h.includes('fill-opacity="0.5"'), h);
     }
-    ok('the picker lists the 7 decorative shapes (3 of them blobs)', K.DECOR_SHAPE_LIST.length === 7 && K.DECOR_SHAPE_LIST.filter(s => /^blob/.test(s.type)).length === 3);
+    ok('the picker lists the 11 decorative shapes (3 of them blobs, 2 brush strokes, 2 slanted panels)', K.DECOR_SHAPE_LIST.length === 11 && K.DECOR_SHAPE_LIST.filter(s => /^blob/.test(s.type)).length === 3);
     ok('the existing SHAPES list (also the avatar mask picker) is unchanged', K.SHAPES.length === 10 && !K.SHAPES.some(s => K.DECOR_SHAPES[s.type]));
     ok('a decorative shape cannot carry a drop shadow (like a clip shape)', K.canShadow(el({ field: 'shape', shapeType: 'wave' })) === false);
     ok('a hostile fill colour never reaches the markup',
@@ -157,10 +157,10 @@ section('Photo effects (one colour matrix: SVG filter live, same numbers on the 
     ok('each drawn element gets its own filter id (a hidden twin can never break a visible one)', new Set(two.match(/id="cxfx\d+"/g)).size === 2);
 }
 
-section('Collage (2–5 listing photos, six presets)');
+section('Collage (2–8 listing photos, nine presets)');
 {
     const presets = K.COLLAGE_PRESETS;
-    ok('the six presets from the spec', presets.map(p => p.key).join() === '2_side,2_stack,3_hero_left,3_hero_top,4_grid,5_hero' && presets.map(p => p.count).join() === '2,2,3,3,4,5');
+    ok('the nine presets (six from B.9-1, three mosaics from §22)', presets.map(p => p.key).join() === '2_side,2_stack,3_hero_left,3_hero_top,4_grid,5_hero,6_mosaic,7_mosaic,8_mosaic' && presets.map(p => p.count).join() === '2,2,3,3,4,5,6,7,8');
     for (const p of presets) {
         const cells = K.collageCells(p.key, 400, 300, 10);
         const inside = cells.every(c => c.x >= 0 && c.y >= 0 && c.x + c.w <= 400 && c.y + c.h <= 300 && c.w > 0 && c.h > 0);
@@ -253,7 +253,7 @@ section('Feature pills');
 section('Listing facts (erf size, levy, rates, price per m², pet friendly, available from, rent, show day, auction)');
 {
     const fv = (field, p, o, opts) => K.textValue(el(Object.assign({ field }, o || {})), p === undefined ? prop : p, opts || {});
-    ok('every fact is a plain text field of the Property group', K.FACT_FIELDS.every(f => K.FIELDS.some(x => x.type === f && x.group === 'property') && K.isTextField(f)));
+    ok('every fact is a plain text field of the Property group', K.FACT_FIELDS.every(f => K.FIELDS.some(x => x.type === f && (x.group === 'property' || (f === 'tagline' && x.group === 'branding'))) && K.isTextField(f)));
     ok('labelled where a label helps: "Levy: R 1 250 pm", "Erf: 800 m²", "Rates & taxes: R 900 pm"', fv('levy') === 'Levy: R 1 250 pm' && fv('erf_size') === 'Erf: 800 m²' && fv('rates_taxes') === 'Rates & taxes: R 900 pm');
     ok('"Show day: …", "Auction: …", "Venue: …"', fv('show_day') === 'Show day: Sat 25 Oct · 10:00–13:00' && fv('auction_date') === 'Auction: 12 Nov 2026 · 11:00' && fv('auction_venue') === 'Venue: Sample Venue');
     ok('self-explanatory values carry no label', fv('price_per_m2') === 'R 7 656 per m²' && fv('pet_friendly') === 'Pet friendly' && fv('available_from') === 'Available now' && fv('rent_per_month') === 'R 12 500 per month');
@@ -303,6 +303,37 @@ section('Builder plumbing: palette, defaults, safe colours');
         ].join('');
         return !/clip-path|backdrop-filter|mask-image|filter:/.test(all);
     })());
+}
+
+
+
+
+section('§22 premium poster blocks');
+{
+    const e = (o) => K.contentHtml(Object.assign({ id: 'p1', x: 0, y: 0, w: 960, h: 120, zIndex: 1, fontFamily: 'Figtree' }, o), P22, {});
+    var P22 = { beds: '2', baths: '1', garages: '0', features_list: ['Fitted Kitchen', 'Balcony', 'Secure Complex', 'Fitted Blinds'], tagline: 'Your Property Partner', listing_note: '' };
+    const strip = e({ field: 'feature_strip', stripCount: 8 });
+    ok('feature_strip draws one cell per detail: 2 Bedrooms, 1 Bathroom + 4 features = 6 (no garage, no empty cells)', (strip.match(/border-radius:50%/g) || []).length === 6, strip);
+    ok('feature_strip words are escaped and shown', strip.includes('2 Bedrooms') && strip.includes('Secure Complex'));
+    ok('feature_strip stripCount caps the cells', (e({ field: 'feature_strip', stripCount: 3 }).match(/border-radius:50%/g) || []).length === 3);
+    ok('feature_strip with nothing on the listing is blank on a real ad', K.isBlankElement({ field: 'feature_strip', stripCount: 8 }, {}, {}) === true);
+    ok('feature_strip shows sample cells in the builder', K.contentHtml({ id: 's', field: 'feature_strip', w: 960, h: 120, stripCount: 8 }, {}, { placeholders: true }).includes('Secure Complex'));
+    ok('a kitchen feature gets the kitchen icon, an unknown one a tick', K.ICON_LIST.some(i => i.key === 'kitchen'));
+    ok('tagline prints the agency tagline bare; listing_note blank = left off', K.textValue({ field: 'tagline' }, P22, {}) === 'Your Property Partner' && K.isBlankElement({ field: 'listing_note' }, P22, {}) === true);
+    for (const t of ['brush_stroke_1', 'brush_stroke_2', 'cut_panel_left', 'cut_panel_right']) {
+        const h = e({ field: 'shape', shapeType: t, bg: '#d4af37', opacity: 1 });
+        ok(t + ' is an inline SVG path', h.startsWith('<svg') && h.includes('fill="#d4af37"'), h);
+    }
+    const g = e({ field: 'shape', shapeType: 'brush_stroke_1', shapeGradient: true, gradFrom: '#f6e27a', gradTo: '#b8860b', gradAngle: 90 });
+    ok('a decorative shape can take a two-stop gradient fill', g.includes('<linearGradient') && g.includes('stop-color="#f6e27a"') && g.includes('fill="url(#cxgp1)"'), g);
+    ok('a shape without shapeGradient keeps its flat fill (old templates unchanged)', !e({ field: 'shape', shapeType: 'wave', bg: '#123456' }).includes('linearGradient'));
+    for (const k of ['6_mosaic', '7_mosaic', '8_mosaic']) {
+        const n = K.collageCount(k), cells = K.collageCells(k, 960, 600, 6);
+        let overlap = false;
+        for (let i = 0; i < cells.length; i++) for (let j = i + 1; j < cells.length; j++) { const a = cells[i], b = cells[j]; if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h) overlap = true; }
+        ok(k + ': ' + n + ' cells, inside the box, none overlapping', cells.length === n && !overlap && cells.every(c => c.x >= 0 && c.y >= 0 && c.x + c.w <= 960 && c.y + c.h <= 600), JSON.stringify(cells));
+    }
+    ok('a listing with 5 photos asked for an 8-photo mosaic gets the 5-photo layout (no holes)', K.collageEffectivePreset('8_mosaic', 5) === '5_hero' && K.collageEffectivePreset('8_mosaic', 7) === '7_mosaic' && K.collageEffectivePreset('7_mosaic', 6) === '6_mosaic');
 }
 
 console.log('\n' + (fail ? 'FAILED ' + fail + ' of ' : 'ALL ') + (pass + fail) + ' checks' + (fail ? '' : ' passed'));

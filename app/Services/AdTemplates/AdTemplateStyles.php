@@ -23,10 +23,21 @@ final class AdTemplateStyles
         return (array) config('ad-template-styles', []);
     }
 
-    /** @return array<int, string> */
-    public static function keys(): array
+    /**
+     * A style flagged 'property_only' uses building blocks a company ad does not have (e.g. the feature icon strip), so it is
+     * never offered to, nor chosen for, a company ad.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public static function allFor(bool $company): array
     {
-        return array_keys(self::all());
+        return $company ? array_filter(self::all(), static fn ($s) => empty($s['property_only'])) : self::all();
+    }
+
+    /** @return array<int, string> */
+    public static function keys(bool $company = false): array
+    {
+        return array_keys(self::allFor($company));
     }
 
     /** @return array<string, mixed>|null */
@@ -36,10 +47,10 @@ final class AdTemplateStyles
     }
 
     /** What the panel needs: key, name, one-line summary. @return array<int, array{key: string, name: string, summary: string}> */
-    public static function forPanel(): array
+    public static function forPanel(bool $company = false): array
     {
         $out = [];
-        foreach (self::all() as $key => $s) {
+        foreach (self::allFor($company) as $key => $s) {
             $out[] = ['key' => (string) $key, 'name' => (string) $s['name'], 'summary' => (string) $s['summary']];
         }
 
@@ -75,8 +86,8 @@ final class AdTemplateStyles
         $out   = [];
         $fonts = AdLayoutValidator::fontNames();
         $all   = self::all();
-        if (count($all) !== 8) {
-            $out[] = 'The style library must have exactly 8 styles (has ' . count($all) . ').';
+        if (count($all) !== 9) {
+            $out[] = 'The style library must have exactly 9 styles (has ' . count($all) . ').';
         }
 
         foreach ($all as $key => $s) {
@@ -171,11 +182,11 @@ final class AdTemplateStyles
         return $out;
     }
 
-    /** All eight, compactly, for "Let the AI choose". */
-    public static function catalogueBlock(string $sizeKey, array $forbidden = []): string
+    /** Every style, compactly, for "Let the AI choose". */
+    public static function catalogueBlock(string $sizeKey, array $forbidden = [], bool $company = false): string
     {
         $out = "STYLE - the user left the style to you. Choose, for EACH option, the one style below that best fits the idea. Different options may (and usually should) use different styles. Name the style you used in that option as \"style\": \"<key>\" (the key before the colon). Follow that style's fonts, brand-colour rule and photo share for that option.\n";
-        foreach (self::all() as $key => $s) {
+        foreach (self::allFor($company) as $key => $s) {
             $suits = in_array($sizeKey, (array) $s['sizes'], true) ? '' : ' (not usually made for this ad size)';
             $out  .= "- {$key}: {$s['name']}. {$s['summary']} Fonts: " . self::fontLine($s) . " Brand colours: {$s['brand']} Photo: "
                 . (int) round($s['photo']['min'] * 100) . '-' . (int) round($s['photo']['max'] * 100) . '% of the canvas. Suits: ' . self::suits($s, $forbidden) . ".{$suits}\n";

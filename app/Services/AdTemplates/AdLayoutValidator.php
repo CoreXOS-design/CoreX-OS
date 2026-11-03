@@ -48,6 +48,8 @@ final class AdLayoutValidator
         'instagram' => ['w' => 1080, 'h' => 1080, 'label' => 'Instagram (1080×1080)'],
         'story'     => ['w' => 1080, 'h' => 1920, 'label' => 'Story (1080×1920)'],
         'whatsapp'  => ['w' => 900,  'h' => 900,  'label' => 'WhatsApp (900×900)'],
+        // §22 — the tall 2:3 listing poster (same size as the builder's Pinterest preset, which is the key it shares).
+        'pinterest' => ['w' => 1000, 'h' => 1500, 'label' => 'Poster (1000×1500)'],
     ];
 
     public const MIN_FONT_SIZE = 16;
@@ -138,7 +140,7 @@ final class AdLayoutValidator
     private const IMAGE_FIELDS = ['image_1', 'image_2', 'image_3', 'image_4', 'image_5', 'agent_avatar', 'agency_logo', 'custom_image'];
 
     /** Fields that draw a block of colour and carry no text. (QR and the photo collage draw pictures, no words.) */
-    private const BLOCK_FIELDS = ['color_block', 'shape', 'gradient', 'line', 'qr', 'collage'];
+    private const BLOCK_FIELDS = ['color_block', 'shape', 'gradient', 'line', 'qr', 'collage', 'feature_strip'];
 
     /** Elements that show the listing's own photos (a collage is 2-5 of them): "a property photo is on the ad". */
     private const PHOTO_FIELDS = ['image_1', 'image_2', 'image_3', 'image_4', 'image_5', 'collage'];
@@ -150,11 +152,15 @@ final class AdLayoutValidator
     private const SCRIPT_FONTS = ['Great Vibes', 'Dancing Script'];
 
     /** The only elements a script face may be put on (headline-type, short words; never a price, phone number or body text). */
-    private const SCRIPT_OK_FIELDS = ['title', 'custom_text', 'badge', 'agency_name'];
+    private const SCRIPT_OK_FIELDS = ['title', 'custom_text', 'badge', 'agency_name', 'tagline'];
+
+    /** §22 feature icon strip: the least height that holds a ring icon and a one-line label, and the least width per cell. */
+    private const MIN_STRIP_HEIGHT     = 90;
+    private const MIN_STRIP_CELL_WIDTH = 90;
 
     /** The listing facts (text elements whose value is hidden on a real ad when the listing has none). */
     public const FACT_FIELDS = ['erf_size', 'levy', 'rates_taxes', 'price_per_m2', 'pet_friendly', 'available_from', 'rent_per_month',
-        'show_day', 'auction_date', 'auction_venue'];
+        'show_day', 'auction_date', 'auction_venue', 'tagline', 'listing_note'];
 
     /**
      * Every element type the AI may use, with a one-line description (also fed to the prompt,
@@ -201,10 +207,13 @@ final class AdLayoutValidator
         'gradient'          => ['label' => 'Gradient',              'help' => 'fade; "gradFrom" → "gradTo" at "gradAngle" (use as a scrim over photos)'],
         'color_block'       => ['label' => 'Color Block',           'help' => 'solid rectangle; colour in "bg"'],
         // AT-456 §B.9-2 — the building blocks added in §B.9-1.
-        'collage'           => ['label' => 'Photo Collage',         'help' => '2-5 of the listing\'s photos in a preset layout ("collagePreset", "collageGap", "collageFirst", corner radius in "borderRadius"); counts as a property photo'],
+        'collage'           => ['label' => 'Photo Collage',         'help' => '2-8 of the listing\'s photos in a preset layout (6_mosaic, 7_mosaic and 8_mosaic are poster-style mosaics) ("collagePreset", "collageGap", "collageFirst", corner radius in "borderRadius"); counts as a property photo'],
         'ribbon'            => ['label' => 'Corner Ribbon',         'help' => 'diagonal sash across one corner of its box ("ribbonCorner" tl/tr/bl/br), band colour "bgColor"+"bgOpacity", words in "text" (short, like JUST LISTED); box at least 80x80'],
         'qr'                => ['label' => 'QR Code to Listing',    'help' => 'scannable code that opens the listing\'s web page; "qrDark" on "qrLight"; at least 120x120; the data is filled in per listing'],
         'feature_pills'     => ['label' => 'Feature Pills',         'help' => '1-4 of the listing\'s own features as separate rounded pills ("pillCount", "pillDirection" row/column, "pillGap"); pill colour "bgColor"+"bgOpacity", text "color"; you cannot choose which features'],
+        'feature_strip'     => ['label' => 'Feature Icon Strip',    'help' => 'a row of 3-8 round icons with a short label under each (the listing\'s bedrooms, bathrooms, garages and own features, icon chosen automatically; "stripCount"); "iconColor", "iconRingColor", "dividerColor", label text "color"/"fontSize"; box about 90 px tall and at least 90 px wide per cell; fewer details = fewer cells'],
+        'tagline'           => ['label' => 'Agency Tagline',        'help' => 'the agency\'s own tagline from its settings (hidden when the agency has none)'],
+        'listing_note'      => ['label' => 'Note for this ad',      'help' => 'one short line the agent types when making the ad, e.g. a nearby landmark (hidden when left blank)'],
         'erf_size'          => ['label' => 'Erf Size',              'help' => 'plot size, e.g. "Erf: 800 m²" (hidden when the listing has none)'],
         'levy'              => ['label' => 'Levy per Month',        'help' => 'sectional-title levy, e.g. "Levy: R 1 250 pm" (hidden when the listing has none)'],
         'rates_taxes'       => ['label' => 'Rates & Taxes per Month', 'help' => 'rates and taxes (hidden when the listing has none)'],
@@ -219,7 +228,8 @@ final class AdLayoutValidator
 
     /** Mirrors SHAPES + DECOR_SHAPES in the render kernel (a drift test compares them). */
     private const SHAPES   = ['rectangle', 'rounded', 'circle', 'pill', 'triangle', 'diamond', 'pentagon', 'hexagon', 'star', 'chevron',
-        'wave', 'curve_top', 'curve_bottom', 'arc', 'blob_1', 'blob_2', 'blob_3'];
+        'wave', 'curve_top', 'curve_bottom', 'arc', 'blob_1', 'blob_2', 'blob_3',
+        'brush_stroke_1', 'brush_stroke_2', 'cut_panel_left', 'cut_panel_right'];
     /** Mirrors FONTS in the render kernel (and _ad-fonts.blade.php). */
     private const FONTS    = ['Figtree', 'Inter', 'Poppins', 'Montserrat', 'Oswald', 'Bebas Neue', 'Playfair Display', 'Lora',
         'Cormorant Garamond', 'DM Serif Display', 'Libre Baskerville', 'Great Vibes', 'Dancing Script', 'Barlow Condensed', 'Anton',
@@ -235,7 +245,7 @@ final class AdLayoutValidator
     private const PHOTO_MASKS     = ['none', 'rounded', 'circle', 'arch', 'blob'];
     private const PHOTO_EFFECTS   = ['none', 'bw', 'duotone', 'warm', 'cool', 'brighter'];
     private const LINE_STYLES     = ['solid', 'dashed', 'dotted'];
-    private const COLLAGE_PRESETS = ['2_side', '2_stack', '3_hero_left', '3_hero_top', '4_grid', '5_hero'];
+    private const COLLAGE_PRESETS = ['2_side', '2_stack', '3_hero_left', '3_hero_top', '4_grid', '5_hero', '6_mosaic', '7_mosaic', '8_mosaic'];
     private const RIBBON_CORNERS  = ['tl', 'tr', 'bl', 'br'];
     private const PILL_DIRECTIONS = ['row', 'column'];
 
@@ -249,6 +259,7 @@ final class AdLayoutValidator
         'erf_size' => '800 m²', 'levy' => 'R 1 250 pm', 'rates_taxes' => 'R 900 pm', 'price_per_m2' => 'R 7 656 per m²',
         'pet_friendly' => 'Pet friendly', 'available_from' => 'Available from 1 Nov 2026', 'rent_per_month' => 'R 12 500 per month',
         'show_day' => 'Sat 25 Oct · 10:00–13:00', 'auction_date' => '12 Nov 2026 · 11:00', 'auction_venue' => 'Sample Venue, Sample Town',
+        'tagline' => 'Your Property Partner', 'listing_note' => 'Situated close to the shops',
     ];
 
     /**
@@ -262,9 +273,11 @@ final class AdLayoutValidator
         'iconSize' => [8, 200, 0],
         // AT-456 §B.9-1 — collage, pills.
         'collageGap' => [0, 60, 0], 'collageFirst' => [1, 5, 0], 'pillCount' => [1, 4, 0], 'pillGap' => [0, 60, 0],
+        // §22 — the feature icon strip.
+        'stripCount' => [3, 8, 0],
     ];
 
-    private const COLOR_KEYS = ['color', 'bgColor', 'bg', 'gradFrom', 'gradTo', 'frameBorderColor', 'shadowColor', 'duoColor1', 'duoColor2', 'qrDark', 'qrLight'];
+    private const COLOR_KEYS = ['color', 'bgColor', 'bg', 'gradFrom', 'gradTo', 'frameBorderColor', 'shadowColor', 'duoColor1', 'duoColor2', 'qrDark', 'qrLight', 'iconColor', 'iconRingColor', 'dividerColor'];
 
     private const ENUMS = [
         'fontFamily'    => self::FONTS,
@@ -774,6 +787,12 @@ final class AdLayoutValidator
             }
         }
 
+        if ($field === 'feature_strip' && isset($raw['h']) && $raw['h'] < self::MIN_STRIP_HEIGHT) {
+            $raw['h']  = self::MIN_STRIP_HEIGHT;
+            $resized   = true;
+            $repairs[] = "{$tag}: the icon strip was too short to show its icons and words, so it was made " . self::MIN_STRIP_HEIGHT . ' pixels tall.';
+        }
+
         if ($field === 'feature_pills' && isset($raw['h'])) {
             $min = $this->pillsMinHeight($num('fontSize'), $num('padding'), (string) ($raw['pillDirection'] ?? $d['pillDirection']), (int) $num('pillCount'), (int) $num('pillGap'));
             if ($raw['h'] < $min) {
@@ -845,6 +864,10 @@ final class AdLayoutValidator
             if ($problem !== null) {
                 $out[] = "{$tag}: {$problem}";
             }
+        }
+
+        if ($field === 'feature_strip' && $el['w'] / max(1, (int) $el['stripCount']) < self::MIN_STRIP_CELL_WIDTH) {
+            $out[] = "{$tag}: each icon cell needs at least " . self::MIN_STRIP_CELL_WIDTH . " pixels of width - use a wider box or a smaller stripCount.";
         }
 
         if ($field === 'feature_pills') {
@@ -941,17 +964,17 @@ final class AdLayoutValidator
         if (preg_match('/\d/', $v, $m) === 1) {
             $n = (int) $m[0];
         } else {
-            foreach (['two' => 2, 'three' => 3, 'four' => 4, 'five' => 5] as $word => $digit) {
+            foreach (['two' => 2, 'three' => 3, 'four' => 4, 'five' => 5, 'six' => 6, 'seven' => 7, 'eight' => 8] as $word => $digit) {
                 if (str_contains($v, $word)) {
                     $n = $digit;
                     break;
                 }
             }
         }
-        $n = $n === null ? null : max(2, min(5, $n));
+        $n = $n === null ? null : max(2, min(8, $n));
 
         $synonyms = ['side' => ['side', 'beside', 'horizontal', 'row', 'duo'], 'stack' => ['stack', 'stacked', 'vertical', 'column'],
-            'top' => ['top', 'above', 'upper'], 'left' => ['left', 'right'], 'grid' => ['grid', 'tile', 'tiles', 'quad'], 'hero' => ['hero', 'main', 'big', 'large', 'feature']];
+            'top' => ['top', 'above', 'upper'], 'left' => ['left', 'right'], 'grid' => ['grid', 'tile', 'tiles', 'quad'], 'hero' => ['hero', 'main', 'big', 'large', 'feature'], 'mosaic' => ['mosaic', 'gallery', 'montage', 'many']];
         $tokens = preg_split('/[^a-z]+/', $v, -1, PREG_SPLIT_NO_EMPTY) ?: [];
 
         $best      = null;
@@ -1171,7 +1194,7 @@ final class AdLayoutValidator
                 $out[$k] = (string) $el[$k];
             }
         }
-        foreach (['shadowOn', 'showLabel'] as $k) {
+        foreach (['shadowOn', 'showLabel', 'shapeGradient'] as $k) {
             if (isset($el[$k]) && is_bool($el[$k]) && $el[$k] !== $base[$k]) {
                 $out[$k] = $el[$k];
             }
@@ -1270,6 +1293,9 @@ final class AdLayoutValidator
         if (array_key_exists('showLabel', $raw)) {
             $el['showLabel'] = filter_var($raw['showLabel'], FILTER_VALIDATE_BOOLEAN);
         }
+        if (array_key_exists('shapeGradient', $raw)) {
+            $el['shapeGradient'] = filter_var($raw['shapeGradient'], FILTER_VALIDATE_BOOLEAN);
+        }
 
         // Literal copy — only the element types that carry it.
         if (in_array($field, ['custom_text', 'badge', 'watermark', 'ribbon'], true)) {
@@ -1336,6 +1362,8 @@ final class AdLayoutValidator
             'photoMask' => 'none', 'photoEffect' => 'none', 'duoColor1' => '#0b2a4a', 'duoColor2' => '#f4d58d', 'lineStyle' => 'solid',
             'collagePreset' => '3_hero_left', 'collageGap' => 8, 'collageFirst' => 1, 'ribbonCorner' => 'tl',
             'qrDark' => '#000000', 'qrLight' => '#ffffff', 'pillCount' => 4, 'pillDirection' => 'row', 'pillGap' => 10, 'showLabel' => true,
+            // §22 — feature icon strip; a decorative shape's gradient fill.
+            'stripCount' => 8, 'iconColor' => '#d4af37', 'iconRingColor' => '#d4af37', 'dividerColor' => '#d4af37', 'shapeGradient' => false,
         ];
 
         if ($field === 'status_badge') {
@@ -1371,6 +1399,9 @@ final class AdLayoutValidator
         if ($field === 'feature_pills') {
             // Same as the builder's, except the font starts at the minimum the validator allows (the builder's 15 is below it).
             $el = array_merge($el, ['fontSize' => 16, 'fontWeight' => '700', 'padding' => 8, 'bgColor' => '#00b4d8', 'bgOpacity' => 1, 'borderRadius' => 999]);
+        }
+        if ($field === 'feature_strip') {
+            $el = array_merge($el, ['w' => 960, 'h' => 120, 'fontSize' => 16, 'fontWeight' => '700', 'textAlign' => 'center', 'textTransform' => 'uppercase', 'padding' => 8]);
         }
         if ($field === 'watermark') {
             $el['fontSize'] = 60;

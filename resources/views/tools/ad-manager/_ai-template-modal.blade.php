@@ -243,7 +243,7 @@ function aiTemplatePanel(cfg) {
 
         canvas() { return (cfg.sizes || []).find(s => s.key === this.size) || { w: 1200, h: 628 }; },
         styleHint() {
-            if (this.style === 'auto') return 'The AI picks the best of our eight styles for each design, and tells you which.';
+            if (this.style === 'auto') return 'The AI picks the best of our nine styles for each design, and tells you which.';
             const s = this.styles.find(x => x.key === this.style);
             return s ? s.summary : '';
         },
