@@ -3101,25 +3101,66 @@ On the Road to Sold page and on the Targets screen, one line: **"To list 1 prope
 
 ### 23.30 Belt v2 - stages, buttons, Today's work (the conductor's ruling after Johan, 3 Nov 2026 11:12: "the belt does not make sense"; spec only; lanes cc1 / cc2 / cc4 build from this text)
 
+**23.30.0 The flow (Johan, 3 Nov 11:26: "it's a flow - think n8n flows or a physical conveyor belt. The work moves from box to box, and in there it has options of where it can go next after there's a way to process it.")** Boxes are stages; solid arrows are forward moves; dashed arrows are off-ramps and returns to MIC. The node table that follows (23.30.2) is the same picture, one row per box.
+
+```mermaid
+flowchart LR
+  MIC([MIC pool]) -->|auto-load, Add to my day| TW[Today's work]
+  MIC -->|Claim in MIC, own stock, capture claim| CL[Claimed]
+  TW -->|Find owner = claim| CL
+  CL -->|owner and deed linked| OF[Owner found]
+  OF -->|contact outcome logged| CO[Contacted]
+  CO -->|appointment booked| BK[Booked]
+  BK -->|presentation exists| PR[Prepared]
+  PR -->|feedback captured as held| HE[Held]
+  HE -->|Won| WON((Won: passes through))
+  WON -->|property to Draft| DR[Draft]
+  DR -->|compliance + publish pass| AC[Active: done, listed]
+  AC -->|hand-over| AD[Advertised: Maintain stock]
+  HE -. undecided: revisit date .-> HE
+  PR -. moved: back to Booked .-> BK
+  OFF{{Off-ramp: set aside with revisit date, or stopped}}
+  TW -. Swap: Not for me .-> OFF
+  CL -. no owner, no contact details, not taking this .-> OFF
+  OF -. cannot contact, not selling, sold, mandate elsewhere .-> OFF
+  CO -. seller cannot be met, contact reasons .-> OFF
+  BK -. cancelled, results reasons .-> OFF
+  PR -. no-show, results reasons .-> OFF
+  HE -. overpriced, will not sign, not selling, lost .-> OFF
+  DR -. paperwork not returned, no longer selling .-> OFF
+  AC -. same family as Draft .-> OFF
+  OFF -. revisit date arrives: back to the box it left .-> TW
+  TW -. untouched at midnight: missed, released .-> MIC
+  CL -. hold ended .-> MIC
+  OF -. hold ended .-> MIC
+  CO -. hold ended .-> MIC
+```
+
+**The invariant (the rule every lane builds to).** *A property is in exactly ONE box.* Every move between boxes is **an event on the record's history** (`rts_prospect_events`: placed / stage / park / release / close / result), so a move can always be explained and replayed. **Tile counts are derived from the box (the record's current stage), never stored separately** - no counter column, no cache that can disagree (the tiles, the Funnel and the targets all read the same history, 23.24 A, 23.29). **Every box has at least one forward exit and its off-ramp; no box is a dead end except Active (done) and the off-ramp ends** (Set aside = parked with a revisit date, or Stopped = closed; both are history, not boxes with tiles).
+
 **This section supersedes, wherever they differ:** the stage labels and the Won tile of 23.1 / 23.4 / 23.13, the row-button mapping of 23.24 D and 23.25.2, the nine-step popup bar of 23.25.2 / 23.25.5 and "Pitch now" in 23.23 / 23.25.1, and the claims-first day feed of 23.24 E. Each of those places is edited to point here. **Stands unchanged:** one popup (23.25.1), the tick rule (23.25.3, now over seven steps), the off-ramps and the mark (23.25.6), the funnel, the targets (23.29), stored stage keys, the gates (23.6), the claim hold (23.5).
 
 **23.30.1 The five principles**
 1. A property sits in **exactly one stage**. 2. **The tile is the stage it has reached.** 3. Each row has **ONE button, named for the next step**; completing that step moves the property to the next tile (the count goes down here and up there). 4. **Nothing is claimed by being loaded.** 5. **An off-ramp at every stage** (23.25.6 stands).
 
-**23.30.2 The stages (tile label - what sits there - the one button - what completes it)**
+**23.30.2 The boxes - the node table (one row per box).** *Stored key in brackets. A record may enter a later box directly (a property already mandated enters at Won, one already Active at Active, 23.4); that is an entry event like any other.* Off-ramp reasons are the codes of 23.25.6, counted at the box shown, each with the mark (23.25.6 rule 2). "Back to MIC" = the claim is released and the property returns to the pool.
 
-| # | Tile (label) | Stored key | What sits here | The one button -> popup step | Completes when |
+| Box | What arrives here | The one process (button -> popup step; what the agent does) | Exit: forward (the event) | Exit: off-ramps (counted here) | Other exits |
 |---|---|---|---|---|---|
-| 1 | **Today's work** (was Loaded) | `loaded` (`found`) | the agency's daily number N of properties put on the agent's desk (auto-load + "Add to my day"). **Not claimed, no hold, still in the MIC pool** | **Find owner** -> **claims the property** (out of the MIC pool, the hold starts) and opens the popup at **Owner**. Also **Swap** = the off-ramp "Not for me" with a reason (counted at Today's work) | the property is claimed (Find owner pressed) |
-| 2 | **Claimed** | `claimed` | claimed, owner not yet found - from Today's work, hand-claimed in MIC, or own stock | **Find owner** -> Owner | an owner contact is linked (the deed rule as today, 23.6) |
-| 3 | **Owner found** (was Owner) | `owner` (`owner_found`) | owner linked | **Contact** -> Contact | a contact outcome is logged (channel, 23.7) |
-| 4 | **Contacted** | `contacted` | | **Book appointment** -> Appointment | the appointment is booked (23.8) |
-| 5 | **Booked** | `booked` (`appointment_set`) | | **Prepare presentation** -> Presentation | a presentation exists for the property (23.8) |
-| 6 | **Prepared** | `prepared` (`presentation_prepared`) | | **Appointment results** -> Results | appointment feedback is captured as held (23.10) |
-| 7 | **Held** | `held` (`evaluation_done`) | held, **no decision yet** | **Record result** -> Results | Won -> the property goes to Draft (the record passes through the won station for the funnel; **no Won tile**); undecided -> stays here with the revisit date; lost -> "Stops here" (23.25.6) |
-| 8 | **Draft** | `draft` | property at Draft | **Make active** -> Active | the property is Active. Gates, shown as a checklist: mandate, FICA, photos, compliance, publish (`BlockerService`, 23.11) |
-| 9 | **Active** | `active` | listed this month | none - **end of Get stock**, counted as a listing | - |
-| (10) | **Advertised** | `advertised` (`listing_live`, `advertising`) | stays the last tile; it is the **Maintain-stock handover** (23.26) | none here | - |
+| **Today's work** (`loaded`, stage `found`) | the allocation engine's N a day (my buyers, colleagues' buyers, hot pockets, fill-ups, 23.14); **Add to my day**; found-by-you; a revisit follow-up that has come due; rows carried over (setting) | **Find owner** -> claims the property and opens **Owner**. The row expands to the full advert card | **Claimed** (`ClaimCreated` -> `ClaimBeltService::placeClaim`, history `placed` at Claimed) | **Swap = Not for me**: wrong area, no address, I already know it, Other (7 days) | untouched at midnight -> **back to MIC**, counted missed (or carried to tomorrow's top, `rts.carry_over_untouched`); another agent claims it first -> closed "Claimed by <name>", not missed |
+| **Claimed** (`claimed`) | Find owner from Today's work; a hand **Claim** in MIC; own stock the agent adds; a capture auto-claim; an un-parked record | **Find owner** -> **Owner**: capture or link the deed, link or create the seller (23.6) | **Owner found** (owner contact linked + deed record per `owner_requires_deed`: `OwnerLinkedToTrackedProperty` / `TrackedPropertyEnriched` -> `MoveToOwnerFound`) | I'm not taking this (14); No owner found (90); No contact details available (180, the Owner-step tick, marks the property); Other | claim hold ended (30 working days of no work, one extension) -> **back to MIC** (`rts:release-held-claims`, 23.5); set aside with a revisit date |
+| **Owner found** (`owner`, stage `owner_found`) | Claimed (owner linked) | **Contact** -> **Contact**: pick the seller, then WhatsApp / Email / Phone call (or "I already spoke to them") | **Contacted** (`RoadToSoldOutcomeRecorded`, a conversation outcome; an attempt such as No answer keeps the box and counts a try) | the Contact list: Cannot make contact - opted out (never); Cannot make contact - no answer / wrong number (60); Spoke - not selling (180); Sole mandate elsewhere; Open mandate elsewhere; Already sold (180); Not on the market any more (90); Selling privately (30); Do not contact (never); Other (90) | tries used up (`max_tries`) -> set aside "cannot make contact"; no-answer streak -> manager's report; "call back" outcome keeps the box with a date; hold ended -> back to MIC |
+| **Contacted** (`contacted`) | Owner found (a conversation outcome logged) | **Book appointment** -> **Appointment**: the calendar form, owner and property prefilled (or the outcome "evaluation booked" creates it) | **Booked** (`EvaluationBooked`, the appointment linked to the record, 23.8) | Seller cannot be met (30); Other (30); the Contact list stays available here (follow-up calls are logged here) | "not now, maybe later" outcome -> set aside, back on its date; hold ended -> back to MIC |
+| **Booked** (`booked`, stage `appointment_set`) | Contacted (appointment booked) | **Prepare presentation** -> **Presentation**: the generate window on the property | **Prepared** (`PresentationGenerated`) | Cancelled (30); the Results list (the seller reasons live there, 23.25.6: no off-ramp of its own at the presentation); Other | appointment moved -> stays Booked on the new date; hold keeps running only until the appointment date carries it |
+| **Prepared** (`prepared`, stage `presentation_prepared`) | Booked (presentation exists) | **Appointment results** -> **Results**: the calendar feedback form - held / no-show / moved | **Held** (`EvaluationCompleted`, only for held) | No-show (14, counted at the appointment); Cancelled (30); the Results list | **moved** -> back to **Booked** on the new date (a loop, not a loss) |
+| **Held** (`held`, stage `evaluation_done`) | Prepared (feedback held) | **Record result** -> **Results**: the result form (`ResultService`, 23.9) | **Won (passes through, no tile)** -> **Draft**: a Won result sets the property to Draft and the record follows (`mandate_signed` then `draft`, one history line each, so the funnel counts Won) | the Results list: Overpriced (60); Seller won't sign the documents (60); Not selling (180); Lost to another agency (90); Not ready to sell yet (90); Other (90) | **Undecided** -> stays here with the revisit date (a loop, parked on the date); revisit arrives -> back to Held |
+| **Draft** (`draft`) | Held via Won; or a property that becomes Draft by another route (`convertFromProspecting`, a signed mandate) | **Make active** -> **Active**: the checklist - mandate, FICA, photos, compliance, publish (`BlockerService`, 23.11) | **Active** (`PropertyCompliancePassed` and `PropertyPublished` both seen) | Paperwork not returned (60); Seller no longer wants to sell (180); Other (90). The derived blockers (Compliance incomplete, Mandate not signed, Photos missing) are shown, never chosen | property withdrawn or archived -> record closed |
+| **Active** (`active`) | Draft (both gates passed); a property already Active (entry) | none - **done**. Counted as a listing (the targets' Active, 23.29) | **Advertised**, the Maintain-stock hand-over (`PropertyWentLiveOnPortal`, social posts, seller link - 23.26) | the same family as Draft, as step 9 rows (Paperwork not returned; Seller no longer wants to sell; Other) | - (the only box with no process: end of Get stock) |
+| **Advertised** (`advertised`) | Active (the hand-over) | none here - the Maintain-stock belt (23.26) | - | - | **end of this belt** |
+
+- **Won** is a pass-through node: it has a stored key and counts in the funnel, the stats and the targets, but no tile and no process of its own; the record is in Won for the instant between the result and the property becoming Draft, and a Won result whose property cannot become Draft (it is no longer Prospecting, 23.9) leaves the record at Draft only when the property reaches Draft by its own route.
+- **Every box has a forward exit and an off-ramp** (Active: the end, with its off-ramp family; Advertised: hand-over). **Every move is a history event**, **a loop is a move too** (moved appointments, undecided results, un-parked records), and **a return to MIC is a release event** (`ProspectService::release`), never a deletion.
+- **The tick rule, the tiles' three lines, the funnel and the targets all read the box**, so a property that is in one box shows in one tile and one popup bar position.
 
 - **The strip is 10 tiles** (Won is removed from the strip; `config/road-to-sold-belt.php` marks `won` `built => false` for the tile only). **Station keys are unchanged and the funnel, targets (23.29), stats and points still count Won as a station**; only labels change.
 - **Old -> new, tiles:** Loaded -> **Today's work**; Owner -> **Owner found**; Won -> (no tile); every other label as before. **Old -> new, buttons:** Loaded Find owner (now also claims); Claimed Find owner; Owner found **Log contact -> Contact**; Contacted **Book evaluation -> Book appointment**; Booked **Evaluation feedback -> Prepare presentation**; Prepared **Evaluation feedback / Presentation results -> Appointment results**; Held **Result -> Record result**; Won row (gone); Draft **Make active**. "Log contact" for contact made outside CoreX is the Contact step's own "I already spoke to them" path and sits under More.
