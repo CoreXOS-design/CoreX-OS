@@ -140,13 +140,15 @@ final class BeltTargetsTest extends TestCase
         $far = $this->makeAgent(null, $otherBranch);
         $this->listings($far, 2);                                          // same agency, other branch
         $stranger = $this->makeAgent(\App\Models\Agency::create(['name' => 'Other ' . uniqid(), 'slug' => 'o-' . uniqid()]));
-        $this->listings($stranger, 50);                                    // another agency: never counted
+        $row = (array) DB::table('targets')->where('user_id', $this->agent->id)->where('period', '2026-02')->first();   // another agency's row, copied from a real one
+        unset($row['id']);
+        DB::table('targets')->insert(array_merge($row, ['agency_id' => $stranger->agency_id, 'user_id' => $stranger->id, 'branch_id' => $stranger->branch_id, 'listings_target' => 50]));   // never counted
 
         $t = app(TargetsService::class);
         $this->assertSame(5, $t->forScope($this->agent, 'me', Carbon::now())['listings']);
         $this->assertSame(8, $t->forScope($this->agent, 'branch', Carbon::now())['listings'], 'my branch: 5 + 3');
         $this->assertSame(10, $t->forScope($this->agent, 'agency', Carbon::now())['listings'], 'the agency: 5 + 3 + 2, never the other agency');
-        $this->assertEqualsWithDelta(400.0, $t->forScope($this->agent, 'branch', Carbon::now())['mic_per_month'], 0.01, '8 listings x 40');
+        $this->assertEqualsWithDelta(320.0, $t->forScope($this->agent, 'branch', Carbon::now())['mic_per_month'], 0.01, '8 listings x 40 from MIC each');
     }
 
     public function test_the_listings_target_falls_back_to_the_agency_default_then_the_standard(): void
