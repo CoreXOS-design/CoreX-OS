@@ -163,11 +163,30 @@ final class PopupOffRampsTest extends TestCase
         $f = app(BeltFunnelService::class);
         $stations = collect($f->funnelOf([$this->agent->id], $f->figures($this->agency->id, $this->period()))['stations']);
 
-        $this->assertSame(2, $stations->firstWhere('key', 'claimed')['reasons']['No owner found'] ?? 0);
-        $this->assertSame(1, $stations->firstWhere('key', 'contacted')['reasons']['Seller cannot be met'] ?? 0);
+        // counted at the station the STEP completes into (23.25.6): Owner (step 2) -> Owner found; Appointment (step 5) -> Booked
+        $this->assertSame(2, $stations->firstWhere('key', 'owner')['reasons']['No owner found'] ?? 0);
+        $this->assertSame(1, $stations->firstWhere('key', 'booked')['reasons']['Seller cannot be met'] ?? 0);
+        $this->assertSame(2, $stations->firstWhere('key', 'owner')['lost']);
+        $drill = app(BeltFunnelService::class)->drill($this->agent, $this->period(), 'owner', 'lost', 'No owner found', 'me');
+        $this->assertCount(2, $drill['rows'], 'the list behind the bar agrees with the bar');
     }
 
     // ── Other, behaviour, ownership ──────────────────────────────────────
+
+    public function test_every_off_ramp_leaves_the_mark_market_intelligence_reads(): void
+    {
+        $work = app(\App\Services\Prospecting\AgencyWorkService::class);
+        $cases = [['opted_out', 4, S::OWNER_FOUND, 'do_not_contact'], ['mandate_elsewhere', 4, S::OWNER_FOUND, 'mandate_elsewhere'], ['chose_other_agency', 7, S::EVALUATION_DONE, 'mandate_elsewhere'], ['no_owner_found', 2, S::CLAIMED, 'not_selling']];
+        foreach ($cases as $i => [$key, $step, $stage, $status]) {
+            [$p] = $this->record($stage, 300 + $i);
+            $this->actingAs($this->agent)->postJson(route('seller-outreach.entry.pitch-offramp.store'), ['prospect' => $p->id, 'step' => $step, 'reason' => $key])->assertOk();
+            $w = $work->find($this->agency->id, (int) $p->tracked_property_id);
+            $this->assertSame($status, $w->prospecting_status, $key);
+            $this->assertSame((int) $this->agent->id, (int) $w->status_set_by_user_id, 'the agent is named');
+            $this->assertNotNull($w->status_set_at, 'and the date');
+            $this->assertStringContainsString((string) RtsParkReason::withoutGlobalScopes()->where('agency_id', $this->agency->id)->where('key', $key)->value('label'), (string) $w->prospecting_reason);
+        }
+    }
 
     public function test_other_needs_a_few_words_and_keeps_them(): void
     {

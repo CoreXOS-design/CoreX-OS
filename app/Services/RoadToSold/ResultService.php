@@ -130,7 +130,31 @@ class ResultService
             'needs_date' => false, 'revisit_days' => $days > 0 ? $days : null, 'never' => $days === 0,
         ];
 
-        return $this->record($p, 'offramp_' . $reasonKey, null, $note !== '' ? $note : null, $actor, $source, ['option' => $opt, 'skip_stores' => true, 'step' => $step]);
+        $result = $this->record($p, 'offramp_' . $reasonKey, null, $note !== '' ? $note : null, $actor, $source, ['option' => $opt, 'skip_stores' => true, 'step' => $step]);
+        if ($result['ok'] && empty($result['already'])) {
+            $this->markInMic($p, $reasonKey, $countsAs, (string) $reason->label, $note, $actor);
+        }
+
+        return $result;
+    }
+
+    /**
+     * road-to-sold.md 23.25.6 rule 2: every off-ramp leaves the mark the Market Intelligence card reads ("Where it stands: <status> - <reason> (<agent>, <date>)") on the agency's own
+     * record of the file - not only a Not selling result, so nobody chases it again. Opted out = do not contact; another agency's mandate / a loss to another agency = mandate
+     * elsewhere; everything else = not selling. Never stops the off-ramp if the mark cannot be written.
+     */
+    private function markInMic(RtsProspect $p, string $reasonKey, string $countsAs, string $label, string $note, User $actor): void
+    {
+        try {
+            $status = match (true) {
+                $reasonKey === 'opted_out', $reasonKey === 'do_not_contact' => \App\Models\Prospecting\TrackedPropertyAgencyWork::STATUS_DO_NOT_CONTACT,
+                in_array($reasonKey, ['mandate_elsewhere', 'already_listed_open', 'chose_other_agency'], true) => \App\Models\Prospecting\TrackedPropertyAgencyWork::STATUS_MANDATE_ELSEWHERE,
+                default => \App\Models\Prospecting\TrackedPropertyAgencyWork::STATUS_NOT_SELLING,
+            };
+            app(\App\Services\Prospecting\AgencyWorkService::class)->setStatus((int) $p->agency_id, (int) $p->tracked_property_id, $status, $label . ($note !== '' ? ': ' . $note : ''), (int) $actor->id);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Off-ramp: the Market Intelligence mark could not be written (the off-ramp stands)', ['prospect' => $p->id, 'message' => $e->getMessage()]);
+        }
     }
 
     // ── the pieces ───────────────────────────────────────────────────────

@@ -81,9 +81,9 @@ class BeltFunnelService
         $lost = [];
         $outs = DB::table('rts_prospect_events')->where('agency_id', $agencyId)->where('track', $track)->whereIn('kind', ['park', 'release', 'close'])
             ->when($userIds !== null, fn ($q) => $q->whereIn('user_id', array_map('intval', $userIds)))
-            ->whereBetween('occurred_at', [$from, $to])->get(['prospect_id', 'user_id', 'kind', 'to_stage', 'note']);
+            ->whereBetween('occurred_at', [$from, $to])->get(['prospect_id', 'user_id', 'kind', 'to_stage', 'note', 'meta']);
         foreach ($outs as $o) {
-            $st = self::stationOfStage($o->to_stage);
+            $st = self::offRampStation($o->to_stage, $o->meta);
             if ($st === null) {
                 continue;
             }
@@ -146,6 +146,20 @@ class BeltFunnelService
         $i = array_search($station, $keys, true);
 
         return $i === false ? null : ($keys[$i + 1] ?? null);
+    }
+
+    /** The funnel station an off-ramp is counted at (road-to-sold.md 23.25.6): said at a popup step, it is the station that step completes into (Contact -> Contacted); older rows keep the station the record sat at. */
+    public const STEP_STATION = [2 => 'owner', 3 => 'owner', 4 => 'contacted', 5 => 'booked', 6 => 'prepared', 7 => 'held', 8 => 'draft', 9 => 'active'];
+
+    private static function offRampStation(?string $toStage, mixed $meta): ?string
+    {
+        $m = is_string($meta) ? json_decode($meta, true) : (is_array($meta) ? $meta : null);
+        $step = is_array($m) ? (int) ($m['step'] ?? 0) : 0;
+        if ($step > 0 && isset(self::STEP_STATION[$step])) {
+            return self::STEP_STATION[$step];
+        }
+
+        return self::stationOfStage($toStage);
     }
 
     /** @return list<string> the stations one history row reaches or crosses (a "placed" row reaches only the station it was placed at) */
@@ -306,8 +320,8 @@ class BeltFunnelService
         if ($kind === 'lost') {
             $q = DB::table('rts_prospect_events')->where('agency_id', $agencyId)->where('track', $track)->whereIn('kind', ['park', 'release', 'close'])
                 ->whereIn('user_id', $ids)->whereBetween('occurred_at', [$from, $to])->orderBy('occurred_at');
-            foreach ($q->get(['prospect_id', 'user_id', 'to_stage', 'note', 'occurred_at', 'kind']) as $e) {
-                if (self::stationOfStage($e->to_stage) !== $station) {
+            foreach ($q->get(['prospect_id', 'user_id', 'to_stage', 'note', 'occurred_at', 'kind', 'meta']) as $e) {
+                if (self::offRampStation($e->to_stage, $e->meta) !== $station) {
                     continue;
                 }
                 $why = trim((string) $e->note) !== '' ? trim((string) $e->note) : ($e->kind === 'close' ? 'Closed' : ($e->kind === 'release' ? 'Given back' : 'No reason given'));
