@@ -49,9 +49,13 @@ class PitchPathController extends Controller
      * pitch path does), then the agent lands on that property with the Generate Presentation window already open. This replaces the old link to the
      * presentations list, which dropped the agent on a page that said "open a property" with no property.
      */
-    public function presentation(Request $request, int $prospect): RedirectResponse
+    public function presentation(Request $request, int $prospect): RedirectResponse|\Illuminate\Http\Response
     {
         $row = $this->own($request, $prospect);
+        // never create on a click (23.25.2): a record with no property file says so and offers the one button that makes it
+        if (! $row->property_id || ! \App\Models\Property::query()->withoutGlobalScopes()->whereNull('deleted_at')->find((int) $row->property_id)) {
+            return response()->view('road-to-sold.pitch-create-property', ['prospect' => $row, 'address' => $this->addressOf($row), 'carry' => $this->path->carry($request) + ['embed' => 1]]);
+        }
         $property = $this->path->ensureProperty($row, $request->user());
         if (! $property) {
             return redirect()->to($this->path->next($row, $request->user(), $this->path->carry($request))['url'])
@@ -59,6 +63,19 @@ class PitchPathController extends Controller
         }
 
         return redirect()->to(route('corex.properties.show', $property->id) . '?' . http_build_query($this->path->carry($request) + ['generate_presentation' => 1, 'rts_prospect' => $row->id]));
+    }
+
+    /** The one button of the step-6 screen for a record with no property file: it makes the file (as the other steps do) and goes on to the Generate window. */
+    public function createProperty(Request $request, int $prospect): RedirectResponse
+    {
+        $row = $this->own($request, $prospect);
+        $property = $this->path->ensureProperty($row, $request->user());
+        if (! $property) {
+            return redirect()->to(route('road-to-sold.prospects.presentation-path', ['prospect' => $row->id] + $this->path->carry($request)))
+                ->with('error', 'The property file could not be made - the address is not captured yet.');
+        }
+
+        return redirect()->to(route('road-to-sold.prospects.presentation-path', ['prospect' => $row->id] + $this->path->carry($request)));
     }
 
     /**
@@ -83,7 +100,10 @@ class PitchPathController extends Controller
     public function resultForm(Request $request, int $prospect)
     {
         $row = $this->own($request, $prospect);
+        // 23.25 step 7: this form keeps only the positive answers (Won, Undecided / revisit); every "lost / not selling" answer is the popup's own "Stops here" control, one list.
+        // The route still accepts every old value.
         $options = collect(app(\App\Services\RoadToSold\ResultOptionService::class)->list((int) $row->agency_id, (string) $row->track))
+            ->filter(fn ($o) => in_array($o['class'] ?? '', ['won', 'pending'], true))
             ->map(fn ($o) => ['key' => $o['key'], 'label' => $o['label'], 'needs_date' => (bool) ($o['class'] !== 'won'), 'days' => $o['revisit_days'] ?? null])->values()->all();
 
         return view('road-to-sold.pitch-result', ['prospect' => $row, 'options' => $options, 'address' => $this->addressOf($row)]);

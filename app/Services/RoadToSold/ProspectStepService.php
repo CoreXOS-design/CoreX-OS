@@ -20,7 +20,7 @@ final class ProspectStepService
     public const LABELS = [
         'find_owner' => 'Find owner',
         'pitch'      => 'Pitch',
-        'evaluation' => 'Book evaluation',
+        'evaluation' => 'Book appointment',
         'evaluation_feedback' => 'Appointment feedback',
         'presentation' => 'Presentation',
         // the pitch popup's steps 7-9 (road-to-sold.md 23.25): the screens are the existing ones, reached through the popup

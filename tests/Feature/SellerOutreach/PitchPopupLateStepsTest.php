@@ -221,7 +221,7 @@ final class PitchPopupLateStepsTest extends TestCase
         $label = fn (string $station) => ($action->invoke($belt, $station, 7, true)['label'] ?? null);
 
         $this->assertSame('Log contact', $label('owner'), 'unchanged');
-        $this->assertSame('Book evaluation', $label('contacted'), 'unchanged (spec Q13 is not ruled)');
+        $this->assertSame('Book appointment', $label('contacted'), 'wording only (23.25 step 5); the button itself is unchanged');
         $this->assertSame('Appointment feedback', $label('booked'), 'relabelled only');
         $this->assertSame('Result', $label('held'), 'unchanged');
         $this->assertSame('Presentation results', $label('prepared'));
@@ -285,5 +285,56 @@ final class PitchPopupLateStepsTest extends TestCase
         $plain = $this->actingAs($admin)->get($url)->assertOk()->getContent();
         $this->assertStringNotContainsString('body > *:not([data-qa="presentation-modal"])', $plain);
         $this->assertStringContainsString('popup: false,', $plain, 'the property page itself is unchanged');
+    }
+
+    public function test_the_result_form_keeps_only_the_positive_answers_and_the_route_still_takes_the_old_ones(): void
+    {
+        $this->stage('evaluation_done');
+
+        $h = $this->actingAs($this->agent)->get(route('road-to-sold.prospects.result-form', ['prospect' => $this->prospect->id, 'embed' => 1]))->assertOk()->getContent();
+
+        $this->assertStringContainsString('Won - mandate agreed', $h);
+        $this->assertStringContainsString('Undecided - follow up', $h);
+        foreach (['Lost to another agency', 'Price too far apart', 'Not ready to sell yet', 'Not selling'] as $lost) {
+            $this->assertStringNotContainsString($lost, $h, $lost . ' is the Stops here control now');
+        }
+
+        $r = $this->actingAs($this->agent)->post(route('road-to-sold.prospects.result', $this->prospect->id), ['result_key' => 'lost_price']);
+        $r->assertSessionHasNoErrors();   // an old value is still understood by the route
+    }
+
+    public function test_step_6_never_creates_a_property_on_a_click_and_the_button_does_exactly_that(): void
+    {
+        $this->stage('contacted');
+        DB::table('rts_prospects')->where('id', $this->prospect->id)->update(['property_id' => null]);
+        $before = DB::table('properties')->count();
+
+        $h = $this->actingAs($this->agent)->get(route('road-to-sold.prospects.presentation-path', ['prospect' => $this->prospect->id, 'embed' => 1]))->assertOk()->getContent();
+
+        $this->assertStringContainsString('Create the property file to prepare a presentation', $h);
+        $this->assertStringContainsString('action="' . route('road-to-sold.prospects.create-property', $this->prospect->id) . '"', $h);
+        $this->assertSame($before, DB::table('properties')->count(), 'opening the step made nothing');
+        $this->assertNull(DB::table('rts_prospects')->where('id', $this->prospect->id)->value('property_id'));
+
+        $to = $this->actingAs($this->agent)->post(route('road-to-sold.prospects.create-property', $this->prospect->id), ['embed' => 1])->assertRedirect()->headers->get('Location');
+        $this->assertStringContainsString('/presentation-path', $to);
+        $this->assertNotNull(DB::table('rts_prospects')->where('id', $this->prospect->id)->value('property_id'), 'the button made the file');
+
+        $go = $this->actingAs($this->agent)->get($to)->assertRedirect()->headers->get('Location');
+        $this->assertStringContainsString('generate_presentation=1', $go, 'with a property the Generate window opens as before');
+
+        $this->actingAs($this->makeAgent())->post(route('road-to-sold.prospects.create-property', $this->prospect->id))->assertForbidden();
+    }
+
+    public function test_the_popup_mutes_a_step_with_no_screen_and_step_5_says_appointment_everywhere(): void
+    {
+        $js = (string) file_get_contents(public_path('js/pitch-popup.js'));
+        $this->assertStringContainsString('.cxp-step[data-click="0"]:not([data-state="current"])', $js);
+        $this->assertStringContainsString("'Not yet'", $js);
+        $this->assertStringContainsString('pop.planned', $js, 'nothing is muted before the plan has answered');
+
+        $this->assertSame('Book appointment', ProspectStepService::LABELS['evaluation']);
+        $done = view('layouts.partials._embed-done')->render();
+        $this->assertStringContainsString('Done - back to Road to Sold', $done);
     }
 }

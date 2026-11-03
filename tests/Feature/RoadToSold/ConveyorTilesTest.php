@@ -278,7 +278,7 @@ final class ConveyorTilesTest extends TestCase
         $this->at(S::EVALUATION_DONE, 'Held Row');
         $label = fn (string $station) => preg_match('/data-qa="station-action"[^>]*data-action="([^"]+)"/', $this->actingAs($this->agent)->get(route('road-to-sold.index', ['block' => 'station', 'station' => $station]))->getContent(), $m) ? $m[1] : null;
         $this->assertSame('Log contact', $label('owner'));
-        $this->assertSame('Book evaluation', $label('contacted'));
+        $this->assertSame('Book appointment', $label('contacted'));
         $this->assertSame('Appointment feedback', $label('booked'));
         $this->assertSame('Result', $label('held'));
         $held = $this->actingAs($this->agent)->get(route('road-to-sold.index', ['block' => 'station', 'station' => 'held']))->getContent();

@@ -38,6 +38,7 @@
         if ((/\/command-center\/calendar$/.test(u.pathname) && u.searchParams.has('capture_feedback')) || /\/road-to-sold\/prospects\/\d+\/result-form$/.test(u.pathname)) return 'results';
         var ps = u.pathname.match(/\/road-to-sold\/prospects\/\d+\/property-step\/(draft|active)$/);
         if (ps) return ps[1];
+        if (/\/road-to-sold\/prospects\/\d+\/presentation-path$/.test(u.pathname)) return 'presentation';   // a record with no property file: the one-line "create the file" screen
         if (/\/outreach\/pitch-ready$/.test(u.pathname)) return 'pitch';
         if (/\/outreach\/evaluation-booked\//.test(u.pathname) || (/\/command-center\/calendar$/.test(u.pathname) && u.searchParams.has('pitch_book'))) return 'evaluation';
         if (/\/contacts\/\d+\/outreach\//.test(u.pathname)) return 'contact';
@@ -56,6 +57,7 @@
         '.cxp-step[data-state="current"]{background:var(--brand-button,#0ea5e9);border-color:var(--brand-button,#0ea5e9);color:#fff}' +
         '.cxp-step[data-state="done"]{color:var(--text-primary,#0f172a)}' +
         '.cxp-step[data-click="1"]{cursor:pointer}' +
+        '.cxp-step[data-click="0"]:not([data-state="current"]){opacity:.5;color:var(--text-muted,#94a3b8);cursor:default}' +
         '.cxp-step[data-click="1"]:hover{border-color:var(--brand-button,#0ea5e9)}' +
         '.cxp-body{position:relative;flex:1;min-height:0;display:flex}' +
         '.cxp-frame{flex:1;width:100%;border:0;background:var(--bg,#f8fafc)}' +
@@ -138,6 +140,10 @@
                 var clickable = !!pop.urls[s[0]];
                 b.setAttribute('data-click', clickable ? '1' : '0');
                 b.style.cursor = clickable ? 'pointer' : 'default';
+                // a step with no screen for THIS record is muted and says so (the plan already knows which have one); not before the plan has answered
+                var muted = !clickable && state !== 'current' && (pop.planned || !pop.plan);
+                b.setAttribute('data-click', clickable ? '1' : (muted ? '0' : '2'));
+                if (muted) { b.setAttribute('title', 'Not yet'); } else { b.removeAttribute('title'); }
             });
             var label = pop.current ? NEXT_LABEL[pop.current] : '';
             nextBtn.style.display = label && next ? '' : 'none';
@@ -183,6 +189,7 @@
                     // one title for every step: the property's address, not the label of the button that opened it ("Find the owner - ..." stayed on the Pitch step)
                     if (d.steps.address) { title.textContent = 'Pitch · ' + d.steps.address; }
                     Object.keys(d.steps).forEach(function (k) { if (typeof d.steps[k] === 'string' && k !== 'address' && (!pop.urls[k] || LATE.indexOf(k) >= 0)) pop.urls[k] = d.steps[k]; });
+                    pop.planned = true;
                     pop.reached = d.steps.reached && typeof d.steps.reached === 'object' ? d.steps.reached : {};
                     paint();
                 })

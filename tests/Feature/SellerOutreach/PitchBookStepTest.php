@@ -109,7 +109,7 @@ final class PitchBookStepTest extends TestCase
         $this->assertSame('property_evaluation', $q['prefill_class']);
         $this->assertSame('1', $q['pitch_book']);
         $this->assertSame((string) $p->id, $q['rts_prospect']);
-        $this->assertSame('Evaluation: 12 Pitch Road', $q['prefill_title']);
+        $this->assertSame('Appointment: 12 Pitch Road', $q['prefill_title']);
         $this->assertSame($this->propertyId, json_decode($q['prefill_properties'], true)[0]['id']);
         $att = json_decode($q['prefill_attendees'], true)[0];
         $this->assertSame([(int) $this->owner->id, 'seller_contact'], [$att['id'], $att['role']], 'the owner is the seller');

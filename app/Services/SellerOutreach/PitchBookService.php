@@ -28,7 +28,7 @@ final class PitchBookService
             'pitch_book' => '1',
             'prefill_contact_id' => $seller->id,
             'prefill_class' => 'property_evaluation',
-            'prefill_title' => 'Evaluation: ' . $address,
+            'prefill_title' => 'Appointment: ' . $address,
             'prefill_properties' => json_encode([['id' => (int) $property->id, 'address' => $address]], JSON_UNESCAPED_UNICODE),
             'prefill_attendees' => json_encode([[
                 'id' => (int) $seller->id, 'name' => $name, 'type' => 'contact', 'role' => 'seller_contact',

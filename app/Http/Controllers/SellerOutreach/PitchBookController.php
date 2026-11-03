@@ -36,7 +36,7 @@ final class PitchBookController extends Controller
         abort_unless(in_array((int) $event->user_id, [(int) $user->id, (int) $user->ownershipUserId()], true), 403);
 
         $property = $event->property_id ? Property::withoutGlobalScopes()->where('agency_id', $agencyId)->find((int) $event->property_id) : null;
-        $address = $property ? (trim((string) $property->composeAddressFromParts()) ?: (string) $property->address) : trim(preg_replace('/^Evaluation:\s*/i', '', (string) $event->title));
+        $address = $property ? (trim((string) $property->composeAddressFromParts()) ?: (string) $property->address) : trim(preg_replace('/^(Evaluation|Appointment):\s*/i', '', (string) $event->title));
         $when = \Illuminate\Support\Carbon::parse($event->event_date);
         $whenText = $when->format('j M H:i');
 
