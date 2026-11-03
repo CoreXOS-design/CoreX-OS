@@ -115,6 +115,7 @@ final class TrainingLibraryTest extends TestCase
     public function test_switching_guided_tours_off_hides_the_library_like_the_rest_of_that_family(): void
     {
         AgencyFeature::create(['agency_id' => $this->agent->agency_id, 'feature_key' => 'guided-tours', 'enabled' => false]);
+        app(\App\Services\Features\AgencyFeatureService::class)->forget(); // the service remembers answers within the process
         $this->video();
         $this->actingAs($this->agent)->get(route('corex.training-library.index'))->assertNotFound();
     }

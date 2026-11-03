@@ -95,7 +95,8 @@ final class AuctionLotStatusServiceTest extends TestCase
 
     public function test_publish_catalogue_snapshots_status_and_marks_property_on_auction(): void
     {
-        $property = $this->makeProperty(['status' => 'active']);
+        // sale_method only flips to 'auction' together with a real lot, in AuctionLotAttacher (not here), so a property carrying a lot already has it.
+        $property = $this->makeProperty(['status' => 'active', 'sale_method' => 'auction']);
         $auction = $this->makeAuction();
         $lot = $this->makeLot($auction, $property);
 

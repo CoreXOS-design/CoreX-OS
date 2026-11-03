@@ -180,6 +180,7 @@ final class NarratedTourTest extends TestCase
     public function test_the_agency_can_switch_narrated_tours_off_and_the_button_goes_with_it(): void
     {
         AgencyFeature::create(['agency_id' => $this->agent->agency_id, 'feature_key' => 'narrated-tours', 'enabled' => false]);
+        app(\App\Services\Features\AgencyFeatureService::class)->forget(); // the service remembers answers within the process
         $this->actingAs($this->agent)->getJson(route('api.v1.training-tours.show', 'book-a-viewing'))->assertNotFound();   // a switched-off feature answers like a screen that does not exist
         $this->assertStringNotContainsString('data-guide-me', $this->renderGuideMe());
     }

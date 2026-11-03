@@ -205,7 +205,9 @@ class DemoConnectorTest extends TestCase
         $this->actingAs($this->owner)
             ->get(route('admin.demo-access.index'))
             ->assertOk()
-            ->assertSee('Not set up');
+            // The page says it twice since the 17 Oct list-look pass: a red badge in the header and the alert below.
+            ->assertSee('Demo not connected')
+            ->assertSee('No demo connection.');
     }
 
     // ── The DEMO connection page ─────────────────────────────────────────────

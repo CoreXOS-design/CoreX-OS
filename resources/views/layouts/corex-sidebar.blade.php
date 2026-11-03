@@ -1426,6 +1426,7 @@
         @endfeature
 
         {{-- AT-525 - Training library: the auto-generated how-to videos (a short video with voice-over for a screen, explaining what to click AND why it matters). --}}
+        @feature('guided-tours')
         @permission('training_videos.view')
         <a href="{{ route('corex.training-library.index') }}" data-nav="training-library"
            class="corex-nav-item {{ request()->routeIs('corex.training-library.*') ? 'active' : '' }}">
@@ -1435,6 +1436,7 @@
             <span>Training library</span>
         </a>
         @endpermission
+        @endfeature
 
         {{-- ═══════════════════════════════════════════
              AGENCY TRACKER (expandable group)

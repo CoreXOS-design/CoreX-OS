@@ -61,9 +61,10 @@ final class AgencyContextGuardTest extends TestCase
         $this->assertSame($before, CommissionSetting::withoutGlobalScopes()->count(), 'no row was written');
 
         // ...and it is a usable settings object, not a bag of nulls.
-        $this->assertSame(80, (int) $settings->commission_split_agent);
-        $this->assertSame(160000.0, (float) $settings->annual_cap);
-        $this->assertSame(3.50, (float) $settings->tier_1_percent);
+        // Neutral defaults since 14 Oct 2026 (commission_engine_spec.md section on a new agency's settings): the agent keeps 100%, no cap, no tiers.
+        $this->assertSame(100, (int) $settings->commission_split_agent);
+        $this->assertSame(0.0, (float) $settings->annual_cap);
+        $this->assertSame(0.0, (float) $settings->tier_1_percent);
     }
 
     /** The guard is what makes the sentinel safe. Without it this is an FK-1452 on write. */

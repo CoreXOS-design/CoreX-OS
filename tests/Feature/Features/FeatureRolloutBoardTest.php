@@ -82,7 +82,7 @@ final class FeatureRolloutBoardTest extends TestCase
         $this->save($owner, [
             $this->row($b->id, 'Second renamed', ['presentations', 'viewing-packs'], 'sales', 'Present better.'),
             $this->row(null, 'Brand new', ['rentals'], 'rentals'),
-        ])->assertSessionHasNoErrors()->assertRedirect(route('admin.feature-rollout-defaults.index'));
+        ])->assertSessionHasNoErrors()->assertRedirect(route('admin.feature-rollout-defaults.index', ['plan' => $a->plan_id])); // several plans (28 Oct, spec §22): the board returns to the plan it saved
 
         $this->assertSoftDeleted('feature_rollout_waves', ['id' => $a->id]);
         $this->assertSame(['Second renamed', 'Brand new'], FeatureRolloutWave::orderBy('position')->pluck('title')->all());

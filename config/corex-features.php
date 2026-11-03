@@ -516,6 +516,7 @@ return [
         // route_names are refused only if guided tours are off.
         'settings_section' => null, 'route_prefixes' => ['corex/guided-tours', 'corex/training-library'], 'global_flag' => null,
         'route_names' => ['corex.training-library.*'],
+        'view_dirs' => ['corex/training-library/'],
         'permission_keys' => ['training_videos.view', 'training_videos.generate'],
     ],
 
@@ -524,7 +525,8 @@ return [
         'explain' => 'A "Guide me" button on a few key screens: a voice tells the agent what to do and why, and the tour waits until it is done.',
         'affects' => 'Whether the "Guide me" voice tours are offered. Off hides the button; the plain guided tours and how-to videos stay as they are. Nothing is stored.',
         'default' => true, 'core' => false, 'depends_on' => ['guided-tours'],
-        'nav_permission' => [], 'sidebar_section' => 'tools',
+        // No sidebar item of its own (the "Guide me" button sits on the screens), so no sidebar_section: FeatureNavGuardCoverageTest wants an @feature nav guard for every one that has it.
+        'nav_permission' => [], 'sidebar_section' => null,
         'settings_section' => null, 'route_prefixes' => [], 'global_flag' => null,
         'permission_keys' => ['training_tours.use'],
     ],

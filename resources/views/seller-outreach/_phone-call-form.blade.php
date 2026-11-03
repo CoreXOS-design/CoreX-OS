@@ -5,10 +5,12 @@
     $addr = $property ? (trim((string) $property->composeAddressFromParts()) ?: ($property->address ?: 'this property')) : null;
     $inputStyle = 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);';
     $callAt = \Carbon\Carbon::parse($phoneCall['now']);
+    // The call is written through the Road to Sold outcome route, which refuses when that feature is switched off for the agency.
+    $rtsOn = feature('road-to-sold');
 @endphp
 <div data-qa="phone-call" class="space-y-4"
      x-data="phoneCallForm({
-        url: @js(route('road-to-sold.outcomes.record')),
+        url: @js($rtsOn ? route('road-to-sold.outcomes.record') : null),
         csrf: @js(csrf_token()),
         tp: @js($phoneCall['tracked_property_id']),
         now: @js($phoneCall['now']),
@@ -17,7 +19,11 @@
         bookUrl: @js($phoneCall['book_url']),
      })">
 
-    @if(! $phoneCall['tracked_property_id'])
+    @if(! $rtsOn)
+        <div class="rounded-md p-4 text-sm" data-qa="phone-rts-off" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">
+            Road to Sold is switched off for your agency, so a call cannot be logged here.
+        </div>
+    @elseif(! $phoneCall['tracked_property_id'])
         <div class="rounded-md p-4 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">
             This pitch is about an address only, so there is no property on your Road to Sold to log a call against. Link or create the property on the contact first.
         </div>

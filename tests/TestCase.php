@@ -52,5 +52,10 @@ abstract class TestCase extends BaseTestCase
         // execution time of 300 seconds exceeded" a few minutes after the first test that touched one. The clock is
         // lifted at the start of every test (the CLI default is "no limit"); the web handlers are untouched.
         @set_time_limit(0);
+
+        // AuditContext is process-static: a test that signed in as someone (or a console command that stamped a source) leaves that
+        // user id behind, and the next test's audit rows then point at a user that no longer exists (FK 1452 - swallowed by the
+        // audit writer, so the row silently never appears). Reset it at the start of every test, like the permission cache above.
+        \App\Support\Audit\AuditContext::reset();
     }
 }

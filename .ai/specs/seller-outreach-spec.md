@@ -680,3 +680,6 @@ AT-142: LIVE (`main` `65f9c70b`, cherry-pick; Staging `d3336b15`). AT-145: LIVE 
 
 ## Starter template is neutral (14 Oct 2026, Cape walk)
 `SellerOutreachTemplateDefaultsService` seeds a new agency's first WhatsApp template from `STARTER_BODY` - the platform's own wording, merge fields only ({agency_name}, {property_town}, {property_suburb}, {agency_ffc}, {agent_ffc}, {branch_or_company_tel}, {opt_out_link}). It used to clone agency 1's first template verbatim ("...a registered estate agency on the KZN South Coast"), so every new agency told its sellers it worked on the KZN South Coast. Earlier clones: migration `2026_10_14_150000` swaps that one phrase (agency 1 and an agency's own edits are untouched).
+
+## Build log - baseline hygiene (3 Nov 2026)
+The Phone call tab logs the call through the Road to Sold outcome route, so it now checks the Road to Sold switch first: with Road to Sold off for the agency the tab says so in plain words instead of offering a form whose save would be refused.

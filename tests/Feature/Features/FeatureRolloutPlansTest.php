@@ -171,8 +171,10 @@ final class FeatureRolloutPlansTest extends TestCase
 
         $this->actingAs($this->owner)->get(route('admin.feature-rollout-defaults.index'))->assertOk()->assertSee('Rentals only')->assertSee('Sales only');
         $this->actingAs($this->owner)->get(route('admin.feature-rollout-defaults.index', ['p_q' => 'Rentals']))->assertOk()
-            ->assertSee('Rentals only')->assertDontSee('Sales only');
-        $this->actingAs($this->owner)->get(route('admin.feature-rollout-defaults.index', ['p_type' => 'sales']))->assertOk()->assertDontSee('Rentals only');
+            ->assertSee('Rentals only')
+            // Scoped to the plan-name cell: the "For" filter dropdown on the same page lists "Sales only" / "Rentals only" as options.
+            ->assertDontSee('>Sales only</span>', false);
+        $this->actingAs($this->owner)->get(route('admin.feature-rollout-defaults.index', ['p_type' => 'sales']))->assertOk()->assertDontSee('>Rentals only</span>', false);
     }
 
     public function test_owner_start_uses_the_chosen_plan_and_refuses_an_archived_one(): void

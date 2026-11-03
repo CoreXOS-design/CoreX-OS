@@ -271,7 +271,10 @@ class SidebarFeatureTogglesTest extends TestCase
         $this->assertStringContainsString("push('reports')", $this->sidebarHtml($admin), 'Suburb Report (Market intelligence) is still on, so the group stays');
 
         $this->off($agency, 'prospecting');
-        $this->assertStringNotContainsString("push('reports')", $this->sidebarHtml($admin), 'all four off => the group hides itself');
+        $this->assertStringContainsString("push('reports')", $this->sidebarHtml($admin), 'Branch / Agency Performance and the Worksheet Market (Agency Tracker, moved into this group by AT-454 steps 7/10, 23 Oct 2026) are still on, so the group stays');
+
+        $this->off($agency, 'agency-tracker');
+        $this->assertStringNotContainsString("push('reports')", $this->sidebarHtml($admin), 'every report off => the group hides itself');
     }
 
     public function test_lead_response_sits_in_the_reports_menu_and_obeys_its_own_switch(): void

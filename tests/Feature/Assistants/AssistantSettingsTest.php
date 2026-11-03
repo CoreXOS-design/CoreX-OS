@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Tests\Feature\Assistants;
 
 use App\Models\Agency;
+use App\Models\AgencyFeature;
 use App\Models\Branch;
 use App\Models\Role;
 use App\Models\RolePermission;
 use App\Models\User;
+use App\Services\Features\AgencyFeatureService;
 use App\Services\PermissionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -45,6 +47,9 @@ final class AssistantSettingsTest extends TestCase
         parent::setUp();
 
         $this->agency = Agency::create(['name' => 'Home Finders Coastal', 'slug' => 'hfc-' . uniqid()]);
+        // The Assistants screens are refused outright while the 'assistants' feature is off (it defaults off); this file is about the agency's own assistants_enabled switch, so the feature is on.
+        AgencyFeature::create(['agency_id' => $this->agency->id, 'feature_key' => 'assistants', 'enabled' => true]);
+        app(AgencyFeatureService::class)->forget();
         $branch       = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Margate']);
 
         Role::create(['name' => 'admin', 'label' => 'Admin', 'agency_id' => $this->agency->id]);
