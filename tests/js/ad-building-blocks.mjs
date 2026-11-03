@@ -315,6 +315,9 @@ section('§22 premium poster blocks');
     const strip = e({ field: 'feature_strip', stripCount: 8 });
     ok('feature_strip draws one cell per detail: 2 Bedrooms, 1 Bathroom + 4 features = 6 (no garage, no empty cells)', (strip.match(/border-radius:50%/g) || []).length === 6, strip);
     ok('feature_strip words are escaped and shown', strip.includes('2 Bedrooms') && strip.includes('Secure Complex'));
+    // A listing value with no name ("1", "18119") is not a feature: it must not become a cell with a tick and a bare number.
+    const junk = K.contentHtml(Object.assign({ id: 'p2', x: 0, y: 0, w: 960, h: 120, zIndex: 1, fontFamily: 'Figtree', field: 'feature_strip', stripCount: 8 }, {}), Object.assign({}, P22, { features_list: ['1', '18119', 'Balcony'] }), {});
+    ok('feature_strip skips bare-number "features" (1, 18119) and keeps the real ones', !/>1<\/div>|>18119<\/div>/.test(junk) && junk.includes('Balcony') && junk.includes('2 Bedrooms'), junk.slice(0, 400));
     ok('feature_strip stripCount caps the cells', (e({ field: 'feature_strip', stripCount: 3 }).match(/border-radius:50%/g) || []).length === 3);
     ok('feature_strip with nothing on the listing is blank on a real ad', K.isBlankElement({ field: 'feature_strip', stripCount: 8 }, {}, {}) === true);
     ok('feature_strip shows sample cells in the builder', K.contentHtml({ id: 's', field: 'feature_strip', w: 960, h: 120, stripCount: 8 }, {}, { placeholders: true }).includes('Secure Complex'));

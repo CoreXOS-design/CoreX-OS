@@ -3022,3 +3022,13 @@ Found by replaying generation #6's saved answers (reference-picture poster). Thr
 - Replay proof: generation #6's first saved answer (3 overlap errors) now validates; its second still fails honestly (the longest possible suburb cannot fit that header band).
 - Tests: `AiTemplateOverlapTrimTest` (trim, never clips words, font floor, a moved box moves once). `AiTemplateOverlapGuardTest` accepts "trimmed" as well as "moved" for the vacant-land clash. Two `AiTemplateRepairTest` cases that failed on untouched Staging now pass.
 - Still failing on untouched Staging and NOT touched: 11 older tests (`AiTemplateRepairTest` ×2, `AiTemplateOverlapGuardTest` ×4, `AiTemplateBuilderTest` ×5) written before the text-fit rule.
+
+### 22.12 The poster rendered flat — pill over the brush stroke, junk strip labels (2026-11-03)
+
+First reference-picture poster that got through (generation #7, template #5) was rendered in headless Chromium and compared with the picture. The AI had asked for the right pieces (slanted header panel, gold brush stroke, script "For Sale", mosaic, icon strip, agent panel) but three things flattened it:
+1. **The status badge's default red pill covered the brush stroke.** `status_badge` starts as an opaque red pill; the model wrote its script "For Sale" over a gold stroke without setting `bgOpacity` 0. New repair `clearPillsOverShapes()` (runs on the raw answer): a `status_badge` / `badge` for which the model set neither `bgColor` nor `bgOpacity`, sitting >=60% on top of a shape / colour block of its own (beneath it, solid, not page-sized), gets `bgOpacity` 0. A badge whose colours the model chose is never touched. The prompt's status_badge help now says so.
+2. **A script face was refused on the status badge** ("a script font is for a short headline") although "For Sale" is exactly that; `status_badge` joins `SCRIPT_OK_FIELDS` (same length / size rules).
+3. **The icon strip showed junk cells** ("1", "18119": listing values with no name). `stripCells()` now skips any label without three letters in a row.
+4. **Brush stroke band told to the AI**: the stroke paints only the middle ~30-70% of its box height with ragged ends; the prompt now says to size the box ~2.5x the words and keep words inside the band (no hard checker rule: that would have added refusals).
+- Proof: generation #7's saved answer, replayed through the fixed checker and rendered, shows the gold brush stroke with the script "For Sale". Tests: `AiTemplatePremiumLookTest`; `tests/js/ad-building-blocks.mjs` (junk strip labels).
+- Not changed (data, not design): an empty "note for this ad" leaves its dark panel empty; a listing without an agent photo / agency without a tagline or website leaves those spots blank.

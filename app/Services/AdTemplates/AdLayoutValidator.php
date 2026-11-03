@@ -161,7 +161,7 @@ final class AdLayoutValidator
     private const SCRIPT_FONTS = ['Great Vibes', 'Dancing Script'];
 
     /** The only elements a script face may be put on (headline-type, short words; never a price, phone number or body text). */
-    private const SCRIPT_OK_FIELDS = ['title', 'custom_text', 'badge', 'agency_name', 'tagline'];
+    private const SCRIPT_OK_FIELDS = ['title', 'custom_text', 'badge', 'agency_name', 'tagline', 'status_badge'];
 
     /** §22 feature icon strip: the least height that holds a ring icon and a one-line label, and the least width per cell. */
     private const MIN_STRIP_HEIGHT     = 90;
@@ -197,7 +197,7 @@ final class AdLayoutValidator
         'size_or_land'      => ['label' => 'Size / Land Size',      'help' => 'floor size, else erf size'],
         'reference'         => ['label' => 'Reference',             'help' => 'listing reference number'],
         'address'           => ['label' => 'Address',               'help' => 'street address'],
-        'status_badge'      => ['label' => 'Status Badge',          'help' => 'FOR SALE / TO LET / SOLD, coloured pill'],
+        'status_badge'      => ['label' => 'Status Badge',          'help' => 'FOR SALE / TO LET / SOLD; a red pill by default - to write it straight onto a shape or brush stroke of your own (a script face on a gold stroke, say) set "bgOpacity" 0'],
         'agent_name'        => ['label' => 'Agent 1 · Name',        'help' => 'the listing agent'],
         'agent_email'       => ['label' => 'Agent 1 · Email',       'help' => 'agent email'],
         'agent_phone'       => ['label' => 'Agent 1 · Phone',       'help' => 'agent phone'],
@@ -387,12 +387,67 @@ final class AdLayoutValidator
         $size    = self::SIZES[$sizeKey] ?? null;
         if ($size !== null) {
             $option = $this->repairRaw($option, $size['w'], $size['h'], $repairs, $mode);
+            $option = $this->clearPillsOverShapes($option, $size['w'] * $size['h'], $repairs);
         }
 
         $result = $this->run($option, $sizeKey, true, $repairs, $mode);
         $result['repairs'] = array_values(array_unique($repairs));
 
         return $result;
+    }
+
+    /**
+     * A status badge / badge the model left on its DEFAULT coloured pill (it set neither bgColor nor bgOpacity) but placed on top of a
+     * shape or colour block of its own - a "FOR SALE" in script across a gold brush stroke - is meant to be written straight onto that
+     * shape. The default red pill would be painted over the artwork and hide it, so the pill is switched off. A badge whose colours
+     * the model chose is never touched.
+     *
+     * @param  array<string, mixed> $option
+     * @param  array<int, string>   $repairs
+     * @return array<string, mixed>
+     */
+    private function clearPillsOverShapes(array $option, int $canvasArea, array &$repairs): array
+    {
+        $els = $option['elements'] ?? null;
+        if (! is_array($els) || ! array_is_list($els)) {
+            return $option;
+        }
+        $box = static function ($e): ?array {
+            if (! is_array($e) || ! isset($e['x'], $e['y'], $e['w'], $e['h']) || ! is_numeric($e['x']) || ! is_numeric($e['y']) || ! is_numeric($e['w']) || ! is_numeric($e['h'])) {
+                return null;
+            }
+
+            return [(float) $e['x'], (float) $e['y'], (float) $e['x'] + (float) $e['w'], (float) $e['y'] + (float) $e['h']];
+        };
+        foreach ($els as $i => $e) {
+            if (! is_array($e) || ! in_array($e['field'] ?? '', ['status_badge', 'badge'], true) || isset($e['bgOpacity']) || isset($e['bgColor'])) {
+                continue;
+            }
+            $b = $box($e);
+            if ($b === null || ($b[2] - $b[0]) * ($b[3] - $b[1]) <= 0) {
+                continue;
+            }
+            $z = isset($e['zIndex']) && is_numeric($e['zIndex']) ? (int) $e['zIndex'] : $i + 1;
+            foreach ($els as $j => $s) {
+                $sb = $box($s);
+                if ($sb === null || ! in_array($s['field'] ?? '', ['shape', 'color_block'], true)) {
+                    continue;
+                }
+                $sz = isset($s['zIndex']) && is_numeric($s['zIndex']) ? (int) $s['zIndex'] : $j + 1;
+                $op = isset($s['opacity']) && is_numeric($s['opacity']) ? (float) $s['opacity'] : 1.0;
+                if ($sz >= $z || $op < self::BACKDROP_MIN_ALPHA || ($sb[2] - $sb[0]) * ($sb[3] - $sb[1]) > $canvasArea * 0.5) {
+                    continue;   // not beneath it, too faint to count, or a page-sized background rather than a shape of its own
+                }
+                $overlap = max(0.0, min($b[2], $sb[2]) - max($b[0], $sb[0])) * max(0.0, min($b[3], $sb[3]) - max($b[1], $sb[1]));
+                if ($overlap >= 0.6 * ($b[2] - $b[0]) * ($b[3] - $b[1])) {
+                    $option['elements'][$i]['bgOpacity'] = 0;
+                    $repairs[] = 'Element ' . ($i + 1) . " ({$e['field']}): sat on a shape of its own, so its default coloured pill was removed (bgOpacity 0).";
+                    break;
+                }
+            }
+        }
+
+        return $option;
     }
 
     /**

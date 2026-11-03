@@ -1243,7 +1243,8 @@
         var out = [], seen = {};
         function add(label) {
             var k = String(label).toLowerCase().replace(/s$/, '');
-            if (label && !seen[k]) { seen[k] = 1; out.push(label); }
+            // A bare number or code ("1", "18119") is a listing value with no name, not a feature a cell can show.
+            if (label && /[A-Za-z]{3}/.test(String(label)) && !seen[k]) { seen[k] = 1; out.push(label); }
         }
         function count(v, one, many) { var c = parseInt(v, 10); return c > 0 ? (c === 1 ? '1 ' + one : c + ' ' + many) : ''; }
         add(count(prop.beds, 'Bedroom', 'Bedrooms'));
