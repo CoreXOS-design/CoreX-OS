@@ -455,10 +455,10 @@ class Property24ListingMapper
         // Outside areas (balcony, courtyard, patio, veranda, etc.) — entered on
         // their space or a room → $hasAny (globalFeatures strips space/room copies).
         $patios = $countSpaces('Patio') + $countSpaces('Veranda') + $countSpaces('Lapa') + $countSpaces('Courtyard');
-        if ($patios > 0 || $hasAny('Balcony', 'Courtyard')) {
+        if ($patios > 0 || $countSpaces('Balcony') > 0 || $hasAny('Balcony', 'Courtyard')) {
             $features['outsideArea'] = [
                 'outsideAreas' => (int) max($patios, 1),
-                'balcony'      => $hasAny('Balcony'),
+                'balcony'      => $hasAny('Balcony') || $countSpaces('Balcony') > 0,
                 'courtyard'    => $hasAny('Courtyard') || $countSpaces('Courtyard') > 0,
                 'roofArea'     => false,
             ];

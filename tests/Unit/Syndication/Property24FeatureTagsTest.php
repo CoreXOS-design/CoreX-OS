@@ -79,6 +79,22 @@ class Property24FeatureTagsTest extends TestCase
         $this->assertSame(2, $features['receptionRooms']);
     }
 
+    public function test_balcony_space_sets_p24_outside_area_balcony(): void
+    {
+        $features = $this->featuresWithSpaces([['type' => 'Balcony', 'count' => 1]]);
+
+        $this->assertTrue($features['outsideArea']['balcony']);
+    }
+
+    public function test_balcony_feature_on_a_patio_sets_p24_outside_area_balcony(): void
+    {
+        $features = $this->featuresWithSpaces([
+            ['type' => 'Patio', 'count' => 1, 'featuresAll' => ['Balcony'], 'units' => []],
+        ]);
+
+        $this->assertTrue($features['outsideArea']['balcony']);
+    }
+
     public function test_reception_rooms_always_emitted_so_stale_value_clears(): void
     {
         // Emitted unconditionally (incl. 0) — P24 keeps fields absent from the

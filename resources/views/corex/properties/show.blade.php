@@ -12211,7 +12211,7 @@ const _SPACE_FEATURES = {
         'Window':  ['Cottage Windows'],
     },
     'Patio': {
-        'General': ['Built-In Braai','Covered','Pizza Oven'],
+        'General': ['Balcony','Built-In Braai','Covered','Pizza Oven'],
         'Floor':   ['Laminated Floors','Parquet Floors','Tiled Floors','Vinyl Floors','Wooden Floors'],
         'Window':  ['Aluminium Windows','Bay Windows','Cottage Windows','Double Glazed Windows','Lead Windows','Sash Windows','Skylight Window','Stained Windows','Steel Windows','Wood Windows'],
     },
@@ -12222,7 +12222,7 @@ const _DEFAULT_SPACE_FEATURES = {
     'Wall':   ['Brick Wall','Concrete Wall','Plaster Wall','Wood Wall'],
     'Window': ['Aluminium Windows','Bay Windows','Blinds','Cottage Windows','Curtain Rails','Double Glazed Windows','Lead Windows','Picture Windows','Sash Windows','Skylight Window','Stained Windows','Steel Windows','Wood Windows'],
 };
-const _ALL_SPACE_TYPES = ['Bedroom','Bathroom','Garage','Parking','Kitchen','Garden','Pool','Flatlet','Study','Domestic Room','Lounge','Dining Room','Outside Toilet','Domestic Bathroom','Entrance Hall','Bar','Boardroom','Boat Launch','Boathouse','Braai Room','Cellar','Changing Room','Clubhouse','Courtyard','Gazebo','Greenhouse','Gym','Jacuzzi','Jetty','Lapa','Laundry Room','Linen Room','Loft','Office','Patio','Pool Shed','Reception Room','Sauna','Scullery','Shed','Squash Court','Stable','Storeroom','Studio','Tennis Court','TV Room','Veranda','Wendy House','Workshop','Yard'];
+const _ALL_SPACE_TYPES = ['Bedroom','Bathroom','Garage','Parking','Kitchen','Garden','Pool','Flatlet','Study','Domestic Room','Lounge','Dining Room','Outside Toilet','Domestic Bathroom','Entrance Hall','Bar','Balcony','Boardroom','Boat Launch','Boathouse','Braai Room','Cellar','Changing Room','Clubhouse','Courtyard','Gazebo','Greenhouse','Gym','Jacuzzi','Jetty','Lapa','Laundry Room','Linen Room','Loft','Office','Patio','Pool Shed','Reception Room','Sauna','Scullery','Shed','Squash Court','Stable','Storeroom','Studio','Tennis Court','TV Room','Veranda','Wendy House','Workshop','Yard'];
 const _FEATURE_CATEGORIES = {
     theProperty:    { label: 'The Property', features: ['Air Conditioned','Balcony','Cleaning Service','Communal Braai Area','Complex','Freehold','Furnished','Green Building','Ground Floor Unit','Investment','Leasehold','Multi Tenanted','Natural Light','No Transfer Duty','Office Building','Pet Friendly','Pets Not Allowed','Renovation Fixer-Upper','Sea View','Second Floor and Above','Sectional Title','Serviced','Single Storey','Standalone','Top Floor','Unfurnished','Wheelchair Friendly'] },
     building:       { label: 'Building',     features: ['Wall: Brick','Wall: Concrete','Wall: Face Brick','Wall: Plaster','Wall: Stone','Wall: Timber','Floor: Carpeted','Floor: Concrete','Floor: Laminated','Floor: Marble','Floor: Parquet','Floor: Tiled','Floor: Vinyl','Floor: Wooden','Roof: Aluminium','Roof: Asbestos','Roof: Clay Tiles','Roof: Concrete','Roof: Concrete Tiles','Roof: Corrugated Iron','Roof: IBR','Roof: Insulation','Roof: Slate','Roof: Thatch','Roof: Tiles','Roof: Waterproofing','Roof: Zinc','Window: Aluminium','Window: Double Glazed','Window: PVC','Window: Steel','Window: Wood','Style: Cape Dutch','Style: Colonial','Style: Contemporary','Style: Conventional','Style: Mediterranean','Style: Modern','Style: Spanish','Style: Tuscan','Style: Victorian'] },
@@ -12246,6 +12246,7 @@ const _SPACE_SVG = {
     'Lounge':      `<svg${_SVG_ATTRS}><path d="M3 16h18M6 16V11a3 3 0 016 0m0 0a3 3 0 016 0v5"/><path d="M3 16v2M21 16v2M5 11H2v5M19 11h3v5"/></svg>`,
     'Dining Room': `<svg${_SVG_ATTRS}><path d="M18 2v20M14 2c0 4-2 7-2 7s2 3 2 7M10 2v5a3 3 0 01-6 0V2M7 7v13"/></svg>`,
     'Laundry Room':`<svg${_SVG_ATTRS}><rect x="2" y="3" width="20" height="18" rx="2"/><circle cx="12" cy="13" r="4"/><path d="M2 8h20M6 6h.01"/></svg>`,
+    'Balcony':     `<svg${_SVG_ATTRS}><path d="M3 10h18M5 10v10M19 10v10M3 20h18M9 10v10M15 10v10"/><path d="M7 10V6a5 5 0 0 1 10 0v4"/></svg>`,
     'Patio':       `<svg${_SVG_ATTRS}><path d="M3 11h18M12 3l-9 8h18l-9-8z"/><path d="M5 11v9M19 11v9M3 20h18"/></svg>`,
     'Gym':         `<svg${_SVG_ATTRS}><path d="M4 12h16M6 8v8M18 8v8M2 10v4M22 10v4"/></svg>`,
     'Office':      `<svg${_SVG_ATTRS}><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 20h8M12 17v3"/></svg>`,

@@ -26,7 +26,7 @@ return [
         'Bedroom', 'Bathroom', 'Garage', 'Parking', 'Kitchen', 'Garden',
         'Pool', 'Flatlet', 'Study', 'Domestic Room', 'Lounge', 'Dining Room',
         'Outside Toilet', 'Domestic Bathroom', 'Entrance Hall', 'Bar',
-        'Boardroom', 'Boat Launch', 'Boathouse', 'Braai Room', 'Cellar',
+        'Balcony', 'Boardroom', 'Boat Launch', 'Boathouse', 'Braai Room', 'Cellar',
         'Changing Room', 'Clubhouse', 'Courtyard', 'Gazebo', 'Greenhouse',
         'Gym', 'Jacuzzi', 'Jetty', 'Lapa', 'Laundry Room', 'Linen Room',
         'Loft', 'Office', 'Patio', 'Pool Shed', 'Reception Room', 'Sauna',
@@ -114,7 +114,7 @@ return [
             'Window'  => ['Cottage Windows'],
         ],
         'Patio' => [
-            'General' => ['Built-In Braai','Covered','Pizza Oven'],
+            'General' => ['Balcony','Built-In Braai','Covered','Pizza Oven'],
             'Floor'   => ['Laminated Floors','Parquet Floors','Tiled Floors','Vinyl Floors','Wooden Floors'],
             'Window'  => ['Aluminium Windows','Bay Windows','Cottage Windows','Double Glazed Windows','Lead Windows','Sash Windows','Skylight Window','Stained Windows','Steel Windows','Wood Windows'],
         ],

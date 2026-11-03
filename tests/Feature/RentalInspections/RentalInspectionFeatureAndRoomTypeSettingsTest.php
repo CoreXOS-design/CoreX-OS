@@ -195,7 +195,7 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
     public function test_all_fifty_space_types_are_explicitly_mapped_to_a_real_family(): void
     {
         $types = config('property-spaces.all_space_types', []);
-        $this->assertCount(50, $types);
+        $this->assertCount(51, $types);
 
         foreach ($types as $type) {
             $this->assertArrayHasKey($type, RentalInspectionSetting::ROOM_TYPE_FAMILY, "'{$type}' must be mapped to a family");

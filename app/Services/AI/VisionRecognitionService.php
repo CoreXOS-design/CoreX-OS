@@ -31,7 +31,7 @@ class VisionRecognitionService
     public const SPACE_TYPES = [
         'Bedroom','Bathroom','Garage','Parking','Kitchen','Garden','Pool','Flatlet','Study',
         'Domestic Room','Lounge','Dining Room','Outside Toilet','Domestic Bathroom','Entrance Hall',
-        'Bar','Boardroom','Boat Launch','Boathouse','Braai Room','Cellar','Changing Room','Clubhouse',
+        'Bar','Balcony','Boardroom','Boat Launch','Boathouse','Braai Room','Cellar','Changing Room','Clubhouse',
         'Courtyard','Gazebo','Greenhouse','Gym','Jacuzzi','Jetty','Lapa','Laundry Room','Linen Room',
         'Loft','Office','Patio','Pool Shed','Reception Room','Sauna','Scullery','Shed','Squash Court',
         'Stable','Storeroom','Studio','Tennis Court','TV Room','Veranda','Wendy House','Workshop','Yard',

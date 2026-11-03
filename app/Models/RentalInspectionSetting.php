@@ -151,7 +151,7 @@ class RentalInspectionSetting extends Model
         'Workshop' => 'outbuilding', 'Cellar' => 'outbuilding', 'Stable' => 'outbuilding', 'Pool Shed' => 'outbuilding',
         'Wendy House' => 'outbuilding', 'Boathouse' => 'outbuilding', 'Greenhouse' => 'outbuilding',
         'Sauna' => 'outbuilding', 'Changing Room' => 'outbuilding',
-        'Patio' => 'covered_outdoor', 'Veranda' => 'covered_outdoor', 'Courtyard' => 'covered_outdoor',
+        'Patio' => 'covered_outdoor', 'Balcony' => 'covered_outdoor', 'Veranda' => 'covered_outdoor', 'Courtyard' => 'covered_outdoor',
         'Gazebo' => 'covered_outdoor', 'Lapa' => 'covered_outdoor',
         'Garden' => 'outdoor', 'Pool' => 'outdoor', 'Jacuzzi' => 'outdoor', 'Squash Court' => 'outdoor',
         'Tennis Court' => 'outdoor', 'Boat Launch' => 'outdoor', 'Jetty' => 'outdoor', 'Yard' => 'outdoor',
@@ -220,7 +220,7 @@ class RentalInspectionSetting extends Model
         // Bathrooms
         'Bathroom', 'Outside Toilet',
         // Outside & Leisure
-        'Garden', 'Pool', 'Pool Shed', 'Jacuzzi', 'Patio', 'Veranda', 'Courtyard', 'Gazebo',
+        'Garden', 'Pool', 'Pool Shed', 'Jacuzzi', 'Patio', 'Balcony', 'Veranda', 'Courtyard', 'Gazebo',
         'Greenhouse', 'Sauna', 'Gym', 'Squash Court', 'Tennis Court', 'Clubhouse', 'Boat Launch',
         'Boathouse', 'Jetty', 'Wendy House',
         // Utility, Storage & Vehicle
