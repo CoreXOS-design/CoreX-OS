@@ -294,7 +294,7 @@ final class BeltService
         if ($key === 'loaded') {
             return 'set ' . $f($tg['day']) . '/day · need ' . $f($tg['derived_day']) . ($tg['estimate'] ? ' est.' : '');
         }
-        $word = $tg['source'] === 'override' ? 'set ' : 'should be ';
+        $word = in_array($tg['source'], ['override', 'recipe'], true) ? 'set ' : 'should be ';
         $conv = $tg['rate_next'] !== null ? ' · ' . $f($tg['rate_next']) . '% on' . ($tg['rate_estimate'] ? ' est.' : '') : '';
 
         return $word . $f($tg['month']) . '/mo' . ($tg['estimate'] ? ' est.' : '') . $conv;

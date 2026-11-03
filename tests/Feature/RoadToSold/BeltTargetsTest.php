@@ -192,6 +192,21 @@ final class BeltTargetsTest extends TestCase
         $this->assertTrue($r['claimed']['estimate'], 'nothing measured for Claimed anywhere: the seed');
     }
 
+    public function test_a_recipe_task_target_is_the_override_for_its_step_and_a_blank_step_stays_derived(): void
+    {
+        $this->twoPointFivePercent();
+        $this->listings($this->agent, 5);
+        app(\App\Services\RoadToSold\RecipeService::class)->start($this->agency->id, 'sales');
+        $f = app(TargetsService::class)->forScope($this->agent, 'me', Carbon::now())['stations'];
+
+        $this->assertSame('recipe', $f['contacted']['source'], 'the recipe sets a daily contacted target: it wins over the derived figure');
+        $this->assertEqualsWithDelta(10 * 20, $f['contacted']['month'], 0.01, '10 a day x 20 working days');
+        $this->assertSame('derived', $f['claimed']['source'], 'no recipe task for Claimed: derived');
+        $this->assertEqualsWithDelta(20.0, $f['claimed']['month'], 0.01);
+        $this->settings(['target_overrides' => ['contacted' => 3]]);
+        $this->assertSame('override', app(TargetsService::class)->forScope($this->agent, 'me', Carbon::now())['stations']['contacted']['source'], "the settings' own per-step target beats the recipe's");
+    }
+
     public function test_the_settings_are_added_with_the_standard_numbers(): void
     {
         $s = SettingsService::forAgency($this->agency->id);

@@ -81,8 +81,8 @@
                             <td class="px-3 py-2 text-right tabular-nums">{{ $br['now'] }}</td>
                             <td class="px-3 py-2 text-right tabular-nums">{{ $br['reached'] }}</td>
                             <td class="px-3 py-2 text-right tabular-nums">{{ $br['rate_next'] !== null ? $f1($br['rate_next']) . '%' . ($br['rate_estimate'] ? ' est.' : '') : '-' }}</td>
-                            <td class="px-3 py-2 text-right tabular-nums" title="{{ $br['source'] === 'override' ? 'set by the agency; worked out: ' . $f1($br['derived_month']) : ($br['source'] === 'set' ? 'MIC intake per day x working days (your weekday targets); worked out: ' . $f1($br['derived_month']) : 'worked out from the Listings target') }}">
-                                {{ $f1($br['month']) }}{{ $br['estimate'] ? ' est.' : '' }}@if($br['source'] === 'override') <span class="text-xs" style="color: var(--text-muted);">(set)</span>@endif
+                            <td class="px-3 py-2 text-right tabular-nums" title="{{ in_array($br['source'], ['override', 'recipe'], true) ? 'set by the agency; worked out: ' . $f1($br['derived_month']) : ($br['source'] === 'set' ? 'MIC intake per day x working days (your weekday targets); worked out: ' . $f1($br['derived_month']) : 'worked out from the Listings target') }}">
+                                {{ $f1($br['month']) }}{{ $br['estimate'] ? ' est.' : '' }}@if(in_array($br['source'], ['override', 'recipe'], true)) <span class="text-xs" style="color: var(--text-muted);">(set)</span>@endif
                                 @if($br['source'] === 'set') <span class="text-xs" style="color: var(--text-muted);">(need {{ $f1($br['derived_month']) }})</span>@endif
                             </td>
                             <td class="px-3 py-2 text-right tabular-nums">{{ $f1($br['day']) }}</td>

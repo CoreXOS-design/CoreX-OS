@@ -18,7 +18,8 @@ use Illuminate\Support\Facades\DB;
  *                        target in Budgets & Targets, else the agency default monthly target, else the settings' standard).
  *   Everything between:  DERIVED by walking back from Active through the step-to-step conversion rates:
  *                            should(station) = should(next station) / rate(station -> next)
- *                        shown as the recommendation. Any station may be OVERRIDDEN in the settings (per agent per month; blank = derived).
+ *                        shown as the recommendation. A station may be OVERRIDDEN: the settings' own per-step target, else the agency's recipe task target for the
+ *                        step (a recipe target IS a hand-set per-step target - Johan, 3 Nov 11:02); blank = derived.
  *   Rates:               REAL, from the belt history (BeltFunnelService "reached", the same counting as the funnel) for the scope over a rolling window
  *                        (`target_window_days`). A step with fewer than `target_min_sample` records through it uses the agency's default rate and is
  *                        labelled "estimate".
@@ -49,6 +50,7 @@ final class TargetsService
         private readonly BeltFunnelService $funnel,
         private readonly TargetService $targets,
         private readonly WorkdayService $workdays,
+        private readonly RecipeProgressService $recipe,
     ) {
     }
 
@@ -210,6 +212,9 @@ final class TargetsService
             } elseif (isset($overrides[$st])) {
                 $source = 'override';
                 $month = $overrides[$st] * $agents;
+            } elseif (($rm = $this->recipeScope($users, $agent, $st, $day, $track, $exact)) !== null) {
+                $source = 'recipe';        // the agency's recipe task target for the step is its hand-set target: it wins over the derived figure
+                $month = $rm;
             }
             $next = self::CHAIN[$i + 1] ?? null;
             $out[$st] = [
@@ -250,6 +255,56 @@ final class TargetsService
         }
 
         return ['rows' => $rows, 'figures' => $fig, 'window_days' => $settings->targetWindowDays(), 'min_sample' => $settings->targetMinSample(), 'line' => $this->perListingLine($agent, $day, $track)];
+    }
+
+    /**
+     * The month figure of the recipe task target(s) of a station for one person: a daily target x the month's working days, a weekly one x working days / 5, a monthly one as it
+     * stands. Null when the station has no task or the agency set no target for it (blank = derived).
+     */
+    public function recipeMonth(User $user, string $station, CarbonInterface $day, string $track = 'sales'): ?float
+    {
+        $keys = (array) (BeltService::station($station)['tasks'] ?? []);
+        if ($keys === [] || $station === 'loaded') {
+            return null;
+        }
+        $key = 'rm|' . $user->id . '|' . $station . '|' . CarbonImmutable::instance($day)->format('Y-m-d') . '|' . $track;
+        if (array_key_exists($key, $this->memo)) {
+            return $this->memo[$key];
+        }
+        $d = CarbonImmutable::instance($day);
+        $tasks = (array) ($this->recipe->forAgent($user, $track, $d->isToday() ? now() : $d->endOfDay())['tasks'] ?? []);
+        $rows = array_filter($tasks, fn ($t) => in_array($t['key'], $keys, true) && (int) $t['target'] > 0);
+        $wd = $this->workingDays($user, $day, $track);
+        $month = 0.0;
+        foreach ($rows as $t) {
+            $month += match ($t['unit']) {
+                'day' => $t['target'] * $wd,
+                'week' => $t['target'] * $wd / 5,
+                'month' => (float) $t['target'],
+                default => 0.0,
+            };
+        }
+
+        return $this->memo[$key] = $month > 0 ? $month : null;
+    }
+
+    /** The recipe month figure of a scope: the sum over its people (beyond 60 people the viewer's own figure x the people). Null when nobody has one. */
+    private function recipeScope($users, User $agent, string $station, CarbonInterface $day, string $track, bool $exact): ?float
+    {
+        if ($users->isEmpty()) {
+            return null;
+        }
+        if ($users->count() > 60) {
+            $one = $this->recipeMonth($agent, $station, $day, $track);
+
+            return $one === null ? null : $one * $users->count();
+        }
+        $sum = 0.0;
+        foreach ($users as $u) {
+            $sum += $this->recipeMonth($u, $station, $day, $track) ?? 0.0;
+        }
+
+        return $sum > 0 ? $sum : null;
     }
 
     /** The month target of ONE station for a scope (override wins, else derived; Loaded = the hand-set intake). Null for a station with no target (Advertised). */

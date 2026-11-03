@@ -207,9 +207,12 @@ final class BeltTilesTest extends TestCase
     {
         app(\App\Services\RoadToSold\RecipeService::class)->start($this->agency->id, 'sales');
         $tiles = collect(app(BeltService::class)->tiles($this->agent, $this->agent, 'sales', now()))->keyBy('key');
-        $this->assertSame('0 / 10', $tiles['contacted']['figure'], 'a daily recipe target: calls recorded today / 10');
-        $this->assertSame('0 / 1', $tiles['booked']['figure'], 'a weekly target');
-        $this->assertSame('0 / 1', $tiles['won']['figure'], 'a monthly target');
+        // 23.29.3 (Johan, 3 Nov 11:02): a recipe task target IS the hand-set per-step target - it wins over the derived figure, read as a MONTH figure (reached this month / the month's target)
+        $wd = app(\App\Services\RoadToSold\TargetsService::class)->workingDays($this->agent, now());
+        $this->assertSame('0 / ' . (int) ceil(10 * $wd), $tiles['contacted']['figure'], 'a daily recipe target (10) x the month\'s working days');
+        $this->assertSame('0 / ' . (int) ceil(round($wd / 5, 1)), $tiles['booked']['figure'], 'a weekly target x working days / 5');
+        $this->assertSame('0 / 1', $tiles['won']['figure'], 'a monthly target as it stands');
+        $this->assertSame('recipe', $tiles['contacted']['tgt']['source']);
         $html = str_replace("\n", ' ', $this->page($this->agent)->getContent());
         $this->assertMatchesRegularExpression('/data-qa="belt-line-contacted-moved"[^>]*>0 moved on today</', $html);
         $this->assertMatchesRegularExpression('/data-qa="belt-line-won-moved"[^>]*>0 today</', $html, 'the last four read "this month" and "today"');
