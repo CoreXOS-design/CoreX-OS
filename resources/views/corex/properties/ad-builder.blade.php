@@ -1058,6 +1058,39 @@
                         </div>
                     </template>
 
+                    {{-- §22 — Feature icon strip --}}
+                    <template x-if="sel.field === 'feature_strip'">
+                        <div>
+                            <div class="pp-row">
+                                <label>How many icons (3 to 8)</label>
+                                <select :value="sel.stripCount || 8" @input="mutate('stripCount', +$event.target.value)">
+                                    <template x-for="n in [3,4,5,6,7,8]" :key="n"><option :value="n" x-text="n"></option></template>
+                                </select>
+                            </div>
+                            <div class="pp-row">
+                                <label>Icon colour</label>
+                                <input type="color" :value="sel.iconColor || '#d4af37'" @input="mutate('iconColor', $event.target.value)">
+                            </div>
+                            <div class="pp-row">
+                                <label>Ring colour</label>
+                                <input type="color" :value="sel.iconRingColor || '#d4af37'" @input="mutate('iconRingColor', $event.target.value)">
+                            </div>
+                            <div class="pp-row">
+                                <label>Divider colour</label>
+                                <input type="color" :value="sel.dividerColor || '#d4af37'" @input="mutate('dividerColor', $event.target.value)">
+                            </div>
+                            <div class="pp-row">
+                                <label>Text colour</label>
+                                <input type="color" :value="sel.color || '#ffffff'" @input="mutate('color', $event.target.value)">
+                            </div>
+                            <div class="pp-row">
+                                <label>Font size (px)</label>
+                                <input type="number" min="8" max="60" :value="sel.fontSize || 14" @input="mutate('fontSize', +$event.target.value)">
+                            </div>
+                            <div class="pp-hint">Shows the listing's bedrooms, bathrooms, garages and own features, each with an icon picked to match. A listing with fewer details shows fewer icons. Keep the box about 90 px tall and 90 px wide per icon.</div>
+                        </div>
+                    </template>
+
                     {{-- Beds/Baths/Garages/Parking — display format; any text element — icon. Spec: ad-manager.md §14. --}}
                     <template x-if="CoreXAd.isTextField(sel.field)">
                         <div>
@@ -1272,6 +1305,24 @@
                                 <label>Fill opacity — <span x-text="Math.round((sel.opacity ?? 1) * 100) + '%'"></span></label>
                                 <input type="range" min="0" max="1" step="0.05" :value="sel.opacity ?? 1" @input="mutate('opacity', +$event.target.value)">
                             </div>
+                            {{-- §22 — metallic / gradient fill for the decorative shapes (brush strokes, panels, waves, blobs). --}}
+                            <template x-if="CoreXAd.DECOR_SHAPES[sel.shapeType]">
+                                <div>
+                                    <div class="pp-row">
+                                        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;">
+                                            <input type="checkbox" :checked="!!sel.shapeGradient" @change="mutate('shapeGradient', $event.target.checked); if ($event.target.checked && (!sel.gradFrom || sel.gradFrom === '#071325')) { mutate('gradFrom', '#f6e27a'); mutate('gradTo', '#b8860b'); }">
+                                            Gradient fill (e.g. gold)
+                                        </label>
+                                    </div>
+                                    <template x-if="sel.shapeGradient">
+                                        <div>
+                                            <div class="pp-row"><label>Gradient from</label><input type="color" :value="sel.gradFrom && sel.gradFrom.charAt(0) === '#' ? sel.gradFrom : '#f6e27a'" @input="mutate('gradFrom', $event.target.value)"></div>
+                                            <div class="pp-row"><label>Gradient to</label><input type="color" :value="sel.gradTo && sel.gradTo.charAt(0) === '#' ? sel.gradTo : '#b8860b'" @input="mutate('gradTo', $event.target.value)"></div>
+                                            <div class="pp-row"><label>Angle — <span x-text="(sel.gradAngle ?? 180) + '°'"></span></label><input type="range" min="0" max="360" step="5" :value="sel.gradAngle ?? 180" @input="mutate('gradAngle', +$event.target.value)"></div>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
                             <template x-if="sel.shapeType === 'rounded'">
                                 <div class="pp-row">
                                     <label>Corner radius (px)</label>

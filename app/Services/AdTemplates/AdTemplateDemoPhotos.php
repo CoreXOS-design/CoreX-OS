@@ -22,7 +22,7 @@ final class AdTemplateDemoPhotos
     public const FILES = ['exterior', 'living', 'kitchen', 'bathroom', 'pool', 'lawn', 'garden', 'apartments', 'modern'];
 
     /**
-     * Property-type category (AdTemplatePropertyTypes::category()) => the photos image_1..image_5 show, in order.
+     * Property-type category (AdTemplatePropertyTypes::category()) => the photos image_1..image_5 show (image_6..image_8 are added from the rest of FILES), in order.
      * The first photo is the one that fits the kind of property (land opens on a lawn/garden, a flat on an apartment block).
      */
     private const SETS = [
@@ -41,6 +41,8 @@ final class AdTemplateDemoPhotos
     public static function set(string $category = 'default'): array
     {
         $names = self::SETS[$category] ?? self::SETS['default'];
+        // §22: the 6-8 photo mosaics need image_6 ... image_8 - three more of our own demo photos the set does not already use.
+        $names = array_merge($names, array_slice(array_values(array_diff(self::FILES, $names)), 0, 3));
         $out   = [];
         foreach ($names as $i => $name) {
             $out['image_' . ($i + 1)] = asset(self::DIR . '/' . $name . '.jpg');

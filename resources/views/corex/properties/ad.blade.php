@@ -420,6 +420,15 @@
         </template>
         <template x-if="hasCoAgent"><div style="width:1px;height:18px;background:var(--chrome-border);"></div></template>
 
+        {{-- §22 — one-line note for THIS ad (e.g. a nearby landmark). Only offered when the chosen custom template has a "Note for this ad" element;
+             blank = the element is left off the ad. Typed per ad, never saved on the property. --}}
+        <template x-if="hasNoteElement">
+            <input type="text" maxlength="80" x-model="propertyData.listing_note" @input.debounce.300ms="renderCustomTemplate()"
+                   placeholder="Note for this ad, e.g. Situated close to the shops" aria-label="Note for this ad"
+                   style="width:260px;max-width:100%;font-size:12px;background:var(--chrome-surface-2);border:1.5px solid var(--chrome-border);border-radius:8px;padding:5px 10px;color:var(--chrome-text);font-family:inherit;">
+        </template>
+        <template x-if="hasNoteElement"><div style="width:1px;height:18px;background:var(--chrome-border);"></div></template>
+
         {{-- Platform size selector — MEANINGLESS for a custom template (its size is
              fixed in the Ad Builder; cfg's custom-template branch never reads
              `platform` at all), so it no longer renders for one — it used to stay
@@ -946,6 +955,11 @@ function adApp(savedTemplates, propertyData, agentCfg, galleryImages, galleryThu
          *   tagPhotos — stamp data-el-id / data-orig-src on the property photos so the
          *               overlay can target them and "reset to original" can restore.
          */
+        get hasNoteElement() {
+            return this.template === 'custom' && !!this._customLayout
+                && (this._customLayout.elements || []).some(e => e.field === 'listing_note');
+        },
+
         renderCustomTemplate() {
             const root = document.getElementById('custom-canvas-root');
             if (!root || !this._customLayout) return;

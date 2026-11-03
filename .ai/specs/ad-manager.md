@@ -2930,3 +2930,57 @@ pet_friendly available_from rent_per_month show_day auction_date auction_venue`)
 ## Audit fix 2026-10-18 (outbound batch, C-F1) - Meta posts on a copy of live
 
 `MetaPublishingService::publishToFacebook/publishToInstagram` call `ExternalPublishingGuard` first and throw `ExternalPublishingRefused` before any HTTP call. `ScheduledPostPublisher::publishClaimed()` checks it before the token refresh and records the post as `failed` with a plain reason ("Publishing ... is switched off on this copy of CoreX, so nothing was sent"), so a refused post is never published later; the direct "Post now" path stores the same reason. Config: `corex.external_publishing` / `COREX_EXTERNAL_PUBLISHING` (default true; demo instance always refused).
+
+---
+
+## 22. "Premium listing poster" building blocks — APPROVED by Johan 2026-11-03
+
+> Trigger: a finished agent poster (gold-on-black, "For Sale" brush-stroke banner, 7-photo mosaic, 8-icon feature strip,
+> agent portrait ring, tagline) that the AI Template Builder cannot reproduce today. Reference image: `public/images/WhatsApp Image 2026-11-03 at 9.47.11 AM.jpeg`.
+> The Muller branding in that image is an EXAMPLE only — every name, logo, tagline and colour comes from the agency (Non-negotiable 9, multi-agency).
+
+### 22.1 Gap analysis (what the poster needs vs what exists)
+
+| Poster element | Today | Gap |
+|---|---|---|
+| Mosaic of 7 room photos | `collage` = 2-5 photos, 6 presets; `image_1..5` | No 6/7/8-photo mosaic |
+| 8-cell icon strip ("2 Bedrooms", "Secure Complex"...) | `feature_pills` = 1-4 text pills, no icon-above-label, no choice of features | No icon strip, max 4 |
+| Gold brush-stroke "For Sale" banner | plain shapes/waves/blobs | No brush-stroke / slanted-panel shapes; no gold metallic gradient fill |
+| Black header/footer panels with angled cut corner | rectangle/chevron only | No cut-corner / parallelogram panel |
+| Location line with pin ("Situated across from ...") | `address`/`custom_text` + `pin` icon | No per-listing free line; custom_text is fixed per template |
+| Agent portrait with gold ring | `agent_avatar` + `frameBorder*` | Exists |
+| Agency tagline in script ("Your Property Partner") | `agencies.tagline` (Company settings, already in the Setup Wizard; a branch tagline wins) exists, not a catalogue field | Not offered as a field |
+| Suburb in the headline ("For Sale  SYDENHAM") | `title`/`suburb` fields | Exists |
+
+### 22.2 New building blocks (render kernel + validator + builder + AI prompt, all three surfaces)
+
+1. **Collage presets** `6_mosaic`, `7_mosaic`, `8_mosaic` (hero row + grid rows), same `collageGap/collageFirst/borderRadius`; falls back to the nearest smaller preset when the listing has fewer photos (existing fallback rule).
+2. **`feature_strip`** element: 3-8 equal cells, each icon-over-label with thin dividers; `stripCount`, `iconColor`, `iconRingColor`, `dividerColor`. Cells are filled from the listing's own features, icon chosen by matching the feature name to the 47 existing icons; a listing with fewer features simply shows fewer cells (re-centred), never an empty cell.
+3. **Shapes** `brush_stroke_1`, `brush_stroke_2`, `cut_panel_left`, `cut_panel_right` (SVG-drawn, so html2canvas exports them) plus `gradFrom/gradTo/gradAngle` on any shape so a gold metallic fill is possible.
+4. **`tagline`** text field = the agency's `website_tagline` (blank = left off the ad).
+5. **`listing_note`** text field = an optional one-line note typed by the agent when making the ad (e.g. a nearby landmark); blank = left off. (See open business question.)
+6. **Style** "Premium poster" added to the AI style catalogue, and the AI prompt told these blocks exist so "make me a poster like this" can use them; a reference image upload (already supported) steers the look.
+
+Nothing uses `clip-path`, CSS `filter` or `backdrop-filter` or `background-clip:text` (html2canvas ignores them). Metallic text = solid gold colour; the metallic look comes from shapes/lines.
+
+### 22.3 Multi-agency
+No colour, wording or tagline is hardcoded: gold/black is a style preset the agency may pick or ignore; tagline from agency settings; logo/agent/phone from the listing. Any new agency setting surfaces in the Setup Wizard (10a) in the same prompt — none planned (tagline already exists), confirm at build.
+
+### 22.4 Template Manager (§19)
+Already has full CRUD/archive/restore/search/sort/filter/pagination and scoping; unchanged. New blocks show in row previews automatically via the shared kernel. AI-save must keep the existing own-agency scoping.
+
+### 22.5 Acceptance criteria
+- [ ] Asking the AI for a poster like the reference yields a template with a 7-photo mosaic, an 8-cell icon strip, a brush-stroke banner and agent ring, that validates and saves.
+- [ ] Renders identically in builder, generator and Template Manager preview, and exports to PNG.
+- [ ] A listing with 4 photos / 5 features degrades cleanly (no empty cells or gaps).
+- [ ] Old templates render unchanged (all new properties default to "not set").
+- [ ] Drift tests (kernel vs validator lists) updated and green; single-file tests only.
+
+### 22.6 Files (planned)
+`public/js/corex-ad-render.js`, `app/Services/AdTemplates/AdLayoutValidator.php`, `AiTemplateBuilderService.php`, `AdTemplateStyles.php` + `config/ad-template-styles.php`, builder blade, `tests/Feature/Tools/*` drift + validator tests.
+
+### 22.7 As built (2026-11-03)
+
+Deviations from the draft, all small: the poster size key is `pinterest` (label "Poster (1000×1500)") because the kernel's canvas preset of that size already has that key; the tagline field reads the **branch tagline, else `agencies.tagline`** (Company settings; already in the Setup Wizard) - not `website_tagline`; `tagline` joins the script-font-allowed fields; the "Premium poster" style carries `property_only` so it is never offered to company ads (`AdTemplateStyles::allFor/keys/forPanel/catalogueBlock` take a `$company` flag); the style library is now nine. Feature strip cells = beds, baths, garages, then the listing's `features_list` (de-duplicated, capped at `stripCount`); icon chosen by wording. Collage photos come from `image_1..image_8` (`Property::adData()` now sends 6-8; the demo preview set sends 8). "Note for this ad" is a text box in the generator toolbar, shown only when the chosen template has that element; never stored. Builder: Feature Icon Strip panel, gradient-fill controls on decorative shapes. Validator: `feature_strip` is a block field (min height 90 repaired, min 90 px per cell refused), new enum/number/colour keys, `nearestCollagePreset` knows 6-8 and "mosaic".
+Proved: `tests/js/ad-building-blocks.mjs` 165 checks (17 new), legacy snapshot identical, kernel contract 125, export shapes 59; a poster of the new blocks validated and rendered by the real kernel in headless Chromium. PHP tests (`AdPremiumPosterBlocksTest`, updated `AdBuildingBlocksKernelTest`, `AiTemplateBlocksAndStylesTest`) are written but were NOT run (no test DB / phpunit on the live host).
+Files: `public/js/corex-ad-render.js`, `AdLayoutValidator.php`, `AiTemplateBuilderService.php`, `AdTemplateStyles.php`, `CompanyAdBuilderService.php`, `CompanyAdsController.php`, `AdListingFacts.php`, `AdTemplateDemoPhotos.php`, `AdTemplateManagerController.php`, `Property.php`, `config/ad-template-styles.php`, `ad-builder.blade.php`, `ad.blade.php`, `_ai-template-modal.blade.php`, tests above.

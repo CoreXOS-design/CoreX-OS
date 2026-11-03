@@ -64,7 +64,7 @@ final class AiTemplateBuilderService
     /** … each cut to this many elements and to roughly this many characters of compact JSON, so the prompt stays bounded. */
     public const EXAMPLE_MAX_ELEMENTS   = 24;
     public const EXAMPLE_MAX_CHARS      = 3500;
-    private const PROMPT_VERSION        = 'at456b10-v4';
+    private const PROMPT_VERSION        = 'at456b10-v5-poster';
     private const CALL_TIMEOUT_SECS = 100;
     private const RETRY_BUDGET_SECS = 120;
     /**
@@ -887,10 +887,15 @@ final class AiTemplateBuilderService
         $blockWords = implode(', ', array_merge($noIcons ? ['masks'] : ['icons', 'masks'], array_values(array_filter([
             $on('collage') ? 'collages' : null, $on('ribbon') ? 'ribbons' : null, $on('feature_pills') ? 'pills' : null, $on('qr') ? 'QR' : null,
         ])), ['decorative shapes']));
-        $extraNotes = ($on('collage') ? "- collage: 2 to 5 of the listing's photos in a preset (collagePreset), collageGap between them, collageFirst = which photo it starts at (use 2 or 3 when image_1 is already shown elsewhere), borderRadius rounds each photo.\n" : '')
+        $extraNotes = ($on('collage') ? "- collage: 2 to 8 of the listing's photos in a preset (collagePreset), collageGap between them, collageFirst = which photo it starts at (use 2 or 3 when image_1 is already shown elsewhere), borderRadius rounds each photo.\n" : '')
             . ($on('ribbon') ? "- ribbon: a diagonal sash across one corner (ribbonCorner) - band colour is bgColor + bgOpacity, the words are \"text\".\n" : '')
             . ($on('qr') ? "- qr: a code that opens the listing's page; qrDark on qrLight; the real code is made per listing.\n" : '')
-            . ($on('feature_pills') ? "- feature_pills: pillCount (1 to 4) of the listing's own features as pills, pillDirection row or column, pillGap; you cannot choose which features show.\n" : '');
+            . ($on('feature_pills') ? "- feature_pills: pillCount (1 to 4) of the listing's own features as pills, pillDirection row or column, pillGap; you cannot choose which features show.\n" : '')
+            // §22 - always allowed (not one of the ticked extras): the poster building blocks.
+            . "- feature_strip: a row of stripCount (3 to 8) round icons, each with a short label under it - the listing's bedrooms, bathrooms, garages and own features, the icon is chosen for you; iconColor, iconRingColor, dividerColor; box at least 90 px tall and 90 px wide per cell; fewer details = fewer cells (it re-centres). Great for the foot of a full poster.\n"
+            . "- shape shapeType brush_stroke_1 / brush_stroke_2 (a painted stroke - good under a headline or the status badge) and cut_panel_left / cut_panel_right (a dark panel with one slanted edge - good for a logo or header); set shapeGradient true with gradFrom + gradTo + gradAngle for a metallic gradient fill instead of a flat colour.\n"
+            . "- collagePreset 6_mosaic, 7_mosaic or 8_mosaic show 6 to 8 of the listing's photos (collageFirst 1); on a listing with fewer photos a smaller layout is drawn automatically.\n"
+            . "- tagline: the agency's own tagline (left off when it has none); listing_note: one short line the agent types for each ad, e.g. a nearby landmark (left off when blank). Never write either yourself in custom_text.\n";
         $extraNotes = rtrim($extraNotes, "\n");
         $showDayNote  = $on('show_day') ? 'show_day only when a show day is booked; ' : '';
         $pillsQrNote  = match (true) {

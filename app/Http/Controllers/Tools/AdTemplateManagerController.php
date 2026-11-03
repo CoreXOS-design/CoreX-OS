@@ -328,6 +328,8 @@ class AdTemplateManagerController extends Controller
             'pet_friendly' => 'Pet friendly', 'available_from' => '', 'rent_per_month' => '',
             'show_day' => now()->next('Saturday')->format('D j M') . ' · 10:00–13:00',
             'auction_date' => now()->addWeeks(3)->format('j M Y') . ' · 11:00', 'auction_venue' => 'Sample Venue, Sample Town',
+            // §22 - the agency's own tagline; the per-ad note is blank in a preview (the element shows its own sample text).
+            'tagline' => trim((string) ($agency?->tagline ?? '')), 'listing_note' => '',
             // The QR on a preview points at the agency's OWN website when it has one; otherwise the kernel draws its neutral sample code.
             'qr_matrix' => ListingQrMatrix::forUrl((string) ($agency?->website_url ?? '')),
         ];
