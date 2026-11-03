@@ -13,6 +13,7 @@
  */
 import fs from 'node:fs';
 import puppeteer from 'puppeteer-core';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
@@ -22,7 +23,16 @@ const t0 = Date.now();
 const now = () => (Date.now() - t0) / 1000;
 const log = (m) => console.log(`[${now().toFixed(1)}s] ${m}`);
 
-const browser = await puppeteer.launch({ executablePath: job.chromium, headless: true, args: ['--no-sandbox', '--disable-gpu', '--hide-scrollbars'] });
+// Chromium needs a folder it may write to (profile + crash-report database). The queue worker runs as www-data, whose home (/var/www) is read-only, and
+// Chromium then dies at start with "chrome_crashpad_handler: --database is required" - which is why every generation since 31 Oct failed. So every run gets
+// its own throw-away profile and home, and removes it again.
+const chromiumHome = fs.mkdtempSync(path.join(os.tmpdir(), 'tv-chromium-'));
+process.on('exit', () => { try { fs.rmSync(chromiumHome, { recursive: true, force: true }); } catch (e) { /* temp folder, the OS sweeps it */ } });
+const browser = await puppeteer.launch({
+  executablePath: job.chromium, headless: true, userDataDir: path.join(chromiumHome, 'profile'),
+  env: { ...process.env, HOME: chromiumHome, XDG_CONFIG_HOME: path.join(chromiumHome, 'config'), XDG_CACHE_HOME: path.join(chromiumHome, 'cache') },
+  args: ['--no-sandbox', '--disable-gpu', '--hide-scrollbars'],
+});
 const page = await browser.newPage();
 await page.setViewport({ width: job.viewport.width, height: job.viewport.height, deviceScaleFactor: 1 });
 await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);   // readable on every screen, whatever the training user's OS theme

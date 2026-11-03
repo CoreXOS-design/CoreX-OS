@@ -176,6 +176,14 @@ class TrainingVideoGenerator
         return $r ? 'Watch next: ' . implode(', ', array_map(fn ($k) => str_replace('-', ' ', $k), $r)) : 'More how-to videos are in the Training library.';
     }
 
+    /** The START of the recorder's error (what went wrong), without the stack trace and the "troubleshooting" link - the tail hid the cause on 31 Oct. */
+    private function recorderErrorSummary(string $output): string
+    {
+        $lines = array_filter(array_map('trim', preg_split('/\R/', $output) ?: []), fn ($l) => $l !== '' && ! str_starts_with($l, 'at ') && ! str_starts_with($l, 'TROUBLESHOOTING'));
+
+        return mb_substr(implode(' ', $lines), 0, 200);
+    }
+
     /** @param array<string,mixed> $job @return array<string,mixed> the recorder's timeline */
     private function runRecorder(array $job): array
     {
@@ -185,7 +193,7 @@ class TrainingVideoGenerator
         $p->setTimeout((float) config('training-videos.auto.recorder.timeout', 600));
         $p->run();
         if (! $p->isSuccessful() || ! is_file($job['timeline'])) {
-            $why = $p->getExitCode() === 3 ? 'the training user could not sign in' : trim(substr($p->getErrorOutput() . ' ' . $p->getOutput(), -300));
+            $why = $p->getExitCode() === 3 ? 'the training user could not sign in' : $this->recorderErrorSummary($p->getErrorOutput() . "\n" . $p->getOutput());
             throw new \RuntimeException('The recorder failed: ' . $why);
         }
         $t = json_decode((string) file_get_contents($job['timeline']), true);
