@@ -304,5 +304,5 @@
             .catch(function () { window.location.reload(); });
     });
 
-    window.CorexPitch = { open: open, close: close, toggleCard: toggleCard, stepOf: stepOf, _state: function () { return pop ? { current: pop.current, touched: pop.touched } : null; } };
+    window.CorexPitch = { open: open, close: close, toggleCard: toggleCard, stepOf: stepOf, _state: function () { return pop ? { current: pop.current, touched: pop.touched, query: pop.planQuery || '', o: pop.o } : null; } };
 })();

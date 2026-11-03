@@ -582,6 +582,7 @@ class SettingsController extends Controller
             ['task-targets', 'Task targets', 'road_to_sold.manage_targets', Routing::base() . 'task-targets.index'],
             ['flags', 'Training & flags', 'road_to_sold.manage_settings', Routing::base() . 'flags.index'],
             ['points', 'Points', 'road_to_sold.manage_settings', Routing::base() . 'points.index'],
+            ['offramps', 'Stops here', 'road_to_sold.manage_offramp_reasons', Routing::base() . 'offramps.index'],
         ];
 
         // Budgets and Targets are reachable without the Road to Sold feature; General, Areas and Recipe are the call list's own.
@@ -589,10 +590,10 @@ class SettingsController extends Controller
 
         $tabs = [];
         foreach ($defs as [$key, $label, $permission, $route]) {
-            if (! $rtsOn && in_array($key, ['general', 'areas', 'recipe', 'task-targets', 'flags', 'points'], true)) {
+            if (! $rtsOn && in_array($key, ['general', 'areas', 'recipe', 'task-targets', 'flags', 'points', 'offramps'], true)) {
                 continue;
             }
-            if ($key === 'points' && Routing::track() !== 'sales') {
+            if (in_array($key, ['points', 'offramps'], true) && Routing::track() !== 'sales') {
                 continue;   // the belt is the sales ladder
             }
             if (\Illuminate\Support\Facades\Route::has($route) && collect(explode('|', $permission))->contains(fn ($p) => $user->hasPermission($p))) {

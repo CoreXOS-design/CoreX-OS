@@ -321,7 +321,15 @@
                   this.sellerBusy = true;
                   try {
                       const res = await fetch(this.deadEndSellerUrl, { method: 'POST', headers: this._postHeaders(), body: JSON.stringify({ contact_id: contactId, reason: reason || 'not_in_tva' }) });
-                      if (res.ok) this.applySellerState(await res.json());
+                      if (res.ok) {
+                          const d = await res.json();
+                          this.applySellerState(d);
+                          // road-to-sold.md 23.25: nobody left to reach = the property stops here (the step-2 off-ramp); the popup closes and the page shows it
+                          if (d.offramp) {
+                              try { sessionStorage.setItem('cxOffRamp', d.offramp); } catch (e) { /* no storage */ }
+                              if (window.parent !== window) { window.parent.postMessage({ rts: 'done' }, window.location.origin); } else { window.location.reload(); }
+                          }
+                      }
                   } catch (e) { /* ignore */ } finally { this.sellerBusy = false; }
               },
               async clearSellerDeadEnd(contactId) {

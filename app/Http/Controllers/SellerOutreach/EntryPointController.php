@@ -1659,6 +1659,29 @@ final class EntryPointController extends Controller
         return response()->json($svc->payload($agencyId, $listing));
     }
 
+    /** @return ?string the off-ramp message when the agent's own record on this file was stopped, else null */
+    private function offRampWhenNoSellerReachable(Request $request, int $agencyId, object $listing, \App\Services\Prospecting\ComposeSellerService $svc): ?string
+    {
+        try {
+            $sellers = $svc->linkedSellers($agencyId, (int) $listing->matched_property_id);
+            if ($sellers === [] || collect($sellers)->contains(fn ($x) => empty($x['dead_end']) && ! empty($x['contactable']))) {
+                return null;   // somebody can still be reached: the flag alone, as before
+            }
+            $tpId = (int) ($listing->tracked_property_id ?? 0);
+            $p = $tpId ? app(\App\Services\SellerOutreach\PitchBeltResolver::class)->openProspectFor($request->user(), $tpId) : null;
+            if (! $p || $p->parked_at !== null) {
+                return null;
+            }
+            $r = app(\App\Services\RoadToSold\ResultService::class)->offRamp($p, 'no_contact_details', null, $request->user(), 'owner_dead_end', 2);
+
+            return $r['ok'] ? $r['message'] : null;
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Dead-end tick: the off-ramp could not be recorded (the flag stands)', ['listing' => $listing->id ?? null, 'message' => $e->getMessage()]);
+
+            return null;
+        }
+    }
+
     /** Compose redesign — per-seller "No contact details" dead-end (or clear it). */
     public function markSellerDeadEndForProspecting(Request $request, int $prospectingListingId)
     {
@@ -1685,9 +1708,12 @@ final class EntryPointController extends Controller
             $svc->clearSellerDeadEnd($agencyId, (int) $data['contact_id']);
         } else {
             $svc->markSellerDeadEnd($agencyId, (int) $data['contact_id'], (int) $listing->matched_property_id, $data['reason'] ?? 'not_in_tva', (int) $request->user()->id);
+            // road-to-sold.md 23.25 / 23.11 (Johan 3 Nov): when NO seller on the property can be reached, the dead-end tick IS the step-2 off-ramp "No contact details": the
+            // property stops here (Not selling, counted at the Owner step), the flag stays exactly as before
+            $offramp = $this->offRampWhenNoSellerReachable($request, $agencyId, $listing, $svc);
         }
 
-        return response()->json($svc->payload($agencyId, $listing));
+        return response()->json($svc->payload($agencyId, $listing) + (! empty($offramp) ? ['offramp' => $offramp] : []));
     }
 
     /**

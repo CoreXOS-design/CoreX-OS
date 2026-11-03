@@ -647,6 +647,7 @@ return [
         ['key' => 'access_road_to_sold',           'label' => 'Access Road to Sold',           'section' => 'road-to-sold',     'type' => 'access',  'module' => 'road_to_sold',     'sort_order' => 1],
         ['key' => 'road_to_sold.view',             'label' => 'View',                          'section' => 'road-to-sold',     'type' => 'action',  'module' => 'road_to_sold',     'sort_order' => 10],
         ['key' => 'road_to_sold.manage_settings',  'label' => 'Manage Road to Sold settings',  'section' => 'road-to-sold',     'type' => 'action',  'module' => 'road_to_sold',     'sort_order' => 11],
+        ['key' => 'road_to_sold.manage_offramp_reasons', 'label' => 'Manage Road to Sold off-ramp reasons (Stops here - say why)', 'section' => 'road-to-sold', 'type' => 'action', 'module' => 'road_to_sold', 'sort_order' => 12],
         ['key' => 'road_to_sold.manage_areas',     'label' => 'Assign areas to agents',        'section' => 'road-to-sold',     'type' => 'action',  'module' => 'road_to_sold',     'sort_order' => 12],
         // Module 'targets' (always available), not 'road_to_sold': this key also opens Budgets and the monthly targets, which a rentals-only
         // agency - Road to Sold off - must still reach (Johan, 23 Oct 2026). A permission module owned by a feature goes dark with it.

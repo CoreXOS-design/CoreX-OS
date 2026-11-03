@@ -5449,6 +5449,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::get('/outreach/pitch-steps',
                 [\App\Http\Controllers\SellerOutreach\PitchBookController::class, 'steps'])
                 ->name('pitch-steps');
+            // road-to-sold.md 23.25 / 23.11 - "Stops here (say why)" on every step of the pitch popup: the step's reasons (GET) and the off-ramp itself (POST).
+            Route::get('/outreach/pitch-offramp', [\App\Http\Controllers\RoadToSold\PitchOffRampController::class, 'choices'])->name('pitch-offramp');
+            Route::post('/outreach/pitch-offramp', [\App\Http\Controllers\RoadToSold\PitchOffRampController::class, 'store'])->name('pitch-offramp.store');
             // road-to-sold.md 23.23 drop 4 - the page after the calendar's own form saved an evaluation inside the pitch popup.
             Route::get('/outreach/evaluation-booked/{calendarEvent}',
                 [\App\Http\Controllers\SellerOutreach\PitchBookController::class, 'done'])
@@ -7049,6 +7052,20 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                     Route::post('/{option}/toggle', [$c, 'toggle'])->whereNumber('option')->name('toggle');
                     Route::delete('/{option}', [$c, 'archive'])->whereNumber('option')->name('archive');
                     Route::post('/{option}/restore', [$c, 'restore'])->whereNumber('option')->name('restore');
+                });
+
+            // v4 (23.25 / 23.11): the agency's own off-ramp reasons, one list for every step of the pitch popup (code, words, step, what it counts as), archive and restore
+            Route::prefix('settings/offramp-reasons')
+                ->middleware('permission:road_to_sold.manage_offramp_reasons')
+                ->name('settings.offramps.')
+                ->group(function () {
+                    $c = \App\Http\Controllers\RoadToSold\OffRampSettingsController::class;
+                    Route::get('/', [$c, 'index'])->name('index');
+                    Route::post('/', [$c, 'store'])->name('store');
+                    Route::put('/{reason}', [$c, 'update'])->whereNumber('reason')->name('update');
+                    Route::post('/{reason}/toggle', [$c, 'toggle'])->whereNumber('reason')->name('toggle');
+                    Route::delete('/{reason}', [$c, 'archive'])->whereNumber('reason')->name('archive');
+                    Route::post('/{reason}/restore', [$c, 'restore'])->whereNumber('reason')->name('restore');
                 });
 
             Route::prefix('settings/outcomes')
