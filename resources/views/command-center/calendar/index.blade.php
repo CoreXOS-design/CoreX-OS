@@ -111,8 +111,22 @@
     };
 @endphp
 
-<div class="flex flex-col h-full overflow-hidden -m-4 lg:-m-6" x-data="calendarPage()" x-init="initPanel(); restoreCreateEventState(); restoreEventDetailState(); if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }}); handlePrefill(); window.addEventListener('beforeunload', () => { persistCreateEventState(); persistEventDetailState(); }); $watch('showCreateEvent', open => { if (open) { this.panelOpen = false; } if (!open) { this.pendingCreateDate = null; sessionStorage.removeItem('corex.calendar.createEventState'); this.clearStalePickerState(); } }); $watch('panelOpen', open => { if (open) { this.showCreateEvent = false; } if (!open) sessionStorage.removeItem('corex.calendar.eventDetailState'); });" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
+@php
+    // road-to-sold.md 23.25 step 7: inside the pitch popup the Capture Feedback form is the whole screen, in the popup's own wording ("appointment", not "evaluation")
+    $feedbackPopup = request()->filled('capture_feedback') && \App\Support\Embed::on();
+    $feedbackAfterSave = $feedbackPopup && request()->filled('rts_prospect') ? route('road-to-sold.prospects.results-path', ['prospect' => (int) request('rts_prospect'), 'embed' => 1, 'rts_stage' => request('rts_stage')]) : null;
+@endphp
+<div data-qa="cal-root" class="flex flex-col h-full overflow-hidden -m-4 lg:-m-6" x-data="calendarPage()" x-init="initPanel(); restoreCreateEventState(); restoreEventDetailState(); if ({{ $autoOpenFeedbackEventId ?? 'null' }}) openFeedbackModal({{ $autoOpenFeedbackEventId ?? 'null' }}); handlePrefill(); window.addEventListener('beforeunload', () => { persistCreateEventState(); persistEventDetailState(); }); $watch('showCreateEvent', open => { if (open) { this.panelOpen = false; } if (!open) { this.pendingCreateDate = null; sessionStorage.removeItem('corex.calendar.createEventState'); this.clearStalePickerState(); } }); $watch('panelOpen', open => { if (open) { this.showCreateEvent = false; } if (!open) sessionStorage.removeItem('corex.calendar.eventDetailState'); });" @keydown.window="handleShortcut($event)" @mouseup.window="dragEnd()">
 
+    @if($feedbackPopup)
+    <style>
+        [data-qa="cal-root"] > *:not([data-qa="feedback-modal"]) { display: none !important; }
+        [data-qa="feedback-modal"] { position: fixed !important; inset: 0 !important; padding: 0 !important; align-items: stretch !important; justify-content: stretch !important; }
+        [data-qa="feedback-modal"] > [data-qa="feedback-backdrop"] { display: none !important; }
+        [data-qa="feedback-panel"] { max-width: none !important; max-height: none !important; width: 100% !important; height: 100% !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
+        [data-qa="feedback-panel"] [data-qa="feedback-close"], [data-qa="feedback-panel"] [data-qa="feedback-cancel"] { display: none !important; }
+    </style>
+    @endif
     @if(request()->boolean('pitch_book') && \App\Support\Embed::on())
     {{-- road-to-sold.md 23.23 drop 4: the pitch popup's Book evaluation step is the calendar's own New Event form and nothing else: it fills the popup,
          the calendar is not behind it and there is no way to close it into an empty calendar (the popup's step bar and Done are the way out) --}}
@@ -1476,17 +1490,17 @@
     </div>
 
     {{-- ══════ FEEDBACK CAPTURE MODAL ══════ --}}
-    <div x-show="feedbackOpen" x-cloak
+    <div x-show="feedbackOpen" x-cloak data-qa="feedback-modal"
          class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div class="absolute inset-0 bg-black/50" @click="feedbackOpen = false"></div>
-        <div class="relative w-full max-w-2xl max-h-[90vh] flex flex-col rounded-md shadow-2xl"
+        <div class="absolute inset-0 bg-black/50" data-qa="feedback-backdrop" @click="feedbackOpen = false"></div>
+        <div data-qa="feedback-panel" class="relative w-full max-w-2xl max-h-[90vh] flex flex-col rounded-md shadow-2xl"
              style="background: var(--surface); border: 1px solid var(--border);">
 
             {{-- Header --}}
             <div class="px-6 py-4 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
                 <div>
-                    <h2 class="text-lg font-semibold" style="color: var(--text-primary);">Capture Feedback</h2>
-                    <p class="text-xs mt-0.5" style="color: var(--text-muted);" x-text="feedbackData.event?.title + ' — ' + feedbackData.event?.date"></p>
+                    <h2 class="text-lg font-semibold" style="color: var(--text-primary);" data-qa="feedback-heading">{{ $feedbackPopup ? 'Appointment feedback' : 'Capture Feedback' }}</h2>
+                    <p class="text-xs mt-0.5" style="color: var(--text-muted);" x-text="{!! $feedbackPopup ? "String(feedbackData.event?.title || '').replace(/^Evaluation:\\s*/i, 'Appointment: ')" : 'feedbackData.event?.title' !!} + ' — ' + feedbackData.event?.date"></p>
                     {{-- Multi-property step indicator --}}
                     <template x-if="feedbackData.is_multi_property && feedbackData.properties.length > 1">
                         <div class="mt-1.5 flex items-center gap-2">
@@ -1497,7 +1511,7 @@
                         </div>
                     </template>
                 </div>
-                <button type="button" @click="feedbackOpen = false" class="text-xl leading-none px-2" style="color: var(--text-muted);">&times;</button>
+                <button type="button" data-qa="feedback-close" @click="feedbackOpen = false" class="text-xl leading-none px-2" style="color: var(--text-muted);">&times;</button>
             </div>
 
             {{-- Body --}}
@@ -1632,7 +1646,7 @@
                                 <div class="mb-3" x-show="feedbackData.is_evaluation" data-qa="eval-status">
                                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">What happened?</label>
                                     <div class="flex flex-wrap gap-4 text-sm" style="color: var(--text-primary);">
-                                        <label class="flex items-center gap-1.5"><input type="radio" value="held" x-model="feedbackForm['prop:' + item.property_id].eval_status"> The evaluation was held</label>
+                                        <label class="flex items-center gap-1.5"><input type="radio" value="held" x-model="feedbackForm['prop:' + item.property_id].eval_status"> {{ $feedbackPopup ? 'The appointment was held' : 'The evaluation was held' }}</label>
                                         <label class="flex items-center gap-1.5"><input type="radio" value="no_show" x-model="feedbackForm['prop:' + item.property_id].eval_status"> The seller was not there (no-show)</label>
                                         <label class="flex items-center gap-1.5"><input type="radio" value="rescheduled" x-model="feedbackForm['prop:' + item.property_id].eval_status"> It was moved to another day</label>
                                     </div>
@@ -1790,7 +1804,7 @@
                     </template>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button type="button" @click="feedbackOpen = false" class="corex-btn-outline">Cancel</button>
+                    <button type="button" data-qa="feedback-cancel" @click="feedbackOpen = false" class="corex-btn-outline">Cancel</button>
                     <template x-if="feedbackData.can_edit !== false && (!feedbackData.is_multi_property || feedbackPropertyStep >= feedbackData.properties.length - 1)">
                         <button type="button" @click="saveFeedback()" :disabled="feedbackSaving"
                                 class="corex-btn-primary disabled:opacity-50">
@@ -4271,7 +4285,8 @@ function calendarPage() {
                 const r = await this.submitFeedbackPayload(payload);
                 if (r.ok) {
                     this.feedbackOpen = false;
-                    window.location.reload();
+                    // inside the pitch popup the next screen is decided by where the record now is (held -> the Result form), not a reload of this form
+                    @if($feedbackAfterSave) window.location.href = @js($feedbackAfterSave); @else window.location.reload(); @endif
                 } else {
                     this.feedbackError = r.message;
                 }

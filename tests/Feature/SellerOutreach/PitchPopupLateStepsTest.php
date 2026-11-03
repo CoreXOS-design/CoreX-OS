@@ -46,10 +46,11 @@ final class PitchPopupLateStepsTest extends TestCase
         $this->setUpAgency();
         app(OutcomeDefinitionService::class)->ensureDefaults($this->agency->id);
         foreach (['agent', 'admin'] as $role) {
-            foreach (['access_road_to_sold', 'access_properties', 'outreach.compose'] as $perm) {
+            foreach (['access_road_to_sold', 'access_properties', 'outreach.compose', 'command_center.calendar.view', 'create_presentations'] as $perm) {
                 RolePermission::updateOrCreate(['role' => $role, 'permission_key' => $perm, 'agency_id' => $this->agency->id]);
             }
         }
+        RolePermission::create(['role' => 'admin', 'permission_key' => 'properties.view', 'scope' => 'all', 'agency_id' => $this->agency->id]);
         PermissionService::clearCache();
 
         $this->tp = $this->tp(['street_name' => 'Shepstone Avenue', 'street_number' => '25']);
@@ -245,5 +246,44 @@ final class PitchPopupLateStepsTest extends TestCase
         }
         $bar = (string) file_get_contents(resource_path('views/road-to-sold/_blocks-bar.blade.php'));
         $this->assertStringContainsString('find_owner|evaluation|presentation|evaluation_feedback|results|draft|active', $bar, 'every row button runs in the one popup');
+    }
+
+    public function test_step_7_before_held_is_the_feedback_form_alone_in_the_popups_own_words(): void
+    {
+        $this->stage('appointment_set');
+        $event = CalendarEvent::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'user_id' => $this->agent->id, 'event_type' => 'manual', 'title' => 'Evaluation: 25 Shepstone Avenue',
+            'category' => 'property_evaluation', 'event_date' => '2026-11-03 10:00:00', 'status' => 'pending', 'rts_prospect_id' => $this->prospect->id]);
+        $q = ['capture_feedback' => $event->id, 'rts_prospect' => $this->prospect->id, 'rts_stage' => 'appointment_set'];
+
+        $h = $this->actingAs($this->agent)->get(route('command-center.calendar', $q + ['embed' => 1]))->assertOk()->getContent();
+        $this->assertStringContainsString('[data-qa="cal-root"] > *:not([data-qa="feedback-modal"]) { display: none !important; }', $h, 'nothing of the calendar is shown');
+        $this->assertStringContainsString('data-qa="feedback-heading">Appointment feedback<', $h);
+        $this->assertStringContainsString('The appointment was held', $h);
+        $this->assertStringNotContainsString('The evaluation was held', $h);
+        $this->assertStringContainsString('Appointment: ', $h, 'the appointment title reads in the popup\'s wording');
+        $this->assertStringContainsString('prospects\/' . $this->prospect->id . '\/results-path?embed=1', $h, 'after saving the popup goes on to where the record now is');
+        $this->assertStringContainsString('data-qa="feedback-cancel"', $h);   // hidden by the popup rule, present for the calendar itself
+
+        $plain = $this->actingAs($this->agent)->get(route('command-center.calendar', $q))->assertOk()->getContent();
+        $this->assertStringContainsString('Capture Feedback', $plain);
+        $this->assertStringContainsString('The evaluation was held', $plain, 'the calendar page itself is unchanged');
+        $this->assertStringNotContainsString('[data-qa="cal-root"] > *:not', $plain);
+    }
+
+    public function test_step_6_is_the_generate_presentation_window_alone_inside_the_popup(): void
+    {
+        $this->stage('contacted');
+        $url = route('corex.properties.show', $this->propertyId);
+        $admin = \App\Models\User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin', 'is_admin' => true, 'is_active' => true]);
+
+        $h = $this->actingAs($admin)->get($url . '?generate_presentation=1&embed=1&rts_prospect=' . $this->prospect->id)->assertOk()->getContent();
+        $this->assertStringContainsString('body > *:not([data-qa="presentation-modal"]) { display: none !important; }', $h);
+        $this->assertStringContainsString('popup: true,', $h);
+        $this->assertStringContainsString('data-qa="presentation-modal"', $h);
+        $this->assertStringContainsString('data-qa="presentation-generated"', $h, 'the window says when it is done instead of closing into an empty screen');
+
+        $plain = $this->actingAs($admin)->get($url)->assertOk()->getContent();
+        $this->assertStringNotContainsString('body > *:not([data-qa="presentation-modal"])', $plain);
+        $this->assertStringContainsString('popup: false,', $plain, 'the property page itself is unchanged');
     }
 }

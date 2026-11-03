@@ -67,6 +67,9 @@ class CalendarController extends Controller
         // road-to-sold.md 23.23 drop 6: inside the pitch popup's Book evaluation step the calendar page is only the New Event form - nothing of the grid,
         // the deck or the agenda is shown, so none of it is built (the page took 5-6 s and 2.2 MB, 2,800 queries, to show a form).
         $pitchBook = $request->boolean('pitch_book') && \App\Support\Embed::on();
+        // the same for the popup's Presentation results step before the appointment is held (road-to-sold.md 23.25): the Capture Feedback form alone - the
+        // form fetches its own data, so none of the grid, deck or agenda is built or shown behind it
+        $pitchBook = $pitchBook || ($request->filled('capture_feedback') && \App\Support\Embed::on());
         $request->attributes->set('pitch_book_slim', $pitchBook);
 
         // AT-164 Gate 4 — the Tile Deck (below the grid, all views).
