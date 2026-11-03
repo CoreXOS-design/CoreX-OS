@@ -99,10 +99,18 @@ return new class extends Migration
                 $table->id();
                 $table->unsignedBigInteger('agency_id');
                 $table->string('track', 20)->default('sales');
+                // Created in its FINAL shape. 2026_11_02_180000 (station, kind) and 2026_11_03_100000 (step, counts_as, is_other) ALTER this table but sort BEFORE this
+                // (future-dated) file, so on a from-scratch build they find no table and skip (they guard on it); on an environment that already ran this migration
+                // with the original shape they add the columns. Either way the result is the same table.
+                $table->string('station', 30)->nullable();
+                $table->unsignedTinyInteger('step')->nullable();
+                $table->string('kind', 12)->default('off_ramp');
+                $table->string('counts_as', 20)->default('lost');
                 $table->string('key', 40);
                 $table->string('label', 120);
                 $table->unsignedSmallInteger('default_revisit_days')->default(90);
                 $table->boolean('is_system')->default(false);
+                $table->boolean('is_other')->default(false);
                 $table->boolean('is_active')->default(true);
                 $table->unsignedSmallInteger('sort_order')->default(0);
                 $table->unsignedBigInteger('updated_by_user_id')->nullable();

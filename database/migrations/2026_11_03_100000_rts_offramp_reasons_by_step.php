@@ -14,6 +14,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // the table is created by 2026_12_20_100000 (future-dated, so on a from-scratch build it does not exist yet when this runs - and is then created with these columns)
+        if (! Schema::hasTable('rts_park_reasons')) {
+            return;
+        }
         Schema::table('rts_park_reasons', function (Blueprint $table) {
             if (! Schema::hasColumn('rts_park_reasons', 'step')) {
                 $table->unsignedTinyInteger('step')->nullable()->after('station');
@@ -29,6 +33,9 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (! Schema::hasTable('rts_park_reasons')) {
+            return;
+        }
         Schema::table('rts_park_reasons', function (Blueprint $table) {
             foreach (['step', 'counts_as', 'is_other'] as $c) {
                 if (Schema::hasColumn('rts_park_reasons', $c)) {
