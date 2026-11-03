@@ -208,8 +208,8 @@ function rtsStepModal() {
         open(d) {
             if (!d || !d.stepUrl) { return; }
             // the pitch steps (find the owner, pitch) run in the ONE pitch popup, starting at the MIC card when the property has an advert (road-to-sold.md 23.23)
-            if ((/\/prospects\/\d+\/step\/(pitch|find_owner|evaluation)(\?|$)/.test(d.stepUrl) || /\/outreach\/compose(\?|$)/.test(d.stepUrl)) && window.CorexPitch) {
-                window.CorexPitch.open({ origin: /\/step\/evaluation(\?|$)/.test(d.stepUrl) ? null : 'rts', next: new URL(d.stepUrl, window.location.href).toString(), tracked: /\/step\/evaluation(\?|$)/.test(d.stepUrl) ? null : (d.tracked || null), label: d.stepLabel || 'Pitch' });
+            if ((/\/prospects\/\d+\/step\/(pitch|find_owner|evaluation|presentation|evaluation_feedback|results|draft|active)(\?|$)/.test(d.stepUrl) || /\/outreach\/compose(\?|$)/.test(d.stepUrl)) && window.CorexPitch) {
+                window.CorexPitch.open({ origin: /\/step\/(evaluation|presentation|evaluation_feedback|results|draft|active)(\?|$)/.test(d.stepUrl) ? null : 'rts', next: new URL(d.stepUrl, window.location.href).toString(), tracked: /\/step\/(evaluation|presentation|evaluation_feedback|results|draft|active)(\?|$)/.test(d.stepUrl) ? null : (d.tracked || null), label: d.stepLabel || 'Pitch' });
                 return;
             }
             this.label = d.stepLabel || 'Road to Sold step';

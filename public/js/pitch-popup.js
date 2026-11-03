@@ -1,5 +1,5 @@
 /**
- * The pitch popup (road-to-sold.md 23.23). ONE popup over the page the agent started on: Property · Owner · Pitch · Contact, each step the existing
+ * The pitch popup (road-to-sold.md 23.23). ONE popup over the page the agent started on: Property · Owner · Pitch · Contact · Appointment · Presentation · Presentation results · Draft · Active, each step the existing
  * CoreX screen in an iframe (embed mode, same origin only). Also the "What is this property?" window the header of those screens opens.
  *
  *   <a href="..." data-pitch-popup data-listing="123">Pitch now</a>       opens at the property card, Next goes to href
@@ -13,8 +13,10 @@
     'use strict';
     if (window.CorexPitch) return;
     var cfg = window.CorexPitchConfig || {};
-    var STEPS = [['property', 'Property'], ['owner', 'Owner'], ['pitch', 'Pitch'], ['contact', 'Contact'], ['evaluation', 'Appointment']];
-    var NEXT_LABEL = { property: 'Next: find the owner', owner: '', pitch: '', contact: '', evaluation: '' };
+    var STEPS = [['property', 'Property'], ['owner', 'Owner'], ['pitch', 'Pitch'], ['contact', 'Contact'], ['evaluation', 'Appointment'],
+        ['presentation', 'Presentation'], ['results', 'Presentation results'], ['draft', 'Draft'], ['active', 'Active']];
+    var NEXT_LABEL = { property: 'Next: find the owner', owner: '', pitch: '', contact: '', evaluation: '', presentation: '', results: '', draft: '', active: '' };
+    var LATE = ['presentation', 'results', 'draft', 'active'];   // steps 6-9: their pill always opens the plan's one-hop address (it decides from the record's station when clicked), never the screen last shown
     var pop = null;   // the open popup, or null
 
     function sameSite(u) { try { return new URL(u, window.location.href).origin === window.location.origin; } catch (e) { return false; } }
@@ -31,6 +33,11 @@
     function stepOf(href) {
         var u; try { u = new URL(href, window.location.href); } catch (e) { return null; }
         if (u.searchParams.has('_pitch_card') || u.searchParams.has('_pitch_property') || u.searchParams.has('_pitch_tracked')) return 'property';
+        // steps 6-9 (road-to-sold.md 23.25): the property's Generate Presentation window, the calendar feedback form / the Result form, the property's draft and active gates
+        if (u.searchParams.has('generate_presentation')) return 'presentation';
+        if ((/\/command-center\/calendar$/.test(u.pathname) && u.searchParams.has('capture_feedback')) || /\/road-to-sold\/prospects\/\d+\/result-form$/.test(u.pathname)) return 'results';
+        var ps = u.pathname.match(/\/road-to-sold\/prospects\/\d+\/property-step\/(draft|active)$/);
+        if (ps) return ps[1];
         if (/\/outreach\/pitch-ready$/.test(u.pathname)) return 'pitch';
         if (/\/outreach\/evaluation-booked\//.test(u.pathname) || (/\/command-center\/calendar$/.test(u.pathname) && u.searchParams.has('pitch_book'))) return 'evaluation';
         if (/\/contacts\/\d+\/outreach\//.test(u.pathname)) return 'contact';
@@ -149,7 +156,7 @@
             pop.loads++;
             loading.style.display = 'none';
             var st = stepOf(href);
-            if (st) { pop.current = st; pop.urls[st] = href; }
+            if (st) { pop.current = st; if (!(LATE.indexOf(st) >= 0 && pop.urls[st])) pop.urls[st] = href; }
             // any move from inside the screen (a form saved, a link followed) shows the loading line until the next one is up
             try { frame.contentWindow.addEventListener('beforeunload', function () { if (pop) loading.style.display = ''; }); } catch (e) { /* not same origin */ }
             paint();
@@ -175,7 +182,7 @@
                     if (!d || !d.steps || pop !== me || seq !== pop.planSeq) return;
                     // one title for every step: the property's address, not the label of the button that opened it ("Find the owner - ..." stayed on the Pitch step)
                     if (d.steps.address) { title.textContent = 'Pitch · ' + d.steps.address; }
-                    Object.keys(d.steps).forEach(function (k) { if (typeof d.steps[k] === 'string' && k !== 'address' && !pop.urls[k]) pop.urls[k] = d.steps[k]; });
+                    Object.keys(d.steps).forEach(function (k) { if (typeof d.steps[k] === 'string' && k !== 'address' && (!pop.urls[k] || LATE.indexOf(k) >= 0)) pop.urls[k] = d.steps[k]; });
                     pop.reached = d.steps.reached && typeof d.steps.reached === 'object' ? d.steps.reached : {};
                     paint();
                 })

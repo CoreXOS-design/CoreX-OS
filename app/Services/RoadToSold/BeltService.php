@@ -409,7 +409,7 @@ final class BeltService
 
     /**
      * The ONE next action a record's row offers (23.12, the card's mapping): Loaded / Claimed - Find owner; Owner found - Log contact; Contacted - Book evaluation;
-     * Booked / Prepared - Evaluation feedback; Held - Result. Nothing from Won on.
+     * Booked - Appointment feedback; Prepared - Presentation results; Held - Result; Won - Move to Draft; Draft - Make active.
      *
      * @return array{kind:string,label:string,step_url:?string,step_label:?string}|null
      */
@@ -421,7 +421,11 @@ final class BeltService
             'claimed' => $step($hasOwner ? 'pitch' : 'find_owner'),
             'owner' => ['kind' => 'log_contact', 'label' => 'Log contact', 'step_url' => null, 'step_label' => null],
             'contacted' => $step('evaluation'),
-            'booked', 'prepared' => $step('evaluation_feedback'),
+            'booked' => $step('evaluation_feedback'),
+            // 23.25 (new stations only; the other buttons are Johan's to remap, 23.28 Q13): Prepared asks how the presentation went, Won moves the property to Draft, Draft makes it Active
+            'prepared' => $step('results'),
+            'won' => $step('draft'),
+            'draft' => $step('active'),
             'held' => ['kind' => 'result', 'label' => 'Result', 'step_url' => null, 'step_label' => null],
             default => null,
         };

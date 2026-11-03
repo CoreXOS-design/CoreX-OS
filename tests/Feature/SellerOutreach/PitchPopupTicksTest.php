@@ -85,8 +85,9 @@ final class PitchPopupTicksTest extends TestCase
             'claimed: only Property' => ['claimed', ['property']],
             'owner found: Property and Owner' => ['owner_found', ['property', 'owner']],
             'contacted: up to Contact (Pitch is behind it)' => ['contacted', ['property', 'owner', 'pitch', 'contact']],
-            'appointment set: all five' => ['appointment_set', ['property', 'owner', 'pitch', 'contact', 'evaluation']],
-            'a later station counts the earlier ones' => ['presentation_prepared', ['property', 'owner', 'pitch', 'contact', 'evaluation']],
+            'appointment set: the first five' => ['appointment_set', ['property', 'owner', 'pitch', 'contact', 'evaluation']],
+            'presentation prepared: Presentation too' => ['presentation_prepared', ['property', 'owner', 'pitch', 'contact', 'evaluation', 'presentation']],
+            'a later station counts the earlier ones' => ['evaluation_done', ['property', 'owner', 'pitch', 'contact', 'evaluation', 'presentation', 'results']],
         ];
     }
 
@@ -100,7 +101,7 @@ final class PitchPopupTicksTest extends TestCase
 
         $this->assertSame($expected, $this->ticked($row), 'a Road to Sold row');
         $this->assertSame($row, $mic, 'MIC Pitch now on the same property shows the same ticks');
-        $this->assertSame(['property', 'owner', 'pitch', 'contact', 'evaluation'], array_keys($row), 'one answer for every step the bar draws');
+        $this->assertSame(['property', 'owner', 'pitch', 'contact', 'evaluation', 'presentation', 'results', 'draft', 'active'], array_keys($row), 'one answer for every step the bar draws');
     }
 
     public function test_a_record_at_owner_found_shows_1_and_2_ticked_and_4_and_5_plain(): void

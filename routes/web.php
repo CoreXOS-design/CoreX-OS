@@ -7027,6 +7027,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
                 ->whereNumber('prospect')->name('prospects.evaluation-path');
             Route::get('/prospects/{prospect}/presentation-path', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'presentation'])
                 ->whereNumber('prospect')->name('prospects.presentation-path');
+            // v4 (23.25 steps 7-9): the popup's Presentation results, Draft and Active screens - the existing feedback / Result form and the property's gates
+            Route::get('/prospects/{prospect}/results-path', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'results'])
+                ->whereNumber('prospect')->name('prospects.results-path');
+            Route::get('/prospects/{prospect}/result-form', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'resultForm'])
+                ->whereNumber('prospect')->name('prospects.result-form');
+            Route::get('/prospects/{prospect}/property-step/{step}', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'propertyStep'])
+                ->whereNumber('prospect')->where('step', 'draft|active')->name('prospects.property-step');
             Route::post('/prospects/{prospect}/no-owner', [\App\Http\Controllers\RoadToSold\PitchPathController::class, 'noOwner'])
                 ->whereNumber('prospect')->name('prospects.no-owner');
 

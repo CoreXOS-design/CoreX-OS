@@ -23,13 +23,15 @@ use Illuminate\Support\Facades\DB;
  *   pitch       "pitch to sellers" - only when the advert has its CoreX property
  *   contact     the outreach screen on the owner and the property
  *   evaluation  the calendar's own form (PitchBookService); the agent reads it as "Appointment" (road-to-sold.md 23.25), the key is a stored name and stays
+ *   presentation, results, draft, active  steps 6-9 (23.25): the property's Generate Presentation window, the feedback / Result form, and the property's draft and active gates -
+ *               each ONE hop from the agent's own record (`road-to-sold/prospects/{id}/...`), so only a record they own has them; a step with no screen yet is null (a plain label)
  *   reached     step => bool: has the record's STATION been reached (23.25.3). The popup draws its ticks from this and from nothing else; a screen merely opened is not a tick.
  * Nothing is created here (no property, no claim, no lock): it only names screens that already exist.
  */
 final class PitchStepsService
 {
-    /** The five steps the popup draws today, in order. */
-    private const STEPS = ['property', 'owner', 'pitch', 'contact', 'evaluation'];
+    /** The nine steps the popup draws, in order (23.25.2). */
+    private const STEPS = ['property', 'owner', 'pitch', 'contact', 'evaluation', 'presentation', 'results', 'draft', 'active'];
 
     public function __construct(private readonly PitchBeltResolver $belt, private readonly PitchBookService $book)
     {
@@ -42,7 +44,7 @@ final class PitchStepsService
     public function plan(User $actor, ?int $listingId, ?int $prospectId, ?int $trackedId, array $carry = []): array
     {
         $agencyId = (int) ($actor->effectiveAgencyId() ?: 0);
-        $out = ['property' => null, 'owner' => null, 'pitch' => null, 'contact' => null, 'evaluation' => null, 'address' => null, 'reached' => array_fill_keys(self::STEPS, false)];
+        $out = ['property' => null, 'owner' => null, 'pitch' => null, 'contact' => null, 'evaluation' => null, 'presentation' => null, 'results' => null, 'draft' => null, 'active' => null, 'address' => null, 'reached' => array_fill_keys(self::STEPS, false)];
         if ($agencyId <= 0) {
             return $out;
         }
@@ -99,6 +101,27 @@ final class PitchStepsService
 
         $out['reached'] = $this->reached($actor, $agencyId, $prospect, $propertyId ? (int) $propertyId : null);
 
+        if ($prospect && ProspectStages::has((string) $prospect->stage)) {
+            $at = ProspectStages::order((string) $prospect->stage);
+            $atLeast = fn (string $stage): bool => $at >= ProspectStages::order($stage);
+            $step = fn (string $name, array $params = []) => route($name, $params + ['prospect' => $prospect->id] + $carry);
+            // 6 Presentation: the property is made from the advert's address when the record has none (the path does that), so it needs the property or the owner
+            if ($property || $owner) {
+                $out['presentation'] = $step('road-to-sold.prospects.presentation-path');
+            }
+            // 7 Presentation results: once an appointment is booked - the calendar's feedback form, then the Result form (the path picks by the record's station)
+            if ($atLeast(ProspectStages::APPOINTMENT_SET)) {
+                $out['results'] = $step('road-to-sold.prospects.results-path');
+            }
+            // 8 Draft and 9 Active: the property's own checklist and gates - a screen only once there is a property and the record has won / reached Draft
+            if ($property && $atLeast(ProspectStages::MANDATE_SIGNED)) {
+                $out['draft'] = $step('road-to-sold.prospects.property-step', ['step' => 'draft']);
+            }
+            if ($property && $atLeast(ProspectStages::DRAFT)) {
+                $out['active'] = $step('road-to-sold.prospects.property-step', ['step' => 'active']);
+            }
+        }
+
         return $out;
     }
 
@@ -126,6 +149,10 @@ final class PitchStepsService
             'pitch' => (bool) $pitched,
             'contact' => $atLeast(ProspectStages::CONTACTED),
             'evaluation' => $atLeast(ProspectStages::APPOINTMENT_SET),
+            'presentation' => $atLeast(ProspectStages::PRESENTATION_PREPARED),
+            'results' => $atLeast(ProspectStages::EVALUATION_DONE),
+            'draft' => $atLeast(ProspectStages::DRAFT),
+            'active' => $atLeast(ProspectStages::ACTIVE),
         ];
     }
 }
